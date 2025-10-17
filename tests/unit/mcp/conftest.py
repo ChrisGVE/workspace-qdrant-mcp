@@ -1,62 +1,91 @@
 """
-MCP tool call validation test fixtures.
+MCP tool call validation test fixtures using official fastmcp.Client SDK.
 
-Provides FastMCP test infrastructure for validating tool call handling,
+Provides official MCP SDK test infrastructure for validating tool call handling,
 parameter validation, and MCP protocol compliance.
+
+Migration from custom FastMCPTestServer to official SDK (Task 325.4).
 """
 
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 from pathlib import Path
 
-from tests.utils.fastmcp_test_infrastructure import (
-    FastMCPTestServer,
-    FastMCPTestClient,
-    MCPProtocolTester,
-)
+from fastmcp import Client
+from fastmcp.client.client import CallToolResult
 
 
 @pytest.fixture
-async def fastmcp_test_server():
+async def mcp_client():
     """
-    Provide FastMCP test server with mocked dependencies.
+    Official SDK fixture using fastmcp.Client with in-memory transport.
 
-    Uses the actual workspace-qdrant-mcp FastMCP app but mocks
-    external dependencies (Qdrant, daemon, filesystem).
+    Replaces custom FastMCPTestServer/FastMCPTestClient infrastructure
+    with the official MCP SDK pattern recommended by the MCP team.
+
+    Applies mocks for Qdrant and daemon dependencies before Client initialization.
     """
     from workspace_qdrant_mcp.server import app
 
-    # Create and initialize test server
-    server = FastMCPTestServer(app, name="mcp-validation-server")
-    await server.initialize()
+    # Set up mocks for external dependencies
+    mock_qdrant = Mock()
+    mock_qdrant.get_collections.return_value.collections = [
+        Mock(name="_test_project_id", points_count=100),
+        Mock(name="_memory", points_count=50),
+    ]
+    mock_qdrant.get_collection.return_value = Mock(
+        points_count=100,
+        segments_count=1,
+        status=Mock(value="green"),
+        config=Mock(
+            params=Mock(
+                vectors=Mock(
+                    size=384,
+                    distance=Mock(value="Cosine")
+                )
+            )
+        ),
+        indexed_vectors_count=100,
+        optimizer_status="ok"
+    )
+    mock_qdrant.search.return_value = []
+    mock_qdrant.scroll.return_value = ([], None)
 
-    yield server
+    mock_daemon = AsyncMock()
+    mock_daemon.ping.return_value = {"status": "ok", "connected": True}
+    mock_daemon.ingest_text.return_value = Mock(
+        success=True,
+        document_id="test-doc-123",
+        chunks_created=1,
+        error_message=None
+    )
+    mock_daemon.ingest_file.return_value = Mock(
+        success=True,
+        document_id="test-doc-456",
+        chunks_created=1,
+        error_message=None
+    )
 
-    await server.cleanup()
+    # Mock utility functions to prevent business logic from running
+    # Use path hash format: "path_" + 16-char hex
+    mock_calculate_tenant_id = Mock(return_value="path_abc123def456789a")
+    mock_get_current_branch = Mock(return_value="main")
+
+    # Apply patches before creating Client
+    with patch("workspace_qdrant_mcp.server.qdrant_client", mock_qdrant), \
+         patch("workspace_qdrant_mcp.server.daemon_client", mock_daemon), \
+         patch("workspace_qdrant_mcp.server.calculate_tenant_id", mock_calculate_tenant_id), \
+         patch("workspace_qdrant_mcp.server.get_current_branch", mock_get_current_branch):
+
+        # Use async context manager for automatic initialization and cleanup
+        async with Client(app) as client:
+            # Context manager handles initialization automatically
+            yield client
+            # Cleanup is automatic when context exits
 
 
-@pytest.fixture
-async def fastmcp_test_client(fastmcp_test_server):
-    """
-    Provide FastMCP test client connected to test server.
-
-    The client can directly invoke MCP tools and validate responses.
-    """
-    client = await fastmcp_test_server.create_test_client()
-
-    yield client
-
-    await client.close()
-
-
-@pytest.fixture
-async def mcp_protocol_tester(fastmcp_test_server):
-    """
-    Provide MCP protocol compliance tester.
-
-    Runs comprehensive protocol validation tests on the FastMCP server.
-    """
-    return MCPProtocolTester(fastmcp_test_server)
+# Keep legacy fixtures for backward compatibility during migration
+# These will be removed once all tests are migrated
 
 
 @pytest.fixture
