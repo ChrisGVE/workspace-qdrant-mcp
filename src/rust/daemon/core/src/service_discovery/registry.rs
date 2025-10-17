@@ -7,10 +7,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{BufReader, BufWriter, Seek, SeekFrom, Write};
+use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::process;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
@@ -329,7 +329,7 @@ fn is_process_running(pid: u32) -> bool {
     #[cfg(unix)]
     {
         use std::ffi::CString;
-        let pid_cstr = match CString::new(pid.to_string()) {
+        let _pid_cstr = match CString::new(pid.to_string()) {
             Ok(cstr) => cstr,
             Err(_) => return false,
         };

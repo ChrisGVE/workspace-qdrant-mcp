@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
-use chrono::{DateTime, Utc};
 use git2::Repository;
 use notify::{Event, EventKind, RecursiveMode, Watcher as NotifyWatcher};
 use sha2::{Sha256, Digest};
@@ -799,7 +798,7 @@ impl FileWatcherQueue {
         queue_errors: &Arc<Mutex<u64>>,
     ) {
         // Skip if not a file
-        if !event.path.is_file() && event.event_kind != EventKind::Remove(_) {
+        if !event.path.is_file() && !matches!(event.event_kind, EventKind::Remove(_)) {
             return;
         }
 

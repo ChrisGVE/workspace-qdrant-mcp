@@ -4,7 +4,7 @@
 // backoff, dead letter queue management, and circuit breaker pattern for queue operations.
 
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
@@ -448,7 +448,7 @@ impl ErrorHandler {
         }
 
         // Check circuit breaker
-        let (can_proceed, breaker_reason) = self.check_circuit_breaker(collection);
+        let (can_proceed, _breaker_reason) = self.check_circuit_breaker(collection);
 
         if !can_proceed {
             warn!(

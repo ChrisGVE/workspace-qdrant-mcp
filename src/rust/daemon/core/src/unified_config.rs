@@ -5,12 +5,11 @@
 //! Python MCP server and supports existing TOML configuration files.
 
 use crate::config::DaemonConfig;
-use crate::storage::{StorageConfig, TransportMode, Http2Config};
-use serde::{Deserialize, Serialize};
+use crate::storage::TransportMode;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::fs;
-use tracing::{debug, info, warn, error};
+use tracing::{debug, info, error};
 
 /// Error types for unified configuration operations
 #[derive(Debug, thiserror::Error)]

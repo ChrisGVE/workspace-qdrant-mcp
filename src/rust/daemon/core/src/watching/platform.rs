@@ -3,11 +3,11 @@
 //! This module provides platform-specific implementations of file watching
 //! to leverage native file system events for better performance.
 
-use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::path::Path;
 use tokio::sync::mpsc;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use async_trait::async_trait;
 
 use super::{FileEvent, WatchingError};
 
@@ -203,13 +203,14 @@ impl Default for WindowsConfig {
 }
 
 /// Platform-specific file watcher trait
+#[async_trait]
 pub trait PlatformWatcher: Send + Sync {
     /// Start watching the specified path
     async fn watch(&mut self, path: &Path) -> Result<(), PlatformWatchingError>;
-    
+
     /// Stop watching all paths
     async fn stop(&mut self) -> Result<(), PlatformWatchingError>;
-    
+
     /// Get the event receiver
     fn event_receiver(&self) -> mpsc::UnboundedReceiver<FileEvent>;
 }
@@ -228,10 +229,17 @@ impl PlatformWatcherFactory {
             });
         }
         
-        #[cfg(target_os = "macos")]
+        #[cfg(all(target_os = "macos", feature = "macos-fsevents"))]
         {
             let watcher = MacOSWatcher::new(config.macos, config.event_buffer_size)?;
             Ok(Box::new(watcher))
+        }
+
+        #[cfg(all(target_os = "macos", not(feature = "macos-fsevents")))]
+        {
+            Err(PlatformWatchingError::PlatformError {
+                message: "macOS FSEvents feature not enabled. Add 'macos-fsevents' feature to Cargo.toml".to_string(),
+            })
         }
         
         #[cfg(target_os = "linux")]
@@ -317,34 +325,35 @@ mod macos {
         }
     }
     
+    #[async_trait]
     impl PlatformWatcher for MacOSWatcher {
         async fn watch(&mut self, path: &Path) -> Result<(), PlatformWatchingError> {
             self.setup_fsevents(path)?;
-            
+
             if self.config.use_kqueue {
                 self.setup_kqueue(path)?;
             }
-            
+
             tracing::info!("Started macOS file watching for: {}", path.display());
             Ok(())
         }
-        
+
         async fn stop(&mut self) -> Result<(), PlatformWatchingError> {
             // Clean up FSEvents
             if let Some(stream) = self.fsevents_handle.take() {
                 // TODO: Properly stop FSEventStream
                 tracing::info!("Stopped FSEvents stream");
             }
-            
+
             // Clean up kqueue
             if let Some(kqueue) = self.kqueue_watcher.take() {
                 // TODO: Properly stop kqueue watcher
                 tracing::info!("Stopped kqueue watcher");
             }
-            
+
             Ok(())
         }
-        
+
         fn event_receiver(&self) -> mpsc::UnboundedReceiver<FileEvent> {
             // This is a design issue - we need to restructure this
             // For now, return a placeholder
@@ -438,35 +447,36 @@ mod linux {
         }
     }
     
+    #[async_trait]
     impl PlatformWatcher for LinuxWatcher {
         async fn watch(&mut self, path: &Path) -> Result<(), PlatformWatchingError> {
             self.setup_inotify(path)?;
             self.setup_epoll()?;
-            
+
             // Start event processing task
             self.start_event_processing().await?;
-            
+
             tracing::info!("Started Linux file watching for: {}", path.display());
             Ok(())
         }
-        
+
         async fn stop(&mut self) -> Result<(), PlatformWatchingError> {
             // Clean up epoll
             if let Some(epoll) = self.epoll.take() {
                 // Epoll will be closed when dropped
                 tracing::info!("Stopped epoll monitoring");
             }
-            
+
             // Clean up inotify
             if let Some(inotify) = self.inotify.take() {
                 // Inotify will be closed when dropped
                 tracing::info!("Stopped inotify monitoring");
             }
-            
+
             self.watched_paths.clear();
             Ok(())
         }
-        
+
         fn event_receiver(&self) -> mpsc::UnboundedReceiver<FileEvent> {
             // This is a design issue - we need to restructure this
             // For now, return a placeholder
@@ -589,18 +599,19 @@ mod windows {
         }
     }
     
+    #[async_trait]
     impl PlatformWatcher for WindowsWatcher {
         async fn watch(&mut self, path: &Path) -> Result<(), PlatformWatchingError> {
             self.setup_read_directory_changes(path)?;
             self.setup_completion_port()?;
-            
+
             // Start ReadDirectoryChangesW monitoring
             self.start_monitoring().await?;
-            
+
             tracing::info!("Started Windows file watching for: {}", path.display());
             Ok(())
         }
-        
+
         async fn stop(&mut self) -> Result<(), PlatformWatchingError> {
             unsafe {
                 // Clean up completion port
@@ -608,18 +619,18 @@ mod windows {
                     CloseHandle(port);
                     tracing::info!("Closed completion port");
                 }
-                
+
                 // Clean up directory handle
                 if let Some(handle) = self.directory_handle.take() {
                     CloseHandle(handle);
                     tracing::info!("Closed directory handle");
                 }
             }
-            
+
             self.watched_paths.clear();
             Ok(())
         }
-        
+
         fn event_receiver(&self) -> mpsc::UnboundedReceiver<FileEvent> {
             // This is a design issue - we need to restructure this
             // For now, return a placeholder
