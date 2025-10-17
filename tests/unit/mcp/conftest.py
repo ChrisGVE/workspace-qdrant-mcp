@@ -28,26 +28,72 @@ async def mcp_client():
     from workspace_qdrant_mcp.server import app
 
     # Set up mocks for external dependencies
+    # Create proper mock objects that return serializable data
+    mock_collection_1 = Mock()
+    mock_collection_1.name = "_test_project_id"
+    mock_collection_1.points_count = 100
+
+    mock_collection_2 = Mock()
+    mock_collection_2.name = "_memory"
+    mock_collection_2.points_count = 50
+
+    mock_collections_response = Mock()
+    mock_collections_response.collections = [mock_collection_1, mock_collection_2]
+
+    mock_status = Mock()
+    mock_status.value = "green"
+
+    mock_distance = Mock()
+    mock_distance.value = "Cosine"
+
+    mock_vectors = Mock()
+    mock_vectors.size = 384
+    mock_vectors.distance = mock_distance
+
+    mock_params = Mock()
+    mock_params.vectors = mock_vectors
+
+    mock_config = Mock()
+    mock_config.params = mock_params
+
+    mock_collection_info = Mock()
+    mock_collection_info.points_count = 100
+    mock_collection_info.segments_count = 1
+    mock_collection_info.status = mock_status
+    mock_collection_info.config = mock_config
+    mock_collection_info.indexed_vectors_count = 100
+    mock_collection_info.optimizer_status = "ok"
+
+    # Mock cluster info for workspace_status action
+    # Create a dataclass-like object that can be serialized
+    # Using a custom class with __dict__ for serialization
+    class MockRaftInfo:
+        def __init__(self):
+            self.term = 1
+            self.commit = 100
+            self.pending_operations = 0
+            self.leader = 12345
+            self.role = "Leader"
+            self.is_voter = True
+
+        def __iter__(self):
+            # Make it dict-like for serialization
+            return iter(self.__dict__.items())
+
+    class MockClusterInfo:
+        def __init__(self):
+            self.peer_id = 12345
+            self.raft_info = MockRaftInfo()
+
+        def __iter__(self):
+            return iter(self.__dict__.items())
+
+    mock_cluster_info = MockClusterInfo()
+
     mock_qdrant = Mock()
-    mock_qdrant.get_collections.return_value.collections = [
-        Mock(name="_test_project_id", points_count=100),
-        Mock(name="_memory", points_count=50),
-    ]
-    mock_qdrant.get_collection.return_value = Mock(
-        points_count=100,
-        segments_count=1,
-        status=Mock(value="green"),
-        config=Mock(
-            params=Mock(
-                vectors=Mock(
-                    size=384,
-                    distance=Mock(value="Cosine")
-                )
-            )
-        ),
-        indexed_vectors_count=100,
-        optimizer_status="ok"
-    )
+    mock_qdrant.get_collections.return_value = mock_collections_response
+    mock_qdrant.get_collection.return_value = mock_collection_info
+    mock_qdrant.get_cluster_info.return_value = mock_cluster_info
     mock_qdrant.search.return_value = []
     mock_qdrant.scroll.return_value = ([], None)
 
