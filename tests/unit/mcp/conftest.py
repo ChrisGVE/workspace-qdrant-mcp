@@ -65,30 +65,18 @@ async def mcp_client():
     mock_collection_info.optimizer_status = "ok"
 
     # Mock cluster info for workspace_status action
-    # Create a dataclass-like object that can be serialized
-    # Using a custom class with __dict__ for serialization
-    class MockRaftInfo:
-        def __init__(self):
-            self.term = 1
-            self.commit = 100
-            self.pending_operations = 0
-            self.leader = 12345
-            self.role = "Leader"
-            self.is_voter = True
-
-        def __iter__(self):
-            # Make it dict-like for serialization
-            return iter(self.__dict__.items())
-
-    class MockClusterInfo:
-        def __init__(self):
-            self.peer_id = 12345
-            self.raft_info = MockRaftInfo()
-
-        def __iter__(self):
-            return iter(self.__dict__.items())
-
-    mock_cluster_info = MockClusterInfo()
+    # Return a plain dict for raft_info to ensure JSON serialization works
+    mock_cluster_info = Mock()
+    mock_cluster_info.peer_id = 12345
+    # Use a dict directly - FastMCP can serialize dicts
+    mock_cluster_info.raft_info = {
+        "term": 1,
+        "commit": 100,
+        "pending_operations": 0,
+        "leader": 12345,
+        "role": "Leader",
+        "is_voter": True
+    }
 
     mock_qdrant = Mock()
     mock_qdrant.get_collections.return_value = mock_collections_response
