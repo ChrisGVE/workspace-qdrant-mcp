@@ -116,14 +116,37 @@ impl LoggingConfig {
         config
     }
 
-    /// Create production logging configuration
+    /// Create production logging configuration with user-writable fallback path
     pub fn production() -> Self {
+        // Determine log file path with proper fallback
+        let log_file_path = if let Ok(custom_path) = env::var("WQM_LOG_FILE_PATH") {
+            // Use custom path from environment variable
+            Some(PathBuf::from(custom_path))
+        } else if let Ok(home) = env::var("HOME") {
+            // Use user-writable location in ~/.local/share/workspace-qdrant-mcp/logs
+            Some(
+                PathBuf::from(home)
+                    .join(".local")
+                    .join("share")
+                    .join("workspace-qdrant-mcp")
+                    .join("logs")
+                    .join("daemon.log")
+            )
+        } else {
+            // Last resort: use temp directory
+            Some(
+                env::temp_dir()
+                    .join("workspace-qdrant-mcp")
+                    .join("daemon.log")
+            )
+        };
+
         Self {
             level: Level::INFO,
             json_format: true,
             console_output: true,
             file_logging: true,
-            log_file_path: Some(PathBuf::from("/var/log/workspace-qdrant-mcp.log")),
+            log_file_path,
             performance_metrics: true,
             error_tracking: true,
             force_disable_ansi: Some(true), // Force disable ANSI in production
