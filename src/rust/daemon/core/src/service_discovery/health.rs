@@ -5,15 +5,14 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::process;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime};
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::time::{interval, timeout};
 use tracing::{debug, error, info, warn};
 
-use super::registry::{ServiceInfo, ServiceStatus};
+use super::registry::ServiceInfo;
 
 /// Health check errors
 #[derive(Error, Debug)]
@@ -160,7 +159,7 @@ impl HealthChecker {
         
         let start_time = Instant::now();
         let mut metrics = HashMap::new();
-        let mut status = HealthStatus::Checking;
+        let status;
         let mut error_message = None;
 
         // Step 1: Validate process if enabled
@@ -341,7 +340,7 @@ fn is_process_running(pid: u32) -> bool {
     #[cfg(unix)]
     {
         use std::ffi::CString;
-        let pid_cstr = match CString::new(pid.to_string()) {
+        let _pid_cstr = match CString::new(pid.to_string()) {
             Ok(cstr) => cstr,
             Err(_) => return false,
         };

@@ -3,7 +3,7 @@
 //! Provides Git branch detection and branch switching detection for the daemon.
 //! Uses git2-rs for native Git operations without subprocess overhead.
 
-use git2::{Repository, RepositoryOpenFlags};
+use git2::Repository;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

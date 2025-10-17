@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions};
-use tracing::{debug, error, info, warn};
+use tracing::{error, info};
 use uuid::Uuid;
 
 /// Daemon state management errors

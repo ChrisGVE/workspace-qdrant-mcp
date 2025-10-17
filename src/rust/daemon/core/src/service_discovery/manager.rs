@@ -6,14 +6,13 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
 use tokio::sync::{broadcast, RwLock};
 use tokio::time::{interval, timeout};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 use super::{
-    DiscoveryError, DiscoveryResult, DiscoveryConfig,
-    registry::{ServiceRegistry, ServiceInfo, ServiceStatus},
+    DiscoveryResult, DiscoveryConfig,
+    registry::{ServiceRegistry, ServiceInfo},
     network::{NetworkDiscovery, DiscoveryEvent},
     health::{HealthChecker, HealthConfig, HealthStatus},
 };

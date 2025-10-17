@@ -325,7 +325,7 @@ fn convert_comprehensive_to_patterns(
     let mut data_formats = HashMap::new();
     let mut specialized_formats = HashMap::new();
     let mut extensions_to_languages = HashMap::new();
-    let mut filenames_to_languages = HashMap::new();
+    let filenames_to_languages = HashMap::new();
 
     // Group languages by category and create language groups
     for (ext, language) in &config.file_extensions {

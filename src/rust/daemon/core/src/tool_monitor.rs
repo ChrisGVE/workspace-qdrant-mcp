@@ -42,7 +42,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::config::MonitoringConfig;
-use crate::queue_operations::{MissingMetadataItem, QueueManager, QueueOperation};
+use crate::queue_operations::{QueueManager, QueueError};
 use crate::queue_types::MissingTool;
 
 /// Tool monitoring errors
@@ -53,6 +53,9 @@ pub enum MonitoringError {
 
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
+
+    #[error("Queue error: {0}")]
+    Queue(#[from] QueueError),
 
     #[error("Tool detection failed: {0}")]
     ToolDetection(String),
@@ -283,7 +286,7 @@ impl ToolMonitor {
 
     /// Check tool availability and requeue files (implementation)
     async fn check_and_requeue_impl(
-        config: &MonitoringConfig,
+        _config: &MonitoringConfig,
         db_pool: &SqlitePool,
         queue_manager: &QueueManager,
     ) -> MonitoringResult<RequeueStats> {

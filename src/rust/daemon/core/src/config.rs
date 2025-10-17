@@ -3,7 +3,6 @@
 //! This module contains configuration management for the priority processing engine
 
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
 use std::path::PathBuf;
 use crate::storage::StorageConfig;
 use crate::queue_types::ProcessorConfig;
