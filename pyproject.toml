@@ -82,6 +82,8 @@ dev = [
   # Web UI testing
   "playwright>=1.40.0",
   "pytest-playwright>=0.4.0",
+  # Fuzzing
+  "hypothesis>=6.0.0",
   # Type stubs for mypy
   "types-PyYAML>=6.0.0",
   "types-Markdown>=3.4.0",
