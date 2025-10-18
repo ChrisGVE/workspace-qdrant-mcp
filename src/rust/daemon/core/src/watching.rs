@@ -236,8 +236,10 @@ impl EventDebouncer {
         }
     }
     
-    /// Add event to debouncer, returns true if event should be processed immediately
-    fn add_event(&mut self, event: FileEvent) -> bool {
+    /// Add event to debouncer, returns (should_process, evicted_event)
+    /// - should_process: true if event should be processed immediately (not within debounce period)
+    /// - evicted_event: event that was evicted due to capacity (needs immediate processing to avoid data loss)
+    fn add_event(&mut self, event: FileEvent) -> (bool, Option<FileEvent>) {
         let now = Instant::now();
         let path = event.path.clone();
 
@@ -245,18 +247,22 @@ impl EventDebouncer {
             // If the existing event is within debounce period, update and don't process
             if now.duration_since(existing.timestamp) < self.debounce_duration {
                 // Use push to update and move to front of LRU
-                if self.events.push(path, event).is_some() {
+                let evicted = self.events.push(path, event);
+                if evicted.is_some() {
                     self.evictions += 1;
+                    tracing::warn!("EventDebouncer at capacity, flushing oldest event to prevent data loss");
                 }
-                return false;
+                return (false, evicted);
             }
         }
 
         // Insert new event, track eviction if cache was full
-        if self.events.push(path, event).is_some() {
+        let evicted = self.events.push(path, event);
+        if evicted.is_some() {
             self.evictions += 1;
+            tracing::warn!("EventDebouncer at capacity, flushing oldest event to prevent data loss");
         }
-        true
+        (true, evicted)
     }
     
     /// Get events that are ready to be processed (past debounce period)
@@ -330,15 +336,23 @@ impl EventBatcher {
         }
     }
     
+    /// Add event to batcher
+    /// Returns Some(Vec<FileEvent>) when a batch is ready for immediate processing
+    /// - Events may include the evicted event (returned as single-item batch) OR a full batch
     fn add_event(&mut self, event: FileEvent) -> Option<Vec<FileEvent>> {
         if !self.config.enabled {
             return Some(vec![event]);
         }
 
-        // Check if we're at capacity - evict oldest event if needed
-        if self.current_total_size >= self.max_total_capacity {
-            self.evict_oldest_event();
-        }
+        // Check if we're at capacity - evict oldest event and submit immediately
+        let evicted_batch = if self.current_total_size >= self.max_total_capacity {
+            self.evict_oldest_event().map(|evicted| {
+                tracing::info!("Batcher at capacity, submitting evicted event immediately: {}", evicted.path.display());
+                vec![evicted]  // Submit as single-event batch for immediate processing
+            })
+        } else {
+            None
+        };
 
         let key = if self.config.group_by_type {
             event.path.extension()
@@ -352,6 +366,11 @@ impl EventBatcher {
         let batch = self.batches.entry(key).or_insert_with(VecDeque::new);
         batch.push_back(event);
         self.current_total_size += 1;
+
+        // If we had an evicted event, return it immediately for processing
+        if evicted_batch.is_some() {
+            return evicted_batch;
+        }
 
         // Check if batch is full
         if batch.len() >= self.config.max_batch_size {
@@ -388,7 +407,8 @@ impl EventBatcher {
     }
 
     /// Evict the oldest event from the oldest batch to make room
-    fn evict_oldest_event(&mut self) {
+    /// Returns the evicted event for immediate processing (prevents data loss)
+    fn evict_oldest_event(&mut self) -> Option<FileEvent> {
         // Find the batch with the oldest event (earliest timestamp)
         let mut oldest_key: Option<String> = None;
         let mut oldest_time = Instant::now();
@@ -402,21 +422,29 @@ impl EventBatcher {
             }
         }
 
-        // Remove oldest event
+        // Remove oldest event and return it
         if let Some(key) = oldest_key {
             if let Some(batch) = self.batches.get_mut(&key) {
-                if batch.pop_front().is_some() {
+                if let Some(evicted_event) = batch.pop_front() {
                     self.current_total_size -= 1;
                     self.evictions += 1;
-                    tracing::debug!("Evicted oldest event from batch '{}' (total evictions: {})", key, self.evictions);
+                    tracing::warn!(
+                        "EventBatcher at capacity, evicting oldest event from batch '{}' for immediate processing (total evictions: {})",
+                        key,
+                        self.evictions
+                    );
 
                     // Remove empty batches to free memory
                     if batch.is_empty() {
                         self.batches.remove(&key);
                     }
+
+                    return Some(evicted_event);
                 }
             }
         }
+
+        None
     }
 
     /// Get eviction count
@@ -865,12 +893,18 @@ impl FileWatcher {
             }
         }
         
-        // Add to debouncer
-        let should_process = {
+        // Add to debouncer - now returns (should_process, evicted_event)
+        let (should_process, evicted) = {
             let mut debouncer_lock = debouncer.lock().await;
             debouncer_lock.add_event(event.clone())
         };
-        
+
+        // Process evicted event immediately to prevent data loss
+        if let Some(evicted_event) = evicted {
+            tracing::info!("Processing evicted event to prevent data loss: {}", evicted_event.path.display());
+            Self::handle_ready_event(evicted_event, batcher, config, task_submitter, stats).await;
+        }
+
         if should_process {
             Self::handle_ready_event(event, batcher, config, task_submitter, stats).await;
         } else {
