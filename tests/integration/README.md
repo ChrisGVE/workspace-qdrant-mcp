@@ -479,3 +479,74 @@ The integration tests validate the complete architecture:
 **Docker Orchestration**: ✓
 
 For questions or issues, see the project's main README or create an issue on GitHub.
+
+---
+
+## MCP+Daemon Integration Tests (Task 329)
+
+**Additional test suite** focusing specifically on MCP server and daemon integration with 49 tests across 8 new test suites.
+
+### Quick Start
+
+```bash
+# Run all MCP+Daemon integration tests
+python scripts/run_mcp_daemon_integration_tests.py
+
+# Run specific test suite
+python scripts/run_mcp_daemon_integration_tests.py --suite ingestion
+
+# With cleanup
+python scripts/run_mcp_daemon_integration_tests.py --cleanup
+```
+
+### Test Suites (Task 329)
+
+#### 1. MCP-to-Daemon Ingestion (5 tests)
+**File**: `test_mcp_daemon_ingestion_task_329.py`
+
+Tests content flow from MCP server through daemon to Qdrant.
+
+#### 2. Search Results Validation (6 tests)
+**File**: `test_mcp_search_results_task_329.py`
+
+Tests hybrid search (semantic + keyword with RRF fusion).
+
+#### 3. File Watching Integration (6 tests)
+**File**: `test_file_watching_task_329.py`
+
+Tests real-time file watching with SQLite-based configuration.
+
+#### 4. gRPC Load Testing (5 tests)
+**File**: `test_grpc_load_task_329.py`
+
+Tests gRPC communication under high concurrent load (100+ requests).
+
+#### 5. Daemon Unavailability (7 tests)
+**File**: `test_daemon_unavailability_task_329.py`
+
+Tests graceful degradation and fallback modes.
+
+#### 6. Connection Recovery (8 tests)
+**File**: `test_connection_recovery_task_329.py`
+
+Tests automatic reconnection and state sync after network interruptions.
+
+#### 7. Conflicting Operations (10 tests)
+**File**: `test_conflicting_operations_task_329.py`
+
+Tests concurrent writes and SQLite ACID compliance.
+
+#### 8. State Consistency (9 tests)
+**File**: `test_state_consistency_task_329.py`
+
+Tests SQLite/daemon/Qdrant state synchronization.
+
+### CI/CD Integration (Task 329)
+
+GitHub Actions workflow: `.github/workflows/mcp-daemon-integration-tests.yml`
+
+Automatically runs on push/PR to main/develop branches with:
+- Automated Docker Compose orchestration
+- JUnit XML and HTML/JSON reports
+- PR comments with test results
+- 30-day artifact retention
