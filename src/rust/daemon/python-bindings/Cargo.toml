@@ -14,7 +14,7 @@ crate-type = ["cdylib"]
 [dependencies]
 # Core engine
 workspace-qdrant-core = { path = "../core" }
-workspace-qdrant-grpc = { path = "../grpc" }
+# workspace-qdrant-grpc = { path = "../grpc" }  # Excluded: Not used - CLI writes directly to SQLite
 
 # Python bindings
 pyo3 = { version = "0.24", features = ["extension-module", "abi3"] }

@@ -1,0 +1,5 @@
+# Cargo configuration for workspace-qdrant-mcp Rust daemon
+
+[env]
+# PyO3 forward compatibility for Python 3.14
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY = "1"
