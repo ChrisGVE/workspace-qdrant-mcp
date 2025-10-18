@@ -171,11 +171,13 @@ pub struct FileEvent {
     pub metadata: HashMap<String, String>,
 }
 
-/// Compiled patterns for efficient matching
+/// Compiled patterns for efficient matching with LRU cache
 #[derive(Debug)]
 struct CompiledPatterns {
     include: Vec<Pattern>,
     exclude: Vec<Pattern>,
+    /// LRU cache for pattern matching results (path -> should_process)
+    cache: std::sync::Mutex<LruCache<PathBuf, bool>>,
 }
 
 impl CompiledPatterns {
@@ -184,38 +186,99 @@ impl CompiledPatterns {
             .iter()
             .map(|p| Pattern::new(p))
             .collect::<Result<Vec<_>, _>>()?;
-            
+
         let exclude = config.exclude_patterns
             .iter()
             .map(|p| Pattern::new(p))
             .collect::<Result<Vec<_>, _>>()?;
-            
-        Ok(Self { include, exclude })
+
+        // Create LRU cache with 10K capacity for pattern match results
+        let cache = std::sync::Mutex::new(
+            LruCache::new(NonZeroUsize::new(10_000).unwrap())
+        );
+
+        Ok(Self { include, exclude, cache })
     }
-    
+
     fn should_process(&self, path: &Path) -> bool {
+        // Check cache first for fast path
+        {
+            let mut cache_lock = self.cache.lock().unwrap();
+            if let Some(&cached_result) = cache_lock.get(path) {
+                return cached_result;
+            }
+        }
+
+        // Fast-path exclusion checks before expensive glob matching
+        // These common patterns are checked via simple string operations
         let path_str = path.to_string_lossy();
-        
-        // Check exclude patterns first (more specific)
-        for pattern in &self.exclude {
-            if pattern.matches(&path_str) {
+
+        // Fast-path suffix checks for common temporary files
+        if path_str.ends_with(".tmp") ||
+           path_str.ends_with(".swp") ||
+           path_str.ends_with(".bak") ||
+           path_str.ends_with("~") {
+            let mut cache_lock = self.cache.lock().unwrap();
+            cache_lock.push(path.to_path_buf(), false);
+            return false;
+        }
+
+        // Fast-path prefix/component checks for common excluded directories
+        if path_str.contains("/.git/") ||
+           path_str.contains("/node_modules/") ||
+           path_str.contains("/target/") ||
+           path_str.contains("/__pycache__/") ||
+           path_str.contains("/.svn/") ||
+           path_str.contains("/.pytest_cache/") {
+            let mut cache_lock = self.cache.lock().unwrap();
+            cache_lock.push(path.to_path_buf(), false);
+            return false;
+        }
+
+        // Fast-path filename checks for common system files
+        if let Some(filename) = path.file_name().and_then(|n| n.to_str()) {
+            if filename == ".DS_Store" || filename == "Thumbs.db" {
+                let mut cache_lock = self.cache.lock().unwrap();
+                cache_lock.push(path.to_path_buf(), false);
                 return false;
             }
         }
-        
+
+        // Fall back to glob pattern matching for more complex patterns
+        // Check exclude patterns first (more specific)
+        for pattern in &self.exclude {
+            if pattern.matches(&path_str) {
+                let mut cache_lock = self.cache.lock().unwrap();
+                cache_lock.push(path.to_path_buf(), false);
+                return false;
+            }
+        }
+
         // If no include patterns, allow all
         if self.include.is_empty() {
+            let mut cache_lock = self.cache.lock().unwrap();
+            cache_lock.push(path.to_path_buf(), true);
             return true;
         }
-        
+
         // Check include patterns
         for pattern in &self.include {
             if pattern.matches(&path_str) {
+                let mut cache_lock = self.cache.lock().unwrap();
+                cache_lock.push(path.to_path_buf(), true);
                 return true;
             }
         }
-        
+
+        // No match, exclude by default
+        let mut cache_lock = self.cache.lock().unwrap();
+        cache_lock.push(path.to_path_buf(), false);
         false
+    }
+
+    /// Get cache statistics for monitoring
+    fn cache_len(&self) -> usize {
+        self.cache.lock().unwrap().len()
     }
 }
 
@@ -467,6 +530,8 @@ pub struct WatchingStats {
     pub current_queue_size: usize,
     pub debouncer_evictions: u64,
     pub batcher_evictions: u64,
+    /// Number of unique paths in pattern matching cache
+    pub pattern_cache_size: usize,
 }
 
 impl Default for WatchingStats {
@@ -483,6 +548,7 @@ impl Default for WatchingStats {
             current_queue_size: 0,
             debouncer_evictions: 0,
             batcher_evictions: 0,
+            pattern_cache_size: 0,
         }
     }
 }
@@ -705,6 +771,12 @@ impl FileWatcher {
         {
             let batcher_lock = self.batcher.lock().await;
             stats.batcher_evictions = batcher_lock.eviction_count();
+        }
+
+        // Add pattern cache size
+        {
+            let patterns_lock = self.patterns.read().await;
+            stats.pattern_cache_size = patterns_lock.cache_len();
         }
 
         stats
