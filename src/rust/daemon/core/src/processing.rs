@@ -26,6 +26,7 @@ pub struct PipelineStats {
     pub tasks_failed: u64,
     pub tasks_cancelled: u64,
     pub tasks_timed_out: u64,
+    pub queue_rejections: u64,
     pub uptime_seconds: u64,
 }
 
@@ -589,6 +590,7 @@ impl Pipeline {
         TaskSubmitter {
             sender: self.task_sender.clone(),
             request_queue: Arc::clone(&self.request_queue),
+            metrics_collector: Arc::clone(&self.metrics_collector),
         }
     }
     
@@ -618,7 +620,7 @@ impl Pipeline {
     pub async fn stats(&self) -> PipelineStats {
         let queue_lock = self.task_queue.read().await;
         let running_lock = self.running_tasks.read().await;
-        
+
         PipelineStats {
             queued_tasks: queue_lock.len(),
             running_tasks: running_lock.len(),
@@ -627,6 +629,7 @@ impl Pipeline {
             tasks_failed: self.metrics_collector.tasks_failed.load(AtomicOrdering::Relaxed),
             tasks_cancelled: self.metrics_collector.tasks_cancelled.load(AtomicOrdering::Relaxed),
             tasks_timed_out: self.metrics_collector.tasks_timed_out.load(AtomicOrdering::Relaxed),
+            queue_rejections: self.metrics_collector.queue_overflow_count.load(AtomicOrdering::Relaxed),
             uptime_seconds: self.metrics_collector.start_time.elapsed().as_secs(),
         }
     }
@@ -1365,6 +1368,7 @@ impl Default for QueueConfigBuilder {
 pub struct TaskSubmitter {
     sender: mpsc::UnboundedSender<PriorityTask>,
     request_queue: Arc<RequestQueue>,
+    metrics_collector: Arc<MetricsCollector>,
 }
 
 impl TaskSubmitter {
@@ -1431,27 +1435,12 @@ impl TaskSubmitter {
                     ));
                 }
             }
-            Err(PriorityError::QueueCapacityExceeded { .. }) => {
-                // Queue is full, try direct submission as fallback
-                tracing::warn!("Request queue full, falling back to direct submission for task {}", task_id);
-                
-                let (fallback_sender, fallback_receiver) = oneshot::channel();
-                let fallback_task = PriorityTask {
-                    context: context.clone(),
-                    payload,
-                    result_sender: fallback_sender,
-                    cancellation_token: None,
-                };
-                
-                self.sender.send(fallback_task)
-                    .map_err(|_| PriorityError::Communication("Pipeline is shutting down".to_string()))?;
-                
-                // Update the result receiver to use the fallback one
-                return Ok(TaskResultHandle {
-                    task_id,
-                    context,
-                    result_receiver: fallback_receiver,
-                });
+            Err(PriorityError::QueueCapacityExceeded { current, max }) => {
+                // Queue is full, record rejection and return error
+                self.metrics_collector.record_queue_overflow();
+                tracing::warn!("Request queue full ({}/{}), rejecting task {}", current, max, task_id);
+
+                return Err(PriorityError::QueueCapacityExceeded { current, max });
             }
             Err(e) => return Err(e),
         }
