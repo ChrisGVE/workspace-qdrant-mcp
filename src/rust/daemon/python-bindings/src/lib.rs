@@ -2,22 +2,20 @@
 //!
 //! This crate provides PyO3 bindings that allow Python code to interface
 //! with the Rust ingestion engine.
+//!
+//! NOTE: This is currently placeholder code. The actual implementation will use
+//! workspace_qdrant_core::ipc::IpcClient instead of gRPC for daemon communication.
 
 use pyo3::prelude::*;
 use pyo3::types::PyModule;
 use pyo3::Bound;
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Mutex;
-use workspace_qdrant_core::DocumentProcessor;
-use workspace_qdrant_grpc::GrpcServer;
 
-/// Python-accessible ingestion engine
+/// Python-accessible ingestion engine (placeholder implementation)
 #[pyclass]
 pub struct RustIngestionEngine {
     // Note: These fields will be used when actual functionality is implemented
-    _processor: Arc<DocumentProcessor>,
-    _grpc_server: Option<Arc<Mutex<GrpcServer>>>,
+    // Future: Will use IpcClient instead of gRPC
     grpc_port: u16,
 }
 
@@ -26,23 +24,21 @@ impl RustIngestionEngine {
     #[new]
     fn new(_config: HashMap<String, PyObject>) -> PyResult<Self> {
         // Initialize with default configuration for now
-        // In future: parse config dict into proper configuration
+        // In future: parse config dict into proper configuration and create IpcClient
         Ok(Self {
-            _processor: Arc::new(DocumentProcessor::new()),
-            _grpc_server: None,
             grpc_port: 0,
         })
     }
 
     fn start(&mut self, _py: Python<'_>) {
         // Placeholder for engine startup
-        // In future: start actual gRPC server and return port
+        // Future: connect to daemon via IPC
         self.grpc_port = 50051; // Default port for testing
     }
 
     fn stop(&mut self, _py: Python<'_>) {
         // Placeholder for engine shutdown
-        // In future: gracefully stop gRPC server
+        // Future: disconnect from daemon
         self.grpc_port = 0;
     }
 
@@ -54,17 +50,19 @@ impl RustIngestionEngine {
         "RUNNING".to_string()
     }
 
-    fn process_document(&self, file_path: String, collection: String) -> String {
+    fn process_document(&self, _file_path: String, _collection: String) -> String {
         // Placeholder for document processing
-        // In future: actual async processing with proper error handling
-        format!("Processed {} into collection {}", file_path, collection)
+        // Future: send processing request via IPC to daemon
+        format!("Processed {} into collection {}", _file_path, _collection)
     }
 }
 
 /// Python-accessible health check function
 #[pyfunction]
 fn health_check() -> bool {
-    workspace_qdrant_core::health_check() && workspace_qdrant_grpc::health_check()
+    // Placeholder health check
+    // Future: check IPC connection to daemon
+    true
 }
 
 /// Module initialization for Python

@@ -1,7 +1,7 @@
 [workspace]
 members = [
     "core",
-    "grpc",
+    # "grpc",  # Excluded: Not used - CLI writes directly to SQLite
     "python-bindings",
     "shared-test-utils",
 ]
