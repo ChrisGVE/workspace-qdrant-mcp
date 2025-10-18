@@ -15,6 +15,8 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use chrono;
 use std::path::PathBuf;
+use std::num::NonZeroU32;
+use governor::{Quota, RateLimiter, clock::DefaultClock, state::{InMemoryState, NotKeyed}};
 
 /// Pipeline statistics for monitoring
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +29,7 @@ pub struct PipelineStats {
     pub tasks_cancelled: u64,
     pub tasks_timed_out: u64,
     pub queue_rejections: u64,
+    pub rate_limited_tasks: u64,
     pub uptime_seconds: u64,
 }
 
@@ -587,10 +590,23 @@ impl Pipeline {
     
     /// Get a handle for submitting tasks to the pipeline
     pub fn task_submitter(&self) -> TaskSubmitter {
+        // Create rate limiter if enabled
+        let rate_limiter = if self.request_queue.config.enable_rate_limiting {
+            if let Some(max_tps) = self.request_queue.config.max_tasks_per_second {
+                let quota = Quota::per_second(NonZeroU32::new(max_tps as u32).unwrap());
+                Some(Arc::new(RateLimiter::direct(quota)))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
         TaskSubmitter {
             sender: self.task_sender.clone(),
             request_queue: Arc::clone(&self.request_queue),
             metrics_collector: Arc::clone(&self.metrics_collector),
+            rate_limiter,
         }
     }
     
@@ -630,6 +646,7 @@ impl Pipeline {
             tasks_cancelled: self.metrics_collector.tasks_cancelled.load(AtomicOrdering::Relaxed),
             tasks_timed_out: self.metrics_collector.tasks_timed_out.load(AtomicOrdering::Relaxed),
             queue_rejections: self.metrics_collector.queue_overflow_count.load(AtomicOrdering::Relaxed),
+            rate_limited_tasks: self.metrics_collector.rate_limited_tasks.load(AtomicOrdering::Relaxed),
             uptime_seconds: self.metrics_collector.start_time.elapsed().as_secs(),
         }
     }
@@ -1369,6 +1386,7 @@ pub struct TaskSubmitter {
     sender: mpsc::UnboundedSender<PriorityTask>,
     request_queue: Arc<RequestQueue>,
     metrics_collector: Arc<MetricsCollector>,
+    rate_limiter: Option<Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>>,
 }
 
 impl TaskSubmitter {
@@ -1420,7 +1438,20 @@ impl TaskSubmitter {
             result_sender,
             cancellation_token: None,
         };
-        
+
+        // Check rate limit if enabled
+        if let Some(ref limiter) = self.rate_limiter {
+            if limiter.check().is_err() {
+                // Rate limit exceeded, record and return error
+                self.metrics_collector.record_rate_limit();
+                tracing::warn!("Rate limit exceeded, rejecting task {}", task_id);
+
+                return Err(PriorityError::Communication(
+                    "Rate limit exceeded".to_string()
+                ));
+            }
+        }
+
         // Try to enqueue with request queue first (for timeout and deduplication)
         match self.request_queue.enqueue(task, queue_timeout).await {
             Ok(_) => {
@@ -1536,6 +1567,10 @@ pub struct QueueConfig {
     pub enable_priority_boost: bool,
     /// Age threshold for priority boost in milliseconds
     pub priority_boost_age_ms: u64,
+    /// Enable rate limiting for task submission
+    pub enable_rate_limiting: bool,
+    /// Maximum tasks per second (None = unlimited)
+    pub max_tasks_per_second: Option<u64>,
 }
 
 impl Default for QueueConfig {
@@ -1547,6 +1582,8 @@ impl Default for QueueConfig {
             queue_wait_timeout_ms: 5_000,
             enable_priority_boost: true,
             priority_boost_age_ms: 10_000,
+            enable_rate_limiting: true,
+            max_tasks_per_second: Some(100),
         }
     }
 }
@@ -2052,20 +2089,21 @@ pub struct MetricsCollector {
     queue_overflow_count: AtomicU64,
     deduplication_hits: AtomicU64,
     priority_boosts_applied: AtomicU64,
-    
+    rate_limited_tasks: AtomicU64,
+
     /// Atomic accumulators for averages
     total_task_duration_ms: AtomicU64,
     total_queue_time_ms: AtomicU64,
     total_preemption_time_ms: AtomicU64,
-    
+
     /// Recent measurements for percentile calculations
     recent_task_durations: Arc<RwLock<VecDeque<u64>>>,
     recent_queue_times: Arc<RwLock<VecDeque<u64>>>,
-    
+
     /// Per-priority metrics
     preemptions_by_priority: Arc<RwLock<HashMap<TaskPriority, AtomicU64>>>,
     response_times_by_priority: Arc<RwLock<HashMap<TaskPriority, AtomicU64>>>,
-    
+
     /// Performance sampling interval
     #[allow(dead_code)]
     sample_window: Duration,
@@ -2097,6 +2135,7 @@ impl MetricsCollector {
             queue_overflow_count: AtomicU64::new(0),
             deduplication_hits: AtomicU64::new(0),
             priority_boosts_applied: AtomicU64::new(0),
+            rate_limited_tasks: AtomicU64::new(0),
             total_task_duration_ms: AtomicU64::new(0),
             total_queue_time_ms: AtomicU64::new(0),
             total_preemption_time_ms: AtomicU64::new(0),
@@ -2184,7 +2223,12 @@ impl MetricsCollector {
     pub fn record_queue_overflow(&self) {
         self.queue_overflow_count.fetch_add(1, AtomicOrdering::Relaxed);
     }
-    
+
+    /// Record rate limit hit
+    pub fn record_rate_limit(&self) {
+        self.rate_limited_tasks.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+
     /// Record deduplication hit
     pub fn record_deduplication_hit(&self) {
         self.deduplication_hits.fetch_add(1, AtomicOrdering::Relaxed);
