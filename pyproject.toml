@@ -178,4 +178,5 @@ markers = [
   "conflict_detection: marks tests for memory conflict detection",
   "rule_validation: marks tests for memory rule validation",
   "performance: marks performance and benchmark tests",
+  "fastmcp: marks tests using official fastmcp.Client SDK",
 ]
