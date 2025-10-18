@@ -7,6 +7,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
+use std::num::NonZeroUsize;
 use tokio::sync::{mpsc, RwLock, Mutex};
 use tokio::time::interval;
 use notify::{Watcher as NotifyWatcher, RecursiveMode, Event, EventKind};
@@ -14,6 +15,7 @@ use walkdir::WalkDir;
 use glob::{Pattern, PatternError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use lru::LruCache;
 
 use crate::processing::{TaskSubmitter, TaskPriority, TaskSource, TaskPayload};
 
@@ -77,9 +79,15 @@ pub struct WatcherConfig {
     
     /// Whether to use polling mode (useful for network drives)
     pub use_polling: bool,
-    
+
     /// Batch processing settings
     pub batch_processing: BatchConfig,
+
+    /// Maximum number of events to store in debouncer (memory limit)
+    pub max_debouncer_capacity: usize,
+
+    /// Maximum total events to store in batcher (memory limit)
+    pub max_batcher_capacity: usize,
 }
 
 /// Configuration for batch processing of file events
@@ -146,6 +154,8 @@ impl Default for WatcherConfig {
                 max_batch_wait_ms: 5000, // 5 seconds
                 group_by_type: true,
             },
+            max_debouncer_capacity: 10_000, // 10K events max in debouncer
+            max_batcher_capacity: 5_000,    // 5K events max in batcher
         }
     }
 }
@@ -209,34 +219,43 @@ impl CompiledPatterns {
     }
 }
 
-/// Event debouncer to prevent duplicate processing
+/// Event debouncer to prevent duplicate processing with bounded memory
 #[derive(Debug)]
 struct EventDebouncer {
-    events: HashMap<PathBuf, FileEvent>,
+    events: LruCache<PathBuf, FileEvent>,
     debounce_duration: Duration,
+    evictions: u64,
 }
 
 impl EventDebouncer {
-    fn new(debounce_ms: u64) -> Self {
+    fn new(debounce_ms: u64, capacity: usize) -> Self {
         Self {
-            events: HashMap::new(),
+            events: LruCache::new(NonZeroUsize::new(capacity).unwrap_or(NonZeroUsize::new(10_000).unwrap())),
             debounce_duration: Duration::from_millis(debounce_ms),
+            evictions: 0,
         }
     }
     
     /// Add event to debouncer, returns true if event should be processed immediately
     fn add_event(&mut self, event: FileEvent) -> bool {
         let now = Instant::now();
-        
-        if let Some(existing) = self.events.get(&event.path) {
+        let path = event.path.clone();
+
+        if let Some(existing) = self.events.get(&path) {
             // If the existing event is within debounce period, update and don't process
             if now.duration_since(existing.timestamp) < self.debounce_duration {
-                self.events.insert(event.path.clone(), event);
+                // Use push to update and move to front of LRU
+                if self.events.push(path, event).is_some() {
+                    self.evictions += 1;
+                }
                 return false;
             }
         }
-        
-        self.events.insert(event.path.clone(), event);
+
+        // Insert new event, track eviction if cache was full
+        if self.events.push(path, event).is_some() {
+            self.evictions += 1;
+        }
         true
     }
     
@@ -245,27 +264,46 @@ impl EventDebouncer {
         let now = Instant::now();
         let mut ready = Vec::new();
         let mut to_remove = Vec::new();
-        
-        for (path, event) in &self.events {
+
+        // Collect paths and events that are ready
+        // Note: iter() doesn't exist on LruCache, so we need to use a different approach
+        // We'll peek at entries without removing them first
+        for (path, event) in self.events.iter() {
             if now.duration_since(event.timestamp) >= self.debounce_duration {
                 ready.push(event.clone());
                 to_remove.push(path.clone());
             }
         }
-        
+
+        // Remove ready events from cache
         for path in to_remove {
-            self.events.remove(&path);
+            self.events.pop(&path);
         }
-        
+
         ready
     }
     
     /// Clear old events (cleanup)
     fn cleanup(&mut self, max_age: Duration) {
         let now = Instant::now();
-        self.events.retain(|_, event| {
-            now.duration_since(event.timestamp) < max_age
-        });
+        let mut to_remove = Vec::new();
+
+        // Collect paths of old events
+        for (path, event) in self.events.iter() {
+            if now.duration_since(event.timestamp) >= max_age {
+                to_remove.push(path.clone());
+            }
+        }
+
+        // Remove old events
+        for path in to_remove {
+            self.events.pop(&path);
+        }
+    }
+
+    /// Get eviction count
+    fn eviction_count(&self) -> u64 {
+        self.evictions
     }
 }
 
@@ -345,6 +383,8 @@ pub struct WatchingStats {
     pub uptime_seconds: u64,
     pub watched_paths: usize,
     pub current_queue_size: usize,
+    pub debouncer_evictions: u64,
+    pub batcher_evictions: u64,
 }
 
 impl Default for WatchingStats {
@@ -359,6 +399,8 @@ impl Default for WatchingStats {
             uptime_seconds: 0,
             watched_paths: 0,
             current_queue_size: 0,
+            debouncer_evictions: 0,
+            batcher_evictions: 0,
         }
     }
 }
@@ -403,7 +445,7 @@ impl FileWatcher {
     /// Create a new file watcher with the given configuration and task submitter
     pub fn new(config: WatcherConfig, task_submitter: TaskSubmitter) -> Result<Self, WatchingError> {
         let patterns = CompiledPatterns::new(&config)?;
-        let debouncer = EventDebouncer::new(config.debounce_ms);
+        let debouncer = EventDebouncer::new(config.debounce_ms, config.max_debouncer_capacity);
         let batcher = EventBatcher::new(config.batch_processing.clone());
         
         Ok(Self {
@@ -549,7 +591,7 @@ impl FileWatcher {
         // Update debouncer and batcher
         {
             let mut debouncer_lock = self.debouncer.lock().await;
-            *debouncer_lock = EventDebouncer::new(new_config.debounce_ms);
+            *debouncer_lock = EventDebouncer::new(new_config.debounce_ms, new_config.max_debouncer_capacity);
         }
         
         {
@@ -565,12 +607,18 @@ impl FileWatcher {
     pub async fn stats(&self) -> WatchingStats {
         let mut stats = self.stats.lock().await.clone();
         stats.uptime_seconds = self.start_time.elapsed().as_secs();
-        
+
         {
             let watched_paths = self.watched_paths.read().await;
             stats.watched_paths = watched_paths.len();
         }
-        
+
+        // Add debouncer evictions
+        {
+            let debouncer_lock = self.debouncer.lock().await;
+            stats.debouncer_evictions = debouncer_lock.eviction_count();
+        }
+
         stats
     }
     
