@@ -967,25 +967,94 @@ logging:
   # Format: String file path or null
   log_file: null
 
-  # enable_metrics: Performance metrics collection activation
-  # Purpose: Enables collection and exposure of performance and usage metrics
-  # Monitoring integration: Provides data for monitoring dashboards and alerting
-  # Performance overhead: Metrics collection adds 1-3% CPU overhead
-  # Operational visibility: Essential for production monitoring and optimization
-  # Debugging aid: Metrics help identify performance bottlenecks and usage patterns
-  # Privacy consideration: Metrics may contain usage patterns and performance data
-  # Format: Boolean
-  enable_metrics: false
-
-  # metrics_interval: Metrics collection and reporting frequency
-  # Purpose: Controls how often metrics are collected and potentially reported
+# =============================================================================
+# OBSERVABILITY CONFIGURATION
+# =============================================================================
+# Purpose: Controls metrics collection, telemetry, and system monitoring.
+# Provides operational visibility into system health, performance, and resource usage.
+observability:
+  # collection_interval: Metrics and telemetry collection frequency
+  # Purpose: Controls how often metrics and telemetry data are collected
   # Resource usage: More frequent collection increases CPU and memory overhead
   # Monitoring granularity: Higher frequency provides better temporal resolution
-  # Storage impact: Frequent metrics generate more monitoring data
+  # Storage impact: Frequent collection generates more monitoring data
   # Alerting sensitivity: Collection frequency affects alerting responsiveness
-  # Network overhead: If metrics are exported, frequency affects network usage
   # Format: Duration with unit (s/m)
-  metrics_interval: 60s
+  # Default reasoning: 60s provides good balance between granularity and overhead
+  collection_interval: 60s
+
+  # Basic operational metrics configuration
+  # Purpose: Lightweight metrics for basic system monitoring
+  # Overhead: 1-3% CPU overhead when enabled
+  # Use case: Essential for production monitoring and troubleshooting
+  metrics:
+    # enabled: Master control for basic metrics collection
+    # Purpose: Enables or disables basic operational metrics
+    # Monitoring integration: Provides data for dashboards and alerting
+    # Performance impact: Minimal overhead when enabled
+    # Format: Boolean
+    enabled: false
+
+  # Comprehensive system telemetry configuration
+  # Purpose: Detailed system metrics for performance analysis and optimization
+  # Overhead: 1-2% CPU overhead when enabled (in addition to basic metrics)
+  # Use case: Performance tuning, capacity planning, root cause analysis
+  telemetry:
+    # enabled: Master control for comprehensive telemetry
+    # Purpose: Enables or disables detailed system telemetry collection
+    # Performance impact: Minimal overhead (~1-2% CPU) when enabled
+    # Production default: Disabled to avoid overhead when not needed
+    # Format: Boolean
+    # Default reasoning: Disabled by default, enable when detailed monitoring needed
+    enabled: false
+
+    # history_retention: Number of telemetry snapshots to retain in memory
+    # Purpose: Controls how many historical snapshots are kept for trend analysis
+    # Memory usage: ~1-2KB per snapshot depending on enabled metrics
+    # Trend analysis: More snapshots provide better historical context
+    # Format: Integer count
+    # Default reasoning: 120 snapshots at 60s interval = 2 hours of history
+    history_retention: 120
+
+    # Individual metric toggles for fine-grained control
+    # Purpose: Enable/disable specific telemetry metrics independently
+    # Use case: Reduce overhead by disabling unneeded metrics
+    # Format: Boolean per metric type
+
+    # cpu_usage: CPU utilization percentage tracking
+    # Purpose: Monitors CPU consumption of daemon process
+    # Use case: Identify CPU bottlenecks and resource constraints
+    # Overhead: Minimal, uses OS-level metrics
+    # Format: Boolean
+    cpu_usage: true
+
+    # memory_usage: Memory consumption tracking (RSS and heap)
+    # Purpose: Monitors memory usage of daemon process
+    # Use case: Detect memory leaks and optimize memory consumption
+    # Overhead: Minimal, uses OS-level metrics
+    # Format: Boolean
+    memory_usage: true
+
+    # latency: Processing latency tracking (avg, p95, p99)
+    # Purpose: Monitors event processing latency distribution
+    # Use case: Identify performance degradation and optimization opportunities
+    # Overhead: Minimal, uses in-memory histogram
+    # Format: Boolean
+    latency: true
+
+    # queue_depth: Queue depth statistics (current, avg, max)
+    # Purpose: Monitors queue backlog and capacity utilization
+    # Use case: Detect backpressure and capacity issues
+    # Overhead: Negligible, uses existing queue metrics
+    # Format: Boolean
+    queue_depth: true
+
+    # throughput: Throughput metrics (files/sec, bytes/sec)
+    # Purpose: Monitors processing throughput and data volume
+    # Use case: Capacity planning and performance benchmarking
+    # Overhead: Negligible, uses existing counters
+    # Format: Boolean
+    throughput: true
 
 # =============================================================================
 # PERFORMANCE CONFIGURATION

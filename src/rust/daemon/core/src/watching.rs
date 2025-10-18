@@ -16,6 +16,7 @@ use glob::{Pattern, PatternError};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use lru::LruCache;
+use sysinfo::{System, Pid};
 
 use crate::processing::{TaskSubmitter, TaskPriority, TaskSource, TaskPayload};
 
@@ -99,6 +100,44 @@ pub struct WatcherConfig {
 
     /// Maximum total events to store in batcher (memory limit)
     pub max_batcher_capacity: usize,
+
+    /// Telemetry configuration
+    pub telemetry: TelemetryConfig,
+}
+
+/// Configuration for telemetry collection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    /// Enable telemetry collection
+    pub enabled: bool,
+
+    /// Number of historical snapshots to retain
+    pub history_retention: usize,
+
+    /// Collection interval in seconds
+    pub collection_interval_secs: u64,
+
+    /// Individual metric toggles
+    pub cpu_usage: bool,
+    pub memory_usage: bool,
+    pub latency: bool,
+    pub queue_depth: bool,
+    pub throughput: bool,
+}
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            history_retention: 120,
+            collection_interval_secs: 60,
+            cpu_usage: true,
+            memory_usage: true,
+            latency: true,
+            queue_depth: true,
+            throughput: true,
+        }
+    }
 }
 
 /// Configuration for batch processing of file events
@@ -195,6 +234,7 @@ impl Default for WatcherConfig {
             },
             max_debouncer_capacity: 10_000, // 10K events max in debouncer
             max_batcher_capacity: 5_000,    // 5K events max in batcher
+            telemetry: TelemetryConfig::default(),
         }
     }
 }
@@ -555,6 +595,65 @@ impl EventBatcher {
     }
 }
 
+/// Telemetry snapshot for comprehensive system monitoring
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetrySnapshot {
+    /// Timestamp of this snapshot
+    pub timestamp: SystemTime,
+
+    /// CPU usage percentage (0-100)
+    pub cpu_usage_percent: Option<f64>,
+
+    /// Memory usage in MB (Resident Set Size)
+    pub memory_rss_mb: Option<f64>,
+
+    /// Memory usage in MB (heap allocation estimate)
+    pub memory_heap_mb: Option<f64>,
+
+    /// Average processing latency in milliseconds
+    pub avg_latency_ms: Option<f64>,
+
+    /// 95th percentile latency in milliseconds
+    pub p95_latency_ms: Option<f64>,
+
+    /// 99th percentile latency in milliseconds
+    pub p99_latency_ms: Option<f64>,
+
+    /// Current queue depth (number of items in queue)
+    pub queue_depth_current: usize,
+
+    /// Average queue depth over collection interval
+    pub queue_depth_avg: f64,
+
+    /// Maximum queue depth observed
+    pub queue_depth_max: usize,
+
+    /// Throughput in files per second
+    pub throughput_files_per_sec: f64,
+
+    /// Throughput in bytes per second
+    pub throughput_bytes_per_sec: f64,
+}
+
+impl Default for TelemetrySnapshot {
+    fn default() -> Self {
+        Self {
+            timestamp: SystemTime::now(),
+            cpu_usage_percent: None,
+            memory_rss_mb: None,
+            memory_heap_mb: None,
+            avg_latency_ms: None,
+            p95_latency_ms: None,
+            p99_latency_ms: None,
+            queue_depth_current: 0,
+            queue_depth_avg: 0.0,
+            queue_depth_max: 0,
+            throughput_files_per_sec: 0.0,
+            throughput_bytes_per_sec: 0.0,
+        }
+    }
+}
+
 /// Statistics for file watching operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WatchingStats {
@@ -571,6 +670,12 @@ pub struct WatchingStats {
     pub batcher_evictions: u64,
     /// Number of unique paths in pattern matching cache
     pub pattern_cache_size: usize,
+
+    /// Current telemetry snapshot (only populated if telemetry enabled)
+    pub telemetry: Option<TelemetrySnapshot>,
+
+    /// Historical telemetry snapshots (only populated if telemetry enabled with history)
+    pub telemetry_history: Option<Vec<TelemetrySnapshot>>,
 }
 
 impl Default for WatchingStats {
@@ -588,6 +693,8 @@ impl Default for WatchingStats {
             debouncer_evictions: 0,
             batcher_evictions: 0,
             pattern_cache_size: 0,
+            telemetry: None,
+            telemetry_history: None,
         }
     }
 }
@@ -596,36 +703,234 @@ impl Default for WatchingStats {
 pub struct FileWatcher {
     /// Configuration for the watcher
     config: Arc<RwLock<WatcherConfig>>,
-    
+
     /// Compiled patterns for efficient matching
     patterns: Arc<RwLock<CompiledPatterns>>,
-    
+
     /// Task submitter for processing pipeline integration
     task_submitter: TaskSubmitter,
-    
+
     /// Event debouncer to prevent duplicate processing
     debouncer: Arc<Mutex<EventDebouncer>>,
-    
+
     /// Event batcher for efficient processing
     batcher: Arc<Mutex<EventBatcher>>,
-    
+
     /// File system watcher
     watcher: Arc<Mutex<Option<Box<dyn NotifyWatcher + Send + Sync>>>>,
-    
+
     /// Channel for receiving file system events
     event_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<FileEvent>>>>,
-    
+
     /// Handle to the event processing task
     processor_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
-    
+
     /// Statistics
     stats: Arc<Mutex<WatchingStats>>,
-    
+
     /// Start time for uptime calculation
     start_time: Instant,
-    
+
     /// Currently watched paths
     watched_paths: Arc<RwLock<HashSet<PathBuf>>>,
+
+    /// Telemetry tracking
+    telemetry_tracker: Arc<Mutex<TelemetryTracker>>,
+}
+
+/// Tracks telemetry data for collection
+#[derive(Debug)]
+struct TelemetryTracker {
+    /// Processing latencies for percentile calculation (in milliseconds)
+    latencies: VecDeque<f64>,
+
+    /// Historical telemetry snapshots (ring buffer)
+    history: VecDeque<TelemetrySnapshot>,
+
+    /// Last collection time
+    last_collection: Instant,
+
+    /// Files processed since last collection
+    files_processed_interval: u64,
+
+    /// Bytes processed since last collection
+    bytes_processed_interval: u64,
+
+    /// Queue depth samples for averaging
+    queue_depth_samples: Vec<usize>,
+
+    /// Maximum queue depth observed
+    queue_depth_max: usize,
+
+    /// System info for CPU/memory tracking
+    system: System,
+
+    /// Current process PID
+    pid: Pid,
+}
+
+impl TelemetryTracker {
+    fn new() -> Self {
+        let mut system = System::new_all();
+        system.refresh_all();
+        let pid = sysinfo::get_current_pid().unwrap();
+
+        Self {
+            latencies: VecDeque::with_capacity(1000),
+            history: VecDeque::new(),
+            last_collection: Instant::now(),
+            files_processed_interval: 0,
+            bytes_processed_interval: 0,
+            queue_depth_samples: Vec::with_capacity(100),
+            queue_depth_max: 0,
+            system,
+            pid,
+        }
+    }
+
+    fn record_latency(&mut self, latency_ms: f64) {
+        if self.latencies.len() >= 1000 {
+            self.latencies.pop_front();
+        }
+        self.latencies.push_back(latency_ms);
+    }
+
+    fn record_file_processed(&mut self, file_size: u64) {
+        self.files_processed_interval += 1;
+        self.bytes_processed_interval += file_size;
+    }
+
+    fn record_queue_depth(&mut self, depth: usize) {
+        self.queue_depth_samples.push(depth);
+        if depth > self.queue_depth_max {
+            self.queue_depth_max = depth;
+        }
+    }
+
+    fn calculate_percentile(&self, percentile: f64) -> Option<f64> {
+        if self.latencies.is_empty() {
+            return None;
+        }
+
+        let mut sorted: Vec<f64> = self.latencies.iter().copied().collect();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+
+        let index = ((percentile / 100.0) * sorted.len() as f64).floor() as usize;
+        let index = index.min(sorted.len() - 1);
+
+        Some(sorted[index])
+    }
+
+    fn collect_snapshot(&mut self, config: &TelemetryConfig, current_queue_size: usize) -> Option<TelemetrySnapshot> {
+        if !config.enabled {
+            return None;
+        }
+
+        // Calculate time since last collection
+        let elapsed = self.last_collection.elapsed();
+        let elapsed_secs = elapsed.as_secs_f64();
+
+        // Refresh system info for current metrics
+        self.system.refresh_process(self.pid);
+
+        // Collect CPU usage (if enabled)
+        let cpu_usage_percent = if config.cpu_usage {
+            self.system.process(self.pid).map(|process| process.cpu_usage() as f64)
+        } else {
+            None
+        };
+
+        // Collect memory usage (if enabled)
+        let (memory_rss_mb, memory_heap_mb) = if config.memory_usage {
+            if let Some(process) = self.system.process(self.pid) {
+                let rss_mb = process.memory() as f64 / 1024.0 / 1024.0;
+                // Heap is approximated as virtual memory - physical memory
+                let heap_mb = (process.virtual_memory() - process.memory()) as f64 / 1024.0 / 1024.0;
+                (Some(rss_mb), Some(heap_mb))
+            } else {
+                (None, None)
+            }
+        } else {
+            (None, None)
+        };
+
+        // Calculate latency metrics (if enabled)
+        let (avg_latency_ms, p95_latency_ms, p99_latency_ms) = if config.latency {
+            let avg = if !self.latencies.is_empty() {
+                Some(self.latencies.iter().sum::<f64>() / self.latencies.len() as f64)
+            } else {
+                None
+            };
+            let p95 = self.calculate_percentile(95.0);
+            let p99 = self.calculate_percentile(99.0);
+            (avg, p95, p99)
+        } else {
+            (None, None, None)
+        };
+
+        // Calculate queue depth metrics (if enabled)
+        let (queue_depth_avg, queue_depth_max) = if config.queue_depth {
+            let avg = if !self.queue_depth_samples.is_empty() {
+                self.queue_depth_samples.iter().sum::<usize>() as f64 / self.queue_depth_samples.len() as f64
+            } else {
+                0.0
+            };
+            (avg, self.queue_depth_max)
+        } else {
+            (0.0, 0)
+        };
+
+        // Calculate throughput metrics (if enabled)
+        let (throughput_files_per_sec, throughput_bytes_per_sec) = if config.throughput {
+            let files_per_sec = if elapsed_secs > 0.0 {
+                self.files_processed_interval as f64 / elapsed_secs
+            } else {
+                0.0
+            };
+            let bytes_per_sec = if elapsed_secs > 0.0 {
+                self.bytes_processed_interval as f64 / elapsed_secs
+            } else {
+                0.0
+            };
+            (files_per_sec, bytes_per_sec)
+        } else {
+            (0.0, 0.0)
+        };
+
+        let snapshot = TelemetrySnapshot {
+            timestamp: SystemTime::now(),
+            cpu_usage_percent,
+            memory_rss_mb,
+            memory_heap_mb,
+            avg_latency_ms,
+            p95_latency_ms,
+            p99_latency_ms,
+            queue_depth_current: current_queue_size,
+            queue_depth_avg,
+            queue_depth_max,
+            throughput_files_per_sec,
+            throughput_bytes_per_sec,
+        };
+
+        // Reset interval counters
+        self.files_processed_interval = 0;
+        self.bytes_processed_interval = 0;
+        self.queue_depth_samples.clear();
+        self.queue_depth_max = 0;
+        self.last_collection = Instant::now();
+
+        // Add to history (ring buffer)
+        self.history.push_back(snapshot.clone());
+        if self.history.len() > config.history_retention {
+            self.history.pop_front();
+        }
+
+        Some(snapshot)
+    }
+
+    fn get_history(&self) -> Vec<TelemetrySnapshot> {
+        self.history.iter().cloned().collect()
+    }
 }
 
 impl FileWatcher {
@@ -634,7 +939,7 @@ impl FileWatcher {
         let patterns = CompiledPatterns::new(&config)?;
         let debouncer = EventDebouncer::new(config.debounce_ms, config.max_debouncer_capacity);
         let batcher = EventBatcher::new(config.batch_processing.clone(), config.max_batcher_capacity);
-        
+
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
             patterns: Arc::new(RwLock::new(patterns)),
@@ -647,6 +952,7 @@ impl FileWatcher {
             stats: Arc::new(Mutex::new(WatchingStats::default())),
             start_time: Instant::now(),
             watched_paths: Arc::new(RwLock::new(HashSet::new())),
+            telemetry_tracker: Arc::new(Mutex::new(TelemetryTracker::new())),
         })
     }
     
@@ -827,6 +1133,35 @@ impl FileWatcher {
             stats.pattern_cache_size = patterns_lock.cache_len();
         }
 
+        // Collect telemetry if enabled
+        {
+            let config = self.config.read().await;
+            let telemetry_config = &config.telemetry;
+
+            if telemetry_config.enabled {
+                let mut tracker = self.telemetry_tracker.lock().await;
+
+                // Record current queue depth
+                tracker.record_queue_depth(stats.current_queue_size);
+
+                // Check if it's time to collect a snapshot
+                let elapsed = tracker.last_collection.elapsed();
+                if elapsed.as_secs() >= telemetry_config.collection_interval_secs {
+                    // Collect snapshot
+                    stats.telemetry = tracker.collect_snapshot(telemetry_config, stats.current_queue_size);
+
+                    // Get history
+                    stats.telemetry_history = Some(tracker.get_history());
+                } else {
+                    // Just return current snapshot without updating
+                    if !tracker.history.is_empty() {
+                        stats.telemetry = tracker.history.back().cloned();
+                        stats.telemetry_history = Some(tracker.get_history());
+                    }
+                }
+            }
+        }
+
         stats
     }
     
@@ -891,16 +1226,18 @@ impl FileWatcher {
         let config = self.config.clone();
         let task_submitter = self.task_submitter.clone();
         let stats = self.stats.clone();
-        
+        let telemetry_tracker = self.telemetry_tracker.clone();
+
         let handle = tokio::spawn(async move {
             Self::event_processing_loop(
                 event_receiver,
-                debouncer, 
+                debouncer,
                 batcher,
                 patterns,
                 config,
                 task_submitter,
-                stats
+                stats,
+                telemetry_tracker
             ).await;
         });
         
@@ -921,6 +1258,7 @@ impl FileWatcher {
         config: Arc<RwLock<WatcherConfig>>,
         task_submitter: TaskSubmitter,
         stats: Arc<Mutex<WatchingStats>>,
+        telemetry_tracker: Arc<Mutex<TelemetryTracker>>,
     ) {
         let mut cleanup_interval = interval(Duration::from_secs(300)); // 5 minute cleanup
         let mut debounce_interval = interval(Duration::from_millis(500)); // Check debounced events
@@ -944,14 +1282,15 @@ impl FileWatcher {
                             &patterns,
                             &config,
                             &task_submitter,
-                            &stats
+                            &stats,
+                            &telemetry_tracker
                         ).await;
                     } else {
                         // Channel closed, exit loop
                         break;
                     }
                 },
-                
+
                 // Process debounced events
                 _ = debounce_interval.tick() => {
                     Self::process_debounced_events(
@@ -960,7 +1299,8 @@ impl FileWatcher {
                         &patterns,
                         &config,
                         &task_submitter,
-                        &stats
+                        &stats,
+                        &telemetry_tracker
                     ).await;
                 },
                 
@@ -983,6 +1323,7 @@ impl FileWatcher {
         config: &Arc<RwLock<WatcherConfig>>,
         task_submitter: &TaskSubmitter,
         stats: &Arc<Mutex<WatchingStats>>,
+        telemetry_tracker: &Arc<Mutex<TelemetryTracker>>,
     ) {
         // Update stats
         {
@@ -1022,11 +1363,11 @@ impl FileWatcher {
         // Process evicted event immediately to prevent data loss
         if let Some(evicted_event) = evicted {
             tracing::info!("Processing evicted event to prevent data loss: {}", evicted_event.path.display());
-            Self::handle_ready_event(evicted_event, batcher, config, task_submitter, stats).await;
+            Self::handle_ready_event(evicted_event, batcher, config, task_submitter, stats, telemetry_tracker).await;
         }
 
         if should_process {
-            Self::handle_ready_event(event, batcher, config, task_submitter, stats).await;
+            Self::handle_ready_event(event, batcher, config, task_submitter, stats, telemetry_tracker).await;
         } else {
             let mut stats_lock = stats.lock().await;
             stats_lock.events_debounced += 1;
@@ -1041,12 +1382,13 @@ impl FileWatcher {
         config: &Arc<RwLock<WatcherConfig>>,
         task_submitter: &TaskSubmitter,
         stats: &Arc<Mutex<WatchingStats>>,
+        telemetry_tracker: &Arc<Mutex<TelemetryTracker>>,
     ) {
         let ready_events = {
             let mut debouncer_lock = debouncer.lock().await;
             debouncer_lock.get_ready_events()
         };
-        
+
         for event in ready_events {
             // Double-check patterns (they might have changed)
             {
@@ -1055,8 +1397,8 @@ impl FileWatcher {
                     continue;
                 }
             }
-            
-            Self::handle_ready_event(event, batcher, config, task_submitter, stats).await;
+
+            Self::handle_ready_event(event, batcher, config, task_submitter, stats, telemetry_tracker).await;
         }
     }
     
@@ -1067,15 +1409,16 @@ impl FileWatcher {
         config: &Arc<RwLock<WatcherConfig>>,
         task_submitter: &TaskSubmitter,
         stats: &Arc<Mutex<WatchingStats>>,
+        telemetry_tracker: &Arc<Mutex<TelemetryTracker>>,
     ) {
         // Add to batcher
         let ready_batch = {
             let mut batcher_lock = batcher.lock().await;
             batcher_lock.add_event(event)
         };
-        
+
         if let Some(batch) = ready_batch {
-            Self::submit_processing_tasks(batch, config, task_submitter, stats).await;
+            Self::submit_processing_tasks(batch, config, task_submitter, stats, telemetry_tracker).await;
         }
     }
     
@@ -1085,13 +1428,17 @@ impl FileWatcher {
         config: &Arc<RwLock<WatcherConfig>>,
         task_submitter: &TaskSubmitter,
         stats: &Arc<Mutex<WatchingStats>>,
+        telemetry_tracker: &Arc<Mutex<TelemetryTracker>>,
     ) {
         let config_lock = config.read().await;
         let task_priority = config_lock.task_priority;
         let default_collection = config_lock.default_collection.clone();
+        let telemetry_enabled = config_lock.telemetry.enabled;
         drop(config_lock);
-        
+
         for event in events {
+            let start_time = Instant::now();
+
             // Only process create/modify events, ignore deletes
             match event.event_kind {
                 EventKind::Create(_) | EventKind::Modify(_) => {
@@ -1134,6 +1481,17 @@ impl FileWatcher {
                             stats_lock.tasks_submitted += 1;
                             stats_lock.events_processed += 1;
                             tracing::debug!("Submitted processing task for: {}", event.path.display());
+
+                            // Record telemetry if enabled
+                            if telemetry_enabled {
+                                let latency_ms = start_time.elapsed().as_secs_f64() * 1000.0;
+                                let file_size = event.size.unwrap_or(0);
+
+                                drop(stats_lock); // Release stats lock before acquiring telemetry lock
+                                let mut telemetry_lock = telemetry_tracker.lock().await;
+                                telemetry_lock.record_latency(latency_ms);
+                                telemetry_lock.record_file_processed(file_size);
+                            }
                         },
                         Err(e) => {
                             let mut stats_lock = stats.lock().await;
@@ -1231,7 +1589,8 @@ impl FileWatcher {
                             &self.batcher,
                             &self.config,
                             &self.task_submitter,
-                            &self.stats
+                            &self.stats,
+                            &self.telemetry_tracker
                         ).await;
                         batch_buffer.clear();
                     }
@@ -1269,7 +1628,8 @@ impl FileWatcher {
                 &self.batcher,
                 &self.config,
                 &self.task_submitter,
-                &self.stats
+                &self.stats,
+                &self.telemetry_tracker
             ).await;
         }
 
@@ -1281,7 +1641,7 @@ impl FileWatcher {
             };
 
             if let Some(batch) = ready_batch {
-                Self::submit_processing_tasks(batch, &self.config, &self.task_submitter, &self.stats).await;
+                Self::submit_processing_tasks(batch, &self.config, &self.task_submitter, &self.stats, &self.telemetry_tracker).await;
             }
         }
 
@@ -1310,6 +1670,7 @@ impl FileWatcher {
         config: &Arc<RwLock<WatcherConfig>>,
         task_submitter: &TaskSubmitter,
         stats: &Arc<Mutex<WatchingStats>>,
+        telemetry_tracker: &Arc<Mutex<TelemetryTracker>>,
     ) {
         for event in events {
             Self::handle_ready_event(
@@ -1317,7 +1678,8 @@ impl FileWatcher {
                 batcher,
                 config,
                 task_submitter,
-                stats
+                stats,
+                telemetry_tracker
             ).await;
         }
     }
