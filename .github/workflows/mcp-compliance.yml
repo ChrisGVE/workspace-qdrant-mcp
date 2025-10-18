@@ -1,0 +1,188 @@
+name: MCP Protocol Compliance Testing
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'tests/unit/mcp/**'
+      - 'src/python/workspace_qdrant_mcp/server.py'
+      - '.github/workflows/mcp-compliance.yml'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'tests/unit/mcp/**'
+      - 'src/python/workspace_qdrant_mcp/server.py'
+      - '.github/workflows/mcp-compliance.yml'
+  workflow_dispatch:
+  schedule:
+    # Run daily at 2 AM UTC to catch regressions
+    - cron: '0 2 * * *'
+
+env:
+  MCP_COMPLIANCE_THRESHOLD: 100  # Require 100% test pass rate
+
+jobs:
+  mcp-protocol-compliance:
+    name: MCP Protocol Compliance (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+      with:
+        version: "latest"
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: ${{ runner.os }}-python-${{ matrix.python-version }}-uv-${{ hashFiles('**/pyproject.toml') }}
+        restore-keys: |
+          ${{ runner.os }}-python-${{ matrix.python-version }}-uv-
+
+    - name: Install dependencies
+      run: |
+        uv venv --python ${{ matrix.python-version }}
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+
+    - name: Run MCP Protocol Compliance Tests
+      id: compliance_tests
+      run: |
+        . .venv/bin/activate
+
+        echo "🔍 Running MCP Protocol Compliance Test Suite"
+        echo "Testing against fastmcp.Client SDK patterns"
+        echo ""
+
+        # Run MCP compliance tests with detailed output
+        pytest tests/unit/mcp/ \
+          -v \
+          --tb=short \
+          -m "fastmcp" \
+          --junitxml=mcp-compliance-results.xml \
+          --html=mcp-compliance-report.html \
+          --self-contained-html \
+          2>&1 | tee mcp-compliance-output.txt
+
+        # Capture test results
+        TEST_EXIT_CODE=${PIPESTATUS[0]}
+
+        # Extract test statistics
+        TOTAL_TESTS=$(grep -oP '\d+(?= passed)' mcp-compliance-output.txt | head -1 || echo "0")
+        FAILED_TESTS=$(grep -oP '\d+(?= failed)' mcp-compliance-output.txt | head -1 || echo "0")
+
+        echo "total_tests=$TOTAL_TESTS" >> $GITHUB_OUTPUT
+        echo "failed_tests=$FAILED_TESTS" >> $GITHUB_OUTPUT
+
+        # Calculate pass rate
+        if [ "$TOTAL_TESTS" -gt 0 ]; then
+          PASS_RATE=$(python3 -c "print(int(($TOTAL_TESTS - $FAILED_TESTS) * 100 / $TOTAL_TESTS))")
+          echo "pass_rate=$PASS_RATE" >> $GITHUB_OUTPUT
+        else
+          echo "pass_rate=0" >> $GITHUB_OUTPUT
+        fi
+
+        exit $TEST_EXIT_CODE
+
+    - name: Generate MCP Compliance Report
+      if: always()
+      run: |
+        . .venv/bin/activate
+
+        cat > mcp-compliance-summary.md << 'EOF'
+        # MCP Protocol Compliance Report
+
+        **Test Run:** ${{ github.run_number }}
+        **Date:** $(date -u +"%Y-%m-%d %H:%M:%S UTC")
+        **Python Version:** ${{ matrix.python-version }}
+        **Branch:** ${{ github.ref_name }}
+        **Commit:** ${{ github.sha }}
+
+        ## Test Results
+
+        - **Total Tests:** ${{ steps.compliance_tests.outputs.total_tests }}
+        - **Passed:** $((${{ steps.compliance_tests.outputs.total_tests }} - ${{ steps.compliance_tests.outputs.failed_tests }}))
+        - **Failed:** ${{ steps.compliance_tests.outputs.failed_tests }}
+        - **Pass Rate:** ${{ steps.compliance_tests.outputs.pass_rate }}%
+
+        ## Compliance Status
+
+        EOF
+
+        if [ "${{ steps.compliance_tests.outputs.pass_rate }}" -ge "${{ env.MCP_COMPLIANCE_THRESHOLD }}" ]; then
+          echo "✅ **PASS** - MCP protocol compliance verified" >> mcp-compliance-summary.md
+          echo "All ${{ steps.compliance_tests.outputs.total_tests }} tests passing." >> mcp-compliance-summary.md
+        else
+          echo "❌ **FAIL** - MCP protocol compliance violations detected" >> mcp-compliance-summary.md
+          echo "${{ steps.compliance_tests.outputs.failed_tests }} test(s) failing." >> mcp-compliance-summary.md
+        fi
+
+        cat >> mcp-compliance-summary.md << 'EOF'
+
+        ## Test Coverage
+
+        - ✅ Tool call handling validation (64 tests)
+        - ✅ Parameter validation & error handling (67 tests)
+        - ✅ Capability negotiation (43 tests)
+        - ✅ Protocol version handling (9 tests)
+
+        ## Implementation Details
+
+        - **Testing Framework:** pytest + official fastmcp.Client SDK
+        - **MCP Tools Tested:** store, search, manage, retrieve
+        - **Protocol Version:** 2024-11-05
+        - **SDK Integration:** async context managers, CallToolResult types
+
+        ## Test Files
+
+        - `tests/unit/mcp/test_mcp_tool_call_validation.py` (64 tests)
+        - `tests/unit/mcp/test_mcp_parameter_validation.py` (67 tests)
+        - `tests/unit/mcp/test_mcp_capability_negotiation.py` (43 tests)
+        - `tests/unit/mcp/test_mcp_protocol_version_handling.py` (9 tests)
+
+        EOF
+
+    - name: Upload MCP Compliance Report
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: mcp-compliance-report-python-${{ matrix.python-version }}
+        path: |
+          mcp-compliance-results.xml
+          mcp-compliance-report.html
+          mcp-compliance-output.txt
+          mcp-compliance-summary.md
+
+    - name: Comment PR with Compliance Results
+      if: github.event_name == 'pull_request' && matrix.python-version == '3.11'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const summary = fs.readFileSync('mcp-compliance-summary.md', 'utf8');
+
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: summary
+          });
+
+    - name: Fail if compliance threshold not met
+      if: steps.compliance_tests.outputs.pass_rate < env.MCP_COMPLIANCE_THRESHOLD
+      run: |
+        echo "::error::MCP compliance threshold not met: ${{ steps.compliance_tests.outputs.pass_rate }}% < ${{ env.MCP_COMPLIANCE_THRESHOLD }}%"
+        exit 1
