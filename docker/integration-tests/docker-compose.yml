@@ -1,6 +1,7 @@
 version: '3.8'
 
 services:
+  # Qdrant vector database
   qdrant:
     image: qdrant/qdrant:v1.7.4
     container_name: qdrant-integration-test
@@ -15,7 +16,7 @@ services:
     volumes:
       - qdrant_storage:/qdrant/storage
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/health"]
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost:6333/healthz || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -23,6 +24,71 @@ services:
     restart: unless-stopped
     networks:
       - integration-test
+
+  # Rust daemon for file watching and ingestion
+  daemon:
+    build:
+      context: ../../
+      dockerfile: docker/integration-tests/Dockerfile.daemon
+    container_name: workspace-qdrant-daemon
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - SQLITE_PATH=/app/data/state.db
+      - LOG_LEVEL=debug
+      - RUST_BACKTRACE=1
+    volumes:
+      - daemon_data:/app/data
+      - daemon_logs:/app/logs
+      - ../../test_projects:/test_projects:ro  # Test projects for watching
+    depends_on:
+      qdrant:
+        condition: service_healthy
+    networks:
+      - integration-test
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -x memexd || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # MCP server
+  mcp-server:
+    build:
+      context: ../../
+      dockerfile: docker/Dockerfile
+      target: development
+    container_name: workspace-qdrant-mcp-server
+    ports:
+      - "8000:8000"
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_API_KEY=
+      - SQLITE_PATH=/app/data/state.db
+      - LOG_LEVEL=debug
+      - PYTHONPATH=/app/src
+      - INTEGRATION_TESTING=1
+    volumes:
+      - ../../src:/app/src:ro
+      - mcp_data:/app/data
+      - mcp_logs:/app/logs
+      - ../../test_projects:/test_projects:ro
+    depends_on:
+      daemon:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    networks:
+      - integration-test
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    command: ["python", "-m", "uvicorn", "workspace_qdrant_mcp.server:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 
   # Optional: Additional Qdrant instance for multi-instance testing
   qdrant-secondary:
@@ -103,6 +169,14 @@ volumes:
   qdrant_storage:
     driver: local
   qdrant_storage_secondary:
+    driver: local
+  daemon_data:
+    driver: local
+  daemon_logs:
+    driver: local
+  mcp_data:
+    driver: local
+  mcp_logs:
     driver: local
   test_results:
     driver: local
