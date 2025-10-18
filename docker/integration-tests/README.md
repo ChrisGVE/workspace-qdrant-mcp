@@ -1,227 +1,75 @@
-# Integration Test Docker Environment
-
-This directory contains Docker configurations for running integration tests in isolated environments.
-
-## Quick Start
-
-### Basic Integration Tests
-```bash
-# Start Qdrant service
-docker-compose up -d qdrant
-
-# Wait for service to be ready
-docker-compose logs -f qdrant
-
-# Run integration tests
-docker-compose --profile test-runner run --rm test-runner
-```
-
-### Performance Testing
-```bash
-# Run performance benchmarks
-docker-compose --profile test-runner run --rm test-runner \
-  python scripts/run_integration_tests.py --categories performance --verbose
-```
-
-### Multi-Instance Testing
-```bash
-# Start multiple Qdrant instances
-docker-compose --profile multi-instance up -d
-
-# Run tests against multiple instances
-docker-compose --profile test-runner run --rm test-runner \
-  python scripts/run_integration_tests.py --categories integration --verbose
-```
-
-### Continuous Monitoring
-```bash
-# Start monitoring service
-docker-compose --profile monitoring up -d performance-monitor
-
-# View monitoring logs
-docker-compose logs -f performance-monitor
-```
-
-## Services
-
-### qdrant
-- **Purpose**: Primary Qdrant instance for testing
-- **Ports**: 6333 (HTTP), 6334 (gRPC)
-- **Health Check**: HTTP endpoint monitoring
-- **Data**: Persistent storage in Docker volume
-
-### qdrant-secondary
-- **Purpose**: Secondary instance for multi-instance testing
-- **Ports**: 6335 (HTTP), 6336 (gRPC)
-- **Profile**: `multi-instance`
-- **Use Case**: Testing daemon coordination and resource isolation
-
-### test-runner
-- **Purpose**: Execute integration test suite
-- **Profile**: `test-runner`
-- **Features**:
-  - Testcontainers support via Docker socket mounting
-  - Coverage report generation
-  - Performance benchmark execution
-  - Test result artifacts
-
-### performance-monitor
-- **Purpose**: Continuous performance monitoring
-- **Profile**: `monitoring`
-- **Features**:
-  - Real-time performance metrics
-  - Regression detection
-  - Historical trend analysis
-
-## Volumes
-
-- `qdrant_storage`: Primary Qdrant data persistence
-- `qdrant_storage_secondary`: Secondary Qdrant data persistence
-- `test_results`: Test execution results and reports
-- `coverage_reports`: HTML coverage reports
-- `performance_data`: Performance benchmarks and metrics
-
-## Network
-
-- **Name**: `integration-test`
-- **Type**: Bridge network with custom subnet
-- **Isolation**: Services can communicate but are isolated from host network
-
-## Usage Examples
-
-### Run Specific Test Categories
-```bash
-# Smoke tests only
-docker-compose --profile test-runner run --rm test-runner \
-  python scripts/run_integration_tests.py --categories smoke
-
-# Performance tests with coverage disabled
-docker-compose --profile test-runner run --rm test-runner \
-  python scripts/run_integration_tests.py --categories performance --no-coverage
-
-# All tests with parallel execution
-docker-compose --profile test-runner run --rm test-runner \
-  python scripts/run_integration_tests.py --categories all --parallel
-```
-
-### Access Test Results
-```bash
-# Copy coverage reports from container
-docker-compose --profile test-runner run --rm test-runner bash -c "
-  python scripts/run_integration_tests.py --categories integration &&
-  cp -r htmlcov/* /app/coverage_reports/
-"
-
-# View results
-docker-compose run --rm -v $(pwd)/htmlcov:/host_htmlcov test-runner \
-  cp -r /app/htmlcov/* /host_htmlcov/
-```
-
-### Debug Test Failures
-```bash
-# Interactive shell in test environment
-docker-compose --profile test-runner run --rm test-runner bash
-
-# Run specific test file
-docker-compose --profile test-runner run --rm test-runner \
-  python -m pytest tests/integration/test_document_ingestion_pipeline.py -v
-
-# Run with debugging output
-docker-compose --profile test-runner run --rm test-runner \
-  python scripts/run_integration_tests.py --categories integration --verbose
-```
-
-### Performance Monitoring
-```bash
-# Start monitoring and view real-time logs
-docker-compose --profile monitoring up performance-monitor
-
-# Extract performance data
-docker-compose run --rm -v $(pwd)/perf_results:/host_perf performance-monitor \
-  cp -r /app/performance_results/* /host_perf/
-```
-
-### Cleanup
-```bash
-# Stop all services
-docker-compose down
-
-# Remove volumes (data loss!)
-docker-compose down -v
-
-# Clean up everything including images
-docker-compose down -v --rmi all
-```
-
-## Environment Variables
-
-### Test Configuration
-- `QDRANT_HOST`: Qdrant service hostname (default: `qdrant`)
-- `QDRANT_PORT`: Qdrant HTTP port (default: `6333`)
-- `QDRANT_GRPC_PORT`: Qdrant gRPC port (default: `6334`)
-- `TEST_ENV`: Test environment identifier (default: `integration`)
-- `INTEGRATION_TESTING`: Flag for integration test mode (default: `1`)
-
-### Performance Monitoring
-- `MONITOR_INTERVAL`: Monitoring interval in seconds (default: `60`)
-- `PERFORMANCE_THRESHOLD`: Regression threshold percentage (default: `20`)
-
-## Troubleshooting
-
-### Service Won't Start
-```bash
-# Check service logs
-docker-compose logs qdrant
-
-# Verify health status
-docker-compose ps
-
-# Test connectivity
-docker-compose exec qdrant curl http://localhost:6333/health
-```
-
-### Test Failures
-```bash
-# Run tests with detailed output
-docker-compose --profile test-runner run --rm test-runner \
-  python -m pytest tests/integration/ -v -s --tb=long
-
-# Check test environment
-docker-compose --profile test-runner run --rm test-runner env
-```
-
-### Performance Issues
-```bash
-# Monitor resource usage
-docker stats
-
-# Check Qdrant performance
-docker-compose exec qdrant curl http://localhost:6333/metrics
-
-# View performance monitoring data
-docker-compose logs performance-monitor
-```
-
-### Docker Socket Issues (Linux)
-```bash
-# Ensure Docker socket permissions
-sudo chmod 666 /var/run/docker.sock
-
-# Alternative: Run with Docker group
-docker-compose --profile test-runner run --rm --group-add $(getent group docker | cut -d: -f3) test-runner
-```
-
-## CI/CD Integration
-
-This Docker setup is designed to work seamlessly with the GitHub Actions workflows:
-
-- `integration-tests.yml`: Uses similar container setup
-- `performance-monitoring.yml`: Leverages performance monitoring patterns
-- Local development mirrors CI environment exactly
-
-## Security Considerations
-
-- Docker socket mounting provides container access - use only in trusted environments
-- Network isolation prevents external access during testing
-- Volumes contain temporary test data - clean up regularly
-- Use specific image tags in production environments
+[38;2;127;132;156m   1[0m [38;2;205;214;244m# Integration Tests Docker Compose Environment[0m
+[38;2;127;132;156m   2[0m 
+[38;2;127;132;156m   3[0m [38;2;205;214;244mThis Docker Compose configuration provides a multi-component testing environment for the Workspace Qdrant MCP server and Rust daemon.[0m
+[38;2;127;132;156m   4[0m 
+[38;2;127;132;156m   5[0m [38;2;205;214;244m## Architecture[0m
+[38;2;127;132;156m   6[0m 
+[38;2;127;132;156m   7[0m [38;2;205;214;244mThe environment consists of the following services:[0m
+[38;2;127;132;156m   8[0m 
+[38;2;127;132;156m   9[0m [38;2;205;214;244m1. **Qdrant** - Vector database for storing and querying embeddings[0m
+[38;2;127;132;156m  10[0m [38;2;205;214;244m2. **Daemon** - Rust daemon for file watching and automatic ingestion[0m
+[38;2;127;132;156m  11[0m [38;2;205;214;244m3. **MCP Server** - Python FastMCP server exposing tools for Claude[0m
+[38;2;127;132;156m  12[0m [38;2;205;214;244m4. **Test Runner** - Pytest test execution environment (optional profile)[0m
+[38;2;127;132;156m  13[0m [38;2;205;214;244m5. **Performance Monitor** - Performance metrics collection (optional profile)[0m
+[38;2;127;132;156m  14[0m 
+[38;2;127;132;156m  15[0m [38;2;205;214;244m## Quick Start[0m
+[38;2;127;132;156m  16[0m 
+[38;2;127;132;156m  17[0m [38;2;205;214;244m### Start All Core Services[0m
+[38;2;127;132;156m  18[0m 
+[38;2;127;132;156m  19[0m [38;2;205;214;244m```bash[0m
+[38;2;127;132;156m  20[0m [38;2;205;214;244mcd docker/integration-tests[0m
+[38;2;127;132;156m  21[0m [38;2;205;214;244mdocker-compose up -d[0m
+[38;2;127;132;156m  22[0m [38;2;205;214;244m```[0m
+[38;2;127;132;156m  23[0m 
+[38;2;127;132;156m  24[0m [38;2;205;214;244mThis starts:[0m
+[38;2;127;132;156m  25[0m [38;2;205;214;244m- Qdrant (ports 6333, 6334)[0m
+[38;2;127;132;156m  26[0m [38;2;205;214;244m- Rust daemon[0m
+[38;2;127;132;156m  27[0m [38;2;205;214;244m- MCP server (port 8000)[0m
+[38;2;127;132;156m  28[0m 
+[38;2;127;132;156m  29[0m [38;2;205;214;244m### Verify Services[0m
+[38;2;127;132;156m  30[0m 
+[38;2;127;132;156m  31[0m [38;2;205;214;244m```bash[0m
+[38;2;127;132;156m  32[0m [38;2;205;214;244m# Check all services are healthy[0m
+[38;2;127;132;156m  33[0m [38;2;205;214;244mdocker-compose ps[0m
+[38;2;127;132;156m  34[0m 
+[38;2;127;132;156m  35[0m [38;2;205;214;244m# View logs[0m
+[38;2;127;132;156m  36[0m [38;2;205;214;244mdocker-compose logs -f[0m
+[38;2;127;132;156m  37[0m 
+[38;2;127;132;156m  38[0m [38;2;205;214;244m# View individual service logs[0m
+[38;2;127;132;156m  39[0m [38;2;205;214;244mdocker-compose logs -f mcp-server[0m
+[38;2;127;132;156m  40[0m [38;2;205;214;244mdocker-compose logs -f daemon[0m
+[38;2;127;132;156m  41[0m [38;2;205;214;244mdocker-compose logs -f qdrant[0m
+[38;2;127;132;156m  42[0m [38;2;205;214;244m```[0m
+[38;2;127;132;156m  43[0m 
+[38;2;127;132;156m  44[0m [38;2;205;214;244m## Service Details[0m
+[38;2;127;132;156m  45[0m 
+[38;2;127;132;156m  46[0m [38;2;205;214;244m### Qdrant[0m
+[38;2;127;132;156m  47[0m [38;2;205;214;244m- **Ports**: 6333 (HTTP), 6334 (gRPC)[0m
+[38;2;127;132;156m  48[0m [38;2;205;214;244m- **Health Check**: `/healthz` endpoint[0m
+[38;2;127;132;156m  49[0m [38;2;205;214;244m- **Data**: Persisted in `qdrant_storage` volume[0m
+[38;2;127;132;156m  50[0m 
+[38;2;127;132;156m  51[0m [38;2;205;214;244m### Daemon[0m
+[38;2;127;132;156m  52[0m [38;2;205;214;244m- **Binary**: `memexd`[0m
+[38;2;127;132;156m  53[0m [38;2;205;214;244m- **Purpose**: Watches SQLite for configuration changes, ingests files[0m
+[38;2;127;132;156m  54[0m [38;2;205;214;244m- **Dependencies**: Qdrant must be healthy[0m
+[38;2;127;132;156m  55[0m [38;2;205;214;244m- **Data**: State stored in `daemon_data` volume[0m
+[38;2;127;132;156m  56[0m 
+[38;2;127;132;156m  57[0m [38;2;205;214;244m### MCP Server[0m
+[38;2;127;132;156m  58[0m [38;2;205;214;244m- **Port**: 8000[0m
+[38;2;127;132;156m  59[0m [38;2;205;214;244m- **Health**: `/health` endpoint[0m
+[38;2;127;132;156m  60[0m [38;2;205;214;244m- **Dependencies**: Both Qdrant and Daemon must be healthy[0m
+[38;2;127;132;156m  61[0m 
+[38;2;127;132;156m  62[0m [38;2;205;214;244m## Volumes[0m
+[38;2;127;132;156m  63[0m 
+[38;2;127;132;156m  64[0m [38;2;205;214;244mAll data is persisted in Docker volumes:[0m
+[38;2;127;132;156m  65[0m [38;2;205;214;244m- `qdrant_storage`, `daemon_data`, `mcp_data`, etc.[0m
+[38;2;127;132;156m  66[0m 
+[38;2;127;132;156m  67[0m [38;2;205;214;244m## Cleanup[0m
+[38;2;127;132;156m  68[0m 
+[38;2;127;132;156m  69[0m [38;2;205;214;244m```bash[0m
+[38;2;127;132;156m  70[0m [38;2;205;214;244m# Stop services[0m
+[38;2;127;132;156m  71[0m [38;2;205;214;244mdocker-compose down[0m
+[38;2;127;132;156m  72[0m 
+[38;2;127;132;156m  73[0m [38;2;205;214;244m# Stop and remove volumes[0m
+[38;2;127;132;156m  74[0m [38;2;205;214;244mdocker-compose down -v[0m
+[38;2;127;132;156m  75[0m [38;2;205;214;244m```[0m
