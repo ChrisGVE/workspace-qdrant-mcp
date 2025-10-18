@@ -230,3 +230,4 @@ test_output_*
 # Task files
 # tasks.json
 # tasks/ 
+tmp/
