@@ -102,6 +102,38 @@ BUILD_EXTENSIONS: Set[str] = {
 }
 
 
+def _get_compound_extension(filename: str) -> str:
+    """Extract compound extension from filename if present.
+
+    Handles multi-part extensions like .tar.gz, .tar.bz2, etc.
+
+    Args:
+        filename: Lowercase filename
+
+    Returns:
+        Compound extension if found, empty string otherwise
+
+    Examples:
+        >>> _get_compound_extension("package.tar.gz")
+        '.tar.gz'
+        >>> _get_compound_extension("archive.tgz")
+        '.tgz'
+        >>> _get_compound_extension("file.txt")
+        ''
+    """
+    # Common compound extensions to check
+    compound_extensions = [
+        '.tar.gz', '.tar.bz2', '.tar.xz',
+        '.tgz', '.tbz2', '.txz',
+    ]
+
+    for ext in compound_extensions:
+        if filename.endswith(ext):
+            return ext
+
+    return ''
+
+
 def determine_file_type(file_path: Path) -> str:
     """Determine file type for metadata classification.
 
@@ -130,8 +162,21 @@ def determine_file_type(file_path: Path) -> str:
         >>> determine_file_type(Path("config.yaml"))
         'config'
     """
-    ext = file_path.suffix.lower()
     name = file_path.name.lower()
+    ext = file_path.suffix.lower()
+
+    # Handle compound extensions (e.g., .tar.gz, .tar.bz2)
+    compound_ext = _get_compound_extension(name)
+    if compound_ext:
+        ext = compound_ext
+
+    # Handle dotfiles without extensions (e.g., .env, .gitconfig)
+    # Also handle .env variants like .env.local, .env.development
+    if not ext and name.startswith('.'):
+        ext = name  # Use full name as extension for dotfiles
+    elif name.startswith('.env'):
+        # Special handling for .env.* files
+        ext = '.env'
 
     # Priority 1: Test files (must check before code classification)
     if _is_test_file(name, ext):
