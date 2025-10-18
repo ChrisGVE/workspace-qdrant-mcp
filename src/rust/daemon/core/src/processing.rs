@@ -30,6 +30,7 @@ pub struct PipelineStats {
     pub tasks_timed_out: u64,
     pub queue_rejections: u64,
     pub rate_limited_tasks: u64,
+    pub backpressure_events: u64,
     pub uptime_seconds: u64,
 }
 
@@ -647,6 +648,7 @@ impl Pipeline {
             tasks_timed_out: self.metrics_collector.tasks_timed_out.load(AtomicOrdering::Relaxed),
             queue_rejections: self.metrics_collector.queue_overflow_count.load(AtomicOrdering::Relaxed),
             rate_limited_tasks: self.metrics_collector.rate_limited_tasks.load(AtomicOrdering::Relaxed),
+            backpressure_events: self.metrics_collector.backpressure_events.load(AtomicOrdering::Relaxed),
             uptime_seconds: self.metrics_collector.start_time.elapsed().as_secs(),
         }
     }
@@ -1452,6 +1454,20 @@ impl TaskSubmitter {
             }
         }
 
+        // Check for backpressure
+        let utilization = self.request_queue.get_utilization();
+        if self.request_queue.config.enable_backpressure
+            && utilization >= self.request_queue.config.backpressure_threshold {
+            // Record backpressure event and log warning
+            self.metrics_collector.record_backpressure();
+            tracing::warn!(
+                "Backpressure detected: queue at {:.1}% capacity (threshold: {:.1}%), task {} queued with potential delays",
+                utilization * 100.0,
+                self.request_queue.config.backpressure_threshold * 100.0,
+                task_id
+            );
+        }
+
         // Try to enqueue with request queue first (for timeout and deduplication)
         match self.request_queue.enqueue(task, queue_timeout).await {
             Ok(_) => {
@@ -1571,6 +1587,10 @@ pub struct QueueConfig {
     pub enable_rate_limiting: bool,
     /// Maximum tasks per second (None = unlimited)
     pub max_tasks_per_second: Option<u64>,
+    /// Enable backpressure signaling
+    pub enable_backpressure: bool,
+    /// Queue utilization threshold for backpressure warning (0.0-1.0, default: 0.8)
+    pub backpressure_threshold: f64,
 }
 
 impl Default for QueueConfig {
@@ -1584,6 +1604,8 @@ impl Default for QueueConfig {
             priority_boost_age_ms: 10_000,
             enable_rate_limiting: true,
             max_tasks_per_second: Some(100),
+            enable_backpressure: true,
+            backpressure_threshold: 0.8,
         }
     }
 }
@@ -1887,7 +1909,18 @@ impl RequestQueue {
         
         cleaned_count
     }
-    
+
+    /// Get current queue utilization as a percentage (0.0-1.0)
+    pub fn get_utilization(&self) -> f64 {
+        let current = self.total_queued.load(AtomicOrdering::Relaxed) as usize;
+        let max = self.config.max_queued_per_priority * 4; // 4 priority levels
+        if max == 0 {
+            0.0
+        } else {
+            current as f64 / max as f64
+        }
+    }
+
     /// Calculate content hash for deduplication
     fn calculate_content_hash(&self, task: &PriorityTask) -> u64 {
         use std::hash::{Hash, Hasher};
@@ -2090,6 +2123,7 @@ pub struct MetricsCollector {
     deduplication_hits: AtomicU64,
     priority_boosts_applied: AtomicU64,
     rate_limited_tasks: AtomicU64,
+    backpressure_events: AtomicU64,
 
     /// Atomic accumulators for averages
     total_task_duration_ms: AtomicU64,
@@ -2136,6 +2170,7 @@ impl MetricsCollector {
             deduplication_hits: AtomicU64::new(0),
             priority_boosts_applied: AtomicU64::new(0),
             rate_limited_tasks: AtomicU64::new(0),
+            backpressure_events: AtomicU64::new(0),
             total_task_duration_ms: AtomicU64::new(0),
             total_queue_time_ms: AtomicU64::new(0),
             total_preemption_time_ms: AtomicU64::new(0),
@@ -2227,6 +2262,11 @@ impl MetricsCollector {
     /// Record rate limit hit
     pub fn record_rate_limit(&self) {
         self.rate_limited_tasks.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+
+    /// Record backpressure event
+    pub fn record_backpressure(&self) {
+        self.backpressure_events.fetch_add(1, AtomicOrdering::Relaxed);
     }
 
     /// Record deduplication hit
