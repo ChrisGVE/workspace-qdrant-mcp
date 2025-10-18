@@ -307,20 +307,26 @@ impl EventDebouncer {
     }
 }
 
-/// Batch processor for grouping and processing file events efficiently
+/// Batch processor for grouping and processing file events efficiently with bounded memory
 #[derive(Debug)]
 struct EventBatcher {
     batches: HashMap<String, VecDeque<FileEvent>>,
     config: BatchConfig,
     last_flush: Instant,
+    max_total_capacity: usize,
+    current_total_size: usize,
+    evictions: u64,
 }
 
 impl EventBatcher {
-    fn new(config: BatchConfig) -> Self {
+    fn new(config: BatchConfig, max_total_capacity: usize) -> Self {
         Self {
             batches: HashMap::new(),
             config,
             last_flush: Instant::now(),
+            max_total_capacity,
+            current_total_size: 0,
+            evictions: 0,
         }
     }
     
@@ -328,7 +334,12 @@ impl EventBatcher {
         if !self.config.enabled {
             return Some(vec![event]);
         }
-        
+
+        // Check if we're at capacity - evict oldest event if needed
+        if self.current_total_size >= self.max_total_capacity {
+            self.evict_oldest_event();
+        }
+
         let key = if self.config.group_by_type {
             event.path.extension()
                 .and_then(|ext| ext.to_str())
@@ -337,37 +348,80 @@ impl EventBatcher {
         } else {
             "default".to_string()
         };
-        
+
         let batch = self.batches.entry(key).or_insert_with(VecDeque::new);
         batch.push_back(event);
-        
+        self.current_total_size += 1;
+
         // Check if batch is full
         if batch.len() >= self.config.max_batch_size {
-            return Some(batch.drain(..).collect());
+            let count = batch.len();
+            let events = batch.drain(..).collect();
+            self.current_total_size -= count;
+            return Some(events);
         }
-        
+
         // Check if max wait time has elapsed
         let now = Instant::now();
         if now.duration_since(self.last_flush) >= Duration::from_millis(self.config.max_batch_wait_ms) {
             return self.flush_all();
         }
-        
+
         None
     }
     
     fn flush_all(&mut self) -> Option<Vec<FileEvent>> {
         self.last_flush = Instant::now();
-        
+
         let mut all_events = Vec::new();
         for batch in self.batches.values_mut() {
+            let count = batch.len();
             all_events.extend(batch.drain(..));
+            self.current_total_size -= count;
         }
-        
+
         if all_events.is_empty() {
             None
         } else {
             Some(all_events)
         }
+    }
+
+    /// Evict the oldest event from the oldest batch to make room
+    fn evict_oldest_event(&mut self) {
+        // Find the batch with the oldest event (earliest timestamp)
+        let mut oldest_key: Option<String> = None;
+        let mut oldest_time = Instant::now();
+
+        for (key, batch) in &self.batches {
+            if let Some(event) = batch.front() {
+                if event.timestamp < oldest_time {
+                    oldest_time = event.timestamp;
+                    oldest_key = Some(key.clone());
+                }
+            }
+        }
+
+        // Remove oldest event
+        if let Some(key) = oldest_key {
+            if let Some(batch) = self.batches.get_mut(&key) {
+                if batch.pop_front().is_some() {
+                    self.current_total_size -= 1;
+                    self.evictions += 1;
+                    tracing::debug!("Evicted oldest event from batch '{}' (total evictions: {})", key, self.evictions);
+
+                    // Remove empty batches to free memory
+                    if batch.is_empty() {
+                        self.batches.remove(&key);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Get eviction count
+    fn eviction_count(&self) -> u64 {
+        self.evictions
     }
 }
 
@@ -446,7 +500,7 @@ impl FileWatcher {
     pub fn new(config: WatcherConfig, task_submitter: TaskSubmitter) -> Result<Self, WatchingError> {
         let patterns = CompiledPatterns::new(&config)?;
         let debouncer = EventDebouncer::new(config.debounce_ms, config.max_debouncer_capacity);
-        let batcher = EventBatcher::new(config.batch_processing.clone());
+        let batcher = EventBatcher::new(config.batch_processing.clone(), config.max_batcher_capacity);
         
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
@@ -593,10 +647,10 @@ impl FileWatcher {
             let mut debouncer_lock = self.debouncer.lock().await;
             *debouncer_lock = EventDebouncer::new(new_config.debounce_ms, new_config.max_debouncer_capacity);
         }
-        
+
         {
             let mut batcher_lock = self.batcher.lock().await;
-            *batcher_lock = EventBatcher::new(new_config.batch_processing);
+            *batcher_lock = EventBatcher::new(new_config.batch_processing, new_config.max_batcher_capacity);
         }
         
         tracing::info!("Updated file watcher configuration");
@@ -617,6 +671,12 @@ impl FileWatcher {
         {
             let debouncer_lock = self.debouncer.lock().await;
             stats.debouncer_evictions = debouncer_lock.eviction_count();
+        }
+
+        // Add batcher evictions
+        {
+            let batcher_lock = self.batcher.lock().await;
+            stats.batcher_evictions = batcher_lock.eviction_count();
         }
 
         stats
