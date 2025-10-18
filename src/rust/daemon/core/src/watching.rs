@@ -58,9 +58,20 @@ pub struct WatcherConfig {
     
     /// Debounce time in milliseconds (minimum time between events for the same file)
     pub debounce_ms: u64,
-    
+
     /// Polling interval in milliseconds (for polling-based watching)
+    /// Recommended: 1000-5000ms for most use cases
+    /// - Lower values (100-500ms): More responsive but higher CPU usage
+    /// - Higher values (5000-10000ms): Lower CPU usage but less responsive
     pub polling_interval_ms: u64,
+
+    /// Minimum polling interval in milliseconds (safety bound)
+    /// Prevents overly aggressive polling that wastes CPU
+    pub min_polling_interval_ms: u64,
+
+    /// Maximum polling interval in milliseconds (safety bound)
+    /// Prevents overly slow polling that misses rapid changes
+    pub max_polling_interval_ms: u64,
     
     /// Maximum number of events to queue before dropping
     pub max_queue_size: usize,
@@ -106,12 +117,38 @@ pub struct BatchConfig {
     pub group_by_type: bool,
 }
 
+impl WatcherConfig {
+    /// Validate and clamp polling interval to safe bounds
+    ///
+    /// Ensures polling_interval_ms is within [min_polling_interval_ms, max_polling_interval_ms]
+    /// to prevent CPU waste (too fast) or missing changes (too slow)
+    pub fn validate_polling_interval(&mut self) {
+        if self.polling_interval_ms < self.min_polling_interval_ms {
+            tracing::warn!(
+                "Polling interval {}ms is below minimum {}ms, clamping to minimum",
+                self.polling_interval_ms,
+                self.min_polling_interval_ms
+            );
+            self.polling_interval_ms = self.min_polling_interval_ms;
+        }
+
+        if self.polling_interval_ms > self.max_polling_interval_ms {
+            tracing::warn!(
+                "Polling interval {}ms exceeds maximum {}ms, clamping to maximum",
+                self.polling_interval_ms,
+                self.max_polling_interval_ms
+            );
+            self.polling_interval_ms = self.max_polling_interval_ms;
+        }
+    }
+}
+
 impl Default for WatcherConfig {
     fn default() -> Self {
         Self {
             include_patterns: vec![
                 "*.txt".to_string(),
-                "*.md".to_string(), 
+                "*.md".to_string(),
                 "*.pdf".to_string(),
                 "*.epub".to_string(),
                 "*.docx".to_string(),
@@ -141,7 +178,9 @@ impl Default for WatcherConfig {
             recursive: true,
             max_depth: -1,
             debounce_ms: 1000, // 1 second debounce
-            polling_interval_ms: 1000,
+            polling_interval_ms: 1000, // 1 second polling (balanced default)
+            min_polling_interval_ms: 100, // 100ms minimum (prevents CPU waste)
+            max_polling_interval_ms: 60000, // 60 seconds maximum (prevents missing changes)
             max_queue_size: 10000,
             task_priority: TaskPriority::BackgroundWatching,
             default_collection: "documents".to_string(),
@@ -613,6 +652,12 @@ impl FileWatcher {
     
     /// Start watching the specified path
     pub async fn watch_path(&self, path: &Path) -> Result<(), WatchingError> {
+        // Validate and clamp polling interval to safe bounds
+        {
+            let mut config = self.config.write().await;
+            config.validate_polling_interval();
+        }
+
         let config = self.config.read().await;
         
         // Validate path
@@ -723,7 +768,10 @@ impl FileWatcher {
     }
     
     /// Update configuration (requires restart to take effect for some settings)
-    pub async fn update_config(&self, new_config: WatcherConfig) -> Result<(), WatchingError> {
+    pub async fn update_config(&self, mut new_config: WatcherConfig) -> Result<(), WatchingError> {
+        // Validate and clamp polling interval to safe bounds
+        new_config.validate_polling_interval();
+
         let new_patterns = CompiledPatterns::new(&new_config)?;
         
         {
