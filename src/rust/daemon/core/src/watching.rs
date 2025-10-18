@@ -252,7 +252,7 @@ impl EventDebouncer {
                     self.evictions += 1;
                     tracing::warn!("EventDebouncer at capacity, flushing oldest event to prevent data loss");
                 }
-                return (false, evicted);
+                return (false, evicted.map(|(_, event)| event));
             }
         }
 
@@ -262,7 +262,7 @@ impl EventDebouncer {
             self.evictions += 1;
             tracing::warn!("EventDebouncer at capacity, flushing oldest event to prevent data loss");
         }
-        (true, evicted)
+        (true, evicted.map(|(_, event)| event))
     }
     
     /// Get events that are ready to be processed (past debounce period)
@@ -1030,49 +1030,67 @@ impl FileWatcher {
     }
     
     /// Process existing files in a directory (for initial scan)
+    ///
+    /// Optimized version with:
+    /// - Adaptive time-based yielding (not fixed file count)
+    /// - Batch processing for better throughput
+    /// - Progress reporting for large directories
     async fn process_existing_files(&self, root_path: &Path) -> Result<(), WatchingError> {
         let config = self.config.read().await;
         let patterns = self.patterns.read().await;
-        
+
         let max_depth = if config.max_depth < 0 {
             usize::MAX
         } else {
             config.max_depth as usize
         };
-        
+
         let walker = if config.recursive {
             WalkDir::new(root_path).max_depth(max_depth)
         } else {
             WalkDir::new(root_path).max_depth(1)
         };
-        
+
         let mut file_count = 0;
+        let mut filtered_count = 0;
         let start_time = Instant::now();
-        
+        let mut last_yield = Instant::now();
+        let mut last_progress_report = Instant::now();
+        let mut batch_buffer: Vec<FileEvent> = Vec::with_capacity(50);
+
+        // Adaptive yielding: yield every 10ms to prevent blocking
+        const YIELD_INTERVAL_MS: u64 = 10;
+        // Progress reporting every 5 seconds for large scans
+        const PROGRESS_REPORT_INTERVAL_S: u64 = 5;
+        // Batch size for submissions
+        const BATCH_SIZE: usize = 50;
+
         for entry in walker {
             match entry {
                 Ok(entry) => {
                     let path = entry.path();
-                    
+
                     // Skip directories
                     if !path.is_file() {
                         continue;
                     }
-                    
+
                     // Check patterns
                     if !patterns.should_process(path) {
+                        filtered_count += 1;
                         continue;
                     }
-                    
+
                     // Check file size
                     if let Some(max_size) = config.max_file_size {
                         if let Ok(metadata) = path.metadata() {
                             if metadata.len() > max_size {
+                                filtered_count += 1;
                                 continue;
                             }
                         }
                     }
-                    
+
                     // Create a synthetic file event
                     let event = FileEvent {
                         path: path.to_path_buf(),
@@ -1082,21 +1100,40 @@ impl FileWatcher {
                         size: path.metadata().ok().map(|m| m.len()),
                         metadata: HashMap::new(),
                     };
-                    
-                    // Process directly (skip debouncing for initial scan)
-                    Self::handle_ready_event(
-                        event, 
-                        &self.batcher, 
-                        &self.config, 
-                        &self.task_submitter, 
-                        &self.stats
-                    ).await;
-                    
+
+                    batch_buffer.push(event);
                     file_count += 1;
-                    
-                    // Prevent blocking the async runtime for too long
-                    if file_count % 100 == 0 {
+
+                    // Submit batch when full
+                    if batch_buffer.len() >= BATCH_SIZE {
+                        Self::submit_batch_directly(
+                            &batch_buffer,
+                            &self.batcher,
+                            &self.config,
+                            &self.task_submitter,
+                            &self.stats
+                        ).await;
+                        batch_buffer.clear();
+                    }
+
+                    // Adaptive yielding based on time, not file count
+                    let now = Instant::now();
+                    if now.duration_since(last_yield) >= Duration::from_millis(YIELD_INTERVAL_MS) {
                         tokio::task::yield_now().await;
+                        last_yield = now;
+                    }
+
+                    // Progress reporting for large scans
+                    if now.duration_since(last_progress_report) >= Duration::from_secs(PROGRESS_REPORT_INTERVAL_S) {
+                        let elapsed = start_time.elapsed();
+                        let rate = file_count as f64 / elapsed.as_secs_f64();
+                        tracing::info!(
+                            "Initial scan progress: {} files processed, {} filtered ({:.1} files/sec)",
+                            file_count,
+                            filtered_count,
+                            rate
+                        );
+                        last_progress_report = now;
                     }
                 },
                 Err(e) => {
@@ -1104,27 +1141,65 @@ impl FileWatcher {
                 }
             }
         }
-        
-        // Flush any remaining batched events
+
+        // Submit remaining batch
+        if !batch_buffer.is_empty() {
+            Self::submit_batch_directly(
+                &batch_buffer,
+                &self.batcher,
+                &self.config,
+                &self.task_submitter,
+                &self.stats
+            ).await;
+        }
+
+        // Flush any remaining batched events from batcher
         {
             let ready_batch = {
                 let mut batcher_lock = self.batcher.lock().await;
                 batcher_lock.flush_all()
             };
-            
+
             if let Some(batch) = ready_batch {
                 Self::submit_processing_tasks(batch, &self.config, &self.task_submitter, &self.stats).await;
             }
         }
-        
+
         let elapsed = start_time.elapsed();
+        let rate = if elapsed.as_secs() > 0 {
+            file_count as f64 / elapsed.as_secs_f64()
+        } else {
+            0.0
+        };
+
         tracing::info!(
-            "Initial file scan complete: {} files found in {:?}",
+            "Initial file scan complete: {} files processed, {} filtered in {:?} ({:.1} files/sec)",
             file_count,
-            elapsed
+            filtered_count,
+            elapsed,
+            rate
         );
-        
+
         Ok(())
+    }
+
+    /// Submit a batch of events directly for processing (used in initial scan)
+    async fn submit_batch_directly(
+        events: &[FileEvent],
+        batcher: &Arc<Mutex<EventBatcher>>,
+        config: &Arc<RwLock<WatcherConfig>>,
+        task_submitter: &TaskSubmitter,
+        stats: &Arc<Mutex<WatchingStats>>,
+    ) {
+        for event in events {
+            Self::handle_ready_event(
+                event.clone(),
+                batcher,
+                config,
+                task_submitter,
+                stats
+            ).await;
+        }
     }
     
     /// Clean up old events from debouncer

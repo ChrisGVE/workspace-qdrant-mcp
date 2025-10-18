@@ -1468,7 +1468,67 @@ impl TaskSubmitter {
             );
         }
 
-        // Try to enqueue with request queue first (for timeout and deduplication)
+        // Check queue capacity BEFORE enqueuing (to implement retry without cloning task)
+        // Queue is full - apply aggressive backpressure with retry
+        //
+        // NOTE: Full SQLite spill-to-disk implementation requires:
+        // 1. Schema coordination with Python SQLiteStateManager (ingestion_queue table)
+        // 2. Daemon startup logic to process spilled tasks from SQLite
+        // 3. Transaction management to prevent duplicate processing
+        //
+        // For now, we use blocking retry with exponential backoff to prevent data loss
+        // while staying within in-memory bounds. This ensures zero data loss by blocking
+        // the producer (file watcher) until queue space is available.
+        //
+        // TODO(issue #17 - layer 3): Implement proper SQLite spill for unbounded overflow handling
+
+        let max_retries = 5;
+        let mut retry_delay_ms = 100;
+
+        for attempt in 0..max_retries {
+            if !self.request_queue.has_capacity() {
+                if attempt > 0 {
+                    self.metrics_collector.record_queue_overflow();
+                    tracing::warn!(
+                        "Queue overflow: retry attempt {}/{} for task {} after {}ms delay",
+                        attempt, max_retries, task_id, retry_delay_ms
+                    );
+                } else {
+                    self.metrics_collector.record_queue_overflow();
+                    tracing::error!(
+                        "Request queue FULL, task {} will be retried with backpressure - file watching BLOCKED until queue drains",
+                        task_id
+                    );
+                }
+
+                if attempt < max_retries - 1 {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(retry_delay_ms)).await;
+                    retry_delay_ms *= 2; // Exponential backoff
+                    continue;
+                } else {
+                    // All retries exhausted
+                    tracing::error!(
+                        "Task {} REJECTED after {} retry attempts - queue still full",
+                        task_id, max_retries
+                    );
+                    return Err(PriorityError::QueueCapacityExceeded {
+                        current: self.request_queue.size(),
+                        max: self.request_queue.capacity()
+                    });
+                }
+            } else {
+                // Queue has capacity, break out of retry loop
+                if attempt > 0 {
+                    tracing::info!(
+                        "Task {} successfully queued after {} retry attempts",
+                        task_id, attempt
+                    );
+                }
+                break;
+            }
+        }
+
+        // Now enqueue the task (should succeed since we checked capacity)
         match self.request_queue.enqueue(task, queue_timeout).await {
             Ok(_) => {
                 // Task was successfully queued, now dequeue and send to pipeline
@@ -1480,69 +1540,6 @@ impl TaskSubmitter {
                     return Err(PriorityError::Communication(
                         "Task was queued but could not be dequeued".to_string()
                     ));
-                }
-            }
-            Err(PriorityError::QueueCapacityExceeded { current, max }) => {
-                // Queue is full - apply aggressive backpressure with retry
-                //
-                // NOTE: Full SQLite spill-to-disk implementation requires:
-                // 1. Schema coordination with Python SQLiteStateManager (ingestion_queue table)
-                // 2. Daemon startup logic to process spilled tasks from SQLite
-                // 3. Transaction management to prevent duplicate processing
-                //
-                // For now, we use blocking retry with exponential backoff to prevent data loss
-                // while staying within in-memory bounds. This ensures zero data loss by blocking
-                // the producer (file watcher) until queue space is available.
-                //
-                // TODO(issue #17 - layer 3): Implement proper SQLite spill for unbounded overflow handling
-
-                self.metrics_collector.record_queue_overflow();
-                tracing::error!(
-                    "Request queue FULL ({}/{}), task {} will be retried with backpressure - file watching BLOCKED until queue drains",
-                    current, max, task_id
-                );
-
-                // Apply exponential backoff retry (up to 5 attempts)
-                let max_retries = 5;
-                let mut retry_delay_ms = 100; // Start with 100ms
-
-                for attempt in 1..=max_retries {
-                    tokio::time::sleep(tokio::time::Duration::from_millis(retry_delay_ms)).await;
-
-                    tracing::warn!(
-                        "Queue overflow: retry attempt {}/{} for task {} after {}ms delay",
-                        attempt, max_retries, task_id, retry_delay_ms
-                    );
-
-                    // Try to enqueue again
-                    match self.request_queue.enqueue(task.clone(), queue_timeout).await {
-                        Ok(_) => {
-                            tracing::info!(
-                                "Task {} successfully queued after {} retry attempts",
-                                task_id, attempt
-                            );
-                            // Successfully queued, proceed to dequeue and send
-                            if let Some(queued_task) = self.request_queue.dequeue().await {
-                                self.sender.send(queued_task)
-                                    .map_err(|_| PriorityError::Communication("Pipeline is shutting down".to_string()))?;
-                                break;  // Success, exit retry loop
-                            }
-                        }
-                        Err(PriorityError::QueueCapacityExceeded { .. }) if attempt < max_retries => {
-                            // Still full, exponential backoff
-                            retry_delay_ms *= 2; // Double the delay (100ms -> 200ms -> 400ms -> 800ms -> 1.6s)
-                            continue;
-                        }
-                        Err(PriorityError::QueueCapacityExceeded { current, max }) => {
-                            // All retries exhausted, final rejection
-                            tracing::error!(
-                                "Task {} REJECTED after {} retry attempts - queue still full ({}/{})",
-                                task_id, max_retries, current, max
-                            );
-                            return Err(PriorityError::QueueCapacityExceeded { current, max });
-                        }
-                        Err(e) => return Err(e),
-                    }
                 }
             }
             Err(e) => return Err(e),
@@ -2056,6 +2053,23 @@ impl RequestQueue {
             let mut timeout_lock = timeout_manager.lock().await;
             timeout_lock.remove(&task_id);
         }
+    }
+
+    /// Check if the queue has capacity for a new task
+    pub fn has_capacity(&self) -> bool {
+        let current_total = self.total_queued.load(AtomicOrdering::Relaxed) as usize;
+        let max_total = self.config.max_queued_per_priority * 4; // 4 priority levels
+        current_total < max_total
+    }
+
+    /// Get current queue size
+    pub fn size(&self) -> usize {
+        self.total_queued.load(AtomicOrdering::Relaxed) as usize
+    }
+
+    /// Get maximum queue capacity
+    pub fn capacity(&self) -> usize {
+        self.config.max_queued_per_priority * 4 // 4 priority levels
     }
 }
 
