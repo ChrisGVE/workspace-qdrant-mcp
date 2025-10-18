@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::collections::HashMap;
 
 /// Embedded YAML content - loaded at compile time
-struct EmbeddedPatterns {
+struct _EmbeddedPatterns {
     project_indicators: &'static str,
     exclude_patterns: &'static str,
     include_patterns: &'static str,
@@ -21,7 +21,7 @@ struct EmbeddedPatterns {
 }
 
 /// Compile-time embedded pattern files using include_str! macro
-static EMBEDDED_PATTERNS: EmbeddedPatterns = EmbeddedPatterns {
+static _EMBEDDED_PATTERNS: _EmbeddedPatterns = _EmbeddedPatterns {
     project_indicators: include_str!("../../../../../../patterns/project_indicators.yaml"),
     exclude_patterns: include_str!("../../../../../../patterns/exclude_patterns.yaml"),
     include_patterns: include_str!("../../../../../../patterns/include_patterns.yaml"),

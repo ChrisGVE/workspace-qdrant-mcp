@@ -94,7 +94,7 @@ pub struct RequeueStats {
 
 /// Tool availability state
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct ToolAvailability {
+struct _ToolAvailability {
     tool_type: String,
     language: String,
     tool_path: Option<String>,

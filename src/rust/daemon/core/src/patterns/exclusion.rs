@@ -340,7 +340,7 @@ pub struct ExclusionStats {
 /// Classify and store a pattern in the appropriate fast lookup structure
 fn classify_and_store_pattern(
     pattern: &str,
-    rule: &ExclusionRule,
+    _rule: &ExclusionRule,
     exact_matches: &mut HashSet<String>,
     prefix_patterns: &mut Vec<String>,
     suffix_patterns: &mut Vec<String>,

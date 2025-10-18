@@ -72,10 +72,10 @@ pub struct DiscoveryManager {
     
     /// Health checker for service monitoring
     health_checker: HealthChecker,
-    
+
     /// Unified configuration manager for fallback
-    config_manager: UnifiedConfigManager,
-    
+    _config_manager: UnifiedConfigManager,
+
     /// Discovery configuration
     config: DiscoveryConfig,
     
@@ -133,7 +133,7 @@ impl DiscoveryManager {
                 NetworkDiscovery::new("239.255.42.42", 9999, None).unwrap()
             }),
             health_checker,
-            config_manager,
+            _config_manager: config_manager,
             config: config.clone(),
             event_sender,
             known_services: Arc::new(RwLock::new(HashMap::new())),

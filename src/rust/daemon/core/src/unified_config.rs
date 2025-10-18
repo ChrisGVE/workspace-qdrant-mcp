@@ -196,12 +196,12 @@ impl UnifiedConfigManager {
         }
 
         if let Ok(enable_metrics) = std::env::var(format!("{}ENABLE_METRICS", ENV_PREFIX)) {
-            config.enable_metrics = enable_metrics.parse()
+            config.observability.metrics.enabled = enable_metrics.parse()
                 .map_err(|e| UnifiedConfigError::ValidationError(format!("Invalid enable_metrics: {}", e)))?;
         }
 
         if let Ok(metrics_interval) = std::env::var(format!("{}METRICS_INTERVAL_SECS", ENV_PREFIX)) {
-            config.metrics_interval_secs = metrics_interval.parse()
+            config.observability.collection_interval = metrics_interval.parse()
                 .map_err(|e| UnifiedConfigError::ValidationError(format!("Invalid metrics_interval_secs: {}", e)))?;
         }
 

@@ -98,14 +98,14 @@ pub struct ProjectDetector {
     /// Build system patterns for fast lookup
     build_system_patterns: HashMap<String, BuildSystemPattern>,
     /// Project indicator patterns
-    project_indicators: ProjectIndicators,
+    _project_indicators: ProjectIndicators,
     /// Language ecosystem patterns
-    language_ecosystems: HashMap<String, EcosystemPattern>,
+    _language_ecosystems: HashMap<String, EcosystemPattern>,
 }
 
 #[derive(Debug, Clone)]
 struct BuildSystemPattern {
-    name: String,
+    _name: String,
     language: String,
     files: Vec<String>,
     commands: Vec<String>,
@@ -114,17 +114,17 @@ struct BuildSystemPattern {
 
 #[derive(Debug, Clone)]
 struct ProjectIndicators {
-    version_control: Vec<String>,
-    ci_cd: Vec<String>,
-    containerization: Vec<String>,
-    config_management: Vec<String>,
+    _version_control: Vec<String>,
+    _ci_cd: Vec<String>,
+    _containerization: Vec<String>,
+    _config_management: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 struct EcosystemPattern {
-    language: String,
-    indicators: Vec<String>,
-    frameworks: HashMap<String, Vec<String>>,
+    _language: String,
+    _indicators: Vec<String>,
+    _frameworks: HashMap<String, Vec<String>>,
 }
 
 /// Global project detector instance
@@ -142,7 +142,7 @@ impl ProjectDetector {
         let mut build_system_patterns = HashMap::new();
         for (name, build_config) in &config.build_systems {
             let pattern = BuildSystemPattern {
-                name: name.clone(),
+                _name: name.clone(),
                 language: build_config.language.clone(),
                 files: build_config.files.clone(),
                 commands: build_config.commands.clone(),
@@ -153,17 +153,17 @@ impl ProjectDetector {
 
         // Build project indicators
         let project_indicators = ProjectIndicators {
-            version_control: config.project_indicators.version_control.clone(),
-            ci_cd: config.project_indicators.ci_cd.clone(),
-            containerization: config.project_indicators.containerization.clone(),
-            config_management: config.project_indicators.config_management.clone(),
+            _version_control: config.project_indicators.version_control.clone(),
+            _ci_cd: config.project_indicators.ci_cd.clone(),
+            _containerization: config.project_indicators.containerization.clone(),
+            _config_management: config.project_indicators.config_management.clone(),
         };
 
         // Build language ecosystem patterns
         let mut language_ecosystems = HashMap::new();
 
         // Create ecosystem patterns for major languages
-        for (ext, language) in &config.file_extensions {
+        for (_ext, language) in &config.file_extensions {
             if !language_ecosystems.contains_key(language) {
                 let indicators = config.project_indicators.language_ecosystems
                     .iter()
@@ -176,9 +176,9 @@ impl ProjectDetector {
                     .collect();
 
                 let ecosystem = EcosystemPattern {
-                    language: language.clone(),
-                    indicators,
-                    frameworks: detect_frameworks_for_language(language),
+                    _language: language.clone(),
+                    _indicators: indicators,
+                    _frameworks: detect_frameworks_for_language(language),
                 };
                 language_ecosystems.insert(language.clone(), ecosystem);
             }
@@ -192,8 +192,8 @@ impl ProjectDetector {
 
         Ok(Self {
             build_system_patterns,
-            project_indicators,
-            language_ecosystems,
+            _project_indicators: project_indicators,
+            _language_ecosystems: language_ecosystems,
         })
     }
 
@@ -255,7 +255,7 @@ impl ProjectDetector {
     /// Detect build systems from file patterns
     fn detect_build_systems(&self, files: &[String], details: &mut DetectionDetails) -> Vec<BuildSystemInfo> {
         let mut detected_systems = Vec::new();
-        let file_set: HashSet<&str> = files.iter().map(|f| f.as_str()).collect();
+        let _file_set: HashSet<&str> = files.iter().map(|f| f.as_str()).collect();
 
         for (name, pattern) in &self.build_system_patterns {
             let mut matched_files = Vec::new();
@@ -352,7 +352,7 @@ impl ProjectDetector {
     }
 
     /// Detect frameworks based on file patterns and languages
-    fn detect_frameworks(&self, files: &[String], languages: &[String], details: &mut DetectionDetails) -> Vec<String> {
+    fn detect_frameworks(&self, files: &[String], _languages: &[String], details: &mut DetectionDetails) -> Vec<String> {
         let mut frameworks = Vec::new();
 
         // Framework detection patterns
