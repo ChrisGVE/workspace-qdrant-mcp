@@ -367,7 +367,7 @@ impl NetworkDiscovery {
     }
 
     /// Process received discovery message
-    async fn process_message(&self, message: DiscoveryMessage, sender_addr: SocketAddr) -> Result<(), NetworkError> {
+    async fn _process_message(&self, message: DiscoveryMessage, sender_addr: SocketAddr) -> Result<(), NetworkError> {
         debug!("Processing {} message from {} for service {}", 
                serde_json::to_string(&message.message_type).unwrap_or_default(),
                sender_addr,
@@ -382,7 +382,7 @@ impl NetworkDiscovery {
         match message.message_type {
             DiscoveryMessageType::ServiceAnnouncement => {
                 if let DiscoveryPayload::ServiceInfo(service_info) = message.payload {
-                    self.cache_discovered_service(&message.service_name, service_info.clone()).await;
+                    self._cache_discovered_service(&message.service_name, service_info.clone()).await;
                     
                     let _ = self.event_sender.send(DiscoveryEvent::ServiceDiscovered {
                         service_name: message.service_name.clone(),
@@ -407,7 +407,7 @@ impl NetworkDiscovery {
             }
             
             DiscoveryMessageType::ServiceShutdown => {
-                self.remove_cached_service(&message.service_name).await;
+                self._remove_cached_service(&message.service_name).await;
                 let _ = self.event_sender.send(DiscoveryEvent::ServiceLost {
                     service_name: message.service_name,
                 });
@@ -422,13 +422,13 @@ impl NetworkDiscovery {
     }
 
     /// Cache a discovered service
-    async fn cache_discovered_service(&self, service_name: &str, service_info: ServiceInfo) {
+    async fn _cache_discovered_service(&self, service_name: &str, service_info: ServiceInfo) {
         let mut services_guard = self.discovered_services.write().await;
         services_guard.insert(service_name.to_string(), (service_info, SystemTime::now()));
     }
 
     /// Remove cached service
-    async fn remove_cached_service(&self, service_name: &str) {
+    async fn _remove_cached_service(&self, service_name: &str) {
         let mut services_guard = self.discovered_services.write().await;
         services_guard.remove(service_name);
     }

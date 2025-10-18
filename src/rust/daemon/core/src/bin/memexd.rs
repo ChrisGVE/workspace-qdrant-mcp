@@ -10,16 +10,11 @@ use std::process;
 use tokio::signal;
 use tracing::{error, info, warn};
 
-// Platform-specific imports for stderr suppression
-// Note: AsRawFd is imported locally where used to avoid unused import warnings
-// Removed unused imports: EnvFilter, FmtSubscriber
 use workspace_qdrant_core::{
-    ProcessingEngine, config::{Config, DaemonConfig},
+    config::Config,
     LoggingConfig, initialize_logging,
     unified_config::{UnifiedConfigManager, UnifiedConfigError},
-    queue_processor::{QueueProcessor, ProcessorConfig},
-    queue_config::QueueConnectionConfig,
-    // Removed unused imports: ErrorRecovery, ErrorRecoveryStrategy, track_async_operation, LoggingErrorMonitor
+    ipc::IpcServer,
 };
 
 /// Command-line arguments for memexd daemon
@@ -60,8 +55,8 @@ fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
         .version("0.2.0")
         .author("Christian C. Berclaz <christian.berclaz@mac.com>")
         .about("Memory eXchange Daemon - Document processing and embedding generation service")
-        .disable_help_flag(is_daemon) // Disable help in daemon mode to prevent output
-        .disable_version_flag(is_daemon) // Disable version in daemon mode
+        .disable_help_flag(is_daemon)
+        .disable_version_flag(is_daemon)
         .arg(
             Arg::new("config")
                 .short('c')
@@ -114,24 +109,20 @@ fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
     let matches = match matches {
         Ok(m) => m,
         Err(e) => {
-            // Handle argument parsing errors gracefully
             if is_daemon {
-                // In daemon mode, exit silently without stderr output
                 process::exit(1);
             } else {
-                // In interactive mode, show helpful error message
                 eprintln!("Error: {}", e);
                 process::exit(1);
             }
         }
     };
 
-    // Extract arguments with proper error handling instead of unwrap()
     let log_level = matches.get_one::<String>("log-level")
-        .ok_or("Missing log-level parameter (this should not happen with default value)")?;
+        .ok_or("Missing log-level parameter")?;
 
     let pid_file = matches.get_one::<PathBuf>("pid-file")
-        .ok_or("Missing pid-file parameter (this should not happen with default value)")?;
+        .ok_or("Missing pid-file parameter")?;
 
     Ok(DaemonArgs {
         config_file: matches.get_one::<PathBuf>("config").cloned(),
@@ -145,19 +136,18 @@ fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
 
 /// Suppress third-party library output in daemon mode
 fn suppress_third_party_output() {
-    // Set environment variables to suppress third-party library output
     let suppression_vars = [
-        ("ORT_LOGGING_LEVEL", "4"),     // ONNX Runtime - only fatal errors
-        ("OMP_NUM_THREADS", "1"),       // Disable OpenMP threading messages
-        ("TOKENIZERS_PARALLELISM", "false"), // Disable tokenizers parallel output
-        ("HF_HUB_DISABLE_PROGRESS_BARS", "1"), // Disable HuggingFace progress bars
-        ("HF_HUB_DISABLE_TELEMETRY", "1"), // Disable HuggingFace telemetry
-        ("NO_COLOR", "1"),              // Disable all ANSI color output
-        ("TERM", "dumb"),               // Force dumb terminal mode
-        ("RUST_BACKTRACE", "0"),        // Disable Rust panic backtraces
-        ("TTY_DETECTION_SILENT", "1"),  // Suppress TTY detection debug messages
-        ("ATTY_FORCE_DISABLE_DEBUG", "1"), // Suppress atty crate debug output
-        ("WQM_TTY_DEBUG", "0"),         // Disable internal TTY debug output
+        ("ORT_LOGGING_LEVEL", "4"),
+        ("OMP_NUM_THREADS", "1"),
+        ("TOKENIZERS_PARALLELISM", "false"),
+        ("HF_HUB_DISABLE_PROGRESS_BARS", "1"),
+        ("HF_HUB_DISABLE_TELEMETRY", "1"),
+        ("NO_COLOR", "1"),
+        ("TERM", "dumb"),
+        ("RUST_BACKTRACE", "0"),
+        ("TTY_DETECTION_SILENT", "1"),
+        ("ATTY_FORCE_DISABLE_DEBUG", "1"),
+        ("WQM_TTY_DEBUG", "0"),
     ];
 
     for (key, value) in &suppression_vars {
@@ -167,27 +157,22 @@ fn suppress_third_party_output() {
 
 /// Initialize comprehensive logging with daemon mode support
 fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::error::Error>> {
-    // Set service mode environment variable if not running in foreground
     if !foreground {
         std::env::set_var("WQM_SERVICE_MODE", "true");
-        // Suppress TTY detection debug output first, before any TTY checks
         workspace_qdrant_core::logging::suppress_tty_debug_output();
-        // Suppress third-party output early in daemon mode
         suppress_third_party_output();
     }
 
     let mut config = if foreground {
         LoggingConfig::development()
     } else {
-        // In daemon mode, configure for complete silence
         let mut prod_config = LoggingConfig::production();
-        prod_config.console_output = false; // Disable console output completely
-        prod_config.file_logging = false;   // Let launchd handle file logging
+        prod_config.console_output = false;
+        prod_config.file_logging = false;
         prod_config.force_disable_ansi = Some(true);
         prod_config
     };
 
-    // Parse log level
     use tracing::Level;
     config.level = match log_level.to_lowercase().as_str() {
         "error" => Level::ERROR,
@@ -198,30 +183,26 @@ fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::er
         _ => Level::INFO,
     };
 
-    // In daemon mode, force level to OFF for complete silence
     if !foreground {
-        config.level = Level::ERROR; // Minimal logging level
+        config.level = Level::ERROR;
     }
 
     initialize_logging(config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
 }
 
-/// Create PID file with current process ID, with project-specific naming support
+/// Create PID file with current process ID
 fn create_pid_file(pid_file: &Path, project_id: Option<&String>) -> Result<(), Box<dyn std::error::Error>> {
     let pid = process::id();
 
-    // Create parent directory if it doesn't exist
     if let Some(parent) = pid_file.parent() {
         if !parent.exists() {
             fs::create_dir_all(parent)?;
         }
     }
 
-    // Write PID file atomically
     let temp_file = pid_file.with_extension("tmp");
     fs::write(&temp_file, format!("{}\n", pid))?;
 
-    // Set appropriate permissions (readable by owner and group)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -230,7 +211,6 @@ fn create_pid_file(pid_file: &Path, project_id: Option<&String>) -> Result<(), B
         fs::set_permissions(&temp_file, perms)?;
     }
 
-    // Atomically move temp file to final location
     fs::rename(&temp_file, pid_file)?;
 
     let project_info = project_id.map(|id| format!(" for project {}", id)).unwrap_or_default();
@@ -240,7 +220,6 @@ fn create_pid_file(pid_file: &Path, project_id: Option<&String>) -> Result<(), B
 
 /// Remove PID file and any temporary files
 fn remove_pid_file(pid_file: &Path) {
-    // Remove main PID file
     if let Err(e) = fs::remove_file(pid_file) {
         if e.kind() != std::io::ErrorKind::NotFound {
             warn!("Failed to remove PID file {}: {}", pid_file.display(), e);
@@ -249,22 +228,18 @@ fn remove_pid_file(pid_file: &Path) {
         info!("Removed PID file {}", pid_file.display());
     }
 
-    // Also clean up any temporary files
     let temp_file = pid_file.with_extension("tmp");
     if temp_file.exists() {
-        if let Err(e) = fs::remove_file(&temp_file) {
-            warn!("Failed to remove temporary PID file {}: {}", temp_file.display(), e);
-        }
+        let _ = fs::remove_file(&temp_file);
     }
 }
 
-/// Check if another instance is already running for this project
+/// Check if another instance is already running
 fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Result<(), Box<dyn std::error::Error>> {
     if pid_file.exists() {
         let pid_content = fs::read_to_string(pid_file)?;
         let pid: u32 = pid_content.trim().parse()?;
 
-        // Check if process with this PID is still running and is memexd
         #[cfg(unix)]
         {
             use std::process::Command;
@@ -276,25 +251,18 @@ fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Resu
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let process_name = stdout.trim();
 
-                // Check if it's actually a memexd process
                 if process_name.contains("memexd") {
                     let project_info = project_id.map(|id| format!(" for project {}", id)).unwrap_or_default();
                     return Err(format!(
-                        "Another memexd instance is already running{} with PID {} (process: {}). \
-                         Use 'kill {}' to stop it or remove stale PID file at {}",
-                        project_info, pid, process_name, pid, pid_file.display()
+                        "Another memexd instance is already running{} with PID {}",
+                        project_info, pid
                     ).into());
                 } else {
-                    // PID exists but it's not memexd - remove stale file
-                    warn!(
-                        "PID file {} contains PID {} but process '{}' is not memexd, removing stale file",
-                        pid_file.display(), pid, process_name
-                    );
+                    warn!("PID file contains non-memexd process, removing stale file");
                 }
             }
         }
 
-        // Windows process detection
         #[cfg(windows)]
         {
             use std::process::Command;
@@ -305,22 +273,11 @@ fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Resu
             if output.status.success() && !output.stdout.is_empty() {
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 if !stdout.trim().is_empty() && stdout.contains("memexd") {
-                    return Err(format!(
-                        "Another memexd instance is already running with PID {}. \
-                         Use 'taskkill /PID {}' to stop it or remove stale PID file at {}",
-                        pid, pid, pid_file.display()
-                    ).into());
-                } else if !stdout.trim().is_empty() {
-                    // PID exists but it's not memexd - remove stale file
-                    warn!(
-                        "PID file {} contains PID {} but process is not memexd, removing stale file",
-                        pid_file.display(), pid
-                    );
+                    return Err(format!("Another memexd instance is already running with PID {}", pid).into());
                 }
             }
         }
 
-        // PID file exists but process is not running - remove stale file
         warn!("Found stale PID file {}, removing it", pid_file.display());
         fs::remove_file(pid_file)?;
     }
@@ -328,30 +285,21 @@ fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Resu
 }
 
 /// Load configuration from file or use defaults
-fn load_config(args: &DaemonArgs) -> Result<(Config, DaemonConfig), Box<dyn std::error::Error>> {
+fn load_config(args: &DaemonArgs) -> Result<Config, Box<dyn std::error::Error>> {
     let is_daemon_mode = detect_daemon_mode();
-
-    // Initialize unified config manager
     let config_manager = UnifiedConfigManager::new(None::<PathBuf>);
 
-    // Load configuration using unified config manager
-    let mut daemon_config = match &args.config_file {
+    let config = match &args.config_file {
         Some(config_path) => {
             info!("Loading configuration from {}", config_path.display());
-
-            // Use unified config manager to load the file
             match config_manager.load_config(Some(config_path)) {
-                Ok(config) => {
-                    info!("Configuration loaded successfully from {} using unified config manager", config_path.display());
-                    config
+                Ok(daemon_config) => {
+                    info!("Configuration loaded successfully");
+                    Config::from(daemon_config)
                 },
                 Err(UnifiedConfigError::FileNotFound(path)) => {
                     error!("Configuration file not found: {}", path.display());
                     return Err(format!("Configuration file not found: {}", path.display()).into());
-                },
-                Err(UnifiedConfigError::YamlError(msg)) => {
-                    error!("YAML parsing error: {}", msg);
-                    return Err(format!("YAML parsing error: {}", msg).into());
                 },
                 Err(e) => {
                     error!("Configuration loading error: {}", e);
@@ -361,59 +309,30 @@ fn load_config(args: &DaemonArgs) -> Result<(Config, DaemonConfig), Box<dyn std:
         }
         None => {
             info!("Auto-discovering configuration files");
-
-            // Auto-discover configuration with YAML preference
             match config_manager.load_config(None) {
-                Ok(config) => {
-                    info!("Configuration auto-discovered and loaded using unified config manager");
-                    config
+                Ok(daemon_config) => {
+                    info!("Configuration auto-discovered");
+                    Config::from(daemon_config)
                 },
-                Err(e) => {
-                    info!("No configuration file found or error loading: {}, using defaults", e);
-
-                    // Use daemon-mode configuration if running as daemon for MCP compliance
+                Err(_) => {
+                    info!("Using default configuration");
                     if is_daemon_mode {
-                        DaemonConfig::daemon_mode()
+                        let mut cfg = Config::default();
+                        cfg.enable_metrics = false;
+                        cfg
                     } else {
-                        DaemonConfig::default()
+                        Config::default()
                     }
                 }
             }
         }
     };
 
-    // Override with daemon-mode settings if in daemon mode for MCP compliance
-    if is_daemon_mode {
-        daemon_config.qdrant.check_compatibility = false;
-    }
-
-    // Apply environment variable overrides to queue processor settings
-    daemon_config.queue_processor.apply_env_overrides();
-
-    // Validate queue processor configuration
-    if let Err(e) = daemon_config.queue_processor.validate() {
-        error!("Invalid queue processor configuration: {}", e);
-        return Err(format!("Invalid queue processor configuration: {}", e).into());
-    }
-
-    // Convert to engine config for backward compatibility
-    let engine_config = Config::from(daemon_config.clone());
-
-    // Note: Port configuration would be handled by IPC layer if needed
     if args.port.is_some() {
-        info!("Port override specified: {}, but will be handled by IPC layer", args.port.unwrap());
+        info!("Port override specified: {}", args.port.unwrap());
     }
 
-    info!("Configuration loaded successfully - Qdrant transport: {:?}", daemon_config.qdrant.transport);
-    info!(
-        "Queue processor config: batch_size={}, poll_interval={}ms, max_retries={}, target_throughput={} docs/min",
-        daemon_config.queue_processor.batch_size,
-        daemon_config.queue_processor.poll_interval_ms,
-        daemon_config.queue_processor.max_retries,
-        daemon_config.queue_processor.target_throughput
-    );
-
-    Ok((engine_config, daemon_config))
+    Ok(config)
 }
 
 /// Set up signal handlers for graceful shutdown
@@ -438,7 +357,6 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(not(unix))]
     {
-        // On non-Unix systems (Windows), only handle Ctrl+C
         signal::ctrl_c().await?;
         info!("Received Ctrl+C, initiating graceful shutdown");
     }
@@ -446,141 +364,35 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Initialize queue processor with SQLite connection and daemon configuration
-async fn initialize_queue_processor(daemon_config: &DaemonConfig) -> Result<QueueProcessor, Box<dyn std::error::Error>> {
-    use std::env;
-
-    // Determine database location (same as daemon state manager)
-    let db_path = if let Ok(home) = env::var("HOME") {
-        PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join("workspace-qdrant")
-            .join("state.db")
-    } else {
-        std::env::temp_dir()
-            .join("workspace-qdrant")
-            .join("state.db")
-    };
-
-    info!("Initializing queue processor with database: {}", db_path.display());
-
-    // Create queue connection config
-    let queue_config = QueueConnectionConfig::with_database_path(&db_path);
-
-    // Create SQLite pool
-    let pool = queue_config.create_pool().await
-        .map_err(|e| format!("Failed to create SQLite pool: {}", e))?;
-
-    // Initialize queue schema (if not already initialized)
-    sqlx::query(
-        "CREATE TABLE IF NOT EXISTS ingestion_queue (
-            file_absolute_path TEXT PRIMARY KEY,
-            collection_name TEXT NOT NULL,
-            tenant_id TEXT NOT NULL,
-            branch TEXT NOT NULL,
-            operation TEXT NOT NULL,
-            priority INTEGER NOT NULL,
-            queued_timestamp TEXT NOT NULL,
-            retry_count INTEGER NOT NULL DEFAULT 0,
-            retry_from TEXT,
-            error_message_id INTEGER,
-            FOREIGN KEY (error_message_id) REFERENCES error_log(error_id)
-        )"
-    )
-    .execute(&pool)
-    .await
-    .map_err(|e| format!("Failed to initialize queue schema: {}", e))?;
-
-    info!("Queue schema initialized successfully");
-
-    // Convert queue processor settings from daemon config to ProcessorConfig
-    let processor_config: ProcessorConfig = daemon_config.queue_processor.clone().into();
-
-    info!(
-        "Queue processor configuration: batch_size={}, poll_interval={}ms, max_retries={}, retry_delays={}",
-        processor_config.batch_size,
-        processor_config.poll_interval_ms,
-        processor_config.max_retries,
-        processor_config.retry_delays.len()
-    );
-
-    // Create queue processor
-    let processor = QueueProcessor::new(pool, processor_config);
-
-    Ok(processor)
-}
-
 /// Main daemon loop
-async fn run_daemon(_config: Config, daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
     let project_info = args.project_id.as_ref().map(|id| format!(" for project {}", id)).unwrap_or_default();
     info!("Starting memexd daemon (version 0.2.0){}", project_info);
 
-    // Check for existing instances
     check_existing_instance(&args.pid_file, args.project_id.as_ref())?;
-
-    // Create PID file
     create_pid_file(&args.pid_file, args.project_id.as_ref())?;
 
-    // Ensure PID file is cleaned up on exit
     let pid_file_cleanup = args.pid_file.clone();
     let _cleanup_guard = scopeguard::guard((), move |_| {
         remove_pid_file(&pid_file_cleanup);
     });
 
-    // Initialize the queue processor FIRST (before processing engine) with daemon config
-    info!("Initializing queue processor...");
-    let mut queue_processor = initialize_queue_processor(&daemon_config).await.map_err(|e| {
-        error!("Failed to initialize queue processor: {}", e);
+    info!("Initializing IPC server");
+    let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);
+    let (ipc_server, _ipc_client) = IpcServer::new(max_concurrent);
+
+    info!("Starting IPC server");
+    ipc_server.start().await.map_err(|e| {
+        error!("Failed to start IPC server: {}", e);
         e
     })?;
 
-    // Start the queue processor in background
-    info!("Starting queue processor...");
-    queue_processor.start().map_err(|e| {
-        error!("Failed to start queue processor: {}", e);
-        Box::new(e) as Box<dyn std::error::Error>
-    })?;
-
-    info!("Queue processor started successfully");
-
-    // Initialize the processing engine with daemon configuration
-    info!("Initializing ProcessingEngine with daemon configuration");
-    let mut engine = ProcessingEngine::with_daemon_config(daemon_config);
-
-    // Start the engine with IPC support
-    info!("Starting ProcessingEngine with IPC support");
-    let _ipc_client = engine.start_with_ipc().await.map_err(|e| {
-        error!("Failed to start processing engine: {}", e);
-        e
-    })?;
-
-    info!("ProcessingEngine started successfully");
-    info!("IPC client available for Python integration");
-
-    // Set up graceful shutdown handling
-    let shutdown_future = setup_signal_handlers();
-
-    // Main daemon loop
+    info!("IPC server started successfully");
     info!("memexd daemon is running. Send SIGTERM or SIGINT to stop.");
 
-    // Wait for shutdown signal
+    let shutdown_future = setup_signal_handlers();
     if let Err(e) = shutdown_future.await {
         error!("Error in signal handling: {}", e);
-    }
-
-    // Graceful shutdown - stop queue processor first
-    info!("Shutting down queue processor...");
-    if let Err(e) = queue_processor.stop().await {
-        error!("Error during queue processor shutdown: {}", e);
-    } else {
-        info!("Queue processor shutdown complete");
-    }
-
-    // Then shutdown processing engine
-    info!("Shutting down ProcessingEngine...");
-    if let Err(e) = engine.shutdown().await {
-        error!("Error during engine shutdown: {}", e);
     }
 
     info!("memexd daemon shutdown complete");
@@ -589,46 +401,35 @@ async fn run_daemon(_config: Config, daemon_config: DaemonConfig, args: DaemonAr
 
 /// Detect if we're running in daemon/service mode
 fn detect_daemon_mode() -> bool {
-    // Check command-line arguments for daemon indicators
     let args: Vec<String> = std::env::args().collect();
     let is_daemon = !args.iter().any(|arg| arg == "--foreground" || arg == "-f");
 
-    // Also check environment variables that indicate service mode
     let service_context = std::env::var("WQM_SERVICE_MODE").unwrap_or_default() == "true" ||
-        std::env::var("LAUNCHD_SOCKET_PATH").is_ok() || // macOS launchd
-        std::env::var("SYSTEMD_EXEC_PID").is_ok() ||    // systemd
-        std::env::var("SERVICE_NAME").is_ok();          // Windows service
+        std::env::var("LAUNCHD_SOCKET_PATH").is_ok() ||
+        std::env::var("SYSTEMD_EXEC_PID").is_ok() ||
+        std::env::var("SERVICE_NAME").is_ok();
 
     is_daemon || service_context
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Set essential environment variables early to suppress output
     std::env::set_var("TTY_DETECTION_SILENT", "1");
     std::env::set_var("ATTY_FORCE_DISABLE_DEBUG", "1");
     std::env::set_var("NO_COLOR", "1");
 
-
-    // CRITICAL: Suppress third-party library output before ANY initialization
-    // This must be the very first operation to prevent early output
     let is_daemon_mode = detect_daemon_mode();
 
     if is_daemon_mode {
-        // Suppress TTY detection debug output first, before any TTY checks
         workspace_qdrant_core::logging::suppress_tty_debug_output();
         suppress_third_party_output();
-        // Set environment variable for daemon mode
         std::env::set_var("WQM_SERVICE_MODE", "true");
 
-        // CRITICAL: Redirect stderr to suppress Qdrant client compatibility warnings
-        // This must be done before any Qdrant client initialization
         #[cfg(unix)]
         {
             use std::os::unix::io::AsRawFd;
             use std::fs::OpenOptions;
 
-            // Redirect stderr to /dev/null to suppress third-party library output
             if let Ok(null_file) = OpenOptions::new().write(true).open("/dev/null") {
                 unsafe {
                     libc::dup2(null_file.as_raw_fd(), libc::STDERR_FILENO);
@@ -638,7 +439,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         #[cfg(windows)]
         {
-            // Windows stderr suppression - redirect to NUL
             use std::fs::OpenOptions;
             use std::os::windows::io::AsRawHandle;
 
@@ -654,21 +454,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let args = parse_args()?;
-
-    // Initialize comprehensive logging early
     init_logging(&args.log_level, args.foreground)?;
 
     info!("memexd daemon starting up");
     info!("Command-line arguments: {:?}", args);
 
-    // Load configuration
-    let (config, daemon_config) = load_config(&args).map_err(|e| {
+    let config = load_config(&args).map_err(|e| {
         error!("Failed to load configuration: {}", e);
         e
     })?;
 
-    // Run the daemon
-    if let Err(e) = run_daemon(config, daemon_config, args).await {
+    if let Err(e) = run_daemon(config, args).await {
         error!("Daemon failed: {}", e);
         process::exit(1);
     }

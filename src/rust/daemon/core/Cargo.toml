@@ -84,6 +84,7 @@ windows = { version = "0.52", features = [
 default = ["ml", "embeddings"]
 ml = ["ort", "tokenizers"]
 embeddings = ["ort", "tokenizers"]
+macos-fsevents = []
 
 [[bin]]
 name = "memexd"

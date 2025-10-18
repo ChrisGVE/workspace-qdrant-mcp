@@ -374,7 +374,7 @@ impl StorageClient {
             
             // For frame size configuration, we'll need to set environment variables
             // or use other mechanisms since qdrant-client doesn't expose these directly
-            if let Some(frame_size) = config.http2.max_frame_size {
+            if let Some(_frame_size) = config.http2.max_frame_size {
                 // This is a workaround - we can't directly configure frame size in qdrant-client
                 warn!("HTTP/2 max frame size configuration requires lower-level gRPC configuration");
                 warn!("Consider using HTTP transport if frame size errors persist");

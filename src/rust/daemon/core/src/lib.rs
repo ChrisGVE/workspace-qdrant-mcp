@@ -187,10 +187,10 @@ impl Default for ChunkingConfig {
 
 /// Main ingestion engine
 pub struct IngestionEngine {
-    config: Config,
-    storage_client: Arc<StorageClient>,
-    embedding_generator: Arc<EmbeddingGenerator>,
-    pipeline: Arc<Pipeline>,
+    _config: Config,
+    _storage_client: Arc<StorageClient>,
+    _embedding_generator: Arc<EmbeddingGenerator>,
+    _pipeline: Arc<Pipeline>,
 }
 
 impl IngestionEngine {
@@ -208,10 +208,10 @@ impl IngestionEngine {
         let pipeline = Arc::new(Pipeline::new(8));
 
         Ok(Self {
-            config,
-            storage_client,
-            embedding_generator,
-            pipeline,
+            _config: config,
+            _storage_client: storage_client,
+            _embedding_generator: embedding_generator,
+            _pipeline: pipeline,
         })
     }
 
