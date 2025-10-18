@@ -150,23 +150,23 @@ jobs:
     
     - name: Upload HTML coverage report
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: coverage-html-${{ matrix.test-suite.name }}
         path: htmlcov/
         retention-days: 30
-    
+
     - name: Upload performance benchmarks
       if: always() && matrix.test-suite.categories == 'performance'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: performance-benchmarks
         path: performance_results/
         retention-days: 30
-    
+
     - name: Upload test results
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: test-results-${{ matrix.test-suite.name }}
         path: test_results/
@@ -202,7 +202,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Download performance benchmarks
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: performance-benchmarks
         path: performance_results/
@@ -251,7 +251,7 @@ jobs:
       uses: actions/checkout@v4
     
     - name: Download all coverage artifacts
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
     
     - name: Combine coverage reports
       run: |
