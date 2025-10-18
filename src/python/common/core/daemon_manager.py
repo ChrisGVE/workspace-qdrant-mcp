@@ -920,7 +920,21 @@ class DaemonInstance:
                 },
                 "monitoring": {
                     "enabled": self.project_config.enable_resource_monitoring,
-                    "metrics_collection": self.project_config.enable_metrics_collection,
+                },
+                "observability": {
+                    "collection_interval": 60,  # 60 seconds default
+                    "metrics": {
+                        "enabled": self.project_config.enable_metrics_collection,
+                    },
+                    "telemetry": {
+                        "enabled": False,  # Disabled by default
+                        "history_retention": 120,
+                        "cpu_usage": True,
+                        "memory_usage": True,
+                        "latency": True,
+                        "queue_depth": True,
+                        "throughput": True,
+                    },
                 },
                 "custom_settings": self.project_config.custom_settings,
             })

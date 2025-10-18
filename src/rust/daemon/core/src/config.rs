@@ -257,6 +257,88 @@ impl MonitoringConfig {
     }
 }
 
+/// Observability configuration section
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ObservabilityConfig {
+    /// Collection interval in seconds
+    #[serde(default = "default_collection_interval")]
+    pub collection_interval: u64,
+
+    /// Basic metrics configuration
+    #[serde(default)]
+    pub metrics: MetricsConfig,
+
+    /// Detailed telemetry configuration
+    #[serde(default)]
+    pub telemetry: TelemetryConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MetricsConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
+impl Default for MetricsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TelemetryConfig {
+    #[serde(default)]
+    pub enabled: bool,
+
+    #[serde(default = "default_history_retention")]
+    pub history_retention: usize,
+
+    #[serde(default = "default_telemetry_enabled")]
+    pub cpu_usage: bool,
+
+    #[serde(default = "default_telemetry_enabled")]
+    pub memory_usage: bool,
+
+    #[serde(default = "default_telemetry_enabled")]
+    pub latency: bool,
+
+    #[serde(default = "default_telemetry_enabled")]
+    pub queue_depth: bool,
+
+    #[serde(default = "default_telemetry_enabled")]
+    pub throughput: bool,
+}
+
+fn default_collection_interval() -> u64 { 60 }
+fn default_history_retention() -> usize { 120 }
+fn default_telemetry_enabled() -> bool { true }
+
+impl Default for TelemetryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            history_retention: default_history_retention(),
+            cpu_usage: default_telemetry_enabled(),
+            memory_usage: default_telemetry_enabled(),
+            latency: default_telemetry_enabled(),
+            queue_depth: default_telemetry_enabled(),
+            throughput: default_telemetry_enabled(),
+        }
+    }
+}
+
+impl Default for ObservabilityConfig {
+    fn default() -> Self {
+        Self {
+            collection_interval: default_collection_interval(),
+            metrics: MetricsConfig::default(),
+            telemetry: TelemetryConfig::default(),
+        }
+    }
+}
+
 /// Git integration configuration section
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GitConfig {
@@ -318,17 +400,13 @@ pub struct DaemonConfig {
     /// Maximum number of concurrent tasks
     pub max_concurrent_tasks: Option<usize>,
     /// Default timeout for tasks in milliseconds
-    pub default_timeout_ms: Option<u64>,
+    pub default_timeout_ms: Option<usize>,
     /// Enable task preemption
     pub enable_preemption: bool,
     /// Document processing chunk size
     pub chunk_size: usize,
     /// Log level configuration
     pub log_level: String,
-    /// Enable metrics collection
-    pub enable_metrics: bool,
-    /// Metrics collection interval in seconds
-    pub metrics_interval_secs: u64,
     /// Auto-ingestion configuration
     pub auto_ingestion: AutoIngestionConfig,
     /// Project path (workspace directory)
@@ -346,6 +424,9 @@ pub struct DaemonConfig {
     /// Git integration configuration
     #[serde(default)]
     pub git: GitConfig,
+    /// Observability configuration (metrics and telemetry)
+    #[serde(default)]
+    pub observability: ObservabilityConfig,
 }
 
 impl Default for DaemonConfig {
@@ -357,8 +438,6 @@ impl Default for DaemonConfig {
             enable_preemption: true,
             chunk_size: 1000,
             log_level: "info".to_string(),
-            enable_metrics: true,
-            metrics_interval_secs: 60,
             auto_ingestion: AutoIngestionConfig::default(),
             project_path: None,
             qdrant: StorageConfig::default(),
@@ -366,6 +445,7 @@ impl Default for DaemonConfig {
             queue_processor: QueueProcessorSettings::default(),
             monitoring: MonitoringConfig::default(),
             git: GitConfig::default(),
+            observability: ObservabilityConfig::default(),
         }
     }
 }
@@ -393,9 +473,9 @@ pub struct Config {
     pub chunk_size: usize,
     /// Log level configuration
     pub log_level: String,
-    /// Enable metrics collection
+    /// Enable metrics collection (derived from observability.metrics.enabled)
     pub enable_metrics: bool,
-    /// Metrics collection interval in seconds
+    /// Metrics collection interval in seconds (derived from observability.collection_interval)
     pub metrics_interval_secs: u64,
 }
 
@@ -403,12 +483,12 @@ impl From<DaemonConfig> for Config {
     fn from(daemon_config: DaemonConfig) -> Self {
         Self {
             max_concurrent_tasks: daemon_config.max_concurrent_tasks,
-            default_timeout_ms: daemon_config.default_timeout_ms,
+            default_timeout_ms: daemon_config.default_timeout_ms.map(|t| t as u64),
             enable_preemption: daemon_config.enable_preemption,
             chunk_size: daemon_config.chunk_size,
             log_level: daemon_config.log_level,
-            enable_metrics: daemon_config.enable_metrics,
-            metrics_interval_secs: daemon_config.metrics_interval_secs,
+            enable_metrics: daemon_config.observability.metrics.enabled,
+            metrics_interval_secs: daemon_config.observability.collection_interval,
         }
     }
 }
