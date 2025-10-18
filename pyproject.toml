@@ -179,4 +179,10 @@ markers = [
   "rule_validation: marks tests for memory rule validation",
   "performance: marks performance and benchmark tests",
   "fastmcp: marks tests using official fastmcp.Client SDK",
+  "security: marks security-related tests",
+  "sql_injection: marks SQL injection prevention tests",
+  "path_traversal: marks path traversal prevention tests",
+  "command_injection: marks command injection prevention tests",
+  "xss: marks XSS prevention tests",
+  "redos: marks ReDoS prevention tests",
 ]
