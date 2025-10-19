@@ -567,8 +567,7 @@ class TestDocumentAddition:
     # works correctly when targeting library collections.
 
     @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
-    @patch('wqm_cli.cli.commands.ingest.get_config_manager')
-    def test_ingest_text_file_to_library(self, mock_config, mock_daemon_client):
+    def test_ingest_text_file_to_library(self, mock_with_daemon):
         """Test ingesting a text file into a library collection."""
         from wqm_cli.cli.commands.ingest import ingest_app
 
@@ -576,28 +575,29 @@ class TestDocumentAddition:
         test_file = Path(self.temp_dir) / "document.txt"
         test_file.write_text("This is a test document for library ingestion.")
 
-        with patch('wqm_cli.cli.commands.ingest.with_daemon_client') as mock_with_daemon:
-            async def operation(operation_func, config):
-                client = MagicMock()
-                client.ingest_file = AsyncMock(return_value=MagicMock(
-                    success=True,
-                    document_id="doc_123",
-                    chunks_created=1
-                ))
-                return await operation_func(client)
+        # Mock the daemon client operations
+        async def mock_operation(operation_func):
+            # Create mock client with process_document method
+            mock_client = MagicMock()
+            mock_client.process_document = AsyncMock(return_value=MagicMock(
+                success=True,
+                document_id="doc_123",
+                chunks_added=1,
+                applied_metadata={}
+            ))
+            return await operation_func(mock_client)
 
-            mock_with_daemon.side_effect = operation
+        mock_with_daemon.side_effect = mock_operation
 
-            result = self.runner.invoke(
-                ingest_app,
-                ["file", str(test_file), "--collection", "_technical-docs"]
-            )
+        result = self.runner.invoke(
+            ingest_app,
+            ["file", str(test_file), "--collection", "_technical-docs"]
+        )
 
-            assert result.exit_code == 0
+        assert result.exit_code == 0
 
     @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
-    @patch('wqm_cli.cli.commands.ingest.get_config_manager')
-    def test_ingest_markdown_file_to_library(self, mock_config, mock_daemon_client):
+    def test_ingest_markdown_file_to_library(self, mock_with_daemon):
         """Test ingesting a markdown file into a library collection."""
         from wqm_cli.cli.commands.ingest import ingest_app
 
@@ -610,29 +610,28 @@ class TestDocumentAddition:
             "Retrieves data from the database.\n"
         )
 
-        with patch('wqm_cli.cli.commands.ingest.with_daemon_client') as mock_with_daemon:
-            async def operation(operation_func, config):
-                client = MagicMock()
-                client.ingest_file = AsyncMock(return_value=MagicMock(
-                    success=True,
-                    document_id="doc_md_123",
-                    chunks_created=1,
-                    metadata={"file_type": "markdown", "title": "API Reference"}
-                ))
-                return await operation_func(client)
+        # Mock the daemon client operations
+        async def mock_operation(operation_func):
+            mock_client = MagicMock()
+            mock_client.process_document = AsyncMock(return_value=MagicMock(
+                success=True,
+                document_id="doc_md_123",
+                chunks_added=1,
+                applied_metadata={"file_type": "markdown", "title": "API Reference"}
+            ))
+            return await operation_func(mock_client)
 
-            mock_with_daemon.side_effect = operation
+        mock_with_daemon.side_effect = mock_operation
 
-            result = self.runner.invoke(
-                ingest_app,
-                ["file", str(test_file), "--collection", "_api-docs"]
-            )
+        result = self.runner.invoke(
+            ingest_app,
+            ["file", str(test_file), "--collection", "_api-docs"]
+        )
 
-            assert result.exit_code == 0
+        assert result.exit_code == 0
 
     @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
-    @patch('wqm_cli.cli.commands.ingest.get_config_manager')
-    def test_ingest_code_file_to_library(self, mock_config, mock_daemon_client):
+    def test_ingest_code_file_to_library(self, mock_with_daemon):
         """Test ingesting a Python code file into a library collection."""
         from wqm_cli.cli.commands.ingest import ingest_app
 
@@ -645,28 +644,28 @@ class TestDocumentAddition:
             '    print("Hello, World!")\n'
         )
 
-        with patch('wqm_cli.cli.commands.ingest.with_daemon_client') as mock_with_daemon:
-            async def operation(operation_func, config):
-                client = MagicMock()
-                client.ingest_file = AsyncMock(return_value=MagicMock(
-                    success=True,
-                    document_id="doc_py_123",
-                    chunks_created=1,
-                    metadata={
-                        "file_type": "python",
-                        "symbols": ["hello_world"]
-                    }
-                ))
-                return await operation_func(client)
+        # Mock the daemon client operations
+        async def mock_operation(operation_func):
+            mock_client = MagicMock()
+            mock_client.process_document = AsyncMock(return_value=MagicMock(
+                success=True,
+                document_id="doc_py_123",
+                chunks_added=1,
+                applied_metadata={
+                    "file_type": "python",
+                    "symbols": ["hello_world"]
+                }
+            ))
+            return await operation_func(mock_client)
 
-            mock_with_daemon.side_effect = operation
+        mock_with_daemon.side_effect = mock_operation
 
-            result = self.runner.invoke(
-                ingest_app,
-                ["file", str(test_file), "--collection", "_code-examples"]
-            )
+        result = self.runner.invoke(
+            ingest_app,
+            ["file", str(test_file), "--collection", "_code-examples"]
+        )
 
-            assert result.exit_code == 0
+        assert result.exit_code == 0
 
     def test_ingest_invalid_file_path(self):
         """Test ingesting non-existent file path."""
@@ -684,8 +683,7 @@ class TestDocumentAddition:
         assert result.exit_code != 0
 
     @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
-    @patch('wqm_cli.cli.commands.ingest.get_config_manager')
-    def test_ingest_folder_to_library(self, mock_config, mock_daemon_client):
+    def test_ingest_folder_to_library(self, mock_with_daemon):
         """Test batch ingestion of folder contents to library collection."""
         from wqm_cli.cli.commands.ingest import ingest_app
 
@@ -697,28 +695,33 @@ class TestDocumentAddition:
         (docs_dir / "guide.md").write_text("# User Guide\n\nHow to use the library.")
         (docs_dir / "api.txt").write_text("API documentation content.")
 
-        with patch('wqm_cli.cli.commands.ingest.with_daemon_client') as mock_with_daemon:
-            async def operation(operation_func, config):
-                client = MagicMock()
-                client.ingest_folder = AsyncMock(return_value=MagicMock(
-                    success=True,
-                    files_processed=3,
-                    total_chunks=3
-                ))
-                return await operation_func(client)
+        # Mock the daemon client operations
+        async def mock_operation(operation_func):
+            mock_client = MagicMock()
 
-            mock_with_daemon.side_effect = operation
+            # Mock process_folder as an async generator
+            async def mock_process_folder(*args, **kwargs):
+                # Yield progress for each file
+                for file_name in ["intro.md", "guide.md", "api.txt"]:
+                    progress = MagicMock()
+                    progress.file_path = file_name
+                    progress.chunks_added = 1
+                    yield progress
 
-            result = self.runner.invoke(
-                ingest_app,
-                ["folder", str(docs_dir), "--collection", "_library-docs"]
-            )
+            mock_client.process_folder = mock_process_folder
+            return await operation_func(mock_client)
 
-            assert result.exit_code == 0
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(
+            ingest_app,
+            ["folder", str(docs_dir), "--collection", "_library-docs"]
+        )
+
+        assert result.exit_code == 0
 
     @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
-    @patch('wqm_cli.cli.commands.ingest.get_config_manager')
-    def test_ingest_with_file_type_filter(self, mock_config, mock_daemon_client):
+    def test_ingest_with_file_type_filter(self, mock_with_daemon):
         """Test folder ingestion with file type filtering."""
         from wqm_cli.cli.commands.ingest import ingest_app
 
@@ -731,37 +734,42 @@ class TestDocumentAddition:
         (docs_dir / "script.py").write_text("print('hello')")
         (docs_dir / "data.json").write_text('{"key": "value"}')
 
-        with patch('wqm_cli.cli.commands.ingest.with_daemon_client') as mock_with_daemon:
-            async def operation(operation_func, config):
-                client = MagicMock()
-                client.ingest_folder = AsyncMock(return_value=MagicMock(
-                    success=True,
-                    files_processed=2,  # Only .md and .txt
-                    total_chunks=2
-                ))
-                return await operation_func(client)
+        # Mock the daemon client operations
+        async def mock_operation(operation_func):
+            mock_client = MagicMock()
 
-            mock_with_daemon.side_effect = operation
+            # Mock process_folder as an async generator
+            async def mock_process_folder(*args, **kwargs):
+                # Only yield .md and .txt files
+                for file_name in ["doc1.md", "doc2.txt"]:
+                    progress = MagicMock()
+                    progress.file_path = file_name
+                    progress.chunks_added = 1
+                    yield progress
 
-            result = self.runner.invoke(
-                ingest_app,
-                [
-                    "folder",
-                    str(docs_dir),
-                    "--collection",
-                    "_docs",
-                    "--format",
-                    "md",
-                    "--format",
-                    "txt",
-                ]
-            )
+            mock_client.process_folder = mock_process_folder
+            return await operation_func(mock_client)
 
-            assert result.exit_code == 0
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(
+            ingest_app,
+            [
+                "folder",
+                str(docs_dir),
+                "--collection",
+                "_docs",
+                "--format",
+                "md",
+                "--format",
+                "txt",
+            ]
+        )
+
+        assert result.exit_code == 0
 
     @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
-    @patch('wqm_cli.cli.commands.ingest.get_config_manager')
-    def test_ingest_with_metadata_extraction(self, mock_config, mock_daemon_client):
+    def test_ingest_with_metadata_extraction(self, mock_with_daemon):
         """Test document ingestion with metadata extraction validation."""
         from wqm_cli.cli.commands.ingest import ingest_app
 
@@ -778,35 +786,34 @@ class TestDocumentAddition:
             "```\n"
         )
 
-        with patch('wqm_cli.cli.commands.ingest.with_daemon_client') as mock_with_daemon:
-            async def operation(operation_func, config):
-                client = MagicMock()
-                client.ingest_file = AsyncMock(return_value=MagicMock(
-                    success=True,
-                    document_id="doc_rich_123",
-                    chunks_created=1,
-                    metadata={
-                        "file_type": "markdown",
-                        "title": "Database Module",
-                        "has_code_examples": True,
-                        "classes": ["Connection"],
-                        "language": "python"
-                    }
-                ))
-                return await operation_func(client)
+        # Mock the daemon client operations
+        async def mock_operation(operation_func):
+            mock_client = MagicMock()
+            mock_client.process_document = AsyncMock(return_value=MagicMock(
+                success=True,
+                document_id="doc_rich_123",
+                chunks_added=1,
+                applied_metadata={
+                    "file_type": "markdown",
+                    "title": "Database Module",
+                    "has_code_examples": True,
+                    "classes": ["Connection"],
+                    "language": "python"
+                }
+            ))
+            return await operation_func(mock_client)
 
-            mock_with_daemon.side_effect = operation
+        mock_with_daemon.side_effect = mock_operation
 
-            result = self.runner.invoke(
-                ingest_app,
-                ["file", str(test_file), "--collection", "_db-library"]
-            )
+        result = self.runner.invoke(
+            ingest_app,
+            ["file", str(test_file), "--collection", "_db-library"]
+        )
 
-            assert result.exit_code == 0
+        assert result.exit_code == 0
 
     @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
-    @patch('wqm_cli.cli.commands.ingest.get_config_manager')
-    def test_ingest_unsupported_file_format(self, mock_config, mock_daemon_client):
+    def test_ingest_unsupported_file_format(self, mock_with_daemon):
         """Test error handling for unsupported file formats."""
         from wqm_cli.cli.commands.ingest import ingest_app
 
@@ -814,27 +821,26 @@ class TestDocumentAddition:
         test_file = Path(self.temp_dir) / "image.png"
         test_file.write_bytes(b'\x89PNG\r\n\x1a\n')  # PNG header
 
-        with patch('wqm_cli.cli.commands.ingest.with_daemon_client') as mock_with_daemon:
-            async def operation(operation_func, config):
-                client = MagicMock()
-                client.ingest_file = AsyncMock(
-                    side_effect=ValueError("Unsupported file format: image/png")
-                )
-                return await operation_func(client)
-
-            mock_with_daemon.side_effect = operation
-
-            result = self.runner.invoke(
-                ingest_app,
-                ["file", str(test_file), "--collection", "_docs"]
+        # Mock the daemon client operations
+        async def mock_operation(operation_func):
+            mock_client = MagicMock()
+            mock_client.process_document = AsyncMock(
+                side_effect=ValueError("Unsupported file format: image/png")
             )
+            return await operation_func(mock_client)
 
-            # Should fail with error
-            assert result.exit_code != 0
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(
+            ingest_app,
+            ["file", str(test_file), "--collection", "_docs"]
+        )
+
+        # Should fail with error
+        assert result.exit_code != 0
 
     @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
-    @patch('wqm_cli.cli.commands.ingest.get_config_manager')
-    def test_ingest_to_library_with_underscore_prefix(self, mock_config, mock_daemon_client):
+    def test_ingest_to_library_with_underscore_prefix(self, mock_with_daemon):
         """Test library collection name validation with underscore prefix."""
         from wqm_cli.cli.commands.ingest import ingest_app
 
@@ -842,29 +848,29 @@ class TestDocumentAddition:
         test_file = Path(self.temp_dir) / "doc.txt"
         test_file.write_text("Test content")
 
-        with patch('wqm_cli.cli.commands.ingest.with_daemon_client') as mock_with_daemon:
-            async def operation(operation_func, config):
-                client = MagicMock()
-                # Verify collection name has underscore prefix
-                client.ingest_file = AsyncMock(return_value=MagicMock(
-                    success=True,
-                    collection="_mylib",  # Library collections must start with _
-                    document_id="doc_123"
-                ))
-                return await operation_func(client)
+        # Mock the daemon client operations
+        async def mock_operation(operation_func):
+            mock_client = MagicMock()
+            # Verify collection name has underscore prefix
+            mock_client.process_document = AsyncMock(return_value=MagicMock(
+                success=True,
+                document_id="doc_123",
+                chunks_added=1,
+                applied_metadata={"collection": "_mylib"}  # Library collections must start with _
+            ))
+            return await operation_func(mock_client)
 
-            mock_with_daemon.side_effect = operation
+        mock_with_daemon.side_effect = mock_operation
 
-            result = self.runner.invoke(
-                ingest_app,
-                ["file", str(test_file), "--collection", "_mylib"]
-            )
+        result = self.runner.invoke(
+            ingest_app,
+            ["file", str(test_file), "--collection", "_mylib"]
+        )
 
-            assert result.exit_code == 0
+        assert result.exit_code == 0
 
     @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
-    @patch('wqm_cli.cli.commands.ingest.get_config_manager')
-    def test_batch_ingest_multiple_file_types(self, mock_config, mock_daemon_client):
+    def test_batch_ingest_multiple_file_types(self, mock_with_daemon):
         """Test batch ingestion of multiple file types to library."""
         from wqm_cli.cli.commands.ingest import ingest_app
 
@@ -877,25 +883,37 @@ class TestDocumentAddition:
         (lib_dir / "notes.txt").write_text("Additional notes")
         (lib_dir / "example.py").write_text("def example(): pass")
 
-        with patch('wqm_cli.cli.commands.ingest.with_daemon_client') as mock_with_daemon:
-            async def operation(operation_func, config):
-                client = MagicMock()
-                client.ingest_folder = AsyncMock(return_value=MagicMock(
-                    success=True,
-                    files_processed=4,
-                    total_chunks=4,
-                    file_types=["markdown", "text", "python"]
-                ))
-                return await operation_func(client)
+        # Mock the daemon client operations
+        async def mock_operation(operation_func):
+            mock_client = MagicMock()
 
-            mock_with_daemon.side_effect = operation
+            # Mock process_folder as an async generator
+            async def mock_process_folder(*args, **kwargs):
+                # Yield progress for each file
+                files = [
+                    ("readme.md", "markdown"),
+                    ("tutorial.md", "markdown"),
+                    ("notes.txt", "text"),
+                    ("example.py", "python")
+                ]
+                for file_name, file_type in files:
+                    progress = MagicMock()
+                    progress.file_path = file_name
+                    progress.chunks_added = 1
+                    progress.file_type = file_type
+                    yield progress
 
-            result = self.runner.invoke(
-                ingest_app,
-                ["folder", str(lib_dir), "--collection", "_comprehensive-lib"]
-            )
+            mock_client.process_folder = mock_process_folder
+            return await operation_func(mock_client)
 
-            assert result.exit_code == 0
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(
+            ingest_app,
+            ["folder", str(lib_dir), "--collection", "_comprehensive-lib"]
+        )
+
+        assert result.exit_code == 0
 
     def test_library_collection_ingestion_workflow(self):
         """Test document ingestion workflow for library collections."""
