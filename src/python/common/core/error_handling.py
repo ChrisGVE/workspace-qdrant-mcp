@@ -260,6 +260,33 @@ class CircuitBreakerOpenError(WorkspaceError):
         )
 
 
+class IncompatibleVersionError(WorkspaceError):
+    """Version incompatibility errors for backup/restore operations"""
+
+    def __init__(
+        self,
+        message: str,
+        backup_version: Optional[str] = None,
+        current_version: Optional[str] = None,
+        **kwargs,
+    ):
+        context = kwargs.pop("context", {})
+        context.update(
+            {
+                "backup_version": backup_version,
+                "current_version": current_version,
+            }
+        )
+        super().__init__(
+            message,
+            category=ErrorCategory.VALIDATION,
+            severity=ErrorSeverity.HIGH,
+            retryable=False,
+            context=context,
+            **kwargs,
+        )
+
+
 @dataclass
 class ErrorRecoveryStrategy:
     """Configuration for error recovery behavior"""
