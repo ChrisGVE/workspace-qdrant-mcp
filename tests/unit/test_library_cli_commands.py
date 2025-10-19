@@ -946,18 +946,335 @@ class TestFolderWatching:
     # not library commands directly. These tests validate the
     # integration between library collections and watch functionality.
 
-    def test_library_watch_folder_configuration(self):
-        """Test watch folder configuration for library collections."""
-        # This test validates that library collections can be
-        # used as targets for watch folders
+    @patch('wqm_cli.cli.commands.watch._get_daemon_client')
+    @patch('wqm_cli.cli.commands.watch._get_state_manager')
+    def test_add_watch_folder_to_library(self, mock_state_mgr, mock_daemon_client):
+        """Test adding a watch folder configuration for a library collection."""
+        from wqm_cli.cli.commands.watch import watch_app
+        from common.core.sqlite_state_manager import WatchFolderConfig
 
-        # Create a test directory
-        watch_dir = Path(self.temp_dir) / "docs"
-        watch_dir.mkdir()
+        # Create test folder
+        test_folder = Path(self.temp_dir) / "library_docs"
+        test_folder.mkdir()
 
-        # Validation: directory exists
-        assert watch_dir.exists()
-        assert watch_dir.is_dir()
+        # Mock state manager
+        mock_mgr = AsyncMock()
+        mock_mgr.initialize = AsyncMock()
+        mock_mgr.save_watch_folder_config = AsyncMock(return_value=True)
+        mock_mgr.close = AsyncMock()
+        mock_state_mgr.return_value = mock_mgr
+
+        # Mock daemon client for collection validation
+        mock_client = AsyncMock()
+        mock_collections_response = MagicMock()
+        # Create mock collection with name attribute properly set
+        mock_collection = MagicMock()
+        mock_collection.name = "_technical-docs"
+        mock_collections_response.collections = [mock_collection]
+        mock_client.list_collections = AsyncMock(return_value=mock_collections_response)
+        mock_client.connect = AsyncMock()
+        mock_client.disconnect = AsyncMock()
+        mock_daemon_client.return_value = mock_client
+
+        result = self.runner.invoke(
+            watch_app,
+            [
+                "add",
+                str(test_folder),
+                "--collection",
+                "_technical-docs",
+                "--pattern",
+                "*.pdf",
+                "--pattern",
+                "*.md"
+            ]
+        )
+
+        assert result.exit_code == 0
+        assert "Watch started" in result.output
+
+    @patch('wqm_cli.cli.commands.watch._get_state_manager')
+    def test_list_watch_folders(self, mock_state_mgr):
+        """Test listing all watch folder configurations."""
+        from wqm_cli.cli.commands.watch import watch_app
+        from common.core.sqlite_state_manager import WatchFolderConfig
+        from datetime import datetime, timezone
+
+        # Mock state manager with sample watches
+        mock_mgr = AsyncMock()
+        mock_mgr.initialize = AsyncMock()
+        mock_mgr.get_all_watch_folder_configs = AsyncMock(return_value=[
+            WatchFolderConfig(
+                watch_id="watch_123",
+                path="/path/to/docs",
+                collection="_docs",
+                patterns=["*.pdf"],
+                ignore_patterns=[".git/*"],
+                auto_ingest=True,
+                recursive=True,
+                recursive_depth=10,
+                debounce_seconds=5.0,
+                enabled=True,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+                last_scan=None,
+                metadata=None
+            )
+        ])
+        mock_mgr.close = AsyncMock()
+        mock_state_mgr.return_value = mock_mgr
+
+        result = self.runner.invoke(watch_app, ["list"])
+
+        assert result.exit_code == 0
+        assert "watch_123" in result.output or "Watch Configurations" in result.output
+
+    @patch('wqm_cli.cli.commands.watch._get_state_manager')
+    def test_remove_watch_folder(self, mock_state_mgr):
+        """Test removing a watch folder configuration."""
+        from wqm_cli.cli.commands.watch import watch_app
+        from common.core.sqlite_state_manager import WatchFolderConfig
+        from datetime import datetime, timezone
+
+        # Create test folder for path matching - use resolved path for consistency
+        test_folder = Path(self.temp_dir) / "docs"
+        test_folder.mkdir()
+        resolved_path = str(test_folder.resolve())
+
+        # Mock state manager
+        mock_mgr = AsyncMock()
+        mock_mgr.initialize = AsyncMock()
+        mock_mgr.get_all_watch_folder_configs = AsyncMock(return_value=[
+            WatchFolderConfig(
+                watch_id="watch_abc",
+                path=resolved_path,  # Use resolved path
+                collection="_docs",
+                patterns=["*.pdf"],
+                ignore_patterns=[],
+                auto_ingest=True,
+                recursive=True,
+                recursive_depth=10,
+                debounce_seconds=5.0,
+                enabled=True,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+                last_scan=None,
+                metadata=None
+            )
+        ])
+        mock_mgr.remove_watch_folder_config = AsyncMock(return_value=True)
+        mock_mgr.close = AsyncMock()
+        mock_state_mgr.return_value = mock_mgr
+
+        result = self.runner.invoke(
+            watch_app,
+            ["remove", str(test_folder), "--force"]
+        )
+
+        assert result.exit_code == 0
+        assert "Removed watch" in result.output or "removed" in result.output.lower()
+
+    @patch('wqm_cli.cli.commands.watch._get_daemon_client')
+    @patch('wqm_cli.cli.commands.watch._get_state_manager')
+    def test_add_watch_non_existent_folder_error(self, mock_state_mgr, mock_daemon_client):
+        """Test error handling when adding watch for non-existent folder."""
+        from wqm_cli.cli.commands.watch import watch_app
+
+        # Don't create the folder - it should not exist
+        non_existent_path = Path(self.temp_dir) / "does_not_exist"
+
+        mock_mgr = AsyncMock()
+        mock_mgr.initialize = AsyncMock()
+        mock_mgr.close = AsyncMock()
+        mock_state_mgr.return_value = mock_mgr
+
+        result = self.runner.invoke(
+            watch_app,
+            ["add", str(non_existent_path), "--collection", "_docs"]
+        )
+
+        assert result.exit_code != 0
+        assert "does not exist" in result.output or "not found" in result.output.lower()
+
+    @patch('wqm_cli.cli.commands.watch._get_state_manager')
+    def test_pause_and_resume_watch(self, mock_state_mgr):
+        """Test pausing and resuming watch configurations."""
+        from wqm_cli.cli.commands.watch import watch_app
+        from common.core.sqlite_state_manager import WatchFolderConfig
+        from datetime import datetime, timezone
+
+        # Create test folder
+        test_folder = Path(self.temp_dir) / "docs"
+        test_folder.mkdir()
+        resolved_path = str(test_folder.resolve())
+
+        # Mock state manager
+        mock_mgr = AsyncMock()
+        mock_mgr.initialize = AsyncMock()
+
+        watch_config = WatchFolderConfig(
+            watch_id="watch_xyz",
+            path=resolved_path,  # Use resolved path
+            collection="_docs",
+            patterns=["*.pdf"],
+            ignore_patterns=[],
+            auto_ingest=True,
+            recursive=True,
+            recursive_depth=10,
+            debounce_seconds=5.0,
+            enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            last_scan=None,
+            metadata=None
+        )
+
+        mock_mgr.get_all_watch_folder_configs = AsyncMock(return_value=[watch_config])
+        mock_mgr.save_watch_folder_config = AsyncMock(return_value=True)
+        mock_mgr.close = AsyncMock()
+        mock_state_mgr.return_value = mock_mgr
+
+        # Test pause
+        result = self.runner.invoke(watch_app, ["pause", str(test_folder)])
+        assert result.exit_code == 0
+        assert "Paus" in result.output
+
+        # Test resume
+        result = self.runner.invoke(watch_app, ["resume", str(test_folder)])
+        assert result.exit_code == 0
+        assert "Resum" in result.output
+
+    @patch('wqm_cli.cli.commands.watch._get_state_manager')
+    def test_configure_existing_watch(self, mock_state_mgr):
+        """Test configuring an existing watch folder."""
+        from wqm_cli.cli.commands.watch import watch_app
+        from common.core.sqlite_state_manager import WatchFolderConfig
+        from datetime import datetime, timezone
+
+        # Create test folder
+        test_folder = Path(self.temp_dir) / "docs"
+        test_folder.mkdir()
+        resolved_path = str(test_folder.resolve())
+
+        # Mock state manager
+        mock_mgr = AsyncMock()
+        mock_mgr.initialize = AsyncMock()
+
+        watch_config = WatchFolderConfig(
+            watch_id="watch_cfg",
+            path=resolved_path,  # Use resolved path
+            collection="_docs",
+            patterns=["*.pdf"],
+            ignore_patterns=[],
+            auto_ingest=True,
+            recursive=True,
+            recursive_depth=10,
+            debounce_seconds=5.0,
+            enabled=True,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+            last_scan=None,
+            metadata=None
+        )
+
+        mock_mgr.get_all_watch_folder_configs = AsyncMock(return_value=[watch_config])
+        mock_mgr.save_watch_folder_config = AsyncMock(return_value=True)
+        mock_mgr.close = AsyncMock()
+        mock_state_mgr.return_value = mock_mgr
+
+        result = self.runner.invoke(
+            watch_app,
+            ["configure", "watch_cfg", "--depth", "5", "--debounce", "10"]
+        )
+
+        assert result.exit_code == 0
+        assert "Configuration Updated" in result.output or "updated" in result.output.lower()
+
+    @patch('wqm_cli.cli.commands.watch._get_daemon_client')
+    @patch('wqm_cli.cli.commands.watch._get_state_manager')
+    def test_watch_validates_collection_exists(self, mock_state_mgr, mock_daemon_client):
+        """Test that watch command validates collection exists before adding."""
+        from wqm_cli.cli.commands.watch import watch_app
+
+        # Create test folder
+        test_folder = Path(self.temp_dir) / "docs"
+        test_folder.mkdir()
+
+        # Mock state manager
+        mock_mgr = AsyncMock()
+        mock_mgr.initialize = AsyncMock()
+        mock_mgr.close = AsyncMock()
+        mock_state_mgr.return_value = mock_mgr
+
+        # Mock daemon client with no collections
+        mock_client = AsyncMock()
+        mock_collections_response = MagicMock()
+        mock_collections_response.collections = []  # No collections exist
+        mock_client.list_collections = AsyncMock(return_value=mock_collections_response)
+        mock_client.connect = AsyncMock()
+        mock_client.disconnect = AsyncMock()
+        mock_daemon_client.return_value = mock_client
+
+        result = self.runner.invoke(
+            watch_app,
+            ["add", str(test_folder), "--collection", "_nonexistent"]
+        )
+
+        assert result.exit_code != 0
+        assert "not found" in result.output or "Collection" in result.output
+
+    @patch('wqm_cli.cli.commands.watch._get_state_manager')
+    def test_watch_status_displays_statistics(self, mock_state_mgr):
+        """Test watch status command displays statistics correctly."""
+        from wqm_cli.cli.commands.watch import watch_app
+        from common.core.sqlite_state_manager import WatchFolderConfig
+        from datetime import datetime, timezone
+
+        # Mock state manager with watches
+        mock_mgr = AsyncMock()
+        mock_mgr.initialize = AsyncMock()
+        mock_mgr.get_all_watch_folder_configs = AsyncMock(return_value=[
+            WatchFolderConfig(
+                watch_id="watch_1",
+                path="/path/1",
+                collection="_docs",
+                patterns=["*.pdf"],
+                ignore_patterns=[],
+                auto_ingest=True,
+                recursive=True,
+                recursive_depth=10,
+                debounce_seconds=5.0,
+                enabled=True,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+                last_scan=None,
+                metadata=None
+            ),
+            WatchFolderConfig(
+                watch_id="watch_2",
+                path="/path/2",
+                collection="_code",
+                patterns=["*.py"],
+                ignore_patterns=[],
+                auto_ingest=False,
+                recursive=True,
+                recursive_depth=10,
+                debounce_seconds=5.0,
+                enabled=False,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+                last_scan=None,
+                metadata=None
+            )
+        ])
+        mock_mgr.close = AsyncMock()
+        mock_state_mgr.return_value = mock_mgr
+
+        result = self.runner.invoke(watch_app, ["status"])
+
+        assert result.exit_code == 0
+        assert "Watch System Status" in result.output or "status" in result.output.lower()
+        # Should show total watches and active/stopped counts
 
 
 class TestErrorHandling:
