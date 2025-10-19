@@ -12,6 +12,14 @@ from .claude_code_detector import (
     get_claude_code_session,
     is_claude_code_session,
 )
+from .copilot_detector import (
+    CopilotDetector,
+    CopilotSession,
+    CopilotSessionType,
+    get_copilot_session,
+    is_copilot_session,
+    get_code_comment_prefix,
+)
 from .claude_md_injector import (
     ClaudeMdInjector,
     ClaudeMdLocation,
@@ -196,6 +204,13 @@ __all__ = [
     "ClaudeCodeSession",
     "is_claude_code_session",
     "get_claude_code_session",
+    # Copilot/Codex Detection
+    "CopilotDetector",
+    "CopilotSession",
+    "CopilotSessionType",
+    "is_copilot_session",
+    "get_copilot_session",
+    "get_code_comment_prefix",
     # CLAUDE.md Injection
     "ClaudeMdInjector",
     "ClaudeMdLocation",
