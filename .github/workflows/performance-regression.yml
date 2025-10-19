@@ -1,0 +1,593 @@
+name: Performance Regression Detection
+
+# Run on main branch commits, PRs, and nightly
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/**'
+      - 'rust-engine/**'
+      - 'tests/**'
+      - 'pyproject.toml'
+      - 'Cargo.toml'
+  pull_request:
+    branches: [main, develop]
+  schedule:
+    - cron: '0 3 * * *'  # 3 AM UTC daily
+  workflow_dispatch:
+    inputs:
+      update_baseline:
+        description: 'Update performance baseline'
+        type: boolean
+        default: false
+      threshold_percent:
+        description: 'Regression threshold percentage'
+        type: choice
+        default: '15'
+        options:
+          - '5'
+          - '10'
+          - '15'
+          - '20'
+          - '25'
+
+env:
+  QDRANT_URL: http://localhost:6333
+  RUST_BACKTRACE: 1
+  CARGO_TERM_COLOR: always
+  # Default regression thresholds
+  THROUGHPUT_THRESHOLD_PERCENT: 15  # Alert if throughput drops >15%
+  LATENCY_THRESHOLD_PERCENT: 20     # Alert if latency increases >20%
+  MEMORY_THRESHOLD_PERCENT: 25      # Alert if memory usage increases >25%
+
+jobs:
+  # Python performance benchmarks
+  python-performance-benchmarks:
+    name: Python Performance Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.7.4
+        ports:
+          - 6333:6333
+          - 6334:6334
+        options: >-
+          --health-cmd="curl -f http://localhost:6333/health || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Need full history for baseline comparison
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v1
+
+      - name: Install dependencies
+        run: |
+          uv venv --python 3.11
+          . .venv/bin/activate
+          uv pip install -e ".[dev]"
+          uv pip install pytest-benchmark memory-profiler psutil
+
+      - name: Download baseline metrics
+        uses: actions/download-artifact@v4
+        with:
+          name: python-performance-baseline
+          path: .performance-baseline/python/
+        continue-on-error: true
+
+      # If no baseline exists, fetch from last successful main branch run
+      - name: Fetch baseline from main branch
+        if: steps.download-baseline.outcome == 'failure' && github.ref != 'refs/heads/main'
+        run: |
+          mkdir -p .performance-baseline/python/
+          gh run list \
+            --branch main \
+            --workflow performance-regression.yml \
+            --status success \
+            --limit 1 \
+            --json databaseId \
+            --jq '.[0].databaseId' > latest_run_id.txt
+
+          if [ -s latest_run_id.txt ]; then
+            RUN_ID=$(cat latest_run_id.txt)
+            gh run download $RUN_ID \
+              --name python-performance-baseline \
+              --dir .performance-baseline/python/ \
+              || echo "No baseline found, will create new baseline"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Run Python performance benchmarks
+        run: |
+          . .venv/bin/activate
+
+          # Run benchmarks with JSON output for comparison
+          pytest tests/integration/ tests/functional/ \
+            -v \
+            -m "performance or benchmark" \
+            --benchmark-only \
+            --benchmark-json=python-benchmark-results.json \
+            --benchmark-columns=min,max,mean,stddev,median,ops \
+            --benchmark-sort=mean \
+            --benchmark-warmup=on \
+            --benchmark-min-rounds=5
+        timeout-minutes: 30
+
+      - name: Analyze Python performance results
+        id: python-analysis
+        run: |
+          python << 'EOF'
+          import json
+          import os
+          from pathlib import Path
+
+          # Load current results
+          with open('python-benchmark-results.json', 'r') as f:
+              current = json.load(f)
+
+          # Load baseline if it exists
+          baseline_file = Path('.performance-baseline/python/python-benchmark-results.json')
+          if baseline_file.exists():
+              with open(baseline_file, 'r') as f:
+                  baseline = json.load(f)
+          else:
+              print("No baseline found - current run will become baseline")
+              baseline = None
+
+          # Compare metrics
+          regressions = []
+          improvements = []
+
+          if baseline:
+              # Create lookup dict for baseline benchmarks
+              baseline_benchmarks = {b['name']: b for b in baseline['benchmarks']}
+
+              for current_bench in current['benchmarks']:
+                  name = current_bench['name']
+                  if name in baseline_benchmarks:
+                      baseline_bench = baseline_benchmarks[name]
+
+                      # Calculate changes
+                      current_mean = current_bench['stats']['mean']
+                      baseline_mean = baseline_bench['stats']['mean']
+                      change_percent = ((current_mean - baseline_mean) / baseline_mean) * 100
+
+                      # Threshold from env or default to 20%
+                      threshold = float(os.environ.get('LATENCY_THRESHOLD_PERCENT', '20'))
+
+                      if change_percent > threshold:
+                          regressions.append({
+                              'name': name,
+                              'baseline_mean': baseline_mean,
+                              'current_mean': current_mean,
+                              'change_percent': change_percent
+                          })
+                      elif change_percent < -5:  # Improvements > 5%
+                          improvements.append({
+                              'name': name,
+                              'baseline_mean': baseline_mean,
+                              'current_mean': current_mean,
+                              'change_percent': change_percent
+                          })
+
+          # Generate summary
+          summary_lines = [
+              "## Python Performance Analysis",
+              "",
+              f"**Total Benchmarks:** {len(current['benchmarks'])}",
+              ""
+          ]
+
+          if baseline:
+              summary_lines.extend([
+                  f"**Regressions:** {len(regressions)}",
+                  f"**Improvements:** {len(improvements)}",
+                  ""
+              ])
+
+              if regressions:
+                  summary_lines.extend([
+                      "### ⚠️ Performance Regressions Detected",
+                      "",
+                      "| Benchmark | Baseline (s) | Current (s) | Change |",
+                      "|-----------|--------------|-------------|--------|"
+                  ])
+                  for reg in regressions:
+                      summary_lines.append(
+                          f"| {reg['name']} | {reg['baseline_mean']:.6f} | "
+                          f"{reg['current_mean']:.6f} | "
+                          f"+{reg['change_percent']:.1f}% |"
+                      )
+                  summary_lines.append("")
+
+              if improvements:
+                  summary_lines.extend([
+                      "### ✅ Performance Improvements",
+                      "",
+                      "| Benchmark | Baseline (s) | Current (s) | Change |",
+                      "|-----------|--------------|-------------|--------|"
+                  ])
+                  for imp in improvements:
+                      summary_lines.append(
+                          f"| {imp['name']} | {imp['baseline_mean']:.6f} | "
+                          f"{imp['current_mean']:.6f} | "
+                          f"{imp['change_percent']:.1f}% |"
+                      )
+                  summary_lines.append("")
+          else:
+              summary_lines.extend([
+                  "_No baseline available for comparison. Current results will become new baseline._",
+                  ""
+              ])
+
+          # Write summary
+          with open('python-performance-summary.md', 'w') as f:
+              f.write('\n'.join(summary_lines))
+
+          # Set outputs
+          has_regressions = len(regressions) > 0 if baseline else False
+          regression_count = len(regressions) if baseline else 0
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"has_regressions={'true' if has_regressions else 'false'}\n")
+              f.write(f"regression_count={regression_count}\n")
+
+          print(f"\nRegressions: {regression_count}")
+          print(f"Improvements: {len(improvements) if baseline else 0}")
+          EOF
+
+      - name: Upload Python benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-benchmark-results
+          path: |
+            python-benchmark-results.json
+            python-performance-summary.md
+          retention-days: 90
+
+      - name: Update Python baseline
+        if: |
+          (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.update_baseline == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-performance-baseline
+          path: python-benchmark-results.json
+          retention-days: 365  # Keep baseline for 1 year
+
+  # Rust performance benchmarks
+  rust-performance-benchmarks:
+    name: Rust Performance Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Rust dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            rust-engine/target/
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('rust-engine/Cargo.lock') }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler
+
+      - name: Download baseline metrics
+        uses: actions/download-artifact@v4
+        with:
+          name: rust-performance-baseline
+          path: .performance-baseline/rust/
+        continue-on-error: true
+
+      - name: Run Rust criterion benchmarks
+        run: |
+          cd rust-engine
+
+          # Run benchmarks with criterion
+          cargo bench --workspace \
+            --bench processing_benchmarks \
+            --bench watching_benchmarks \
+            -- --output-format bencher \
+            | tee ../rust-benchmark-results.txt
+        timeout-minutes: 45
+
+      - name: Analyze Rust performance results
+        id: rust-analysis
+        run: |
+          python << 'EOF'
+          import re
+          import os
+          from pathlib import Path
+
+          # Parse current benchmark results
+          current_benchmarks = {}
+          with open('rust-benchmark-results.txt', 'r') as f:
+              for line in f:
+                  # Parse criterion output format
+                  # Example: "test benchmark_name ... bench: 1,234 ns/iter (+/- 56)"
+                  match = re.search(r'test\s+(\S+)\s+\.\.\.\s+bench:\s+([\d,]+)\s+ns/iter', line)
+                  if match:
+                      name = match.group(1)
+                      time_ns = int(match.group(2).replace(',', ''))
+                      current_benchmarks[name] = time_ns
+
+          # Load baseline if exists
+          baseline_file = Path('.performance-baseline/rust/rust-benchmark-results.txt')
+          baseline_benchmarks = {}
+          if baseline_file.exists():
+              with open(baseline_file, 'r') as f:
+                  for line in f:
+                      match = re.search(r'test\s+(\S+)\s+\.\.\.\s+bench:\s+([\d,]+)\s+ns/iter', line)
+                      if match:
+                          name = match.group(1)
+                          time_ns = int(match.group(2).replace(',', ''))
+                          baseline_benchmarks[name] = time_ns
+
+          # Compare and detect regressions
+          regressions = []
+          improvements = []
+
+          threshold = float(os.environ.get('LATENCY_THRESHOLD_PERCENT', '20'))
+
+          for name, current_time in current_benchmarks.items():
+              if name in baseline_benchmarks:
+                  baseline_time = baseline_benchmarks[name]
+                  change_percent = ((current_time - baseline_time) / baseline_time) * 100
+
+                  if change_percent > threshold:
+                      regressions.append({
+                          'name': name,
+                          'baseline_ns': baseline_time,
+                          'current_ns': current_time,
+                          'change_percent': change_percent
+                      })
+                  elif change_percent < -5:
+                      improvements.append({
+                          'name': name,
+                          'baseline_ns': baseline_time,
+                          'current_ns': current_time,
+                          'change_percent': change_percent
+                      })
+
+          # Generate summary
+          summary_lines = [
+              "## Rust Performance Analysis",
+              "",
+              f"**Total Benchmarks:** {len(current_benchmarks)}",
+              ""
+          ]
+
+          if baseline_benchmarks:
+              summary_lines.extend([
+                  f"**Regressions:** {len(regressions)}",
+                  f"**Improvements:** {len(improvements)}",
+                  ""
+              ])
+
+              if regressions:
+                  summary_lines.extend([
+                      "### ⚠️ Performance Regressions Detected",
+                      "",
+                      "| Benchmark | Baseline (ns) | Current (ns) | Change |",
+                      "|-----------|---------------|--------------|--------|"
+                  ])
+                  for reg in regressions:
+                      summary_lines.append(
+                          f"| {reg['name']} | {reg['baseline_ns']:,} | "
+                          f"{reg['current_ns']:,} | "
+                          f"+{reg['change_percent']:.1f}% |"
+                      )
+                  summary_lines.append("")
+
+              if improvements:
+                  summary_lines.extend([
+                      "### ✅ Performance Improvements",
+                      "",
+                      "| Benchmark | Baseline (ns) | Current (ns) | Change |",
+                      "|-----------|---------------|--------------|--------|"
+                  ])
+                  for imp in improvements:
+                      summary_lines.append(
+                          f"| {imp['name']} | {imp['baseline_ns']:,} | "
+                          f"{imp['current_ns']:,} | "
+                          f"{imp['change_percent']:.1f}% |"
+                      )
+                  summary_lines.append("")
+          else:
+              summary_lines.extend([
+                  "_No baseline available for comparison. Current results will become new baseline._",
+                  ""
+              ])
+
+          # Write summary
+          with open('rust-performance-summary.md', 'w') as f:
+              f.write('\n'.join(summary_lines))
+
+          # Set outputs
+          has_regressions = len(regressions) > 0 if baseline_benchmarks else False
+          regression_count = len(regressions) if baseline_benchmarks else 0
+
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f"has_regressions={'true' if has_regressions else 'false'}\n")
+              f.write(f"regression_count={regression_count}\n")
+
+          print(f"\nRegressions: {regression_count}")
+          print(f"Improvements: {len(improvements) if baseline_benchmarks else 0}")
+          EOF
+
+      - name: Upload Rust benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-benchmark-results
+          path: |
+            rust-benchmark-results.txt
+            rust-performance-summary.md
+            rust-engine/target/criterion/
+          retention-days: 90
+
+      - name: Update Rust baseline
+        if: |
+          (github.ref == 'refs/heads/main' && github.event_name == 'push') ||
+          (github.event_name == 'workflow_dispatch' && github.event.inputs.update_baseline == 'true')
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-performance-baseline
+          path: rust-benchmark-results.txt
+          retention-days: 365
+
+  # Aggregate results and create alerts
+  performance-report:
+    name: Performance Regression Report
+    runs-on: ubuntu-latest
+    needs: [python-performance-benchmarks, rust-performance-benchmarks]
+    if: always()
+
+    steps:
+      - name: Download all results
+        uses: actions/download-artifact@v4
+        with:
+          path: results/
+
+      - name: Generate comprehensive report
+        run: |
+          cat > performance-report.md << 'EOF'
+          # 📊 Performance Regression Detection Report
+
+          **Workflow:** ${{ github.workflow }}
+          **Run:** ${{ github.run_number }}
+          **Commit:** ${{ github.sha }}
+          **Branch:** ${{ github.ref_name }}
+          **Triggered by:** ${{ github.event_name }}
+
+          ---
+
+          EOF
+
+          # Add Python results
+          if [ -f results/python-benchmark-results/python-performance-summary.md ]; then
+              cat results/python-benchmark-results/python-performance-summary.md >> performance-report.md
+              echo "" >> performance-report.md
+          fi
+
+          # Add Rust results
+          if [ -f results/rust-benchmark-results/rust-performance-summary.md ]; then
+              cat results/rust-benchmark-results/rust-performance-summary.md >> performance-report.md
+              echo "" >> performance-report.md
+          fi
+
+          # Add threshold information
+          cat >> performance-report.md << 'EOF'
+
+          ---
+
+          ## Regression Thresholds
+
+          - **Throughput:** Alert if drop exceeds ${{ env.THROUGHPUT_THRESHOLD_PERCENT }}%
+          - **Latency:** Alert if increase exceeds ${{ env.LATENCY_THRESHOLD_PERCENT }}%
+          - **Memory:** Alert if increase exceeds ${{ env.MEMORY_THRESHOLD_PERCENT }}%
+
+          EOF
+
+      - name: Post to GitHub Step Summary
+        run: |
+          cat performance-report.md >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('performance-report.md', 'utf8');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(comment =>
+              comment.user.type === 'Bot' &&
+              comment.body.includes('📊 Performance Regression Detection Report')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: report
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: report
+              });
+            }
+
+      - name: Create GitHub issue for regressions
+        if: |
+          (needs.python-performance-benchmarks.outputs.has_regressions == 'true' ||
+           needs.rust-performance-benchmarks.outputs.has_regressions == 'true') &&
+          github.ref == 'refs/heads/main'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const report = fs.readFileSync('performance-report.md', 'utf8');
+
+            const pythonRegressions = ${{ needs.python-performance-benchmarks.outputs.regression_count || 0 }};
+            const rustRegressions = ${{ needs.rust-performance-benchmarks.outputs.regression_count || 0 }};
+            const totalRegressions = pythonRegressions + rustRegressions;
+
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 Performance Regression Detected: ${totalRegressions} benchmark(s) degraded`,
+              body: report,
+              labels: ['performance', 'regression', 'automated']
+            });
+
+      - name: Fail workflow on regression
+        if: |
+          needs.python-performance-benchmarks.outputs.has_regressions == 'true' ||
+          needs.rust-performance-benchmarks.outputs.has_regressions == 'true'
+        run: |
+          echo "❌ Performance regressions detected!"
+          echo "Python regressions: ${{ needs.python-performance-benchmarks.outputs.regression_count || 0 }}"
+          echo "Rust regressions: ${{ needs.rust-performance-benchmarks.outputs.regression_count || 0 }}"
+          echo ""
+          echo "Review the performance report above for details."
+          exit 1
