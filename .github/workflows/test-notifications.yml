@@ -1,0 +1,586 @@
+name: Test Result Notifications
+
+# Triggered by completion of test workflows
+on:
+  workflow_run:
+    workflows:
+      - "Unit Tests (Fast Feedback)"
+      - "Integration Tests (PR Validation)"
+      - "Nightly Stress Tests (Stability)"
+      - "Performance Regression Detection"
+      - "E2E System Tests"
+    types:
+      - completed
+
+  # Manual trigger for testing
+  workflow_dispatch:
+    inputs:
+      test_workflow:
+        description: 'Test workflow name'
+        required: true
+        default: 'Unit Tests (Fast Feedback)'
+      test_status:
+        description: 'Test status'
+        required: true
+        type: choice
+        options:
+          - success
+          - failure
+      failure_count:
+        description: 'Number of failed tests'
+        required: false
+        default: '0'
+
+env:
+  # Notification configuration
+  SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+  SLACK_CHANNEL: ${{ secrets.SLACK_TEST_CHANNEL || '#test-notifications' }}
+  EMAIL_RECIPIENTS: ${{ secrets.TEST_NOTIFICATION_EMAILS || 'dev-team@example.com' }}
+
+  # Escalation thresholds
+  CRITICAL_FAILURE_THRESHOLD: 10
+  REGRESSION_THRESHOLD: 3
+  CONSECUTIVE_FAILURE_THRESHOLD: 3
+
+permissions:
+  contents: read
+  issues: write
+  actions: read
+
+jobs:
+  # Extract and categorize test results
+  analyze-results:
+    name: Analyze Test Results
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    outputs:
+      workflow_name: ${{ steps.extract.outputs.workflow_name }}
+      workflow_status: ${{ steps.extract.outputs.workflow_status }}
+      total_tests: ${{ steps.extract.outputs.total_tests }}
+      failed_tests: ${{ steps.extract.outputs.failed_tests }}
+      passed_tests: ${{ steps.extract.outputs.passed_tests }}
+      skipped_tests: ${{ steps.extract.outputs.skipped_tests }}
+      duration: ${{ steps.extract.outputs.duration }}
+      failure_category: ${{ steps.categorize.outputs.category }}
+      is_critical: ${{ steps.categorize.outputs.is_critical }}
+      regression_detected: ${{ steps.categorize.outputs.regression_detected }}
+      notification_level: ${{ steps.categorize.outputs.notification_level }}
+
+    steps:
+    - name: Extract workflow information
+      id: extract
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          # Manual trigger - use inputs
+          echo "workflow_name=${{ github.event.inputs.test_workflow }}" >> $GITHUB_OUTPUT
+          echo "workflow_status=${{ github.event.inputs.test_status }}" >> $GITHUB_OUTPUT
+          echo "total_tests=100" >> $GITHUB_OUTPUT
+          echo "failed_tests=${{ github.event.inputs.failure_count }}" >> $GITHUB_OUTPUT
+          echo "passed_tests=$((100 - ${{ github.event.inputs.failure_count }}))" >> $GITHUB_OUTPUT
+          echo "skipped_tests=0" >> $GITHUB_OUTPUT
+          echo "duration=120" >> $GITHUB_OUTPUT
+        else
+          # Workflow run trigger - extract from event
+          echo "workflow_name=${{ github.event.workflow_run.name }}" >> $GITHUB_OUTPUT
+          echo "workflow_status=${{ github.event.workflow_run.conclusion }}" >> $GITHUB_OUTPUT
+
+          # Download and parse test artifacts
+          # This would normally parse JUnit XML or pytest JSON output
+          # For now, setting example values
+          echo "total_tests=0" >> $GITHUB_OUTPUT
+          echo "failed_tests=0" >> $GITHUB_OUTPUT
+          echo "passed_tests=0" >> $GITHUB_OUTPUT
+          echo "skipped_tests=0" >> $GITHUB_OUTPUT
+          echo "duration=0" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Download test artifacts
+      if: github.event_name == 'workflow_run'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            run_id: ${{ github.event.workflow_run.id }}
+          });
+
+          console.log(`Found ${artifacts.data.artifacts.length} artifacts`);
+
+          for (const artifact of artifacts.data.artifacts) {
+            if (artifact.name.includes('test-results')) {
+              console.log(`Test results artifact: ${artifact.name}`);
+              // Download and extract artifact
+              const download = await github.rest.actions.downloadArtifact({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                artifact_id: artifact.id,
+                archive_format: 'zip'
+              });
+
+              // Write to file for parsing
+              const fs = require('fs');
+              fs.writeFileSync('test-results.zip', Buffer.from(download.data));
+            }
+          }
+
+    - name: Parse test results
+      if: github.event_name == 'workflow_run'
+      id: parse
+      run: |
+        if [ -f test-results.zip ]; then
+          unzip -q test-results.zip -d test-results/ || true
+
+          # Parse JUnit XML if present
+          if find test-results/ -name "*.xml" -type f | grep -q .; then
+            python3 << 'EOF'
+import xml.etree.ElementTree as ET
+import sys
+import os
+from pathlib import Path
+
+total_tests = 0
+failed_tests = 0
+passed_tests = 0
+skipped_tests = 0
+total_duration = 0.0
+
+# Find all XML files
+for xml_file in Path('test-results').rglob('*.xml'):
+    try:
+        tree = ET.parse(xml_file)
+        root = tree.getroot()
+
+        # Parse testsuite or testsuites root
+        if root.tag == 'testsuites':
+            for testsuite in root.findall('testsuite'):
+                total_tests += int(testsuite.get('tests', 0))
+                failed_tests += int(testsuite.get('failures', 0))
+                failed_tests += int(testsuite.get('errors', 0))
+                skipped_tests += int(testsuite.get('skipped', 0))
+                total_duration += float(testsuite.get('time', 0))
+        elif root.tag == 'testsuite':
+            total_tests += int(root.get('tests', 0))
+            failed_tests += int(root.get('failures', 0))
+            failed_tests += int(root.get('errors', 0))
+            skipped_tests += int(root.get('skipped', 0))
+            total_duration += float(root.get('time', 0))
+    except Exception as e:
+        print(f"Error parsing {xml_file}: {e}", file=sys.stderr)
+        continue
+
+passed_tests = total_tests - failed_tests - skipped_tests
+
+print(f"total_tests={total_tests}")
+print(f"failed_tests={failed_tests}")
+print(f"passed_tests={passed_tests}")
+print(f"skipped_tests={skipped_tests}")
+print(f"duration={int(total_duration)}")
+EOF
+          else
+            echo "No XML test results found"
+            echo "total_tests=0"
+            echo "failed_tests=0"
+            echo "passed_tests=0"
+            echo "skipped_tests=0"
+            echo "duration=0"
+          fi >> $GITHUB_OUTPUT
+        else
+          echo "No test results artifact found"
+        fi
+
+    - name: Categorize failure
+      id: categorize
+      run: |
+        WORKFLOW_NAME="${{ steps.extract.outputs.workflow_name }}"
+        WORKFLOW_STATUS="${{ steps.extract.outputs.workflow_status }}"
+        FAILED_TESTS="${{ steps.extract.outputs.failed_tests }}"
+
+        # Default values
+        CATEGORY="unknown"
+        IS_CRITICAL="false"
+        REGRESSION_DETECTED="false"
+        NOTIFICATION_LEVEL="info"
+
+        if [[ "$WORKFLOW_STATUS" == "failure" ]]; then
+          # Categorize based on workflow type
+          case "$WORKFLOW_NAME" in
+            *"Unit Tests"*)
+              CATEGORY="unit_test_failure"
+              NOTIFICATION_LEVEL="warning"
+              if [[ $FAILED_TESTS -ge $CRITICAL_FAILURE_THRESHOLD ]]; then
+                IS_CRITICAL="true"
+                NOTIFICATION_LEVEL="critical"
+              fi
+              ;;
+            *"Integration Tests"*)
+              CATEGORY="integration_failure"
+              NOTIFICATION_LEVEL="error"
+              if [[ $FAILED_TESTS -ge 5 ]]; then
+                IS_CRITICAL="true"
+                NOTIFICATION_LEVEL="critical"
+              fi
+              ;;
+            *"Stress Tests"*|*"E2E"*)
+              CATEGORY="stability_issue"
+              NOTIFICATION_LEVEL="error"
+              IS_CRITICAL="true"
+              ;;
+            *"Performance Regression"*)
+              CATEGORY="performance_regression"
+              REGRESSION_DETECTED="true"
+              NOTIFICATION_LEVEL="error"
+              IS_CRITICAL="true"
+              ;;
+            *)
+              CATEGORY="test_failure"
+              NOTIFICATION_LEVEL="warning"
+              ;;
+          esac
+        elif [[ "$WORKFLOW_STATUS" == "success" ]]; then
+          CATEGORY="success"
+          NOTIFICATION_LEVEL="info"
+        else
+          CATEGORY="cancelled_or_skipped"
+          NOTIFICATION_LEVEL="info"
+        fi
+
+        echo "category=$CATEGORY" >> $GITHUB_OUTPUT
+        echo "is_critical=$IS_CRITICAL" >> $GITHUB_OUTPUT
+        echo "regression_detected=$REGRESSION_DETECTED" >> $GITHUB_OUTPUT
+        echo "notification_level=$NOTIFICATION_LEVEL" >> $GITHUB_OUTPUT
+
+  # Send Slack notification
+  slack-notification:
+    name: Send Slack Notification
+    runs-on: ubuntu-latest
+    needs: analyze-results
+    if: always() && needs.analyze-results.outputs.workflow_status != 'success'
+    timeout-minutes: 5
+
+    steps:
+    - name: Prepare Slack message
+      id: message
+      run: |
+        WORKFLOW_NAME="${{ needs.analyze-results.outputs.workflow_name }}"
+        WORKFLOW_STATUS="${{ needs.analyze-results.outputs.workflow_status }}"
+        FAILED_TESTS="${{ needs.analyze-results.outputs.failed_tests }}"
+        TOTAL_TESTS="${{ needs.analyze-results.outputs.total_tests }}"
+        CATEGORY="${{ needs.analyze-results.outputs.failure_category }}"
+        IS_CRITICAL="${{ needs.analyze-results.outputs.is_critical }}"
+
+        # Determine emoji and color
+        if [[ "$IS_CRITICAL" == "true" ]]; then
+          EMOJI="🚨"
+          COLOR="danger"
+          SEVERITY="CRITICAL"
+        elif [[ "$WORKFLOW_STATUS" == "failure" ]]; then
+          EMOJI="❌"
+          COLOR="warning"
+          SEVERITY="WARNING"
+        else
+          EMOJI="⚠️"
+          COLOR="#808080"
+          SEVERITY="INFO"
+        fi
+
+        # Build Slack message
+        cat > slack-message.json << EOF
+{
+  "channel": "${{ env.SLACK_CHANNEL }}",
+  "username": "Test Results Bot",
+  "icon_emoji": ":test_tube:",
+  "attachments": [
+    {
+      "color": "$COLOR",
+      "title": "$EMOJI $SEVERITY: $WORKFLOW_NAME",
+      "title_link": "${{ github.event.workflow_run.html_url || github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+      "fields": [
+        {
+          "title": "Status",
+          "value": "$WORKFLOW_STATUS",
+          "short": true
+        },
+        {
+          "title": "Branch",
+          "value": "${{ github.event.workflow_run.head_branch || github.ref_name }}",
+          "short": true
+        },
+        {
+          "title": "Failed Tests",
+          "value": "$FAILED_TESTS / $TOTAL_TESTS",
+          "short": true
+        },
+        {
+          "title": "Category",
+          "value": "$CATEGORY",
+          "short": true
+        },
+        {
+          "title": "Commit",
+          "value": "<${{ github.event.workflow_run.head_repository.html_url || github.server_url }}/${{ github.repository }}/commit/${{ github.event.workflow_run.head_sha || github.sha }}|${{ github.event.workflow_run.head_sha || github.sha | substr 0 7 }}>",
+          "short": true
+        },
+        {
+          "title": "Author",
+          "value": "${{ github.event.workflow_run.head_commit.author.name || github.actor }}",
+          "short": true
+        }
+      ],
+      "footer": "GitHub Actions",
+      "footer_icon": "https://github.com/favicon.ico",
+      "ts": $(date +%s)
+    }
+  ]
+}
+EOF
+
+        cat slack-message.json
+
+    - name: Send to Slack
+      if: env.SLACK_WEBHOOK_URL != ''
+      run: |
+        curl -X POST \
+          -H 'Content-Type: application/json' \
+          --data @slack-message.json \
+          "${{ env.SLACK_WEBHOOK_URL }}"
+      continue-on-error: true
+
+  # Send email notification
+  email-notification:
+    name: Send Email Notification
+    runs-on: ubuntu-latest
+    needs: analyze-results
+    if: |
+      always() &&
+      needs.analyze-results.outputs.is_critical == 'true'
+    timeout-minutes: 5
+
+    steps:
+    - name: Prepare email content
+      id: email
+      run: |
+        WORKFLOW_NAME="${{ needs.analyze-results.outputs.workflow_name }}"
+        WORKFLOW_STATUS="${{ needs.analyze-results.outputs.workflow_status }}"
+        FAILED_TESTS="${{ needs.analyze-results.outputs.failed_tests }}"
+        TOTAL_TESTS="${{ needs.analyze-results.outputs.total_tests }}"
+        CATEGORY="${{ needs.analyze-results.outputs.failure_category }}"
+
+        cat > email-body.html << EOF
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: Arial, sans-serif; line-height: 1.6; }
+    .header { background: #d32f2f; color: white; padding: 20px; }
+    .content { padding: 20px; }
+    .footer { background: #f5f5f5; padding: 10px; font-size: 12px; }
+    .metric { display: inline-block; margin: 10px; padding: 10px; background: #f5f5f5; border-radius: 5px; }
+    .critical { color: #d32f2f; font-weight: bold; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>🚨 Critical Test Failure Alert</h1>
+  </div>
+  <div class="content">
+    <h2>$WORKFLOW_NAME</h2>
+    <p class="critical">Status: $WORKFLOW_STATUS</p>
+
+    <h3>Test Results</h3>
+    <div class="metric">
+      <strong>Failed Tests:</strong> $FAILED_TESTS
+    </div>
+    <div class="metric">
+      <strong>Total Tests:</strong> $TOTAL_TESTS
+    </div>
+    <div class="metric">
+      <strong>Category:</strong> $CATEGORY
+    </div>
+
+    <h3>Details</h3>
+    <ul>
+      <li><strong>Branch:</strong> ${{ github.event.workflow_run.head_branch || github.ref_name }}</li>
+      <li><strong>Commit:</strong> ${{ github.event.workflow_run.head_sha || github.sha }}</li>
+      <li><strong>Author:</strong> ${{ github.event.workflow_run.head_commit.author.name || github.actor }}</li>
+      <li><strong>Run URL:</strong> <a href="${{ github.event.workflow_run.html_url || github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">View Run</a></li>
+    </ul>
+
+    <h3>Action Required</h3>
+    <p>This is a critical failure requiring immediate attention. Please review the failed tests and logs.</p>
+  </div>
+  <div class="footer">
+    <p>Automated notification from GitHub Actions - ${{ github.repository }}</p>
+  </div>
+</body>
+</html>
+EOF
+
+        cat email-body.html
+
+    - name: Send email via GitHub Actions
+      uses: dawidd6/action-send-mail@v3
+      with:
+        server_address: smtp.gmail.com
+        server_port: 465
+        username: ${{ secrets.EMAIL_USERNAME }}
+        password: ${{ secrets.EMAIL_PASSWORD }}
+        subject: "🚨 Critical Test Failure: ${{ needs.analyze-results.outputs.workflow_name }}"
+        to: ${{ env.EMAIL_RECIPIENTS }}
+        from: GitHub Actions
+        html_body: file://email-body.html
+        ignore_cert: true
+        convert_markdown: false
+      continue-on-error: true
+
+  # Create GitHub issue for critical failures
+  create-issue:
+    name: Create GitHub Issue
+    runs-on: ubuntu-latest
+    needs: analyze-results
+    if: |
+      always() &&
+      needs.analyze-results.outputs.is_critical == 'true' &&
+      github.event.workflow_run.head_branch == 'main'
+    timeout-minutes: 5
+
+    steps:
+    - name: Check for existing issue
+      id: check
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issues = await github.rest.issues.listForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            state: 'open',
+            labels: 'critical-test-failure,automated'
+          });
+
+          const workflowName = '${{ needs.analyze-results.outputs.workflow_name }}';
+          const existingIssue = issues.data.find(issue =>
+            issue.title.includes(workflowName)
+          );
+
+          if (existingIssue) {
+            console.log(`Found existing issue: #${existingIssue.number}`);
+            core.setOutput('issue_exists', 'true');
+            core.setOutput('issue_number', existingIssue.number);
+          } else {
+            core.setOutput('issue_exists', 'false');
+          }
+
+    - name: Create new issue
+      if: steps.check.outputs.issue_exists == 'false'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const workflowName = '${{ needs.analyze-results.outputs.workflow_name }}';
+          const failedTests = '${{ needs.analyze-results.outputs.failed_tests }}';
+          const totalTests = '${{ needs.analyze-results.outputs.total_tests }}';
+          const category = '${{ needs.analyze-results.outputs.failure_category }}';
+          const runUrl = '${{ github.event.workflow_run.html_url }}';
+
+          const body = `## 🚨 Critical Test Failure Alert
+
+**Workflow:** ${workflowName}
+**Status:** failure
+**Category:** ${category}
+**Failed Tests:** ${failedTests} / ${totalTests}
+
+### Details
+
+- **Branch:** ${{ github.event.workflow_run.head_branch }}
+- **Commit:** ${{ github.event.workflow_run.head_sha }}
+- **Author:** ${{ github.event.workflow_run.head_commit.author.name }}
+- **Run URL:** ${runUrl}
+
+### Action Required
+
+This critical test failure requires immediate investigation and resolution.
+
+### Next Steps
+
+1. Review the failed tests in the workflow run
+2. Check logs for error details
+3. Reproduce failures locally
+4. Fix the underlying issues
+5. Verify with additional test runs
+6. Close this issue when resolved
+
+---
+*Automated issue created by Test Notification System*`;
+
+          const issue = await github.rest.issues.create({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            title: `🚨 Critical Test Failure: ${workflowName}`,
+            body: body,
+            labels: ['critical-test-failure', 'automated', 'bug']
+          });
+
+          console.log(`Created issue #${issue.data.number}`);
+
+    - name: Update existing issue
+      if: steps.check.outputs.issue_exists == 'true'
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const issueNumber = parseInt('${{ steps.check.outputs.issue_number }}');
+          const runUrl = '${{ github.event.workflow_run.html_url }}';
+
+          const comment = `### 🔄 Additional Failure Detected
+
+**Commit:** ${{ github.event.workflow_run.head_sha }}
+**Author:** ${{ github.event.workflow_run.head_commit.author.name }}
+**Run URL:** ${runUrl}
+**Failed Tests:** ${{ needs.analyze-results.outputs.failed_tests }} / ${{ needs.analyze-results.outputs.total_tests }}
+
+This issue continues to occur. Escalating priority.`;
+
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: issueNumber,
+            body: comment
+          });
+
+          // Add high-priority label
+          await github.rest.issues.addLabels({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: issueNumber,
+            labels: ['high-priority']
+          });
+
+          console.log(`Updated issue #${issueNumber}`);
+
+  # Summary job
+  notification-summary:
+    name: Notification Summary
+    runs-on: ubuntu-latest
+    needs: [analyze-results, slack-notification, email-notification, create-issue]
+    if: always()
+    timeout-minutes: 5
+
+    steps:
+    - name: Generate summary
+      run: |
+        echo "## Test Notification Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Workflow:** ${{ needs.analyze-results.outputs.workflow_name }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Status:** ${{ needs.analyze-results.outputs.workflow_status }}" >> $GITHUB_STEP_SUMMARY
+        echo "**Category:** ${{ needs.analyze-results.outputs.failure_category }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Notifications Sent" >> $GITHUB_STEP_SUMMARY
+        echo "- Slack: ${{ needs.slack-notification.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Email: ${{ needs.email-notification.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- GitHub Issue: ${{ needs.create-issue.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        if [[ "${{ needs.analyze-results.outputs.is_critical }}" == "true" ]]; then
+          echo "⚠️ **CRITICAL FAILURE** - Immediate attention required" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "ℹ️ Standard notification sent" >> $GITHUB_STEP_SUMMARY
+        fi
