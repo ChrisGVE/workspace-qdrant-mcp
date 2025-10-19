@@ -558,9 +558,13 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "workflow: Complete workflow tests")
     config.addinivalue_line("markers", "stability: Long-running stability tests")
     config.addinivalue_line("markers", "performance: Performance regression tests")
+    config.addinivalue_line("markers", "concurrent: Concurrent/parallel access tests")
 
     # Set environment for E2E tests
     os.environ["E2E_TESTING"] = "1"
+
+    # Remove PYTEST_CURRENT_TEST to prevent teardown errors
+    os.environ.pop("PYTEST_CURRENT_TEST", None)
 
 
 def pytest_collection_modifyitems(config, items):
