@@ -11,7 +11,8 @@ from pathlib import Path
 
 import pytest
 
-from common.core.backup import BackupMetadata
+from common.core.backup import BackupMetadata, VersionValidator, CompatibilityStatus
+from common.core.error_handling import IncompatibleVersionError
 
 
 class TestBackupMetadata:
@@ -254,3 +255,136 @@ class TestBackupMetadata:
 
             assert loaded.additional_metadata["custom_key"] == "custom_value"
             assert loaded.additional_metadata["number"] == 42
+
+
+class TestVersionValidator:
+    """Test suite for VersionValidator utility class."""
+
+    def test_parse_version_standard(self):
+        """Test parsing standard semver version."""
+        major, minor, patch = VersionValidator.parse_version("0.2.1")
+        assert (major, minor, patch) == (0, 2, 1)
+
+    def test_parse_version_dev_suffix(self):
+        """Test parsing version with dev suffix."""
+        major, minor, patch = VersionValidator.parse_version("0.2.1dev1")
+        assert (major, minor, patch) == (0, 2, 1)
+
+    def test_parse_version_no_patch(self):
+        """Test parsing version without patch number."""
+        major, minor, patch = VersionValidator.parse_version("1.0")
+        assert (major, minor, patch) == (1, 0, 0)
+
+    def test_parse_version_invalid(self):
+        """Test parsing invalid version raises ValueError."""
+        with pytest.raises(ValueError, match="Invalid version format"):
+            VersionValidator.parse_version("invalid")
+
+    def test_check_compatibility_identical(self):
+        """Test identical versions are compatible."""
+        status = VersionValidator.check_compatibility("0.2.1", "0.2.1")
+        assert status == CompatibilityStatus.COMPATIBLE
+
+    def test_check_compatibility_patch_difference(self):
+        """Test same major.minor with different patch is compatible."""
+        status = VersionValidator.check_compatibility("0.2.0", "0.2.1")
+        assert status == CompatibilityStatus.UPGRADE_AVAILABLE
+
+    def test_check_compatibility_downgrade(self):
+        """Test newer backup version is downgrade."""
+        status = VersionValidator.check_compatibility("0.2.2", "0.2.1")
+        assert status == CompatibilityStatus.DOWNGRADE
+
+    def test_check_compatibility_minor_version_mismatch(self):
+        """Test different minor version is incompatible."""
+        status = VersionValidator.check_compatibility("0.1.0", "0.2.0")
+        assert status == CompatibilityStatus.INCOMPATIBLE
+
+    def test_check_compatibility_major_version_mismatch(self):
+        """Test different major version is incompatible."""
+        status = VersionValidator.check_compatibility("1.0.0", "2.0.0")
+        assert status == CompatibilityStatus.INCOMPATIBLE
+
+    def test_check_compatibility_dev_versions(self):
+        """Test compatibility with dev suffixes."""
+        status = VersionValidator.check_compatibility("0.2.1dev1", "0.2.1")
+        assert status == CompatibilityStatus.COMPATIBLE
+
+    def test_validate_compatibility_success(self):
+        """Test validate_compatibility doesn't raise on compatible versions."""
+        metadata = BackupMetadata(version="0.2.1", timestamp=time.time())
+        # Should not raise
+        VersionValidator.validate_compatibility(metadata, "0.2.1")
+
+    def test_validate_compatibility_upgrade_allowed(self):
+        """Test validate_compatibility allows patch upgrades."""
+        metadata = BackupMetadata(version="0.2.0", timestamp=time.time())
+        # Should not raise (backup is older)
+        VersionValidator.validate_compatibility(metadata, "0.2.1")
+
+    def test_validate_compatibility_incompatible_raises(self):
+        """Test validate_compatibility raises on incompatible versions."""
+        metadata = BackupMetadata(version="0.1.0", timestamp=time.time())
+
+        with pytest.raises(IncompatibleVersionError) as exc_info:
+            VersionValidator.validate_compatibility(metadata, "0.2.0")
+
+        error = exc_info.value
+        assert "incompatible" in str(error).lower()
+        assert error.context["backup_version"] == "0.1.0"
+        assert error.context["current_version"] == "0.2.0"
+
+    def test_validate_compatibility_downgrade_blocked(self):
+        """Test validate_compatibility blocks downgrade by default."""
+        metadata = BackupMetadata(version="0.2.2", timestamp=time.time())
+
+        with pytest.raises(IncompatibleVersionError) as exc_info:
+            VersionValidator.validate_compatibility(metadata, "0.2.1")
+
+        error = exc_info.value
+        assert "newer backup version" in str(error).lower()
+
+    def test_validate_compatibility_downgrade_allowed(self):
+        """Test validate_compatibility allows downgrade with flag."""
+        metadata = BackupMetadata(version="0.2.2", timestamp=time.time())
+        # Should not raise with allow_downgrade=True
+        VersionValidator.validate_compatibility(metadata, "0.2.1", allow_downgrade=True)
+
+    def test_get_compatibility_message_compatible(self):
+        """Test compatibility message for compatible versions."""
+        message = VersionValidator.get_compatibility_message("0.2.1", "0.2.1")
+        assert "compatible" in message.lower()
+        assert "0.2.1" in message
+
+    def test_get_compatibility_message_upgrade(self):
+        """Test compatibility message for upgrade available."""
+        message = VersionValidator.get_compatibility_message("0.2.0", "0.2.1")
+        assert "older" in message.lower()
+        assert "0.2.0" in message
+        assert "0.2.1" in message
+
+    def test_get_compatibility_message_downgrade(self):
+        """Test compatibility message for downgrade."""
+        message = VersionValidator.get_compatibility_message("0.2.2", "0.2.1")
+        assert "newer" in message.lower()
+
+    def test_get_compatibility_message_incompatible(self):
+        """Test compatibility message for incompatible versions."""
+        message = VersionValidator.get_compatibility_message("0.1.0", "0.2.0")
+        assert "incompatible" in message.lower()
+        assert "major or minor" in message.lower()
+
+    def test_version_validator_with_real_metadata(self):
+        """Test VersionValidator with actual BackupMetadata."""
+        metadata = BackupMetadata(
+            version="0.2.1",
+            timestamp=time.time(),
+            collections=["test"]
+        )
+
+        # Compatible version should pass
+        VersionValidator.validate_compatibility(metadata, "0.2.1")
+
+        # Incompatible version should fail
+        with pytest.raises(IncompatibleVersionError):
+            VersionValidator.validate_compatibility(metadata, "0.3.0")
