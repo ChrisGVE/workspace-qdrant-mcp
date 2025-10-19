@@ -321,9 +321,7 @@ def integration_test_setup():
     os.environ["INTEGRATION_TESTING"] = "1"
     os.environ["DOCKER_AVAILABLE"] = str(docker_available).lower()
 
-    # Ensure PYTEST_CURRENT_TEST exists to prevent teardown errors
-    if "PYTEST_CURRENT_TEST" not in os.environ:
-        os.environ["PYTEST_CURRENT_TEST"] = "session_setup"
+    # Note: PYTEST_CURRENT_TEST is managed by pytest internally, don't manipulate it
 
     yield
 

@@ -33,7 +33,7 @@ def pytest_configure(config):
     """
     # Set environment variable to indicate testing mode
     os.environ["WQM_TESTING"] = "true"
-    os.environ["PYTEST_CURRENT_TEST"] = "true"
+    # Note: PYTEST_CURRENT_TEST is managed by pytest internally, don't set it manually
 
     # Register additional markers (beyond those in pyproject.toml)
     config.addinivalue_line(
@@ -147,7 +147,7 @@ def test_environment_setup():
 
     # Cleanup environment
     os.environ.pop("WQM_TESTING", None)
-    os.environ.pop("PYTEST_CURRENT_TEST", None)
+    # Note: PYTEST_CURRENT_TEST is managed by pytest internally, don't remove it manually
 
 
 @pytest.fixture

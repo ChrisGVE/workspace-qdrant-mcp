@@ -563,8 +563,7 @@ def pytest_configure(config):
     # Set environment for E2E tests
     os.environ["E2E_TESTING"] = "1"
 
-    # Remove PYTEST_CURRENT_TEST to prevent teardown errors
-    os.environ.pop("PYTEST_CURRENT_TEST", None)
+    # Note: PYTEST_CURRENT_TEST is managed by pytest internally, don't manipulate it
 
 
 def pytest_collection_modifyitems(config, items):
