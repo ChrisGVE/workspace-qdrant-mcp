@@ -9,6 +9,9 @@ from .authority_filter import AuthorityFilter, FilteredRules, RuleHierarchy
 from .claude_code_detector import (
     ClaudeCodeDetector,
     ClaudeCodeSession,
+    ClaudeSessionMonitor,
+    ProjectContextMetadata,
+    SessionEvent,
     get_claude_code_session,
     is_claude_code_session,
 )
@@ -210,6 +213,9 @@ __all__ = [
     # Claude Code Detection
     "ClaudeCodeDetector",
     "ClaudeCodeSession",
+    "ClaudeSessionMonitor",
+    "ProjectContextMetadata",
+    "SessionEvent",
     "is_claude_code_session",
     "get_claude_code_session",
     # Copilot/Codex Detection
