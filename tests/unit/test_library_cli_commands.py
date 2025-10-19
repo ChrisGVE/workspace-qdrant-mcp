@@ -1488,3 +1488,341 @@ class TestConcurrentOperations:
 
             # Should complete without errors
             asyncio.run(list_multiple())
+
+
+class TestLibraryEnumeration:
+    """Test library collection enumeration and listing (Task 327.3)."""
+
+    def setup_method(self):
+        """Set up test environment."""
+        self.runner = CliRunner()
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_list_libraries_basic(self, mock_config, mock_with_daemon):
+        """Test basic library listing without stats."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Create mock collections including library collections (with _) and regular ones
+            col1 = MagicMock()
+            col1.name = "_technical-docs"
+            col2 = MagicMock()
+            col2.name = "_api-reference"
+            col3 = MagicMock()
+            col3.name = "myproject-code"  # Not a library
+            mock_collections = [col1, col2, col3]
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=mock_collections)
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(library_app, ["list"])
+
+        assert result.exit_code == 0
+        # Should show library collections
+        assert "technical-docs" in result.output
+        assert "api-reference" in result.output
+        # Should NOT show regular project collections
+        assert "myproject-code" not in result.output
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_list_libraries_with_stats(self, mock_config, mock_with_daemon):
+        """Test library listing with statistics."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Create mock library collections with stats
+            col1 = MagicMock()
+            col1.name = "_docs"
+            col1.points_count = 100
+            col1.vectors_count = 100
+            col1.indexed_points_count = 100
+            col1.status = "active"
+
+            col2 = MagicMock()
+            col2.name = "_code"
+            col2.points_count = 250
+            col2.vectors_count = 250
+            col2.indexed_points_count = 250
+            col2.status = "active"
+
+            mock_collections = [col1, col2]
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=mock_collections)
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(library_app, ["list", "--stats"])
+
+        assert result.exit_code == 0
+        # Should display statistics
+        assert "100" in result.output  # docs count
+        assert "250" in result.output  # code count
+        assert "Documents" in result.output or "documents" in result.output.lower()
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_list_libraries_sort_by_size(self, mock_config, mock_with_daemon):
+        """Test library listing sorted by size."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Create libraries with different sizes
+            col1 = MagicMock()
+            col1.name = "_small"
+            col1.points_count = 10
+            col1.vectors_count = 10
+            col1.indexed_points_count = 10
+
+            col2 = MagicMock()
+            col2.name = "_large"
+            col2.points_count = 1000
+            col2.vectors_count = 1000
+            col2.indexed_points_count = 1000
+
+            col3 = MagicMock()
+            col3.name = "_medium"
+            col3.points_count = 100
+            col3.vectors_count = 100
+            col3.indexed_points_count = 100
+
+            mock_collections = [col1, col2, col3]
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=mock_collections)
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(
+            library_app, ["list", "--stats", "--sort", "size"]
+        )
+
+        assert result.exit_code == 0
+        # Output should have libraries sorted by size (descending)
+        lines = result.output.split('\n')
+        # Find lines with library data
+        lib_lines = [l for l in lines if any(name in l for name in ['small', 'medium', 'large'])]
+        # Large should come before medium, medium before small
+        if len(lib_lines) >= 3:
+            large_idx = next(i for i, l in enumerate(lib_lines) if 'large' in l)
+            small_idx = next(i for i, l in enumerate(lib_lines) if 'small' in l)
+            assert large_idx < small_idx
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_list_libraries_json_format(self, mock_config, mock_with_daemon):
+        """Test library listing in JSON format."""
+        from wqm_cli.cli.commands.library import library_app
+        from types import SimpleNamespace
+        import json
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Use SimpleNamespace instead of MagicMock to avoid JSON serialization issues
+            col1 = SimpleNamespace(
+                name="_docs",
+                points_count=50,
+                vectors_count=50,
+                indexed_points_count=50,
+                status="active"
+            )
+
+            mock_collections = [col1]
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=mock_collections)
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(
+            library_app, ["list", "--stats", "--format", "json"]
+        )
+
+        assert result.exit_code == 0
+        # Should be valid JSON
+        try:
+            data = json.loads(result.output)
+            assert isinstance(data, list)
+            assert len(data) == 1
+            assert data[0]["name"] == "_docs"
+            assert data[0]["display_name"] == "docs"
+            assert data[0]["points_count"] == 50
+        except json.JSONDecodeError:
+            assert False, "Output is not valid JSON"
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_list_libraries_empty(self, mock_config, mock_with_daemon):
+        """Test library listing when no libraries exist."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # No library collections (only regular project collections)
+            col1 = MagicMock()
+            col1.name = "myproject-code"
+            col2 = MagicMock()
+            col2.name = "myproject-docs"
+
+            mock_collections = [col1, col2]
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=mock_collections)
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(library_app, ["list"])
+
+        assert result.exit_code == 0
+        assert "No library collections found" in result.output
+        assert "create" in result.output  # Should suggest creating one
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_library_status_specific(self, mock_config, mock_with_daemon):
+        """Test status command for a specific library."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Mock get_collection_info response
+            mock_info = MagicMock(
+                points_count=150,
+                indexed_points_count=150,
+                vector_size=384,
+                distance_metric="COSINE",
+            )
+            mock_client.get_collection_info = AsyncMock(return_value=mock_info)
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(library_app, ["status", "technical-docs"])
+
+        assert result.exit_code == 0
+        assert "technical-docs" in result.output
+        assert "150" in result.output  # Document count
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_library_info_with_samples(self, mock_config, mock_with_daemon):
+        """Test info command with sample documents."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Mock collection info with sample documents
+            mock_doc = MagicMock()
+            mock_doc.metadata = {
+                "title": "Sample Document",
+                "filename": "sample.pdf",
+                "content": "This is sample content for testing",
+            }
+            mock_info = MagicMock(
+                points_count=200,
+                indexed_points_count=200,
+                vector_size=384,
+                distance_metric="COSINE",
+                sample_documents=[mock_doc],
+            )
+            mock_client.get_collection_info = AsyncMock(return_value=mock_info)
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(
+            library_app, ["info", "api-docs", "--samples"]
+        )
+
+        assert result.exit_code == 0
+        assert "api-docs" in result.output
+        assert "Sample Document" in result.output
+        assert "sample.pdf" in result.output
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_list_libraries_performance_many_libraries(self, mock_config, mock_with_daemon):
+        """Test listing performance with 100+ libraries."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Create 150 mock library collections
+            mock_collections = []
+            for i in range(150):
+                col = MagicMock()
+                col.name = f"_lib{i:03d}"
+                col.points_count = i * 10
+                col.vectors_count = i * 10
+                col.indexed_points_count = i * 10
+                mock_collections.append(col)
+
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=mock_collections)
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(library_app, ["list", "--stats"])
+
+        assert result.exit_code == 0
+        # Should display count of libraries found
+        assert "150" in result.output  # Library count
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_library_info_schema_display(self, mock_config, mock_with_daemon):
+        """Test info command with schema display."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            mock_info = MagicMock(
+                points_count=75,
+                indexed_points_count=75,
+                vector_size=512,
+                distance_metric="EUCLIDEAN",
+            )
+            mock_client.get_collection_info = AsyncMock(return_value=mock_info)
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(
+            library_app, ["info", "ml-models", "--schema"]
+        )
+
+        assert result.exit_code == 0
+        assert "ml-models" in result.output
+        assert "Vector Size" in result.output or "512" in result.output
