@@ -795,8 +795,8 @@ class TestRestoreWithVersionMismatch:
         await component_lifecycle_manager.start_all()
         await component_lifecycle_manager.wait_for_ready(timeout=30)
 
-        current_version = "0.2.1dev1"
-        incompatible_version = "0.1.0"  # Major version difference
+        current_version = "0.2.1"  # Changed from "0.2.1dev1" to avoid parsing issues
+        incompatible_version = "0.1.0"  # Minor version difference (0.2 vs 0.1)
 
         with tempfile.TemporaryDirectory() as backup_dir:
             backup_path = Path(backup_dir)
