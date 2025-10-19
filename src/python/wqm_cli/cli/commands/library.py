@@ -412,9 +412,10 @@ async def _library_status(name: str | None, detailed: bool, health_check: bool):
                     return None, str(e)
                     
             result = await with_daemon_client(_operation, config)
-            
+
             if isinstance(result, tuple):
                 print(f"Error: Cannot get status for '{display_name}': {result[1]}")
+                raise typer.Exit(1)
             else:
                 info = result
                 print(f"{display_name} Status:")

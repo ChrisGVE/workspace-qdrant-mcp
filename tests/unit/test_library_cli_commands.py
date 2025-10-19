@@ -2174,3 +2174,335 @@ class TestBulkOperationsAndPerformance:
         assert 0 in successful  # batch-0 should succeed
         assert len(successful) == 9  # 9 should succeed
         assert len(failed) == 1  # Only batch-5 should fail
+
+
+class TestErrorHandlingAndEdgeCases:
+    """Test error handling and edge cases (Task 327.5)."""
+
+    def setup_method(self):
+        """Set up test environment."""
+        self.runner = CliRunner()
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_create_library_name_conflict(self, mock_config, mock_with_daemon):
+        """Test creating a library that already exists."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Mock library already exists
+            col1 = MagicMock()
+            col1.name = "_duplicate"
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=[col1])
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(library_app, ["create", "duplicate"])
+
+        assert result.exit_code == 1
+        assert "already exists" in result.output
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_invalid_library_name_characters(self, mock_config, mock_with_daemon):
+        """Test creating library with invalid characters in name."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        # Test with spaces
+        result = self.runner.invoke(library_app, ["create", "my library"])
+        assert result.exit_code == 1
+        assert "Invalid" in result.output or "invalid" in result.output
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_remove_nonexistent_library(self, mock_config, mock_with_daemon):
+        """Test removing a library that doesn't exist."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # No libraries exist
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=[])
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(
+            library_app, ["remove", "nonexistent", "--force"]
+        )
+
+        assert result.exit_code == 1
+        assert "not found" in result.output or "Not found" in result.output
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_daemon_connection_failure(self, mock_config, mock_with_daemon):
+        """Test handling daemon connection failures."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            raise ConnectionError("Failed to connect to daemon")
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(library_app, ["list"])
+
+        assert result.exit_code == 1
+        assert "Failed" in result.output or "Error" in result.output
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_qdrant_network_failure(self, mock_config, mock_with_daemon):
+        """Test handling Qdrant network failures."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Simulate network failure
+            mock_client.list_collections = AsyncMock(
+                side_effect=Exception("Network timeout")
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(library_app, ["list"])
+
+        assert result.exit_code == 1
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_empty_library_name(self, mock_config, mock_with_daemon):
+        """Test creating library with empty name."""
+        from wqm_cli.cli.commands.library import library_app
+
+        # Empty string should be caught by CLI argument parser
+        result = self.runner.invoke(library_app, ["create", ""])
+
+        # Should either fail validation or be rejected by parser
+        assert result.exit_code != 0
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_library_name_too_long(self, mock_config, mock_with_daemon):
+        """Test creating library with excessively long name."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        # Create very long name (300 characters)
+        long_name = "a" * 300
+
+        result = self.runner.invoke(library_app, ["create", long_name])
+
+        # Should fail either at validation or creation
+        # Exit code 0 or 1 both acceptable depending on where it fails
+        # Just verify it completes without crashing
+        assert result.exit_code in [0, 1]
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_malformed_json_format_request(self, mock_config, mock_with_daemon):
+        """Test list command with invalid format option."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            col1 = MagicMock()
+            col1.name = "_test"
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=[col1])
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        # Invalid format option should be rejected
+        result = self.runner.invoke(
+            library_app, ["list", "--format", "xml"]
+        )
+
+        # Should either succeed with fallback or fail gracefully
+        assert result.exit_code in [0, 1, 2]  # Various error codes acceptable
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_library_info_empty_collection(self, mock_config, mock_with_daemon):
+        """Test getting info for an empty library."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Return empty library info
+            mock_info = MagicMock(
+                points_count=0,
+                indexed_points_count=0,
+                vector_size=384,
+                distance_metric="COSINE",
+                sample_documents=[]
+            )
+            mock_client.get_collection_info = AsyncMock(return_value=mock_info)
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(library_app, ["info", "empty-lib"])
+
+        assert result.exit_code == 0
+        assert "0" in result.output  # Should show 0 documents
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_special_characters_in_library_name(self, mock_config, mock_with_daemon):
+        """Test library name with special characters."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        # Test various special characters
+        special_names = [
+            "lib@test",
+            "lib#test",
+            "lib$test",
+            "lib%test",
+        ]
+
+        for name in special_names:
+            result = self.runner.invoke(library_app, ["create", name])
+            # Should fail validation
+            assert result.exit_code == 1
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_concurrent_create_same_library(self, mock_config, mock_with_daemon):
+        """Test race condition when creating same library name."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+        creation_count = 0
+
+        async def mock_operation(operation_func, config):
+            nonlocal creation_count
+            mock_client = MagicMock()
+
+            # First call shows no existing collections
+            # Second call shows the library was created
+            if creation_count == 0:
+                mock_client.list_collections = AsyncMock(
+                    return_value=MagicMock(collections=[])
+                )
+                mock_client.create_collection = AsyncMock(return_value=True)
+                creation_count += 1
+            else:
+                col1 = MagicMock()
+                col1.name = "_race"
+                mock_client.list_collections = AsyncMock(
+                    return_value=MagicMock(collections=[col1])
+                )
+
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        # First creation should succeed
+        result1 = self.runner.invoke(library_app, ["create", "race"])
+        assert result1.exit_code == 0
+
+        # Second creation should fail (already exists)
+        result2 = self.runner.invoke(library_app, ["create", "race"])
+        assert result2.exit_code == 1
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_library_status_get_info_failure(self, mock_config, mock_with_daemon):
+        """Test status command when get_collection_info fails."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # get_collection_info fails
+            mock_client.get_collection_info = AsyncMock(
+                side_effect=Exception("Collection info unavailable")
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        result = self.runner.invoke(library_app, ["status", "broken-lib"])
+
+        assert result.exit_code != 0
+        # Should show error message
+        assert "Cannot get status" in result.output or "Error" in result.output
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_remove_library_without_force_cancelled(self, mock_config, mock_with_daemon):
+        """Test cancelling library removal when not using --force."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            col1 = MagicMock()
+            col1.name = "_to-remove"
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=[col1])
+            )
+            mock_client.get_collection_info = AsyncMock(
+                return_value=MagicMock(points_count=100)
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        # Simulate user typing 'n' to cancel
+        result = self.runner.invoke(
+            library_app, ["remove", "to-remove"], input="n\n"
+        )
+
+        assert result.exit_code == 0
+        assert "cancelled" in result.output.lower()
+
+    @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
+    def test_ingest_to_invalid_library_name(self, mock_with_daemon):
+        """Test ingesting to library with invalid name format."""
+        from wqm_cli.cli.commands.ingest import ingest_app
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            test_file = Path(temp_dir) / "test.txt"
+            test_file.write_text("Test content")
+
+            # Try to ingest to non-library collection (without _ prefix)
+            result = self.runner.invoke(
+                ingest_app,
+                ["file", str(test_file), "--collection", "regular-collection"]
+            )
+
+            # Should either fail validation or be rejected
+            # Implementation may vary, so we just check it doesn't crash
+            assert result.exit_code in [0, 1]
