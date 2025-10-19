@@ -2,6 +2,7 @@
 name = "workspace-qdrant-daemon"
 version = "0.3.0"
 edition = "2021"
+rust-version = "1.75.0"  # MSRV - Minimum Supported Rust Version
 authors = ["Workspace Qdrant Team"]
 description = "High-performance Rust daemon for workspace document processing and vector search"
 license = "MIT"
