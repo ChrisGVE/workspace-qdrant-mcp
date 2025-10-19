@@ -8,8 +8,19 @@ system state, including version compatibility validation.
 import json
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
+
+from common.core.error_handling import IncompatibleVersionError
+
+
+class CompatibilityStatus(Enum):
+    """Version compatibility status."""
+    COMPATIBLE = "compatible"  # Same major and minor version
+    INCOMPATIBLE = "incompatible"  # Different major or minor version
+    UPGRADE_AVAILABLE = "upgrade_available"  # Backup is older, patch version differs
+    DOWNGRADE = "downgrade"  # Current version is older than backup
 
 
 @dataclass
@@ -168,3 +179,169 @@ class BackupMetadata:
         """
         from datetime import timezone
         return datetime.fromtimestamp(self.timestamp, tz=timezone.utc).isoformat()
+
+
+class VersionValidator:
+    """
+    Utility class for validating version compatibility between backups and current system.
+
+    Uses semantic versioning rules (major.minor.patch) to determine compatibility:
+    - Compatible: Same major and minor version (patch can differ)
+    - Incompatible: Different major or minor version
+    """
+
+    @staticmethod
+    def parse_version(version_str: str) -> tuple[int, int, int]:
+        """
+        Parse version string into (major, minor, patch) tuple.
+
+        Args:
+            version_str: Version string in semver format (e.g., "0.2.1", "1.0.0dev1")
+
+        Returns:
+            Tuple of (major, minor, patch) integers
+
+        Raises:
+            ValueError: If version format is invalid
+        """
+        parts = version_str.split(".")
+        if len(parts) < 2:
+            raise ValueError(f"Invalid version format: {version_str}")
+
+        major = int(parts[0])
+        minor = int(parts[1])
+
+        # Patch version is optional and may have dev suffix
+        if len(parts) >= 3:
+            # Extract leading numeric part (e.g., "1dev1" -> 1)
+            patch_str = parts[2]
+            numeric_part = ""
+            for c in patch_str:
+                if c.isdigit():
+                    numeric_part += c
+                else:
+                    break
+            patch = int(numeric_part) if numeric_part else 0
+        else:
+            patch = 0
+
+        return (major, minor, patch)
+
+    @staticmethod
+    def check_compatibility(
+        backup_version: str,
+        current_version: str,
+        strict: bool = True
+    ) -> CompatibilityStatus:
+        """
+        Check compatibility between backup version and current system version.
+
+        Args:
+            backup_version: Version of the backup
+            current_version: Current system version
+            strict: If True, only same major.minor is compatible.
+                   If False, allow patch version differences as compatible.
+
+        Returns:
+            CompatibilityStatus enum value
+
+        Examples:
+            >>> VersionValidator.check_compatibility("0.2.1", "0.2.1")
+            CompatibilityStatus.COMPATIBLE
+            >>> VersionValidator.check_compatibility("0.2.0", "0.2.1")
+            CompatibilityStatus.COMPATIBLE
+            >>> VersionValidator.check_compatibility("0.1.0", "0.2.0")
+            CompatibilityStatus.INCOMPATIBLE
+        """
+        backup_major, backup_minor, backup_patch = VersionValidator.parse_version(backup_version)
+        current_major, current_minor, current_patch = VersionValidator.parse_version(current_version)
+
+        # Check major and minor version compatibility
+        if backup_major != current_major or backup_minor != current_minor:
+            return CompatibilityStatus.INCOMPATIBLE
+
+        # Same major.minor - check patch version
+        if backup_patch == current_patch:
+            return CompatibilityStatus.COMPATIBLE
+        elif backup_patch < current_patch:
+            return CompatibilityStatus.UPGRADE_AVAILABLE
+        else:  # backup_patch > current_patch
+            return CompatibilityStatus.DOWNGRADE
+
+    @staticmethod
+    def validate_compatibility(
+        backup_metadata: BackupMetadata,
+        current_version: str,
+        allow_downgrade: bool = False
+    ) -> None:
+        """
+        Validate backup version compatibility, raising exception if incompatible.
+
+        Args:
+            backup_metadata: Backup metadata containing version information
+            current_version: Current system version
+            allow_downgrade: If True, allow restoring from newer backup version
+
+        Raises:
+            IncompatibleVersionError: If versions are incompatible
+        """
+        status = VersionValidator.check_compatibility(
+            backup_metadata.version,
+            current_version
+        )
+
+        if status == CompatibilityStatus.INCOMPATIBLE:
+            raise IncompatibleVersionError(
+                f"Backup version {backup_metadata.version} is incompatible with "
+                f"current version {current_version}. "
+                f"Major or minor version mismatch detected.",
+                backup_version=backup_metadata.version,
+                current_version=current_version
+            )
+
+        if status == CompatibilityStatus.DOWNGRADE and not allow_downgrade:
+            raise IncompatibleVersionError(
+                f"Cannot restore from newer backup version {backup_metadata.version} "
+                f"to older system version {current_version}. "
+                f"Use allow_downgrade=True to override.",
+                backup_version=backup_metadata.version,
+                current_version=current_version
+            )
+
+    @staticmethod
+    def get_compatibility_message(
+        backup_version: str,
+        current_version: str
+    ) -> str:
+        """
+        Get human-readable compatibility message.
+
+        Args:
+            backup_version: Version of the backup
+            current_version: Current system version
+
+        Returns:
+            Human-readable compatibility message
+        """
+        status = VersionValidator.check_compatibility(backup_version, current_version)
+
+        messages = {
+            CompatibilityStatus.COMPATIBLE: (
+                f"Backup version {backup_version} is compatible with "
+                f"current version {current_version}"
+            ),
+            CompatibilityStatus.UPGRADE_AVAILABLE: (
+                f"Backup version {backup_version} is older than "
+                f"current version {current_version} (patch difference only)"
+            ),
+            CompatibilityStatus.DOWNGRADE: (
+                f"Backup version {backup_version} is newer than "
+                f"current version {current_version} (patch difference only)"
+            ),
+            CompatibilityStatus.INCOMPATIBLE: (
+                f"Backup version {backup_version} is incompatible with "
+                f"current version {current_version} (major or minor version differs)"
+            ),
+        }
+
+        return messages[status]
