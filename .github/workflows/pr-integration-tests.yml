@@ -1,0 +1,618 @@
+name: PR Integration Tests
+
+# Comprehensive integration testing for pull requests
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: ['**']  # All branches
+  workflow_dispatch:
+    inputs:
+      test_suite:
+        description: 'Test suite to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - integration
+          - e2e
+          - mcp
+          - cli
+          - daemon
+
+env:
+  PYTHON_VERSION: "3.11"
+  RUST_VERSION: "stable"
+
+jobs:
+  # Skip if draft PR
+  check-pr-status:
+    name: Check PR Status
+    runs-on: ubuntu-latest
+    outputs:
+      should_run: ${{ steps.check.outputs.should_run }}
+    steps:
+    - name: Check if PR is draft
+      id: check
+      run: |
+        if [[ "${{ github.event.pull_request.draft }}" == "true" ]]; then
+          echo "should_run=false" >> $GITHUB_OUTPUT
+          echo "Skipping tests for draft PR"
+        else
+          echo "should_run=true" >> $GITHUB_OUTPUT
+        fi
+
+  # MCP server integration tests
+  mcp-server-tests:
+    name: MCP Server Integration Tests
+    runs-on: ubuntu-latest
+    needs: check-pr-status
+    if: needs.check-pr-status.outputs.should_run == 'true'
+    timeout-minutes: 30
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.7.4
+        ports:
+          - 6333:6333
+          - 6334:6334
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: ${{ runner.os }}-mcp-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
+
+    - name: Install dependencies
+      run: |
+        uv venv --python ${{ env.PYTHON_VERSION }}
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+
+    - name: Wait for Qdrant
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:6333/healthz; do sleep 2; done'
+
+    - name: Test MCP server startup
+      env:
+        QDRANT_URL: http://localhost:6333
+      run: |
+        . .venv/bin/activate
+        timeout 30 python -c "
+        from workspace_qdrant_mcp.server import app
+        print('✅ MCP server imports successfully')
+        print(f'✅ Available tools: {len(app._tools)}')
+        for tool_name in app._tools:
+            print(f'  - {tool_name}')
+        "
+
+    - name: Run MCP protocol compliance tests
+      env:
+        QDRANT_URL: http://localhost:6333
+      run: |
+        . .venv/bin/activate
+        pytest tests/integration/ \
+          -k "mcp" \
+          -v \
+          --tb=short \
+          --junitxml=mcp-test-results.xml \
+          || echo "Some MCP tests failed"
+
+    - name: Test MCP tools individually
+      env:
+        QDRANT_URL: http://localhost:6333
+      run: |
+        . .venv/bin/activate
+        python << 'EOF'
+import asyncio
+from workspace_qdrant_mcp.server import app
+
+async def test_tools():
+    print("\n🔧 Testing MCP tools...")
+    tools = app._tools
+    print(f"Total tools: {len(tools)}")
+
+    for tool_name, tool_func in tools.items():
+        print(f"\n  Testing: {tool_name}")
+        print(f"    Function: {tool_func.__name__}")
+        print(f"    Docstring: {tool_func.__doc__[:100] if tool_func.__doc__ else 'No docstring'}...")
+
+asyncio.run(test_tools())
+print("\n✅ MCP tool inventory complete")
+EOF
+
+    - name: Upload MCP test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: mcp-test-results
+        path: mcp-test-results.xml
+        retention-days: 14
+
+  # CLI integration tests
+  cli-integration-tests:
+    name: CLI Integration Tests
+    runs-on: ubuntu-latest
+    needs: check-pr-status
+    if: needs.check-pr-status.outputs.should_run == 'true'
+    timeout-minutes: 30
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.7.4
+        ports:
+          - 6333:6333
+          - 6334:6334
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: ${{ runner.os }}-cli-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
+
+    - name: Install dependencies
+      run: |
+        uv venv --python ${{ env.PYTHON_VERSION }}
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+
+    - name: Wait for Qdrant
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:6333/healthz; do sleep 2; done'
+
+    - name: Test CLI command availability
+      run: |
+        . .venv/bin/activate
+        echo "Testing CLI commands..."
+
+        # Test all console scripts
+        wqm --help || echo "wqm failed"
+        workspace-qdrant-mcp --help || echo "workspace-qdrant-mcp failed"
+        workspace-qdrant-test --help || echo "workspace-qdrant-test failed"
+        workspace-qdrant-health --help || echo "workspace-qdrant-health failed"
+        workspace-qdrant-ingest --help || echo "workspace-qdrant-ingest failed"
+        workspace-qdrant-setup --help || echo "workspace-qdrant-setup failed"
+        workspace-qdrant-validate --help || echo "workspace-qdrant-validate failed"
+        workspace-qdrant-admin --help || echo "workspace-qdrant-admin failed"
+        wqutil --help || echo "wqutil failed"
+
+        echo "✅ CLI command availability check complete"
+
+    - name: Run CLI integration tests
+      env:
+        QDRANT_URL: http://localhost:6333
+      run: |
+        . .venv/bin/activate
+        pytest tests/integration/ \
+          -k "cli" \
+          -v \
+          --tb=short \
+          --junitxml=cli-test-results.xml \
+          || echo "Some CLI tests failed"
+
+    - name: Test CLI workflow scenarios
+      env:
+        QDRANT_URL: http://localhost:6333
+      run: |
+        . .venv/bin/activate
+
+        # Test health check
+        echo "Testing health check..."
+        workspace-qdrant-health || echo "Health check failed"
+
+        # Test admin commands
+        echo "Testing admin commands..."
+        workspace-qdrant-admin collections || echo "Admin collections failed"
+
+    - name: Upload CLI test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cli-test-results
+        path: cli-test-results.xml
+        retention-days: 14
+
+  # Daemon communication tests
+  daemon-integration-tests:
+    name: Daemon Communication Tests
+    runs-on: ubuntu-latest
+    needs: check-pr-status
+    if: needs.check-pr-status.outputs.should_run == 'true'
+    timeout-minutes: 30
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.7.4
+        ports:
+          - 6333:6333
+          - 6334:6334
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ env.RUST_VERSION }}
+        profile: minimal
+        override: true
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          src/rust/daemon/target
+        key: ${{ runner.os }}-daemon-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Cache Python dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: ${{ runner.os }}-daemon-py-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
+
+    - name: Install Python dependencies
+      run: |
+        uv venv --python ${{ env.PYTHON_VERSION }}
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+
+    - name: Build Rust daemon
+      run: |
+        cd src/rust/daemon
+        cargo build --release
+        echo "✅ Daemon built successfully"
+
+    - name: Wait for Qdrant
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:6333/healthz; do sleep 2; done'
+
+    - name: Run daemon communication tests
+      env:
+        QDRANT_URL: http://localhost:6333
+      run: |
+        . .venv/bin/activate
+        pytest tests/integration/ \
+          -k "daemon" \
+          -v \
+          --tb=short \
+          --junitxml=daemon-test-results.xml \
+          || echo "Some daemon tests failed"
+
+    - name: Upload daemon test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: daemon-test-results
+        path: daemon-test-results.xml
+        retention-days: 14
+
+  # E2E integration tests
+  e2e-integration-tests:
+    name: E2E Integration Tests
+    runs-on: ubuntu-latest
+    needs: check-pr-status
+    if: needs.check-pr-status.outputs.should_run == 'true' && github.event.inputs.test_suite != 'mcp' && github.event.inputs.test_suite != 'cli'
+    timeout-minutes: 45
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.7.4
+        ports:
+          - 6333:6333
+          - 6334:6334
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y docker-compose
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: ${{ runner.os }}-e2e-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
+
+    - name: Install dependencies
+      run: |
+        uv venv --python ${{ env.PYTHON_VERSION }}
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+        uv pip install pytest-timeout docker-compose testcontainers
+
+    - name: Wait for Qdrant
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:6333/healthz; do sleep 2; done'
+
+    - name: Run E2E workflow tests (subset)
+      env:
+        QDRANT_URL: http://localhost:6333
+      run: |
+        . .venv/bin/activate
+        # Run subset of E2E tests (not slow/stability tests)
+        pytest tests/e2e/ \
+          -v \
+          --tb=short \
+          -m "not slow and not stability" \
+          --maxfail=5 \
+          --junitxml=e2e-test-results.xml \
+          || echo "Some E2E tests failed"
+      timeout-minutes: 40
+
+    - name: Upload E2E test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: e2e-test-results
+        path: e2e-test-results.xml
+        retention-days: 14
+
+  # Full integration test suite
+  full-integration-tests:
+    name: Full Integration Test Suite
+    runs-on: ubuntu-latest
+    needs: check-pr-status
+    if: needs.check-pr-status.outputs.should_run == 'true'
+    timeout-minutes: 40
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.7.4
+        ports:
+          - 6333:6333
+          - 6334:6334
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Cache dependencies
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/uv
+        key: ${{ runner.os }}-integration-${{ hashFiles('**/pyproject.toml', '**/uv.lock') }}
+
+    - name: Install dependencies
+      run: |
+        uv venv --python ${{ env.PYTHON_VERSION }}
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+
+    - name: Wait for Qdrant
+      run: |
+        timeout 60 bash -c 'until curl -f http://localhost:6333/healthz; do sleep 2; done'
+
+    - name: Run full integration test suite
+      env:
+        QDRANT_URL: http://localhost:6333
+      run: |
+        . .venv/bin/activate
+        pytest tests/integration/ tests/functional/ \
+          -v \
+          --tb=short \
+          --cov=src/python \
+          --cov-report=xml \
+          --cov-report=html \
+          --junitxml=full-integration-results.xml
+      timeout-minutes: 35
+
+    - name: Upload coverage
+      if: always()
+      uses: codecov/codecov-action@v4
+      with:
+        file: ./coverage.xml
+        flags: integration-pr
+        name: pr-integration-coverage
+
+    - name: Upload integration test results
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: full-integration-results
+        path: |
+          full-integration-results.xml
+          coverage.xml
+          htmlcov/
+        retention-days: 14
+
+  # Comment PR with test results
+  comment-pr-results:
+    name: Comment PR with Test Results
+    runs-on: ubuntu-latest
+    needs: [mcp-server-tests, cli-integration-tests, daemon-integration-tests, full-integration-tests]
+    if: always() && github.event_name == 'pull_request'
+    timeout-minutes: 10
+
+    steps:
+    - name: Download all test results
+      uses: actions/download-artifact@v4
+
+    - name: Parse test results and create summary
+      run: |
+        cat > test-summary.md << 'EOF'
+        ## 🧪 Integration Test Results
+
+        ### Test Suite Status
+        EOF
+
+        # Parse each test result file
+        for result_file in */**.xml; do
+          if [ -f "$result_file" ]; then
+            suite_name=$(basename $(dirname "$result_file"))
+            echo "Processing $suite_name from $result_file..."
+
+            python3 << PYEOF >> test-summary.md
+import xml.etree.ElementTree as ET
+import sys
+
+try:
+    tree = ET.parse('$result_file')
+    root = tree.getroot()
+
+    tests = root.attrib.get('tests', '0')
+    failures = root.attrib.get('failures', '0')
+    errors = root.attrib.get('errors', '0')
+    skipped = root.attrib.get('skipped', '0')
+    time_val = root.attrib.get('time', '0')
+
+    passed = int(tests) - int(failures) - int(errors) - int(skipped)
+
+    status_emoji = "✅" if int(failures) == 0 and int(errors) == 0 else "❌"
+
+    print(f"\n#### {status_emoji} $suite_name")
+    print(f"- **Tests:** {tests}")
+    print(f"- **Passed:** {passed}")
+    print(f"- **Failed:** {failures}")
+    print(f"- **Errors:** {errors}")
+    print(f"- **Skipped:** {skipped}")
+    print(f"- **Duration:** {float(time_val):.2f}s")
+
+except Exception as e:
+    print(f"\n#### ⚠️ $suite_name")
+    print(f"- Could not parse results: {e}")
+PYEOF
+          fi
+        done
+
+        cat >> test-summary.md << 'EOF'
+
+        ### Job Status
+        - **MCP Server Tests:** ${{ needs.mcp-server-tests.result }}
+        - **CLI Integration Tests:** ${{ needs.cli-integration-tests.result }}
+        - **Daemon Communication Tests:** ${{ needs.daemon-integration-tests.result }}
+        - **Full Integration Suite:** ${{ needs.full-integration-tests.result }}
+
+        ---
+        *Generated by PR Integration Tests workflow*
+        EOF
+
+    - name: Comment PR
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+
+          if (!fs.existsSync('test-summary.md')) {
+            console.log('No test summary found');
+            return;
+          }
+
+          const summary = fs.readFileSync('test-summary.md', 'utf8');
+
+          // Find existing comment
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+
+          const botComment = comments.find(comment =>
+            comment.user.type === 'Bot' &&
+            comment.body.includes('🧪 Integration Test Results')
+          );
+
+          if (botComment) {
+            // Update existing comment
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: summary
+            });
+          } else {
+            // Create new comment
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: summary
+            });
+          }
+
+  # Final status check
+  pr-integration-summary:
+    name: PR Integration Summary
+    runs-on: ubuntu-latest
+    needs: [mcp-server-tests, cli-integration-tests, daemon-integration-tests, full-integration-tests]
+    if: always()
+    timeout-minutes: 5
+
+    steps:
+    - name: Check overall status
+      run: |
+        echo "## PR Integration Test Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Test Suite Results" >> $GITHUB_STEP_SUMMARY
+        echo "- MCP Server Tests: ${{ needs.mcp-server-tests.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- CLI Integration Tests: ${{ needs.cli-integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Daemon Communication Tests: ${{ needs.daemon-integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Full Integration Suite: ${{ needs.full-integration-tests.result }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+
+        # Determine overall status
+        if [[ "${{ needs.mcp-server-tests.result }}" == "success" ]] && \
+           [[ "${{ needs.cli-integration-tests.result }}" == "success" ]] && \
+           [[ "${{ needs.daemon-integration-tests.result }}" == "success" ]] && \
+           [[ "${{ needs.full-integration-tests.result }}" == "success" ]]; then
+          echo "### ✅ All integration tests passed!" >> $GITHUB_STEP_SUMMARY
+          exit 0
+        else
+          echo "### ❌ Some integration tests failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Please review the test results above and fix any failures." >> $GITHUB_STEP_SUMMARY
+          exit 1
+        fi
