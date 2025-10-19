@@ -17,7 +17,8 @@ from typing import List, Optional, Tuple
 
 from loguru import logger
 
-from ..memory import MemoryRule, MemoryCategory, AuthorityLevel, MemoryManager
+from ...memory.manager import MemoryManager
+from ...memory.types import AuthorityLevel, MemoryCategory, MemoryRule
 from .performance_optimization import (
     PerformanceMetrics,
     RuleCache,
@@ -173,10 +174,10 @@ class RuleRetrieval:
                 ) * 1000
             else:
                 # Get all rules from memory manager with basic filters
-                all_rules = await self.memory_manager.list_memory_rules(
-                    category=filter.category,
-                    authority=filter.authority,
-                    scope=filter.scope[0] if filter.scope else None,
+                all_rules = await self.memory_manager.list_rules(
+                    category_filter=filter.category,
+                    authority_filter=filter.authority,
+                    # Note: list_rules doesn't have a scope filter, we'll filter in-memory
                 )
 
             metrics.fetch_time_ms = (time.perf_counter() - fetch_start) * 1000
@@ -288,12 +289,12 @@ class RuleRetrieval:
         """
         try:
             # Use memory manager's search functionality
-            # Note: only pass category and authority to search since those are built into the search
-            results = await self.memory_manager.search_memory_rules(
+            # Note: search_rules returns List[Tuple[MemoryRule, float]]
+            results = await self.memory_manager.search_rules(
                 query=query,
                 limit=limit * 2 if filter else limit,  # Get more results if filtering
-                category=filter.category if filter else None,
-                authority=filter.authority if filter else None,
+                category_filter=filter.category if filter else None,
+                authority_filter=filter.authority if filter else None,
             )
 
             # Apply additional filters if provided (for project_id, scope, tags, etc.)
@@ -421,10 +422,10 @@ class RuleRetrieval:
         """
         if not self._index or not self._index.is_built():
             # Fallback to regular fetch
-            return await self.memory_manager.list_memory_rules(
-                category=filter.category,
-                authority=filter.authority,
-                scope=filter.scope[0] if filter.scope else None,
+            return await self.memory_manager.list_rules(
+                category_filter=filter.category,
+                authority_filter=filter.authority,
+                # Note: list_rules doesn't have scope filter
             )
 
         # Use index for fast lookup if filter criteria match
@@ -451,7 +452,7 @@ class RuleRetrieval:
             return
 
         # Fetch all rules
-        all_rules = await self.memory_manager.list_memory_rules()
+        all_rules = await self.memory_manager.list_rules()
 
         # Build index
         self._index.build_index(all_rules)
