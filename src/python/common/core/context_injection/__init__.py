@@ -20,6 +20,14 @@ from .copilot_detector import (
     is_copilot_session,
     get_code_comment_prefix,
 )
+from .comment_injector import (
+    CommentInjector,
+    PlacementStrategy,
+    ConflictResolution,
+    ConflictType,
+    RuleConflict,
+    InjectedComment,
+)
 from .claude_md_injector import (
     ClaudeMdInjector,
     ClaudeMdLocation,
@@ -211,6 +219,13 @@ __all__ = [
     "is_copilot_session",
     "get_copilot_session",
     "get_code_comment_prefix",
+    # Code Comment Injection
+    "CommentInjector",
+    "PlacementStrategy",
+    "ConflictResolution",
+    "ConflictType",
+    "RuleConflict",
+    "InjectedComment",
     # CLAUDE.md Injection
     "ClaudeMdInjector",
     "ClaudeMdLocation",
