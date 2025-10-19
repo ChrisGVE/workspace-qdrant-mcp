@@ -542,12 +542,13 @@ def scenario_context():
 
 
 # pytest-bdd configuration
-def pytest_bdd_step_error(request, feature, scenario, step, step_func, step_func_args, exception):
-    """Handle pytest-bdd step errors."""
-    print(f"\nStep failed: {step.name}")
-    print(f"  Feature: {feature.name}")
-    print(f"  Scenario: {scenario.name}")
-    print(f"  Error: {exception}")
+# Commented out until pytest-bdd is installed
+# def pytest_bdd_step_error(request, feature, scenario, step, step_func, step_func_args, exception):
+#     """Handle pytest-bdd step errors."""
+#     print(f"\nStep failed: {step.name}")
+#     print(f"  Feature: {feature.name}")
+#     print(f"  Scenario: {scenario.name}")
+#     print(f"  Error: {exception}")
 
 
 def pytest_configure(config):
@@ -560,7 +561,6 @@ def pytest_configure(config):
 
     # Set environment for E2E tests
     os.environ["E2E_TESTING"] = "1"
-    os.environ["PYTEST_CURRENT_TEST"] = config.option.verbose and "e2e_setup" or ""
 
 
 def pytest_collection_modifyitems(config, items):
