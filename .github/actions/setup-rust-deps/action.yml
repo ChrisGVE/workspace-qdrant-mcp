@@ -1,0 +1,146 @@
+name: 'Setup Rust Dependencies with Smart Caching'
+description: 'Configures Rust environment with optimized cargo dependency caching'
+
+inputs:
+  cache-key-suffix:
+    description: 'Optional suffix for cache key (e.g., "unit-tests", "cross-compile")'
+    required: false
+    default: ''
+  enable-cache-metrics:
+    description: 'Enable cache hit rate metrics collection'
+    required: false
+    default: 'true'
+  rust-toolchain:
+    description: 'Rust toolchain version'
+    required: false
+    default: 'stable'
+  components:
+    description: 'Additional Rust components to install (comma-separated)'
+    required: false
+    default: 'rustfmt,clippy'
+
+outputs:
+  cache-hit:
+    description: 'Whether the cache was hit'
+    value: ${{ steps.cache-cargo.outputs.cache-hit }}
+  cache-key:
+    description: 'The cache key that was used'
+    value: ${{ steps.cache-cargo.outputs.cache-primary-key }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Rust toolchain
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: ${{ inputs.rust-toolchain }}
+        profile: minimal
+        override: true
+        components: ${{ inputs.components }}
+
+    - name: Generate cache key
+      id: cache-key
+      shell: bash
+      run: |
+        # Generate comprehensive cache key based on:
+        # 1. OS and architecture
+        # 2. Rust toolchain version
+        # 3. All Cargo.toml and Cargo.lock files
+        # 4. Optional suffix for workflow-specific caching
+
+        OS="${{ runner.os }}"
+        ARCH="${{ runner.arch }}"
+        TOOLCHAIN="${{ inputs.rust-toolchain }}"
+        SUFFIX="${{ inputs.cache-key-suffix }}"
+
+        # Hash all Cargo.toml and Cargo.lock files
+        CARGO_HASH=$(find . -name "Cargo.toml" -o -name "Cargo.lock" | sort | xargs cat | sha256sum | cut -d' ' -f1)
+
+        # Build cache key
+        CACHE_KEY="rust-${TOOLCHAIN}-${OS}-${ARCH}-${CARGO_HASH}"
+        if [ -n "$SUFFIX" ]; then
+          CACHE_KEY="${CACHE_KEY}-${SUFFIX}"
+        fi
+
+        echo "cache-key=${CACHE_KEY}" >> $GITHUB_OUTPUT
+        echo "Cache key: ${CACHE_KEY}"
+
+        # Generate restore keys (fallback hierarchy)
+        echo "restore-key-1=rust-${TOOLCHAIN}-${OS}-${ARCH}-" >> $GITHUB_OUTPUT
+        echo "restore-key-2=rust-${TOOLCHAIN}-${OS}-" >> $GITHUB_OUTPUT
+        echo "restore-key-3=rust-${TOOLCHAIN}-" >> $GITHUB_OUTPUT
+
+    - name: Cache cargo registry
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/registry
+        key: ${{ steps.cache-key.outputs.cache-key }}-registry
+        restore-keys: |
+          ${{ steps.cache-key.outputs.restore-key-1 }}registry
+          ${{ steps.cache-key.outputs.restore-key-2 }}registry
+
+    - name: Cache cargo index
+      uses: actions/cache@v4
+      with:
+        path: ~/.cargo/git
+        key: ${{ steps.cache-key.outputs.cache-key }}-index
+        restore-keys: |
+          ${{ steps.cache-key.outputs.restore-key-1 }}index
+          ${{ steps.cache-key.outputs.restore-key-2 }}index
+
+    - name: Cache cargo build outputs
+      id: cache-cargo
+      uses: actions/cache@v4
+      with:
+        path: |
+          rust-engine/target
+          src/rust/daemon/target
+          src/rust/daemon/core/target
+          src/rust/daemon/shared-test-utils/target
+        key: ${{ steps.cache-key.outputs.cache-key }}
+        restore-keys: |
+          ${{ steps.cache-key.outputs.restore-key-1 }}
+          ${{ steps.cache-key.outputs.restore-key-2 }}
+          ${{ steps.cache-key.outputs.restore-key-3 }}
+
+    - name: Clean old build artifacts
+      if: steps.cache-cargo.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        # Clean up old artifacts to prevent cache bloat
+        # Only run on cache miss to avoid unnecessary work
+
+        if [ -d "rust-engine/target" ]; then
+          cargo clean --manifest-path rust-engine/Cargo.toml --release || true
+        fi
+
+        if [ -d "src/rust/daemon/target" ]; then
+          cargo clean --manifest-path src/rust/daemon/Cargo.toml --release || true
+        fi
+
+    - name: Report cache metrics
+      if: inputs.enable-cache-metrics == 'true'
+      shell: bash
+      run: |
+        CACHE_HIT="${{ steps.cache-cargo.outputs.cache-hit }}"
+        CACHE_KEY="${{ steps.cache-key.outputs.cache-key }}"
+
+        echo "## Rust Dependency Cache Metrics" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Cache Key:** \`${CACHE_KEY}\`" >> $GITHUB_STEP_SUMMARY
+
+        if [ "$CACHE_HIT" == "true" ]; then
+          echo "- **Status:** ✅ Cache Hit" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time Saved:** ~5-10 minutes" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- **Status:** ❌ Cache Miss" >> $GITHUB_STEP_SUMMARY
+          echo "- **Impact:** Dependencies compiled from scratch" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        # Report cache size
+        if [ -d "rust-engine/target" ] || [ -d "src/rust/daemon/target" ]; then
+          CACHE_SIZE=$(du -sh rust-engine/target src/rust/daemon/target 2>/dev/null | awk '{sum+=$1} END {print sum}' || echo "unknown")
+          echo "- **Cache Size:** ${CACHE_SIZE}" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY

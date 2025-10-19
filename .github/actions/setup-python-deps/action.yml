@@ -1,0 +1,118 @@
+name: 'Setup Python Dependencies with Smart Caching'
+description: 'Configures Python environment with optimized uv dependency caching'
+
+inputs:
+  python-version:
+    description: 'Python version to use'
+    required: true
+    default: '3.11'
+  cache-key-suffix:
+    description: 'Optional suffix for cache key (e.g., "unit-tests", "integration-tests")'
+    required: false
+    default: ''
+  enable-cache-metrics:
+    description: 'Enable cache hit rate metrics collection'
+    required: false
+    default: 'true'
+
+outputs:
+  cache-hit:
+    description: 'Whether the cache was hit'
+    value: ${{ steps.cache-uv.outputs.cache-hit }}
+  cache-key:
+    description: 'The cache key that was used'
+    value: ${{ steps.cache-uv.outputs.cache-primary-key }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Set up Python ${{ inputs.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+      with:
+        version: "latest"
+        enable-cache: true
+
+    - name: Generate cache key
+      id: cache-key
+      shell: bash
+      run: |
+        # Generate comprehensive cache key based on:
+        # 1. OS and architecture
+        # 2. Python version
+        # 3. pyproject.toml and uv.lock contents
+        # 4. Optional suffix for workflow-specific caching
+
+        OS="${{ runner.os }}"
+        ARCH="${{ runner.arch }}"
+        PY_VERSION="${{ inputs.python-version }}"
+        SUFFIX="${{ inputs.cache-key-suffix }}"
+
+        # Hash pyproject.toml and uv.lock
+        if [ -f "pyproject.toml" ] && [ -f "uv.lock" ]; then
+          DEPS_HASH=$(cat pyproject.toml uv.lock | sha256sum | cut -d' ' -f1)
+        elif [ -f "pyproject.toml" ]; then
+          DEPS_HASH=$(cat pyproject.toml | sha256sum | cut -d' ' -f1)
+        else
+          DEPS_HASH="no-deps"
+        fi
+
+        # Build cache key
+        CACHE_KEY="python-${PY_VERSION}-${OS}-${ARCH}-${DEPS_HASH}"
+        if [ -n "$SUFFIX" ]; then
+          CACHE_KEY="${CACHE_KEY}-${SUFFIX}"
+        fi
+
+        echo "cache-key=${CACHE_KEY}" >> $GITHUB_OUTPUT
+        echo "Cache key: ${CACHE_KEY}"
+
+        # Generate restore keys (fallback hierarchy)
+        echo "restore-key-1=python-${PY_VERSION}-${OS}-${ARCH}-" >> $GITHUB_OUTPUT
+        echo "restore-key-2=python-${PY_VERSION}-${OS}-" >> $GITHUB_OUTPUT
+        echo "restore-key-3=python-${PY_VERSION}-" >> $GITHUB_OUTPUT
+
+    - name: Cache uv dependencies
+      id: cache-uv
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cache/uv
+          .venv
+        key: ${{ steps.cache-key.outputs.cache-key }}
+        restore-keys: |
+          ${{ steps.cache-key.outputs.restore-key-1 }}
+          ${{ steps.cache-key.outputs.restore-key-2 }}
+          ${{ steps.cache-key.outputs.restore-key-3 }}
+
+    - name: Install dependencies
+      if: steps.cache-uv.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        uv venv --python ${{ inputs.python-version }}
+        . .venv/bin/activate
+        uv pip install -e ".[dev]"
+
+    - name: Report cache metrics
+      if: inputs.enable-cache-metrics == 'true'
+      shell: bash
+      run: |
+        CACHE_HIT="${{ steps.cache-uv.outputs.cache-hit }}"
+        CACHE_KEY="${{ steps.cache-key.outputs.cache-key }}"
+
+        echo "## Python Dependency Cache Metrics" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "- **Cache Key:** \`${CACHE_KEY}\`" >> $GITHUB_STEP_SUMMARY
+
+        if [ "$CACHE_HIT" == "true" ]; then
+          echo "- **Status:** ✅ Cache Hit" >> $GITHUB_STEP_SUMMARY
+          echo "- **Time Saved:** ~2-3 minutes" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "- **Status:** ❌ Cache Miss" >> $GITHUB_STEP_SUMMARY
+          echo "- **Impact:** Dependencies installed from scratch" >> $GITHUB_STEP_SUMMARY
+        fi
+
+        echo "" >> $GITHUB_STEP_SUMMARY

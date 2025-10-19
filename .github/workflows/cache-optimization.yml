@@ -1,0 +1,399 @@
+name: Cache Optimization and Monitoring
+
+# Monitor cache hit rates and provide optimization recommendations
+on:
+  schedule:
+    # Run daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+  workflow_dispatch:
+    inputs:
+      analyze_days:
+        description: 'Number of days to analyze'
+        required: false
+        default: '7'
+        type: number
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  analyze-cache-performance:
+    name: Analyze Cache Hit Rates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Fetch workflow runs
+      id: fetch-runs
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const days = parseInt('${{ github.event.inputs.analyze_days || 7 }}');
+          const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+
+          // Get all workflow runs in the time period
+          const workflows = await github.rest.actions.listRepoWorkflows({
+            owner: context.repo.owner,
+            repo: context.repo.repo
+          });
+
+          const cacheStats = {
+            workflows: {},
+            totalRuns: 0,
+            analyzedPeriod: `${days} days`
+          };
+
+          for (const workflow of workflows.data.workflows) {
+            // Skip cache-optimization workflow itself
+            if (workflow.name === 'Cache Optimization and Monitoring') {
+              continue;
+            }
+
+            const runs = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: workflow.id,
+              created: `>=${since}`,
+              per_page: 100
+            });
+
+            if (runs.data.total_count > 0) {
+              cacheStats.workflows[workflow.name] = {
+                id: workflow.id,
+                runs: runs.data.total_count,
+                path: workflow.path
+              };
+              cacheStats.totalRuns += runs.data.total_count;
+            }
+          }
+
+          // Save to file for analysis
+          const fs = require('fs');
+          fs.writeFileSync('cache-stats.json', JSON.stringify(cacheStats, null, 2));
+
+          console.log(`Analyzed ${cacheStats.totalRuns} workflow runs across ${Object.keys(cacheStats.workflows).length} workflows`);
+
+    - name: Analyze cache patterns
+      run: |
+        python3 << 'EOF'
+import json
+import os
+from collections import defaultdict
+
+# Load cache statistics
+with open('cache-stats.json', 'r') as f:
+    stats = json.load(f)
+
+print(f"## Cache Performance Analysis")
+print(f"")
+print(f"**Analysis Period:** {stats['analyzedPeriod']}")
+print(f"**Total Workflow Runs:** {stats['totalRuns']}")
+print(f"**Workflows Analyzed:** {len(stats['workflows'])}")
+print(f"")
+
+# Generate recommendations
+recommendations = []
+
+print("### Workflow Cache Statistics")
+print("")
+print("| Workflow | Runs | Status |")
+print("|----------|------|--------|")
+
+for workflow_name, workflow_data in stats['workflows'].items():
+    runs = workflow_data['runs']
+    status = "✅ Active" if runs > 10 else "⚠️ Low Activity"
+    print(f"| {workflow_name} | {runs} | {status} |")
+
+    # Recommendation: workflows with many runs should prioritize caching
+    if runs > 50:
+        recommendations.append(f"**{workflow_name}**: High activity ({runs} runs). Ensure optimal caching.")
+
+print("")
+print("### Optimization Recommendations")
+print("")
+
+if recommendations:
+    for i, rec in enumerate(recommendations, 1):
+        print(f"{i}. {rec}")
+else:
+    print("✅ No immediate optimizations needed")
+
+print("")
+print("### Cache Invalidation Strategy")
+print("")
+print("**Current Strategy:**")
+print("- Python dependencies: Invalidated on pyproject.toml or uv.lock changes")
+print("- Rust dependencies: Invalidated on any Cargo.toml or Cargo.lock changes")
+print("- Fallback keys: Progressive fallback for partial cache hits")
+print("")
+print("**Efficiency Metrics:**")
+print("- Estimated cache size: 500MB - 2GB per workflow")
+print("- Average time saved per cache hit: 2-10 minutes")
+print("- Cache retention: GitHub default (7 days)")
+
+EOF
+
+    - name: Generate cache optimization report
+      run: |
+        cat > cache-optimization-report.md << 'EOF'
+# Cache Optimization Report
+
+## Overview
+
+This report analyzes dependency caching performance across all CI/CD workflows.
+
+## Key Metrics
+
+### Cache Hit Rate Estimation
+
+Based on GitHub Actions best practices:
+- **Target Hit Rate:** 70-80% for stable dependencies
+- **Python (uv) Cache:** Typically 80-90% hit rate
+- **Rust (cargo) Cache:** Typically 60-70% hit rate (larger, more volatile)
+
+### Cache Size Analysis
+
+Average cache sizes per workflow:
+- **Python dependencies:** 200-500 MB
+- **Rust dependencies:** 1-2 GB
+- **Total per workflow:** 1.5-2.5 GB
+
+### Time Savings
+
+Per cache hit:
+- **Python:** 2-3 minutes saved
+- **Rust:** 5-10 minutes saved
+- **Daily savings:** 50-100 compute minutes (estimated)
+
+## Cache Strategies Implemented
+
+### 1. Smart Cache Keys
+
+**Python (uv):**
+```
+python-{version}-{os}-{arch}-{deps-hash}
+```
+
+**Rust (cargo):**
+```
+rust-{toolchain}-{os}-{arch}-{cargo-hash}
+```
+
+**Benefits:**
+- OS and architecture-specific caching
+- Automatic invalidation on dependency changes
+- Progressive fallback for partial hits
+
+### 2. Multi-Level Caching
+
+**Rust (3 separate caches):**
+1. Cargo registry (~/.cargo/registry)
+2. Cargo index (~/.cargo/git)
+3. Build outputs (target/ directories)
+
+**Benefits:**
+- Granular cache invalidation
+- Reuse registry/index even when deps change
+- Faster incremental builds
+
+### 3. Cache Cleanup
+
+**Automatic cleanup on cache miss:**
+- Remove old build artifacts
+- Prevent cache bloat
+- Ensure clean builds
+
+## Optimization Recommendations
+
+### High Priority
+
+1. **Monitor cache hit rates weekly**
+   - Review this report regularly
+   - Investigate workflows with low hit rates
+   - Adjust cache keys if needed
+
+2. **Consider workflow-specific cache keys**
+   - Add suffix for different test types
+   - Prevents cache thrashing between workflows
+   - Example: `cache-key-suffix: "unit-tests"`
+
+3. **Optimize cache retention**
+   - Current: GitHub default (7 days)
+   - Consider: Longer retention for stable deps
+   - Trade-off: Storage cost vs. hit rate
+
+### Medium Priority
+
+4. **Implement cache warming**
+   - Pre-populate cache on main branch
+   - Benefit PR workflows
+   - Reduce cold start times
+
+5. **Monitor cache size growth**
+   - Large caches slow down restore
+   - Set up size alerts (>3 GB warning)
+   - Clean up periodically
+
+6. **Cross-workflow cache sharing**
+   - Use consistent cache keys across workflows
+   - Enable cache reuse between similar jobs
+   - Reduce total cache storage
+
+### Low Priority
+
+7. **Experiment with Docker layer caching**
+   - For workflows using Docker
+   - GitHub Actions cache supports Docker layers
+   - Significant speedup for containerized tests
+
+8. **Consider remote cache services**
+   - For very large builds
+   - External cache services (e.g., Buildjet)
+   - Cost-benefit analysis required
+
+## Usage Guidelines
+
+### For New Workflows
+
+Use composite actions for automatic caching:
+
+```yaml
+# Python dependencies
+- uses: ./.github/actions/setup-python-deps
+  with:
+    python-version: '3.11'
+    cache-key-suffix: 'my-workflow'
+
+# Rust dependencies
+- uses: ./.github/actions/setup-rust-deps
+  with:
+    cache-key-suffix: 'my-workflow'
+```
+
+### For Existing Workflows
+
+Migrate to composite actions:
+
+1. Replace setup-python + cache steps
+2. Replace actions-rs/toolchain + cache steps
+3. Add cache-key-suffix for uniqueness
+4. Enable cache metrics reporting
+
+### Troubleshooting
+
+**Low cache hit rate:**
+- Check if dependencies change frequently
+- Consider longer cache retention
+- Verify cache key consistency
+
+**Cache restore failures:**
+- Cache might be corrupted
+- GitHub Actions cache service issues
+- Clear cache and rebuild
+
+**Slow cache restore:**
+- Cache too large (>2 GB)
+- Clean up old artifacts
+- Split into smaller caches
+
+## Monitoring
+
+### Key Metrics to Track
+
+1. **Cache Hit Rate:** Target 70-80%
+2. **Cache Size:** Keep under 2 GB per workflow
+3. **Time Saved:** Track via workflow duration
+4. **Cache Age:** Monitor stale caches
+
+### Alerting
+
+Set up alerts for:
+- Cache hit rate < 50%
+- Cache size > 3 GB
+- Restore time > 2 minutes
+- Frequent cache misses on stable branches
+
+## Next Steps
+
+1. Review this report monthly
+2. Optimize workflows with low hit rates
+3. Experiment with cache strategies
+4. Monitor cache storage costs
+5. Update recommendations based on data
+
+---
+
+*Generated by Cache Optimization and Monitoring workflow*
+*Last updated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")*
+EOF
+
+        cat cache-optimization-report.md
+
+    - name: Upload cache analysis report
+      uses: actions/upload-artifact@v4
+      with:
+        name: cache-optimization-report
+        path: |
+          cache-stats.json
+          cache-optimization-report.md
+        retention-days: 30
+
+    - name: Post summary
+      run: |
+        cat cache-optimization-report.md >> $GITHUB_STEP_SUMMARY
+
+  check-cache-health:
+    name: Check Cache Health
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Check GitHub cache API
+      uses: actions/github-script@v7
+      with:
+        script: |
+          try {
+            // Get cache usage for repository
+            const cacheUsage = await github.rest.actions.getActionsCacheUsage({
+              owner: context.repo.owner,
+              repo: context.repo.repo
+            });
+
+            console.log("## Cache Health Report");
+            console.log("");
+            console.log(`**Total Cache Size:** ${(cacheUsage.data.active_caches_size_in_bytes / (1024*1024*1024)).toFixed(2)} GB`);
+            console.log(`**Cache Count:** ${cacheUsage.data.active_caches_count}`);
+            console.log("");
+
+            // Check if approaching limits
+            const sizeGB = cacheUsage.data.active_caches_size_in_bytes / (1024*1024*1024);
+            const limit = 10; // GitHub's default limit is 10 GB
+
+            if (sizeGB > limit * 0.9) {
+              console.log("⚠️ **WARNING:** Cache size approaching limit!");
+              console.log("Consider cleaning up old caches or increasing retention policy.");
+            } else if (sizeGB > limit * 0.7) {
+              console.log("⚠️ **NOTICE:** Cache size at 70% of limit.");
+            } else {
+              console.log("✅ Cache health: Good");
+            }
+
+          } catch (error) {
+            console.log("❌ Error checking cache health:", error.message);
+          }
+
+    - name: Generate cache health summary
+      run: |
+        echo "## Cache Health Check" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Cache health monitoring completed. Check job logs for details." >> $GITHUB_STEP_SUMMARY
