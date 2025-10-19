@@ -1826,3 +1826,351 @@ class TestLibraryEnumeration:
         assert result.exit_code == 0
         assert "ml-models" in result.output
         assert "Vector Size" in result.output or "512" in result.output
+
+
+class TestBulkOperationsAndPerformance:
+    """Test bulk operations and performance (Task 327.4)."""
+
+    def setup_method(self):
+        """Set up test environment."""
+        self.runner = CliRunner()
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_batch_library_creation(self, mock_config, mock_with_daemon):
+        """Test creating multiple libraries in batch."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+        creation_count = 0
+
+        async def mock_operation(operation_func, config):
+            nonlocal creation_count
+            mock_client = MagicMock()
+
+            # Mock list_collections to return existing collections
+            existing_collections = [
+                MagicMock(name=f"_lib{i}") for i in range(creation_count)
+            ]
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=existing_collections)
+            )
+
+            # Mock create_collection
+            mock_client.create_collection = AsyncMock(return_value=True)
+
+            result = await operation_func(mock_client)
+            if result is not False and result is not None:  # If collection was created
+                creation_count += 1
+            return result
+
+        mock_with_daemon.side_effect = mock_operation
+
+        # Create 10 libraries in sequence
+        library_names = [f"batch-lib-{i}" for i in range(10)]
+        for name in library_names:
+            result = self.runner.invoke(library_app, ["create", name])
+            assert result.exit_code == 0
+
+        # Verify all were created
+        assert creation_count == 10
+
+    @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
+    def test_bulk_document_addition(self, mock_with_daemon):
+        """Test adding multiple documents to a library in bulk."""
+        from wqm_cli.cli.commands.ingest import ingest_app
+        import tempfile
+        from pathlib import Path
+
+        # Create temporary directory with multiple files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            test_dir = Path(temp_dir)
+
+            # Create 50 test files
+            for i in range(50):
+                (test_dir / f"doc_{i}.txt").write_text(f"Document content {i}")
+
+            # Mock daemon client for bulk ingestion
+            async def mock_operation(operation_func):
+                mock_client = MagicMock()
+
+                # Mock process_folder to yield progress for each file
+                async def mock_process_folder(*args, **kwargs):
+                    for i in range(50):
+                        progress = MagicMock()
+                        progress.file_path = f"doc_{i}.txt"
+                        progress.chunks_added = 1
+                        progress.file_type = "text"
+                        yield progress
+
+                mock_client.process_folder = mock_process_folder
+                return await operation_func(mock_client)
+
+            mock_with_daemon.side_effect = mock_operation
+
+            result = self.runner.invoke(
+                ingest_app,
+                ["folder", str(test_dir), "--collection", "_bulk-test"]
+            )
+
+            assert result.exit_code == 0
+            # Should mention processing multiple files
+            assert "50" in result.output or "doc_" in result.output
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_mass_library_removal(self, mock_config, mock_with_daemon):
+        """Test removing multiple libraries."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+        libraries_to_remove = [f"_remove-{i}" for i in range(5)]
+        removed_libraries = set()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+
+            # Mock list_collections - return all libraries
+            mock_collections = []
+            for name in libraries_to_remove:
+                col = MagicMock()
+                col.name = name
+                mock_collections.append(col)
+
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=mock_collections)
+            )
+
+            # Mock get_collection_info
+            mock_client.get_collection_info = AsyncMock(
+                return_value=MagicMock(points_count=100)
+            )
+
+            # Mock delete_collection - track removed libraries
+            async def mock_delete(collection_name, **kwargs):
+                removed_libraries.add(collection_name)
+                return True
+
+            mock_client.delete_collection = mock_delete
+
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        # Remove libraries with --force flag
+        for lib_name in libraries_to_remove:
+            result = self.runner.invoke(
+                library_app,
+                ["remove", lib_name, "--force"]
+            )
+            assert result.exit_code == 0
+
+        assert len(removed_libraries) == 5
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_performance_listing_many_libraries(self, mock_config, mock_with_daemon):
+        """Test performance of listing 200+ libraries."""
+        from wqm_cli.cli.commands.library import library_app
+        import time
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Create 200 mock library collections
+            mock_collections = []
+            for i in range(200):
+                col = MagicMock()
+                col.name = f"_perf-lib{i:04d}"
+                col.points_count = i * 100
+                col.vectors_count = i * 100
+                col.indexed_points_count = i * 100
+                mock_collections.append(col)
+
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=mock_collections)
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        start_time = time.time()
+        result = self.runner.invoke(library_app, ["list", "--stats"])
+        elapsed = time.time() - start_time
+
+        assert result.exit_code == 0
+        assert "200" in result.output
+        # Should complete in reasonable time (< 5 seconds for mock)
+        assert elapsed < 5.0
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_rapid_sequential_operations(self, mock_config, mock_with_daemon):
+        """Test handling rapid sequential library operations without state corruption."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+
+            mock_collections = []
+            for i in range(10):
+                col = MagicMock()
+                col.name = f"_rapid-{i}"
+                col.points_count = i * 10
+                col.vectors_count = i * 10
+                col.indexed_points_count = i * 10
+                mock_collections.append(col)
+
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=mock_collections)
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        # Run multiple operations rapidly in sequence
+        # This tests for state corruption and ensures operations don't interfere
+        results = []
+        for _ in range(10):
+            result = self.runner.invoke(library_app, ["list", "--stats"])
+            results.append(result.exit_code)
+
+        # All operations should complete successfully
+        assert len(results) == 10
+        assert all(code == 0 for code in results)
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_error_recovery_batch_creation(self, mock_config, mock_with_daemon):
+        """Test error recovery during batch library creation."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+        attempt_count = 0
+
+        async def mock_operation(operation_func, config):
+            nonlocal attempt_count
+            attempt_count += 1
+            mock_client = MagicMock()
+
+            # Mock list_collections
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=[])
+            )
+
+            # Fail on 3rd attempt, succeed on others
+            if attempt_count == 3:
+                mock_client.create_collection = AsyncMock(
+                    side_effect=Exception("Simulated creation failure")
+                )
+            else:
+                mock_client.create_collection = AsyncMock(return_value=True)
+
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        # Try to create 5 libraries
+        results = []
+        for i in range(5):
+            result = self.runner.invoke(library_app, ["create", f"recovery-{i}"])
+            results.append(result.exit_code)
+
+        # Should have 4 successes and 1 failure
+        assert results.count(0) == 4  # 4 successful creations
+        assert results.count(1) == 1  # 1 failed creation
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_memory_efficient_bulk_listing(self, mock_config, mock_with_daemon):
+        """Test memory efficiency when listing many libraries."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+            # Create 500 mock library collections
+            mock_collections = []
+            for i in range(500):
+                col = MagicMock()
+                col.name = f"_mem-test-{i:04d}"
+                col.points_count = i
+                col.vectors_count = i
+                col.indexed_points_count = i
+                mock_collections.append(col)
+
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=mock_collections)
+            )
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        # List with stats should handle large result sets
+        result = self.runner.invoke(library_app, ["list", "--stats"])
+
+        assert result.exit_code == 0
+        # Should display all libraries
+        assert "500" in result.output
+
+    @patch('wqm_cli.cli.commands.library.with_daemon_client')
+    @patch('wqm_cli.cli.commands.library.get_config_manager')
+    def test_batch_operation_partial_failure_handling(self, mock_config, mock_with_daemon):
+        """Test handling of partial failures in batch operations."""
+        from wqm_cli.cli.commands.library import library_app
+
+        mock_config.return_value = MagicMock()
+        creation_attempts = {}  # library_name -> success
+
+        async def mock_operation(operation_func, config):
+            mock_client = MagicMock()
+
+            # Track which libraries already exist
+            created_libs = [name for name, success in creation_attempts.items() if success]
+            mock_collections = []
+            for name in created_libs:
+                col = MagicMock()
+                col.name = name
+                mock_collections.append(col)
+
+            mock_client.list_collections = AsyncMock(
+                return_value=MagicMock(collections=mock_collections)
+            )
+
+            # Mock create_collection - track which library we're trying to create
+            created_name = None
+
+            async def track_creation(collection_name, **kwargs):
+                nonlocal created_name
+                created_name = collection_name
+                # Fail if library name contains '5'
+                if '5' in collection_name:
+                    creation_attempts[collection_name] = False
+                    raise Exception("Simulated failure for libraries containing '5'")
+                creation_attempts[collection_name] = True
+                return True
+
+            mock_client.create_collection = track_creation
+
+            return await operation_func(mock_client)
+
+        mock_with_daemon.side_effect = mock_operation
+
+        # Attempt to create 10 libraries
+        results = []
+        for i in range(10):
+            result = self.runner.invoke(library_app, ["create", f"batch-{i}"])
+            results.append((i, result.exit_code))
+
+        # Libraries with '5' in name should fail
+        successful = [i for i, code in results if code == 0]
+        failed = [i for i, code in results if code == 1]
+
+        assert 5 in failed  # batch-5 should fail
+        assert 0 in successful  # batch-0 should succeed
+        assert len(successful) == 9  # 9 should succeed
+        assert len(failed) == 1  # Only batch-5 should fail
