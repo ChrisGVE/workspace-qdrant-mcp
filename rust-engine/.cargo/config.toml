@@ -68,6 +68,22 @@ retry = 0
 show-output = "failures"
 test-threads = "logical"
 
+# CI/CD optimized profile for parallel execution
+[nextest.profiles.ci]
+timeout = { period = "300s" }
+retry = 1
+show-output = "failures"
+# Maximize parallelism for CI runners
+test-threads = "num-cpus"
+# Fail fast to save CI time
+fail-fast = true
+# Archive results for analysis
+archive = { file = "nextest-archive.tar.zst" }
+
+[nextest.profiles.ci.env]
+RUST_LOG = "warn"  # Reduce noise in CI
+CI = "true"
+
 # Test filtering by attributes
 [nextest.default-filter]
 # Skip tests marked as slow by default
@@ -76,10 +92,13 @@ expr = 'not test(slow)'
 [nextest.profiles.all]
 # Run all tests including slow ones
 expr = 'all()'
+timeout = { period = "600s" }
 
 [nextest.profiles.fast]
 # Run only fast tests
 expr = 'not test(slow) and not test(integration)'
+test-threads = "num-cpus"
+fail-fast = true
 
 # Cargo aliases for testing
 [alias]
@@ -88,6 +107,7 @@ test-all = "nextest run --profile all"
 test-integration = "nextest run --profile integration"
 test-performance = "nextest run --profile performance"
 test-proptest = "nextest run --profile proptest"
+test-ci = "nextest run --profile ci"
 
 # Benchmark configuration
 bench = "criterion --output-format html"
