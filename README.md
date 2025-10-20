@@ -525,6 +525,7 @@ workspace-qdrant-ingest /path/to/docs -c my-project --dry-run
 
 ## Documentation
 
+- **[CLI Reference](CLI.md)** - Complete command-line reference for all `wqm` commands
 - **[Daemon Service Installation](docs/daemon-installation.md)** - Complete system service setup guide for Linux (systemd), macOS (launchd), and Windows Service
 - **[API Reference](API.md)** - Complete MCP tools documentation
 - **[Contributing Guide](CONTRIBUTING.md)** - Development setup and guidelines
