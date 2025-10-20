@@ -12,6 +12,7 @@ Features:
 - Recovery time measurement
 - Performance degradation tracking
 - Resource constraint enforcement
+- Resource exhaustion simulation
 - Stability checkpoint validation
 - 24+ hour stability testing with checkpoint/resume
 - Memory leak detection and resource monitoring
@@ -46,6 +47,10 @@ from .integration import (
     ProcessController,
     DockerController,
 )
+from .resource_exhaustion import (
+    ResourceExhaustionSimulator,
+    ResourceExhaustionScenario,
+)
 
 
 class LoadPattern(Enum):
@@ -70,6 +75,7 @@ class StressPipelineStage(Enum):
     RESOURCE_BASELINE = "resource_baseline"        # Capture baseline metrics
     LOAD_RAMP = "load_ramp"                       # Gradually increase load
     STRESS_EXECUTION = "stress_execution"          # Run at full stress
+    RESOURCE_EXHAUSTION = "resource_exhaustion"    # Simulate resource exhaustion
     FAILURE_INJECTION = "failure_injection"        # Inject failures
     RECOVERY_VALIDATION = "recovery_validation"    # Verify recovery
     DEGRADATION_ANALYSIS = "degradation_analysis"  # Analyze performance
@@ -86,6 +92,7 @@ class StressTestConfig(OrchestrationConfig):
         "disk_io_mb_s": 100
     })
     failure_injection_enabled: bool = False
+    resource_exhaustion_scenario: Optional[ResourceExhaustionScenario] = None
     performance_thresholds: Dict[str, float] = field(default_factory=lambda: {
         "p50_ms": 100.0,
         "p95_ms": 500.0,
@@ -180,6 +187,7 @@ class StressTestResult(OrchestrationResult):
     performance_samples: Dict[str, List[float]] = field(default_factory=lambda: defaultdict(list))
     failure_injections: List[Dict[str, Any]] = field(default_factory=list)
     stability_violations: List[str] = field(default_factory=list)
+    resource_exhaustion_results: Dict[str, Any] = field(default_factory=dict)
 
     @property
     def avg_recovery_time(self) -> float:
@@ -1321,7 +1329,7 @@ class StressTestOrchestrator(TestOrchestrator):
 
     Extends TestOrchestrator with stress-specific capabilities including
     load pattern simulation, failure injection, recovery measurement,
-    and performance degradation tracking.
+    resource exhaustion simulation, and performance degradation tracking.
     """
 
     def __init__(
@@ -1349,6 +1357,9 @@ class StressTestOrchestrator(TestOrchestrator):
         self.baseline_metrics: Dict[str, Any] = {}
         self.performance_samples: Dict[str, List[float]] = defaultdict(list)
 
+        # Initialize resource exhaustion simulator
+        self.resource_simulator = ResourceExhaustionSimulator()
+
         # Initialize stability test manager
         self.stability_manager = StabilityTestManager(self.database_path)
 
@@ -1365,6 +1376,7 @@ class StressTestOrchestrator(TestOrchestrator):
                     load_pattern TEXT NOT NULL,
                     duration_hours REAL NOT NULL,
                     failure_injection_enabled INTEGER NOT NULL,
+                    resource_exhaustion_enabled INTEGER NOT NULL,
                     avg_recovery_time REAL,
                     max_recovery_time REAL,
                     stability_violations INTEGER,
@@ -1445,6 +1457,9 @@ class StressTestOrchestrator(TestOrchestrator):
             self.logger.error(f"Stress test {orchestration_id} failed: {e}")
 
         finally:
+            # Cleanup resource simulator
+            self.resource_simulator.stop_all_simulations()
+
             result.end_time = time.time()
             self._save_stress_test_result(result)
             self._current_orchestration = None
@@ -1471,6 +1486,10 @@ class StressTestOrchestrator(TestOrchestrator):
 
         # Stress execution
         await self._stage_stress_execution(result, components)
+
+        # Resource exhaustion
+        if self.stress_config.resource_exhaustion_scenario is not None:
+            await self._stage_resource_exhaustion(result, components)
 
         # Failure injection
         if self.stress_config.failure_injection_enabled:
@@ -1576,6 +1595,78 @@ class StressTestOrchestrator(TestOrchestrator):
 
         result.performance_samples = dict(self.performance_samples)
         self.logger.info(f"Stress execution completed after {time.time() - start_time:.2f}s")
+
+    async def _stage_resource_exhaustion(
+        self,
+        result: StressTestResult,
+        components: List[ComponentStressConfig]
+    ):
+        """Simulate resource exhaustion during stress test.
+
+        Args:
+            result: Stress test result object
+            components: List of component configurations
+        """
+        self.logger.info("Executing resource exhaustion stage")
+
+        scenario = self.stress_config.resource_exhaustion_scenario
+
+        try:
+            # Capture pre-exhaustion metrics
+            pre_metrics = {}
+            for component in components:
+                is_healthy = await self.multi_coordinator.check_component_health(
+                    component.component_name
+                )
+                pre_metrics[component.component_name] = {
+                    "healthy": is_healthy,
+                    "timestamp": time.time()
+                }
+
+            # Execute resource exhaustion scenario
+            await self.resource_simulator.execute_scenario(scenario)
+
+            # Capture post-exhaustion metrics
+            post_metrics = {}
+            for component in components:
+                is_healthy = await self.multi_coordinator.check_component_health(
+                    component.component_name
+                )
+                post_metrics[component.component_name] = {
+                    "healthy": is_healthy,
+                    "timestamp": time.time()
+                }
+
+            # Store results
+            result.resource_exhaustion_results = {
+                "scenario": {
+                    "memory_target_mb": scenario.memory_target_mb,
+                    "cpu_target_percent": scenario.cpu_target_percent,
+                    "disk_io_target_mb_per_sec": scenario.disk_io_target_mb_per_sec,
+                    "network_target_mb_per_sec": scenario.network_target_mb_per_sec,
+                    "duration_seconds": scenario.duration_seconds
+                },
+                "pre_metrics": pre_metrics,
+                "post_metrics": post_metrics
+            }
+
+            # Check for stability violations
+            for component_name, post in post_metrics.items():
+                pre = pre_metrics.get(component_name, {})
+                if pre.get("healthy", False) and not post.get("healthy", False):
+                    result.stability_violations.append(
+                        f"{component_name} became unhealthy during resource exhaustion"
+                    )
+
+        except Exception as e:
+            self.logger.error(f"Error during resource exhaustion stage: {e}")
+            result.errors.append(f"Resource exhaustion failed: {str(e)}")
+
+        finally:
+            # Ensure cleanup
+            self.resource_simulator.stop_all_simulations()
+
+        self.logger.info("Resource exhaustion stage completed")
 
     async def _check_stability_checkpoint(
         self,
@@ -1757,14 +1848,15 @@ class StressTestOrchestrator(TestOrchestrator):
             conn.execute("""
                 INSERT INTO stress_test_runs
                 (orchestration_id, load_pattern, duration_hours,
-                 failure_injection_enabled, avg_recovery_time, max_recovery_time,
-                 stability_violations)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                 failure_injection_enabled, resource_exhaustion_enabled,
+                 avg_recovery_time, max_recovery_time, stability_violations)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 result.orchestration_id,
                 self.stress_config.load_pattern.value,
                 self.stress_config.duration_hours,
                 1 if self.stress_config.failure_injection_enabled else 0,
+                1 if self.stress_config.resource_exhaustion_scenario is not None else 0,
                 result.avg_recovery_time,
                 result.max_recovery_time,
                 len(result.stability_violations)
