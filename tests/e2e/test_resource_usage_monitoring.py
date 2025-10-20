@@ -228,16 +228,17 @@ class TestMemoryUsageTracking:
         sampling_interval = RESOURCE_MONITORING_CONFIG["sampling"]["interval_seconds"]
         sampling_duration = RESOURCE_MONITORING_CONFIG["sampling"]["duration_seconds"]
 
+        # Get current process for memory measurements
+        current_process = psutil.Process()
+
         for i in range(int(sampling_duration / sampling_interval)):
             # Simulate operation
             test_file = workspace / f"test_{i}.py"
             test_file.write_text(f"# Document {i}\ndef func_{i}(): pass")
 
-            # Mock memory measurement
-            # In real implementation: psutil.Process(pid).memory_info().rss / (1024 * 1024)
-            baseline_memory = 300
-            growth_per_sample = 0.08  # MB (results in ~4.6 MB/min growth rate)
-            memory_mb = baseline_memory + (i * growth_per_sample)
+            # Real memory measurement using psutil
+            memory_info = current_process.memory_info()
+            memory_mb = memory_info.rss / (1024 * 1024)
 
             memory_samples.append({
                 "timestamp": time.time(),
