@@ -6,6 +6,7 @@ system state, including version compatibility validation.
 """
 
 import json
+import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from enum import Enum
@@ -345,3 +346,190 @@ class VersionValidator:
         }
 
         return messages[status]
+
+
+class BackupManager:
+    """
+    Base class for creating and managing system backups.
+
+    Handles backup creation, metadata generation, and backup directory management.
+    """
+
+    def __init__(self, current_version: str):
+        """
+        Initialize BackupManager.
+
+        Args:
+            current_version: Current system version (semver format)
+        """
+        self.current_version = current_version
+
+    def create_backup_metadata(
+        self,
+        collections: Optional[Union[List[str], Dict[str, int]]] = None,
+        total_documents: Optional[int] = None,
+        partial_backup: bool = False,
+        selected_collections: Optional[List[str]] = None,
+        description: Optional[str] = None,
+        **additional_metadata
+    ) -> BackupMetadata:
+        """
+        Create backup metadata for a new backup.
+
+        Args:
+            collections: Collection names or counts
+            total_documents: Total document count
+            partial_backup: Whether this is a partial backup
+            selected_collections: Collections included in partial backup
+            description: Human-readable description
+            **additional_metadata: Additional custom metadata
+
+        Returns:
+            BackupMetadata instance ready to be saved
+        """
+        import sys
+
+        metadata = BackupMetadata(
+            version=self.current_version,
+            timestamp=time.time(),
+            collections=collections,
+            total_documents=total_documents,
+            python_version=f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            partial_backup=partial_backup,
+            selected_collections=selected_collections,
+            description=description,
+            additional_metadata=additional_metadata
+        )
+
+        return metadata
+
+    def prepare_backup_directory(self, backup_path: Union[str, Path]) -> Path:
+        """
+        Prepare backup directory structure.
+
+        Creates necessary subdirectories:
+        - metadata/: For manifest.json and other metadata
+        - sqlite/: For SQLite database backups
+        - collections/: For Qdrant collection snapshots
+
+        Args:
+            backup_path: Path where backup should be created
+
+        Returns:
+            Path object for the backup directory
+
+        Raises:
+            FileSystemError: If directory creation fails
+        """
+        from common.core.error_handling import FileSystemError
+
+        backup_dir = Path(backup_path)
+
+        try:
+            # Create main backup directory
+            backup_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create subdirectories
+            (backup_dir / "metadata").mkdir(exist_ok=True)
+            (backup_dir / "sqlite").mkdir(exist_ok=True)
+            (backup_dir / "collections").mkdir(exist_ok=True)
+
+            return backup_dir
+
+        except Exception as e:
+            raise FileSystemError(
+                f"Failed to prepare backup directory: {e}",
+                path=str(backup_path),
+                operation="create",
+                cause=e
+            )
+
+    def save_backup_manifest(
+        self,
+        metadata: BackupMetadata,
+        backup_path: Union[str, Path]
+    ) -> None:
+        """
+        Save backup manifest to backup directory.
+
+        Args:
+            metadata: Backup metadata to save
+            backup_path: Path to backup directory
+
+        Raises:
+            FileSystemError: If manifest save fails
+        """
+        from common.core.error_handling import FileSystemError
+
+        try:
+            manifest_path = Path(backup_path) / "metadata" / "manifest.json"
+            metadata.save_to_file(manifest_path)
+        except Exception as e:
+            raise FileSystemError(
+                f"Failed to save backup manifest: {e}",
+                path=str(backup_path),
+                operation="write",
+                cause=e
+            )
+
+    def validate_backup_directory(self, backup_path: Union[str, Path]) -> bool:
+        """
+        Validate that backup directory has required structure.
+
+        Args:
+            backup_path: Path to validate
+
+        Returns:
+            True if valid, False otherwise
+        """
+        backup_dir = Path(backup_path)
+
+        # Check directory exists
+        if not backup_dir.exists() or not backup_dir.is_dir():
+            return False
+
+        # Check required subdirectories
+        required_dirs = ["metadata", "sqlite", "collections"]
+        for dir_name in required_dirs:
+            if not (backup_dir / dir_name).exists():
+                return False
+
+        # Check manifest exists
+        manifest_path = backup_dir / "metadata" / "manifest.json"
+        if not manifest_path.exists():
+            return False
+
+        return True
+
+    def load_backup_manifest(self, backup_path: Union[str, Path]) -> BackupMetadata:
+        """
+        Load backup manifest from backup directory.
+
+        Args:
+            backup_path: Path to backup directory
+
+        Returns:
+            BackupMetadata instance
+
+        Raises:
+            FileSystemError: If manifest cannot be loaded
+        """
+        from common.core.error_handling import FileSystemError
+
+        try:
+            manifest_path = Path(backup_path) / "metadata" / "manifest.json"
+            return BackupMetadata.load_from_file(manifest_path)
+        except FileNotFoundError as e:
+            raise FileSystemError(
+                f"Backup manifest not found: {manifest_path}",
+                path=str(backup_path),
+                operation="read",
+                cause=e
+            )
+        except Exception as e:
+            raise FileSystemError(
+                f"Failed to load backup manifest: {e}",
+                path=str(backup_path),
+                operation="read",
+                cause=e
+            )
