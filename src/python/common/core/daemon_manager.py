@@ -650,6 +650,9 @@ class DaemonInstance:
                         error=str(e),
                     )
 
+            # Clear log handlers to prevent accumulation (fix memory leak)
+            self.log_handlers.clear()
+
             self.status.state = "stopped"
             self.status.pid = None
             self.status.grpc_available = False
@@ -714,12 +717,13 @@ class DaemonInstance:
                 connection_timeout=5.0,
             )
 
-            client = AsyncIngestClient(connection_config=config)
+            client = None
+            is_healthy = False
 
             try:
+                client = AsyncIngestClient(connection_config=config)
                 await client.start()
                 is_healthy = await client.test_connection()
-                await client.stop()
 
                 self.status.last_health_check = datetime.now()
                 self.status.health_status = "healthy" if is_healthy else "unhealthy"
@@ -730,7 +734,7 @@ class DaemonInstance:
                     try:
                         resource_manager = await get_resource_manager()
                         resource_usage = await resource_manager.get_project_usage(self.config.project_id)
-                        
+
                         if resource_usage and not resource_usage.is_healthy:
                             logger.warning(
                                 "Resource health check failed",
@@ -759,6 +763,18 @@ class DaemonInstance:
                 self.status.grpc_available = False
                 return False
 
+            finally:
+                # ALWAYS cleanup client, even on exceptions (fix memory leak)
+                if client is not None:
+                    try:
+                        await client.stop()
+                    except Exception as e:
+                        logger.debug(
+                            "Client cleanup error during health check",
+                            project=self.config.project_name,
+                            error=str(e),
+                        )
+
         except Exception as e:
             logger.warning(
                 "Health check failed", project=self.config.project_name, error=str(e)
@@ -768,7 +784,16 @@ class DaemonInstance:
 
     def add_log_handler(self, handler: Callable[[str], None]):
         """Add a log handler for daemon output."""
-        self.log_handlers.append(handler)
+        # Prevent duplicate handlers (fix memory leak)
+        if handler not in self.log_handlers:
+            self.log_handlers.append(handler)
+
+    def remove_log_handler(self, handler: Callable[[str], None]):
+        """Remove a log handler from daemon output."""
+        try:
+            self.log_handlers.remove(handler)
+        except ValueError:
+            pass  # Handler not in list
 
     async def get_status(self) -> Dict[str, Any]:
         """Get comprehensive status information including resource usage."""
