@@ -8,7 +8,9 @@ monitoring integration for comprehensive resource optimization.
 """
 
 import asyncio
+import gc
 import json
+import logging
 from collections import deque
 from loguru import logger
 import os
@@ -446,8 +448,58 @@ class ResourceMonitor:
     def get_usage_history(self, limit: Optional[int] = None) -> List[ResourceUsage]:
         """Get resource usage history."""
         if limit:
-            return self._usage_history[-limit:]
-        return self._usage_history.copy()
+            return list(self._usage_history)[-limit:]
+        return list(self._usage_history)
+
+    def calculate_memory_growth_rate(self, time_window_minutes: int = 30) -> float:
+        """
+        Calculate memory growth rate in MB/min over time window.
+
+        Args:
+            time_window_minutes: Time window to analyze (default: 30 minutes)
+
+        Returns:
+            Memory growth rate in MB/min, or 0.0 if insufficient data
+        """
+        if len(self._usage_history) < 2:
+            return 0.0
+
+        # Get samples from time window
+        now = datetime.now()
+        cutoff = now - timedelta(minutes=time_window_minutes)
+        samples = [u for u in self._usage_history if u.timestamp >= cutoff]
+
+        if len(samples) < 2:
+            return 0.0
+
+        # Calculate linear regression for memory growth
+        oldest = samples[0]
+        newest = samples[-1]
+        time_diff = (newest.timestamp - oldest.timestamp).total_seconds() / 60.0  # minutes
+        memory_diff = newest.memory_mb - oldest.memory_mb
+
+        if time_diff == 0:
+            return 0.0
+
+        return memory_diff / time_diff  # MB/min
+
+    def is_memory_leak_detected(
+        self,
+        threshold_mb_per_min: float = 5.0,
+        time_window_minutes: int = 30
+    ) -> bool:
+        """
+        Detect if memory leak is occurring based on growth rate.
+
+        Args:
+            threshold_mb_per_min: Maximum acceptable growth rate (default: 5.0 MB/min)
+            time_window_minutes: Time window to analyze (default: 30 minutes)
+
+        Returns:
+            True if memory leak detected, False otherwise
+        """
+        growth_rate = self.calculate_memory_growth_rate(time_window_minutes)
+        return growth_rate > threshold_mb_per_min
 
 
 class ResourceManager:
@@ -469,6 +521,14 @@ class ResourceManager:
         self._max_alert_history = 500  # Maximum alerts to keep
         self._alert_expiry = timedelta(hours=1)  # Expire after 1 hour
         self._enforcement_tasks: Set[asyncio.Task] = set()  # Track enforcement tasks
+
+        # Memory leak detection and automatic cleanup
+        self._leak_detection_running = False
+        self._leak_detection_task: Optional[asyncio.Task] = None
+        self._leak_detection_interval = 300.0  # Check every 5 minutes
+        self._leak_threshold_mb_per_min = 5.0  # Alert threshold
+        self._gc_interval = 600.0  # Run gc.collect() every 10 minutes
+        self._gc_task: Optional[asyncio.Task] = None
 
         # Registry file for persistence
         temp_dir = Path(tempfile.gettempdir())
@@ -512,10 +572,14 @@ class ResourceManager:
             
             # Start monitoring
             await monitor.start_monitoring()
-            
+
+            # Start memory leak detection if not already running
+            if not self._leak_detection_running:
+                await self.start_memory_leak_detection()
+
             logger.info(f"Registered project {project_id} for resource monitoring")
             await self._save_registry()
-            
+
             return monitor
     
     async def unregister_project(self, project_id: str) -> None:
@@ -524,12 +588,168 @@ class ResourceManager:
             if project_id in self.monitors:
                 monitor = self.monitors[project_id]
                 await monitor.stop_monitoring()
-                
+
                 del self.monitors[project_id]
                 del self.project_limits[project_id]
-                
+
+                # Stop leak detection if no more projects
+                if not self.monitors and self._leak_detection_running:
+                    await self.stop_memory_leak_detection()
+
                 logger.info(f"Unregistered project {project_id} from resource monitoring")
                 await self._save_registry()
+
+    async def start_memory_leak_detection(self) -> None:
+        """Start automatic memory leak detection and cleanup."""
+        if self._leak_detection_running:
+            return
+
+        self._leak_detection_running = True
+        self._leak_detection_task = asyncio.create_task(
+            self._memory_leak_detection_loop()
+        )
+        self._gc_task = asyncio.create_task(
+            self._periodic_gc_loop()
+        )
+        logger.info(
+            f"Started memory leak detection (interval: {self._leak_detection_interval}s, "
+            f"threshold: {self._leak_threshold_mb_per_min} MB/min)"
+        )
+
+    async def stop_memory_leak_detection(self) -> None:
+        """Stop automatic memory leak detection and cleanup."""
+        self._leak_detection_running = False
+
+        if self._leak_detection_task:
+            self._leak_detection_task.cancel()
+            try:
+                await self._leak_detection_task
+            except asyncio.CancelledError:
+                pass
+            self._leak_detection_task = None
+
+        if self._gc_task:
+            self._gc_task.cancel()
+            try:
+                await self._gc_task
+            except asyncio.CancelledError:
+                pass
+            self._gc_task = None
+
+        logger.info("Stopped memory leak detection")
+
+    async def _memory_leak_detection_loop(self) -> None:
+        """Monitor for memory leaks and trigger cleanup."""
+        try:
+            while self._leak_detection_running:
+                await asyncio.sleep(self._leak_detection_interval)
+
+                for project_id, monitor in list(self.monitors.items()):
+                    try:
+                        # Check for memory leak
+                        if monitor.is_memory_leak_detected(
+                            threshold_mb_per_min=self._leak_threshold_mb_per_min
+                        ):
+                            growth_rate = monitor.calculate_memory_growth_rate()
+                            logger.warning(
+                                f"Memory leak detected for project {project_id}: "
+                                f"{growth_rate:.2f} MB/min (threshold: {self._leak_threshold_mb_per_min} MB/min)"
+                            )
+                            await self._trigger_cleanup(project_id, growth_rate)
+                    except Exception as e:
+                        logger.error(f"Error checking memory leak for {project_id}: {e}")
+
+        except asyncio.CancelledError:
+            logger.debug("Memory leak detection loop cancelled")
+        except Exception as e:
+            logger.error(f"Error in memory leak detection loop: {e}")
+
+    async def _periodic_gc_loop(self) -> None:
+        """Run periodic garbage collection."""
+        try:
+            while self._leak_detection_running:
+                await asyncio.sleep(self._gc_interval)
+
+                # Run garbage collection
+                import gc
+                collected = gc.collect()
+                logger.debug(f"Periodic garbage collection freed {collected} objects")
+
+        except asyncio.CancelledError:
+            logger.debug("Periodic GC loop cancelled")
+        except Exception as e:
+            logger.error(f"Error in periodic GC loop: {e}")
+
+    async def _trigger_cleanup(self, project_id: str, growth_rate: float) -> None:
+        """
+        Trigger cleanup for a project with memory leak.
+
+        Args:
+            project_id: Project to cleanup
+            growth_rate: Current memory growth rate in MB/min
+        """
+        logger.info(f"Triggering cleanup for project {project_id} (growth: {growth_rate:.2f} MB/min)")
+
+        # Run aggressive garbage collection
+        import gc
+        gc.collect()
+        gc.collect()  # Run twice for cyclic references
+        collected = gc.collect()
+        logger.info(f"Aggressive garbage collection freed {collected} objects")
+
+        # Cleanup idle shared resources
+        await self._cleanup_idle_shared_resources()
+
+        # Enforce resource limits
+        await self.enforce_limits(project_id)
+
+        # Log alert
+        alert = ResourceAlert(
+            timestamp=datetime.now(),
+            project_id=project_id,
+            alert_type="critical",
+            resource_type="memory_leak",
+            current_value=growth_rate,
+            threshold_value=self._leak_threshold_mb_per_min,
+            message=f"Automatic cleanup triggered for memory leak ({growth_rate:.2f} MB/min)"
+        )
+        self._handle_alert(alert)
+
+    async def _cleanup_idle_shared_resources(self) -> None:
+        """Cleanup shared resources with zero usage count."""
+        async with self.shared_pool._lock:
+            # Cleanup unused Qdrant connections
+            idle_urls = [
+                url for url, count in self.shared_pool._usage_counts.items()
+                if count <= 0 and url in self.shared_pool._qdrant_connections
+            ]
+            for url in idle_urls:
+                try:
+                    logger.info(f"Cleaning up idle Qdrant connection: {url}")
+                    await self.shared_pool._qdrant_connections[url].close()
+                    del self.shared_pool._qdrant_connections[url]
+                    del self.shared_pool._connection_locks[url]
+                    del self.shared_pool._usage_counts[url]
+                except Exception as e:
+                    logger.warning(f"Error cleaning up idle connection {url}: {e}")
+
+            # Cleanup unused embedding models
+            idle_models = [
+                model_name for usage_key, count in self.shared_pool._usage_counts.items()
+                if usage_key.startswith("model_") and count <= 0
+                for model_name in [usage_key.replace("model_", "")]
+                if model_name in self.shared_pool._embedding_models
+            ]
+            for model_name in idle_models:
+                try:
+                    logger.info(f"Cleaning up idle embedding model: {model_name}")
+                    model = self.shared_pool._embedding_models[model_name]
+                    if model is not None and hasattr(model, 'close'):
+                        await model.close()
+                    del self.shared_pool._embedding_models[model_name]
+                    del self.shared_pool._usage_counts[f"model_{model_name}"]
+                except Exception as e:
+                    logger.warning(f"Error cleaning up idle model {model_name}: {e}")
     
     async def get_project_usage(self, project_id: str) -> Optional[ResourceUsage]:
         """Get current resource usage for a project."""
@@ -631,6 +851,10 @@ class ResourceManager:
     async def cleanup_all(self) -> None:
         """Clean up all resources and stop monitoring."""
         logger.info("Cleaning up resource manager")
+
+        # Stop memory leak detection
+        if self._leak_detection_running:
+            await self.stop_memory_leak_detection()
 
         # Cancel all enforcement tasks (fix memory leak)
         for task in list(self._enforcement_tasks):
