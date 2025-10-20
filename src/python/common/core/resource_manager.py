@@ -224,14 +224,19 @@ class ResourceMonitor:
         """Add a callback to be called when alerts are generated."""
         self._alert_callbacks.append(callback)
     
-    async def start_monitoring(self, interval: float = 10.0) -> None:
-        """Start resource monitoring."""
+    async def start_monitoring(self, interval: float = 60.0) -> None:
+        """
+        Start resource monitoring.
+
+        Default interval optimized for low idle CPU usage (60s).
+        For more responsive monitoring during active development, use a lower interval (10-30s).
+        """
         if self._monitoring:
             return
-        
+
         self._monitoring = True
         self._monitor_task = asyncio.create_task(self._monitoring_loop(interval))
-        logger.info(f"Started resource monitoring for project {self.project_id}")
+        logger.info(f"Started resource monitoring for project {self.project_id} with {interval}s interval")
     
     async def stop_monitoring(self) -> None:
         """Stop resource monitoring."""

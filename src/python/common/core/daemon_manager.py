@@ -4,7 +4,7 @@ Daemon Process Management for Workspace Qdrant MCP.
 This module provides comprehensive daemon lifecycle management for the Rust
 ingestion engine, including:
 - Automatic daemon startup on first MCP tool usage
-- Health monitoring with periodic heartbeats (30s intervals)
+- Health monitoring with periodic heartbeats (90s intervals, optimized for low idle CPU)
 - Graceful shutdown on MCP server exit
 - Configuration synchronization between Python and Rust components
 - Support for multiple daemon instances per project
@@ -56,7 +56,7 @@ class DaemonConfig:
     qdrant_url: str = "http://localhost:6333"
     log_level: str = "info"
     max_concurrent_jobs: int = 4
-    health_check_interval: float = 30.0
+    health_check_interval: float = 90.0  # Optimized for lower idle CPU usage (was 30.0)
     startup_timeout: float = 30.0
     shutdown_timeout: float = 10.0
     restart_on_failure: bool = True

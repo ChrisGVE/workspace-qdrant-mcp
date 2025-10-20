@@ -74,9 +74,9 @@ class DaemonProjectConfig(BaseModel):
     # Qdrant settings
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: Optional[str] = None
-    
+
     # Processing settings
-    health_check_interval: float = 30.0
+    health_check_interval: float = 90.0  # Optimized for lower idle CPU usage (was 30.0)
     startup_timeout: float = 30.0
     shutdown_timeout: float = 10.0
     restart_on_failure: bool = True

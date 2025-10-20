@@ -61,9 +61,10 @@ pub struct WatcherConfig {
     pub debounce_ms: u64,
 
     /// Polling interval in milliseconds (for polling-based watching)
-    /// Recommended: 1000-5000ms for most use cases
-    /// - Lower values (100-500ms): More responsive but higher CPU usage
-    /// - Higher values (5000-10000ms): Lower CPU usage but less responsive
+    /// Recommended: 3000-5000ms for balanced performance and low idle CPU usage
+    /// - Lower values (1000-2000ms): More responsive but higher CPU usage
+    /// - Higher values (5000-10000ms): Lowest CPU usage but less responsive
+    /// Default: 3000ms (optimized for low idle CPU usage)
     pub polling_interval_ms: u64,
 
     /// Minimum polling interval in milliseconds (safety bound)
@@ -217,7 +218,7 @@ impl Default for WatcherConfig {
             recursive: true,
             max_depth: -1,
             debounce_ms: 1000, // 1 second debounce
-            polling_interval_ms: 1000, // 1 second polling (balanced default)
+            polling_interval_ms: 3000, // 3 second polling (optimized for low idle CPU usage)
             min_polling_interval_ms: 100, // 100ms minimum (prevents CPU waste)
             max_polling_interval_ms: 60000, // 60 seconds maximum (prevents missing changes)
             max_queue_size: 10000,
