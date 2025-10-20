@@ -481,6 +481,154 @@ class CustomCallbackTrigger(SessionTrigger):
             )
 
 
+class PostUpdateTrigger(SessionTrigger):
+    """
+    Trigger that executes after rule or configuration updates.
+
+    This trigger monitors for changes to CLAUDE.md files, memory rules,
+    and project configuration, then triggers context refresh. Includes
+    debouncing to prevent excessive triggers from frequent changes.
+    """
+
+    def __init__(
+        self,
+        debounce_seconds: float = 2.0,
+        batch_window_seconds: float = 5.0,
+        output_path: Optional[Path] = None,
+        token_budget: int = 50000,
+        filter: Optional[RuleFilter] = None,
+        priority: TriggerPriority = TriggerPriority.HIGH,
+    ):
+        """
+        Initialize the post-update trigger.
+
+        Args:
+            debounce_seconds: Minimum time between trigger executions
+            batch_window_seconds: Time window to batch multiple changes
+            output_path: Where to write updated content
+            token_budget: Token budget for content
+            filter: Optional filter for memory rules
+            priority: Execution priority
+        """
+        super().__init__(
+            name="post_update_refresh",
+            phase=TriggerPhase.ON_RULE_UPDATE,
+            priority=priority,
+        )
+        self.debounce_seconds = debounce_seconds
+        self.batch_window_seconds = batch_window_seconds
+        self.output_path = output_path
+        self.token_budget = token_budget
+        self.filter = filter
+
+        # Tracking for debouncing and batching
+        self._last_trigger_time: Optional[float] = None
+        self._pending_changes: List[str] = []
+        self._batch_task: Optional[asyncio.Task] = None
+
+    async def execute(self, context: TriggerContext) -> TriggerResult:
+        """Execute post-update refresh."""
+        import time
+
+        start_time = time.time()
+
+        try:
+            # Check debounce threshold
+            if (
+                self._last_trigger_time
+                and (start_time - self._last_trigger_time) < self.debounce_seconds
+            ):
+                logger.debug(
+                    f"Debouncing post-update trigger (last trigger was {start_time - self._last_trigger_time:.2f}s ago)"
+                )
+                execution_time = (time.time() - start_time) * 1000
+                return TriggerResult(
+                    success=True,
+                    phase=self.phase,
+                    trigger_name=self.name,
+                    execution_time_ms=execution_time,
+                    metadata={
+                        "debounced": True,
+                        "pending_changes": len(self._pending_changes),
+                    },
+                )
+
+            # Perform refresh
+            injector = ClaudeMdInjector(
+                memory_manager=context.memory_manager,
+                enable_watching=False,
+            )
+
+            output_path = self.output_path or (
+                context.project_root / ".claude" / "context.md"
+            )
+
+            success = await injector.inject_to_file(
+                output_path=output_path,
+                project_root=context.project_root,
+                token_budget=self.token_budget,
+                filter=self.filter,
+            )
+
+            if not success:
+                raise RuntimeError("Failed to refresh after update")
+
+            # Update tracking
+            self._last_trigger_time = time.time()
+            changes_count = len(self._pending_changes)
+            self._pending_changes = []
+
+            execution_time = (time.time() - start_time) * 1000
+
+            logger.info(
+                f"Post-update refresh completed, processed {changes_count} changes"
+            )
+
+            return TriggerResult(
+                success=True,
+                phase=self.phase,
+                trigger_name=self.name,
+                execution_time_ms=execution_time,
+                metadata={
+                    "changes_processed": changes_count,
+                    "output_path": str(output_path),
+                },
+            )
+
+        except Exception as e:
+            execution_time = (time.time() - start_time) * 1000
+            logger.error(f"Post-update refresh failed: {e}")
+            return TriggerResult(
+                success=False,
+                phase=self.phase,
+                trigger_name=self.name,
+                execution_time_ms=execution_time,
+                error=str(e),
+            )
+
+    def record_change(self, change_description: str) -> None:
+        """
+        Record a change for batch processing.
+
+        Args:
+            change_description: Description of the change
+        """
+        self._pending_changes.append(change_description)
+        logger.debug(
+            f"Recorded change: {change_description}, "
+            f"total pending: {len(self._pending_changes)}"
+        )
+
+    def get_pending_changes(self) -> List[str]:
+        """
+        Get list of pending changes.
+
+        Returns:
+            List of change descriptions
+        """
+        return self._pending_changes.copy()
+
+
 class OnDemandRefreshTrigger(SessionTrigger):
     """
     Trigger for manual context refresh requests.
