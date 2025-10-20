@@ -153,6 +153,10 @@ from .budget_config import (
     BudgetConfigManager,
     BudgetScope,
 )
+from .tool_token_manager import (
+    ToolTokenLimits,
+    ToolTokenManager,
+)
 
 __all__ = [
     # Rule Retrieval
@@ -191,6 +195,9 @@ __all__ = [
     "CacheStatistics",
     "TokenizerFactory",
     "TokenizerType",
+    # Tool Token Manager
+    "ToolTokenLimits",
+    "ToolTokenManager",
     # Claude Budget Manager
     "ClaudeBudgetManager",
     "ClaudeBudgetAllocation",
