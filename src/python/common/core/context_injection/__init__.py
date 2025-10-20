@@ -23,6 +23,14 @@ from .copilot_detector import (
     is_copilot_session,
     get_code_comment_prefix,
 )
+from .llm_tool_detector import (
+    LLMToolDetector,
+    LLMToolType,
+    UnifiedLLMSession,
+    get_active_llm_tool,
+    is_llm_tool_active,
+    get_llm_formatter,
+)
 from .comment_injector import (
     CommentInjector,
     PlacementStrategy,
@@ -225,6 +233,13 @@ __all__ = [
     "is_copilot_session",
     "get_copilot_session",
     "get_code_comment_prefix",
+    # Unified LLM Detection
+    "LLMToolDetector",
+    "LLMToolType",
+    "UnifiedLLMSession",
+    "get_active_llm_tool",
+    "is_llm_tool_active",
+    "get_llm_formatter",
     # Code Comment Injection
     "CommentInjector",
     "PlacementStrategy",
