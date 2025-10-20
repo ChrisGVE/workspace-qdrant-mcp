@@ -955,4 +955,158 @@ def get_config_manager(config_file: Optional[str] = None, **kwargs) -> ConfigMan
     return _global_config
 
 
+# Backup and Restore Configuration Helper Functions
+def get_backup_enabled() -> bool:
+    """Get whether backup/restore functionality is enabled.
+
+    Returns:
+        bool: True if backup functionality is enabled, False otherwise
+    """
+    return get_config_bool("backup.enabled", default=True)
+
+
+def get_backup_auto_backup_before_restore() -> bool:
+    """Get whether to automatically create backup before restore operations.
+
+    Returns:
+        bool: True if auto-backup before restore is enabled, False otherwise
+    """
+    return get_config_bool("backup.auto_backup_before_restore", default=True)
+
+
+def get_backup_default_directory() -> Optional[str]:
+    """Get default backup directory path.
+
+    Returns:
+        Optional[str]: Default backup directory path, or None if not configured
+    """
+    return get_config_string("backup.default_backup_directory", default=None)
+
+
+def get_backup_retention_days() -> int:
+    """Get number of days to retain old backups.
+
+    Returns:
+        int: Retention period in days (0 = never delete)
+    """
+    return get_config_int("backup.retention_days", default=30)
+
+
+def get_backup_compression_enabled() -> bool:
+    """Get whether backup compression is enabled.
+
+    Returns:
+        bool: True if compression is enabled, False otherwise
+    """
+    return get_config_bool("backup.compression", default=True)
+
+
+def get_backup_strict_version_check() -> bool:
+    """Get whether strict version compatibility checking is enabled.
+
+    Returns:
+        bool: True if strict version checking is enabled, False otherwise
+    """
+    return get_config_bool("backup.validation.strict_version_check", default=True)
+
+
+def get_backup_allow_dev_versions() -> bool:
+    """Get whether restoring from development version backups is allowed.
+
+    Returns:
+        bool: True if dev versions are allowed, False otherwise
+    """
+    return get_config_bool("backup.validation.allow_dev_versions", default=False)
+
+
+def get_backup_allow_patch_downgrade() -> bool:
+    """Get whether restoring from newer patch versions is allowed.
+
+    Returns:
+        bool: True if patch downgrades are allowed, False otherwise
+    """
+    return get_config_bool("backup.validation.allow_patch_downgrade", default=False)
+
+
+def get_backup_allow_minor_downgrade() -> bool:
+    """Get whether restoring from newer minor versions is allowed.
+
+    Returns:
+        bool: True if minor downgrades are allowed, False otherwise
+    """
+    return get_config_bool("backup.validation.allow_minor_downgrade", default=False)
+
+
+def get_backup_version_warning_threshold() -> int:
+    """Get threshold in days for warning about old backups.
+
+    Returns:
+        int: Warning threshold in days
+    """
+    return get_config_int("backup.validation.version_warning_threshold", default=90)
+
+
+def get_backup_check_schema_compatibility() -> bool:
+    """Get whether to validate data schema compatibility during restore.
+
+    Returns:
+        bool: True if schema compatibility checking is enabled, False otherwise
+    """
+    return get_config_bool("backup.validation.check_schema_compatibility", default=True)
+
+
+def get_backup_verify_after_backup() -> bool:
+    """Get whether to run integrity checks after backup creation.
+
+    Returns:
+        bool: True if post-backup verification is enabled, False otherwise
+    """
+    return get_config_bool("backup.verification.verify_after_backup", default=True)
+
+
+def get_backup_verify_before_restore() -> bool:
+    """Get whether to run integrity checks before restore operations.
+
+    Returns:
+        bool: True if pre-restore verification is enabled, False otherwise
+    """
+    return get_config_bool("backup.verification.verify_before_restore", default=True)
+
+
+def get_backup_checksum_algorithm() -> str:
+    """Get checksum algorithm for backup integrity verification.
+
+    Returns:
+        str: Checksum algorithm name ("xxhash64", "sha256", "md5", "none")
+    """
+    return get_config_string("backup.verification.checksum_algorithm", default="xxhash64")
+
+
+def get_backup_include_collection_stats() -> bool:
+    """Get whether to include detailed collection statistics in backup manifests.
+
+    Returns:
+        bool: True if collection stats should be included, False otherwise
+    """
+    return get_config_bool("backup.metadata.include_collection_stats", default=True)
+
+
+def get_backup_include_system_info() -> bool:
+    """Get whether to include system information in backup manifests.
+
+    Returns:
+        bool: True if system info should be included, False otherwise
+    """
+    return get_config_bool("backup.metadata.include_system_info", default=True)
+
+
+def get_backup_custom_metadata() -> Dict[str, Any]:
+    """Get custom metadata to include in all backups.
+
+    Returns:
+        Dict[str, Any]: Custom metadata dictionary
+    """
+    return get_config_dict("backup.metadata.custom_metadata", default={})
+
+
 # End of ConfigManager implementation
