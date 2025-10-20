@@ -536,6 +536,11 @@ class ResourceManager:
         self._last_pressure_check: Optional[datetime] = None
         self._last_pressure_level: str = "normal"  # normal, warning, critical
 
+        # Resource limit enforcement
+        self._enforcement_enabled = True
+        self._project_quotas_exceeded: Set[str] = set()  # Projects over quota
+        self._enforcement_level: Dict[str, str] = {}  # normal, warning, critical per project
+
         # Registry file for persistence
         temp_dir = Path(tempfile.gettempdir())
         self.registry_file = temp_dir / "wqm_resource_registry.json"
@@ -866,32 +871,141 @@ class ResourceManager:
             usage[project_id] = await monitor.get_current_usage()
         return usage
     
+    def is_operation_allowed(self, project_id: str, operation_type: str = "general") -> tuple[bool, str]:
+        """
+        Check if an operation is allowed for a project based on current resource usage.
+
+        Args:
+            project_id: Project to check
+            operation_type: Type of operation (general, memory_intensive, cpu_intensive)
+
+        Returns:
+            Tuple of (allowed, reason) where reason explains why if not allowed
+        """
+        if not self._enforcement_enabled:
+            return True, "enforcement disabled"
+
+        # Check if project quota is exceeded
+        if project_id in self._project_quotas_exceeded:
+            return False, f"project {project_id} has exceeded resource quota"
+
+        # Check enforcement level for project
+        enforcement_level = self._enforcement_level.get(project_id, "normal")
+
+        # Block memory-intensive operations under critical enforcement
+        if enforcement_level == "critical" and operation_type == "memory_intensive":
+            return False, f"project {project_id} under critical memory enforcement"
+
+        # Allow operation but with warning
+        if enforcement_level == "warning":
+            logger.warning(f"Operation {operation_type} allowed for {project_id} but under warning level")
+
+        return True, "allowed"
+
     async def enforce_limits(self, project_id: str) -> bool:
-        """Enforce resource limits for a project."""
+        """
+        Enforce resource limits for a project with multi-stage enforcement.
+
+        Enforcement stages:
+        1. Normal: No action
+        2. Warning (>80% of limit): GC + idle resource cleanup
+        3. Critical (>95% of limit): Aggressive cleanup + block memory-intensive ops
+        4. Over limit (>100%): Force cleanup + mark quota exceeded
+
+        Returns:
+            True if enforcement actions were taken
+        """
         if project_id not in self.monitors:
             return False
-        
+
         usage = await self.get_project_usage(project_id)
         if not usage:
             return False
-        
+
         limits = self.project_limits[project_id]
         actions_taken = False
-        
-        # Memory limit enforcement
-        if usage.memory_mb > limits.max_memory_mb:
-            logger.warning(f"Project {project_id} exceeds memory limit, requesting cleanup")
-            # Trigger garbage collection
-            import gc
+
+        # Calculate usage percentages
+        memory_usage_percent = usage.memory_mb / limits.max_memory_mb
+        cpu_usage_percent = usage.cpu_percent / limits.max_cpu_percent
+
+        # Determine enforcement level
+        if memory_usage_percent > 1.0:
+            # Over limit - critical enforcement
+            enforcement_level = "over_limit"
+        elif memory_usage_percent >= limits.memory_critical_threshold:
+            enforcement_level = "critical"
+        elif memory_usage_percent >= limits.memory_warning_threshold:
+            enforcement_level = "warning"
+        else:
+            enforcement_level = "normal"
+
+        self._enforcement_level[project_id] = enforcement_level
+
+        # Execute enforcement actions based on level
+        if enforcement_level == "over_limit":
+            logger.error(
+                f"Project {project_id} OVER LIMIT: "
+                f"{usage.memory_mb:.1f}MB / {limits.max_memory_mb}MB "
+                f"({memory_usage_percent * 100:.1f}%)"
+            )
+
+            # Mark quota exceeded
+            self._project_quotas_exceeded.add(project_id)
+
+            # Force aggressive cleanup
+            for i in range(3):
+                collected = gc.collect()
+                logger.info(f"Force GC {i + 1}/3 for {project_id}: freed {collected} objects")
+
+            # Cleanup idle shared resources
+            await self._cleanup_idle_shared_resources()
+
+            actions_taken = True
+
+        elif enforcement_level == "critical":
+            logger.warning(
+                f"Project {project_id} CRITICAL: "
+                f"{usage.memory_mb:.1f}MB / {limits.max_memory_mb}MB "
+                f"({memory_usage_percent * 100:.1f}%)"
+            )
+
+            # Aggressive cleanup
+            gc.collect()
+            gc.collect()  # Run twice
+            await self._cleanup_idle_shared_resources()
+
+            actions_taken = True
+
+        elif enforcement_level == "warning":
+            logger.warning(
+                f"Project {project_id} WARNING: "
+                f"{usage.memory_mb:.1f}MB / {limits.max_memory_mb}MB "
+                f"({memory_usage_percent * 100:.1f}%)"
+            )
+
+            # Moderate cleanup
             gc.collect()
             actions_taken = True
-        
-        # CPU limit enforcement (would require process groups in production)
-        if usage.cpu_percent > limits.max_cpu_percent:
-            logger.warning(f"Project {project_id} exceeds CPU limit")
-            # In a real implementation, this would throttle the process
-            actions_taken = True
-        
+
+        else:
+            # Normal - remove from quota exceeded if present
+            if project_id in self._project_quotas_exceeded:
+                logger.info(f"Project {project_id} back within quota")
+                self._project_quotas_exceeded.discard(project_id)
+
+        # CPU enforcement (logging only - would need OS-level throttling)
+        if cpu_usage_percent > 1.0:
+            logger.error(
+                f"Project {project_id} CPU OVER LIMIT: "
+                f"{usage.cpu_percent:.1f}% / {limits.max_cpu_percent:.1f}%"
+            )
+        elif cpu_usage_percent >= limits.cpu_critical_threshold:
+            logger.warning(
+                f"Project {project_id} CPU CRITICAL: "
+                f"{usage.cpu_percent:.1f}% / {limits.max_cpu_percent:.1f}%"
+            )
+
         return actions_taken
     
     def _handle_alert(self, alert: ResourceAlert) -> None:
@@ -985,6 +1099,8 @@ class ResourceManager:
         self.project_limits.clear()
         self.cleanup_handlers.clear()
         self.alert_history.clear()
+        self._project_quotas_exceeded.clear()
+        self._enforcement_level.clear()
     
     async def _save_registry(self) -> None:
         """Save resource registry to file."""
