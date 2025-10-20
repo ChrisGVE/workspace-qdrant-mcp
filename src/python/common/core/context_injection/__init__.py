@@ -69,6 +69,9 @@ from .session_trigger import (
     SystemPromptTrigger,
     CleanupTrigger,
     CustomCallbackTrigger,
+    OnDemandRefreshTrigger,
+    PostUpdateTrigger,
+    ToolAwareTrigger,
     prepare_claude_code_session,
     cleanup_claude_code_session,
 )
