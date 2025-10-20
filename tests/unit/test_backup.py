@@ -602,3 +602,331 @@ class TestBackupManager:
 
         expected_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
         assert metadata.python_version == expected_version
+
+
+class TestRestoreManager:
+    """Test suite for RestoreManager class."""
+
+    def test_restore_manager_initialization(self):
+        """Test RestoreManager initialization."""
+        from common.core.backup import RestoreManager
+
+        manager = RestoreManager(current_version="0.2.1")
+
+        assert manager.current_version == "0.2.1"
+        assert manager._backup_manager is not None
+
+    def test_validate_backup_success(self):
+        """Test successful backup validation."""
+        from common.core.backup import BackupManager, RestoreManager
+
+        backup_mgr = BackupManager(current_version="0.2.1")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            # Create valid backup
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata(
+                collections=["test-collection"],
+                total_documents=100
+            )
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            # Validate should succeed
+            result = restore_mgr.validate_backup(backup_path)
+            assert result.version == "0.2.1"
+            assert result.total_documents == 100
+
+    def test_validate_backup_invalid_structure(self):
+        """Test validation fails with invalid backup structure."""
+        from common.core.backup import RestoreManager
+        from common.core.error_handling import FileSystemError
+
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "invalid_backup"
+            backup_path.mkdir()
+
+            with pytest.raises(FileSystemError) as exc_info:
+                restore_mgr.validate_backup(backup_path)
+
+            error = exc_info.value
+            assert "invalid backup directory" in str(error).lower()
+
+    def test_validate_backup_incompatible_version(self):
+        """Test validation fails with incompatible version."""
+        from common.core.backup import BackupManager, RestoreManager, IncompatibleVersionError
+
+        backup_mgr = BackupManager(current_version="0.1.0")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            # Create backup with incompatible version
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata()
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            with pytest.raises(IncompatibleVersionError) as exc_info:
+                restore_mgr.validate_backup(backup_path)
+
+            error = exc_info.value
+            assert error.context["backup_version"] == "0.1.0"
+            assert error.context["current_version"] == "0.2.1"
+
+    def test_validate_backup_downgrade_rejected(self):
+        """Test validation rejects downgrade by default."""
+        from common.core.backup import BackupManager, RestoreManager, IncompatibleVersionError
+
+        backup_mgr = BackupManager(current_version="0.2.2")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            # Create backup with newer patch version
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata()
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            with pytest.raises(IncompatibleVersionError) as exc_info:
+                restore_mgr.validate_backup(backup_path, allow_downgrade=False)
+
+            error = exc_info.value
+            assert "newer backup version" in str(error).lower()
+
+    def test_validate_backup_downgrade_allowed(self):
+        """Test validation allows downgrade when explicitly enabled."""
+        from common.core.backup import BackupManager, RestoreManager
+
+        backup_mgr = BackupManager(current_version="0.2.2")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            # Create backup with newer patch version
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata()
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            # Should succeed with allow_downgrade=True
+            result = restore_mgr.validate_backup(backup_path, allow_downgrade=True)
+            assert result.version == "0.2.2"
+
+    def test_get_backup_info(self):
+        """Test getting backup information."""
+        from common.core.backup import BackupManager, RestoreManager
+
+        backup_mgr = BackupManager(current_version="0.2.1")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            # Create backup
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata(
+                collections={"test": 50},
+                total_documents=50,
+                description="Test backup"
+            )
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            # Get info
+            info = restore_mgr.get_backup_info(backup_path)
+
+            assert info["version"] == "0.2.1"
+            assert info["total_documents"] == 50
+            assert info["description"] == "Test backup"
+            assert "formatted_timestamp" in info
+            assert info["partial_backup"] is False
+
+    def test_check_compatibility_compatible(self):
+        """Test compatibility check with compatible versions."""
+        from common.core.backup import BackupManager, RestoreManager, CompatibilityStatus
+
+        backup_mgr = BackupManager(current_version="0.2.1")
+        restore_mgr = RestoreManager(current_version="0.2.2")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata()
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            status, message = restore_mgr.check_compatibility(backup_path)
+
+            assert status == CompatibilityStatus.UPGRADE_AVAILABLE
+            assert "0.2.1" in message
+            assert "0.2.2" in message
+
+    def test_check_compatibility_incompatible(self):
+        """Test compatibility check with incompatible versions."""
+        from common.core.backup import BackupManager, RestoreManager, CompatibilityStatus
+
+        backup_mgr = BackupManager(current_version="0.1.0")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata()
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            status, message = restore_mgr.check_compatibility(backup_path)
+
+            assert status == CompatibilityStatus.INCOMPATIBLE
+            assert "incompatible" in message.lower()
+
+    def test_list_backup_contents_empty(self):
+        """Test listing contents of empty backup."""
+        from common.core.backup import BackupManager, RestoreManager
+
+        backup_mgr = BackupManager(current_version="0.2.1")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata()
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            contents = restore_mgr.list_backup_contents(backup_path)
+
+            assert "metadata" in contents
+            assert "sqlite" in contents
+            assert "collections" in contents
+            assert "manifest.json" in contents["metadata"]
+
+    def test_list_backup_contents_with_files(self):
+        """Test listing contents with actual backup files."""
+        from common.core.backup import BackupManager, RestoreManager
+
+        backup_mgr = BackupManager(current_version="0.2.1")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata()
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            # Add some test files
+            (backup_path / "sqlite" / "state.db").write_text("test")
+            (backup_path / "collections" / "test-collection.snapshot").write_text("test")
+
+            contents = restore_mgr.list_backup_contents(backup_path)
+
+            assert "state.db" in contents["sqlite"]
+            assert "test-collection.snapshot" in contents["collections"]
+
+    def test_list_backup_contents_invalid_directory(self):
+        """Test listing contents fails with invalid directory."""
+        from common.core.backup import RestoreManager
+        from common.core.error_handling import FileSystemError
+
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "invalid"
+
+            with pytest.raises(FileSystemError) as exc_info:
+                restore_mgr.list_backup_contents(backup_path)
+
+            error = exc_info.value
+            assert "invalid backup directory" in str(error).lower()
+
+    def test_prepare_restore_success(self):
+        """Test successful restore preparation."""
+        from common.core.backup import BackupManager, RestoreManager
+
+        backup_mgr = BackupManager(current_version="0.2.1")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata(
+                collections=["test-collection"],
+                total_documents=100,
+                description="Test backup"
+            )
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            plan = restore_mgr.prepare_restore(backup_path)
+
+            assert plan["backup_version"] == "0.2.1"
+            assert plan["current_version"] == "0.2.1"
+            assert plan["total_documents"] == 100
+            assert plan["collections"] == ["test-collection"]
+            assert "contents" in plan
+            assert plan["dry_run"] is False
+
+    def test_prepare_restore_dry_run(self):
+        """Test restore preparation in dry-run mode."""
+        from common.core.backup import BackupManager, RestoreManager
+
+        backup_mgr = BackupManager(current_version="0.2.1")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata()
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            plan = restore_mgr.prepare_restore(backup_path, dry_run=True)
+
+            assert plan["dry_run"] is True
+            assert "backup_version" in plan
+            assert "contents" in plan
+
+    def test_prepare_restore_partial_backup(self):
+        """Test restore preparation for partial backup."""
+        from common.core.backup import BackupManager, RestoreManager
+
+        backup_mgr = BackupManager(current_version="0.2.1")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata(
+                partial_backup=True,
+                selected_collections=["collection1", "collection2"]
+            )
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            plan = restore_mgr.prepare_restore(backup_path)
+
+            assert plan["partial_backup"] is True
+            assert plan["selected_collections"] == ["collection1", "collection2"]
+
+    def test_prepare_restore_incompatible_version(self):
+        """Test restore preparation fails with incompatible version."""
+        from common.core.backup import BackupManager, RestoreManager, IncompatibleVersionError
+
+        backup_mgr = BackupManager(current_version="0.1.0")
+        restore_mgr = RestoreManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+
+            backup_mgr.prepare_backup_directory(backup_path)
+            metadata = backup_mgr.create_backup_metadata()
+            backup_mgr.save_backup_manifest(metadata, backup_path)
+
+            with pytest.raises(IncompatibleVersionError):
+                restore_mgr.prepare_restore(backup_path)

@@ -533,3 +533,210 @@ class BackupManager:
                 operation="read",
                 cause=e
             )
+
+
+class RestoreManager:
+    """
+    Base class for restoring system backups with version validation.
+
+    Handles backup validation, version compatibility checking, and provides
+    infrastructure for restoration operations.
+    """
+
+    def __init__(self, current_version: str):
+        """
+        Initialize RestoreManager.
+
+        Args:
+            current_version: Current system version (semver format)
+        """
+        self.current_version = current_version
+        self._backup_manager = BackupManager(current_version)
+
+    def validate_backup(
+        self,
+        backup_path: Union[str, Path],
+        allow_downgrade: bool = False
+    ) -> BackupMetadata:
+        """
+        Validate backup directory and version compatibility.
+
+        Args:
+            backup_path: Path to backup directory
+            allow_downgrade: If True, allow restoring from newer backup version
+
+        Returns:
+            BackupMetadata instance if valid
+
+        Raises:
+            FileSystemError: If backup structure is invalid
+            IncompatibleVersionError: If versions are incompatible
+        """
+        from common.core.error_handling import FileSystemError
+
+        backup_dir = Path(backup_path)
+
+        # Validate directory structure
+        if not self._backup_manager.validate_backup_directory(backup_dir):
+            raise FileSystemError(
+                f"Invalid backup directory structure: {backup_dir}",
+                path=str(backup_path),
+                operation="validate"
+            )
+
+        # Load and validate manifest
+        metadata = self._backup_manager.load_backup_manifest(backup_dir)
+
+        # Validate version compatibility
+        VersionValidator.validate_compatibility(
+            metadata,
+            self.current_version,
+            allow_downgrade=allow_downgrade
+        )
+
+        return metadata
+
+    def get_backup_info(
+        self,
+        backup_path: Union[str, Path]
+    ) -> Dict[str, Any]:
+        """
+        Get backup information without validation.
+
+        Args:
+            backup_path: Path to backup directory
+
+        Returns:
+            Dictionary with backup information
+
+        Raises:
+            FileSystemError: If backup cannot be read
+        """
+        metadata = self._backup_manager.load_backup_manifest(backup_path)
+
+        return {
+            "version": metadata.version,
+            "timestamp": metadata.timestamp,
+            "formatted_timestamp": metadata.format_timestamp(),
+            "collections": metadata.collections,
+            "total_documents": metadata.total_documents,
+            "partial_backup": metadata.partial_backup,
+            "selected_collections": metadata.selected_collections,
+            "description": metadata.description,
+            "created_by": metadata.created_by,
+            "python_version": metadata.python_version,
+            "database_version": metadata.database_version,
+        }
+
+    def check_compatibility(
+        self,
+        backup_path: Union[str, Path]
+    ) -> tuple[CompatibilityStatus, str]:
+        """
+        Check version compatibility without raising exception.
+
+        Args:
+            backup_path: Path to backup directory
+
+        Returns:
+            Tuple of (CompatibilityStatus, message)
+
+        Raises:
+            FileSystemError: If backup cannot be read
+        """
+        metadata = self._backup_manager.load_backup_manifest(backup_path)
+        status = VersionValidator.check_compatibility(
+            metadata.version,
+            self.current_version
+        )
+        message = VersionValidator.get_compatibility_message(
+            metadata.version,
+            self.current_version
+        )
+
+        return status, message
+
+    def list_backup_contents(
+        self,
+        backup_path: Union[str, Path]
+    ) -> Dict[str, List[str]]:
+        """
+        List contents of backup directory.
+
+        Args:
+            backup_path: Path to backup directory
+
+        Returns:
+            Dictionary with lists of files in each subdirectory
+
+        Raises:
+            FileSystemError: If backup directory is invalid
+        """
+        from common.core.error_handling import FileSystemError
+
+        backup_dir = Path(backup_path)
+
+        if not self._backup_manager.validate_backup_directory(backup_dir):
+            raise FileSystemError(
+                f"Invalid backup directory: {backup_dir}",
+                path=str(backup_path),
+                operation="list"
+            )
+
+        contents = {
+            "metadata": [],
+            "sqlite": [],
+            "collections": [],
+        }
+
+        for category in contents.keys():
+            category_dir = backup_dir / category
+            if category_dir.exists():
+                contents[category] = [
+                    f.name for f in category_dir.iterdir()
+                    if f.is_file()
+                ]
+
+        return contents
+
+    def prepare_restore(
+        self,
+        backup_path: Union[str, Path],
+        allow_downgrade: bool = False,
+        dry_run: bool = False
+    ) -> Dict[str, Any]:
+        """
+        Prepare for restore operation with validation.
+
+        Args:
+            backup_path: Path to backup directory
+            allow_downgrade: If True, allow restoring from newer version
+            dry_run: If True, only validate without preparing
+
+        Returns:
+            Dictionary with restore preparation details
+
+        Raises:
+            FileSystemError: If backup is invalid
+            IncompatibleVersionError: If versions are incompatible
+        """
+        # Validate backup
+        metadata = self.validate_backup(backup_path, allow_downgrade)
+
+        # Get backup contents
+        contents = self.list_backup_contents(backup_path)
+
+        # Build restore plan
+        restore_plan = {
+            "backup_version": metadata.version,
+            "current_version": self.current_version,
+            "backup_timestamp": metadata.format_timestamp(),
+            "collections": metadata.collections,
+            "total_documents": metadata.total_documents,
+            "partial_backup": metadata.partial_backup,
+            "selected_collections": metadata.selected_collections,
+            "contents": contents,
+            "dry_run": dry_run,
+        }
+
+        return restore_plan
