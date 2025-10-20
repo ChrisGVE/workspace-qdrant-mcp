@@ -23,6 +23,7 @@ import time
 from pathlib import Path
 from typing import Dict, Any, List, Optional
 
+from common.core.backup import BackupManager, RestoreManager, IncompatibleVersionError
 from tests.e2e.utils import (
     HealthChecker,
     WorkflowTimer,
@@ -795,42 +796,39 @@ class TestRestoreWithVersionMismatch:
         await component_lifecycle_manager.start_all()
         await component_lifecycle_manager.wait_for_ready(timeout=30)
 
-        current_version = "0.2.1"  # Changed from "0.2.1dev1" to avoid parsing issues
+        current_version = "0.2.1"
         incompatible_version = "0.1.0"  # Minor version difference (0.2 vs 0.1)
 
         with tempfile.TemporaryDirectory() as backup_dir:
             backup_path = Path(backup_dir)
 
-            # Create backup with incompatible version
-            manifest = {
-                "version": incompatible_version,
-                "timestamp": time.time()
-            }
-            (backup_path / "manifest.json").write_text(json.dumps(manifest))
+            # Create proper backup directory structure using BackupManager
+            backup_manager = BackupManager(current_version=incompatible_version)
+            backup_manager.prepare_backup_directory(backup_path)
 
-            # Check version compatibility
-            loaded_manifest = json.loads((backup_path / "manifest.json").read_text())
-
-            backup_parts = loaded_manifest["version"].split(".")
-            current_parts = current_version.split(".")
-
-            backup_major = int(backup_parts[0])
-            backup_minor = int(backup_parts[1])
-            current_major = int(current_parts[0])
-            current_minor = int(current_parts[1])
-
-            # Consider incompatible if major or minor version differs
-            is_compatible = (
-                backup_major == current_major and
-                backup_minor == current_minor
+            # Create backup metadata with incompatible version
+            metadata = backup_manager.create_backup_metadata(
+                collections=["test-collection"],
+                total_documents=100,
+                description="Test backup with incompatible version"
             )
+            backup_manager.save_backup_manifest(metadata, backup_path)
 
-            # Validate incompatibility detection
-            assert not is_compatible, "Should detect version incompatibility"
+            # Validate backup structure is correct
+            assert backup_manager.validate_backup_directory(backup_path)
 
-            # In real implementation: restore would fail with clear error
-            # with pytest.raises(IncompatibleVersionError):
-            #     restore_manager.restore_system(backup_dir=backup_path)
+            # Now attempt to restore with current version - should fail
+            restore_manager = RestoreManager(current_version=current_version)
+
+            # Version validation should raise IncompatibleVersionError
+            with pytest.raises(IncompatibleVersionError) as exc_info:
+                restore_manager.validate_backup(backup_path)
+
+            # Validate error contains expected information
+            error = exc_info.value
+            assert error.context["backup_version"] == incompatible_version
+            assert error.context["current_version"] == current_version
+            assert "incompatible" in str(error).lower()
 
         await component_lifecycle_manager.stop_all()
 
