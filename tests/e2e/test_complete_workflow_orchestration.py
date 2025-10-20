@@ -26,6 +26,7 @@ from tests.e2e.utils import (
     TestDataGenerator,
     QdrantTestHelper,
     assert_within_threshold,
+    assert_no_performance_regression,
     run_git_command
 )
 
@@ -499,7 +500,8 @@ class TestCompleteWorkflowOrchestration:
         timer.checkpoint("startup_complete")
 
         startup_time = timer.get_duration("startup_complete")
-        assert_within_threshold(startup_time, 30, 50, "Startup time")
+        # Only check for performance regression (slower), not improvement (faster)
+        assert_no_performance_regression(startup_time, 30, 50, "Startup time")
 
         await component_lifecycle_manager.wait_for_ready(timeout=30)
 
@@ -539,8 +541,8 @@ class TestCompleteWorkflowOrchestration:
         resource_tracker.capture_current()
         delta = resource_tracker.get_delta()
 
-        # Validate memory usage
-        assert_within_threshold(delta.get("memory_delta_mb", 0), 500, 50, "Memory usage")
+        # Validate memory usage (only check for regression - higher is worse)
+        assert_no_performance_regression(delta.get("memory_delta_mb", 0), 500, 50, "Memory usage")
 
         await component_lifecycle_manager.stop_all()
         timer.checkpoint("shutdown_complete")
