@@ -157,6 +157,10 @@ from .tool_token_manager import (
     ToolTokenLimits,
     ToolTokenManager,
 )
+from .context_switcher import (
+    ContextSwitcher,
+    SwitchValidationResult,
+)
 
 __all__ = [
     # Rule Retrieval
@@ -297,4 +301,7 @@ __all__ = [
     "RefreshState",
     "RefreshResult",
     "start_live_refresh",
+    # Context Switcher
+    "ContextSwitcher",
+    "SwitchValidationResult",
 ]
