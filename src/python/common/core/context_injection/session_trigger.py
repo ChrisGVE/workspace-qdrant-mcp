@@ -19,6 +19,8 @@ from ..memory import MemoryManager
 from .claude_code_detector import ClaudeCodeDetector, ClaudeCodeSession
 from .claude_md_injector import ClaudeMdInjector
 from .system_prompt_injector import SystemPromptInjector, SystemPromptConfig
+from .llm_tool_detector import LLMToolDetector, LLMToolType, UnifiedLLMSession
+from .formatters import FormatManager
 from .rule_retrieval import RuleFilter
 
 
@@ -1146,6 +1148,210 @@ async def cleanup_claude_code_session(
     )
 
     return results
+
+
+class ToolAwareTrigger(SessionTrigger):
+    """
+    Tool-aware trigger wrapper that automatically detects the LLM tool
+    and applies appropriate formatting.
+
+    This trigger uses LLMToolDetector to identify which LLM tool is active
+    (Claude Code, Copilot, Cursor, etc.) and routes formatting through
+    FormatManager to apply tool-specific formatting rules.
+
+    Features:
+    - Automatic tool detection
+    - Tool-specific formatting via FormatManager
+    - Dynamic tool switching
+    - Formatter validation
+    - Tool capabilities awareness
+    """
+
+    def __init__(
+        self,
+        name: str,
+        phase: TriggerPhase,
+        output_path: Optional[Path] = None,
+        token_budget: int = 50000,
+        filter: Optional[RuleFilter] = None,
+        priority: TriggerPriority = TriggerPriority.NORMAL,
+        force_tool_type: Optional[LLMToolType] = None,
+    ):
+        """
+        Initialize tool-aware trigger.
+
+        Args:
+            name: Trigger name
+            phase: Execution phase
+            output_path: Where to write formatted output
+            token_budget: Token budget for formatting
+            filter: Optional rule filter
+            priority: Execution priority
+            force_tool_type: Force specific tool type (bypass detection)
+        """
+        super().__init__(name=name, phase=phase, priority=priority)
+        self.output_path = output_path
+        self.token_budget = token_budget
+        self.filter = filter
+        self.force_tool_type = force_tool_type
+
+        # Initialize managers
+        self._format_manager = FormatManager()
+        self._llm_detector = LLMToolDetector()
+        self._current_tool_session: Optional[UnifiedLLMSession] = None
+
+    def _detect_tool(self) -> UnifiedLLMSession:
+        """
+        Detect active LLM tool.
+
+        Returns:
+            UnifiedLLMSession with detected tool information
+        """
+        if self.force_tool_type:
+            # Forced tool type
+            return UnifiedLLMSession(
+                tool_type=self.force_tool_type,
+                is_active=True,
+                detection_method="forced_override",
+            )
+
+        # Auto-detect tool
+        return self._llm_detector.detect()
+
+    def _get_tool_name_for_formatter(self, tool_type: LLMToolType) -> str:
+        """
+        Map LLMToolType to FormatManager tool name.
+
+        Args:
+            tool_type: Detected tool type
+
+        Returns:
+            Tool name for FormatManager ("claude", "codex", "gemini")
+        """
+        tool_mapping = {
+            LLMToolType.CLAUDE_CODE: "claude",
+            LLMToolType.GITHUB_COPILOT: "codex",
+            LLMToolType.CODEX_API: "codex",
+            LLMToolType.GOOGLE_GEMINI: "gemini",
+            LLMToolType.CURSOR: "codex",  # Cursor uses Codex-style formatting
+            LLMToolType.JETBRAINS_AI: "codex",  # JetBrains AI uses Codex-style
+            LLMToolType.TABNINE: "codex",  # Tabnine uses Codex-style
+            LLMToolType.UNKNOWN: "claude",  # Default to Claude formatting
+        }
+
+        return tool_mapping.get(tool_type, "claude")
+
+    async def execute(self, context: TriggerContext) -> TriggerResult:
+        """
+        Execute tool-aware trigger with automatic tool detection.
+
+        Args:
+            context: Trigger execution context
+
+        Returns:
+            TriggerResult with tool-specific metadata
+        """
+        import time
+
+        start_time = time.time()
+
+        try:
+            # Detect active tool
+            tool_session = self._detect_tool()
+            self._current_tool_session = tool_session
+
+            if not tool_session.is_active:
+                logger.info(f"No active LLM tool detected for trigger '{self.name}'")
+                execution_time = (time.time() - start_time) * 1000
+                return TriggerResult(
+                    success=True,
+                    phase=self.phase,
+                    trigger_name=self.name,
+                    execution_time_ms=execution_time,
+                    metadata={
+                        "tool_detected": False,
+                        "skipped": True,
+                        "reason": "no_active_tool",
+                    },
+                )
+
+            logger.info(
+                f"Tool-aware trigger '{self.name}' detected {tool_session.tool_type.value} "
+                f"via {tool_session.detection_method}"
+            )
+
+            # Get rules from memory manager
+            rules = await context.memory_manager.get_rules()
+
+            if self.filter:
+                rules = self.filter.apply(rules)
+
+            # Get formatter for detected tool
+            tool_name = self._get_tool_name_for_formatter(tool_session.tool_type)
+
+            # Format rules using tool-specific formatter
+            formatted_context = self._format_manager.format_for_tool(
+                tool_name=tool_name,
+                rules=rules,
+                token_budget=self.token_budget,
+                options={},
+            )
+
+            # Determine output path
+            output_path = self.output_path or (
+                context.project_root / ".claude" / "context.md"
+            )
+
+            # Write formatted content
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(formatted_context.formatted_text, encoding="utf-8")
+
+            execution_time = (time.time() - start_time) * 1000
+
+            logger.info(
+                f"Tool-aware trigger '{self.name}' completed for {tool_session.tool_type.value} "
+                f"({formatted_context.token_count:,} tokens)"
+            )
+
+            return TriggerResult(
+                success=True,
+                phase=self.phase,
+                trigger_name=self.name,
+                execution_time_ms=execution_time,
+                metadata={
+                    "tool_type": tool_session.tool_type.value,
+                    "tool_name": tool_name,
+                    "detection_method": tool_session.detection_method,
+                    "formatter_used": tool_name,
+                    "rules_formatted": formatted_context.rules_formatted,
+                    "rules_skipped": formatted_context.rules_skipped,
+                    "token_count": formatted_context.token_count,
+                    "output_path": str(output_path),
+                },
+            )
+
+        except Exception as e:
+            execution_time = (time.time() - start_time) * 1000
+            logger.error(f"Tool-aware trigger '{self.name}' failed: {e}")
+            return TriggerResult(
+                success=False,
+                phase=self.phase,
+                trigger_name=self.name,
+                execution_time_ms=execution_time,
+                error=str(e),
+                metadata={
+                    "tool_type": self._current_tool_session.tool_type.value if self._current_tool_session else "unknown",
+                },
+            )
+
+    def get_current_tool_session(self) -> Optional[UnifiedLLMSession]:
+        """
+        Get the currently detected tool session.
+
+        Returns:
+            UnifiedLLMSession if tool detected, None otherwise
+        """
+        return self._current_tool_session
 
 
 async def refresh_claude_code_context(
