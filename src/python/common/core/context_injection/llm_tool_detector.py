@@ -7,12 +7,13 @@ consistent session information across all tools. It integrates with the
 FormatManager to select the appropriate formatter for each tool.
 
 Detection Priority:
-1. Claude Code (highest priority - MCP-based tool)
-2. Cursor (has its own AI)
-3. JetBrains AI
-4. GitHub Copilot (VSCode/other IDEs)
-5. Other tools
-6. Unknown (if nothing detected)
+1. Manual Override (if configured)
+2. Claude Code (highest priority - MCP-based tool)
+3. Cursor (has its own AI)
+4. JetBrains AI
+5. GitHub Copilot (VSCode/other IDEs)
+6. Other tools
+7. Unknown (if nothing detected)
 """
 
 from dataclasses import dataclass, field
@@ -77,15 +78,22 @@ class LLMToolDetector:
     is currently active and provides a unified interface for session information.
 
     Detection Priority:
-    1. Claude Code (highest priority - MCP-based tool)
-    2. Cursor (has its own AI)
-    3. JetBrains AI
-    4. GitHub Copilot
-    5. Other tools
-    6. Unknown (if nothing detected)
+    1. Manual Override (if configured)
+    2. Claude Code (highest priority - MCP-based tool)
+    3. Cursor (has its own AI)
+    4. JetBrains AI
+    5. GitHub Copilot
+    6. Other tools
+    7. Unknown (if nothing detected)
 
     The detector integrates with FormatManager to provide the appropriate
     formatter for each detected tool.
+
+    Manual Override:
+    Users can manually override auto-detection using:
+    - Environment variable: LLM_TOOL_OVERRIDE=tool_name
+    - Config file: ~/.wqm/llm_override.json
+    See LLMOverrideManager for configuration details.
     """
 
     _format_manager: Optional[FormatManager] = None
@@ -108,15 +116,55 @@ class LLMToolDetector:
         Detect which LLM tool is currently active.
 
         Uses multiple detection methods in priority order:
-        1. Claude Code (highest priority)
-        2. Cursor
-        3. JetBrains AI
-        4. GitHub Copilot
-        5. Other tools
+        1. Manual Override (if configured)
+        2. Claude Code (highest priority)
+        3. Cursor
+        4. JetBrains AI
+        5. GitHub Copilot
+        6. Other tools
 
         Returns:
             UnifiedLLMSession with detection results and metadata
+
+        Note:
+            This method now uses detect_with_override() to check for
+            manual overrides before performing auto-detection.
         """
+        return cls.detect_with_override()
+
+    @classmethod
+    def detect_with_override(cls) -> UnifiedLLMSession:
+        """
+        Detect which LLM tool is currently active, with override support.
+
+        Checks for manual override configuration before performing auto-detection.
+        Override priority:
+        1. Environment variable (LLM_TOOL_OVERRIDE)
+        2. Config file (~/.wqm/llm_override.json)
+        3. Auto-detection
+
+        Returns:
+            UnifiedLLMSession with detection results and metadata.
+            If override is active, metadata includes override information.
+
+        Example:
+            >>> from context_injection import LLMToolDetector
+            >>> session = LLMToolDetector.detect_with_override()
+            >>> if "override_active" in session.metadata:
+            ...     print(f"Using override: {session.metadata['override_reason']}")
+        """
+        # Import here to avoid circular dependency
+        from .llm_override_config import LLMOverrideManager
+
+        # Priority 0: Check for manual override
+        override_config = LLMOverrideManager.get_override()
+        if override_config and override_config.enabled and override_config.tool_type:
+            logger.info(
+                f"Using manual LLM tool override: {override_config.tool_type.value} "
+                f"(reason: {override_config.reason or 'not specified'})"
+            )
+            return cls._create_unified_from_override(override_config)
+
         # Priority 1: Check for Claude Code session (highest priority)
         claude_session = ClaudeCodeDetector.detect(enrich_metadata=True)
         if claude_session.is_active:
@@ -209,6 +257,59 @@ class LLMToolDetector:
             )
 
         return adapter
+
+    @classmethod
+    def _create_unified_from_override(
+        cls, override_config
+    ) -> UnifiedLLMSession:
+        """
+        Create UnifiedLLMSession from manual override configuration.
+
+        Args:
+            override_config: LLMOverrideConfig instance
+
+        Returns:
+            UnifiedLLMSession with override information
+        """
+        # Get capabilities from formatter
+        capabilities = None
+        format_manager = cls._get_format_manager()
+
+        # Map tool type to adapter name
+        adapter_mapping = {
+            LLMToolType.CLAUDE_CODE: "claude",
+            LLMToolType.GITHUB_COPILOT: "codex",
+            LLMToolType.CURSOR: "codex",
+            LLMToolType.JETBRAINS_AI: "codex",
+            LLMToolType.CODEX_API: "codex",
+            LLMToolType.GOOGLE_GEMINI: "gemini",
+            LLMToolType.TABNINE: "codex",
+        }
+
+        adapter_name = adapter_mapping.get(override_config.tool_type)
+        if adapter_name:
+            adapter = format_manager.get_adapter(adapter_name)
+            if adapter:
+                capabilities = adapter.get_capabilities()
+
+        # Build metadata
+        metadata = {
+            "override_active": True,
+            "override_reason": override_config.reason,
+            "override_set_at": override_config.set_at,
+            "override_set_by": override_config.set_by,
+        }
+
+        return UnifiedLLMSession(
+            tool_type=override_config.tool_type,
+            is_active=True,
+            detection_method="manual_override",
+            session_id=None,
+            ide_name=None,
+            workspace_path=None,
+            capabilities=capabilities,
+            metadata=metadata,
+        )
 
     @classmethod
     def _create_unified_from_claude(

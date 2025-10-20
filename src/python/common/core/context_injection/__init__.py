@@ -31,6 +31,13 @@ from .llm_tool_detector import (
     is_llm_tool_active,
     get_llm_formatter,
 )
+from .llm_override_config import (
+    LLMOverrideConfig,
+    LLMOverrideManager,
+    set_llm_override_cli,
+    clear_llm_override_cli,
+    show_llm_override_cli,
+)
 from .comment_injector import (
     CommentInjector,
     PlacementStrategy,
@@ -240,6 +247,12 @@ __all__ = [
     "get_active_llm_tool",
     "is_llm_tool_active",
     "get_llm_formatter",
+    # LLM Override Configuration
+    "LLMOverrideConfig",
+    "LLMOverrideManager",
+    "set_llm_override_cli",
+    "clear_llm_override_cli",
+    "show_llm_override_cli",
     # Code Comment Injection
     "CommentInjector",
     "PlacementStrategy",
