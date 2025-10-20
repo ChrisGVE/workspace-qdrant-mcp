@@ -530,6 +530,12 @@ class ResourceManager:
         self._gc_interval = 600.0  # Run gc.collect() every 10 minutes
         self._gc_task: Optional[asyncio.Task] = None
 
+        # System memory pressure monitoring
+        self._memory_pressure_warning_threshold = 0.75  # 75% system memory usage
+        self._memory_pressure_critical_threshold = 0.85  # 85% system memory usage
+        self._last_pressure_check: Optional[datetime] = None
+        self._last_pressure_level: str = "normal"  # normal, warning, critical
+
         # Registry file for persistence
         temp_dir = Path(tempfile.gettempdir())
         self.registry_file = temp_dir / "wqm_resource_registry.json"
@@ -665,15 +671,21 @@ class ResourceManager:
             logger.error(f"Error in memory leak detection loop: {e}")
 
     async def _periodic_gc_loop(self) -> None:
-        """Run periodic garbage collection."""
+        """Run periodic garbage collection and memory pressure monitoring."""
         try:
             while self._leak_detection_running:
                 await asyncio.sleep(self._gc_interval)
 
-                # Run garbage collection
-                import gc
-                collected = gc.collect()
-                logger.debug(f"Periodic garbage collection freed {collected} objects")
+                # Check system memory pressure
+                pressure_level, memory_percent = self.get_system_memory_pressure()
+
+                if pressure_level != "normal":
+                    # Handle memory pressure (triggers GC internally)
+                    await self.handle_memory_pressure(pressure_level, memory_percent)
+                else:
+                    # Normal periodic garbage collection
+                    collected = gc.collect()
+                    logger.debug(f"Periodic garbage collection freed {collected} objects")
 
         except asyncio.CancelledError:
             logger.debug("Periodic GC loop cancelled")
@@ -750,6 +762,96 @@ class ResourceManager:
                     del self.shared_pool._usage_counts[f"model_{model_name}"]
                 except Exception as e:
                     logger.warning(f"Error cleaning up idle model {model_name}: {e}")
+
+    def get_system_memory_pressure(self) -> tuple[str, float]:
+        """
+        Get current system memory pressure level.
+
+        Returns:
+            Tuple of (pressure_level, memory_percent) where pressure_level is one of:
+            - "normal": Memory usage below warning threshold
+            - "warning": Memory usage above warning threshold
+            - "critical": Memory usage above critical threshold
+        """
+        try:
+            # Get system memory statistics
+            memory = psutil.virtual_memory()
+            memory_percent = memory.percent / 100.0  # Convert to 0-1 range
+
+            # Determine pressure level
+            if memory_percent >= self._memory_pressure_critical_threshold:
+                pressure_level = "critical"
+            elif memory_percent >= self._memory_pressure_warning_threshold:
+                pressure_level = "warning"
+            else:
+                pressure_level = "normal"
+
+            self._last_pressure_check = datetime.now()
+            self._last_pressure_level = pressure_level
+
+            return pressure_level, memory_percent
+
+        except Exception as e:
+            logger.error(f"Error getting system memory pressure: {e}")
+            return "unknown", 0.0
+
+    async def handle_memory_pressure(self, pressure_level: str, memory_percent: float) -> None:
+        """
+        Handle system memory pressure by triggering appropriate cleanup actions.
+
+        Args:
+            pressure_level: One of "normal", "warning", "critical"
+            memory_percent: Current system memory usage (0-1 range)
+        """
+        if pressure_level == "normal":
+            return  # No action needed
+
+        logger.warning(
+            f"System memory pressure: {pressure_level} "
+            f"({memory_percent * 100:.1f}% of system memory in use)"
+        )
+
+        # Generate alert
+        alert = ResourceAlert(
+            timestamp=datetime.now(),
+            project_id="system",
+            alert_type="critical" if pressure_level == "critical" else "warning",
+            resource_type="system_memory_pressure",
+            current_value=memory_percent * 100,
+            threshold_value=(
+                self._memory_pressure_critical_threshold * 100
+                if pressure_level == "critical"
+                else self._memory_pressure_warning_threshold * 100
+            ),
+            message=f"System memory pressure {pressure_level}: {memory_percent * 100:.1f}%"
+        )
+        self._handle_alert(alert)
+
+        # Execute cleanup based on pressure level
+        if pressure_level == "warning":
+            # Moderate cleanup: single GC pass + idle resource cleanup
+            logger.info("Executing moderate cleanup for memory pressure warning")
+            gc.collect()
+            await self._cleanup_idle_shared_resources()
+
+        elif pressure_level == "critical":
+            # Aggressive cleanup: triple GC + idle resources + all project limits
+            logger.warning("Executing aggressive cleanup for critical memory pressure")
+
+            # Run garbage collection multiple times
+            for i in range(3):
+                collected = gc.collect()
+                logger.info(f"GC pass {i + 1}/3: freed {collected} objects")
+
+            # Cleanup idle shared resources
+            await self._cleanup_idle_shared_resources()
+
+            # Enforce limits for all projects
+            for project_id in list(self.monitors.keys()):
+                try:
+                    await self.enforce_limits(project_id)
+                except Exception as e:
+                    logger.error(f"Error enforcing limits for {project_id}: {e}")
     
     async def get_project_usage(self, project_id: str) -> Optional[ResourceUsage]:
         """Get current resource usage for a project."""
@@ -910,18 +1012,45 @@ class ResourceManager:
         except Exception as e:
             logger.warning(f"Failed to save resource registry: {e}")
     
+    async def check_and_handle_memory_pressure(self) -> Dict[str, Any]:
+        """
+        Check system memory pressure and handle if needed.
+
+        Returns:
+            Dictionary with pressure information:
+            - pressure_level: "normal", "warning", "critical"
+            - memory_percent: Current system memory usage (0-100)
+            - action_taken: Whether cleanup was triggered
+        """
+        pressure_level, memory_percent = self.get_system_memory_pressure()
+
+        action_taken = False
+        if pressure_level != "normal":
+            await self.handle_memory_pressure(pressure_level, memory_percent)
+            action_taken = True
+
+        return {
+            "pressure_level": pressure_level,
+            "memory_percent": memory_percent * 100,
+            "action_taken": action_taken,
+            "timestamp": datetime.now().isoformat()
+        }
+
     async def get_system_status(self) -> Dict[str, Any]:
         """Get comprehensive system status with performance monitoring integration."""
         all_usage = await self.get_all_usage()
-        
+
         total_memory = sum(usage.memory_mb for usage in all_usage.values())
         total_cpu = sum(usage.cpu_percent for usage in all_usage.values())
-        
+
         recent_alerts = [
-            alert for alert in self.alert_history 
+            alert for alert in self.alert_history
             if alert.timestamp > datetime.now() - timedelta(hours=1)
         ]
-        
+
+        # Get system memory pressure
+        pressure_level, memory_percent = self.get_system_memory_pressure()
+
         # Get performance monitoring data
         performance_data = {}
         try:
@@ -930,7 +1059,7 @@ class ResourceManager:
         except Exception as e:
             logger.debug(f"Performance monitoring not available: {e}")
             performance_data = {}
-        
+
         return {
             "total_projects": len(self.monitors),
             "total_memory_mb": total_memory,
@@ -939,6 +1068,13 @@ class ResourceManager:
             "global_cpu_limit_percent": self._global_cpu_limit_percent,
             "memory_utilization": (total_memory / self._global_memory_limit_mb) * 100,
             "cpu_utilization": (total_cpu / self._global_cpu_limit_percent) * 100,
+            "system_memory_pressure": {
+                "level": pressure_level,
+                "percent": memory_percent * 100,
+                "warning_threshold": self._memory_pressure_warning_threshold * 100,
+                "critical_threshold": self._memory_pressure_critical_threshold * 100,
+                "last_check": self._last_pressure_check.isoformat() if self._last_pressure_check else None
+            },
             "active_alerts": len(recent_alerts),
             "project_usage": {
                 project_id: asdict(usage) for project_id, usage in all_usage.items()
