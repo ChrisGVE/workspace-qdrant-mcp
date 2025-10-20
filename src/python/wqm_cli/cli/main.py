@@ -20,6 +20,8 @@ Usage:
     wqm errors stats             # Error statistics
     wqm branch list --project ID # List branches in project
     wqm migrate detect           # Detect old collections
+    wqm backup create /path      # Create system backup
+    wqm backup info /path        # Show backup information
 """
 
 import os
@@ -86,6 +88,7 @@ import typer
 from common.logging.loguru_config import setup_logging
 from loguru import logger
 from .commands.admin import admin_app
+from .commands.backup import backup_app
 from .commands.collection_types import collection_types_app
 from .commands.ingest import ingest_app
 from .commands.init import init_app
@@ -131,6 +134,7 @@ app.add_typer(
     memory_app, name="memory", help="Memory rules and LLM behavior management"
 )
 app.add_typer(admin_app, name="admin", help="System administration and configuration")
+app.add_typer(backup_app, name="backup", help="Backup and restore operations with version validation")
 app.add_typer(ingest_app, name="ingest", help="Manual document processing")
 app.add_typer(search_app, name="search", help="Command-line search interface")
 app.add_typer(library_app, name="library", help="Library collection management")
