@@ -120,8 +120,22 @@ def pytest_runtest_setup(item):
 
     # Skip tests requiring Rust daemon if not available
     if item.get_closest_marker("requires_rust"):
-        # TODO: Check if Rust daemon is available when implemented
-        pytest.skip("Rust daemon not yet implemented")
+        # Check if daemon service is available
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["uv", "run", "wqm", "service", "status"],
+                capture_output=True,
+                timeout=10
+            )
+            # If service status command works, daemon is available
+            # (Even if daemon is not running, the service management exists)
+            if result.returncode not in [0, 1, 3]:
+                # Error codes 0, 1, 3 typically mean service management works
+                # Other codes suggest service management not available
+                pytest.skip("Daemon service not available")
+        except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
+            pytest.skip("Daemon service not available")
 
 
 @pytest.fixture(scope="session", autouse=True)
