@@ -13,19 +13,23 @@ Features:
 - Performance degradation tracking
 - Resource constraint enforcement
 - Stability checkpoint validation
+- 24+ hour stability testing with checkpoint/resume
+- Memory leak detection and resource monitoring
 """
 
 import asyncio
 import logging
 import time
 import signal
+import psutil
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Any
-from collections import defaultdict
+from typing import Dict, List, Optional, Any, Tuple
+from collections import defaultdict, deque
 import sqlite3
 import json
+import statistics
 
 from .orchestration import (
     TestOrchestrator,
@@ -92,6 +96,23 @@ class StressTestConfig(OrchestrationConfig):
 
 
 @dataclass
+class StabilityTestConfig:
+    """Configuration for 24+ hour stability testing."""
+    duration_hours: float = 24.0
+    checkpoint_interval_minutes: int = 30
+    resource_monitoring_interval_seconds: int = 60
+    memory_leak_detection_enabled: bool = True
+    performance_thresholds: Dict[str, float] = field(default_factory=lambda: {
+        "p50_ms": 100.0,
+        "p95_ms": 500.0,
+        "p99_ms": 1000.0,
+        "error_rate_percent": 1.0
+    })
+    auto_stop_on_degradation: bool = False
+    memory_leak_threshold_mb_per_hour: float = 5.0
+
+
+@dataclass
 class ComponentStressConfig:
     """Stress testing configuration for a system component."""
     component_name: str
@@ -102,6 +123,53 @@ class ComponentStressConfig:
     failure_modes: List[str] = field(default_factory=lambda: ["crash"])
     health_check_endpoint: Optional[str] = None
     recovery_timeout_seconds: float = 30.0
+
+
+@dataclass
+class ResourceMetrics:
+    """Resource usage metrics at a point in time."""
+    timestamp: float
+    cpu_percent: float
+    memory_rss_mb: float
+    memory_vms_mb: float
+    memory_available_mb: float
+    disk_read_mb: float
+    disk_write_mb: float
+    net_sent_mb: float
+    net_recv_mb: float
+    open_fds: int
+    component_name: Optional[str] = None
+
+
+@dataclass
+class MemoryLeakReport:
+    """Memory leak detection report."""
+    detected: bool
+    growth_rate_mb_per_hour: float
+    confidence: float  # 0-1
+    affected_component: Optional[str]
+    samples_analyzed: int
+    start_memory_mb: float
+    end_memory_mb: float
+    duration_hours: float
+
+
+@dataclass
+class StabilityTestReport:
+    """Comprehensive stability test report."""
+    run_id: str
+    duration_hours: float
+    stability_score: float  # 0-100
+    uptime_percentage: float
+    total_errors: int
+    error_rate_per_hour: float
+    memory_leak_detected: bool
+    memory_growth_rate_mb_per_hour: float
+    performance_degradation_percent: float
+    recovery_incidents: List[Dict[str, Any]]
+    resource_usage_summary: Dict[str, Dict[str, float]]  # metric -> {avg, min, max, p95}
+    checkpoints_completed: int
+    test_stopped_reason: Optional[str] = None
 
 
 @dataclass
@@ -126,6 +194,909 @@ class StressTestResult(OrchestrationResult):
         if not self.recovery_times:
             return 0.0
         return max(self.recovery_times.values())
+
+
+class ResourceMonitor:
+    """
+    Continuous resource monitoring for stability testing.
+
+    Tracks CPU, memory, disk I/O, network I/O, and file descriptors
+    over time using psutil for system metrics.
+    """
+
+    def __init__(self, component_name: Optional[str] = None):
+        """Initialize resource monitor.
+
+        Args:
+            component_name: Optional component name for tagging metrics
+        """
+        self.component_name = component_name
+        self.metrics_history: List[ResourceMetrics] = []
+        self._monitoring_task: Optional[asyncio.Task] = None
+        self._stop_event = asyncio.Event()
+        self.logger = logging.getLogger(__name__)
+
+        # Track initial resource values for delta calculations
+        self._initial_disk_io: Optional[Tuple[int, int]] = None
+        self._initial_net_io: Optional[Tuple[int, int]] = None
+
+    async def start_monitoring(self, interval_seconds: int = 60) -> None:
+        """Start continuous resource monitoring.
+
+        Args:
+            interval_seconds: Interval between measurements
+        """
+        self._stop_event.clear()
+        self._monitoring_task = asyncio.create_task(
+            self._monitor_loop(interval_seconds)
+        )
+        self.logger.info(f"Started resource monitoring (interval={interval_seconds}s)")
+
+    async def stop_monitoring(self) -> None:
+        """Stop resource monitoring."""
+        self._stop_event.set()
+        if self._monitoring_task:
+            await self._monitoring_task
+            self._monitoring_task = None
+        self.logger.info("Stopped resource monitoring")
+
+    async def _monitor_loop(self, interval_seconds: int) -> None:
+        """Main monitoring loop.
+
+        Args:
+            interval_seconds: Interval between measurements
+        """
+        while not self._stop_event.is_set():
+            try:
+                metrics = self._capture_metrics()
+                self.metrics_history.append(metrics)
+            except Exception as e:
+                self.logger.error(f"Error capturing metrics: {e}")
+
+            try:
+                await asyncio.wait_for(
+                    self._stop_event.wait(),
+                    timeout=interval_seconds
+                )
+                break  # Stop event was set
+            except asyncio.TimeoutError:
+                pass  # Continue monitoring
+
+    def _capture_metrics(self) -> ResourceMetrics:
+        """Capture current resource metrics.
+
+        Returns:
+            ResourceMetrics snapshot
+        """
+        # Get process or system metrics
+        process = psutil.Process()
+
+        # CPU and memory
+        cpu_percent = process.cpu_percent(interval=0.1)
+        mem_info = process.memory_info()
+        virtual_mem = psutil.virtual_memory()
+
+        # Disk I/O
+        disk_io = psutil.disk_io_counters()
+        if self._initial_disk_io is None:
+            self._initial_disk_io = (disk_io.read_bytes, disk_io.write_bytes)
+        disk_read_mb = (disk_io.read_bytes - self._initial_disk_io[0]) / (1024 * 1024)
+        disk_write_mb = (disk_io.write_bytes - self._initial_disk_io[1]) / (1024 * 1024)
+
+        # Network I/O
+        net_io = psutil.net_io_counters()
+        if self._initial_net_io is None:
+            self._initial_net_io = (net_io.bytes_sent, net_io.bytes_recv)
+        net_sent_mb = (net_io.bytes_sent - self._initial_net_io[0]) / (1024 * 1024)
+        net_recv_mb = (net_io.bytes_recv - self._initial_net_io[1]) / (1024 * 1024)
+
+        # Open file descriptors
+        try:
+            open_fds = process.num_fds() if hasattr(process, 'num_fds') else len(process.open_files())
+        except (psutil.AccessDenied, AttributeError):
+            open_fds = 0
+
+        return ResourceMetrics(
+            timestamp=time.time(),
+            cpu_percent=cpu_percent,
+            memory_rss_mb=mem_info.rss / (1024 * 1024),
+            memory_vms_mb=mem_info.vms / (1024 * 1024),
+            memory_available_mb=virtual_mem.available / (1024 * 1024),
+            disk_read_mb=disk_read_mb,
+            disk_write_mb=disk_write_mb,
+            net_sent_mb=net_sent_mb,
+            net_recv_mb=net_recv_mb,
+            open_fds=open_fds,
+            component_name=self.component_name
+        )
+
+    def get_metrics(self) -> List[ResourceMetrics]:
+        """Get all collected metrics.
+
+        Returns:
+            List of resource metrics
+        """
+        return self.metrics_history.copy()
+
+    def detect_memory_leak(
+        self,
+        threshold_mb_per_hour: float = 5.0
+    ) -> Optional[MemoryLeakReport]:
+        """Detect memory leaks from collected metrics.
+
+        Args:
+            threshold_mb_per_hour: Growth rate threshold for leak detection
+
+        Returns:
+            MemoryLeakReport if leak detected, None otherwise
+        """
+
+        detector = MemoryLeakDetector()
+        return detector.analyze_memory_trend(
+            self.metrics_history,
+            threshold_mb_per_hour,
+            self.component_name
+        )
+
+
+class MemoryLeakDetector:
+    """
+    Analyzes resource trends to detect memory leaks.
+
+    Uses linear regression to identify sustained memory growth
+    over time and determine if it exceeds acceptable thresholds.
+    """
+
+    def __init__(self):
+        """Initialize memory leak detector."""
+        self.logger = logging.getLogger(__name__)
+
+    def analyze_memory_trend(
+        self,
+        metrics: List[ResourceMetrics],
+        threshold_mb_per_hour: float,
+        component_name: Optional[str] = None
+    ) -> MemoryLeakReport:
+        """Analyze memory usage trend to detect leaks.
+
+        Args:
+            metrics: List of resource metrics over time
+            threshold_mb_per_hour: Growth rate threshold
+            component_name: Component being analyzed
+
+        Returns:
+            MemoryLeakReport with detection results
+        """
+        if len(metrics) < 2:
+            return MemoryLeakReport(
+                detected=False,
+                growth_rate_mb_per_hour=0.0,
+                confidence=0.0,
+                affected_component=component_name,
+                samples_analyzed=len(metrics),
+                start_memory_mb=0.0,
+                end_memory_mb=0.0,
+                duration_hours=0.0
+            )
+
+        # Extract memory values and timestamps
+        memory_values = [m.memory_rss_mb for m in metrics]
+        timestamps = [m.timestamp for m in metrics]
+
+        # Calculate growth rate
+        growth_rate = self.calculate_growth_rate(memory_values, timestamps)
+
+        # Determine if leak detected
+        detected = self.is_leak_detected(growth_rate, threshold_mb_per_hour)
+
+        # Calculate confidence based on data quality
+        confidence = self._calculate_confidence(memory_values, growth_rate)
+
+        # Duration
+        duration_hours = (timestamps[-1] - timestamps[0]) / 3600.0
+
+        return MemoryLeakReport(
+            detected=detected,
+            growth_rate_mb_per_hour=growth_rate,
+            confidence=confidence,
+            affected_component=component_name,
+            samples_analyzed=len(metrics),
+            start_memory_mb=memory_values[0],
+            end_memory_mb=memory_values[-1],
+            duration_hours=duration_hours
+        )
+
+    def calculate_growth_rate(
+        self,
+        values: List[float],
+        timestamps: List[float]
+    ) -> float:
+        """Calculate memory growth rate using linear regression.
+
+        Args:
+            values: Memory values in MB
+            timestamps: Unix timestamps
+
+        Returns:
+            Growth rate in MB/hour
+        """
+        if len(values) < 2:
+            return 0.0
+
+        # Convert timestamps to hours from start
+        hours = [(t - timestamps[0]) / 3600.0 for t in timestamps]
+
+        # Simple linear regression
+        n = len(values)
+        sum_x = sum(hours)
+        sum_y = sum(values)
+        sum_xy = sum(x * y for x, y in zip(hours, values))
+        sum_x2 = sum(x * x for x in hours)
+
+        # Calculate slope (growth rate per hour)
+        denominator = n * sum_x2 - sum_x * sum_x
+        if abs(denominator) < 1e-10:
+            return 0.0
+
+        slope = (n * sum_xy - sum_x * sum_y) / denominator
+
+        return slope
+
+    def is_leak_detected(
+        self,
+        growth_rate: float,
+        threshold: float
+    ) -> bool:
+        """Determine if growth rate indicates a leak.
+
+        Args:
+            growth_rate: Memory growth rate in MB/hour
+            threshold: Threshold for leak detection
+
+        Returns:
+            True if leak detected
+        """
+        return growth_rate > threshold
+
+    def _calculate_confidence(
+        self,
+        values: List[float],
+        growth_rate: float
+    ) -> float:
+        """Calculate confidence in leak detection.
+
+        Args:
+            values: Memory values
+            growth_rate: Calculated growth rate
+
+        Returns:
+            Confidence score 0-1
+        """
+        if len(values) < 10:
+            # Low confidence with few samples
+            return min(len(values) / 10.0, 0.5)
+
+        # Calculate coefficient of variation
+        if len(values) >= 2:
+            mean = statistics.mean(values)
+            if mean > 0:
+                stdev = statistics.stdev(values)
+                cv = stdev / mean
+                # Lower CV = higher confidence (less noise)
+                confidence = max(0.0, min(1.0, 1.0 - cv))
+            else:
+                confidence = 0.5
+        else:
+            confidence = 0.5
+
+        return confidence
+
+
+class StabilityMetricsCollector:
+    """
+    Collects and aggregates stability-specific metrics.
+
+    Tracks uptime, error rates, response times, and resource trends
+    to calculate an overall stability score for long-running tests.
+    """
+
+    def __init__(self, database_path: Path):
+        """Initialize stability metrics collector.
+
+        Args:
+            database_path: Path to SQLite database
+        """
+        self.database_path = database_path
+        self.logger = logging.getLogger(__name__)
+
+    def record_checkpoint(
+        self,
+        run_id: str,
+        elapsed_hours: float,
+        metrics: Dict[str, Any]
+    ) -> None:
+        """Record stability checkpoint.
+
+        Args:
+            run_id: Stability run ID
+            elapsed_hours: Hours elapsed since start
+            metrics: Checkpoint metrics dictionary
+        """
+        with sqlite3.connect(self.database_path) as conn:
+            conn.execute("""
+                INSERT INTO stability_checkpoints
+                (run_id, elapsed_hours, checkpoint_time, metrics_json)
+                VALUES (?, ?, ?, ?)
+            """, (
+                run_id,
+                elapsed_hours,
+                time.time(),
+                json.dumps(metrics)
+            ))
+
+    def get_stability_score(self, run_id: str) -> float:
+        """Calculate stability score for a run.
+
+        Args:
+            run_id: Stability run ID
+
+        Returns:
+            Stability score 0-100
+        """
+        with sqlite3.connect(self.database_path) as conn:
+            # Get run info
+            run_row = conn.execute("""
+                SELECT duration_hours, total_errors, uptime_percentage,
+                       performance_degradation_percent, memory_leak_detected
+                FROM stability_runs
+                WHERE run_id = ?
+            """, (run_id,)).fetchone()
+
+            if not run_row:
+                return 0.0
+
+            duration, errors, uptime, degradation, leak = run_row
+
+            # Calculate weighted score
+            # Uptime: 40%
+            uptime_score = uptime * 0.4
+
+            # Error rate: 30% (fewer errors = higher score)
+            error_rate = errors / max(duration, 1.0)
+            error_score = max(0, (1.0 - min(error_rate / 10.0, 1.0)) * 30.0)
+
+            # Performance: 20% (less degradation = higher score)
+            perf_score = max(0, (1.0 - min(degradation / 100.0, 1.0)) * 20.0)
+
+            # Memory: 10% (no leak = full score)
+            memory_score = 0.0 if leak else 10.0
+
+            return uptime_score + error_score + perf_score + memory_score
+
+    def generate_stability_report(
+        self,
+        run_id: str,
+        resource_metrics: List[ResourceMetrics],
+        recovery_incidents: List[Dict[str, Any]]
+    ) -> StabilityTestReport:
+        """Generate comprehensive stability report.
+
+        Args:
+            run_id: Stability run ID
+            resource_metrics: Collected resource metrics
+            recovery_incidents: Recovery incident records
+
+        Returns:
+            StabilityTestReport
+        """
+        with sqlite3.connect(self.database_path) as conn:
+            # Get run data
+            run_row = conn.execute("""
+                SELECT duration_hours, total_errors, uptime_percentage,
+                       performance_degradation_percent, memory_leak_detected,
+                       memory_growth_rate, checkpoints_completed, stopped_reason
+                FROM stability_runs
+                WHERE run_id = ?
+            """, (run_id,)).fetchone()
+
+            if not run_row:
+                raise ValueError(f"Run {run_id} not found")
+
+            (duration, total_errors, uptime, degradation, leak,
+             growth_rate, checkpoints, stop_reason) = run_row
+
+            # Calculate resource usage summary
+            resource_summary = self._summarize_resources(resource_metrics)
+
+            # Calculate error rate
+            error_rate = total_errors / max(duration, 1.0)
+
+            # Get stability score
+            stability_score = self.get_stability_score(run_id)
+
+            return StabilityTestReport(
+                run_id=run_id,
+                duration_hours=duration,
+                stability_score=stability_score,
+                uptime_percentage=uptime,
+                total_errors=total_errors,
+                error_rate_per_hour=error_rate,
+                memory_leak_detected=bool(leak),
+                memory_growth_rate_mb_per_hour=growth_rate,
+                performance_degradation_percent=degradation,
+                recovery_incidents=recovery_incidents,
+                resource_usage_summary=resource_summary,
+                checkpoints_completed=checkpoints,
+                test_stopped_reason=stop_reason
+            )
+
+    def _summarize_resources(
+        self,
+        metrics: List[ResourceMetrics]
+    ) -> Dict[str, Dict[str, float]]:
+        """Summarize resource usage statistics.
+
+        Args:
+            metrics: List of resource metrics
+
+        Returns:
+            Summary dictionary with avg, min, max, p95 for each metric
+        """
+        if not metrics:
+            return {}
+
+        summary = {}
+
+        # Metrics to summarize
+        metric_fields = [
+            ('cpu_percent', 'cpu_percent'),
+            ('memory_rss_mb', 'memory_rss_mb'),
+            ('disk_read_mb', 'disk_read_mb'),
+            ('disk_write_mb', 'disk_write_mb'),
+            ('net_sent_mb', 'net_sent_mb'),
+            ('net_recv_mb', 'net_recv_mb'),
+            ('open_fds', 'open_fds')
+        ]
+
+        for name, field in metric_fields:
+            values = [getattr(m, field) for m in metrics]
+            if values:
+                summary[name] = {
+                    'avg': statistics.mean(values),
+                    'min': min(values),
+                    'max': max(values),
+                    'p95': self._percentile(values, 95)
+                }
+
+        return summary
+
+    @staticmethod
+    def _percentile(values: List[float], p: int) -> float:
+        """Calculate percentile value.
+
+        Args:
+            values: List of values
+            p: Percentile (0-100)
+
+        Returns:
+            Percentile value
+        """
+        if not values:
+            return 0.0
+        sorted_values = sorted(values)
+        idx = int(len(sorted_values) * p / 100.0)
+        return sorted_values[min(idx, len(sorted_values) - 1)]
+
+
+class StabilityTestManager:
+    """
+    Manages 24+ hour stability test runs with checkpointing.
+
+    Handles test lifecycle, checkpoint/resume functionality,
+    state persistence, and graceful shutdown/recovery.
+    """
+
+    def __init__(self, database_path: Path):
+        """Initialize stability test manager.
+
+        Args:
+            database_path: Path to SQLite database
+        """
+        self.database_path = database_path
+        self.active_runs: Dict[str, Dict[str, Any]] = {}
+        self.resource_monitors: Dict[str, ResourceMonitor] = {}
+        self.logger = logging.getLogger(__name__)
+        self.metrics_collector = StabilityMetricsCollector(database_path)
+
+        # Initialize database tables
+        self._init_stability_database()
+
+    def _init_stability_database(self):
+        """Initialize stability testing database tables."""
+        with sqlite3.connect(self.database_path) as conn:
+            # Stability runs
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS stability_runs (
+                    run_id TEXT PRIMARY KEY,
+                    config_json TEXT NOT NULL,
+                    start_time REAL NOT NULL,
+                    end_time REAL,
+                    status TEXT NOT NULL,
+                    duration_hours REAL,
+                    total_errors INTEGER DEFAULT 0,
+                    uptime_percentage REAL DEFAULT 100.0,
+                    performance_degradation_percent REAL DEFAULT 0.0,
+                    memory_leak_detected INTEGER DEFAULT 0,
+                    memory_growth_rate REAL DEFAULT 0.0,
+                    checkpoints_completed INTEGER DEFAULT 0,
+                    stopped_reason TEXT
+                )
+            """)
+
+            # Stability checkpoints
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS stability_checkpoints (
+                    checkpoint_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    elapsed_hours REAL NOT NULL,
+                    checkpoint_time REAL NOT NULL,
+                    metrics_json TEXT NOT NULL,
+                    FOREIGN KEY (run_id) REFERENCES stability_runs (run_id)
+                )
+            """)
+
+            # Resource samples
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS resource_samples (
+                    sample_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    timestamp REAL NOT NULL,
+                    component_name TEXT,
+                    cpu_percent REAL,
+                    memory_rss_mb REAL,
+                    memory_vms_mb REAL,
+                    memory_available_mb REAL,
+                    disk_read_mb REAL,
+                    disk_write_mb REAL,
+                    net_sent_mb REAL,
+                    net_recv_mb REAL,
+                    open_fds INTEGER,
+                    FOREIGN KEY (run_id) REFERENCES stability_runs (run_id)
+                )
+            """)
+
+            # Memory leak reports
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS memory_leak_reports (
+                    report_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    detected INTEGER NOT NULL,
+                    growth_rate_mb_per_hour REAL NOT NULL,
+                    confidence REAL NOT NULL,
+                    affected_component TEXT,
+                    samples_analyzed INTEGER NOT NULL,
+                    start_memory_mb REAL NOT NULL,
+                    end_memory_mb REAL NOT NULL,
+                    duration_hours REAL NOT NULL,
+                    report_time REAL NOT NULL,
+                    FOREIGN KEY (run_id) REFERENCES stability_runs (run_id)
+                )
+            """)
+
+    async def start_stability_run(
+        self,
+        config: StabilityTestConfig
+    ) -> str:
+        """Start a new stability test run.
+
+        Args:
+            config: Stability test configuration
+
+        Returns:
+            Run ID
+        """
+        run_id = f"stability_{int(time.time() * 1000)}"
+
+        # Create run record
+        with sqlite3.connect(self.database_path) as conn:
+            conn.execute("""
+                INSERT INTO stability_runs
+                (run_id, config_json, start_time, status)
+                VALUES (?, ?, ?, ?)
+            """, (
+                run_id,
+                json.dumps({
+                    'duration_hours': config.duration_hours,
+                    'checkpoint_interval_minutes': config.checkpoint_interval_minutes,
+                    'resource_monitoring_interval_seconds': config.resource_monitoring_interval_seconds,
+                    'memory_leak_detection_enabled': config.memory_leak_detection_enabled,
+                    'performance_thresholds': config.performance_thresholds,
+                    'auto_stop_on_degradation': config.auto_stop_on_degradation,
+                    'memory_leak_threshold_mb_per_hour': config.memory_leak_threshold_mb_per_hour
+                }),
+                time.time(),
+                'running'
+            ))
+
+        # Initialize run state
+        self.active_runs[run_id] = {
+            'config': config,
+            'start_time': time.time(),
+            'last_checkpoint': time.time(),
+            'errors': 0,
+            'downtime_seconds': 0.0
+        }
+
+        # Start resource monitoring
+        monitor = ResourceMonitor()
+        self.resource_monitors[run_id] = monitor
+        await monitor.start_monitoring(config.resource_monitoring_interval_seconds)
+
+        self.logger.info(f"Started stability run {run_id}")
+
+        return run_id
+
+    async def checkpoint_run(self, run_id: str) -> None:
+        """Save checkpoint for stability run.
+
+        Args:
+            run_id: Stability run ID
+        """
+        if run_id not in self.active_runs:
+            raise ValueError(f"Run {run_id} not found")
+
+        run_state = self.active_runs[run_id]
+        elapsed_hours = (time.time() - run_state['start_time']) / 3600.0
+
+        # Collect checkpoint metrics
+        monitor = self.resource_monitors.get(run_id)
+        metrics = {
+            'elapsed_hours': elapsed_hours,
+            'errors': run_state['errors'],
+            'downtime_seconds': run_state['downtime_seconds'],
+            'resource_samples': len(monitor.get_metrics()) if monitor else 0
+        }
+
+        # Save checkpoint
+        self.metrics_collector.record_checkpoint(run_id, elapsed_hours, metrics)
+
+        # Update last checkpoint time
+        run_state['last_checkpoint'] = time.time()
+
+        # Update checkpoints counter
+        with sqlite3.connect(self.database_path) as conn:
+            conn.execute("""
+                UPDATE stability_runs
+                SET checkpoints_completed = checkpoints_completed + 1
+                WHERE run_id = ?
+            """, (run_id,))
+
+        # Save resource samples to database
+        if monitor:
+            await self._save_resource_samples(run_id, monitor.get_metrics())
+
+        self.logger.info(f"Checkpointed run {run_id} at {elapsed_hours:.2f} hours")
+
+    async def resume_run(self, run_id: str) -> None:
+        """Resume stability run from last checkpoint.
+
+        Args:
+            run_id: Stability run ID
+        """
+        with sqlite3.connect(self.database_path) as conn:
+            # Get run info
+            run_row = conn.execute("""
+                SELECT config_json, start_time, status
+                FROM stability_runs
+                WHERE run_id = ?
+            """, (run_id,)).fetchone()
+
+            if not run_row:
+                raise ValueError(f"Run {run_id} not found")
+
+            config_json, start_time, status = run_row
+
+            if status == 'completed':
+                raise ValueError(f"Run {run_id} already completed")
+
+            # Load configuration
+            config_dict = json.loads(config_json)
+            config = StabilityTestConfig(**config_dict)
+
+            # Get last checkpoint
+            checkpoint_row = conn.execute("""
+                SELECT elapsed_hours, metrics_json
+                FROM stability_checkpoints
+                WHERE run_id = ?
+                ORDER BY elapsed_hours DESC
+                LIMIT 1
+            """, (run_id,)).fetchone()
+
+            if checkpoint_row:
+                elapsed_hours, metrics_json = checkpoint_row
+                metrics = json.loads(metrics_json)
+            else:
+                elapsed_hours = 0.0
+                metrics = {'errors': 0, 'downtime_seconds': 0.0}
+
+        # Restore run state
+        self.active_runs[run_id] = {
+            'config': config,
+            'start_time': start_time,
+            'last_checkpoint': time.time(),
+            'errors': metrics.get('errors', 0),
+            'downtime_seconds': metrics.get('downtime_seconds', 0.0)
+        }
+
+        # Restart resource monitoring
+        monitor = ResourceMonitor()
+        self.resource_monitors[run_id] = monitor
+        await monitor.start_monitoring(config.resource_monitoring_interval_seconds)
+
+        # Update status
+        with sqlite3.connect(self.database_path) as conn:
+            conn.execute("""
+                UPDATE stability_runs
+                SET status = 'running'
+                WHERE run_id = ?
+            """, (run_id,))
+
+        self.logger.info(f"Resumed run {run_id} from {elapsed_hours:.2f} hours")
+
+    async def stop_run(
+        self,
+        run_id: str,
+        reason: str = "manual_stop"
+    ) -> StabilityTestReport:
+        """Stop stability run and generate report.
+
+        Args:
+            run_id: Stability run ID
+            reason: Reason for stopping
+
+        Returns:
+            StabilityTestReport
+        """
+        if run_id not in self.active_runs:
+            raise ValueError(f"Run {run_id} not found")
+
+        run_state = self.active_runs[run_id]
+        config = run_state['config']
+
+        # Stop resource monitoring
+        monitor = self.resource_monitors.get(run_id)
+        if monitor:
+            await monitor.stop_monitoring()
+
+        # Calculate final metrics
+        duration_hours = (time.time() - run_state['start_time']) / 3600.0
+        total_errors = run_state['errors']
+        downtime_seconds = run_state['downtime_seconds']
+        uptime_percentage = 100.0 * (1.0 - downtime_seconds / (duration_hours * 3600.0))
+
+        # Memory leak detection
+        memory_leak_detected = False
+        growth_rate = 0.0
+        if monitor and config.memory_leak_detection_enabled:
+            leak_report = monitor.detect_memory_leak(
+                config.memory_leak_threshold_mb_per_hour
+            )
+            if leak_report:
+                memory_leak_detected = leak_report.detected
+                growth_rate = leak_report.growth_rate_mb_per_hour
+
+                # Save leak report
+                await self._save_memory_leak_report(run_id, leak_report)
+
+        # Performance degradation (placeholder - would need actual measurements)
+        performance_degradation = 0.0
+
+        # Update run record
+        with sqlite3.connect(self.database_path) as conn:
+            conn.execute("""
+                UPDATE stability_runs
+                SET end_time = ?,
+                    status = 'completed',
+                    duration_hours = ?,
+                    total_errors = ?,
+                    uptime_percentage = ?,
+                    performance_degradation_percent = ?,
+                    memory_leak_detected = ?,
+                    memory_growth_rate = ?,
+                    stopped_reason = ?
+                WHERE run_id = ?
+            """, (
+                time.time(),
+                duration_hours,
+                total_errors,
+                uptime_percentage,
+                performance_degradation,
+                1 if memory_leak_detected else 0,
+                growth_rate,
+                reason,
+                run_id
+            ))
+
+        # Save final resource samples
+        if monitor:
+            await self._save_resource_samples(run_id, monitor.get_metrics())
+
+        # Generate report
+        resource_metrics = monitor.get_metrics() if monitor else []
+        recovery_incidents = []  # Would be populated from actual incidents
+
+        report = self.metrics_collector.generate_stability_report(
+            run_id,
+            resource_metrics,
+            recovery_incidents
+        )
+
+        # Cleanup
+        del self.active_runs[run_id]
+        if run_id in self.resource_monitors:
+            del self.resource_monitors[run_id]
+
+        self.logger.info(f"Stopped run {run_id}: {reason}")
+
+        return report
+
+    async def _save_resource_samples(
+        self,
+        run_id: str,
+        metrics: List[ResourceMetrics]
+    ) -> None:
+        """Save resource samples to database.
+
+        Args:
+            run_id: Stability run ID
+            metrics: List of resource metrics
+        """
+        with sqlite3.connect(self.database_path) as conn:
+            for m in metrics:
+                conn.execute("""
+                    INSERT INTO resource_samples
+                    (run_id, timestamp, component_name, cpu_percent,
+                     memory_rss_mb, memory_vms_mb, memory_available_mb,
+                     disk_read_mb, disk_write_mb, net_sent_mb, net_recv_mb,
+                     open_fds)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    run_id, m.timestamp, m.component_name, m.cpu_percent,
+                    m.memory_rss_mb, m.memory_vms_mb, m.memory_available_mb,
+                    m.disk_read_mb, m.disk_write_mb, m.net_sent_mb,
+                    m.net_recv_mb, m.open_fds
+                ))
+
+    async def _save_memory_leak_report(
+        self,
+        run_id: str,
+        report: MemoryLeakReport
+    ) -> None:
+        """Save memory leak report to database.
+
+        Args:
+            run_id: Stability run ID
+            report: Memory leak report
+        """
+        with sqlite3.connect(self.database_path) as conn:
+            conn.execute("""
+                INSERT INTO memory_leak_reports
+                (run_id, detected, growth_rate_mb_per_hour, confidence,
+                 affected_component, samples_analyzed, start_memory_mb,
+                 end_memory_mb, duration_hours, report_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                run_id,
+                1 if report.detected else 0,
+                report.growth_rate_mb_per_hour,
+                report.confidence,
+                report.affected_component,
+                report.samples_analyzed,
+                report.start_memory_mb,
+                report.end_memory_mb,
+                report.duration_hours,
+                time.time()
+            ))
 
 
 class MultiComponentCoordinator:
@@ -377,6 +1348,9 @@ class StressTestOrchestrator(TestOrchestrator):
         self.multi_coordinator: Optional[MultiComponentCoordinator] = None
         self.baseline_metrics: Dict[str, Any] = {}
         self.performance_samples: Dict[str, List[float]] = defaultdict(list)
+
+        # Initialize stability test manager
+        self.stability_manager = StabilityTestManager(self.database_path)
 
         # Initialize stress-specific database tables
         self._init_stress_database()
