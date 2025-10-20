@@ -292,19 +292,63 @@ class VersionValidator:
         )
 
         if status == CompatibilityStatus.INCOMPATIBLE:
+            # Parse versions for detailed error message
+            backup_major, backup_minor, backup_patch = VersionValidator.parse_version(backup_metadata.version)
+            current_major, current_minor, current_patch = VersionValidator.parse_version(current_version)
+
+            # Determine incompatibility type
+            if backup_major != current_major:
+                version_type = "major version"
+                incompatibility_detail = f"{backup_major} vs {current_major}"
+                severity = "Breaking changes are likely present"
+            else:
+                version_type = "minor version"
+                incompatibility_detail = f"{backup_major}.{backup_minor} vs {current_major}.{current_minor}"
+                severity = "Feature changes may be incompatible"
+
             raise IncompatibleVersionError(
                 f"Backup version {backup_metadata.version} is incompatible with "
-                f"current version {current_version}. "
-                f"Major or minor version mismatch detected.",
+                f"current version {current_version}\n\n"
+                f"Incompatibility Details:\n"
+                f"  - Type: {version_type} mismatch ({incompatibility_detail})\n"
+                f"  - Impact: {severity}\n"
+                f"  - Risk: Data corruption or loss during restore\n\n"
+                f"Resolution Options:\n"
+                f"  1. Use a backup from the same {version_type} ({current_major}.{current_minor}.x)\n"
+                f"  2. Upgrade/downgrade the system to version {backup_metadata.version}\n"
+                f"  3. Use version migration framework if available (future enhancement)\n\n"
+                f"For Help:\n"
+                f"  - Check backup compatibility: wqm backup info <backup-path>\n"
+                f"  - List available backups: wqm backup list <backups-dir>\n"
+                f"  - View version info: wqm --version",
                 backup_version=backup_metadata.version,
                 current_version=current_version
             )
 
         if status == CompatibilityStatus.DOWNGRADE and not allow_downgrade:
+            backup_major, backup_minor, backup_patch = VersionValidator.parse_version(backup_metadata.version)
+            current_major, current_minor, current_patch = VersionValidator.parse_version(current_version)
+
             raise IncompatibleVersionError(
                 f"Cannot restore from newer backup version {backup_metadata.version} "
-                f"to older system version {current_version}. "
-                f"Use allow_downgrade=True to override.",
+                f"to older system version {current_version}\n\n"
+                f"Downgrade Details:\n"
+                f"  - Backup version: {backup_metadata.version} (patch level: {backup_patch})\n"
+                f"  - Current version: {current_version} (patch level: {current_patch})\n"
+                f"  - Difference: Backup is {backup_patch - current_patch} patch version(s) newer\n"
+                f"  - Risk: Newer patch may include data format changes\n\n"
+                f"Resolution Options:\n"
+                f"  1. Use --allow-downgrade flag to override this safety check\n"
+                f"     Example: wqm backup restore <backup-path> --allow-downgrade\n"
+                f"  2. Upgrade system to version {backup_metadata.version} before restore\n"
+                f"  3. Create backup from current system first as safety measure\n"
+                f"     Example: wqm backup create <safety-backup-path>\n\n"
+                f"Warning:\n"
+                f"  Downgrade restores may fail if the newer backup uses features\n"
+                f"  or data formats not present in the older system version.\n\n"
+                f"For Help:\n"
+                f"  - Create safety backup: wqm backup create <path>\n"
+                f"  - Check compatibility: wqm backup info <backup-path>",
                 backup_version=backup_metadata.version,
                 current_version=current_version
             )
