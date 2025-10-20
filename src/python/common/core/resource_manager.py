@@ -9,6 +9,7 @@ monitoring integration for comprehensive resource optimization.
 
 import asyncio
 import json
+from collections import deque
 from loguru import logger
 import os
 import psutil
@@ -20,7 +21,7 @@ import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, asdict
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Any, Callable
+from typing import Dict, List, Optional, Set, Any, Callable, Deque
 from datetime import datetime, timedelta
 
 # logger imported from loguru
@@ -213,11 +214,12 @@ class ResourceMonitor:
         self.limits = limits
         self.pid = os.getpid()
         self.process = psutil.Process(self.pid)
-        
+
         self._monitoring = False
         self._monitor_task: Optional[asyncio.Task] = None
         self._alert_callbacks: List[Callable[[ResourceAlert], None]] = []
-        self._usage_history: List[ResourceUsage] = []
+        # Fix memory leak: Use deque with maxlen for O(1) operations instead of list.pop(0)
+        self._usage_history: Deque[ResourceUsage] = deque(maxlen=1000)
         self._max_history = 1000  # Keep last 1000 measurements
     
     def add_alert_callback(self, callback: Callable[[ResourceAlert], None]) -> None:
@@ -317,12 +319,10 @@ class ResourceMonitor:
         try:
             while self._monitoring:
                 usage = await self.get_current_usage()
-                
-                # Add to history
+
+                # Add to history (deque with maxlen automatically handles overflow - O(1))
                 self._usage_history.append(usage)
-                if len(self._usage_history) > self._max_history:
-                    self._usage_history.pop(0)
-                
+
                 await asyncio.sleep(interval)
                 
         except asyncio.CancelledError:
@@ -421,15 +421,20 @@ class ResourceManager:
         self.project_limits: Dict[str, ResourceLimits] = {}
         self.alert_history: List[ResourceAlert] = []
         self.cleanup_handlers: List[Callable[[], None]] = []
-        
+
+        # Alert management (fix memory leak from unbounded growth)
+        self._max_alert_history = 500  # Maximum alerts to keep
+        self._alert_expiry = timedelta(hours=1)  # Expire after 1 hour
+        self._enforcement_tasks: Set[asyncio.Task] = set()  # Track enforcement tasks
+
         # Registry file for persistence
         temp_dir = Path(tempfile.gettempdir())
         self.registry_file = temp_dir / "wqm_resource_registry.json"
-        
+
         # Global resource tracking
         self._global_memory_limit_mb = 2048  # 2GB total
         self._global_cpu_limit_percent = 80.0  # 80% total CPU
-        
+
         self._lock = asyncio.Lock()
     
     async def register_project(
@@ -527,18 +532,33 @@ class ResourceManager:
     def _handle_alert(self, alert: ResourceAlert) -> None:
         """Handle resource alerts."""
         self.alert_history.append(alert)
-        
-        # Keep only recent alerts
-        if len(self.alert_history) > 1000:
-            self.alert_history = self.alert_history[-500:]
-        
+
+        # Clean up expired alerts (fix memory leak: time-based expiration)
+        now = datetime.now()
+        self.alert_history = [
+            a for a in self.alert_history
+            if now - a.timestamp < self._alert_expiry
+        ]
+
+        # Limit by count (secondary safeguard)
+        if len(self.alert_history) > self._max_alert_history:
+            # Keep most recent alerts
+            self.alert_history.sort(key=lambda a: a.timestamp, reverse=True)
+            self.alert_history = self.alert_history[:self._max_alert_history]
+            logger.warning(
+                f"Trimmed alert history to {self._max_alert_history} most recent alerts"
+            )
+
         # Log alert
         level = logging.WARNING if alert.alert_type == "warning" else logging.ERROR
         logger.log(level, f"Resource alert for {alert.project_id}: {alert.message}")
-        
-        # Trigger enforcement for critical alerts
+
+        # Trigger enforcement for critical alerts (fix memory leak: track task)
         if alert.alert_type == "critical":
-            asyncio.create_task(self.enforce_limits(alert.project_id))
+            task = asyncio.create_task(self.enforce_limits(alert.project_id))
+            self._enforcement_tasks.add(task)
+            # Auto-remove task from set when done
+            task.add_done_callback(lambda t: self._enforcement_tasks.discard(t))
     
     @asynccontextmanager
     async def shared_qdrant_connection(self, url: str):
@@ -555,30 +575,47 @@ class ResourceManager:
     
     def add_cleanup_handler(self, handler: Callable[[], None]) -> None:
         """Add a cleanup handler to be called on shutdown."""
-        self.cleanup_handlers.append(handler)
+        if handler not in self.cleanup_handlers:
+            self.cleanup_handlers.append(handler)
+
+    def remove_cleanup_handler(self, handler: Callable[[], None]) -> None:
+        """Remove a cleanup handler."""
+        try:
+            self.cleanup_handlers.remove(handler)
+        except ValueError:
+            pass  # Handler not in list
     
     async def cleanup_all(self) -> None:
         """Clean up all resources and stop monitoring."""
         logger.info("Cleaning up resource manager")
-        
+
+        # Cancel all enforcement tasks (fix memory leak)
+        for task in list(self._enforcement_tasks):
+            if not task.done():
+                task.cancel()
+        if self._enforcement_tasks:
+            await asyncio.gather(*self._enforcement_tasks, return_exceptions=True)
+        self._enforcement_tasks.clear()
+
         # Stop all monitors
         for monitor in self.monitors.values():
             await monitor.stop_monitoring()
-        
+
         # Cleanup shared resources
         await self.shared_pool.cleanup_all()
-        
+
         # Run cleanup handlers
         for handler in self.cleanup_handlers:
             try:
                 handler()
             except Exception as e:
                 logger.error(f"Error in cleanup handler: {e}")
-        
+
         # Clear state
         self.monitors.clear()
         self.project_limits.clear()
         self.cleanup_handlers.clear()
+        self.alert_history.clear()
     
     async def _save_registry(self) -> None:
         """Save resource registry to file."""
