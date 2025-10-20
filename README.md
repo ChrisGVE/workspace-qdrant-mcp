@@ -25,9 +25,47 @@ workspace-qdrant-mcp provides intelligent vector database operations through the
 - 🌐 **Cross-Platform** - Native support for macOS (Intel/ARM), Linux (x86_64/ARM64), Windows (x86_64/ARM64)
 - 🛡️ **Enterprise Ready** - Comprehensive security scanning and quality assurance
 
+## 🔧 MCP Tools
+
+workspace-qdrant-mcp provides 4 comprehensive MCP tools for vector database operations:
+
+### 1. **store** - Content Storage
+Store any type of content in the vector database with automatic embedding generation and metadata enrichment.
+- Supports text, code, documentation, notes, and more
+- Automatic project detection and collection routing
+- Metadata enrichment (file_type, branch, project_id)
+- Background processing via Rust daemon for optimal performance
+
+### 2. **search** - Hybrid Search
+Search across collections with powerful hybrid semantic + keyword matching.
+- **hybrid mode**: Combines semantic similarity with keyword matching (default)
+- **semantic mode**: Pure vector similarity search for conceptual matches
+- **exact mode**: Keyword and symbol exact matching
+- Automatic result optimization using Reciprocal Rank Fusion (RRF)
+- Branch filtering (search current branch or all branches)
+- File type filtering (code, docs, tests, etc.)
+
+### 3. **manage** - Collection Management
+Manage collections, system status, and configuration.
+- List all collections with statistics
+- Create and delete collections
+- Get workspace status and health information
+- Initialize project collections
+- Cleanup empty collections and optimize storage
+
+### 4. **retrieve** - Direct Document Access
+Retrieve documents by ID or metadata without search ranking.
+- Direct document ID lookup
+- Metadata-based filtering
+- Branch and file type filtering
+- Efficient bulk retrieval
+
+All tools seamlessly integrate with Claude Desktop and Claude Code for natural language interaction.
+
 ## Table of Contents
 
 - [✨ Key Features](#-key-features)
+- [🔧 MCP Tools](#-mcp-tools)
 - [Quick Start](#quick-start)
   - [Daemon Service Installation](#daemon-service-installation)
   - [Interactive Setup](#interactive-setup)
