@@ -418,6 +418,44 @@ def assert_within_threshold(
     )
 
 
+def assert_no_performance_regression(
+    actual: float,
+    baseline: float,
+    threshold_percent: float = 50.0,
+    metric_name: str = "value"
+):
+    """
+    Assert performance metric hasn't regressed beyond threshold.
+
+    For time-based metrics where lower is better, only checks upper bound.
+    Allows unlimited improvement but limits regression.
+
+    Args:
+        actual: Actual measured value
+        baseline: Baseline/expected value
+        threshold_percent: Maximum allowed regression percentage
+        metric_name: Name of metric for error message
+
+    Raises:
+        AssertionError: If performance regressed beyond threshold
+    """
+    if baseline == 0:
+        # If baseline is 0, just check actual is reasonable
+        assert actual >= 0, f"{metric_name}: got negative value {actual}"
+        return
+
+    # Calculate regression as percentage increase from baseline
+    # Positive = regression (worse), Negative = improvement (better)
+    regression_percent = ((actual - baseline) / baseline) * 100
+
+    # Only fail if we regressed (got slower/worse)
+    assert regression_percent <= threshold_percent, (
+        f"{metric_name} regression detected: "
+        f"baseline {baseline:.2f}s, actual {actual:.2f}s "
+        f"(regression {regression_percent:.1f}%, threshold {threshold_percent}%)"
+    )
+
+
 def run_git_command(
     command: List[str],
     cwd: Path,
