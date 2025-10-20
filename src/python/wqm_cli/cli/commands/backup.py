@@ -12,7 +12,7 @@ from typing import Optional
 import typer
 from loguru import logger
 
-from common.core.backup import BackupManager, BackupMetadata
+from common.core.backup import BackupManager, BackupMetadata, RestoreManager
 from common.core.client import create_qdrant_client
 from common.core.config import get_config_manager
 from common.core.error_handling import FileSystemError
@@ -42,7 +42,10 @@ Examples:
     wqm backup create /path/to/backup --description "Before upgrade"
     wqm backup create /path/to/backup --collections myapp-code,myapp-docs
     wqm backup info /path/to/backup           # Show backup information
-    wqm backup list /path/to/backups          # List backups in directory""",
+    wqm backup list /path/to/backups          # List backups in directory
+    wqm backup validate /path/to/backup       # Validate backup structure
+    wqm backup restore /path/to/backup --dry-run  # Preview restore
+    wqm backup restore /path/to/backup        # Restore from backup""",
     no_args_is_help=True,
 )
 
@@ -120,6 +123,32 @@ def validate_backup(
     - Optionally verifies all backup files exist
     """
     handle_async(_validate_backup(backup_path, check_files, verbose))
+
+
+@backup_app.command("restore")
+def restore_backup(
+    backup_path: str = typer.Argument(..., help="Path to backup directory"),
+    dry_run: bool = typer.Option(
+        False, "--dry-run", help="Show restore plan without executing"
+    ),
+    allow_downgrade: bool = typer.Option(
+        False, "--allow-downgrade", help="Allow restoring from newer backup version"
+    ),
+    force: bool = force_option(),
+    verbose: bool = verbose_option(),
+):
+    """Restore system from backup with version validation.
+
+    Validates version compatibility and restores:
+    - SQLite state database
+    - Qdrant collections (when implemented)
+
+    WARNING: This will overwrite current system state!
+    Use --dry-run to preview changes first.
+    """
+    handle_async(_restore_backup(
+        backup_path, dry_run, allow_downgrade, force, verbose
+    ))
 
 
 # Async implementation functions
@@ -512,4 +541,161 @@ async def _validate_backup(
     except Exception as e:
         logger.exception("Error validating backup")
         error_message(f"Validation error: {e}")
+        raise typer.Exit(1)
+
+
+async def _restore_backup(
+    backup_path: str,
+    dry_run: bool,
+    allow_downgrade: bool,
+    force: bool,
+    verbose: bool,
+) -> None:
+    """Restore system from backup with version validation."""
+    try:
+        from common.core.backup import IncompatibleVersionError, CompatibilityStatus
+
+        backup_dir = Path(backup_path)
+
+        if not backup_dir.exists():
+            error_message(f"Backup directory not found: {backup_path}")
+            raise typer.Exit(1)
+
+        if verbose:
+            typer.echo(f"Preparing to restore from: {backup_path}")
+
+        # Initialize restore manager
+        restore_manager = RestoreManager(current_version=__version__)
+
+        # Prepare restore plan
+        if verbose:
+            typer.echo("Validating backup and preparing restore plan...")
+
+        try:
+            restore_plan = restore_manager.prepare_restore(
+                backup_path,
+                allow_downgrade=allow_downgrade,
+                dry_run=dry_run
+            )
+        except IncompatibleVersionError as e:
+            error_message(
+                f"Cannot restore backup:\n{e.message}\n\n"
+                f"Backup version: {e.context.get('backup_version', 'unknown')}\n"
+                f"Current version: {e.context.get('current_version', 'unknown')}\n\n"
+                "Use --allow-downgrade to restore from newer backup (may cause issues)"
+            )
+            raise typer.Exit(1)
+
+        # Display restore plan
+        typer.echo("\n" + "=" * 60)
+        typer.echo("RESTORE PLAN")
+        typer.echo("=" * 60)
+        typer.echo(f"Backup version:  {restore_plan['backup_version']}")
+        typer.echo(f"Current version: {restore_plan['current_version']}")
+        typer.echo(f"Backup date:     {restore_plan['backup_timestamp']}")
+
+        if restore_plan.get('partial_backup'):
+            typer.echo(f"Backup type:     PARTIAL")
+            if restore_plan.get('selected_collections'):
+                typer.echo(f"Collections:     {', '.join(restore_plan['selected_collections'])}")
+        else:
+            typer.echo(f"Backup type:     FULL")
+
+        if restore_plan.get('collections'):
+            if isinstance(restore_plan['collections'], dict):
+                typer.echo(f"Collections:     {len(restore_plan['collections'])}")
+            else:
+                typer.echo(f"Collections:     {', '.join(restore_plan['collections'])}")
+
+        if restore_plan.get('total_documents'):
+            typer.echo(f"Total documents: {restore_plan['total_documents']}")
+
+        # Show what will be restored
+        typer.echo("\nWill restore:")
+        contents = restore_plan.get('contents', {})
+
+        if contents.get('sqlite'):
+            typer.echo(f"  ✓ SQLite database ({len(contents['sqlite'])} file(s))")
+        else:
+            typer.echo(f"  ✗ SQLite database (not found)")
+
+        if contents.get('collections'):
+            collection_files = [f for f in contents['collections'] if f.endswith('.config.json')]
+            typer.echo(f"  ✓ Collection metadata ({len(collection_files)} collection(s))")
+            typer.echo(f"      (Full collection restore not yet implemented)")
+        else:
+            typer.echo(f"  ✗ Collection data (not found)")
+
+        typer.echo("=" * 60)
+
+        # If dry-run, exit here
+        if dry_run:
+            success_message("Dry-run complete. No changes made.")
+            return
+
+        # Confirm restore
+        if not force:
+            typer.echo("\n" + "⚠️  " * 15)
+            typer.echo("WARNING: This will OVERWRITE your current system state!")
+            typer.echo("⚠️  " * 15 + "\n")
+
+            confirm = typer.confirm(
+                "Are you sure you want to restore from this backup?",
+                default=False
+            )
+
+            if not confirm:
+                warning_message("Restore cancelled by user")
+                raise typer.Exit(0)
+
+        # Perform actual restore
+        if verbose:
+            typer.echo("\nStarting restore operation...")
+
+        # Restore SQLite database
+        sqlite_backup = backup_dir / "sqlite" / "state.db"
+        if sqlite_backup.exists():
+            if verbose:
+                typer.echo("Restoring SQLite database...")
+
+            config_manager = get_config_manager()
+            config = await config_manager.get_config()
+            sqlite_db_path = Path(config.state_db_path)
+
+            # Backup current database before overwrite
+            if sqlite_db_path.exists() and not force:
+                backup_current = sqlite_db_path.with_suffix('.db.backup')
+                import shutil
+                shutil.copy2(sqlite_db_path, backup_current)
+                if verbose:
+                    typer.echo(f"  Current database backed up to: {backup_current}")
+
+            # Restore from backup
+            import shutil
+            shutil.copy2(sqlite_backup, sqlite_db_path)
+            if verbose:
+                typer.echo(f"  ✓ SQLite database restored")
+        else:
+            warning_message("No SQLite database found in backup")
+
+        # Note about collection restore
+        if contents.get('collections'):
+            warning_message(
+                "Collection data restore not yet implemented.\n"
+                "Only metadata has been recorded. Full restore requires\n"
+                "implementing collection snapshot/import (Task 376.15)."
+            )
+
+        success_message(
+            f"Restore completed from {backup_path}\n"
+            f"Backup version: {restore_plan['backup_version']}\n"
+            f"System may require restart for changes to take effect."
+        )
+
+    except FileSystemError as e:
+        error_message(f"Restore failed: {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        logger.exception("Unexpected error during restore")
+        error_message(f"Restore failed: {e}")
         raise typer.Exit(1)
