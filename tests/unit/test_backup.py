@@ -11,8 +11,13 @@ from pathlib import Path
 
 import pytest
 
-from common.core.backup import BackupMetadata, VersionValidator, CompatibilityStatus
-from common.core.error_handling import IncompatibleVersionError
+from common.core.backup import (
+    BackupMetadata,
+    VersionValidator,
+    CompatibilityStatus,
+    BackupManager,
+)
+from common.core.error_handling import IncompatibleVersionError, FileSystemError
 
 
 class TestBackupMetadata:
@@ -388,3 +393,212 @@ class TestVersionValidator:
         # Incompatible version should fail
         with pytest.raises(IncompatibleVersionError):
             VersionValidator.validate_compatibility(metadata, "0.3.0")
+
+
+class TestBackupManager:
+    """Test suite for BackupManager class."""
+
+    def test_backup_manager_initialization(self):
+        """Test BackupManager initialization with version."""
+        manager = BackupManager(current_version="0.2.1")
+        assert manager.current_version == "0.2.1"
+
+    def test_create_backup_metadata_minimal(self):
+        """Test creating minimal backup metadata."""
+        manager = BackupManager(current_version="0.2.1")
+        metadata = manager.create_backup_metadata()
+
+        assert metadata.version == "0.2.1"
+        assert metadata.timestamp > 0
+        assert metadata.python_version is not None
+        assert metadata.collections is None
+        assert metadata.total_documents is None
+
+    def test_create_backup_metadata_full(self):
+        """Test creating backup metadata with all fields."""
+        manager = BackupManager(current_version="0.2.1")
+        metadata = manager.create_backup_metadata(
+            collections=["project-code", "project-docs"],
+            total_documents=100,
+            partial_backup=True,
+            selected_collections=["project-code"],
+            description="Test backup",
+            custom_field="custom_value"
+        )
+
+        assert metadata.version == "0.2.1"
+        assert metadata.collections == ["project-code", "project-docs"]
+        assert metadata.total_documents == 100
+        assert metadata.partial_backup is True
+        assert metadata.selected_collections == ["project-code"]
+        assert metadata.description == "Test backup"
+        assert metadata.additional_metadata["custom_field"] == "custom_value"
+
+    def test_prepare_backup_directory_creates_structure(self):
+        """Test backup directory structure creation."""
+        manager = BackupManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "test_backup"
+            result_path = manager.prepare_backup_directory(backup_path)
+
+            # Check main directory created
+            assert result_path.exists()
+            assert result_path.is_dir()
+
+            # Check subdirectories created
+            assert (result_path / "metadata").exists()
+            assert (result_path / "sqlite").exists()
+            assert (result_path / "collections").exists()
+
+    def test_prepare_backup_directory_nested_path(self):
+        """Test backup directory creation with nested path."""
+        manager = BackupManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "nested" / "path" / "backup"
+            result_path = manager.prepare_backup_directory(backup_path)
+
+            assert result_path.exists()
+            assert (result_path / "metadata").exists()
+
+    def test_save_backup_manifest(self):
+        """Test saving backup manifest to directory."""
+        manager = BackupManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+            manager.prepare_backup_directory(backup_path)
+
+            metadata = manager.create_backup_metadata(
+                collections=["test-collection"],
+                total_documents=10
+            )
+            manager.save_backup_manifest(metadata, backup_path)
+
+            # Verify manifest file created
+            manifest_path = backup_path / "metadata" / "manifest.json"
+            assert manifest_path.exists()
+
+            # Verify content
+            loaded_data = json.loads(manifest_path.read_text())
+            assert loaded_data["version"] == "0.2.1"
+            assert loaded_data["collections"] == ["test-collection"]
+
+    def test_validate_backup_directory_valid(self):
+        """Test validation of valid backup directory."""
+        manager = BackupManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+            manager.prepare_backup_directory(backup_path)
+
+            metadata = manager.create_backup_metadata()
+            manager.save_backup_manifest(metadata, backup_path)
+
+            # Should be valid
+            assert manager.validate_backup_directory(backup_path) is True
+
+    def test_validate_backup_directory_missing_subdirectory(self):
+        """Test validation fails for missing subdirectory."""
+        manager = BackupManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+            backup_path.mkdir()
+            (backup_path / "metadata").mkdir()
+            # Missing sqlite and collections directories
+
+            assert manager.validate_backup_directory(backup_path) is False
+
+    def test_validate_backup_directory_missing_manifest(self):
+        """Test validation fails for missing manifest."""
+        manager = BackupManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+            manager.prepare_backup_directory(backup_path)
+            # Don't save manifest
+
+            assert manager.validate_backup_directory(backup_path) is False
+
+    def test_validate_backup_directory_nonexistent(self):
+        """Test validation fails for non-existent directory."""
+        manager = BackupManager(current_version="0.2.1")
+        assert manager.validate_backup_directory("/nonexistent/path") is False
+
+    def test_load_backup_manifest_success(self):
+        """Test loading backup manifest from directory."""
+        manager = BackupManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+            manager.prepare_backup_directory(backup_path)
+
+            # Create and save metadata
+            original_metadata = manager.create_backup_metadata(
+                collections=["test"],
+                total_documents=5,
+                description="Test backup"
+            )
+            manager.save_backup_manifest(original_metadata, backup_path)
+
+            # Load and verify
+            loaded_metadata = manager.load_backup_manifest(backup_path)
+            assert loaded_metadata.version == "0.2.1"
+            assert loaded_metadata.collections == ["test"]
+            assert loaded_metadata.total_documents == 5
+            assert loaded_metadata.description == "Test backup"
+
+    def test_load_backup_manifest_missing_file(self):
+        """Test loading manifest from directory without manifest fails."""
+        manager = BackupManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "backup"
+            manager.prepare_backup_directory(backup_path)
+
+            with pytest.raises(FileSystemError) as exc_info:
+                manager.load_backup_manifest(backup_path)
+
+            error = exc_info.value
+            assert "not found" in str(error).lower()
+
+    def test_backup_manager_full_workflow(self):
+        """Test complete backup creation workflow."""
+        manager = BackupManager(current_version="0.2.1")
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            backup_path = Path(temp_dir) / "full_backup"
+
+            # Step 1: Prepare directory
+            manager.prepare_backup_directory(backup_path)
+
+            # Step 2: Create metadata
+            metadata = manager.create_backup_metadata(
+                collections={"project-code": 50, "project-docs": 30},
+                total_documents=80,
+                description="Full system backup"
+            )
+
+            # Step 3: Save manifest
+            manager.save_backup_manifest(metadata, backup_path)
+
+            # Step 4: Validate
+            assert manager.validate_backup_directory(backup_path) is True
+
+            # Step 5: Load and verify
+            loaded = manager.load_backup_manifest(backup_path)
+            assert loaded.version == "0.2.1"
+            assert loaded.total_documents == 80
+            assert loaded.description == "Full system backup"
+
+    def test_backup_manager_python_version_populated(self):
+        """Test that Python version is automatically populated."""
+        import sys
+
+        manager = BackupManager(current_version="0.2.1")
+        metadata = manager.create_backup_metadata()
+
+        expected_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+        assert metadata.python_version == expected_version
