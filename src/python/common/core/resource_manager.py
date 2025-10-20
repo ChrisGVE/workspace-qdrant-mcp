@@ -172,11 +172,41 @@ class SharedResourcePool:
                     from fastembed import TextEmbedding
                     model = TextEmbedding(model_name=model_name)
                     self._embedding_models[model_name] = model
+                    # Initialize usage count for reference tracking
+                    if f"model_{model_name}" not in self._usage_counts:
+                        self._usage_counts[f"model_{model_name}"] = 0
                 except ImportError:
                     logger.warning("FastEmbed not available, using fallback")
                     self._embedding_models[model_name] = None
-            
+
+            # Track usage for reference counting
+            if f"model_{model_name}" in self._usage_counts:
+                self._usage_counts[f"model_{model_name}"] += 1
+
             return self._embedding_models[model_name]
+
+    async def release_embedding_model(self, model_name: str) -> None:
+        """Release a shared embedding model."""
+        async with self._lock:
+            usage_key = f"model_{model_name}"
+            if usage_key in self._usage_counts:
+                self._usage_counts[usage_key] -= 1
+
+                # Cleanup model if no longer used
+                if self._usage_counts[usage_key] <= 0:
+                    logger.info(f"Cleaning up unused embedding model: {model_name}")
+                    if model_name in self._embedding_models:
+                        model = self._embedding_models[model_name]
+                        if model is not None:
+                            try:
+                                # Attempt cleanup if model has close method
+                                if hasattr(model, 'close'):
+                                    await model.close()
+                            except Exception as e:
+                                logger.warning(f"Error closing embedding model: {e}")
+                            finally:
+                                del self._embedding_models[model_name]
+                                del self._usage_counts[usage_key]
     
     async def cleanup_all(self) -> None:
         """Clean up all shared resources."""
@@ -187,13 +217,26 @@ class SharedResourcePool:
                     await client.close()
                 except Exception as e:
                     logger.warning(f"Error closing Qdrant connection {url}: {e}")
-            
+
+            # Clean up embedding models (fix memory leak)
+            for model_name, model in self._embedding_models.items():
+                if model is not None:
+                    try:
+                        # FastEmbed models may have cleanup methods
+                        if hasattr(model, 'close'):
+                            await model.close()
+                        elif hasattr(model, '__del__'):
+                            # Trigger cleanup through garbage collection
+                            del model
+                    except Exception as e:
+                        logger.warning(f"Error cleaning up embedding model {model_name}: {e}")
+
             # Clear all resources
             self._qdrant_connections.clear()
             self._embedding_models.clear()
             self._connection_locks.clear()
             self._usage_counts.clear()
-            
+
             # Cancel cleanup tasks
             for task in self._cleanup_tasks:
                 if not task.done():
