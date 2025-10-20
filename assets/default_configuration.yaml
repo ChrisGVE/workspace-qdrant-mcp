@@ -1786,3 +1786,228 @@ queue_alerting:
         WARNING: "warning"
         ERROR: "error"
         CRITICAL: "critical"
+
+# ==============================================================================
+# BACKUP AND RESTORE CONFIGURATION
+# ==============================================================================
+# Controls backup creation, restore operations, and version compatibility
+# validation for system data protection and disaster recovery.
+#
+# Purpose:
+#   - Define backup/restore behavior and validation rules
+#   - Configure version compatibility checking strictness
+#   - Control development version handling
+#   - Set backup retention and storage policies
+#
+# Usage:
+#   - CLI commands: wqm backup create/restore/list/info/validate
+#   - Automatic backups before major operations
+#   - Manual backup scheduling and retention
+#   - Disaster recovery and rollback procedures
+
+backup:
+  # enabled: Master control for backup/restore functionality
+  # Purpose: Allow disabling backup features in environments where not needed
+  # Format: boolean
+  # Default reasoning: Enabled by default for data protection
+  # Usage:
+  #   - Production: Enable for disaster recovery
+  #   - Development: Can disable to reduce overhead
+  #   - Testing: Enable for backup system validation
+  # Example: Set to false in ephemeral test environments
+  enabled: true
+
+  # auto_backup_before_restore: Create safety backup before restore operations
+  # Purpose: Prevent data loss from failed or problematic restore operations
+  # Format: boolean
+  # Default reasoning: Enabled by default as safety measure
+  # Usage:
+  #   - Always creates timestamped backup before restore
+  #   - Allows rollback if restore fails or causes issues
+  #   - Can be overridden with --no-auto-backup flag in CLI
+  # Example: Disable only when explicitly restoring to empty system
+  auto_backup_before_restore: true
+
+  # default_backup_directory: Default location for backup storage
+  # Purpose: Centralized backup storage location if not specified
+  # Format: string (path) or null for user prompt
+  # Default reasoning: null to force explicit path specification
+  # Usage:
+  #   - Set to absolute path for automated backups
+  #   - Leave null to require path in CLI commands
+  #   - Can use environment variables: ${HOME}/.wqm/backups
+  # Example: "/var/backups/wqm" or "~/.wqm/backups"
+  default_backup_directory: null
+
+  # retention_days: Number of days to retain old backups (0 = never delete)
+  # Purpose: Automatic cleanup of old backups to manage disk space
+  # Format: integer (days)
+  # Default reasoning: 30 days provides reasonable history without excessive storage
+  # Usage:
+  #   - Set to 0 to disable automatic deletion
+  #   - Set to 7 for weekly retention
+  #   - Set to 90 for quarterly retention
+  # Example: Set to 365 for yearly audit requirements
+  retention_days: 30
+
+  # compression: Enable compression for backup storage
+  # Purpose: Reduce backup storage size at cost of CPU during backup/restore
+  # Format: boolean
+  # Default reasoning: Enabled by default for efficient storage
+  # Usage:
+  #   - Typically 5-10x compression ratio for vector data
+  #   - Slower backup/restore but significant storage savings
+  #   - Disable for maximum speed on fast storage
+  # Example: Disable in high-performance environments with ample storage
+  compression: true
+
+  # validation:
+  #   Controls version compatibility checking and validation behavior
+  #   during backup creation and restore operations
+  validation:
+    # strict_version_check: Enforce strict semantic version compatibility
+    # Purpose: Control whether to allow any version mismatches during restore
+    # Format: boolean
+    # Default reasoning: Enabled by default to prevent data corruption
+    # Usage:
+    #   - true: Only exact major.minor versions allowed (patch can differ)
+    #   - false: Allow minor version differences with warnings
+    #   - Major version differences always rejected regardless of setting
+    # Example: Set to false for development environments with frequent version changes
+    strict_version_check: true
+
+    # allow_dev_versions: Permit restoring from development version backups
+    # Purpose: Enable testing of backup/restore in development environments
+    # Format: boolean
+    # Default reasoning: Disabled by default to prevent unstable version restores
+    # Usage:
+    #   - true: Allow backups from versions like "0.2.1dev1"
+    #   - false: Reject backups with dev/alpha/beta/rc suffixes
+    #   - Requires --allow-dev-versions flag if disabled
+    # Example: Enable in development environments, disable in production
+    allow_dev_versions: false
+
+    # allow_patch_downgrade: Allow restoring from newer patch versions
+    # Purpose: Support restoring recent backup after emergency patch rollback
+    # Format: boolean
+    # Default reasoning: Disabled by default to prevent unexpected downgrades
+    # Usage:
+    #   - true: Allow 0.2.2 → 0.2.1 restore (patch downgrade)
+    #   - false: Reject any restore from newer version (including patches)
+    #   - Requires --allow-downgrade flag if disabled
+    # Example: Enable if frequently rolling back emergency patches
+    allow_patch_downgrade: false
+
+    # allow_minor_downgrade: Allow restoring from newer minor versions
+    # Purpose: Support major rollbacks across minor version boundaries
+    # Format: boolean
+    # Default reasoning: Disabled by default due to compatibility risks
+    # Usage:
+    #   - true: Allow 0.3.0 → 0.2.x restore (minor downgrade)
+    #   - false: Reject minor version downgrades
+    #   - High risk of data structure incompatibility
+    # Example: Enable only for emergency disaster recovery scenarios
+    # WARNING: May cause data loss or corruption if schemas changed
+    allow_minor_downgrade: false
+
+    # version_warning_threshold: Days before flagging backup as potentially stale
+    # Purpose: Warn users when restoring old backups that may have compatibility issues
+    # Format: integer (days)
+    # Default reasoning: 90 days as reasonable threshold for version drift
+    # Usage:
+    #   - Shows warning if backup older than threshold
+    #   - Suggests creating fresh backup from current version
+    #   - Does not prevent restore, only warns
+    # Example: Set to 30 for fast-moving projects, 180 for stable releases
+    version_warning_threshold: 90
+
+    # check_schema_compatibility: Validate data schema compatibility during restore
+    # Purpose: Detect incompatible data structure changes before restore
+    # Format: boolean
+    # Default reasoning: Enabled by default to prevent data corruption
+    # Usage:
+    #   - true: Validates collection schemas match before restore
+    #   - false: Skip schema validation (faster but riskier)
+    #   - Recommended to keep enabled except for emergency recovery
+    # Example: Disable only when explicitly overriding for data recovery
+    check_schema_compatibility: true
+
+  # verification:
+  #   Controls backup integrity checking and validation testing
+  verification:
+    # verify_after_backup: Run integrity checks after backup creation
+    # Purpose: Ensure backup is valid and restorable immediately after creation
+    # Format: boolean
+    # Default reasoning: Enabled by default to catch backup failures early
+    # Usage:
+    #   - Validates manifest structure
+    #   - Checks file integrity
+    #   - Verifies collection metadata
+    #   - Adds ~10-30 seconds to backup time
+    # Example: Disable in time-sensitive automated backup scripts
+    verify_after_backup: true
+
+    # verify_before_restore: Run integrity checks before restore operations
+    # Purpose: Detect corrupted backups before potentially destructive restore
+    # Format: boolean
+    # Default reasoning: Enabled by default as safety measure
+    # Usage:
+    #   - Validates backup structure and manifest
+    #   - Checks file checksums if available
+    #   - Prevents restore from corrupted backups
+    #   - Adds ~5-15 seconds to restore time
+    # Example: Disable only in emergency recovery scenarios
+    verify_before_restore: true
+
+    # checksum_algorithm: Algorithm for backup file integrity verification
+    # Purpose: Detect file corruption or tampering in backups
+    # Format: string ("xxhash64", "sha256", "md5", "none")
+    # Default reasoning: xxhash64 for speed with good collision resistance
+    # Usage:
+    #   - xxhash64: Fastest, good for routine verification
+    #   - sha256: Cryptographically secure, slower but tamper-proof
+    #   - md5: Legacy compatibility, not recommended for security
+    #   - none: Skip checksums for maximum speed (not recommended)
+    # Example: Use sha256 in environments requiring audit trails
+    checksum_algorithm: "xxhash64"
+
+  # metadata:
+  #   Controls what metadata is included in backup manifests
+  metadata:
+    # include_collection_stats: Include detailed collection statistics
+    # Purpose: Provide comprehensive backup inventory and validation data
+    # Format: boolean
+    # Default reasoning: Enabled by default for thorough backup documentation
+    # Usage:
+    #   - Records point counts, vector dimensions, schemas
+    #   - Enables validation of restore completeness
+    #   - Useful for backup auditing and inventory
+    #   - Minimal size overhead (~1-5KB per collection)
+    # Example: Disable for minimal backup manifests
+    include_collection_stats: true
+
+    # include_system_info: Include system and environment information
+    # Purpose: Record system configuration for troubleshooting restore issues
+    # Format: boolean
+    # Default reasoning: Enabled by default to assist with compatibility diagnosis
+    # Usage:
+    #   - Records Python version, Qdrant version, OS platform
+    #   - Helps identify environment-specific issues
+    #   - Minimal size overhead (~1KB)
+    # Example: Disable if backup manifests need to be sanitized of system info
+    include_system_info: true
+
+    # custom_metadata: User-defined metadata to include in all backups
+    # Purpose: Allow tagging backups with custom organizational metadata
+    # Format: dictionary of key-value pairs
+    # Default reasoning: Empty by default, user can add as needed
+    # Usage:
+    #   - Add tags like environment, purpose, ticket number
+    #   - Useful for backup management and automation
+    #   - Included in manifest.json metadata section
+    # Example:
+    #   custom_metadata:
+    #     environment: "production"
+    #     backup_type: "pre-migration"
+    #     ticket: "OPS-1234"
+    custom_metadata: {}
