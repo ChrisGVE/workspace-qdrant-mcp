@@ -8,5 +8,5 @@ src_path = Path(__file__).parent.parent.parent / "src" / "python"
 if str(src_path) not in sys.path:
     sys.path.insert(0, str(src_path))
 
-# Override pytest_plugins to prevent loading shared fixtures
-pytest_plugins = []
+# NOTE: pytest_plugins cannot be defined in non-root conftest files
+# Unit tests should avoid relying on shared fixtures where possible
