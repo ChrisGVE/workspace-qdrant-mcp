@@ -27,6 +27,7 @@ class TriggerPhase(Enum):
 
     PRE_SESSION = "pre_session"  # Before session starts
     POST_SESSION = "post_session"  # After session ends
+    ON_DEMAND = "on_demand"  # Manual refresh requested by user
     ON_RULE_UPDATE = "on_rule_update"  # When rules are updated
     ON_FILE_CHANGE = "on_file_change"  # When CLAUDE.md changes
 
@@ -480,6 +481,146 @@ class CustomCallbackTrigger(SessionTrigger):
             )
 
 
+class OnDemandRefreshTrigger(SessionTrigger):
+    """
+    Trigger for manual context refresh requests.
+
+    This trigger handles user-initiated refresh requests via CLI commands,
+    API endpoints, or keyboard shortcuts. It refreshes context injection
+    immediately without waiting for pre-session hooks.
+    """
+
+    def __init__(
+        self,
+        refresh_type: str = "full",  # full, rules_only, context_only
+        output_path: Optional[Path] = None,
+        token_budget: int = 50000,
+        filter: Optional[RuleFilter] = None,
+        priority: TriggerPriority = TriggerPriority.HIGH,
+    ):
+        """
+        Initialize the on-demand refresh trigger.
+
+        Args:
+            refresh_type: Type of refresh (full, rules_only, context_only)
+            output_path: Where to write refreshed content
+            token_budget: Token budget for content
+            filter: Optional filter for memory rules
+            priority: Execution priority
+        """
+        super().__init__(
+            name=f"on_demand_refresh_{refresh_type}",
+            phase=TriggerPhase.ON_DEMAND,
+            priority=priority,
+        )
+        self.refresh_type = refresh_type
+        self.output_path = output_path
+        self.token_budget = token_budget
+        self.filter = filter
+        self._last_refresh_time: Optional[float] = None
+        self._refresh_count: int = 0
+
+    async def execute(self, context: TriggerContext) -> TriggerResult:
+        """Execute on-demand refresh."""
+        import time
+
+        start_time = time.time()
+
+        try:
+            # Check if this is a duplicate request (within 1 second)
+            if (
+                self._last_refresh_time
+                and (start_time - self._last_refresh_time) < 1.0
+            ):
+                logger.warning(
+                    f"Ignoring duplicate refresh request (last refresh was {start_time - self._last_refresh_time:.2f}s ago)"
+                )
+                execution_time = (time.time() - start_time) * 1000
+                return TriggerResult(
+                    success=True,
+                    phase=self.phase,
+                    trigger_name=self.name,
+                    execution_time_ms=execution_time,
+                    metadata={"skipped": True, "reason": "duplicate_request"},
+                )
+
+            # Perform refresh based on type
+            if self.refresh_type in ("full", "rules_only"):
+                # Refresh rules and context
+                injector = ClaudeMdInjector(
+                    memory_manager=context.memory_manager,
+                    enable_watching=False,
+                )
+
+                output_path = self.output_path or (
+                    context.project_root / ".claude" / "context.md"
+                )
+
+                success = await injector.inject_to_file(
+                    output_path=output_path,
+                    project_root=context.project_root,
+                    token_budget=self.token_budget,
+                    filter=self.filter,
+                )
+
+                if not success:
+                    raise RuntimeError("Failed to refresh context")
+
+            # Update refresh tracking
+            self._last_refresh_time = time.time()
+            self._refresh_count += 1
+
+            execution_time = (time.time() - start_time) * 1000
+
+            logger.info(
+                f"On-demand refresh completed ({self.refresh_type}), "
+                f"refresh #{self._refresh_count}"
+            )
+
+            return TriggerResult(
+                success=True,
+                phase=self.phase,
+                trigger_name=self.name,
+                execution_time_ms=execution_time,
+                metadata={
+                    "refresh_type": self.refresh_type,
+                    "refresh_count": self._refresh_count,
+                    "output_path": str(self.output_path) if self.output_path else None,
+                },
+            )
+
+        except Exception as e:
+            execution_time = (time.time() - start_time) * 1000
+            logger.error(f"On-demand refresh failed: {e}")
+            return TriggerResult(
+                success=False,
+                phase=self.phase,
+                trigger_name=self.name,
+                execution_time_ms=execution_time,
+                error=str(e),
+            )
+
+    def get_refresh_stats(self) -> Dict[str, Any]:
+        """
+        Get refresh statistics.
+
+        Returns:
+            Dictionary with refresh statistics
+        """
+        import time
+
+        return {
+            "refresh_count": self._refresh_count,
+            "last_refresh_time": self._last_refresh_time,
+            "seconds_since_last_refresh": (
+                time.time() - self._last_refresh_time
+                if self._last_refresh_time
+                else None
+            ),
+            "refresh_type": self.refresh_type,
+        }
+
+
 class TriggerManager:
     """
     Manages session triggers and orchestrates execution.
@@ -633,6 +774,58 @@ class TriggerManager:
         )
 
         return results
+
+    async def trigger_manual_refresh(
+        self,
+        project_root: Optional[Path] = None,
+        refresh_type: str = "full",
+        fail_fast: bool = False,
+    ) -> List[TriggerResult]:
+        """
+        Trigger manual refresh of context injection.
+
+        This method provides on-demand refresh functionality for users
+        who want to update context without restarting their session.
+
+        Args:
+            project_root: Project root directory (default: current directory)
+            refresh_type: Type of refresh (full, rules_only, context_only)
+            fail_fast: Stop execution on first failure
+
+        Returns:
+            List of TriggerResult objects
+
+        Example:
+            >>> manager = TriggerManager(memory_manager)
+            >>> results = await manager.trigger_manual_refresh()
+        """
+        # Execute ON_DEMAND triggers
+        return await self.execute_phase(
+            TriggerPhase.ON_DEMAND,
+            project_root=project_root,
+            fail_fast=fail_fast,
+        )
+
+    async def execute_on_demand(
+        self,
+        project_root: Optional[Path] = None,
+        fail_fast: bool = False,
+    ) -> List[TriggerResult]:
+        """
+        Execute on-demand triggers (alias for trigger_manual_refresh).
+
+        Args:
+            project_root: Project root directory
+            fail_fast: Stop execution on first failure
+
+        Returns:
+            List of TriggerResult objects
+        """
+        return await self.trigger_manual_refresh(
+            project_root=project_root,
+            refresh_type="full",
+            fail_fast=fail_fast,
+        )
 
     async def execute_session_lifecycle(
         self,
@@ -801,6 +994,63 @@ async def cleanup_claude_code_session(
     # Execute post-session triggers
     results = await manager.execute_phase(
         TriggerPhase.POST_SESSION,
+        project_root=project_root,
+    )
+
+    return results
+
+
+async def refresh_claude_code_context(
+    memory_manager: MemoryManager,
+    project_root: Optional[Path] = None,
+    output_path: Optional[Path] = None,
+    token_budget: int = 50000,
+    refresh_type: str = "full",
+) -> List[TriggerResult]:
+    """
+    Convenience function to manually refresh Claude Code context.
+
+    This function provides on-demand context refresh without restarting
+    the session. Useful when rules or project files have changed and
+    you want to update the injected context immediately.
+
+    Args:
+        memory_manager: MemoryManager instance
+        project_root: Project root directory
+        output_path: Where to write refreshed content (default: .claude/context.md)
+        token_budget: Token budget for content
+        refresh_type: Type of refresh (full, rules_only, context_only)
+
+    Returns:
+        List of TriggerResult objects
+
+    Example:
+        >>> from context_injection import refresh_claude_code_context
+        >>> results = await refresh_claude_code_context(memory_manager)
+        >>> if all(r.success for r in results):
+        ...     print("Context refreshed successfully")
+    """
+    if project_root is None:
+        project_root = Path.cwd()
+    else:
+        project_root = Path(project_root)
+
+    if output_path is None:
+        output_path = project_root / ".claude" / "context.md"
+
+    # Create trigger manager
+    manager = TriggerManager(memory_manager)
+
+    # Register on-demand refresh trigger
+    refresh_trigger = OnDemandRefreshTrigger(
+        refresh_type=refresh_type,
+        output_path=output_path,
+        token_budget=token_budget,
+    )
+    manager.register_trigger(refresh_trigger)
+
+    # Execute on-demand triggers
+    results = await manager.execute_on_demand(
         project_root=project_root,
     )
 
