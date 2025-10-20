@@ -70,17 +70,22 @@ class PerformanceMonitor:
         self.analysis_interval = 300.0  # 5 minutes
         self.storage_batch_size = 100
         self.alert_cooldown = timedelta(minutes=15)
-        
+
         # Active monitoring tasks
         self._collection_task: Optional[asyncio.Task] = None
         self._analysis_task: Optional[asyncio.Task] = None
         self._storage_task: Optional[asyncio.Task] = None
-        
+
+        # Alert task tracking (fix memory leak from unbounded task creation)
+        self._alert_tasks: Set[asyncio.Task] = set()
+
         # Alert management
         self.active_alerts: Dict[str, PerformanceAlert] = {}
         self.alert_callbacks: List[callable] = []
         self.last_alert_times: Dict[str, datetime] = {}
-        
+        self._max_alert_history = 100  # Keep last 100 unique alerts
+        self._alert_expiry = timedelta(hours=1)  # Expire after 1 hour
+
         # Performance thresholds
         self.alert_thresholds = {
             MetricType.SEARCH_LATENCY: {
@@ -108,7 +113,9 @@ class PerformanceMonitor:
         # Metrics buffer for batch processing
         self._metrics_buffer: List[PerformanceMetric] = []
         self._traces_buffer: List[OperationTrace] = []
-        
+        self._max_buffer_size = 1000  # Maximum metrics in buffer (prevent unbounded growth)
+        self._max_traces_buffer_size = 500  # Maximum traces in buffer
+
         # Setup callbacks
         self.metrics_collector.add_metric_callback(self._on_metric_collected)
         self.metrics_collector.add_operation_callback(self._on_operation_completed)
@@ -136,11 +143,11 @@ class PerformanceMonitor:
         """Stop the performance monitoring system."""
         if not self.running:
             return
-        
+
         logger.info(f"Stopping performance monitor for {self.project_id}")
-        
+
         self.running = False
-        
+
         # Cancel monitoring tasks
         for task in [self._collection_task, self._analysis_task, self._storage_task]:
             if task and not task.done():
@@ -149,15 +156,31 @@ class PerformanceMonitor:
                     await task
                 except asyncio.CancelledError:
                     pass
-        
+
+        # Cancel all alert tasks (fix memory leak)
+        for task in list(self._alert_tasks):
+            if not task.done():
+                task.cancel()
+        if self._alert_tasks:
+            await asyncio.gather(*self._alert_tasks, return_exceptions=True)
+        self._alert_tasks.clear()
+
         # Flush remaining data to storage
         await self._flush_to_storage()
-        
+
         logger.info(f"Performance monitor stopped for {self.project_id}")
     
     def add_alert_callback(self, callback: callable):
         """Add callback for performance alerts."""
-        self.alert_callbacks.append(callback)
+        if callback not in self.alert_callbacks:
+            self.alert_callbacks.append(callback)
+
+    def remove_alert_callback(self, callback: callable):
+        """Remove an alert callback."""
+        try:
+            self.alert_callbacks.remove(callback)
+        except ValueError:
+            pass  # Callback not in list
     
     async def record_search_performance(
         self,
@@ -273,20 +296,23 @@ class PerformanceMonitor:
     async def _analysis_loop(self):
         """Main performance analysis loop."""
         logger.debug(f"Started analysis loop for {self.project_id}")
-        
+
         try:
             while self.running:
                 try:
                     # Generate performance report
                     report = await self.analyzer.analyze_performance()
-                    
+
                     # Store the report
                     if self.storage:
                         await self.storage.store_performance_report(report)
-                    
+
                     # Check for new alerts based on analysis
                     await self._check_performance_alerts(report)
-                    
+
+                    # Clean up expired alerts (fix memory leak)
+                    await self._cleanup_expired_alerts()
+
                     await asyncio.sleep(self.analysis_interval)
                     
                 except asyncio.CancelledError:
@@ -320,14 +346,26 @@ class PerformanceMonitor:
     def _on_metric_collected(self, metric: PerformanceMetric):
         """Handle new metric collection."""
         self._metrics_buffer.append(metric)
-        
-        # Check for immediate alerts
-        asyncio.create_task(self._check_metric_alerts(metric))
+
+        # Check for immediate alerts (fix memory leak: track task and auto-cleanup)
+        task = asyncio.create_task(self._check_metric_alerts(metric))
+        self._alert_tasks.add(task)
+        # Auto-remove task from set when done to prevent set from growing
+        task.add_done_callback(lambda t: self._alert_tasks.discard(t))
     
     def _on_operation_completed(self, trace: OperationTrace):
         """Handle operation completion."""
+        # Enforce traces buffer size limit (prevent unbounded growth)
+        if len(self._traces_buffer) >= self._max_traces_buffer_size:
+            logger.warning(
+                f"Traces buffer exceeded maximum size ({self._max_traces_buffer_size}), "
+                f"dropping oldest traces"
+            )
+            # Keep only the most recent traces
+            self._traces_buffer = self._traces_buffer[-(self._max_traces_buffer_size // 2):]
+
         self._traces_buffer.append(trace)
-        
+
         # Log operation performance
         if trace.duration:
             logger.debug(
@@ -339,19 +377,36 @@ class PerformanceMonitor:
         """Flush buffered data to storage."""
         if not self.storage:
             return
-        
+
         try:
-            # Store metrics batch
+            # Store metrics batch (fix memory leak: enforce maximum buffer size)
             if self._metrics_buffer:
-                metrics_to_store = self._metrics_buffer[:self.storage_batch_size]
-                self._metrics_buffer = self._metrics_buffer[self.storage_batch_size:]
+                buffer_size = len(self._metrics_buffer)
+
+                # Warn if buffer is growing too large
+                if buffer_size > self._max_buffer_size:
+                    logger.warning(
+                        f"Metrics buffer exceeded maximum size: {buffer_size} > {self._max_buffer_size}. "
+                        f"Emergency flush triggered - this indicates metrics are being collected faster than stored."
+                    )
+                    # Emergency flush: store all metrics up to max size, drop the rest
+                    metrics_to_store = self._metrics_buffer[:self._max_buffer_size]
+                    self._metrics_buffer = []
+                    logger.warning(
+                        f"Dropped {buffer_size - self._max_buffer_size} metrics to prevent memory exhaustion"
+                    )
+                else:
+                    # Normal flush: store batch and keep remainder
+                    metrics_to_store = self._metrics_buffer[:self.storage_batch_size]
+                    self._metrics_buffer = self._metrics_buffer[self.storage_batch_size:]
+
                 await self.storage.store_metrics_batch(metrics_to_store)
-            
+
             # Store operation traces
             for trace in self._traces_buffer:
                 await self.storage.store_operation_trace(trace)
             self._traces_buffer.clear()
-            
+
         except Exception as e:
             logger.error(f"Failed to flush data to storage: {e}")
     
@@ -462,7 +517,41 @@ class PerformanceMonitor:
                     self.active_alerts[alert_key] = alert
                     self.last_alert_times[alert_key] = datetime.now()
                     await self._notify_alert(alert)
-    
+
+    async def _cleanup_expired_alerts(self):
+        """Clean up expired alerts and limit alert history size (fix memory leak)."""
+        now = datetime.now()
+
+        # Remove expired alerts
+        expired_keys = [
+            key for key, alert in self.active_alerts.items()
+            if now - alert.timestamp > self._alert_expiry
+        ]
+        for key in expired_keys:
+            del self.active_alerts[key]
+            logger.debug(f"Cleaned up expired alert: {key}")
+
+        # Remove old last_alert_times (keep 2x expiry period for cooldown)
+        expired_times = [
+            key for key, time in self.last_alert_times.items()
+            if now - time > self._alert_expiry * 2
+        ]
+        for key in expired_times:
+            del self.last_alert_times[key]
+
+        # Limit active_alerts size to prevent unbounded growth
+        if len(self.active_alerts) > self._max_alert_history:
+            # Keep most recent alerts
+            sorted_alerts = sorted(
+                self.active_alerts.items(),
+                key=lambda x: x[1].timestamp,
+                reverse=True
+            )
+            self.active_alerts = dict(sorted_alerts[:self._max_alert_history])
+            logger.warning(
+                f"Trimmed alert history to {self._max_alert_history} most recent alerts"
+            )
+
     def _get_metric_recommendations(self, metric_type: MetricType) -> List[str]:
         """Get recommendations for specific metric types."""
         recommendations = {
