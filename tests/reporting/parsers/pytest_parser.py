@@ -10,7 +10,7 @@ import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any, Dict, Optional, Union
 from uuid import uuid4
 
 from .base import BaseParser
