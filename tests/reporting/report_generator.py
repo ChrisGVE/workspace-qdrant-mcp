@@ -203,7 +203,13 @@ class ReportGenerator:
             "generated_at": datetime.now(),
             "include_charts": include_charts,
             "include_trends": include_trends,
+            "has_coverage": test_run.coverage is not None,
         }
+
+        # Add coverage data if present
+        if test_run.coverage:
+            context["coverage"] = test_run.coverage
+            context["coverage_summary"] = self._generate_coverage_summary(test_run.coverage)
 
         # Add chart data if requested
         if include_charts:
@@ -292,10 +298,16 @@ class ReportGenerator:
             },
         }
 
-        return {
+        charts = {
             "status_distribution": status_chart,
             "suite_breakdown": suite_chart,
         }
+
+        # Add coverage charts if coverage data is present
+        if test_run.coverage:
+            charts.update(self._generate_coverage_charts(test_run.coverage))
+
+        return charts
 
     def _generate_trend_data(self, days: int = 30) -> Dict[str, Any]:
         """
@@ -345,6 +357,180 @@ class ReportGenerator:
         }
 
         return {"success_rate_trend": trend_chart}
+
+    def _generate_coverage_summary(self, coverage) -> Dict[str, Any]:
+        """
+        Generate summary statistics for coverage.
+
+        Args:
+            coverage: CoverageMetrics object
+
+        Returns:
+            Coverage summary dictionary
+        """
+        summary = {
+            "line_coverage": coverage.line_coverage_percent,
+            "lines_covered": coverage.lines_covered,
+            "lines_total": coverage.lines_total,
+            "lines_uncovered": coverage.lines_total - coverage.lines_covered,
+        }
+
+        if coverage.function_coverage_percent is not None:
+            summary["function_coverage"] = coverage.function_coverage_percent
+            summary["functions_covered"] = coverage.functions_covered
+            summary["functions_total"] = coverage.functions_total
+            summary["functions_uncovered"] = coverage.functions_total - coverage.functions_covered
+
+        if coverage.branch_coverage_percent is not None:
+            summary["branch_coverage"] = coverage.branch_coverage_percent
+            summary["branches_covered"] = coverage.branches_covered
+            summary["branches_total"] = coverage.branches_total
+            summary["branches_uncovered"] = coverage.branches_total - coverage.branches_covered
+
+        # Find files with lowest coverage
+        files_sorted = sorted(
+            coverage.file_coverage,
+            key=lambda f: f.line_coverage_percent
+        )
+        summary["lowest_coverage_files"] = [
+            {
+                "path": f.file_path,
+                "coverage": f.line_coverage_percent,
+                "uncovered_lines": len(f.uncovered_lines),
+            }
+            for f in files_sorted[:10]  # Top 10 files needing attention
+        ]
+
+        # Find files with 100% coverage
+        summary["fully_covered_files"] = [
+            f.file_path
+            for f in coverage.file_coverage
+            if f.line_coverage_percent == 100.0
+        ]
+
+        return summary
+
+    def _generate_coverage_charts(self, coverage) -> Dict[str, Any]:
+        """
+        Generate charts for coverage visualization.
+
+        Args:
+            coverage: CoverageMetrics object
+
+        Returns:
+            Dictionary of Chart.js chart configurations
+        """
+        charts = {}
+
+        # Overall coverage gauge chart
+        coverage_gauge = {
+            "type": "doughnut",
+            "data": {
+                "labels": ["Covered", "Uncovered"],
+                "datasets": [
+                    {
+                        "data": [
+                            coverage.lines_covered,
+                            coverage.lines_total - coverage.lines_covered,
+                        ],
+                        "backgroundColor": ["#10b981", "#ef4444"],
+                    }
+                ],
+            },
+            "options": {
+                "responsive": True,
+                "plugins": {
+                    "legend": {"position": "bottom"},
+                    "title": {
+                        "display": True,
+                        "text": f"Line Coverage: {coverage.line_coverage_percent:.2f}%",
+                    },
+                },
+            },
+        }
+        charts["coverage_gauge"] = coverage_gauge
+
+        # Coverage type breakdown (if available)
+        if coverage.function_coverage_percent is not None or coverage.branch_coverage_percent is not None:
+            labels = ["Lines"]
+            data = [coverage.line_coverage_percent]
+
+            if coverage.function_coverage_percent is not None:
+                labels.append("Functions")
+                data.append(coverage.function_coverage_percent)
+
+            if coverage.branch_coverage_percent is not None:
+                labels.append("Branches")
+                data.append(coverage.branch_coverage_percent)
+
+            coverage_breakdown = {
+                "type": "bar",
+                "data": {
+                    "labels": labels,
+                    "datasets": [
+                        {
+                            "label": "Coverage %",
+                            "data": data,
+                            "backgroundColor": "#3b82f6",
+                        }
+                    ],
+                },
+                "options": {
+                    "responsive": True,
+                    "scales": {"y": {"beginAtZero": True, "max": 100}},
+                    "plugins": {
+                        "legend": {"display": False},
+                        "title": {"display": True, "text": "Coverage by Type"},
+                    },
+                },
+            }
+            charts["coverage_breakdown"] = coverage_breakdown
+
+        # Per-file coverage bar chart (top 20 files by lines)
+        if coverage.file_coverage:
+            files_sorted = sorted(
+                coverage.file_coverage,
+                key=lambda f: f.lines_total,
+                reverse=True
+            )[:20]
+
+            file_labels = [f.file_path.split("/")[-1] for f in files_sorted]  # Just filename
+            file_coverage_data = [f.line_coverage_percent for f in files_sorted]
+
+            # Color based on coverage percentage
+            colors = [
+                "#10b981" if cov >= 80 else "#f59e0b" if cov >= 60 else "#ef4444"
+                for cov in file_coverage_data
+            ]
+
+            file_coverage_chart = {
+                "type": "bar",
+                "data": {
+                    "labels": file_labels,
+                    "datasets": [
+                        {
+                            "label": "Coverage %",
+                            "data": file_coverage_data,
+                            "backgroundColor": colors,
+                        }
+                    ],
+                },
+                "options": {
+                    "responsive": True,
+                    "indexAxis": "y",  # Horizontal bar chart
+                    "scales": {"x": {"beginAtZero": True, "max": 100}},
+                    "plugins": {
+                        "legend": {"display": False},
+                        "title": {
+                            "display": True,
+                            "text": "Coverage by File (Top 20 by Size)",
+                        },
+                    },
+                },
+            }
+            charts["file_coverage"] = file_coverage_chart
+
+        return charts
 
     @staticmethod
     def _format_duration(ms: float) -> str:
