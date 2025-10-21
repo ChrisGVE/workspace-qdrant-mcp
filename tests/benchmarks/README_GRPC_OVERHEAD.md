@@ -2,6 +2,21 @@
 
 Comprehensive benchmarks measuring gRPC communication overhead between Python client and Rust daemon in the workspace-qdrant-mcp system.
 
+## Important Note
+
+**Current Status:** The gRPC service implementation exists in the codebase but is not currently enabled by default in the daemon. The system uses SQLite for state management instead of gRPC for most operations.
+
+**What works without gRPC daemon:**
+- Protobuf serialization benchmarks (measure pure encoding/decoding performance)
+
+**What requires gRPC daemon:**
+- All RPC latency benchmarks (health checks, status, metrics)
+- Text ingestion benchmarks
+- Throughput benchmarks
+- Collection management benchmarks
+
+**Future:** When the gRPC service is enabled in the daemon, all benchmarks will run. Until then, benchmarks gracefully skip when the daemon is unavailable, and serialization benchmarks provide valuable baseline measurements.
+
 ## Overview
 
 These benchmarks measure various aspects of gRPC performance:
