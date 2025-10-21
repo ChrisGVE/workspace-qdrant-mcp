@@ -1,13 +1,13 @@
 """
-Test Result Aggregation System for workspace-qdrant-mcp.
+Test Result Aggregation and Reporting System for workspace-qdrant-mcp.
 
-Provides unified aggregation and analysis of test results from multiple sources:
+Provides unified aggregation, analysis, and reporting of test results from multiple sources:
 - pytest (JUnit XML, JSON)
 - cargo test (text, JSON)
 - Custom benchmarks
 - gRPC integration tests
 
-Usage:
+Aggregation API:
     >>> from tests.reporting import TestResultAggregator, TestSource
     >>> aggregator = TestResultAggregator()
     >>> run = aggregator.aggregate_from_file('results.xml', TestSource.PYTEST)
@@ -18,6 +18,11 @@ Query API:
     >>> query = TestResultQuery()
     >>> failed = query.get_failed_tests(run.run_id)
     >>> flaky = query.get_flaky_tests(days=30)
+
+Report Generation:
+    >>> from tests.reporting import generate_test_report
+    >>> generate_test_report(run.run_id, 'report.html', format='html')
+    >>> generate_test_report(run.run_id, 'report.pdf', format='pdf')
 """
 
 from .aggregator import TestResultAggregator, aggregate_test_results
@@ -32,6 +37,7 @@ from .models import (
     TestType,
 )
 from .query import TestResultQuery
+from .report_generator import ReportGenerator, generate_test_report
 from .storage import TestResultStorage
 
 __all__ = [
@@ -40,6 +46,9 @@ __all__ = [
     "TestResultQuery",
     "TestResultStorage",
     "aggregate_test_results",
+    # Reporting
+    "ReportGenerator",
+    "generate_test_report",
     # Models
     "TestRun",
     "TestSuite",
