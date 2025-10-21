@@ -86,11 +86,11 @@ class ContextInjectionBenchmarkFixtures:
         ]
 
         categories = [
-            MemoryCategory.CODE_STYLE,
-            MemoryCategory.ARCHITECTURE,
-            MemoryCategory.TESTING,
-            MemoryCategory.DOCUMENTATION,
-            MemoryCategory.PERFORMANCE,
+            MemoryCategory.PREFERENCE,
+            MemoryCategory.BEHAVIOR,
+            MemoryCategory.KNOWLEDGE,
+            MemoryCategory.CONTEXT,
+            MemoryCategory.AGENT_LIBRARY,
         ]
 
         authorities = [
@@ -161,18 +161,16 @@ class ContextInjectionBenchmarkFixtures:
             content = f"{content} (Rule {i + 1})"
 
             rule = MemoryRule(
-                rule_id=f"rule_{i}",
-                content=content,
-                category=MemoryCategory.CODE_STYLE
+                id=f"rule_{i}",
+                rule=content,
+                category=MemoryCategory.PREFERENCE
                 if i % 2 == 0
-                else MemoryCategory.TESTING,
+                else MemoryCategory.BEHAVIOR,
                 authority=AuthorityLevel.DEFAULT
                 if i % 3 == 0
                 else AuthorityLevel.SUGGESTION,
-                scope="",
-                project_id=None,
+                scope=[],
                 tags=[f"tag_{i % 3}"],
-                priority=50,
             )
             rules.append(rule)
 
@@ -420,7 +418,7 @@ def test_token_counting_small_context_tiktoken(benchmark, small_rules):
     def count_tokens():
         total = 0
         for rule in small_rules:
-            total += counter.count_tokens(rule.content)
+            total += counter.count_tokens(rule.rule)
         return total
 
     result = benchmark(count_tokens)
@@ -439,7 +437,7 @@ def test_token_counting_medium_context_tiktoken(benchmark, medium_rules):
     def count_tokens():
         total = 0
         for rule in medium_rules:
-            total += counter.count_tokens(rule.content)
+            total += counter.count_tokens(rule.rule)
         return total
 
     result = benchmark(count_tokens)
@@ -458,7 +456,7 @@ def test_token_counting_large_context_tiktoken(benchmark, large_rules):
     def count_tokens():
         total = 0
         for rule in large_rules:
-            total += counter.count_tokens(rule.content)
+            total += counter.count_tokens(rule.rule)
         return total
 
     result = benchmark(count_tokens)
@@ -477,7 +475,7 @@ def test_token_counting_estimation_fallback(benchmark, medium_rules):
     def count_tokens():
         total = 0
         for rule in medium_rules:
-            total += counter.count_tokens(rule.content)
+            total += counter.count_tokens(rule.rule)
         return total
 
     result = benchmark(count_tokens)
