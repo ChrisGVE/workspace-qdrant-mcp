@@ -279,5 +279,5 @@ Thank you for using workspace-qdrant-mcp! We hope v0.3.0 makes your development 
 
 ---
 
-*Released: TBD*
+*Released: 2025-10-21*
 *Download: `pip install workspace-qdrant-mcp==0.3.0`*
