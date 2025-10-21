@@ -1,7 +1,7 @@
 [toolchain]
-# Minimum Supported Rust Version (MSRV)
-# Based on sqlx 0.8 requirement (Rust 1.75+)
-channel = "1.75.0"
+# Use stable Rust channel for latest features and dependency support
+# Minimum: Rust 1.82.0 for Cargo.lock v4 support
+channel = "stable"
 
 # Components required for development
 components = ["rustfmt", "clippy"]
