@@ -1,5 +1,7 @@
 # Docker and Kubernetes Deployment
 
+> **Note for v0.3.0:** Docker images are not yet published for v0.3.0. This infrastructure will be activated starting with v0.3.1. For v0.3.0, please use pip/uv installation methods described in the main [README.md](../README.md).
+
 This directory contains complete Docker and Kubernetes deployment infrastructure for Workspace Qdrant MCP with enterprise-grade security, monitoring, and automation.
 
 ## 📁 Directory Structure
