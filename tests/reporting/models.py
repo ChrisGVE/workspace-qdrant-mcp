@@ -23,6 +23,17 @@ class TestStatus(str, Enum):
     XPASSED = "xpassed"  # Unexpected pass
 
 
+class FailureCategory(str, Enum):
+    """Category of test failure based on error analysis."""
+
+    ASSERTION = "assertion"  # Assertion errors, value mismatches
+    TIMEOUT = "timeout"  # Timeout errors, hangs
+    SETUP_TEARDOWN = "setup_teardown"  # Fixture failures, cleanup errors
+    EXTERNAL_DEPENDENCY = "external_dependency"  # Network, database, service failures
+    RESOURCE_EXHAUSTION = "resource_exhaustion"  # OOM, disk space, file handles
+    UNKNOWN = "unknown"  # Unclassified errors
+
+
 class TestType(str, Enum):
     """Type of test."""
 
@@ -514,5 +525,192 @@ class TestRun:
             if data.get("coverage")
             else None,
             environment=data.get("environment", {}),
+            metadata=data.get("metadata", {}),
+        )
+
+
+@dataclass
+class FailurePattern:
+    """
+    A pattern of similar failures across multiple test executions.
+
+    Groups failures with similar error messages or characteristics.
+    """
+
+    pattern_id: str  # Unique identifier for this pattern
+    error_signature: str  # Normalized error signature (e.g., "AssertionError: expected X got Y")
+    category: FailureCategory  # Classification of failure type
+    occurrences: int  # Number of times this pattern occurred
+    affected_tests: List[str] = field(default_factory=list)  # Test case names
+    first_seen: Optional[datetime] = None  # When first observed
+    last_seen: Optional[datetime] = None  # When last observed
+
+    # Sample error details
+    sample_error_message: Optional[str] = None
+    sample_error_traceback: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for storage."""
+        return {
+            "pattern_id": self.pattern_id,
+            "error_signature": self.error_signature,
+            "category": self.category.value,
+            "occurrences": self.occurrences,
+            "affected_tests": self.affected_tests,
+            "first_seen": self.first_seen.isoformat() if self.first_seen else None,
+            "last_seen": self.last_seen.isoformat() if self.last_seen else None,
+            "sample_error_message": self.sample_error_message,
+            "sample_error_traceback": self.sample_error_traceback,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FailurePattern":
+        """Create from dictionary."""
+        return cls(
+            pattern_id=data["pattern_id"],
+            error_signature=data["error_signature"],
+            category=FailureCategory(data["category"]),
+            occurrences=data["occurrences"],
+            affected_tests=data.get("affected_tests", []),
+            first_seen=datetime.fromisoformat(data["first_seen"]) if data.get("first_seen") else None,
+            last_seen=datetime.fromisoformat(data["last_seen"]) if data.get("last_seen") else None,
+            sample_error_message=data.get("sample_error_message"),
+            sample_error_traceback=data.get("sample_error_traceback"),
+        )
+
+
+@dataclass
+class FlakinessMetrics:
+    """
+    Metrics for test flakiness detection.
+
+    A test is considered flaky if it has inconsistent results across multiple runs
+    (i.e., sometimes passes, sometimes fails without code changes).
+    """
+
+    test_case_name: str  # Name of the test case
+    total_runs: int  # Total number of test executions analyzed
+    pass_count: int  # Number of passing executions
+    fail_count: int  # Number of failing executions
+    skip_count: int  # Number of skipped executions
+    error_count: int  # Number of errored executions
+
+    # Flakiness score: 0.0 (never flaky) to 100.0 (extremely flaky)
+    # Calculated as: (min(pass_count, fail_count) / total_runs) * 100
+    # Only non-zero if test has BOTH passes and failures
+    flakiness_score: float
+
+    # Pass rate percentage
+    pass_rate: float
+
+    # Failure analysis
+    failure_categories: Dict[str, int] = field(default_factory=dict)  # Category -> count
+    common_error_signatures: List[str] = field(default_factory=list)  # Most common errors
+
+    # Time window analyzed
+    first_run: Optional[datetime] = None
+    last_run: Optional[datetime] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for storage."""
+        return {
+            "test_case_name": self.test_case_name,
+            "total_runs": self.total_runs,
+            "pass_count": self.pass_count,
+            "fail_count": self.fail_count,
+            "skip_count": self.skip_count,
+            "error_count": self.error_count,
+            "flakiness_score": self.flakiness_score,
+            "pass_rate": self.pass_rate,
+            "failure_categories": self.failure_categories,
+            "common_error_signatures": self.common_error_signatures,
+            "first_run": self.first_run.isoformat() if self.first_run else None,
+            "last_run": self.last_run.isoformat() if self.last_run else None,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FlakinessMetrics":
+        """Create from dictionary."""
+        return cls(
+            test_case_name=data["test_case_name"],
+            total_runs=data["total_runs"],
+            pass_count=data["pass_count"],
+            fail_count=data["fail_count"],
+            skip_count=data["skip_count"],
+            error_count=data["error_count"],
+            flakiness_score=data["flakiness_score"],
+            pass_rate=data["pass_rate"],
+            failure_categories=data.get("failure_categories", {}),
+            common_error_signatures=data.get("common_error_signatures", []),
+            first_run=datetime.fromisoformat(data["first_run"]) if data.get("first_run") else None,
+            last_run=datetime.fromisoformat(data["last_run"]) if data.get("last_run") else None,
+        )
+
+
+@dataclass
+class FailureAnalysisReport:
+    """
+    Complete failure analysis report for a test run or set of runs.
+
+    Contains flakiness metrics, failure patterns, and categorized failures.
+    """
+
+    report_id: str  # Unique identifier
+    timestamp: datetime  # When analysis was performed
+
+    # Analysis scope
+    analyzed_runs: List[str] = field(default_factory=list)  # Run IDs analyzed
+    time_window_start: Optional[datetime] = None
+    time_window_end: Optional[datetime] = None
+
+    # Flakiness analysis
+    flaky_tests: List[FlakinessMetrics] = field(default_factory=list)  # Sorted by flakiness score
+    total_flaky_tests: int = 0
+
+    # Failure patterns
+    failure_patterns: List[FailurePattern] = field(default_factory=list)  # Sorted by occurrence
+    total_failure_patterns: int = 0
+
+    # Failure categories distribution
+    category_distribution: Dict[str, int] = field(default_factory=dict)  # Category -> count
+
+    # Trends
+    failure_trend: Optional[str] = None  # "increasing", "decreasing", "stable"
+
+    # Metadata
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for storage."""
+        return {
+            "report_id": self.report_id,
+            "timestamp": self.timestamp.isoformat(),
+            "analyzed_runs": self.analyzed_runs,
+            "time_window_start": self.time_window_start.isoformat() if self.time_window_start else None,
+            "time_window_end": self.time_window_end.isoformat() if self.time_window_end else None,
+            "flaky_tests": [f.to_dict() for f in self.flaky_tests],
+            "total_flaky_tests": self.total_flaky_tests,
+            "failure_patterns": [p.to_dict() for p in self.failure_patterns],
+            "total_failure_patterns": self.total_failure_patterns,
+            "category_distribution": self.category_distribution,
+            "failure_trend": self.failure_trend,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FailureAnalysisReport":
+        """Create from dictionary."""
+        return cls(
+            report_id=data["report_id"],
+            timestamp=datetime.fromisoformat(data["timestamp"]),
+            analyzed_runs=data.get("analyzed_runs", []),
+            time_window_start=datetime.fromisoformat(data["time_window_start"]) if data.get("time_window_start") else None,
+            time_window_end=datetime.fromisoformat(data["time_window_end"]) if data.get("time_window_end") else None,
+            flaky_tests=[FlakinessMetrics.from_dict(f) for f in data.get("flaky_tests", [])],
+            total_flaky_tests=data.get("total_flaky_tests", 0),
+            failure_patterns=[FailurePattern.from_dict(p) for p in data.get("failure_patterns", [])],
+            total_failure_patterns=data.get("total_failure_patterns", 0),
+            category_distribution=data.get("category_distribution", {}),
+            failure_trend=data.get("failure_trend"),
             metadata=data.get("metadata", {}),
         )
