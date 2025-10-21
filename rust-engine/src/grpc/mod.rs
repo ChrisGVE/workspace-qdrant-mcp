@@ -9,7 +9,7 @@ pub mod message_validation;
 pub mod security;
 
 // Modules only used in tests or not used at all
-#[cfg(any(test, feature = "test-utils"))]
+#[cfg(disabled)] // Disabled: uses removed proto services (document_processor_client, search_service_client, memory_service_client)
 pub mod client;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod service_discovery;
@@ -28,7 +28,7 @@ pub mod health_integration;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod transport;
 
-#[cfg(test)]
+#[cfg(disabled)] // Disabled: shared_test_utils uses removed proto services
 pub mod shared_test_utils;
 
 // Re-export types used by external binaries
@@ -38,5 +38,5 @@ pub use retry::RetryStrategy;
 #[allow(unused_imports)]
 pub use circuit_breaker::CircuitBreaker;
 
-#[cfg(test)]
-pub use shared_test_utils::*;
+//#[cfg(test)] // Disabled: shared_test_utils disabled
+//pub use shared_test_utils::*;
