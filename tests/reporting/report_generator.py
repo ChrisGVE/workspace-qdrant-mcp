@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Union
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from .failure_analyzer import FailureAnalyzer
 from .models import TestRun
 from .query import TestResultQuery
 from .storage import TestResultStorage
@@ -45,6 +46,7 @@ class ReportGenerator:
         """
         self.storage = storage or TestResultStorage()
         self.query = TestResultQuery(self.storage)
+        self.failure_analyzer = FailureAnalyzer(self.storage)
 
         # Set up Jinja2 environment
         if template_dir is None:
@@ -66,6 +68,7 @@ class ReportGenerator:
         output_path: Optional[Union[str, Path]] = None,
         include_charts: bool = True,
         include_trends: bool = True,
+        include_failure_analysis: bool = True,
         template_name: str = "report.html",
         custom_context: Optional[Dict[str, Any]] = None,
     ) -> str:
@@ -77,6 +80,7 @@ class ReportGenerator:
             output_path: Path to save HTML file (returns HTML string if None)
             include_charts: Include performance charts
             include_trends: Include trend analysis
+            include_failure_analysis: Include failure pattern analysis and flakiness detection
             template_name: Template file to use
             custom_context: Additional template context variables
 
@@ -93,7 +97,10 @@ class ReportGenerator:
 
         # Gather report data
         context = self._build_report_context(
-            test_run, include_charts=include_charts, include_trends=include_trends
+            test_run,
+            include_charts=include_charts,
+            include_trends=include_trends,
+            include_failure_analysis=include_failure_analysis,
         )
 
         # Add custom context
@@ -118,6 +125,7 @@ class ReportGenerator:
         output_path: Union[str, Path],
         include_charts: bool = True,
         include_trends: bool = True,
+        include_failure_analysis: bool = True,
         template_name: str = "report.html",
         custom_context: Optional[Dict[str, Any]] = None,
     ) -> Path:
@@ -129,6 +137,7 @@ class ReportGenerator:
             output_path: Path to save PDF file
             include_charts: Include performance charts
             include_trends: Include trend analysis
+            include_failure_analysis: Include failure pattern analysis and flakiness detection
             template_name: Template file to use
             custom_context: Additional template context variables
 
@@ -153,6 +162,7 @@ class ReportGenerator:
             output_path=None,
             include_charts=include_charts,
             include_trends=include_trends,
+            include_failure_analysis=include_failure_analysis,
             template_name=template_name,
             custom_context=custom_context,
         )
@@ -168,7 +178,11 @@ class ReportGenerator:
         return output_path
 
     def _build_report_context(
-        self, test_run: TestRun, include_charts: bool = True, include_trends: bool = True
+        self,
+        test_run: TestRun,
+        include_charts: bool = True,
+        include_trends: bool = True,
+        include_failure_analysis: bool = True,
     ) -> Dict[str, Any]:
         """
         Build template context from test run data.
@@ -177,6 +191,7 @@ class ReportGenerator:
             test_run: Test run to generate context for
             include_charts: Include chart data
             include_trends: Include trend data
+            include_failure_analysis: Include failure pattern analysis
 
         Returns:
             Template context dictionary
@@ -203,6 +218,7 @@ class ReportGenerator:
             "generated_at": datetime.now(),
             "include_charts": include_charts,
             "include_trends": include_trends,
+            "include_failure_analysis": include_failure_analysis,
             "has_coverage": test_run.coverage is not None,
         }
 
@@ -218,6 +234,26 @@ class ReportGenerator:
         # Add trend data if requested
         if include_trends:
             context["trend_data"] = self._generate_trend_data()
+
+        # Add failure analysis if requested
+        if include_failure_analysis:
+            failure_report = self.failure_analyzer.analyze_test_runs(
+                run_ids=[test_run.run_id],
+                min_flakiness_score=5.0,
+            )
+            context["failure_analysis"] = failure_report
+            context["has_failure_analysis"] = (
+                failure_report.total_flaky_tests > 0
+                or failure_report.total_failure_patterns > 0
+            )
+
+            # Save the failure analysis report
+            self.storage.save_failure_analysis_report(failure_report)
+
+            # Add failure analysis charts if charts enabled
+            if include_charts:
+                failure_charts = self._generate_failure_analysis_charts(failure_report)
+                context["chart_data"].update(failure_charts)
 
         return context
 
@@ -529,6 +565,139 @@ class ReportGenerator:
                 },
             }
             charts["file_coverage"] = file_coverage_chart
+
+        return charts
+
+    def _generate_failure_analysis_charts(self, failure_report) -> Dict[str, Any]:
+        """
+        Generate charts for failure analysis visualization.
+
+        Args:
+            failure_report: FailureAnalysisReport object
+
+        Returns:
+            Dictionary of Chart.js chart configurations
+        """
+        charts = {}
+
+        # Failure category distribution pie chart
+        if failure_report.category_distribution:
+            category_labels = list(failure_report.category_distribution.keys())
+            category_counts = list(failure_report.category_distribution.values())
+
+            category_chart = {
+                "type": "pie",
+                "data": {
+                    "labels": category_labels,
+                    "datasets": [
+                        {
+                            "data": category_counts,
+                            "backgroundColor": [
+                                "#ef4444",  # red
+                                "#f59e0b",  # amber
+                                "#8b5cf6",  # purple
+                                "#3b82f6",  # blue
+                                "#10b981",  # green
+                                "#6b7280",  # gray
+                            ],
+                        }
+                    ],
+                },
+                "options": {
+                    "responsive": True,
+                    "plugins": {
+                        "legend": {"position": "bottom"},
+                        "title": {"display": True, "text": "Failure Category Distribution"},
+                    },
+                },
+            }
+            charts["failure_categories"] = category_chart
+
+        # Flaky tests bar chart (top 10)
+        if failure_report.flaky_tests:
+            top_flaky = failure_report.flaky_tests[:10]
+            flaky_labels = [f.test_case_name.split("::")[-1] for f in top_flaky]  # Just test name
+            flaky_scores = [f.flakiness_score for f in top_flaky]
+
+            # Color based on severity
+            colors = [
+                "#ef4444" if score >= 40 else "#f59e0b" if score >= 20 else "#fbbf24"
+                for score in flaky_scores
+            ]
+
+            flaky_chart = {
+                "type": "bar",
+                "data": {
+                    "labels": flaky_labels,
+                    "datasets": [
+                        {
+                            "label": "Flakiness Score",
+                            "data": flaky_scores,
+                            "backgroundColor": colors,
+                        }
+                    ],
+                },
+                "options": {
+                    "responsive": True,
+                    "indexAxis": "y",  # Horizontal bar chart
+                    "scales": {"x": {"beginAtZero": True, "max": 100}},
+                    "plugins": {
+                        "legend": {"display": False},
+                        "title": {
+                            "display": True,
+                            "text": "Top 10 Flaky Tests (by Flakiness Score)",
+                        },
+                    },
+                },
+            }
+            charts["flaky_tests"] = flaky_chart
+
+        # Failure patterns bar chart (top 10)
+        if failure_report.failure_patterns:
+            top_patterns = failure_report.failure_patterns[:10]
+            pattern_labels = [
+                p.error_signature[:50] + "..." if len(p.error_signature) > 50 else p.error_signature
+                for p in top_patterns
+            ]
+            pattern_counts = [p.occurrences for p in top_patterns]
+
+            # Color by category
+            category_colors = {
+                "assertion": "#ef4444",
+                "timeout": "#f59e0b",
+                "setup_teardown": "#8b5cf6",
+                "external_dependency": "#3b82f6",
+                "resource_exhaustion": "#10b981",
+                "unknown": "#6b7280",
+            }
+            colors = [category_colors.get(p.category.value, "#6b7280") for p in top_patterns]
+
+            pattern_chart = {
+                "type": "bar",
+                "data": {
+                    "labels": pattern_labels,
+                    "datasets": [
+                        {
+                            "label": "Occurrences",
+                            "data": pattern_counts,
+                            "backgroundColor": colors,
+                        }
+                    ],
+                },
+                "options": {
+                    "responsive": True,
+                    "indexAxis": "y",  # Horizontal bar chart
+                    "scales": {"x": {"beginAtZero": True}},
+                    "plugins": {
+                        "legend": {"display": False},
+                        "title": {
+                            "display": True,
+                            "text": "Top 10 Failure Patterns (by Occurrence)",
+                        },
+                    },
+                },
+            }
+            charts["failure_patterns"] = pattern_chart
 
         return charts
 
