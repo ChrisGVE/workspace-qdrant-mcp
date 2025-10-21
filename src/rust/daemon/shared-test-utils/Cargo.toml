@@ -1,6 +1,6 @@
 [package]
 name = "shared-test-utils"
-version = "0.2.1-debug"
+version = "0.3.0"
 edition = "2021"
 authors = ["Christian C. Berclaz <christian.berclaz@mac.com>"]
 description = "Shared test utilities for workspace-qdrant-mcp Rust workspace"
