@@ -117,7 +117,7 @@ async fn proptest_file_size_limits() {
 
 #[tokio::test]
 async fn proptest_invalid_utf8_handling() {
-    proptest!(|invalid_bytes in prop::collection::vec(0x80u8..0xFFu8, 1..1000)| {
+    proptest!(|(invalid_bytes in prop::collection::vec(0x80u8..0xFFu8, 1..1000))| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let temp_dir = TempDir::new().unwrap();
@@ -181,7 +181,7 @@ async fn proptest_concurrent_file_operations() {
 #[tokio::test]
 async fn proptest_memory_bounds_validation() {
     // Test memory usage with various file sizes
-    proptest!(|size in 0usize..10_000_000usize| {
+    proptest!(|(size in 0usize..10_000_000usize)| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let temp_dir = TempDir::new().unwrap();
@@ -246,7 +246,7 @@ async fn proptest_file_permission_edge_cases() {
 
 #[tokio::test]
 async fn proptest_document_processor_edge_cases() {
-    proptest!(|paths in prop::collection::vec(random_filename(), 1..5)| {
+    proptest!(|(paths in prop::collection::vec(random_filename(), 1..5))| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let processor = DocumentProcessor::test_instance();
@@ -273,7 +273,7 @@ async fn proptest_document_processor_edge_cases() {
 
 #[tokio::test]
 async fn proptest_path_sanitization() {
-    proptest!(|path_components in prop::collection::vec("[\\PC]{1,20}", 1..10)| {
+    proptest!(|(path_components in prop::collection::vec("[\\PC]{1,20}", 1..10))| {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let temp_dir = TempDir::new().unwrap();
