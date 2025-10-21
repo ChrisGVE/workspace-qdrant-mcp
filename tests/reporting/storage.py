@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 from .models import (
     CoverageMetrics,
+    FailureAnalysisReport,
     FileCoverage,
     PerformanceMetrics,
     TestCase,
@@ -194,6 +195,31 @@ class TestResultStorage:
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_file_coverage_path ON file_coverage(file_path)"
+            )
+
+            # Failure analysis reports table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS failure_analysis_reports (
+                    report_id TEXT PRIMARY KEY,
+                    timestamp TEXT NOT NULL,
+                    analyzed_runs TEXT NOT NULL,  -- JSON array of run IDs
+                    time_window_start TEXT,
+                    time_window_end TEXT,
+                    flaky_tests TEXT NOT NULL,  -- JSON array of FlakinessMetrics
+                    total_flaky_tests INTEGER DEFAULT 0,
+                    failure_patterns TEXT NOT NULL,  -- JSON array of FailurePattern
+                    total_failure_patterns INTEGER DEFAULT 0,
+                    category_distribution TEXT,  -- JSON object
+                    failure_trend TEXT,
+                    metadata TEXT,  -- JSON
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_failure_reports_timestamp ON failure_analysis_reports(timestamp)"
             )
 
             conn.commit()
@@ -648,3 +674,102 @@ class TestResultStorage:
             stats["average_success_rate"] = avg_success["avg_rate"] or 0.0
 
             return stats
+
+    def save_failure_analysis_report(self, report: FailureAnalysisReport) -> None:
+        """
+        Save a failure analysis report.
+
+        Args:
+            report: FailureAnalysisReport to save
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO failure_analysis_reports
+                (report_id, timestamp, analyzed_runs, time_window_start, time_window_end,
+                 flaky_tests, total_flaky_tests, failure_patterns, total_failure_patterns,
+                 category_distribution, failure_trend, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    report.report_id,
+                    report.timestamp.isoformat(),
+                    json.dumps(report.analyzed_runs),
+                    report.time_window_start.isoformat() if report.time_window_start else None,
+                    report.time_window_end.isoformat() if report.time_window_end else None,
+                    json.dumps([f.to_dict() for f in report.flaky_tests]),
+                    report.total_flaky_tests,
+                    json.dumps([p.to_dict() for p in report.failure_patterns]),
+                    report.total_failure_patterns,
+                    json.dumps(report.category_distribution),
+                    report.failure_trend,
+                    json.dumps(report.metadata),
+                ),
+            )
+            conn.commit()
+
+    def get_failure_analysis_report(self, report_id: str) -> Optional[FailureAnalysisReport]:
+        """
+        Retrieve a failure analysis report by ID.
+
+        Args:
+            report_id: Report ID
+
+        Returns:
+            FailureAnalysisReport or None if not found
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            row = conn.execute(
+                "SELECT * FROM failure_analysis_reports WHERE report_id = ?",
+                (report_id,)
+            ).fetchone()
+
+            if not row:
+                return None
+
+            return FailureAnalysisReport.from_dict({
+                "report_id": row["report_id"],
+                "timestamp": row["timestamp"],
+                "analyzed_runs": json.loads(row["analyzed_runs"]),
+                "time_window_start": row["time_window_start"],
+                "time_window_end": row["time_window_end"],
+                "flaky_tests": json.loads(row["flaky_tests"]),
+                "total_flaky_tests": row["total_flaky_tests"],
+                "failure_patterns": json.loads(row["failure_patterns"]),
+                "total_failure_patterns": row["total_failure_patterns"],
+                "category_distribution": json.loads(row["category_distribution"]) if row["category_distribution"] else {},
+                "failure_trend": row["failure_trend"],
+                "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
+            })
+
+    def list_failure_analysis_reports(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict[str, Any]]:
+        """
+        List failure analysis reports.
+
+        Args:
+            limit: Maximum number of reports to return
+            offset: Offset for pagination
+
+        Returns:
+            List of report summaries
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            query = """
+                SELECT report_id, timestamp, total_flaky_tests, total_failure_patterns,
+                       failure_trend, time_window_start, time_window_end
+                FROM failure_analysis_reports
+                ORDER BY timestamp DESC
+                LIMIT ? OFFSET ?
+            """
+
+            rows = conn.execute(query, (limit, offset)).fetchall()
+
+            return [dict(row) for row in rows]
