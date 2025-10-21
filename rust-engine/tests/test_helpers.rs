@@ -23,21 +23,44 @@ pub fn test_server_config() -> ServerConfig {
 
 /// Create a minimal SecurityConfig for testing
 pub fn test_security_config() -> SecurityConfig {
+    use std::collections::HashMap;
     SecurityConfig {
         tls: TlsConfig {
             enabled: false,
-            cert_path: None,
-            key_path: None,
-            ca_cert_path: None,
+            cert_file: None,
+            key_file: None,
+            ca_cert_file: None,
+            client_cert_verification: ClientCertVerification::None,
         },
-        jwt: JwtConfig {
-            enabled: false,
+        auth: AuthConfig {
+            jwt: JwtConfig {
+                secret_or_key_file: "test_secret".to_string(),
+                expiration_secs: 3600,
+            },
+            api_key: ApiKeyConfig {
+                enabled: false,
+                key_permissions: HashMap::new(),
+                valid_keys: vec![],
+                header_name: "X-API-Key".to_string(),
+            },
+            enable_service_auth: false,
+            authorization: AuthorizationConfig {
+                enabled: false,
+                service_permissions: ServicePermissions {
+                    document_processor: vec![],
+                    search_service: vec![],
+                    memory_service: vec![],
+                    system_service: vec![],
+                },
+                default_permissions: vec![],
+            },
         },
-        api_key: ApiKeyConfig {
+        audit: SecurityAuditConfig {
             enabled: false,
-        },
-        authorization: AuthorizationConfig {
-            enabled: false,
+            log_auth_events: false,
+            log_auth_failures: false,
+            log_rate_limit_events: false,
+            log_suspicious_patterns: false,
         },
     }
 }
@@ -121,7 +144,9 @@ pub fn test_metrics_config() -> MetricsConfig {
 /// Create a minimal DatabaseConfig for testing
 pub fn test_database_config() -> DatabaseConfig {
     DatabaseConfig {
-        url: "sqlite://test.db".to_string(),
         max_connections: 10,
+        sqlite_path: "test.db".to_string(),
+        connection_timeout_secs: 30,
+        enable_wal: true,
     }
 }
