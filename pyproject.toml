@@ -91,6 +91,9 @@ dev = [
   "types-PyYAML>=6.0.0",
   "types-Markdown>=3.4.0",
   "types-psutil>=5.8.0",
+  # Test reporting
+  "matplotlib>=3.7.0",
+  "weasyprint>=60.0",
 ]
 full = ["markdown>=3.4.0", "PyYAML>=6.0.0", "pypdf>=4.0.0"]
 tokenizers = [
