@@ -1,0 +1,163 @@
+name: Performance Regression Detection
+
+on:
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmark-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:latest
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd "curl -f http://localhost:6333/health || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Fetch all history for baseline comparison
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install dependencies
+        run: |
+          uv sync --dev
+
+      - name: Download baseline benchmarks
+        id: download-baseline
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: benchmark-baseline
+          path: .benchmarks/
+
+      - name: Run benchmarks
+        env:
+          QDRANT_URL: http://localhost:6333
+        run: |
+          # Run all benchmarks and save results
+          uv run pytest tests/benchmarks/ \
+            --benchmark-only \
+            --benchmark-json=.benchmarks/current.json \
+            --benchmark-columns=min,max,mean,median,stddev \
+            --benchmark-warmup=on \
+            -v
+
+      - name: Detect regressions
+        if: steps.download-baseline.outcome == 'success'
+        id: regression-check
+        continue-on-error: true
+        run: |
+          # Run regression detection
+          uv run python tests/benchmarks/regression_detection.py \
+            --baseline .benchmarks/baseline.json \
+            --current .benchmarks/current.json \
+            --threshold 10.0 \
+            --significance 0.05 \
+            --test-method welch \
+            --export .benchmarks/regression-report.json \
+            --fail-on-regression
+
+      - name: Comment PR with results
+        if: github.event_name == 'pull_request' && steps.download-baseline.outcome == 'success'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+
+            // Read regression report
+            let reportContent = '## Performance Regression Report\n\n';
+
+            try {
+              const report = JSON.parse(fs.readFileSync('.benchmarks/regression-report.json', 'utf8'));
+
+              reportContent += `**Summary:**\n`;
+              reportContent += `- Total Benchmarks: ${report.total_benchmarks}\n`;
+              reportContent += `- Regressions: ${report.summary.regressions} ⚠️\n`;
+              reportContent += `- Improvements: ${report.summary.improvements} ✅\n`;
+              reportContent += `- Stable: ${report.summary.stable} ✓\n`;
+              reportContent += `- Threshold: ${report.threshold_percent}%\n\n`;
+
+              if (report.regressions.length > 0) {
+                reportContent += `### Regressions ⚠️\n\n`;
+                reportContent += `| Benchmark | Baseline | Current | Change | P-value |\n`;
+                reportContent += `|-----------|----------|---------|--------|--------|\n`;
+
+                report.regressions.forEach(reg => {
+                  const baselineMs = (reg.baseline_mean * 1000).toFixed(2);
+                  const currentMs = (reg.current_mean * 1000).toFixed(2);
+                  const change = reg.percent_change.toFixed(2);
+                  const pValue = reg.p_value ? reg.p_value.toFixed(4) : 'N/A';
+
+                  reportContent += `| ${reg.name} | ${baselineMs}ms | ${currentMs}ms | +${change}% | ${pValue} |\n`;
+                });
+
+                reportContent += `\n`;
+              }
+
+              if (report.improvements.length > 0) {
+                reportContent += `### Improvements ✅\n\n`;
+                reportContent += `| Benchmark | Baseline | Current | Change | P-value |\n`;
+                reportContent += `|-----------|----------|---------|--------|--------|\n`;
+
+                report.improvements.forEach(imp => {
+                  const baselineMs = (imp.baseline_mean * 1000).toFixed(2);
+                  const currentMs = (imp.current_mean * 1000).toFixed(2);
+                  const change = Math.abs(imp.percent_change).toFixed(2);
+                  const pValue = imp.p_value ? imp.p_value.toFixed(4) : 'N/A';
+
+                  reportContent += `| ${imp.name} | ${baselineMs}ms | ${currentMs}ms | -${change}% | ${pValue} |\n`;
+                });
+              }
+
+            } catch (error) {
+              reportContent += `Error reading regression report: ${error.message}\n`;
+            }
+
+            // Post comment
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: reportContent
+            });
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: .benchmarks/
+          retention-days: 30
+
+      - name: Update baseline (main branch only)
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-baseline
+          path: .benchmarks/current.json
+          retention-days: 90
+
+      - name: Fail on regressions
+        if: steps.regression-check.outcome == 'failure'
+        run: |
+          echo "Performance regressions detected!"
+          echo "Review the regression report above."
+          exit 1

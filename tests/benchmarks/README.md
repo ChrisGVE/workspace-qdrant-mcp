@@ -4,6 +4,30 @@ This directory contains performance benchmarks for workspace-qdrant-mcp componen
 
 ## Benchmark Categories
 
+### File Ingestion Benchmarks (`benchmark_file_ingestion.py`)
+
+Measures file parsing and ingestion throughput across various file sizes and types.
+
+See: [File Ingestion Benchmarks Documentation](./README_FILE_INGESTION.md) (if exists)
+
+### Search Latency Benchmarks (`benchmark_search_latency.py`)
+
+Measures search operation latency with percentile metrics (p50, p95, p99).
+
+See: [Search Latency Benchmarks Documentation](./README_SEARCH_LATENCY.md)
+
+### Memory Usage Benchmarks (`benchmark_memory_usage.py`)
+
+Profiles memory consumption and detects memory leaks across workload scenarios.
+
+See: [Memory Profiling Documentation](./README_MEMORY_PROFILING.md)
+
+### gRPC Overhead Benchmarks (`benchmark_grpc_overhead.py`)
+
+Measures gRPC communication overhead between Python client and Rust daemon.
+
+See: [gRPC Overhead Documentation](./README_GRPC_OVERHEAD.md)
+
 ### Context Injection Benchmarks (`benchmark_context_injection.py`)
 
 Measures performance of the LLM Context Injection System:
@@ -27,6 +51,34 @@ Measures performance of the LLM Context Injection System:
 5. **End-to-End Pipeline** (4 benchmarks)
    - Complete injection pipeline with varying context sizes
    - Tight budget scenarios
+
+### Database Query Benchmarks (`benchmark_database_queries.py`)
+
+Measures SQLite database query performance and optimization effectiveness.
+
+See: [Database Benchmarks Documentation](./README_DATABASE_BENCHMARKS.md)
+
+### Concurrent Operation Benchmarks (`benchmark_concurrent_operations.py`) ⭐ NEW
+
+Measures performance under concurrent load with contention analysis:
+
+1. **Concurrent File Ingestion** (4 benchmarks)
+   - 2, 5, 10, 20 files parsed simultaneously
+   - Throughput and scalability measurement
+
+2. **Concurrent Search Operations** (4 benchmarks)
+   - 2, 5, 10, 20 queries executing simultaneously
+   - Connection pool and resource contention analysis
+
+3. **Mixed Workloads** (2 benchmarks)
+   - Combined ingestion + search operations
+   - Real-world usage pattern simulation
+
+4. **Contention Analysis** (4 benchmarks)
+   - Sequential vs concurrent comparison
+   - Contention factor calculation (perfect scaling = 1.0)
+
+See: [Concurrent Benchmarks Documentation](./README_CONCURRENT_BENCHMARKS.md)
 
 ## Running Benchmarks
 
@@ -128,6 +180,41 @@ uv run pytest-benchmark list
 # Compare specific saved results
 uv run pytest-benchmark compare 0001 0002
 ```
+
+## Regression Detection ⭐ NEW
+
+Advanced regression detection with statistical significance testing:
+
+```bash
+# Establish baseline
+uv run pytest tests/benchmarks/ --benchmark-only --benchmark-save=baseline
+
+# Run current benchmarks
+uv run pytest tests/benchmarks/ --benchmark-only --benchmark-json=current.json
+
+# Detect regressions with statistical tests
+uv run python tests/benchmarks/regression_detection.py \
+  --baseline .benchmarks/baseline.json \
+  --current current.json \
+  --threshold 5.0 \
+  --fail-on-regression
+
+# Export detailed report
+uv run python tests/benchmarks/regression_detection.py \
+  --baseline .benchmarks/baseline.json \
+  --current current.json \
+  --threshold 5.0 \
+  --export regression_report.json
+```
+
+Features:
+- Statistical significance testing (Welch's t-test, Mann-Whitney U test)
+- Configurable regression thresholds (percentage-based)
+- Comprehensive reporting (regressions, improvements, stable)
+- JSON export for historical tracking
+- CI/CD integration with exit codes
+
+See: [Regression Detection Documentation](./README_REGRESSION_DETECTION.md)
 
 ## Interpreting Results
 
