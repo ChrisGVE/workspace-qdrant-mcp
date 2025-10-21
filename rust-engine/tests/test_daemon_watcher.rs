@@ -71,7 +71,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_new_with_valid_config() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let result = FileWatcher::new(&config, processor).await;
         assert!(result.is_ok());
@@ -87,7 +87,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_new_disabled() {
         let config = create_disabled_config();
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let result = FileWatcher::new(&config, processor).await;
         assert!(result.is_ok());
@@ -102,7 +102,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_new_custom_config() {
         let config = create_custom_config(2000, 50, false);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let result = FileWatcher::new(&config, processor).await;
         assert!(result.is_ok());
@@ -118,7 +118,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_debug_implementation() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let watcher = FileWatcher::new(&config, processor).await.unwrap();
         let debug_output = format!("{:?}", watcher);
@@ -133,7 +133,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_start_when_enabled() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let watcher = FileWatcher::new(&config, processor).await.unwrap();
         let result = watcher.start().await;
@@ -144,7 +144,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_start_when_disabled() {
         let config = create_disabled_config();
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let watcher = FileWatcher::new(&config, processor).await.unwrap();
         let result = watcher.start().await;
@@ -155,7 +155,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_stop_after_start() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let watcher = FileWatcher::new(&config, processor).await.unwrap();
 
@@ -166,7 +166,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_stop_without_start() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let watcher = FileWatcher::new(&config, processor).await.unwrap();
         let result = watcher.stop().await;
@@ -177,7 +177,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_multiple_start_stop_cycles() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let watcher = FileWatcher::new(&config, processor).await.unwrap();
 
@@ -191,7 +191,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_concurrent_start_stop() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let watcher = Arc::new(FileWatcher::new(&config, processor).await.unwrap());
 
@@ -215,7 +215,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_watch_valid_directory() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -227,7 +227,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_watch_directory_as_string() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
@@ -238,7 +238,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_watch_directory_as_pathbuf() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -251,7 +251,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_watch_nonexistent_directory() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let nonexistent_path = "/this/path/does/not/exist/anywhere";
@@ -265,7 +265,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_watch_file_instead_of_directory() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_file = NamedTempFile::new().unwrap();
@@ -278,7 +278,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_watch_multiple_directories() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir1 = TempDir::new().unwrap();
@@ -293,7 +293,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_watch_same_directory_multiple_times() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -308,7 +308,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_unwatch_valid_directory() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -320,7 +320,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_unwatch_directory_as_string() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
@@ -331,7 +331,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_unwatch_directory_as_pathbuf() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -344,7 +344,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_unwatch_without_watch() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -357,7 +357,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_unwatch_nonexistent_directory() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let nonexistent_path = "/this/path/does/not/exist";
@@ -369,7 +369,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_unwatch_multiple_directories() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir1 = TempDir::new().unwrap();
@@ -390,7 +390,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_unwatch_same_directory_multiple_times() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -407,7 +407,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_full_lifecycle() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir1 = TempDir::new().unwrap();
@@ -425,7 +425,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_watch_operations_without_start() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -438,7 +438,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_operations_after_stop() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir = TempDir::new().unwrap();
@@ -461,7 +461,7 @@ mod watcher_tests {
             ignore_patterns: vec![],
             recursive: true,
         };
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let result = FileWatcher::new(&config, processor).await;
         assert!(result.is_ok());
@@ -481,7 +481,7 @@ mod watcher_tests {
             ignore_patterns: vec!["*".to_string(); 1000], // Large ignore list
             recursive: false,
         };
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let result = FileWatcher::new(&config, processor).await;
         assert!(result.is_ok());
@@ -496,7 +496,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_processor_arc_sharing() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
         let initial_strong_count = Arc::strong_count(&processor);
 
         let _watcher = FileWatcher::new(&config, Arc::clone(&processor)).await.unwrap();
@@ -508,7 +508,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_multiple_instances_shared_processor() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
         let initial_strong_count = Arc::strong_count(&processor);
 
         let _watcher1 = FileWatcher::new(&config, Arc::clone(&processor)).await.unwrap();
@@ -523,7 +523,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_empty_path() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
@@ -537,7 +537,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_root_path() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
@@ -551,7 +551,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_relative_path() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
@@ -565,7 +565,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_path_with_special_characters() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
@@ -601,7 +601,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_concurrent_operations() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let watcher = Arc::new(tokio::sync::Mutex::new(
             FileWatcher::new(&config, processor).await.unwrap()
@@ -653,7 +653,7 @@ mod watcher_tests {
     async fn test_file_watcher_with_cloned_config() {
         let config = create_test_config(true);
         let config_clone = config.clone();
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let watcher1 = FileWatcher::new(&config, Arc::clone(&processor)).await.unwrap();
         let watcher2 = FileWatcher::new(&config_clone, processor).await.unwrap();
@@ -669,7 +669,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_operations_always_succeed() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
@@ -696,7 +696,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_many_directories() {
         let config = create_custom_config(50, 1000, true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
 
@@ -717,7 +717,7 @@ mod watcher_tests {
     #[tokio::test]
     async fn test_file_watcher_rapid_operations() {
         let config = create_test_config(true);
-        let processor = create_test_processor();
+        let processor = create_test_processor().await;
 
         let mut watcher = FileWatcher::new(&config, processor).await.unwrap();
         let temp_dir = TempDir::new().unwrap();
