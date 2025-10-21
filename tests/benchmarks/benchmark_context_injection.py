@@ -161,16 +161,13 @@ class ContextInjectionBenchmarkFixtures:
             content = f"{content} (Rule {i + 1})"
 
             rule = MemoryRule(
-                id=f"rule_{i}",
                 rule=content,
                 category=MemoryCategory.PREFERENCE
                 if i % 2 == 0
                 else MemoryCategory.BEHAVIOR,
                 authority=AuthorityLevel.DEFAULT
                 if i % 3 == 0
-                else AuthorityLevel.SUGGESTION,
-                scope=[],
-                tags=[f"tag_{i % 3}"],
+                else AuthorityLevel.DEFAULT,  # Only ABSOLUTE and DEFAULT are valid
             )
             rules.append(rule)
 
