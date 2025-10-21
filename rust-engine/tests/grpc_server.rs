@@ -32,28 +32,17 @@ fn create_test_server_config() -> ServerConfig {
 fn create_test_security_config() -> SecurityConfig {
     SecurityConfig {
         tls: TlsConfig {
+            enabled: false,
             cert_file: None,
             key_file: None,
             ca_cert_file: None,
-            enable_mtls: false,
             client_cert_verification: ClientCertVerification::None,
-            supported_protocols: vec!["TLSv1.2".to_string(), "TLSv1.3".to_string()],
-            cipher_suites: vec![],
         },
         auth: AuthConfig {
             enable_service_auth: false,
             jwt: create_test_jwt_config(),
             api_key: create_test_api_key_config(),
             authorization: create_test_authorization_config(),
-        },
-        rate_limiting: RateLimitConfig {
-            enabled: false,
-            requests_per_second: 1000,
-            burst_capacity: 100,
-            connection_pool_limits: create_test_connection_pool_limits(),
-            queue_depth_limit: 1000,
-            memory_protection: create_test_memory_protection_config(),
-            resource_protection: create_test_resource_protection_config(),
         },
         audit: create_test_audit_config(),
     }
@@ -63,18 +52,12 @@ fn create_test_transport_config() -> TransportConfig {
     TransportConfig {
         unix_socket: UnixSocketConfig {
             enabled: false,
+            path: None,
             socket_path: "/tmp/test.sock".to_string(),
             permissions: 0o666,
+            cleanup_on_exit: true,
             prefer_for_local: false,
         },
-        local_optimization: LocalOptimizationConfig {
-            enabled: true,
-            use_large_buffers: false,
-            local_buffer_size: 4096,
-            memory_efficient_serialization: true,
-            reduce_latency: true,
-        },
-        transport_strategy: TransportStrategy::Auto,
     }
 }
 
@@ -85,7 +68,7 @@ fn create_test_message_config() -> MessageConfig {
         enable_size_validation: true,
         max_frame_size: 16384,
         initial_window_size: 65536,
-        service_limits: ServiceMessageLimits {
+        service_limits: ServiceLimits {
             document_processor: ServiceLimit {
                 max_incoming: 4194304,
                 max_outgoing: 4194304,
@@ -108,31 +91,26 @@ fn create_test_message_config() -> MessageConfig {
             },
         },
         monitoring: MessageMonitoringConfig {
-            enable_detailed_monitoring: false,
             oversized_alert_threshold: 0.9,
-            enable_realtime_metrics: false,
-            metrics_interval_secs: 60,
         },
     }
 }
 
 fn create_test_compression_config() -> CompressionConfig {
     CompressionConfig {
+        enabled: false,
         enable_gzip: false,
         compression_threshold: 1024,
         compression_level: 6,
-        enable_streaming_compression: false,
         enable_compression_monitoring: false,
         adaptive: AdaptiveCompressionConfig {
             enable_adaptive: false,
             text_compression_level: 6,
             binary_compression_level: 3,
             structured_compression_level: 6,
-            max_compression_time_ms: 100,
         },
         performance: CompressionPerformanceConfig {
             enable_ratio_tracking: false,
-            poor_ratio_threshold: 0.1,
             enable_time_monitoring: false,
             slow_compression_threshold_ms: 1000,
             enable_failure_alerting: false,
@@ -142,6 +120,7 @@ fn create_test_compression_config() -> CompressionConfig {
 
 fn create_test_streaming_config() -> StreamingConfig {
     StreamingConfig {
+        enabled: true,
         enable_server_streaming: true,
         enable_client_streaming: true,
         max_concurrent_streams: 100,
@@ -149,55 +128,50 @@ fn create_test_streaming_config() -> StreamingConfig {
         stream_timeout_secs: 300,
         enable_flow_control: true,
         progress: StreamProgressConfig {
+            enabled: false,
             enable_progress_tracking: false,
             progress_update_interval_ms: 1000,
             enable_progress_callbacks: false,
             progress_threshold: 1048576,
         },
         health: StreamHealthConfig {
+            enabled: false,
             enable_health_monitoring: false,
             health_check_interval_secs: 30,
             enable_auto_recovery: false,
-            max_recovery_attempts: 3,
-            recovery_backoff_multiplier: 2.0,
-            initial_recovery_delay_ms: 1000,
         },
-        large_operations: LargeOperationStreamConfig {
-            enable_large_document_streaming: true,
+        large_operations: LargeOperationConfig {
             large_operation_chunk_size: 65536,
-            enable_bulk_streaming: false,
-            max_streaming_memory: 67108864, // 64MB
-            enable_bidirectional_optimization: false,
         },
     }
 }
 
 fn create_test_jwt_config() -> JwtConfig {
     JwtConfig {
-        secret_key: "test-secret".to_string(),
-        token_expiry_secs: 3600,
-        issuer: "test-issuer".to_string(),
-        audience: vec!["test-audience".to_string()],
-        algorithm: "HS256".to_string(),
+        secret_or_key_file: "test-secret".to_string(),
+        expiration_secs: 3600,
     }
 }
 
 fn create_test_api_key_config() -> ApiKeyConfig {
     ApiKeyConfig {
-        keys: vec![],
+        enabled: false,
+        valid_keys: vec![],
+        key_permissions: std::collections::HashMap::new(),
         header_name: "X-API-Key".to_string(),
-        enable_key_rotation: false,
-        key_expiry_days: 365,
     }
 }
 
 fn create_test_authorization_config() -> AuthorizationConfig {
     AuthorizationConfig {
-        enable_rbac: false,
+        enabled: false,
         default_permissions: vec![],
-        service_permissions: std::collections::HashMap::new(),
-        admin_roles: vec!["admin".to_string()],
-        guest_permissions: vec!["read".to_string()],
+        service_permissions: ServicePermissions {
+            document_processor: vec![],
+            search_service: vec![],
+            memory_service: vec![],
+            system_service: vec![],
+        },
     }
 }
 
@@ -230,15 +204,13 @@ fn create_test_resource_protection_config() -> ResourceProtectionConfig {
     }
 }
 
-fn create_test_audit_config() -> AuditConfig {
-    AuditConfig {
+fn create_test_audit_config() -> SecurityAuditConfig {
+    SecurityAuditConfig {
         enabled: false,
-        log_successful_requests: false,
-        log_failed_requests: true,
-        audit_file_path: "/tmp/audit.log".to_string(),
-        enable_audit_rotation: false,
-        max_audit_file_size: 10485760, // 10MB
-        retention_days: 30,
+        log_auth_events: false,
+        log_auth_failures: true,
+        log_rate_limit_events: false,
+        log_suspicious_patterns: false,
     }
 }
 
