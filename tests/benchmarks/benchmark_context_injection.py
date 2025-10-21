@@ -88,9 +88,7 @@ class ContextInjectionBenchmarkFixtures:
         categories = [
             MemoryCategory.PREFERENCE,
             MemoryCategory.BEHAVIOR,
-            MemoryCategory.KNOWLEDGE,
-            MemoryCategory.CONTEXT,
-            MemoryCategory.AGENT_LIBRARY,
+            MemoryCategory.AGENT,
         ]
 
         authorities = [
@@ -161,13 +159,12 @@ class ContextInjectionBenchmarkFixtures:
             content = f"{content} (Rule {i + 1})"
 
             rule = MemoryRule(
+                id=f"rule_{i}",
+                category=MemoryCategory.PREFERENCE if i % 2 == 0 else MemoryCategory.BEHAVIOR,
+                name=f"Rule {i + 1}",
                 rule=content,
-                category=MemoryCategory.PREFERENCE
-                if i % 2 == 0
-                else MemoryCategory.BEHAVIOR,
-                authority=AuthorityLevel.DEFAULT
-                if i % 3 == 0
-                else AuthorityLevel.DEFAULT,  # Only ABSOLUTE and DEFAULT are valid
+                authority=AuthorityLevel.DEFAULT if i % 3 == 0 else AuthorityLevel.ABSOLUTE,
+                scope=[],
             )
             rules.append(rule)
 
