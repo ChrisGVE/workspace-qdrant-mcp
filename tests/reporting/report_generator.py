@@ -15,8 +15,10 @@ from jinja2 import Environment, FileSystemLoader, select_autoescape
 
 from .failure_analyzer import FailureAnalyzer
 from .models import TestRun
+from .performance_dashboard import PerformanceDashboard
 from .query import TestResultQuery
 from .storage import TestResultStorage
+from .trend_analyzer import TrendAnalyzer
 
 
 class ReportGenerator:
@@ -47,6 +49,8 @@ class ReportGenerator:
         self.storage = storage or TestResultStorage()
         self.query = TestResultQuery(self.storage)
         self.failure_analyzer = FailureAnalyzer(self.storage)
+        self.trend_analyzer = TrendAnalyzer(self.storage)
+        self.dashboard = PerformanceDashboard(self.storage, self.trend_analyzer)
 
         # Set up Jinja2 environment
         if template_dir is None:
@@ -177,6 +181,87 @@ class ReportGenerator:
 
         return output_path
 
+    def generate_dashboard_report(
+        self,
+        run_id: str,
+        output_path: Optional[Union[str, Path]] = None,
+        time_windows: Optional[List[int]] = None,
+        template_name: str = "dashboard.html",
+        custom_context: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """
+        Generate executive dashboard HTML report.
+
+        Args:
+            run_id: Test run ID to generate dashboard for
+            output_path: Path to save HTML file (returns HTML string if None)
+            time_windows: List of time windows in days (default: [7, 30, 90])
+            template_name: Template file to use
+            custom_context: Additional template context variables
+
+        Returns:
+            HTML content as string
+
+        Raises:
+            ValueError: If test run not found
+        """
+        # Retrieve test run
+        test_run = self.storage.get_test_run(run_id)
+        if not test_run:
+            raise ValueError(f"Test run not found: {run_id}")
+
+        # Generate executive summary
+        executive_summary = self.dashboard.generate_executive_summary(
+            test_run, include_trends=True
+        )
+
+        # Generate health indicators
+        health_indicators = self.dashboard.generate_health_indicators(test_run)
+
+        # Generate dashboard charts
+        dashboard_charts = self.dashboard.generate_dashboard_charts(
+            test_run, time_windows=time_windows
+        )
+
+        # Build context
+        context = {
+            "run": test_run,
+            "executive_summary": executive_summary,
+            "health_indicators": health_indicators,
+            "dashboard_charts": dashboard_charts,
+            "generated_at": datetime.now(),
+        }
+
+        # Add custom context
+        if custom_context:
+            context.update(custom_context)
+
+        # Render template (fallback to regular report if dashboard template doesn't exist)
+        try:
+            template = self.env.get_template(template_name)
+        except Exception:
+            # Dashboard template doesn't exist, use regular report with dashboard data
+            template = self.env.get_template("report.html")
+            # Add dashboard data to regular report context
+            context.update(
+                self._build_report_context(
+                    test_run,
+                    include_charts=True,
+                    include_trends=True,
+                    include_failure_analysis=True,
+                )
+            )
+
+        html_content = template.render(**context)
+
+        # Save to file if path provided
+        if output_path:
+            output_path = Path(output_path)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(html_content, encoding="utf-8")
+
+        return html_content
+
     def _build_report_context(
         self,
         test_run: TestRun,
@@ -234,6 +319,17 @@ class ReportGenerator:
         # Add trend data if requested
         if include_trends:
             context["trend_data"] = self._generate_trend_data()
+            # Add executive summary and health indicators
+            context["executive_summary"] = self.dashboard.generate_executive_summary(
+                test_run, include_trends=True
+            )
+            context["health_indicators"] = self.dashboard.generate_health_indicators(
+                test_run
+            )
+            # Add dashboard charts
+            context["dashboard_charts"] = self.dashboard.generate_dashboard_charts(
+                test_run, time_windows=[7, 30, 90]
+            )
 
         # Add failure analysis if requested
         if include_failure_analysis:
