@@ -120,15 +120,16 @@ def mock_stats_collector():
     """Mock statistics collector providing queue metrics."""
     stats = QueueStatistics(
         timestamp=datetime.now(timezone.utc),
-        queue_type="ingestion_queue",
         queue_size=1000,
         processing_rate=50.0,
-        failure_rate=0.02,
-        success_rate=0.98,
-        items_processed=5000,
-        items_failed=100,
-        items_succeeded=4900,
-        avg_processing_time_ms=120.0,
+        success_rate=0.98,  # As decimal
+        failure_rate=0.02,  # As decimal
+        avg_processing_time=120.0,
+        items_added_rate=60.0,
+        items_removed_rate=50.0,
+        priority_distribution={},
+        retry_count=5,
+        error_count=20,
     )
 
     collector = AsyncMock(spec=QueueStatisticsCollector)
