@@ -271,7 +271,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="Workspace Qdrant MCP - Claude Code Hooks",
     description="HTTP endpoints for Claude Code hook integrations",
-    version="0.2.1",
+    version="0.3.0",
     lifespan=lifespan
 )
 
@@ -395,7 +395,7 @@ async def health_check() -> HealthResponse:
         status=status,
         daemon_connected=daemon_connected,
         qdrant_connected=qdrant_connected,
-        version="0.2.1",  # TODO: Get from package metadata
+        version="0.3.0",  # TODO: Get from package metadata
         uptime_seconds=session_manager.get_uptime_seconds() if session_manager else 0.0,
         active_sessions=session_manager.get_active_session_count() if session_manager else 0
     )
