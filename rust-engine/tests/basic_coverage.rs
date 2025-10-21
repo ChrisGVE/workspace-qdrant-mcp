@@ -61,7 +61,6 @@ fn test_qdrant_config_creation() {
     let config = QdrantConfig {
         url: "http://remote:6333".to_string(),
         api_key: Some("test-key".to_string()),
-        timeout_secs: 60,
         max_retries: 5,
         default_collection: collection_config,
     };
@@ -111,31 +110,29 @@ fn test_metrics_config_creation() {
     let config = MetricsConfig {
         enabled: false,
         collection_interval_secs: 120,
-        retention_days: 60,
-        enable_prometheus: false,
-        prometheus_port: 9091,
     };
 
     assert!(!config.enabled);
     assert_eq!(config.collection_interval_secs, 120);
-    assert_eq!(config.retention_days, 60);
-    assert!(!config.enable_prometheus);
 }
 
 #[test]
 fn test_logging_config_creation() {
     let config = LoggingConfig {
+        enabled: true,
         level: "debug".to_string(),
         file_path: Some("/custom/log.log".to_string()),
-        json_format: true,
-        max_file_size_mb: 200,
+        max_file_size: SizeUnit(200 * 1024 * 1024), // 200 MB
         max_files: 10,
+        enable_json: true,
+        enable_structured: true,
+        enable_console: true,
     };
 
     assert_eq!(config.level, "debug");
     assert_eq!(config.file_path, Some("/custom/log.log".to_string()));
-    assert!(config.json_format);
-    assert_eq!(config.max_file_size_mb, 200);
+    assert!(config.enable_json);
+    assert_eq!(config.max_file_size.0, 200 * 1024 * 1024);
 }
 
 #[test]
