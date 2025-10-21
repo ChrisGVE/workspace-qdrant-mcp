@@ -73,6 +73,16 @@ Streamlined from dozens of tools to four comprehensive ones:
 
 ## 🔧 What Changed
 
+### Docker Images (Coming in v0.3.1)
+
+**Note:** Docker images and container deployment are not included in v0.3.0. The complete Docker and Kubernetes infrastructure exists in the `docker/` directory but images will be published starting with v0.3.1.
+
+**Timeline:**
+- v0.3.0: PyPI package release (available now)
+- v0.3.1: Docker images and container deployment (next patch release)
+
+For now, use pip/uv installation methods. Docker deployment guide will be activated in v0.3.1.
+
 ### Configuration Updates (Action Required)
 
 **Before you upgrade:** Review the [Migration Guide](MIGRATION.md) for step-by-step instructions.
