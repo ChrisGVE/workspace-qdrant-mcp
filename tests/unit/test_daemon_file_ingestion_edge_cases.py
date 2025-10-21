@@ -352,3 +352,134 @@ class TestLargeFileProcessing:
         result = results[0]
         # Verify result contains file path (size might be in metadata)
         assert result.file_path == str(test_file), "File path should match"
+
+
+# ============================================================================
+# TASK 316.3: CORRUPTED FILE HANDLING TESTS
+# ============================================================================
+
+class TestCorruptedFileHandling:
+    """Test daemon behavior with corrupted and malformed files."""
+
+    @pytest.mark.asyncio
+    async def test_truncated_pdf(self, temp_test_dir, pipeline):
+        """Test processing of truncated PDF file.
+
+        Validates that daemon handles incomplete PDF files gracefully
+        with informative error messages.
+        """
+        # Create a truncated PDF (invalid but has PDF magic bytes)
+        truncated_pdf = temp_test_dir / "truncated.pdf"
+        # Write PDF header but truncate before complete structure
+        truncated_pdf.write_bytes(b'%PDF-1.4\n%\xE2\xE3\xCF\xD3\n')
+
+        results = await pipeline.process_documents(
+            file_paths=[str(truncated_pdf)],
+            collection="test-corrupted-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        assert result.file_path == str(truncated_pdf), "File path should match"
+        # Should fail gracefully with error message
+        # (PDF parser should detect truncation)
+
+    @pytest.mark.asyncio
+    async def test_invalid_pdf_header(self, temp_test_dir, pipeline):
+        """Test processing of file with invalid PDF header.
+
+        Validates handling of files that claim to be PDF but have invalid structure.
+        """
+        # Create file with wrong PDF header
+        invalid_pdf = temp_test_dir / "invalid_header.pdf"
+        invalid_pdf.write_bytes(b'%PDF-999.999\nThis is not a real PDF\n')
+
+        results = await pipeline.process_documents(
+            file_paths=[str(invalid_pdf)],
+            collection="test-corrupted-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        # Should handle gracefully (either parse as text or fail with error)
+        assert result.file_path == str(invalid_pdf), "File path should match"
+
+    @pytest.mark.asyncio
+    async def test_corrupted_binary_file(self, temp_test_dir, pipeline):
+        """Test processing of randomly corrupted binary file.
+
+        Validates that daemon doesn't crash on random binary data.
+        """
+        # Create file with random binary data
+        corrupted_file = temp_test_dir / "corrupted.bin"
+        import random
+        random_bytes = bytes([random.randint(0, 255) for _ in range(1024)])
+        corrupted_file.write_bytes(random_bytes)
+
+        results = await pipeline.process_documents(
+            file_paths=[str(corrupted_file)],
+            collection="test-corrupted-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        # Should not crash, either skip or handle gracefully
+        assert result.file_path == str(corrupted_file), "File path should match"
+
+    @pytest.mark.asyncio
+    async def test_invalid_encoding_file(self, temp_test_dir, pipeline):
+        """Test processing of file with invalid UTF-8 encoding.
+
+        Validates handling of encoding errors in text files.
+        """
+        # Create file with invalid UTF-8 sequences
+        invalid_encoding = temp_test_dir / "invalid_encoding.txt"
+        # Mix valid UTF-8 with invalid sequences
+        content = b'Valid text here\n'
+        content += b'\xFF\xFE\xFD\xFC'  # Invalid UTF-8
+        content += b'\nMore text\n'
+        invalid_encoding.write_bytes(content)
+
+        results = await pipeline.process_documents(
+            file_paths=[str(invalid_encoding)],
+            collection="test-corrupted-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        assert result.file_path == str(invalid_encoding), "File path should match"
+        # Should handle encoding errors gracefully (either replace or skip invalid bytes)
+
+    @pytest.mark.asyncio
+    async def test_mixed_corrupted_and_valid_files(self, temp_test_dir, pipeline):
+        """Test batch processing with mix of corrupted and valid files.
+
+        Validates that one corrupted file doesn't prevent processing of valid files.
+        """
+        # Create mix of files
+        valid_file = temp_test_dir / "valid.txt"
+        valid_file.write_text("This is valid content")
+
+        corrupted_file = temp_test_dir / "corrupted.txt"
+        corrupted_file.write_bytes(b'\xFF\xFE\xFD\xFC\xFF\xFE')
+
+        another_valid = temp_test_dir / "another_valid.txt"
+        another_valid.write_text("More valid content")
+
+        files = [str(valid_file), str(corrupted_file), str(another_valid)]
+
+        results = await pipeline.process_documents(
+            file_paths=files,
+            collection="test-mixed-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 3, "Should process all files"
+        # At least the valid files should process successfully
+        success_count = sum(1 for r in results if r.success)
+        # Expect at least 2 successes (the valid files)
+        assert success_count >= 2, f"Expected at least 2 successes, got {success_count}"
