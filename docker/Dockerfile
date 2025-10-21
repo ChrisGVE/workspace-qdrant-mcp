@@ -129,11 +129,11 @@ RUN uv sync --no-dev --frozen
 FROM python-base AS production
 
 LABEL maintainer="christian.berclaz@mac.com" \
-      version="0.2.0" \
+      version="0.3.0" \
       description="Workspace Qdrant MCP Server - Production Ready" \
       org.opencontainers.image.title="workspace-qdrant-mcp" \
       org.opencontainers.image.description="Project-scoped Qdrant MCP server with scratchbook functionality" \
-      org.opencontainers.image.version="0.2.0" \
+      org.opencontainers.image.version="0.3.0" \
       org.opencontainers.image.authors="Christian C. Berclaz <christian.berclaz@mac.com>" \
       org.opencontainers.image.url="https://github.com/ChrisGVE/workspace-qdrant-mcp" \
       org.opencontainers.image.source="https://github.com/ChrisGVE/workspace-qdrant-mcp" \

@@ -211,7 +211,7 @@ start_application() {
 # Main execution
 main() {
     log_info "Starting Workspace Qdrant MCP container..."
-    log_info "Version: 0.2.0"
+    log_info "Version: 0.3.0"
     log_info "Host: $WORKSPACE_QDRANT_HOST"
     log_info "Port: $WORKSPACE_QDRANT_PORT"
     log_info "Log Level: $WORKSPACE_QDRANT_LOG_LEVEL"
