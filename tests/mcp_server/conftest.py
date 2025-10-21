@@ -17,7 +17,7 @@ def mcp_server_config() -> Dict[str, Any]:
     """Provide test configuration for MCP server."""
     return {
         "server_name": "workspace-qdrant-mcp-test",
-        "version": "0.2.1dev1",
+        "version": "0.3.0",
         "qdrant_url": "http://localhost:6333",
         "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
         "collections": ["test-project"],
