@@ -423,10 +423,6 @@ class TestWebUIErrorIntegration:
                 assert "Build failed" in result.stdout or "Failed" in result.stdout
 
 
-# Test configuration for pytest-playwright
-pytest_plugins = ["pytest_playwright.pytest_playwright"]
-
-
 def pytest_configure(config):
     """Configure pytest for web UI integration tests."""
     config.addinivalue_line("markers", "web_integration: mark test as web integration test")
