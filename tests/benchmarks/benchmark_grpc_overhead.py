@@ -119,26 +119,40 @@ def payload_generator():
 # =============================================================================
 
 @pytest.mark.benchmark
-@pytest.mark.asyncio
-async def test_connection_establishment(benchmark):
+def test_connection_establishment(benchmark):
     """
     Benchmark gRPC connection establishment time.
 
     Measures time to establish a new gRPC channel and verify it's ready.
     This is a one-time overhead when the client starts.
+
+    Note: Requires gRPC daemon running on localhost:50051.
+    Will skip if daemon is not available.
     """
     async def establish_connection():
         client = DaemonClient(host="localhost", port=50051)
-        await client.start()
-        await client.stop()
-        return client
+        try:
+            await client.start()
+            # Verify connection
+            await client.health_check(timeout=5.0)
+        except Exception as e:
+            await client.stop()
+            pytest.skip(f"Daemon not available: {e}")
+        finally:
+            await client.stop()
+        return True
 
     # Run synchronously for benchmark compatibility
     def sync_wrapper():
-        return asyncio.run(establish_connection())
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            return loop.run_until_complete(establish_connection())
+        finally:
+            loop.close()
 
     result = benchmark(sync_wrapper)
-    assert result is not None
+    assert result is True
 
 
 # =============================================================================

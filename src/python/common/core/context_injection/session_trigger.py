@@ -771,6 +771,404 @@ class OnDemandRefreshTrigger(SessionTrigger):
         }
 
 
+@dataclass
+class TriggerEvent:
+    """
+    Detailed event record for trigger execution.
+
+    Captures comprehensive information about each trigger execution
+    for logging, debugging, and analytics.
+
+    Attributes:
+        timestamp: When event occurred
+        trigger_name: Name of trigger
+        phase: Execution phase
+        event_type: Type of event (started, completed, failed, retrying)
+        success: Whether execution succeeded
+        execution_time_ms: Execution duration
+        error: Error message if failed
+        retry_count: Number of retries attempted
+        metadata: Additional event data
+    """
+    timestamp: float
+    trigger_name: str
+    phase: TriggerPhase
+    event_type: str  # started, completed, failed, retrying
+    success: bool
+    execution_time_ms: float = 0.0
+    error: Optional[str] = None
+    retry_count: int = 0
+    metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TriggerHealthMetrics:
+    """
+    Health metrics for trigger monitoring.
+
+    Tracks trigger reliability, performance, and failure patterns
+    to identify issues and optimize trigger configuration.
+
+    Attributes:
+        trigger_name: Name of trigger
+        total_executions: Total execution count
+        successful_executions: Successful execution count
+        failed_executions: Failed execution count
+        total_retries: Total retry attempts
+        average_execution_time_ms: Average execution time
+        last_success_timestamp: Last successful execution
+        last_failure_timestamp: Last failed execution
+        consecutive_failures: Current failure streak
+        failure_rate: Percentage of failed executions
+    """
+    trigger_name: str
+    total_executions: int = 0
+    successful_executions: int = 0
+    failed_executions: int = 0
+    total_retries: int = 0
+    average_execution_time_ms: float = 0.0
+    last_success_timestamp: Optional[float] = None
+    last_failure_timestamp: Optional[float] = None
+    consecutive_failures: int = 0
+    failure_rate: float = 0.0
+
+    def update_from_event(self, event: "TriggerEvent") -> None:
+        """Update metrics from trigger event."""
+        import time
+
+        self.total_executions += 1
+
+        if event.success:
+            self.successful_executions += 1
+            self.last_success_timestamp = time.time()
+            self.consecutive_failures = 0
+        else:
+            self.failed_executions += 1
+            self.last_failure_timestamp = time.time()
+            self.consecutive_failures += 1
+
+        self.total_retries += event.retry_count
+
+        # Update average execution time (moving average)
+        if self.average_execution_time_ms == 0:
+            self.average_execution_time_ms = event.execution_time_ms
+        else:
+            self.average_execution_time_ms = (
+                (self.average_execution_time_ms * (self.total_executions - 1) +
+                 event.execution_time_ms) / self.total_executions
+            )
+
+        # Calculate failure rate
+        if self.total_executions > 0:
+            self.failure_rate = self.failed_executions / self.total_executions
+
+
+@dataclass
+class TriggerRetryPolicy:
+    """
+    Retry policy for failed triggers.
+
+    Configures automatic retry behavior with exponential backoff
+    to handle transient failures gracefully.
+
+    Attributes:
+        max_retries: Maximum retry attempts
+        initial_delay_seconds: Initial retry delay
+        max_delay_seconds: Maximum retry delay
+        exponential_base: Exponential backoff multiplier
+        jitter: Add random jitter to delays (0.0-1.0)
+        retryable_errors: List of error patterns to retry
+    """
+    max_retries: int = 3
+    initial_delay_seconds: float = 1.0
+    max_delay_seconds: float = 60.0
+    exponential_base: float = 2.0
+    jitter: float = 0.1
+    retryable_errors: List[str] = field(default_factory=lambda: [
+        "timeout",
+        "connection",
+        "temporary",
+        "transient",
+    ])
+
+    def calculate_delay(self, retry_count: int) -> float:
+        """Calculate delay for retry attempt."""
+        import random
+
+        # Exponential backoff
+        delay = min(
+            self.initial_delay_seconds * (self.exponential_base ** retry_count),
+            self.max_delay_seconds
+        )
+
+        # Add jitter
+        if self.jitter > 0:
+            jitter_amount = delay * self.jitter
+            delay += random.uniform(-jitter_amount, jitter_amount)
+
+        return max(0, delay)
+
+    def is_retryable(self, error: str) -> bool:
+        """Check if error should be retried."""
+        error_lower = error.lower()
+        return any(pattern in error_lower for pattern in self.retryable_errors)
+
+
+class TriggerEventLogger:
+    """
+    Event logger for trigger executions.
+
+    Maintains detailed event log with timestamps, outcomes, and errors.
+    Supports querying and filtering of event history.
+    """
+
+    def __init__(self, max_events: int = 1000):
+        """
+        Initialize event logger.
+
+        Args:
+            max_events: Maximum events to retain in memory
+        """
+        self._events: List[TriggerEvent] = []
+        self._max_events = max_events
+
+    def log_event(self, event: TriggerEvent) -> None:
+        """
+        Log a trigger event.
+
+        Args:
+            event: Event to log
+        """
+        self._events.append(event)
+
+        # Trim to max size (keep most recent)
+        if len(self._events) > self._max_events:
+            self._events = self._events[-self._max_events:]
+
+        # Log to logger
+        level = "error" if not event.success else "info"
+        logger.log(
+            level.upper(),
+            f"Trigger '{event.trigger_name}' {event.event_type}: "
+            f"success={event.success}, time={event.execution_time_ms:.2f}ms"
+            + (f", error={event.error}" if event.error else "")
+        )
+
+    def get_events(
+        self,
+        trigger_name: Optional[str] = None,
+        phase: Optional[TriggerPhase] = None,
+        success: Optional[bool] = None,
+        since_timestamp: Optional[float] = None,
+        limit: Optional[int] = None,
+    ) -> List[TriggerEvent]:
+        """
+        Query event history.
+
+        Args:
+            trigger_name: Filter by trigger name
+            phase: Filter by phase
+            success: Filter by success status
+            since_timestamp: Filter events after timestamp
+            limit: Maximum events to return
+
+        Returns:
+            Filtered list of events
+        """
+        events = self._events
+
+        if trigger_name:
+            events = [e for e in events if e.trigger_name == trigger_name]
+
+        if phase:
+            events = [e for e in events if e.phase == phase]
+
+        if success is not None:
+            events = [e for e in events if e.success == success]
+
+        if since_timestamp:
+            events = [e for e in events if e.timestamp >= since_timestamp]
+
+        if limit:
+            events = events[-limit:]
+
+        return events
+
+    def get_recent_failures(self, minutes: int = 60) -> List[TriggerEvent]:
+        """
+        Get recent failed events.
+
+        Args:
+            minutes: Look back this many minutes
+
+        Returns:
+            List of failed events
+        """
+        import time
+        cutoff = time.time() - (minutes * 60)
+        return self.get_events(success=False, since_timestamp=cutoff)
+
+    def clear_events(self, before_timestamp: Optional[float] = None) -> int:
+        """
+        Clear old events.
+
+        Args:
+            before_timestamp: Clear events before this timestamp
+
+        Returns:
+            Number of events cleared
+        """
+        if before_timestamp:
+            original_count = len(self._events)
+            self._events = [e for e in self._events if e.timestamp >= before_timestamp]
+            return original_count - len(self._events)
+        else:
+            count = len(self._events)
+            self._events = []
+            return count
+
+
+class TriggerHealthMonitor:
+    """
+    Health monitoring for triggers.
+
+    Tracks trigger reliability, performance, and failure patterns.
+    Provides health metrics and alerts for degraded triggers.
+    """
+
+    def __init__(
+        self,
+        failure_threshold: int = 3,
+        failure_rate_threshold: float = 0.5,
+    ):
+        """
+        Initialize health monitor.
+
+        Args:
+            failure_threshold: Alert after this many consecutive failures
+            failure_rate_threshold: Alert when failure rate exceeds this
+        """
+        self._metrics: Dict[str, TriggerHealthMetrics] = {}
+        self._failure_threshold = failure_threshold
+        self._failure_rate_threshold = failure_rate_threshold
+        self._alerts: List[str] = []
+
+    def record_event(self, event: TriggerEvent) -> None:
+        """
+        Record trigger event for health monitoring.
+
+        Args:
+            event: Event to record
+        """
+        if event.trigger_name not in self._metrics:
+            self._metrics[event.trigger_name] = TriggerHealthMetrics(
+                trigger_name=event.trigger_name
+            )
+
+        metrics = self._metrics[event.trigger_name]
+        metrics.update_from_event(event)
+
+        # Check for health issues
+        self._check_health(metrics)
+
+    def _check_health(self, metrics: TriggerHealthMetrics) -> None:
+        """Check trigger health and generate alerts."""
+        # Check consecutive failures
+        if metrics.consecutive_failures >= self._failure_threshold:
+            alert = (
+                f"Trigger '{metrics.trigger_name}' has {metrics.consecutive_failures} "
+                f"consecutive failures (threshold: {self._failure_threshold})"
+            )
+            if alert not in self._alerts:
+                self._alerts.append(alert)
+                logger.warning(alert)
+
+        # Check failure rate
+        if (metrics.total_executions >= 10 and
+            metrics.failure_rate >= self._failure_rate_threshold):
+            alert = (
+                f"Trigger '{metrics.trigger_name}' has {metrics.failure_rate:.1%} "
+                f"failure rate (threshold: {self._failure_rate_threshold:.1%})"
+            )
+            if alert not in self._alerts:
+                self._alerts.append(alert)
+                logger.warning(alert)
+
+    def get_metrics(self, trigger_name: Optional[str] = None) -> Dict[str, TriggerHealthMetrics]:
+        """
+        Get health metrics.
+
+        Args:
+            trigger_name: Get metrics for specific trigger, or all if None
+
+        Returns:
+            Dictionary of trigger metrics
+        """
+        if trigger_name:
+            if trigger_name in self._metrics:
+                return {trigger_name: self._metrics[trigger_name]}
+            return {}
+        return self._metrics.copy()
+
+    def get_unhealthy_triggers(self) -> List[str]:
+        """
+        Get list of unhealthy trigger names.
+
+        Returns:
+            List of trigger names with health issues
+        """
+        unhealthy = []
+
+        for name, metrics in self._metrics.items():
+            if (metrics.consecutive_failures >= self._failure_threshold or
+                metrics.failure_rate >= self._failure_rate_threshold):
+                unhealthy.append(name)
+
+        return unhealthy
+
+    def get_alerts(self, clear: bool = False) -> List[str]:
+        """
+        Get current health alerts.
+
+        Args:
+            clear: Clear alerts after retrieving
+
+        Returns:
+            List of alert messages
+        """
+        alerts = self._alerts.copy()
+        if clear:
+            self._alerts = []
+        return alerts
+
+    def get_performance_summary(self) -> Dict[str, Any]:
+        """
+        Get performance summary across all triggers.
+
+        Returns:
+            Dictionary with summary statistics
+        """
+        if not self._metrics:
+            return {
+                "total_triggers": 0,
+                "total_executions": 0,
+                "overall_success_rate": 0.0,
+                "average_execution_time_ms": 0.0,
+            }
+
+        total_executions = sum(m.total_executions for m in self._metrics.values())
+        total_successes = sum(m.successful_executions for m in self._metrics.values())
+        avg_time = sum(m.average_execution_time_ms for m in self._metrics.values()) / len(self._metrics)
+
+        return {
+            "total_triggers": len(self._metrics),
+            "total_executions": total_executions,
+            "overall_success_rate": total_successes / total_executions if total_executions > 0 else 0.0,
+            "average_execution_time_ms": avg_time,
+            "unhealthy_triggers": self.get_unhealthy_triggers(),
+        }
+
+
 class TriggerManager:
     """
     Manages session triggers and orchestrates execution.
@@ -787,6 +1185,9 @@ class TriggerManager:
         self,
         memory_manager: MemoryManager,
         detector: Optional[ClaudeCodeDetector] = None,
+        retry_policy: Optional[TriggerRetryPolicy] = None,
+        enable_event_logging: bool = True,
+        enable_health_monitoring: bool = True,
     ):
         """
         Initialize the trigger manager.
@@ -794,6 +1195,9 @@ class TriggerManager:
         Args:
             memory_manager: MemoryManager instance
             detector: ClaudeCodeDetector instance (created if not provided)
+            retry_policy: Retry policy for failed triggers
+            enable_event_logging: Enable detailed event logging
+            enable_health_monitoring: Enable health monitoring
         """
         self.memory_manager = memory_manager
         self.detector = detector or ClaudeCodeDetector()
@@ -801,6 +1205,11 @@ class TriggerManager:
             phase: [] for phase in TriggerPhase
         }
         self._execution_history: List[TriggerResult] = []
+
+        # Event logging and monitoring
+        self._event_logger = TriggerEventLogger() if enable_event_logging else None
+        self._health_monitor = TriggerHealthMonitor() if enable_health_monitoring else None
+        self._retry_policy = retry_policy or TriggerRetryPolicy()
 
     def register_trigger(self, trigger: SessionTrigger) -> None:
         """
@@ -849,6 +1258,7 @@ class TriggerManager:
         phase: TriggerPhase,
         project_root: Optional[Path] = None,
         fail_fast: bool = False,
+        enable_retry: bool = True,
     ) -> List[TriggerResult]:
         """
         Execute all triggers for a specific phase.
@@ -857,10 +1267,13 @@ class TriggerManager:
             phase: Phase to execute
             project_root: Project root directory (default: current directory)
             fail_fast: Stop execution on first failure
+            enable_retry: Enable retry logic for failed triggers
 
         Returns:
             List of TriggerResult objects
         """
+        import time
+
         if project_root is None:
             project_root = Path.cwd()
         else:
@@ -887,32 +1300,21 @@ class TriggerManager:
 
         results = []
         for trigger in triggers:
-            try:
-                logger.debug(f"Executing trigger '{trigger.name}'")
-                result = await trigger.execute(context)
-                results.append(result)
-                self._execution_history.append(result)
+            # Execute trigger with retry logic
+            result = await self._execute_trigger_with_retry(
+                trigger=trigger,
+                context=context,
+                phase=phase,
+                enable_retry=enable_retry,
+            )
 
-                if not result.success:
-                    logger.warning(
-                        f"Trigger '{trigger.name}' failed: {result.error}"
-                    )
-                    if fail_fast:
-                        logger.error("Stopping execution due to fail_fast=True")
-                        break
+            results.append(result)
+            self._execution_history.append(result)
 
-            except Exception as e:
-                logger.error(f"Trigger '{trigger.name}' raised exception: {e}")
-                result = TriggerResult(
-                    success=False,
-                    phase=phase,
-                    trigger_name=trigger.name,
-                    execution_time_ms=0,
-                    error=str(e),
+            if not result.success:
+                logger.warning(
+                    f"Trigger '{trigger.name}' failed: {result.error}"
                 )
-                results.append(result)
-                self._execution_history.append(result)
-
                 if fail_fast:
                     logger.error("Stopping execution due to fail_fast=True")
                     break
@@ -924,6 +1326,185 @@ class TriggerManager:
         )
 
         return results
+
+    async def _execute_trigger_with_retry(
+        self,
+        trigger: SessionTrigger,
+        context: TriggerContext,
+        phase: TriggerPhase,
+        enable_retry: bool = True,
+    ) -> TriggerResult:
+        """
+        Execute a trigger with retry logic.
+
+        Args:
+            trigger: Trigger to execute
+            context: Trigger context
+            phase: Execution phase
+            enable_retry: Enable retry logic
+
+        Returns:
+            TriggerResult with retry information
+        """
+        import time
+
+        retry_count = 0
+        last_error = None
+
+        # Log start event
+        if self._event_logger:
+            start_event = TriggerEvent(
+                timestamp=time.time(),
+                trigger_name=trigger.name,
+                phase=phase,
+                event_type="started",
+                success=True,
+            )
+            self._event_logger.log_event(start_event)
+
+        while retry_count <= (self._retry_policy.max_retries if enable_retry else 0):
+            try:
+                # Execute trigger
+                logger.debug(
+                    f"Executing trigger '{trigger.name}'"
+                    + (f" (retry {retry_count}/{self._retry_policy.max_retries})" if retry_count > 0 else "")
+                )
+
+                result = await trigger.execute(context)
+
+                # Update retry count in metadata
+                if retry_count > 0:
+                    result.metadata["retry_count"] = retry_count
+
+                # Log completion event
+                if self._event_logger:
+                    completion_event = TriggerEvent(
+                        timestamp=time.time(),
+                        trigger_name=trigger.name,
+                        phase=phase,
+                        event_type="completed" if result.success else "failed",
+                        success=result.success,
+                        execution_time_ms=result.execution_time_ms,
+                        error=result.error,
+                        retry_count=retry_count,
+                        metadata=result.metadata,
+                    )
+                    self._event_logger.log_event(completion_event)
+
+                    # Update health metrics
+                    if self._health_monitor:
+                        self._health_monitor.record_event(completion_event)
+
+                # Return if successful or if error is not retryable
+                if result.success:
+                    return result
+
+                if not enable_retry or not self._retry_policy.is_retryable(result.error or ""):
+                    return result
+
+                last_error = result.error
+                retry_count += 1
+
+                # If we've exhausted retries, return the last result
+                if retry_count > self._retry_policy.max_retries:
+                    return result
+
+                # Log retry event
+                if self._event_logger:
+                    retry_event = TriggerEvent(
+                        timestamp=time.time(),
+                        trigger_name=trigger.name,
+                        phase=phase,
+                        event_type="retrying",
+                        success=False,
+                        error=last_error,
+                        retry_count=retry_count,
+                    )
+                    self._event_logger.log_event(retry_event)
+
+                # Wait before retry with exponential backoff
+                delay = self._retry_policy.calculate_delay(retry_count - 1)
+                logger.info(
+                    f"Retrying trigger '{trigger.name}' in {delay:.2f}s "
+                    f"(attempt {retry_count}/{self._retry_policy.max_retries})"
+                )
+                await asyncio.sleep(delay)
+
+            except Exception as e:
+                logger.error(f"Trigger '{trigger.name}' raised exception: {e}")
+                last_error = str(e)
+
+                # Log failure event
+                if self._event_logger:
+                    failure_event = TriggerEvent(
+                        timestamp=time.time(),
+                        trigger_name=trigger.name,
+                        phase=phase,
+                        event_type="failed",
+                        success=False,
+                        error=last_error,
+                        retry_count=retry_count,
+                    )
+                    self._event_logger.log_event(failure_event)
+
+                    # Update health metrics
+                    if self._health_monitor:
+                        self._health_monitor.record_event(failure_event)
+
+                # Check if we should retry
+                if not enable_retry or not self._retry_policy.is_retryable(last_error):
+                    return TriggerResult(
+                        success=False,
+                        phase=phase,
+                        trigger_name=trigger.name,
+                        execution_time_ms=0,
+                        error=last_error,
+                        metadata={"retry_count": retry_count},
+                    )
+
+                retry_count += 1
+
+                # If we've exhausted retries, return error result
+                if retry_count > self._retry_policy.max_retries:
+                    return TriggerResult(
+                        success=False,
+                        phase=phase,
+                        trigger_name=trigger.name,
+                        execution_time_ms=0,
+                        error=last_error,
+                        metadata={"retry_count": retry_count - 1},
+                    )
+
+                # Log retry event
+                if self._event_logger:
+                    retry_event = TriggerEvent(
+                        timestamp=time.time(),
+                        trigger_name=trigger.name,
+                        phase=phase,
+                        event_type="retrying",
+                        success=False,
+                        error=last_error,
+                        retry_count=retry_count,
+                    )
+                    self._event_logger.log_event(retry_event)
+
+                # Wait before retry
+                delay = self._retry_policy.calculate_delay(retry_count - 1)
+                logger.info(
+                    f"Retrying trigger '{trigger.name}' in {delay:.2f}s "
+                    f"(attempt {retry_count}/{self._retry_policy.max_retries})"
+                )
+                await asyncio.sleep(delay)
+
+        # Should not reach here
+        return TriggerResult(
+            success=False,
+            phase=phase,
+            trigger_name=trigger.name,
+            execution_time_ms=0,
+            error=last_error or "Unknown error",
+            metadata={"retry_count": self._retry_policy.max_retries},
+        )
 
     async def trigger_manual_refresh(
         self,
@@ -1054,6 +1635,158 @@ class TriggerManager:
     def clear_history(self) -> None:
         """Clear execution history."""
         self._execution_history.clear()
+
+    # Event logging and monitoring methods
+
+    def get_event_logger(self) -> Optional[TriggerEventLogger]:
+        """
+        Get event logger instance.
+
+        Returns:
+            TriggerEventLogger if enabled, None otherwise
+        """
+        return self._event_logger
+
+    def get_health_monitor(self) -> Optional[TriggerHealthMonitor]:
+        """
+        Get health monitor instance.
+
+        Returns:
+            TriggerHealthMonitor if enabled, None otherwise
+        """
+        return self._health_monitor
+
+    def get_recent_events(
+        self,
+        trigger_name: Optional[str] = None,
+        phase: Optional[TriggerPhase] = None,
+        minutes: int = 60,
+        limit: Optional[int] = 100,
+    ) -> List[TriggerEvent]:
+        """
+        Get recent trigger events.
+
+        Args:
+            trigger_name: Filter by trigger name
+            phase: Filter by phase
+            minutes: Look back this many minutes
+            limit: Maximum events to return
+
+        Returns:
+            List of recent events
+        """
+        if not self._event_logger:
+            return []
+
+        import time
+        since_timestamp = time.time() - (minutes * 60)
+
+        return self._event_logger.get_events(
+            trigger_name=trigger_name,
+            phase=phase,
+            since_timestamp=since_timestamp,
+            limit=limit,
+        )
+
+    def get_recent_failures(self, minutes: int = 60) -> List[TriggerEvent]:
+        """
+        Get recent failed trigger events.
+
+        Args:
+            minutes: Look back this many minutes
+
+        Returns:
+            List of failed events
+        """
+        if not self._event_logger:
+            return []
+
+        return self._event_logger.get_recent_failures(minutes)
+
+    def get_health_metrics(
+        self,
+        trigger_name: Optional[str] = None
+    ) -> Dict[str, TriggerHealthMetrics]:
+        """
+        Get health metrics for triggers.
+
+        Args:
+            trigger_name: Get metrics for specific trigger, or all if None
+
+        Returns:
+            Dictionary of trigger health metrics
+        """
+        if not self._health_monitor:
+            return {}
+
+        return self._health_monitor.get_metrics(trigger_name)
+
+    def get_unhealthy_triggers(self) -> List[str]:
+        """
+        Get list of unhealthy trigger names.
+
+        Returns:
+            List of trigger names with health issues
+        """
+        if not self._health_monitor:
+            return []
+
+        return self._health_monitor.get_unhealthy_triggers()
+
+    def get_health_alerts(self, clear: bool = False) -> List[str]:
+        """
+        Get current health alerts.
+
+        Args:
+            clear: Clear alerts after retrieving
+
+        Returns:
+            List of alert messages
+        """
+        if not self._health_monitor:
+            return []
+
+        return self._health_monitor.get_alerts(clear)
+
+    def get_performance_summary(self) -> Dict[str, Any]:
+        """
+        Get performance summary across all triggers.
+
+        Returns:
+            Dictionary with summary statistics including:
+            - total_triggers: Number of unique triggers
+            - total_executions: Total execution count
+            - overall_success_rate: Success rate across all triggers
+            - average_execution_time_ms: Average execution time
+            - unhealthy_triggers: List of unhealthy trigger names
+        """
+        if not self._health_monitor:
+            return {
+                "total_triggers": 0,
+                "total_executions": 0,
+                "overall_success_rate": 0.0,
+                "average_execution_time_ms": 0.0,
+                "unhealthy_triggers": [],
+            }
+
+        return self._health_monitor.get_performance_summary()
+
+    def clear_old_events(self, days: int = 7) -> int:
+        """
+        Clear events older than specified days.
+
+        Args:
+            days: Clear events older than this many days
+
+        Returns:
+            Number of events cleared
+        """
+        if not self._event_logger:
+            return 0
+
+        import time
+        cutoff_timestamp = time.time() - (days * 24 * 60 * 60)
+        return self._event_logger.clear_events(before_timestamp=cutoff_timestamp)
 
 
 # Convenience functions for common patterns
