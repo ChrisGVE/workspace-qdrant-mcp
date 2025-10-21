@@ -114,6 +114,10 @@ For quick testing and development:
 workspace-qdrant-mcp --config=my-project.yaml
 ```
 
+### Docker Deployment (Coming Soon)
+
+**Note:** Docker images will be available starting with v0.3.1. The complete Docker and Kubernetes infrastructure exists in the `docker/` directory. For v0.3.0, please use pip/uv installation methods above.
+
 ## Prerequisites
 
 **Qdrant server must be running** - workspace-qdrant-mcp connects to Qdrant for vector operations.
