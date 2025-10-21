@@ -55,7 +55,7 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
     verbose_flag = "--verbose" in sys.argv or "--debug" in sys.argv
 
     # Get version from __init__.py without importing heavy modules
-    version_str = "0.2.0"  # Default fallback
+    version_str = "0.3.0"  # Default fallback
     try:
         # Read version from __init__.py file directly to avoid imports
         init_file = Path(__file__).parent.parent / "__init__.py"
@@ -297,7 +297,7 @@ def show_version(verbose: bool = False) -> None:
 
         version_str = __version__
     except ImportError:
-        version_str = "0.2.0"  # Fallback version
+        version_str = "0.3.0"  # Fallback version
 
     if verbose:
         # Verbose version info with detailed metadata
