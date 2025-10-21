@@ -58,7 +58,7 @@ Dependencies:
     - testcontainers: For isolated Qdrant instances in testing
 """
 
-__version__ = "0.2.1dev1"
+__version__ = "0.3.0"
 __author__ = "Christian C. Berclaz"
 
 # Performance test configuration
