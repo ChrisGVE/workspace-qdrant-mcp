@@ -102,6 +102,10 @@ harness = false
 name = "stress_benchmarks"
 harness = false
 
+[[bench]]
+name = "example_benchmark"
+harness = false
+
 [dev-dependencies]
 # Shared test utilities
 shared-test-utils = { path = "../shared-test-utils" }
