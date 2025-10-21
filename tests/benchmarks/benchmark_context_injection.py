@@ -407,12 +407,15 @@ def test_rule_retrieval_with_cache_warm(benchmark, memory_manager, memory_collec
 @pytest.mark.benchmark
 def test_token_counting_small_context_tiktoken(benchmark, small_rules):
     """Benchmark token counting for small context (2 rules) with tiktoken."""
-    counter = TokenCounter(tokenizer_type=TokenizerType.TIKTOKEN, model="gpt-3.5-turbo")
 
     def count_tokens():
         total = 0
         for rule in small_rules:
-            total += counter.count_tokens(rule.rule)
+            total += TokenCounter.count_tokens_with_model(
+                text=rule.rule,
+                model_name="gpt-3.5-turbo",
+                tokenizer_type=TokenizerType.TIKTOKEN,
+            )
         return total
 
     result = benchmark(count_tokens)
@@ -426,12 +429,15 @@ def test_token_counting_small_context_tiktoken(benchmark, small_rules):
 @pytest.mark.benchmark
 def test_token_counting_medium_context_tiktoken(benchmark, medium_rules):
     """Benchmark token counting for medium context (10 rules) with tiktoken."""
-    counter = TokenCounter(tokenizer_type=TokenizerType.TIKTOKEN, model="gpt-3.5-turbo")
 
     def count_tokens():
         total = 0
         for rule in medium_rules:
-            total += counter.count_tokens(rule.rule)
+            total += TokenCounter.count_tokens_with_model(
+                text=rule.rule,
+                model_name="gpt-3.5-turbo",
+                tokenizer_type=TokenizerType.TIKTOKEN,
+            )
         return total
 
     result = benchmark(count_tokens)
@@ -445,12 +451,15 @@ def test_token_counting_medium_context_tiktoken(benchmark, medium_rules):
 @pytest.mark.benchmark
 def test_token_counting_large_context_tiktoken(benchmark, large_rules):
     """Benchmark token counting for large context (25 rules) with tiktoken."""
-    counter = TokenCounter(tokenizer_type=TokenizerType.TIKTOKEN, model="gpt-3.5-turbo")
 
     def count_tokens():
         total = 0
         for rule in large_rules:
-            total += counter.count_tokens(rule.rule)
+            total += TokenCounter.count_tokens_with_model(
+                text=rule.rule,
+                model_name="gpt-3.5-turbo",
+                tokenizer_type=TokenizerType.TIKTOKEN,
+            )
         return total
 
     result = benchmark(count_tokens)
@@ -464,12 +473,15 @@ def test_token_counting_large_context_tiktoken(benchmark, large_rules):
 @pytest.mark.benchmark
 def test_token_counting_estimation_fallback(benchmark, medium_rules):
     """Benchmark token counting with estimation fallback (no tiktoken)."""
-    counter = TokenCounter(tokenizer_type=TokenizerType.ESTIMATION)
 
     def count_tokens():
         total = 0
         for rule in medium_rules:
-            total += counter.count_tokens(rule.rule)
+            total += TokenCounter.count_tokens_with_model(
+                text=rule.rule,
+                model_name="gpt-3.5-turbo",
+                tokenizer_type=TokenizerType.ESTIMATION,
+            )
         return total
 
     result = benchmark(count_tokens)
@@ -489,13 +501,16 @@ def test_token_counting_estimation_fallback(benchmark, medium_rules):
 def test_budget_allocation_small_context(benchmark, small_rules):
     """Benchmark token budget allocation for small context (2 rules)."""
     manager = TokenBudgetManager(
-        total_budget=10000,
         overhead_percentage=0.1,
-        enable_caching=False,
+        enable_cache=False,
     )
 
     def allocate_budget():
-        return asyncio.run(manager.allocate_budget(small_rules))
+        return manager.allocate_budget(
+            rules=small_rules,
+            total_budget=10000,
+            tool_name="claude",
+        )
 
     result = benchmark(allocate_budget)
     percentiles = calculate_percentiles(benchmark)
@@ -509,13 +524,16 @@ def test_budget_allocation_small_context(benchmark, small_rules):
 def test_budget_allocation_medium_context(benchmark, medium_rules):
     """Benchmark token budget allocation for medium context (10 rules)."""
     manager = TokenBudgetManager(
-        total_budget=10000,
         overhead_percentage=0.1,
-        enable_caching=False,
+        enable_cache=False,
     )
 
     def allocate_budget():
-        return asyncio.run(manager.allocate_budget(medium_rules))
+        return manager.allocate_budget(
+            rules=medium_rules,
+            total_budget=10000,
+            tool_name="claude",
+        )
 
     result = benchmark(allocate_budget)
     percentiles = calculate_percentiles(benchmark)
@@ -529,13 +547,16 @@ def test_budget_allocation_medium_context(benchmark, medium_rules):
 def test_budget_allocation_large_context(benchmark, large_rules):
     """Benchmark token budget allocation for large context (25 rules)."""
     manager = TokenBudgetManager(
-        total_budget=10000,
         overhead_percentage=0.1,
-        enable_caching=False,
+        enable_cache=False,
     )
 
     def allocate_budget():
-        return asyncio.run(manager.allocate_budget(large_rules))
+        return manager.allocate_budget(
+            rules=large_rules,
+            total_budget=10000,
+            tool_name="claude",
+        )
 
     result = benchmark(allocate_budget)
     percentiles = calculate_percentiles(benchmark)
@@ -549,13 +570,16 @@ def test_budget_allocation_large_context(benchmark, large_rules):
 def test_budget_allocation_tight_budget(benchmark, large_rules):
     """Benchmark token budget allocation with tight budget constraint."""
     manager = TokenBudgetManager(
-        total_budget=2000,  # Tight budget
         overhead_percentage=0.1,
-        enable_caching=False,
+        enable_cache=False,
     )
 
     def allocate_budget():
-        return asyncio.run(manager.allocate_budget(large_rules))
+        return manager.allocate_budget(
+            rules=large_rules,
+            total_budget=2000,  # Tight budget
+            tool_name="claude",
+        )
 
     result = benchmark(allocate_budget)
     percentiles = calculate_percentiles(benchmark)
