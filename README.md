@@ -99,7 +99,7 @@ The daemon service provides:
 - ✅ Robust error recovery and structured logging
 - ✅ IPC communication for Python integration
 
-**📖 Complete Installation Guide**: [docs/daemon-installation.md](docs/daemon-installation.md)
+**📖 Complete Installation Guide**: See [CLI Reference](CLI.md#service-management) for service setup
 
 ### Interactive Setup
 
@@ -186,7 +186,7 @@ The daemon service automatically:
 - 🔌 **Provides IPC communication** for seamless Python integration
 - 🚀 **Starts on system boot** with automatic crash recovery
 
-**📖 Complete Installation Guide**: [docs/daemon-installation.md](docs/daemon-installation.md) - Covers systemd (Linux), launchd (macOS), and Windows Service with security configurations.
+**📖 For detailed daemon installation:** See [CLI Reference](CLI.md#service-management) - Covers systemd (Linux), launchd (macOS), and Windows Service with security configurations.
 
 ## MCP Integration
 
@@ -531,12 +531,12 @@ workspace-qdrant-ingest /path/to/docs -c my-project --dry-run
 
 - **[Architecture](docs/ARCHITECTURE.md)** - System architecture diagrams and component interactions
 - **[CLI Reference](CLI.md)** - Complete command-line reference for all `wqm` commands
-- **[Daemon Service Installation](docs/daemon-installation.md)** - Complete system service setup guide for Linux (systemd), macOS (launchd), and Windows Service
 - **[API Reference](API.md)** - Complete MCP tools documentation
+- **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Comprehensive troubleshooting and debugging
+- **[Migration Guide](MIGRATION.md)** - v0.2.x to v0.3.0 upgrade instructions
 - **[Contributing Guide](CONTRIBUTING.md)** - Development setup and guidelines
-- **[Release Process](docs/RELEASE_PROCESS.md)** - Automated releases and emergency procedures
-- **[Trusted Publishing Setup](docs/TRUSTED_PUBLISHING_SETUP.md)** - PyPI security configuration
-- **[Benchmarking](benchmarking/README.md)** - Performance testing and metrics
+- **[CI/CD Processes](docs/ci-cd-processes.md)** - Automated releases and deployment
+- **[Benchmarking](tests/benchmarks/README.md)** - Performance testing and metrics
 
 ## Troubleshooting
 
@@ -624,7 +624,7 @@ git commit -m "test: add integration tests"
 git commit -m "chore: update dependencies"
 ```
 
-**📚 Documentation**: See [docs/RELEASE_PROCESS.md](docs/RELEASE_PROCESS.md) for complete release documentation and emergency procedures.
+**📚 Documentation**: See [CI/CD Processes](docs/ci-cd-processes.md) for complete release documentation and emergency procedures.
 
 ## Contributing
 
@@ -640,10 +640,9 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 Join our community discussions for support, ideas, and collaboration:
 
 - **[GitHub Discussions](https://github.com/ChrisGVE/workspace-qdrant-mcp/discussions)** - Community Q&A, feature ideas, and showcases
-- **[Community Guidelines](docs/COMMUNITY_GUIDELINES.md)** - How we work together
-- **[Discussion Guide](docs/DISCUSSIONS_GUIDE.md)** - Getting the most from community discussions
+- **[GitHub Issues](https://github.com/ChrisGVE/workspace-qdrant-mcp/issues)** - Bug reports and feature requests
 
-For bug reports and specific feature requests, please open an issue on GitHub.
+For support, check [TROUBLESHOOTING.md](TROUBLESHOOTING.md) first, then open a discussion or issue on GitHub.
 
 ## License
 
