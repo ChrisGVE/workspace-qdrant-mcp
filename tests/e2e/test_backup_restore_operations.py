@@ -121,7 +121,7 @@ class TestCompleteSystemBackup:
             # Create manifest
             manifest = {
                 "timestamp": time.time(),
-                "version": "0.2.1dev1",
+                "version": "0.3.0",
                 "collections": list(collections.keys()),
                 "sqlite_tables": ["watch_folders", "projects", "ingestion_queue"],
                 "total_documents": sum(collections.values())
@@ -749,7 +749,7 @@ class TestRestoreWithVersionMismatch:
         await component_lifecycle_manager.start_all()
         await component_lifecycle_manager.wait_for_ready(timeout=30)
 
-        current_version = "0.2.1dev1"
+        current_version = "0.3.0"
         backup_version = "0.2.0"
 
         with tempfile.TemporaryDirectory() as backup_dir:
