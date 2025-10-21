@@ -16,6 +16,8 @@ fn test_watcher_config() -> WatcherConfig {
         max_depth: 3,
         debounce_ms: 100, // Short debounce for faster tests
         polling_interval_ms: 100,
+        min_polling_interval_ms: 50,
+        max_polling_interval_ms: 5000,
         max_queue_size: 1000,
         task_priority: TaskPriority::BackgroundWatching,
         default_collection: "test_collection".to_string(),
@@ -27,6 +29,18 @@ fn test_watcher_config() -> WatcherConfig {
             max_batch_size: 5,
             max_batch_wait_ms: 500,
             group_by_type: true,
+        },
+        max_debouncer_capacity: 10000,
+        max_batcher_capacity: 5000,
+        telemetry: TelemetryConfig {
+            enabled: false, // Disable telemetry in tests
+            history_retention: 10,
+            collection_interval_secs: 60,
+            cpu_usage: false,
+            memory_usage: false,
+            latency: false,
+            queue_depth: false,
+            throughput: false,
         },
     }
 }

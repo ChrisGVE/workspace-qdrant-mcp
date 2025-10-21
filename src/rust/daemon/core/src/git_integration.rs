@@ -317,15 +317,17 @@ mod tests {
             let mut index = repo.index()?;
             index.write_tree()?
         };
-        let tree = repo.find_tree(tree_id)?;
-        repo.commit(
-            Some("HEAD"),
-            &sig,
-            &sig,
-            "Initial commit",
-            &tree,
-            &[],
-        )?;
+        {
+            let tree = repo.find_tree(tree_id)?;
+            repo.commit(
+                Some("HEAD"),
+                &sig,
+                &sig,
+                "Initial commit",
+                &tree,
+                &[],
+            )?;
+        } // tree is dropped here
 
         Ok(repo)
     }
