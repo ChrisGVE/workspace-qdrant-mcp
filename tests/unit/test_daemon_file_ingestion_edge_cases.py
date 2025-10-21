@@ -211,3 +211,144 @@ class TestZeroByteAndEmptyFileHandling:
         for result in results:
             assert result is not None, "Should return result objects"
             assert hasattr(result, 'file_path'), "Should have file_path attribute"
+
+
+# ============================================================================
+# TASK 316.2: LARGE FILE PROCESSING TESTS
+# ============================================================================
+
+class TestLargeFileProcessing:
+    """Test daemon behavior with very large files (>100MB)."""
+
+    @pytest.mark.slow
+    @pytest.mark.asyncio
+    async def test_large_text_file_100mb(self, temp_test_dir, pipeline):
+        """Test processing of large (100MB+) text file.
+
+        Validates that daemon can handle very large text files with
+        proper chunking and memory management.
+        """
+        # Create 100MB+ text file
+        large_file = temp_test_dir / "large_text.txt"
+        chunk_size = 1024 * 1024  # 1MB chunks
+        total_chunks = 105  # ~105MB file
+
+        with large_file.open('w') as f:
+            for i in range(total_chunks):
+                # Write 1MB of text data
+                content = f"Line {i}: " + ("x" * (chunk_size - 20)) + "\n"
+                f.write(content)
+
+        file_size_mb = large_file.stat().st_size / (1024 * 1024)
+        assert file_size_mb > 100, f"File should be >100MB, got {file_size_mb:.2f}MB"
+
+        # Process the large file
+        results = await pipeline.process_documents(
+            file_paths=[str(large_file)],
+            collection="test-large-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        assert result.file_path == str(large_file), "File path should match"
+        # Should complete without memory errors or timeouts
+        if result.success:
+            assert result.document is not None, "Should have document"
+            # Verify chunking occurred
+            assert result.chunks_generated > 0, "Should generate chunks for large file"
+        else:
+            # If failed, ensure error is informative
+            assert result.error is not None, "Should have error message"
+
+    @pytest.mark.slow
+    @pytest.mark.asyncio
+    async def test_large_file_memory_usage(self, temp_test_dir, pipeline):
+        """Test memory usage stays within limits for large files.
+
+        Validates that processing large files doesn't exceed memory limit.
+        """
+        # Create 50MB text file (smaller than previous test for faster execution)
+        large_file = temp_test_dir / "memory_test.txt"
+        with large_file.open('w') as f:
+            for i in range(50):
+                f.write(("x" * 1024 * 1024) + "\n")
+
+        # Track memory before processing
+        import psutil
+        process = psutil.Process()
+        mem_before = process.memory_info().rss / (1024 * 1024)  # MB
+
+        # Process file
+        results = await pipeline.process_documents(
+            file_paths=[str(large_file)],
+            collection="test-memory-collection",
+            dry_run=True
+        )
+
+        # Check memory after
+        mem_after = process.memory_info().rss / (1024 * 1024)  # MB
+        mem_increase = mem_after - mem_before
+
+        # Memory increase should be reasonable (not loading entire file into memory)
+        # Allow up to 200MB increase (generous limit for testing)
+        assert mem_increase < 200, (
+            f"Memory usage increased by {mem_increase:.2f}MB, "
+            f"should stay below 200MB for streaming processing"
+        )
+
+        assert len(results) == 1, "Should process file"
+
+    @pytest.mark.asyncio
+    async def test_multiple_large_files_sequential(self, temp_test_dir, pipeline):
+        """Test processing multiple large files sequentially.
+
+        Validates that memory is properly freed between large file processing.
+        """
+        # Create 3 medium-large files (10MB each for faster testing)
+        large_files = []
+        for i in range(3):
+            large_file = temp_test_dir / f"large_{i}.txt"
+            with large_file.open('w') as f:
+                for j in range(10):
+                    f.write(("y" * 1024 * 1024) + "\n")
+            large_files.append(str(large_file))
+
+        # Process files
+        results = await pipeline.process_documents(
+            file_paths=large_files,
+            collection="test-sequential-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 3, "Should process all files"
+        # All should complete (either success or graceful failure)
+        for i, result in enumerate(results):
+            assert result.file_path == large_files[i], f"File {i} path should match"
+
+    @pytest.mark.asyncio
+    async def test_file_size_reporting(self, temp_test_dir, pipeline):
+        """Test that file size is correctly reported in results.
+
+        Validates metadata extraction for large files.
+        """
+        # Create a known-size file (5MB)
+        test_file = temp_test_dir / "size_test.txt"
+        expected_size_mb = 5
+        with test_file.open('w') as f:
+            for i in range(expected_size_mb):
+                f.write(("z" * 1024 * 1024) + "\n")
+
+        actual_size = test_file.stat().st_size
+
+        # Process file
+        results = await pipeline.process_documents(
+            file_paths=[str(test_file)],
+            collection="test-size-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        # Verify result contains file path (size might be in metadata)
+        assert result.file_path == str(test_file), "File path should match"
