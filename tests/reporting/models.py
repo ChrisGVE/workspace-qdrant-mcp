@@ -303,6 +303,116 @@ class TestSuite:
 
 
 @dataclass
+class FileCoverage:
+    """Coverage metrics for a single source file."""
+
+    file_path: str
+    lines_covered: int
+    lines_total: int
+    line_coverage_percent: float
+    uncovered_lines: List[int] = field(default_factory=list)  # Line numbers not covered
+    functions_covered: Optional[int] = None
+    functions_total: Optional[int] = None
+    branches_covered: Optional[int] = None
+    branches_total: Optional[int] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for storage."""
+        return {
+            "file_path": self.file_path,
+            "lines_covered": self.lines_covered,
+            "lines_total": self.lines_total,
+            "line_coverage_percent": self.line_coverage_percent,
+            "uncovered_lines": self.uncovered_lines,
+            "functions_covered": self.functions_covered,
+            "functions_total": self.functions_total,
+            "branches_covered": self.branches_covered,
+            "branches_total": self.branches_total,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "FileCoverage":
+        """Create from dictionary."""
+        return cls(
+            file_path=data["file_path"],
+            lines_covered=data["lines_covered"],
+            lines_total=data["lines_total"],
+            line_coverage_percent=data["line_coverage_percent"],
+            uncovered_lines=data.get("uncovered_lines", []),
+            functions_covered=data.get("functions_covered"),
+            functions_total=data.get("functions_total"),
+            branches_covered=data.get("branches_covered"),
+            branches_total=data.get("branches_total"),
+        )
+
+
+@dataclass
+class CoverageMetrics:
+    """Code coverage metrics for a test run."""
+
+    # Overall coverage
+    line_coverage_percent: float
+    lines_covered: int
+    lines_total: int
+
+    # Function/method coverage
+    function_coverage_percent: Optional[float] = None
+    functions_covered: Optional[int] = None
+    functions_total: Optional[int] = None
+
+    # Branch coverage (for languages that support it)
+    branch_coverage_percent: Optional[float] = None
+    branches_covered: Optional[int] = None
+    branches_total: Optional[int] = None
+
+    # Per-file coverage breakdown
+    file_coverage: List[FileCoverage] = field(default_factory=list)
+
+    # Coverage source (e.g., "coverage.py", "tarpaulin", "llvm-cov")
+    coverage_tool: Optional[str] = None
+
+    # Custom metrics
+    custom_metrics: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for storage."""
+        return {
+            "line_coverage_percent": self.line_coverage_percent,
+            "lines_covered": self.lines_covered,
+            "lines_total": self.lines_total,
+            "function_coverage_percent": self.function_coverage_percent,
+            "functions_covered": self.functions_covered,
+            "functions_total": self.functions_total,
+            "branch_coverage_percent": self.branch_coverage_percent,
+            "branches_covered": self.branches_covered,
+            "branches_total": self.branches_total,
+            "file_coverage": [f.to_dict() for f in self.file_coverage],
+            "coverage_tool": self.coverage_tool,
+            "custom_metrics": self.custom_metrics,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "CoverageMetrics":
+        """Create from dictionary."""
+        return cls(
+            line_coverage_percent=data["line_coverage_percent"],
+            lines_covered=data["lines_covered"],
+            lines_total=data["lines_total"],
+            function_coverage_percent=data.get("function_coverage_percent"),
+            functions_covered=data.get("functions_covered"),
+            functions_total=data.get("functions_total"),
+            branch_coverage_percent=data.get("branch_coverage_percent"),
+            branches_covered=data.get("branches_covered"),
+            branches_total=data.get("branches_total"),
+            file_coverage=[
+                FileCoverage.from_dict(f) for f in data.get("file_coverage", [])
+            ],
+            coverage_tool=data.get("coverage_tool"),
+            custom_metrics=data.get("custom_metrics", {}),
+        )
+
+
+@dataclass
 class TestRun:
     """
     A complete test run aggregating results from multiple sources.
@@ -317,6 +427,9 @@ class TestRun:
 
     # Test suites in this run
     suites: List[TestSuite] = field(default_factory=list)
+
+    # Code coverage metrics
+    coverage: Optional[CoverageMetrics] = None
 
     # Run metadata
     environment: Dict[str, Any] = field(default_factory=dict)  # Python version, OS, etc.
@@ -384,6 +497,7 @@ class TestRun:
             "timestamp": self.timestamp.isoformat(),
             "source": self.source.value,
             "suites": [s.to_dict() for s in self.suites],
+            "coverage": self.coverage.to_dict() if self.coverage else None,
             "environment": self.environment,
             "metadata": self.metadata,
         }
@@ -396,6 +510,9 @@ class TestRun:
             timestamp=datetime.fromisoformat(data["timestamp"]),
             source=TestSource(data["source"]),
             suites=[TestSuite.from_dict(s) for s in data.get("suites", [])],
+            coverage=CoverageMetrics.from_dict(data["coverage"])
+            if data.get("coverage")
+            else None,
             environment=data.get("environment", {}),
             metadata=data.get("metadata", {}),
         )
