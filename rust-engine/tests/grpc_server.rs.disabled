@@ -264,7 +264,9 @@ fn create_test_daemon_config() -> DaemonConfig {
             level: "info".to_string(),
             file_path: None,
             enable_json: false,
-            max_file_size: SizeUnit::Megabytes(100),
+            enable_structured: false,
+            enable_console: true,
+            max_file_size: SizeUnit(100 * 1024 * 1024), // 100 MB in bytes
             max_files: 5,
         },
     }
