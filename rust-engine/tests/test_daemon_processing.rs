@@ -64,7 +64,6 @@ mod test_config {
         QdrantConfig {
             url: "http://localhost:6333".to_string(),
             api_key: None,
-            timeout_secs: 30,
             max_retries: 3,
             default_collection: CollectionConfig {
                 vector_size: 384,
@@ -81,7 +80,6 @@ mod test_config {
         QdrantConfig {
             url: "https://remote-qdrant.example.com:6333".to_string(),
             api_key: Some("test-api-key-12345".to_string()),
-            timeout_secs: 60,
             max_retries: 5,
             default_collection: CollectionConfig {
                 vector_size: 768,
@@ -98,7 +96,6 @@ mod test_config {
         QdrantConfig {
             url: "http://test-qdrant:6334".to_string(),
             api_key: Some("alternative-key".to_string()),
-            timeout_secs: 45,
             max_retries: 2,
             default_collection: CollectionConfig {
                 vector_size: 512,

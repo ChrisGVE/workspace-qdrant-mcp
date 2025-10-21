@@ -55,7 +55,6 @@ mod watcher_tests {
         let qdrant_config = QdrantConfig {
             url: "http://localhost:6333".to_string(),
             api_key: None,
-            timeout_secs: 30,
             max_retries: 3,
             default_collection: CollectionConfig {
                 vector_size: 384,

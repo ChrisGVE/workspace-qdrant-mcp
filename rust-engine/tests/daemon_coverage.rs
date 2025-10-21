@@ -108,7 +108,6 @@ fn create_test_configs() -> (ProcessingConfig, QdrantConfig) {
     let qdrant_config = QdrantConfig {
         url: "http://localhost:6333".to_string(),
         api_key: Some("test-api-key".to_string()),
-        timeout_secs: 45,
         max_retries: 5,
         default_collection: CollectionConfig {
             vector_size: 512,
