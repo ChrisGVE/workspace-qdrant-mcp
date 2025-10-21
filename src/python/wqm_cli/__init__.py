@@ -14,7 +14,7 @@ Available Commands:
     - memory: Memory management
 """
 
-__version__ = "0.2.1dev1"
+__version__ = "0.3.0"
 __author__ = "Chris"
 __email__ = "chris@example.com"
 __description__ = "CLI for workspace-qdrant-mcp"
