@@ -111,6 +111,7 @@ fn create_test_compression_config() -> CompressionConfig {
         },
         performance: CompressionPerformanceConfig {
             enable_ratio_tracking: false,
+            poor_ratio_threshold: 0.1,
             enable_time_monitoring: false,
             slow_compression_threshold_ms: 1000,
             enable_failure_alerting: false,
@@ -257,15 +258,13 @@ fn create_test_daemon_config() -> DaemonConfig {
         metrics: MetricsConfig {
             enabled: false,
             collection_interval_secs: 60,
-            retention_days: 30,
-            enable_prometheus: false,
-            prometheus_port: 9090,
         },
         logging: LoggingConfig {
+            enabled: true,
             level: "info".to_string(),
             file_path: None,
-            json_format: false,
-            max_file_size_mb: 100,
+            enable_json: false,
+            max_file_size: SizeUnit::Megabytes(100),
             max_files: 5,
         },
     }
