@@ -42,10 +42,10 @@ from tests.e2e.utils import (
 # Version compatibility test configuration
 VERSION_COMPATIBILITY_CONFIG = {
     "versions": {
-        "current": "0.2.1dev1",
+        "current": "0.3.0",
         "previous_major": "0.1.5",
         "previous_minor": "0.2.0",
-        "next_minor": "0.3.0",
+        "next_minor": "0.4.0",
         "incompatible": "1.0.0"
     },
     "compatibility": {
@@ -81,8 +81,8 @@ class TestDaemonMCPVersionMismatches:
         timer.start()
 
         # Simulate starting components with compatible versions
-        daemon_version = "0.2.1dev1"
-        mcp_version = "0.2.1dev1"
+        daemon_version = "0.3.0"
+        mcp_version = "0.3.0"
 
         await component_lifecycle_manager.start_component("daemon")
         await component_lifecycle_manager.start_component("mcp_server")
@@ -118,8 +118,8 @@ class TestDaemonMCPVersionMismatches:
         timer = WorkflowTimer()
         timer.start()
 
-        # Daemon on 0.2.1, MCP on 0.2.0
-        daemon_version = "0.2.1dev1"
+        # Daemon on 0.3.0, MCP on 0.2.0
+        daemon_version = "0.3.0"
         mcp_version = "0.2.0"
 
         await component_lifecycle_manager.start_component("daemon")
@@ -153,9 +153,9 @@ class TestDaemonMCPVersionMismatches:
         timer = WorkflowTimer()
         timer.start()
 
-        # Daemon on 1.0.0, MCP on 0.2.1
+        # Daemon on 1.0.0, MCP on 0.3.0
         daemon_version = "1.0.0"
-        mcp_version = "0.2.1dev1"
+        mcp_version = "0.3.0"
 
         await component_lifecycle_manager.start_component("daemon")
         await component_lifecycle_manager.start_component("mcp_server")
@@ -848,11 +848,11 @@ class TestComprehensiveVersionCompatibility:
         timer.start()
 
         version_combinations = [
-            ("0.2.1dev1", "0.2.1dev1", True, "exact_match"),
-            ("0.2.1dev1", "0.2.0", True, "backward_compatible"),
-            ("0.2.0", "0.2.1dev1", True, "forward_compatible_minor"),
-            ("0.3.0", "0.2.1dev1", False, "minor_version_incompatible"),
-            ("1.0.0", "0.2.1dev1", False, "major_version_incompatible"),
+            ("0.3.0", "0.3.0", True, "exact_match"),
+            ("0.3.0", "0.2.0", True, "backward_compatible"),
+            ("0.2.0", "0.3.0", True, "forward_compatible_minor"),
+            ("0.4.0", "0.3.0", False, "minor_version_incompatible"),
+            ("1.0.0", "0.3.0", False, "major_version_incompatible"),
         ]
 
         results = []
