@@ -1,8 +1,21 @@
 # Observability Testing Framework
 
-This directory contains comprehensive tests for observability functionality of workspace-qdrant-mcp, including log aggregation and health monitoring.
+This directory contains comprehensive tests for observability functionality of workspace-qdrant-mcp, including log aggregation, health monitoring, and alert threshold testing.
+
+## Test Suites
+
+### 1. Log Aggregation Tests (`test_log_aggregation.py`)
+Validates logging system functionality including levels, structured logging, multi-source collection, rotation, retention, correlation IDs, and filtering.
+
+### 2. Health Check Tests (`test_health_checks.py`)
+Validates health monitoring infrastructure including liveness/readiness/startup checks, deep health checks, component health, response validation, and performance.
+
+### 3. Alert Threshold Tests (`test_alert_thresholds.py`)
+Validates alert threshold functionality including threshold comparison, performance/resource/error/health alerts, alert lifecycle, severity levels, and composite alerts. **See [README_ALERT_THRESHOLDS.md](README_ALERT_THRESHOLDS.md) for detailed documentation.**
 
 ## Overview
+
+### Log Aggregation Testing
 
 The log aggregation testing framework validates all aspects of the logging system including:
 
@@ -721,3 +734,4 @@ When health check infrastructure changes:
 - **Health coordinator**: `src/python/common/observability/health_coordinator.py`
 - **CLI health command**: `src/python/wqm_cli/cli/health.py`
 - **Metrics system**: `src/python/common/observability/metrics.py`
+- **Alert threshold testing**: `tests/observability/README_ALERT_THRESHOLDS.md`
