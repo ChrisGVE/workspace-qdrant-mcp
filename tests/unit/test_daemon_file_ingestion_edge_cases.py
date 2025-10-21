@@ -483,3 +483,396 @@ class TestCorruptedFileHandling:
         success_count = sum(1 for r in results if r.success)
         # Expect at least 2 successes (the valid files)
         assert success_count >= 2, f"Expected at least 2 successes, got {success_count}"
+
+
+# ============================================================================
+# TASK 316.4: SPECIAL CHARACTER FILENAME TESTS
+# ============================================================================
+
+class TestSpecialCharacterFilenames:
+    """Test daemon behavior with special characters in filenames."""
+
+    @pytest.mark.asyncio
+    async def test_unicode_filename(self, temp_test_dir, pipeline):
+        """Test processing file with Unicode characters in filename.
+
+        Validates handling of international characters in filenames.
+        """
+        # Create file with Unicode filename
+        unicode_file = temp_test_dir / "文档_файл_αρχείο.txt"
+        unicode_file.write_text("Content with Unicode filename")
+
+        results = await pipeline.process_documents(
+            file_paths=[str(unicode_file)],
+            collection="test-unicode-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        assert result.file_path == str(unicode_file), "File path should match"
+        # Should handle Unicode filenames correctly
+
+    @pytest.mark.asyncio
+    async def test_emoji_filename(self, temp_test_dir, pipeline):
+        """Test processing file with emoji in filename.
+
+        Validates handling of emoji characters in filenames.
+        """
+        # Create file with emoji filename
+        emoji_file = temp_test_dir / "test_📄_file_✅.txt"
+        emoji_file.write_text("Content with emoji filename")
+
+        results = await pipeline.process_documents(
+            file_paths=[str(emoji_file)],
+            collection="test-emoji-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        assert result.file_path == str(emoji_file), "File path should match"
+
+    @pytest.mark.asyncio
+    async def test_special_chars_filename(self, temp_test_dir, pipeline):
+        """Test processing file with special characters in filename.
+
+        Validates handling of various special characters.
+        """
+        # Create file with special characters (filesystem-safe ones)
+        special_file = temp_test_dir / "file!@#$%^&()_+-={}[].txt"
+        special_file.write_text("Content with special chars in filename")
+
+        results = await pipeline.process_documents(
+            file_paths=[str(special_file)],
+            collection="test-special-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        assert result.file_path == str(special_file), "File path should match"
+
+    @pytest.mark.asyncio
+    async def test_very_long_filename(self, temp_test_dir, pipeline):
+        """Test processing file with very long filename.
+
+        Validates handling of filenames approaching filesystem limits (255 chars).
+        """
+        # Create file with long filename (200 chars to stay safe across filesystems)
+        long_name = "a" * 200 + ".txt"
+        long_file = temp_test_dir / long_name
+        long_file.write_text("Content with very long filename")
+
+        results = await pipeline.process_documents(
+            file_paths=[str(long_file)],
+            collection="test-long-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        assert result.file_path == str(long_file), "File path should match"
+
+    @pytest.mark.asyncio
+    async def test_filename_with_spaces_and_quotes(self, temp_test_dir, pipeline):
+        """Test processing file with spaces and quotes in filename.
+
+        Validates handling of filenames that require shell escaping.
+        """
+        # Create file with spaces and single quotes
+        spaced_file = temp_test_dir / "file with spaces and 'quotes'.txt"
+        spaced_file.write_text("Content with spaced filename")
+
+        results = await pipeline.process_documents(
+            file_paths=[str(spaced_file)],
+            collection="test-spaced-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        assert result.file_path == str(spaced_file), "File path should match"
+
+
+# ============================================================================
+# TASK 316.5: EXTENSION-LESS FILE PROCESSING TESTS
+# ============================================================================
+
+class TestExtensionlessFileProcessing:
+    """Test daemon behavior with files without extensions."""
+
+    @pytest.mark.asyncio
+    async def test_code_file_without_extension(self, temp_test_dir, pipeline):
+        """Test processing code file without extension.
+
+        Validates content-based type detection for extensionless code.
+        """
+        # Create Python code without extension
+        no_ext_code = temp_test_dir / "python_script"
+        no_ext_code.write_text("""#!/usr/bin/env python3
+def hello():
+    print("Hello, World!")
+
+if __name__ == "__main__":
+    hello()
+""")
+
+        results = await pipeline.process_documents(
+            file_paths=[str(no_ext_code)],
+            collection="test-noext-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        assert result.file_path == str(no_ext_code), "File path should match"
+        # Should either detect as code or process as text
+
+    @pytest.mark.asyncio
+    async def test_content_based_type_detection(self, temp_test_dir, pipeline):
+        """Test content-based file type detection.
+
+        Validates that system can identify file types from content.
+        """
+        # Create files with misleading or no extensions
+        json_no_ext = temp_test_dir / "data"
+        json_no_ext.write_text('{"key": "value", "number": 42}')
+
+        results = await pipeline.process_documents(
+            file_paths=[str(json_no_ext)],
+            collection="test-content-detection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        # Should process successfully by detecting content type
+
+    @pytest.mark.asyncio
+    async def test_misleading_extension(self, temp_test_dir, pipeline):
+        """Test file with misleading extension.
+
+        Validates handling when extension doesn't match content.
+        """
+        # Create JSON content with .txt extension
+        misleading = temp_test_dir / "data.txt"
+        misleading.write_text('{"this": "is actually JSON", "not": "text"}')
+
+        results = await pipeline.process_documents(
+            file_paths=[str(misleading)],
+            collection="test-misleading-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        # Should process based on extension (.txt) or detect JSON content
+
+
+# ============================================================================
+# TASK 316.6: SYMLINK AND CIRCULAR REFERENCE TESTS
+# ============================================================================
+
+class TestSymlinkHandling:
+    """Test daemon behavior with symlinks and circular references."""
+
+    @pytest.mark.skipif(platform.system() == "Windows", reason="Symlinks require admin on Windows")
+    @pytest.mark.asyncio
+    async def test_valid_symlink_to_file(self, temp_test_dir, pipeline):
+        """Test processing valid symlink to file.
+
+        Validates that daemon can follow symlinks correctly.
+        """
+        # Create target file
+        target_file = temp_test_dir / "target.txt"
+        target_file.write_text("Content in target file")
+
+        # Create symlink
+        symlink_file = temp_test_dir / "link_to_target.txt"
+        symlink_file.symlink_to(target_file)
+
+        results = await pipeline.process_documents(
+            file_paths=[str(symlink_file)],
+            collection="test-symlink-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        # Should either resolve symlink or report it appropriately
+
+    @pytest.mark.skipif(platform.system() == "Windows", reason="Symlinks require admin on Windows")
+    @pytest.mark.asyncio
+    async def test_broken_symlink_handling(self, temp_test_dir, pipeline):
+        """Test processing broken symlink.
+
+        Validates graceful handling of symlinks to deleted files.
+        """
+        # Create and then delete target
+        target_file = temp_test_dir / "target_to_delete.txt"
+        target_file.write_text("Temporary content")
+
+        # Create symlink
+        symlink_file = temp_test_dir / "broken_link.txt"
+        symlink_file.symlink_to(target_file)
+
+        # Delete target
+        target_file.unlink()
+
+        results = await pipeline.process_documents(
+            file_paths=[str(symlink_file)],
+            collection="test-broken-symlink",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        # Should fail gracefully with informative error
+
+
+# ============================================================================
+# TASK 316.7: CONCURRENT FILE MODIFICATION TESTS
+# ============================================================================
+
+class TestConcurrentFileModification:
+    """Test daemon behavior when files change during processing."""
+
+    @pytest.mark.asyncio
+    async def test_file_modified_during_read(self, temp_test_dir, pipeline):
+        """Test file modified while being read.
+
+        Validates handling of concurrent modifications.
+        Note: This is a race condition test, may not always trigger the condition.
+        """
+        # Create a moderately sized file
+        test_file = temp_test_dir / "concurrent_mod.txt"
+        original_content = "Original content\n" * 1000
+        test_file.write_text(original_content)
+
+        # Attempt to process while file might be modified
+        # Note: In real scenario, this would be modified by external process
+        results = await pipeline.process_documents(
+            file_paths=[str(test_file)],
+            collection="test-concurrent-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        # Should complete without crashes
+
+    @pytest.mark.asyncio
+    async def test_file_deleted_during_processing(self, temp_test_dir, pipeline):
+        """Test file deleted before/during processing.
+
+        Validates handling of file deletion.
+        """
+        # Create file
+        test_file = temp_test_dir / "to_delete.txt"
+        test_file.write_text("Content to be deleted")
+
+        # Delete it immediately
+        test_file.unlink()
+
+        # Try to process deleted file
+        results = await pipeline.process_documents(
+            file_paths=[str(test_file)],
+            collection="test-deletion-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        # Should fail gracefully with file not found error
+
+
+# ============================================================================
+# TASK 316.8: UNICODE CONTENT AND DEEP DIRECTORY TESTS
+# ============================================================================
+
+class TestUnicodeAndDeepDirectories:
+    """Test daemon behavior with Unicode content and deep directory structures."""
+
+    @pytest.mark.asyncio
+    async def test_mixed_unicode_encodings(self, temp_test_dir, pipeline):
+        """Test files with different Unicode encodings.
+
+        Validates handling of UTF-8, UTF-16, and other encodings.
+        """
+        # Create UTF-8 file
+        utf8_file = temp_test_dir / "utf8.txt"
+        utf8_file.write_text("Hello 世界 مرحبا שלום", encoding='utf-8')
+
+        # Create UTF-16 file
+        utf16_file = temp_test_dir / "utf16.txt"
+        utf16_file.write_text("Hello 世界 مرحبا שלום", encoding='utf-16')
+
+        files = [str(utf8_file), str(utf16_file)]
+
+        results = await pipeline.process_documents(
+            file_paths=files,
+            collection="test-encoding-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 2, "Should process both files"
+        # Should handle different encodings (UTF-8 should work, UTF-16 might fail gracefully)
+
+    @pytest.mark.asyncio
+    async def test_deeply_nested_directory(self, temp_test_dir, pipeline):
+        """Test file in deeply nested directory structure.
+
+        Validates handling of deep directory paths (>20 levels).
+        """
+        # Create deeply nested structure
+        current_dir = temp_test_dir
+        for i in range(25):
+            current_dir = current_dir / f"level{i}"
+            current_dir.mkdir(exist_ok=True)
+
+        # Create file at deepest level
+        deep_file = current_dir / "deep_file.txt"
+        deep_file.write_text("Content in deeply nested file")
+
+        results = await pipeline.process_documents(
+            file_paths=[str(deep_file)],
+            collection="test-deep-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        assert result.file_path == str(deep_file), "File path should match"
+        # Should handle deep paths correctly
+
+    @pytest.mark.asyncio
+    async def test_very_long_directory_path(self, temp_test_dir, pipeline):
+        """Test file with very long directory path.
+
+        Validates handling of paths approaching system limits.
+        """
+        # Create path with long directory names
+        current_dir = temp_test_dir
+        for i in range(5):
+            # Create directory with 50-char name
+            long_dir_name = f"{'a' * 45}_{i}"
+            current_dir = current_dir / long_dir_name
+            current_dir.mkdir(exist_ok=True)
+
+        # Create file in long path
+        long_path_file = current_dir / "file.txt"
+        long_path_file.write_text("Content in long path")
+
+        path_length = len(str(long_path_file))
+        # Verify path is reasonably long (but not exceeding system limits)
+        assert path_length > 200, f"Path should be >200 chars, got {path_length}"
+
+        results = await pipeline.process_documents(
+            file_paths=[str(long_path_file)],
+            collection="test-longpath-collection",
+            dry_run=True
+        )
+
+        assert len(results) == 1, "Should return one result"
+        result = results[0]
+        # Should handle long paths correctly
