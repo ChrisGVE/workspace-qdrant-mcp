@@ -266,13 +266,12 @@ class TestIsolatedTestingScenarios:
         """Test that containers are properly cleaned up after tests."""
         container_id = None
 
-        try:
-            with DockerContainer("alpine:latest").with_command("sleep", "10") as container:
-                container_id = container.get_container_id()
+        with DockerContainer("alpine:latest").with_command("sleep", "10") as container:
+            container_id = container.get_container_id()
 
-                # Container should be running
-                result = container.exec("echo 'test'")
-                assert result.exit_code == 0
+            # Container should be running
+            result = container.exec("echo 'test'")
+            assert result.exit_code == 0
 
         # After context exit, container should be stopped and removed
         # This is handled automatically by testcontainers
