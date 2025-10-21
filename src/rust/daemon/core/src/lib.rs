@@ -36,7 +36,6 @@ pub mod unified_config;
 pub mod watching;
 pub mod watching_queue;
 
-use crate::processing::Pipeline;
 use crate::storage::StorageClient;
 use crate::config::Config;
 pub use crate::deletion_strategy::{
@@ -49,7 +48,8 @@ pub use crate::embedding::{
     DenseEmbedding, SparseEmbedding, EmbeddingError
 };
 pub use crate::processing::{
-    TaskPriority
+    Pipeline, TaskPriority, TaskPayload, TaskSource, TaskResult, TaskResultData,
+    TaskSubmitter, TaskResultHandle
 };
 pub use crate::error::{
     WorkspaceError, ErrorSeverity, ErrorRecoveryStrategy,
@@ -190,7 +190,7 @@ pub struct IngestionEngine {
     _config: Config,
     _storage_client: Arc<StorageClient>,
     _embedding_generator: Arc<EmbeddingGenerator>,
-    _pipeline: Arc<Pipeline>,
+    _pipeline: Arc<crate::processing::Pipeline>,
 }
 
 impl IngestionEngine {
@@ -205,7 +205,7 @@ impl IngestionEngine {
 
         // Pipeline uses internal task management with max concurrent tasks
         // Default to 8 concurrent tasks for balanced throughput
-        let pipeline = Arc::new(Pipeline::new(8));
+        let pipeline = Arc::new(crate::processing::Pipeline::new(8));
 
         Ok(Self {
             _config: config,
