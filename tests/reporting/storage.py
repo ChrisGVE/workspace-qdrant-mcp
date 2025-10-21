@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from .models import (
+    CoverageMetrics,
+    FileCoverage,
     PerformanceMetrics,
     TestCase,
     TestResult,
@@ -64,6 +66,47 @@ class TestResultStorage:
                     error_tests INTEGER DEFAULT 0,
                     success_rate REAL DEFAULT 0.0,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            # Coverage metrics table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS coverage_metrics (
+                    run_id TEXT PRIMARY KEY,
+                    line_coverage_percent REAL NOT NULL,
+                    lines_covered INTEGER NOT NULL,
+                    lines_total INTEGER NOT NULL,
+                    function_coverage_percent REAL,
+                    functions_covered INTEGER,
+                    functions_total INTEGER,
+                    branch_coverage_percent REAL,
+                    branches_covered INTEGER,
+                    branches_total INTEGER,
+                    coverage_tool TEXT,
+                    custom_metrics TEXT,  -- JSON
+                    FOREIGN KEY (run_id) REFERENCES test_runs(run_id) ON DELETE CASCADE
+                )
+                """
+            )
+
+            # File coverage table
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS file_coverage (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    file_path TEXT NOT NULL,
+                    lines_covered INTEGER NOT NULL,
+                    lines_total INTEGER NOT NULL,
+                    line_coverage_percent REAL NOT NULL,
+                    uncovered_lines TEXT,  -- JSON array
+                    functions_covered INTEGER,
+                    functions_total INTEGER,
+                    branches_covered INTEGER,
+                    branches_total INTEGER,
+                    FOREIGN KEY (run_id) REFERENCES test_runs(run_id) ON DELETE CASCADE
                 )
                 """
             )
@@ -146,6 +189,12 @@ class TestResultStorage:
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_results_timestamp ON test_results(timestamp)"
             )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_file_coverage_run ON file_coverage(run_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_file_coverage_path ON file_coverage(file_path)"
+            )
 
             conn.commit()
 
@@ -185,6 +234,10 @@ class TestResultStorage:
             # Save suites
             for suite in test_run.suites:
                 self._save_suite(conn, test_run.run_id, suite)
+
+            # Save coverage if present
+            if test_run.coverage:
+                self._save_coverage(conn, test_run.run_id, test_run.coverage)
 
             conn.commit()
 
@@ -264,6 +317,60 @@ class TestResultStorage:
             ),
         )
 
+    def _save_coverage(
+        self, conn: sqlite3.Connection, run_id: str, coverage: CoverageMetrics
+    ) -> None:
+        """Save coverage metrics."""
+        # Save overall coverage metrics
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO coverage_metrics
+            (run_id, line_coverage_percent, lines_covered, lines_total,
+             function_coverage_percent, functions_covered, functions_total,
+             branch_coverage_percent, branches_covered, branches_total,
+             coverage_tool, custom_metrics)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                coverage.line_coverage_percent,
+                coverage.lines_covered,
+                coverage.lines_total,
+                coverage.function_coverage_percent,
+                coverage.functions_covered,
+                coverage.functions_total,
+                coverage.branch_coverage_percent,
+                coverage.branches_covered,
+                coverage.branches_total,
+                coverage.coverage_tool,
+                json.dumps(coverage.custom_metrics),
+            ),
+        )
+
+        # Save per-file coverage
+        for file_cov in coverage.file_coverage:
+            conn.execute(
+                """
+                INSERT INTO file_coverage
+                (run_id, file_path, lines_covered, lines_total, line_coverage_percent,
+                 uncovered_lines, functions_covered, functions_total,
+                 branches_covered, branches_total)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    run_id,
+                    file_cov.file_path,
+                    file_cov.lines_covered,
+                    file_cov.lines_total,
+                    file_cov.line_coverage_percent,
+                    json.dumps(file_cov.uncovered_lines),
+                    file_cov.functions_covered,
+                    file_cov.functions_total,
+                    file_cov.branches_covered,
+                    file_cov.branches_total,
+                ),
+            )
+
     def get_test_run(self, run_id: str) -> Optional[TestRun]:
         """
         Retrieve a complete test run by ID.
@@ -296,6 +403,9 @@ class TestResultStorage:
 
             # Load suites
             test_run.suites = self._load_suites(conn, run_id)
+
+            # Load coverage
+            test_run.coverage = self._load_coverage(conn, run_id)
 
             return test_run
 
@@ -371,6 +481,58 @@ class TestResultStorage:
             results.append(result)
 
         return results
+
+    def _load_coverage(
+        self, conn: sqlite3.Connection, run_id: str
+    ) -> Optional[CoverageMetrics]:
+        """Load coverage metrics for a test run."""
+        row = conn.execute(
+            "SELECT * FROM coverage_metrics WHERE run_id = ?", (run_id,)
+        ).fetchone()
+
+        if not row:
+            return None
+
+        # Load file coverage
+        file_rows = conn.execute(
+            "SELECT * FROM file_coverage WHERE run_id = ? ORDER BY file_path",
+            (run_id,),
+        ).fetchall()
+
+        file_coverage = []
+        for file_row in file_rows:
+            file_coverage.append(
+                FileCoverage(
+                    file_path=file_row["file_path"],
+                    lines_covered=file_row["lines_covered"],
+                    lines_total=file_row["lines_total"],
+                    line_coverage_percent=file_row["line_coverage_percent"],
+                    uncovered_lines=json.loads(file_row["uncovered_lines"])
+                    if file_row["uncovered_lines"]
+                    else [],
+                    functions_covered=file_row["functions_covered"],
+                    functions_total=file_row["functions_total"],
+                    branches_covered=file_row["branches_covered"],
+                    branches_total=file_row["branches_total"],
+                )
+            )
+
+        return CoverageMetrics(
+            line_coverage_percent=row["line_coverage_percent"],
+            lines_covered=row["lines_covered"],
+            lines_total=row["lines_total"],
+            function_coverage_percent=row["function_coverage_percent"],
+            functions_covered=row["functions_covered"],
+            functions_total=row["functions_total"],
+            branch_coverage_percent=row["branch_coverage_percent"],
+            branches_covered=row["branches_covered"],
+            branches_total=row["branches_total"],
+            coverage_tool=row["coverage_tool"],
+            custom_metrics=json.loads(row["custom_metrics"])
+            if row["custom_metrics"]
+            else {},
+            file_coverage=file_coverage,
+        )
 
     def list_test_runs(
         self,
