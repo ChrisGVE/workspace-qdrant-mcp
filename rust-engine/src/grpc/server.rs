@@ -320,7 +320,7 @@ mod tests {
                 enabled: true,
                 level: "info".to_string(),
                 file_path: None,
-                max_file_size: SizeUnit::Megabytes(100),
+                max_file_size: SizeUnit(100 * 1024 * 1024), // 100MB
                 max_files: 5,
                 enable_json: false,
                 enable_structured: false,
