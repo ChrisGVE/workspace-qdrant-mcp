@@ -2176,6 +2176,18 @@ pub struct StreamProgressConfig {
     pub progress_threshold: usize,
 }
 
+impl Default for StreamProgressConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            progress_update_interval_ms: 1000,
+            enable_progress_callbacks: true,
+            enable_progress_tracking: true,
+            progress_threshold: 1000,
+        }
+    }
+}
+
 /// Stream health configuration
 #[derive(Debug, Clone)]
 pub struct StreamHealthConfig {
@@ -2183,6 +2195,17 @@ pub struct StreamHealthConfig {
     pub enable_auto_recovery: bool,
     pub enable_health_monitoring: bool,
     pub health_check_interval_secs: u64,
+}
+
+impl Default for StreamHealthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            enable_auto_recovery: true,
+            enable_health_monitoring: true,
+            health_check_interval_secs: 30,
+        }
+    }
 }
 
 /// Security configuration
@@ -2398,6 +2421,14 @@ pub struct MessageMonitoringConfig {
     pub oversized_alert_threshold: f64,
 }
 
+impl Default for MessageMonitoringConfig {
+    fn default() -> Self {
+        Self {
+            oversized_alert_threshold: 0.9,
+        }
+    }
+}
+
 /// Compression performance configuration
 #[derive(Debug, Clone)]
 pub struct CompressionPerformanceConfig {
@@ -2406,6 +2437,18 @@ pub struct CompressionPerformanceConfig {
     pub slow_compression_threshold_ms: u64,
     pub enable_ratio_tracking: bool,
     pub poor_ratio_threshold: f64,
+}
+
+impl Default for CompressionPerformanceConfig {
+    fn default() -> Self {
+        Self {
+            enable_failure_alerting: true,
+            enable_time_monitoring: true,
+            slow_compression_threshold_ms: 1000,
+            enable_ratio_tracking: true,
+            poor_ratio_threshold: 0.5,
+        }
+    }
 }
 
 /// Large operation configuration
@@ -2421,6 +2464,17 @@ pub struct AdaptiveCompressionConfig {
     pub text_compression_level: u32,
     pub binary_compression_level: u32,
     pub structured_compression_level: u32,
+}
+
+impl Default for AdaptiveCompressionConfig {
+    fn default() -> Self {
+        Self {
+            enable_adaptive: true,
+            text_compression_level: 6,
+            binary_compression_level: 6,
+            structured_compression_level: 6,
+        }
+    }
 }
 
 // =============================================================================
