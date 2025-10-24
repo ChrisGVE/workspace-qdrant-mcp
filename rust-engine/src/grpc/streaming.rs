@@ -371,6 +371,7 @@ mod tests {
                 performance: crate::config::CompressionPerformanceConfig::default(),
             },
             StreamingConfig {
+                enabled: true,
                 enable_server_streaming: true,
                 enable_client_streaming: true,
                 max_concurrent_streams: 10,
@@ -403,6 +404,7 @@ mod tests {
             MessageConfig::default(),
             CompressionConfig::default(),
             StreamingConfig {
+                enabled: false,
                 enable_server_streaming: false,
                 enable_client_streaming: false,
                 max_concurrent_streams: 1,

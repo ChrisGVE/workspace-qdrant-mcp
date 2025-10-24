@@ -767,6 +767,7 @@ mod tests {
 
     fn create_test_streaming_config() -> StreamingConfig {
         StreamingConfig {
+            enabled: true,
             enable_server_streaming: true,
             enable_client_streaming: true,
             max_concurrent_streams: 10,
@@ -1110,6 +1111,7 @@ mod tests {
 
     fn create_enhanced_streaming_config() -> StreamingConfig {
         StreamingConfig {
+            enabled: true,
             enable_server_streaming: true,
             enable_client_streaming: true,
             max_concurrent_streams: 50,
@@ -1117,18 +1119,17 @@ mod tests {
             stream_timeout_secs: 300,
             enable_flow_control: true,
             progress: crate::config::StreamProgressConfig {
+                enabled: true,
                 enable_progress_tracking: true,
                 progress_update_interval_ms: 500,
                 enable_progress_callbacks: true,
                 progress_threshold: 1024 * 1024, // 1MB
             },
             health: crate::config::StreamHealthConfig {
+                enabled: true,
                 enable_health_monitoring: true,
                 health_check_interval_secs: 30,
                 enable_auto_recovery: true,
-                max_recovery_attempts: 3,
-                recovery_backoff_multiplier: 2.0,
-                initial_recovery_delay_ms: 500,
             },
             large_operations: crate::config::LargeOperationConfig {
                 large_operation_chunk_size: 2 * 1024 * 1024, // 2MB
