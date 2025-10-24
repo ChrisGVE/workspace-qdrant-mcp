@@ -211,6 +211,7 @@ mod tests {
                     include_patterns: vec![],
                     exclude_patterns: vec![],
                     max_depth: 10,
+                    recursive: true,
                 },
                 processing: ProcessingConfig {
                     max_concurrent_tasks: 4,
