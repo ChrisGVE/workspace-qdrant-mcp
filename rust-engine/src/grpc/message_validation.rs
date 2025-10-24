@@ -748,17 +748,17 @@ mod tests {
             enable_size_validation: true,
             max_frame_size: 512,
             initial_window_size: 1024,
-            service_limits: crate::config::ServiceMessageLimits::default(),
+            service_limits: crate::config::ServiceLimits::default(),
             monitoring: crate::config::MessageMonitoringConfig::default(),
         }
     }
 
     fn create_test_compression_config() -> CompressionConfig {
         CompressionConfig {
+            enabled: true,
             enable_gzip: true,
             compression_threshold: 100,
             compression_level: 6,
-            enable_streaming_compression: true,
             enable_compression_monitoring: true,
             adaptive: crate::config::AdaptiveCompressionConfig::default(),
             performance: crate::config::CompressionPerformanceConfig::default(),
@@ -1075,29 +1075,25 @@ mod tests {
             enable_size_validation: true,
             max_frame_size: 32 * 1024,
             initial_window_size: 128 * 1024,
-            service_limits: crate::config::ServiceMessageLimits::default(),
+            service_limits: crate::config::ServiceLimits::default(),
             monitoring: crate::config::MessageMonitoringConfig {
-                enable_detailed_monitoring: true,
                 oversized_alert_threshold: 0.8,
-                enable_realtime_metrics: true,
-                metrics_interval_secs: 30,
             },
         }
     }
 
     fn create_enhanced_compression_config() -> CompressionConfig {
         CompressionConfig {
+            enabled: true,
             enable_gzip: true,
             compression_threshold: 1024,
             compression_level: 6,
-            enable_streaming_compression: true,
             enable_compression_monitoring: true,
             adaptive: crate::config::AdaptiveCompressionConfig {
                 enable_adaptive: true,
                 text_compression_level: 9,
                 binary_compression_level: 3,
                 structured_compression_level: 6,
-                max_compression_time_ms: 100,
             },
             performance: crate::config::CompressionPerformanceConfig {
                 enable_ratio_tracking: true,

@@ -36,6 +36,9 @@ pub fn test_security_config() -> SecurityConfig {
             jwt: JwtConfig {
                 secret_or_key_file: "test_secret".to_string(),
                 expiration_secs: 3600,
+                algorithm: "HS256".to_string(),
+                issuer: "test-issuer".to_string(),
+                audience: "test-audience".to_string(),
             },
             api_key: ApiKeyConfig {
                 enabled: false,

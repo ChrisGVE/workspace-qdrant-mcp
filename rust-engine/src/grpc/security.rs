@@ -594,16 +594,10 @@ mod tests {
     fn test_security_audit_logger() {
         let config = SecurityAuditConfig {
             enabled: true,
-            log_file_path: "./test_audit.log".to_string(),
             log_auth_events: true,
             log_auth_failures: true,
             log_rate_limit_events: true,
             log_suspicious_patterns: true,
-            rotation: crate::config::AuditLogRotation {
-                max_file_size_mb: 100,
-                max_files: 10,
-                compress: true,
-            },
         };
 
         let audit_logger = SecurityAuditLogger::new(config);
@@ -621,13 +615,11 @@ mod tests {
     #[test]
     fn test_tls_manager_no_certs() {
         let config = TlsConfig {
+            enabled: false,
             cert_file: None,
             key_file: None,
             ca_cert_file: None,
-            enable_mtls: false,
             client_cert_verification: ClientCertVerification::None,
-            supported_protocols: vec!["TLSv1.2".to_string()],
-            cipher_suites: vec![],
         };
 
         let tls_manager = TlsManager::new(config);
