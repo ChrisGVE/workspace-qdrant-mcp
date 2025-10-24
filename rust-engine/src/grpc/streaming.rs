@@ -379,7 +379,9 @@ mod tests {
                 enable_flow_control: true,
                 progress: crate::config::StreamProgressConfig::default(),
                 health: crate::config::StreamHealthConfig::default(),
-                large_operations: crate::config::LargeOperationStreamConfig::default(),
+                large_operations: crate::config::LargeOperationConfig {
+                    large_operation_chunk_size: 1024 * 1024, // 1MB default
+                },
             },
         ))
     }
@@ -409,7 +411,9 @@ mod tests {
                 enable_flow_control: false,
                 progress: crate::config::StreamProgressConfig::default(),
                 health: crate::config::StreamHealthConfig::default(),
-                large_operations: crate::config::LargeOperationStreamConfig::default(),
+                large_operations: crate::config::LargeOperationConfig {
+                    large_operation_chunk_size: 1024 * 1024, // 1MB default
+                },
             },
         ));
 

@@ -775,7 +775,9 @@ mod tests {
             enable_flow_control: true,
             progress: crate::config::StreamProgressConfig::default(),
             health: crate::config::StreamHealthConfig::default(),
-            large_operations: crate::config::LargeOperationStreamConfig::default(),
+            large_operations: crate::config::LargeOperationConfig {
+                large_operation_chunk_size: 1024 * 1024, // 1MB default
+            },
         }
     }
 
@@ -1128,12 +1130,8 @@ mod tests {
                 recovery_backoff_multiplier: 2.0,
                 initial_recovery_delay_ms: 500,
             },
-            large_operations: crate::config::LargeOperationStreamConfig {
-                enable_large_document_streaming: true,
+            large_operations: crate::config::LargeOperationConfig {
                 large_operation_chunk_size: 2 * 1024 * 1024, // 2MB
-                enable_bulk_streaming: true,
-                max_streaming_memory: 64 * 1024 * 1024, // 64MB
-                enable_bidirectional_optimization: true,
             },
         }
     }
