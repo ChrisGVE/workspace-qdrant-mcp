@@ -44,12 +44,26 @@ pub struct LocalOptimization {
 
 impl From<LocalOptimizationConfig> for LocalOptimization {
     fn from(config: LocalOptimizationConfig) -> Self {
+        // Map optimization level to buffer sizes and pool configuration
+        let (buffer_size, pool_size) = match config.optimization_level {
+            0 => (32768, 4),      // Minimal: 32KB, 4 connections
+            1 => (65536, 8),      // Low: 64KB, 8 connections
+            2 => (131072, 16),    // Medium: 128KB, 16 connections
+            3 => (262144, 32),    // High: 256KB, 32 connections
+            _ => (524288, 64),    // Maximum: 512KB, 64 connections
+        };
+
+        // Determine latency optimizations
+        let disable_nagle = config.latency.enabled &&
+                           config.latency.target_latency_ms < 50;
+        let keepalive_secs = if config.latency.enabled { 30 } else { 60 };
+
         Self {
-            buffer_size: config.local_buffer_size,
-            disable_nagle: config.reduce_latency.disable_nagle,
-            connection_pool_size: config.reduce_latency.connection_pool_size,
-            keepalive_interval: Duration::from_secs(config.reduce_latency.keepalive_interval_secs),
-            memory_efficient_serialization: config.memory_efficient_serialization,
+            buffer_size,
+            disable_nagle,
+            connection_pool_size: pool_size,
+            keepalive_interval: Duration::from_secs(keepalive_secs),
+            memory_efficient_serialization: config.optimization_level >= 2,
         }
     }
 }
@@ -144,18 +158,18 @@ impl TransportManager {
     /// Determine the best transport type based on configuration and environment
     pub fn determine_transport_type(&self, host: &str, port: u16) -> TransportType {
         match self.config.transport_strategy {
-            TransportStrategy::ForceTcp => {
+            TransportStrategy::Tcp | TransportStrategy::ForceTcp => {
                 TransportType::Tcp {
                     host: host.to_string(),
                     port,
                 }
             }
-            TransportStrategy::ForceUnixSocket => {
+            TransportStrategy::UnixSocket | TransportStrategy::ForceUnixSocket => {
                 TransportType::UnixSocket {
                     path: self.config.unix_socket.socket_path.clone(),
                 }
             }
-            TransportStrategy::UnixSocketWithTcpFallback => {
+            TransportStrategy::UnixSocketWithTcpFallback | TransportStrategy::Hybrid => {
                 if self.unix_socket_manager.should_prefer_unix_socket() && self.is_local_connection(host) {
                     TransportType::UnixSocket {
                         path: self.config.unix_socket.socket_path.clone(),
