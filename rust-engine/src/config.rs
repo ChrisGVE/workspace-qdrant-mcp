@@ -783,6 +783,9 @@ impl Default for DaemonConfig {
                             jwt: JwtConfig {
                                 secret_or_key_file: "changeme_jwt_secret".to_string(),
                                 expiration_secs: 3600,
+                                algorithm: "HS256".to_string(),
+                                issuer: "workspace-qdrant-mcp".to_string(),
+                                audience: "workspace-qdrant-mcp".to_string(),
                             },
                             api_key: ApiKeyConfig {
                                 enabled: false,
@@ -819,6 +822,8 @@ impl Default for DaemonConfig {
                             cleanup_on_exit: true,
                             prefer_for_local: false,
                         },
+                        local_optimization: LocalOptimizationConfig::default(),
+                        transport_strategy: TransportStrategy::Tcp,
                     },
                     message: MessageConfig {
                         service_limits: ServiceLimits {
@@ -944,6 +949,8 @@ impl Default for DaemonConfig {
                         cleanup_on_exit: true,
                         prefer_for_local: false,
                     },
+                    local_optimization: LocalOptimizationConfig::default(),
+                    transport_strategy: TransportStrategy::Tcp,
                 },
                 message: MessageConfig {
                     service_limits: ServiceLimits {
@@ -1258,6 +1265,8 @@ impl DaemonConfig {
                     cleanup_on_exit: config_guard.get_bool("grpc.transport.unix_socket.cleanup_on_exit", true),
                     prefer_for_local: config_guard.get_bool("grpc.transport.unix_socket.prefer_for_local", false),
                 },
+                local_optimization: LocalOptimizationConfig::default(),
+                transport_strategy: TransportStrategy::Tcp,
             },
             compression: CompressionConfig {
                 enabled: config_guard.get_bool("grpc.compression.enabled", true),
@@ -1414,6 +1423,8 @@ impl DaemonConfig {
                     cleanup_on_exit: config_guard.get_bool("grpc.transport.unix_socket.cleanup_on_exit", true),
                     prefer_for_local: config_guard.get_bool("grpc.transport.unix_socket.prefer_for_local", false),
                 },
+                local_optimization: LocalOptimizationConfig::default(),
+                transport_strategy: TransportStrategy::Tcp,
             },
             message: MessageConfig {
                 service_limits: ServiceLimits {
@@ -1762,6 +1773,8 @@ impl DaemonConfig {
                 cleanup_on_exit: config_guard.get_bool("grpc.transport.unix_socket.cleanup_on_exit", true),
                 prefer_for_local: config_guard.get_bool("grpc.transport.unix_socket.prefer_for_local", false),
             },
+            local_optimization: LocalOptimizationConfig::default(),
+            transport_strategy: TransportStrategy::Tcp,
         }
     }
 
@@ -2222,6 +2235,9 @@ pub struct TlsConfig {
 pub struct JwtConfig {
     pub secret_or_key_file: String,
     pub expiration_secs: u64,
+    pub algorithm: String,
+    pub issuer: String,
+    pub audience: String,
 }
 
 /// API key configuration
@@ -2288,6 +2304,8 @@ pub struct ServerConfig {
 #[derive(Debug, Clone)]
 pub struct TransportConfig {
     pub unix_socket: UnixSocketConfig,
+    pub local_optimization: LocalOptimizationConfig,
+    pub transport_strategy: TransportStrategy,
 }
 
 impl Default for TransportConfig {
@@ -2301,6 +2319,8 @@ impl Default for TransportConfig {
                 cleanup_on_exit: true,
                 prefer_for_local: false,
             },
+            local_optimization: LocalOptimizationConfig::default(),
+            transport_strategy: TransportStrategy::default(),
         }
     }
 }
@@ -2594,6 +2614,10 @@ pub enum TransportStrategy {
     Tcp,
     UnixSocket,
     Hybrid,
+    Auto,
+    ForceTcp,
+    ForceUnixSocket,
+    UnixSocketWithTcpFallback,
 }
 
 impl Default for TransportStrategy {
@@ -2776,6 +2800,22 @@ impl WorkspaceConfig {
             .iter()
             .map(|collection_type| self.get_collection_name(project_name, collection_type))
             .collect()
+    }
+}
+
+impl Default for AutoIngestionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            project_collection: "code".to_string(),
+            auto_create_watches: false,
+            project_path: None,
+            include_source_files: true,
+            include_patterns: vec![],
+            exclude_patterns: vec![],
+            max_depth: 10,
+            recursive: true,
+        }
     }
 }
 
