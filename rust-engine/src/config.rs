@@ -996,6 +996,9 @@ impl Default for DaemonConfig {
                         jwt: JwtConfig {
                             secret_or_key_file: "changeme_jwt_secret".to_string(),
                             expiration_secs: 3600,
+                            algorithm: "HS256".to_string(),
+                            issuer: "workspace-qdrant-daemon".to_string(),
+                            audience: "workspace-qdrant-client".to_string(),
                         },
                         api_key: ApiKeyConfig {
                             enabled: false,
@@ -1227,6 +1230,9 @@ impl DaemonConfig {
                     jwt: JwtConfig {
                         secret_or_key_file: config_guard.get_string("security.auth.jwt.secret_or_key_file", "changeme_jwt_secret"),
                         expiration_secs: config_guard.get_u64("security.auth.jwt.expiration_secs", 3600),
+                        algorithm: config_guard.get_string("security.auth.jwt.algorithm", "HS256"),
+                        issuer: config_guard.get_string("security.auth.jwt.issuer", "workspace-qdrant-daemon"),
+                        audience: config_guard.get_string("security.auth.jwt.audience", "workspace-qdrant-client"),
                     },
                     api_key: ApiKeyConfig {
                         enabled: config_guard.get_bool("security.auth.api_key.enabled", false),
@@ -1358,6 +1364,9 @@ impl DaemonConfig {
                         jwt: JwtConfig {
                             secret_or_key_file: config_guard.get_string("security.auth.jwt.secret_or_key_file", "changeme_jwt_secret"),
                             expiration_secs: config_guard.get_u64("security.auth.jwt.expiration_secs", 3600),
+                            algorithm: config_guard.get_string("security.auth.jwt.algorithm", "HS256"),
+                            issuer: config_guard.get_string("security.auth.jwt.issuer", "workspace-qdrant-daemon"),
+                            audience: config_guard.get_string("security.auth.jwt.audience", "workspace-qdrant-client"),
                         },
                         api_key: ApiKeyConfig {
                             enabled: config_guard.get_bool("security.auth.api_key.enabled", false),
@@ -1470,6 +1479,9 @@ impl DaemonConfig {
                     jwt: JwtConfig {
                         secret_or_key_file: config_guard.get_string("security.auth.jwt.secret_or_key_file", "changeme_jwt_secret"),
                         expiration_secs: config_guard.get_u64("security.auth.jwt.expiration_secs", 3600),
+                        algorithm: config_guard.get_string("security.auth.jwt.algorithm", "HS256"),
+                        issuer: config_guard.get_string("security.auth.jwt.issuer", "workspace-qdrant-daemon"),
+                        audience: config_guard.get_string("security.auth.jwt.audience", "workspace-qdrant-client"),
                     },
                     api_key: ApiKeyConfig {
                         enabled: config_guard.get_bool("security.auth.api_key.enabled", false),
@@ -1730,6 +1742,9 @@ impl DaemonConfig {
                 jwt: JwtConfig {
                     secret_or_key_file: config_guard.get_string("security.auth.jwt.secret_or_key_file", "changeme_jwt_secret"),
                     expiration_secs: config_guard.get_u64("security.auth.jwt.expiration_secs", 3600),
+                    algorithm: config_guard.get_string("security.auth.jwt.algorithm", "HS256"),
+                    issuer: config_guard.get_string("security.auth.jwt.issuer", "workspace-qdrant-daemon"),
+                    audience: config_guard.get_string("security.auth.jwt.audience", "workspace-qdrant-client"),
                 },
                 api_key: ApiKeyConfig {
                     enabled: config_guard.get_bool("security.auth.api_key.enabled", false),
@@ -2190,6 +2205,9 @@ impl Default for SecurityConfig {
                 jwt: JwtConfig {
                     secret_or_key_file: "changeme_jwt_secret".to_string(),
                     expiration_secs: 3600,
+                    algorithm: "HS256".to_string(),
+                    issuer: "workspace-qdrant-daemon".to_string(),
+                    audience: "workspace-qdrant-client".to_string(),
                 },
                 api_key: ApiKeyConfig {
                     enabled: false,
