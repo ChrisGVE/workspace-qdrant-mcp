@@ -194,6 +194,51 @@ mod tests {
         let db_path = ":memory:";
 
         DaemonConfig {
+            system: SystemConfig {
+                project_name: "test-project".to_string(),
+                database: DatabaseConfig {
+                    sqlite_path: db_path.to_string(),
+                    max_connections: 5,
+                    connection_timeout_secs: 30,
+                    enable_wal: true,
+                },
+                auto_ingestion: AutoIngestionConfig {
+                    enabled: false,
+                    project_collection: "test".to_string(),
+                    auto_create_watches: false,
+                    project_path: None,
+                    include_source_files: true,
+                    include_patterns: vec![],
+                    exclude_patterns: vec![],
+                    max_depth: 10,
+                },
+                processing: ProcessingConfig {
+                    max_concurrent_tasks: 4,
+                    supported_extensions: vec![],
+                    default_chunk_size: 1000,
+                    default_chunk_overlap: 200,
+                    max_file_size_bytes: 10 * 1024 * 1024,
+                    enable_lsp: false,
+                    lsp_timeout_secs: 10,
+                },
+                file_watcher: FileWatcherConfig {
+                    enabled: false,
+                    ignore_patterns: vec![],
+                    recursive: true,
+                    max_watched_dirs: 100,
+                    debounce_ms: 100,
+                },
+            },
+            grpc: GrpcConfig {
+                server: GrpcServerConfig {
+                    enabled: true,
+                    port: 50052,
+                },
+                client: GrpcClientConfig::default(),
+                security: SecurityConfig::default(),
+                transport: TransportConfig::default(),
+                message: MessageConfig::default(),
+            },
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
                 port: 50052, // Use different port for testing
@@ -207,6 +252,25 @@ mod tests {
                 compression: crate::config::CompressionConfig::default(),
                 streaming: crate::config::StreamingConfig::default(),
             },
+            external_services: ExternalServicesConfig {
+                qdrant: QdrantConfig {
+                    url: "http://localhost:6333".to_string(),
+                    api_key: None,
+                    max_retries: 3,
+                    default_collection: CollectionConfig {
+                        vector_size: 384,
+                        distance_metric: "Cosine".to_string(),
+                        enable_indexing: true,
+                        replication_factor: 1,
+                        shard_number: 1,
+                    },
+                },
+            },
+            transport: crate::config::TransportConfig::default(),
+            message: crate::config::MessageConfig::default(),
+            security: crate::config::SecurityConfig::default(),
+            streaming: crate::config::StreamingConfig::default(),
+            compression: crate::config::CompressionConfig::default(),
             database: DatabaseConfig {
                 sqlite_path: db_path.to_string(),
                 max_connections: 5,
@@ -216,7 +280,6 @@ mod tests {
             qdrant: QdrantConfig {
                 url: "http://localhost:6333".to_string(),
                 api_key: None,
-                timeout_secs: 30,
                 max_retries: 3,
                 default_collection: CollectionConfig {
                     vector_size: 384,
@@ -225,6 +288,12 @@ mod tests {
                     replication_factor: 1,
                     shard_number: 1,
                 },
+            },
+            workspace: WorkspaceConfig {
+                collection_basename: Some("test-workspace".to_string()),
+                collection_types: vec!["code".to_string(), "notes".to_string()],
+                memory_collection_name: "_memory".to_string(),
+                auto_create_collections: true,
             },
             processing: ProcessingConfig {
                 max_concurrent_tasks: 2,
@@ -246,16 +315,16 @@ mod tests {
             metrics: MetricsConfig {
                 enabled: false,
                 collection_interval_secs: 60,
-                retention_days: 30,
-                enable_prometheus: false,
-                prometheus_port: 9090,
             },
             logging: LoggingConfig {
+                enabled: true,
                 level: "info".to_string(),
                 file_path: None,
-                json_format: false,
-                max_file_size_mb: 100,
+                max_file_size: SizeUnit::Megabytes(100),
                 max_files: 5,
+                enable_json: false,
+                enable_structured: false,
+                enable_console: true,
             },
         }
     }
