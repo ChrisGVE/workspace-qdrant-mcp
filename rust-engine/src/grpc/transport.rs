@@ -386,8 +386,10 @@ mod tests {
         let config = TransportConfig {
             unix_socket: UnixSocketConfig {
                 enabled: true,
+                path: Some("/tmp/test.sock".to_string()),
                 socket_path: "/tmp/test.sock".to_string(),
                 permissions: 0o600,
+                cleanup_on_exit: true,
                 prefer_for_local: true,
             },
             local_optimization: LocalOptimizationConfig::default(),
@@ -422,8 +424,10 @@ mod tests {
     fn test_unix_socket_manager_creation() {
         let config = UnixSocketConfig {
             enabled: true,
+            path: Some("/tmp/test.sock".to_string()),
             socket_path: "/tmp/test.sock".to_string(),
             permissions: 0o600,
+            cleanup_on_exit: true,
             prefer_for_local: true,
         };
 
@@ -435,8 +439,10 @@ mod tests {
     async fn test_unix_socket_creation_disabled() {
         let config = UnixSocketConfig {
             enabled: false,
+            path: Some("/tmp/test.sock".to_string()),
             socket_path: "/tmp/test.sock".to_string(),
             permissions: 0o600,
+            cleanup_on_exit: true,
             prefer_for_local: true,
         };
 
