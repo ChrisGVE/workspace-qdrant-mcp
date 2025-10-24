@@ -2084,6 +2084,23 @@ pub struct ServiceLimit {
     pub enable_validation: bool,
 }
 
+impl Default for ServiceLimits {
+    fn default() -> Self {
+        let default_limit = ServiceLimit {
+            max_incoming: 100 * 1024 * 1024,  // 100MB
+            max_outgoing: 100 * 1024 * 1024,  // 100MB
+            enable_validation: true,
+        };
+
+        Self {
+            memory_service: default_limit.clone(),
+            system_service: default_limit.clone(),
+            document_processor: default_limit.clone(),
+            search_service: default_limit,
+        }
+    }
+}
+
 /// Compression configuration
 #[derive(Debug, Clone)]
 pub struct CompressionConfig {
