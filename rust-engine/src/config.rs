@@ -1405,6 +1405,8 @@ impl DaemonConfig {
                         cleanup_on_exit: config_guard.get_bool("grpc.transport.unix_socket.cleanup_on_exit", true),
                         prefer_for_local: config_guard.get_bool("grpc.transport.unix_socket.prefer_for_local", false),
                     },
+                    local_optimization: LocalOptimizationConfig::default(),
+                    transport_strategy: TransportStrategy::Tcp,
                 },
                 message: server_config.message.clone(),
             },
