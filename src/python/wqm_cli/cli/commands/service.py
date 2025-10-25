@@ -1275,8 +1275,8 @@ WantedBy=default.target
             }
 
 
-# Create service manager instance
-service_manager = MemexdServiceManager()
+# Create service manager instance (skip validation to allow install --build to fix checksums)
+service_manager = MemexdServiceManager(skip_validation=True)
 
 
 # CLI Commands
