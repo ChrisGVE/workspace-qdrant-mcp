@@ -221,6 +221,9 @@ class DaemonClient:
         self._circuit_breaker_state = "closed"  # closed, open, half-open
         self._circuit_breaker_last_failure: Optional[float] = None
 
+        # Service discovery state
+        self._discovered_endpoint: Optional[str] = None
+
         logger.info(
             f"DaemonClient initialized: address={self.config.address}, "
             f"project_path={self.project_path}, "

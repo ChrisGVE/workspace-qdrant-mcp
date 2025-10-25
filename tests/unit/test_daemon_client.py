@@ -458,9 +458,14 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_unavailable_error_raises_daemon_unavailable(self, daemon_client):
         """Test that UNAVAILABLE gRPC error raises DaemonUnavailableError."""
-        mock_error = MagicMock()
-        mock_error.code.return_value = grpc.StatusCode.UNAVAILABLE
-        mock_error.details.return_value = "Service unavailable"
+        # Create a proper gRPC RpcError by using grpc.aio.AioRpcError
+        mock_error = grpc.aio.AioRpcError(
+            code=grpc.StatusCode.UNAVAILABLE,
+            initial_metadata=None,
+            trailing_metadata=None,
+            details="Service unavailable",
+            debug_error_string=None
+        )
 
         daemon_client._system_stub.HealthCheck = AsyncMock(side_effect=mock_error)
 
@@ -470,9 +475,13 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_non_retryable_error_raises_immediately(self, daemon_client):
         """Test that non-retryable errors don't retry."""
-        mock_error = MagicMock()
-        mock_error.code.return_value = grpc.StatusCode.INVALID_ARGUMENT
-        mock_error.details.return_value = "Invalid argument"
+        mock_error = grpc.aio.AioRpcError(
+            code=grpc.StatusCode.INVALID_ARGUMENT,
+            initial_metadata=None,
+            trailing_metadata=None,
+            details="Invalid argument",
+            debug_error_string=None
+        )
 
         daemon_client._system_stub.HealthCheck = AsyncMock(side_effect=mock_error)
 
@@ -485,9 +494,13 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_retry_on_transient_failure(self, daemon_client):
         """Test retry logic on transient failures."""
-        mock_error = MagicMock()
-        mock_error.code.return_value = grpc.StatusCode.UNAVAILABLE
-        mock_error.details.return_value = "Temporary unavailable"
+        mock_error = grpc.aio.AioRpcError(
+            code=grpc.StatusCode.UNAVAILABLE,
+            initial_metadata=None,
+            trailing_metadata=None,
+            details="Temporary unavailable",
+            debug_error_string=None
+        )
 
         success_response = pb2.HealthCheckResponse(status=pb2.SERVICE_STATUS_HEALTHY)
 
@@ -504,9 +517,13 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_max_retries_exceeded(self, daemon_client):
         """Test that max retries is respected."""
-        mock_error = MagicMock()
-        mock_error.code.return_value = grpc.StatusCode.UNAVAILABLE
-        mock_error.details.return_value = "Service unavailable"
+        mock_error = grpc.aio.AioRpcError(
+            code=grpc.StatusCode.UNAVAILABLE,
+            initial_metadata=None,
+            trailing_metadata=None,
+            details="Service unavailable",
+            debug_error_string=None
+        )
 
         daemon_client._system_stub.HealthCheck = AsyncMock(side_effect=mock_error)
 
@@ -523,9 +540,13 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_breaker_opens_after_failures(self, daemon_client):
         """Test circuit breaker opens after threshold failures."""
-        mock_error = MagicMock()
-        mock_error.code.return_value = grpc.StatusCode.UNAVAILABLE
-        mock_error.details.return_value = "Service unavailable"
+        mock_error = grpc.aio.AioRpcError(
+            code=grpc.StatusCode.UNAVAILABLE,
+            initial_metadata=None,
+            trailing_metadata=None,
+            details="Service unavailable",
+            debug_error_string=None
+        )
 
         daemon_client._system_stub.HealthCheck = AsyncMock(side_effect=mock_error)
 
@@ -546,10 +567,13 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_breaker_half_open_after_timeout(self, daemon_client):
         """Test circuit breaker transitions to half-open after timeout."""
+        import time
+
         # Manually set circuit breaker to open state
         daemon_client._circuit_breaker_state = "open"
         daemon_client._circuit_breaker_failures = 5
-        daemon_client._circuit_breaker_last_failure = 0  # Long time ago
+        # Set last failure to be past the circuit breaker timeout (60.0 seconds)
+        daemon_client._circuit_breaker_last_failure = time.time() - 61.0
 
         # Should transition to half-open
         assert daemon_client._can_attempt_request()
