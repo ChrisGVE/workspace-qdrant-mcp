@@ -277,8 +277,9 @@ mod macos {
         config: MacOSConfig,
         event_tx: mpsc::UnboundedSender<FileEvent>,
         event_rx: Option<mpsc::UnboundedReceiver<FileEvent>>,
-        fsevents_handle: Option<FSEventStreamRef>,
-        kqueue_watcher: Option<KqueueWatcher>,
+        // TODO: Re-enable when fsevents-sys dependency is added
+        // fsevents_handle: Option<FSEventStreamRef>,
+        // kqueue_watcher: Option<KqueueWatcher>,
     }
     
     impl MacOSWatcher {
@@ -292,8 +293,8 @@ mod macos {
                 config,
                 event_tx,
                 event_rx: Some(event_rx),
-                fsevents_handle: None,
-                kqueue_watcher: None,
+                // fsevents_handle: None,
+                // kqueue_watcher: None,
             })
         }
         
@@ -339,17 +340,18 @@ mod macos {
         }
 
         async fn stop(&mut self) -> Result<(), PlatformWatchingError> {
-            // Clean up FSEvents
-            if let Some(stream) = self.fsevents_handle.take() {
-                // TODO: Properly stop FSEventStream
-                tracing::info!("Stopped FSEvents stream");
-            }
+            // TODO: Re-enable when fsevents-sys dependency is added
+            // // Clean up FSEvents
+            // if let Some(stream) = self.fsevents_handle.take() {
+            //     // TODO: Properly stop FSEventStream
+            //     tracing::info!("Stopped FSEvents stream");
+            // }
 
-            // Clean up kqueue
-            if let Some(kqueue) = self.kqueue_watcher.take() {
-                // TODO: Properly stop kqueue watcher
-                tracing::info!("Stopped kqueue watcher");
-            }
+            // // Clean up kqueue
+            // if let Some(kqueue) = self.kqueue_watcher.take() {
+            //     // TODO: Properly stop kqueue watcher
+            //     tracing::info!("Stopped kqueue watcher");
+            // }
 
             Ok(())
         }
