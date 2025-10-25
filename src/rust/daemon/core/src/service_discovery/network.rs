@@ -357,7 +357,7 @@ impl NetworkDiscovery {
             .ok_or_else(|| NetworkError::DiscoveryFailed("Socket not initialized".to_string()))?;
 
         let message_data = serde_json::to_vec(message)?;
-        socket.send_to(&message_data, &self.multicast_addr)?;
+        socket.send_to(&message_data, self.multicast_addr)?;
         
         debug!("Sent {} message for service {}", 
                serde_json::to_string(&message.message_type).unwrap_or_default(),

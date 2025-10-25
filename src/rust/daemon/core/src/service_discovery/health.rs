@@ -163,8 +163,8 @@ impl HealthChecker {
         let mut error_message = None;
 
         // Step 1: Validate process if enabled
-        if self.config.validate_process {
-            if !is_process_running(service_info.pid) {
+        if self.config.validate_process
+            && !is_process_running(service_info.pid) {
                 status = HealthStatus::ProcessDead;
                 error_message = Some(format!("Process {} is not running", service_info.pid));
                 
@@ -177,7 +177,6 @@ impl HealthChecker {
                     error_message,
                 });
             }
-        }
 
         // Step 2: Perform HTTP health check
         let health_url = format!("http://{}:{}{}", 

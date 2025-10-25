@@ -295,7 +295,7 @@ fn convert_comprehensive_to_patterns(
 
     // Create include patterns for source code
     let mut source_code_patterns = Vec::new();
-    for (ext, _language) in &config.file_extensions {
+    for ext in config.file_extensions.keys() {
         source_code_patterns.push(PatternWithMetadata {
             pattern: format!("*.{}", ext.trim_start_matches('.')),
             description: format!("Source code pattern for {}", ext),
@@ -515,11 +515,10 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     }
 
     // Double star patterns (**/*.ext) - match any depth
-    if pattern.starts_with("**/") {
-        let suffix_pattern = &pattern[3..]; // Remove "**/"
+    if let Some(suffix_pattern) = pattern.strip_prefix("**/") {
+        // Remove "**/"
         // Check if the text ends with the suffix pattern
-        if suffix_pattern.starts_with("*.") {
-            let extension = &suffix_pattern[2..];
+        if let Some(extension) = suffix_pattern.strip_prefix("*.") {
             if let Some(file_extension) = text.rsplit('.').next() {
                 return file_extension == extension;
             }
@@ -528,8 +527,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     }
 
     // File extension patterns (*.ext)
-    if pattern.starts_with("*.") {
-        let extension = &pattern[2..];
+    if let Some(extension) = pattern.strip_prefix("*.") {
         if let Some(file_extension) = text.rsplit('.').next() {
             return file_extension == extension;
         }

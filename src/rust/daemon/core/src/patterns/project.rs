@@ -163,7 +163,7 @@ impl ProjectDetector {
         let mut language_ecosystems = HashMap::new();
 
         // Create ecosystem patterns for major languages
-        for (_ext, language) in &config.file_extensions {
+        for language in config.file_extensions.values() {
             if !language_ecosystems.contains_key(language) {
                 let indicators = config.project_indicators.language_ecosystems
                     .iter()

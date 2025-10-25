@@ -446,7 +446,7 @@ pub struct TempFileFixtures;
 impl TempFileFixtures {
     /// Create a temporary file with given content and extension
     pub async fn create_temp_file(content: &str, extension: &str) -> TestResult<NamedTempFile> {
-        let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))?;
+        let temp_file = NamedTempFile::with_suffix(format!(".{}", extension))?;
 
         let mut file = fs::File::create(temp_file.path()).await?;
         file.write_all(content.as_bytes()).await?;
@@ -516,7 +516,7 @@ impl EmbeddingFixtures {
         use std::f32::consts::PI;
 
         (0..TEST_EMBEDDING_DIM)
-            .map(|i| ((i as f32 * PI / TEST_EMBEDDING_DIM as f32).sin() * 0.5))
+            .map(|i| (i as f32 * PI / TEST_EMBEDDING_DIM as f32).sin() * 0.5)
             .collect()
     }
 

@@ -247,7 +247,7 @@ impl QueueManager {
         retry_from: Option<&str>,
     ) -> QueueResult<String> {
         // Validate priority
-        if priority < 0 || priority > 10 {
+        if !(0..=10).contains(&priority) {
             return Err(QueueError::InvalidPriority(priority));
         }
 
@@ -452,7 +452,7 @@ impl QueueManager {
     /// Update priority for a queued file
     pub async fn update_priority(&self, file_path: &str, new_priority: i32) -> QueueResult<bool> {
         // Validate priority
-        if new_priority < 0 || new_priority > 10 {
+        if !(0..=10).contains(&new_priority) {
             return Err(QueueError::InvalidPriority(new_priority));
         }
 

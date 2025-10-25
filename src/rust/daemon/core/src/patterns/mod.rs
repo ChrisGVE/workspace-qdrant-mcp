@@ -236,7 +236,7 @@ impl AllPatterns {
             &self.language_extensions.data_formats,
             &self.language_extensions.specialized_formats,
         ] {
-            for (_, lang_group) in category {
+            for lang_group in category.values() {
                 // Check extensions
                 if lang_group.extensions.iter().any(|ext| ext.trim_start_matches('.') == extension) {
                     return Some(lang_group);
@@ -302,7 +302,7 @@ impl AllPatterns {
             &self.language_extensions.data_formats,
             &self.language_extensions.specialized_formats,
         ] {
-            for (_, lang_group) in category {
+            for lang_group in category.values() {
                 // Add extensions
                 for ext in &lang_group.extensions {
                     extensions.push(ext.trim_start_matches('.').to_string());

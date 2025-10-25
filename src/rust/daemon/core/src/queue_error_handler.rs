@@ -335,7 +335,7 @@ impl ErrorHandler {
     pub fn get_circuit_breaker(&mut self, collection: &str) -> &mut CircuitBreakerState {
         self.circuit_breakers
             .entry(collection.to_string())
-            .or_insert_with(CircuitBreakerState::default)
+            .or_default()
     }
 
     /// Check circuit breaker state

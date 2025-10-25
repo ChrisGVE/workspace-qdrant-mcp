@@ -274,18 +274,12 @@ pub struct ObservabilityConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct MetricsConfig {
     #[serde(default)]
     pub enabled: bool,
 }
 
-impl Default for MetricsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelemetryConfig {

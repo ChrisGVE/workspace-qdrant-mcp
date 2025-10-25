@@ -114,12 +114,12 @@ pub struct MetadataSchema {
 }
 
 /// Compile-time embedded comprehensive configuration
-static EMBEDDED_CONFIG: &'static str = include_str!("../../../../../../assets/internal_configuration.yaml");
+static EMBEDDED_CONFIG: &str = include_str!("../../../../../../assets/internal_configuration.yaml");
 
 /// Global parsed configuration - lazily initialized on first access
 static PARSED_CONFIG: Lazy<Result<Arc<InternalConfiguration>, ComprehensivePatternError>> = Lazy::new(|| {
     let config: InternalConfiguration = serde_yaml::from_str(EMBEDDED_CONFIG)
-        .map_err(|e| ComprehensivePatternError::YamlParse(e))?;
+        .map_err(ComprehensivePatternError::YamlParse)?;
 
     // Validate configuration after loading
     validate_configuration(&config)?;
@@ -391,8 +391,7 @@ fn glob_match(pattern: &str, text: &str) -> bool {
     }
 
     // Handle wildcard patterns (*.ext)
-    if pattern.starts_with("*.") {
-        let extension = &pattern[2..];
+    if let Some(extension) = pattern.strip_prefix("*.") {
         if let Some(file_extension) = text.rsplit('.').next() {
             return file_extension == extension;
         }

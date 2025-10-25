@@ -325,7 +325,7 @@ impl ToolMonitor {
 
                 tools_to_check
                     .entry((tool_type, language))
-                    .or_insert_with(Vec::new)
+                    .or_default()
                     .push(item.queue_id.clone());
             }
         }

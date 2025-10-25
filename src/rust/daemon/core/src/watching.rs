@@ -506,7 +506,7 @@ impl EventBatcher {
             "default".to_string()
         };
 
-        let batch = self.batches.entry(key).or_insert_with(VecDeque::new);
+        let batch = self.batches.entry(key).or_default();
         batch.push_back(event);
         self.current_total_size += 1;
 
@@ -657,6 +657,7 @@ impl Default for TelemetrySnapshot {
 
 /// Statistics for file watching operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct WatchingStats {
     pub events_received: u64,
     pub events_processed: u64,
@@ -679,26 +680,6 @@ pub struct WatchingStats {
     pub telemetry_history: Option<Vec<TelemetrySnapshot>>,
 }
 
-impl Default for WatchingStats {
-    fn default() -> Self {
-        Self {
-            events_received: 0,
-            events_processed: 0,
-            events_debounced: 0,
-            events_filtered: 0,
-            tasks_submitted: 0,
-            errors: 0,
-            uptime_seconds: 0,
-            watched_paths: 0,
-            current_queue_size: 0,
-            debouncer_evictions: 0,
-            batcher_evictions: 0,
-            pattern_cache_size: 0,
-            telemetry: None,
-            telemetry_history: None,
-        }
-    }
-}
 
 /// Main file watcher implementation with cross-platform support
 pub struct FileWatcher {

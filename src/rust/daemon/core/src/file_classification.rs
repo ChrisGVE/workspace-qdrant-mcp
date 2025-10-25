@@ -274,11 +274,10 @@ fn is_test_file(filename: &str, extension: &str) -> bool {
     }
 
     // Special test file names
-    if CODE_EXTENSIONS.contains(extension) {
-        if name_without_ext == "conftest" || name_without_ext == "test" || name_without_ext == "tests" {
+    if CODE_EXTENSIONS.contains(extension)
+        && (name_without_ext == "conftest" || name_without_ext == "test" || name_without_ext == "tests") {
             return true;
         }
-    }
 
     false
 }
