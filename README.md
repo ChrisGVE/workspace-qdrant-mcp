@@ -379,35 +379,36 @@ export FASTEMBED_MODEL="BAAI/bge-base-en-v1.5"
 
 ### Collection Naming
 
-Collections are automatically created based on your project and configuration. All collection types use **non-empty basenames** to ensure proper daemon routing and metadata enrichment:
+workspace-qdrant-mcp uses **four collection types** with strict naming conventions and **required non-empty basenames** for proper daemon routing and metadata enrichment.
 
-**Project Collections (Scoped by Project):**
+**Project Collections** (Auto-created for file watching):
 
-- `COLLECTIONS="code"` → creates `{project-id}_code` (project-scoped code collection)
-- `COLLECTIONS="notes,docs"` → creates `{project-id}_notes`, `{project-id}_docs`
+- Pattern: `_{project_id}` where `project_id` is 12-character hex hash
+- Example: `_a1b2c3d4e5f6` (single collection per project)
+- Basename: `"code"` (required)
+- All content types in one collection, differentiated by metadata
 
-**User Collections (Shared Across Projects):**
+**User Collections** (Shared across projects):
 
-- Collection pattern: `{basename}-{type}` (e.g., `myapp-notes`, `work-scratchbook`)
-- Auto-enriched with current project context when accessed from project directory
-- Searchable across all projects
+- Pattern: `{basename}-{type}` (e.g., `myapp-notes`, `work-scratchbook`)
+- Basename: `"notes"` (default, customizable)
+- Auto-enriched with current project_id when accessed from project directory
+- Searchable across all projects with optional project filtering
 
-**Library Collections (Shared Documentation):**
+**Library Collections** (External documentation):
 
-- Pattern: `_{library_name}` (e.g., `_react`, `_pytorch`)
+- Pattern: `_{library_name}` (e.g., `_numpy`, `_react`, `_fastapi`)
+- Basename: `"lib"` (required)
 - Global shared documentation and references
+- Distinguished from PROJECT collections by length (>13 chars)
 
-**Memory Collections (Agent Context):**
+**Memory Collections** (Meta-level data):
 
-- `_memory` → User memory and context
-- `_agent_memory` → Agent-specific memory storage
+- Fixed names: `_memory`, `_agent_memory`
+- Basename: `"memory"` (required)
+- Agent conversation history and user preferences
 
-**Example:** For project "my-app" with `COLLECTIONS="code,docs"`:
-
-- `my-app-hash_code` (project-scoped code, hash identifies project)
-- `my-app-hash_docs` (project-scoped documentation)
-- `myapp-notes` (user collection, auto-enriched with project_id)
-- `_react` (shared React documentation library)
+**📖 For complete documentation:** See [Collection Naming Guide](docs/COLLECTION_NAMING.md) for detailed naming conventions, validation rules, and usage examples.
 
 ### Development Notes Collections
 
@@ -606,6 +607,7 @@ workspace-qdrant-ingest /path/to/docs -c my-project --dry-run
 ## Documentation
 
 - **[Architecture](docs/ARCHITECTURE.md)** - System architecture, unified daemon design, and gRPC protocol
+- **[Collection Naming Guide](docs/COLLECTION_NAMING.md)** - Collection types, naming conventions, and basename requirements
 - **[CLI Reference](CLI.md)** - Complete command-line reference for all `wqm` commands
 - **[API Reference](API.md)** - Complete MCP tools documentation
 - **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Comprehensive troubleshooting and debugging
