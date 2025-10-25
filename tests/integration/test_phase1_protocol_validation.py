@@ -560,20 +560,50 @@ class TestDocumentService:
             - Metadata is preserved
             - Chunks are created if chunk_text=True
         """
-        # TODO: Implement text ingestion validation
-        # Expected flow:
-        # 1. Call daemon_client.ingest_text(
-        #       content="Test document content for protocol validation",
-        #       collection_basename="test-notes",
-        #       tenant_id="test_project_123",
-        #       metadata=sample_metadata,
-        #       chunk_text=True
-        #    )
-        # 2. Verify response.success == True
-        # 3. Verify response.document_id is returned
-        # 4. Verify response.chunks_created > 0
-        # 5. Verify document exists in Qdrant
-        pass
+        # Call daemon to ingest text
+        response = await daemon_client.ingest_text(
+            content="Test document content for protocol validation",
+            collection_basename="test_notes",
+            tenant_id="test_project",
+            metadata=sample_metadata,
+            chunk_text=True
+        )
+
+        # Verify response structure
+        assert response.success == True, f"Ingestion failed: {response.error_message}"
+        assert response.document_id != "", "document_id should not be empty"
+        assert response.chunks_created > 0, "Should create at least one chunk"
+
+        # Wait for daemon to complete processing
+        await wait_for_daemon_processing()
+
+        # Find the test collection created by daemon
+        collections = qdrant_client.get_collections().collections
+        test_collections = [c.name for c in collections if c.name.startswith("test_")]
+        assert len(test_collections) > 0, "No test collection created"
+
+        # Verify document exists in Qdrant (check all test collections)
+        found_document = False
+        for collection_name in test_collections:
+            points, _ = qdrant_client.scroll(
+                collection_name=collection_name,
+                limit=100
+            )
+
+            # Look for our document by checking metadata
+            for point in points:
+                payload = point.payload or {}
+                if payload.get("document_id") == response.document_id:
+                    found_document = True
+                    # Verify metadata is preserved
+                    for key, value in sample_metadata.items():
+                        assert payload.get(key) == value, f"Metadata {key} mismatch"
+                    break
+
+            if found_document:
+                break
+
+        assert found_document, f"Document {response.document_id} not found in Qdrant"
 
     async def test_ingest_text_without_chunking(
         self,
@@ -626,8 +656,54 @@ class TestDocumentService:
             - Chunking produces appropriate number of chunks
             - All content is preserved across chunks
         """
-        # TODO: Implement large content validation
-        pass
+        # Create large content (multiple paragraphs, ~10KB)
+        paragraph = "This is a test paragraph with sufficient content to test chunking behavior. " * 20
+        large_content = "\n\n".join([paragraph for _ in range(50)])  # ~10KB total
+
+        # Ingest large content with chunking enabled
+        response = await daemon_client.ingest_text(
+            content=large_content,
+            collection_basename="test_notes_large",
+            tenant_id="test_project",
+            metadata=sample_metadata,
+            chunk_text=True
+        )
+
+        # Verify response
+        assert response.success == True, f"Ingestion failed: {response.error_message}"
+        assert response.document_id != "", "document_id should not be empty"
+        assert response.chunks_created > 1, f"Should create multiple chunks for large content, got {response.chunks_created}"
+
+        # Wait for daemon processing
+        await wait_for_daemon_processing()
+
+        # Find collection and verify chunks
+        collections = qdrant_client.get_collections().collections
+        test_collections = [c.name for c in collections if c.name.startswith("test_")]
+
+        chunk_count = 0
+        found_chunks = []
+        for collection_name in test_collections:
+            points, _ = qdrant_client.scroll(
+                collection_name=collection_name,
+                limit=200
+            )
+
+            for point in points:
+                payload = point.payload or {}
+                if payload.get("document_id") == response.document_id:
+                    chunk_count += 1
+                    found_chunks.append(payload)
+
+        # Verify chunk count matches response
+        assert chunk_count == response.chunks_created, \
+            f"Expected {response.chunks_created} chunks, found {chunk_count} in Qdrant"
+
+        # Verify chunk metadata if available
+        if found_chunks:
+            for chunk in found_chunks:
+                # Verify metadata preserved in chunks
+                assert chunk.get("test_id") == sample_metadata["test_id"]
 
     async def test_update_text_success(
         self,
@@ -645,18 +721,60 @@ class TestDocumentService:
             - Metadata is updated
             - updated_at timestamp is set
         """
-        # TODO: Implement text update validation
-        # Expected flow:
-        # 1. First ingest a document
-        # 2. Call daemon_client.update_text(
-        #       document_id=<from_ingest>,
-        #       content="Updated content",
-        #       metadata={...}
-        #    )
-        # 3. Verify response.success == True
-        # 4. Verify response.updated_at is recent
-        # 5. Verify updated content in Qdrant
-        pass
+        # First, ingest a document
+        ingest_response = await daemon_client.ingest_text(
+            content="Initial document content",
+            collection_basename="test_notes_update",
+            tenant_id="test_project",
+            metadata=sample_metadata,
+            chunk_text=False  # Single chunk for simplicity
+        )
+
+        assert ingest_response.success == True, f"Initial ingestion failed: {ingest_response.error_message}"
+        document_id = ingest_response.document_id
+
+        # Wait for initial ingestion
+        await wait_for_daemon_processing()
+
+        # Update the document with new content and metadata
+        updated_metadata = {**sample_metadata, "updated": "true", "version": "2"}
+        update_response = await daemon_client.update_text(
+            document_id=document_id,
+            content="Updated document content with new information",
+            metadata=updated_metadata
+        )
+
+        # Verify update response
+        assert update_response.success == True, f"Update failed: {update_response.error_message}"
+        assert update_response.updated_at is not None, "updated_at timestamp should be set"
+
+        # Wait for update processing
+        await wait_for_daemon_processing()
+
+        # Find the document in Qdrant and verify updates
+        collections = qdrant_client.get_collections().collections
+        test_collections = [c.name for c in collections if c.name.startswith("test_")]
+
+        found_updated = False
+        for collection_name in test_collections:
+            points, _ = qdrant_client.scroll(
+                collection_name=collection_name,
+                limit=100
+            )
+
+            for point in points:
+                payload = point.payload or {}
+                if payload.get("document_id") == document_id:
+                    found_updated = True
+                    # Verify updated metadata
+                    assert payload.get("updated") == "true", "Updated metadata should be present"
+                    assert payload.get("version") == "2", "Version metadata should be updated"
+                    break
+
+            if found_updated:
+                break
+
+        assert found_updated, f"Updated document {document_id} not found in Qdrant"
 
     async def test_update_text_metadata_only(
         self,
@@ -691,15 +809,70 @@ class TestDocumentService:
             - All chunks are removed from Qdrant
             - Document no longer exists after deletion
         """
-        # TODO: Implement text deletion validation
-        # Expected flow:
-        # 1. First ingest a document
-        # 2. Call daemon_client.delete_text(
-        #       document_id=<from_ingest>,
-        #       collection_name="test-notes"
-        #    )
-        # 3. Verify document is removed from Qdrant
-        pass
+        # First, ingest a document
+        ingest_response = await daemon_client.ingest_text(
+            content="Document to be deleted",
+            collection_basename="test_notes_delete",
+            tenant_id="test_project",
+            metadata=sample_metadata,
+            chunk_text=True
+        )
+
+        assert ingest_response.success == True, f"Initial ingestion failed: {ingest_response.error_message}"
+        document_id = ingest_response.document_id
+
+        # Wait for ingestion
+        await wait_for_daemon_processing()
+
+        # Find the collection name
+        collections = qdrant_client.get_collections().collections
+        test_collections = [c.name for c in collections if c.name.startswith("test_")]
+
+        # Verify document exists before deletion
+        found_before = False
+        collection_name = None
+        for coll_name in test_collections:
+            points, _ = qdrant_client.scroll(
+                collection_name=coll_name,
+                limit=100
+            )
+
+            for point in points:
+                payload = point.payload or {}
+                if payload.get("document_id") == document_id:
+                    found_before = True
+                    collection_name = coll_name
+                    break
+
+            if found_before:
+                break
+
+        assert found_before, f"Document {document_id} should exist before deletion"
+        assert collection_name is not None, "Collection name should be found"
+
+        # Delete the document
+        await daemon_client.delete_text(
+            document_id=document_id,
+            collection_name=collection_name
+        )
+
+        # Wait for deletion processing
+        await wait_for_daemon_processing()
+
+        # Verify document is removed from Qdrant
+        points, _ = qdrant_client.scroll(
+            collection_name=collection_name,
+            limit=100
+        )
+
+        found_after = False
+        for point in points:
+            payload = point.payload or {}
+            if payload.get("document_id") == document_id:
+                found_after = True
+                break
+
+        assert not found_after, f"Document {document_id} should be deleted from Qdrant"
 
     async def test_document_lifecycle_complete(
         self,
@@ -716,8 +889,84 @@ class TestDocumentService:
             - State transitions are correct
             - No orphaned data remains after deletion
         """
-        # TODO: Implement complete lifecycle validation
-        pass
+        # Step 1: Ingest a document
+        ingest_response = await daemon_client.ingest_text(
+            content="Lifecycle test document - initial version",
+            collection_basename="test_notes_lifecycle",
+            tenant_id="test_project",
+            metadata={**sample_metadata, "version": "1"},
+            chunk_text=False
+        )
+
+        assert ingest_response.success == True, f"Ingestion failed: {ingest_response.error_message}"
+        document_id = ingest_response.document_id
+        assert ingest_response.chunks_created == 1, "Should create exactly one chunk"
+
+        await wait_for_daemon_processing()
+
+        # Verify document exists in Qdrant
+        collections = qdrant_client.get_collections().collections
+        test_collections = [c.name for c in collections if c.name.startswith("test_")]
+
+        found_created = False
+        collection_name = None
+        for coll_name in test_collections:
+            points, _ = qdrant_client.scroll(collection_name=coll_name, limit=100)
+            for point in points:
+                payload = point.payload or {}
+                if payload.get("document_id") == document_id:
+                    found_created = True
+                    collection_name = coll_name
+                    assert payload.get("version") == "1", "Initial version should be 1"
+                    break
+            if found_created:
+                break
+
+        assert found_created, f"Document {document_id} should exist after ingestion"
+
+        # Step 2: Update the document
+        update_response = await daemon_client.update_text(
+            document_id=document_id,
+            content="Lifecycle test document - updated version",
+            metadata={**sample_metadata, "version": "2", "updated": "true"}
+        )
+
+        assert update_response.success == True, f"Update failed: {update_response.error_message}"
+        assert update_response.updated_at is not None, "updated_at should be set"
+
+        await wait_for_daemon_processing()
+
+        # Verify document was updated
+        found_updated = False
+        points, _ = qdrant_client.scroll(collection_name=collection_name, limit=100)
+        for point in points:
+            payload = point.payload or {}
+            if payload.get("document_id") == document_id:
+                found_updated = True
+                assert payload.get("version") == "2", "Version should be updated to 2"
+                assert payload.get("updated") == "true", "Updated flag should be set"
+                break
+
+        assert found_updated, f"Document {document_id} should be updated in Qdrant"
+
+        # Step 3: Delete the document
+        await daemon_client.delete_text(
+            document_id=document_id,
+            collection_name=collection_name
+        )
+
+        await wait_for_daemon_processing()
+
+        # Verify document is deleted
+        points, _ = qdrant_client.scroll(collection_name=collection_name, limit=100)
+        found_after_delete = False
+        for point in points:
+            payload = point.payload or {}
+            if payload.get("document_id") == document_id:
+                found_after_delete = True
+                break
+
+        assert not found_after_delete, f"Document {document_id} should be deleted from Qdrant"
 
 
 @pytest.mark.integration
