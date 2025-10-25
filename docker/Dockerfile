@@ -14,10 +14,10 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up Rust environment
-WORKDIR /app/src/rust/daemon/core
+WORKDIR /app/src/rust/daemon
 
 # Copy Rust source code and build
-COPY src/rust/daemon/core/ .
+COPY src/rust/daemon/ .
 RUN cargo build --release --locked
 
 # Stage 2: Python base with system dependencies
@@ -74,7 +74,7 @@ RUN uv sync --dev
 # Copy source code
 COPY src/ src/
 COPY tests/ tests/
-COPY --from=rust-builder /app/src/rust/daemon/core/target/release/ src/rust/daemon/core/target/release/
+COPY --from=rust-builder /app/src/rust/daemon/target/release/ src/rust/daemon/target/release/
 
 # Create non-root user for development
 RUN groupadd --gid 1000 appuser \
@@ -150,7 +150,7 @@ WORKDIR /app
 COPY --from=production-base --chown=root:root /app/.venv /app/.venv
 
 # Copy Rust binaries if available
-COPY --from=rust-builder --chown=root:root /app/src/rust/daemon/core/target/release/ /app/src/rust/daemon/core/target/release/
+COPY --from=rust-builder --chown=root:root /app/src/rust/daemon/target/release/ /app/src/rust/daemon/target/release/
 
 # Copy application source code
 COPY --chown=root:root src/ src/
