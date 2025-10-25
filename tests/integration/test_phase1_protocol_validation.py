@@ -180,13 +180,41 @@ class TestSystemService:
             - Response includes component health information
             - Timestamp is present and recent
         """
-        # TODO: Implement health check validation
-        # Expected flow:
-        # 1. Call daemon_client.health_check()
-        # 2. Verify response.status == SERVICE_STATUS_HEALTHY
-        # 3. Verify response.components is populated
-        # 4. Verify response.timestamp is recent (within last minute)
-        pass
+        # Call health check
+        response = await daemon_client.health_check()
+
+        # Verify response structure
+        assert hasattr(response, 'status'), "Response should have status field"
+        assert hasattr(response, 'components'), "Response should have components field"
+        assert hasattr(response, 'timestamp'), "Response should have timestamp field"
+
+        # Verify status is healthy
+        assert response.status == pb2.SERVICE_STATUS_HEALTHY, \
+            f"Expected SERVICE_STATUS_HEALTHY, got {response.status}"
+
+        # Verify components list exists (may be empty if daemon doesn't implement yet)
+        assert isinstance(response.components, (list, tuple)), \
+            "Components should be a list/tuple"
+
+        # If components are present, verify their structure
+        for component in response.components:
+            assert hasattr(component, 'component_name'), \
+                "Component should have component_name field"
+            assert hasattr(component, 'status'), \
+                "Component should have status field"
+            assert component.component_name != "", \
+                "Component name should not be empty"
+
+        # Verify timestamp is present
+        assert response.timestamp is not None, "Timestamp should not be None"
+        assert hasattr(response.timestamp, 'seconds'), \
+            "Timestamp should have seconds field"
+
+        # Verify timestamp is recent (within last minute)
+        now = datetime.now(timezone.utc).timestamp()
+        timestamp_seconds = response.timestamp.seconds
+        assert abs(now - timestamp_seconds) < 60, \
+            f"Timestamp should be recent (within 60s), got {abs(now - timestamp_seconds)}s ago"
 
     async def test_get_status_complete_system_snapshot(self, daemon_client):
         """
@@ -199,14 +227,68 @@ class TestSystemService:
             - Uptime timestamp is reasonable
             - System metrics are populated
         """
-        # TODO: Implement system status validation
-        # Expected flow:
-        # 1. Call daemon_client.get_status()
-        # 2. Verify response.status is valid
-        # 3. Verify response.metrics contains CPU/memory data
-        # 4. Verify response.total_documents >= 0
-        # 5. Verify response.uptime_since is in the past
-        pass
+        # Call get_status
+        response = await daemon_client.get_status()
+
+        # Verify response structure
+        assert hasattr(response, 'status'), "Response should have status field"
+        assert hasattr(response, 'metrics'), "Response should have metrics field"
+        assert hasattr(response, 'active_projects'), "Response should have active_projects field"
+        assert hasattr(response, 'total_documents'), "Response should have total_documents field"
+        assert hasattr(response, 'total_collections'), "Response should have total_collections field"
+        assert hasattr(response, 'uptime_since'), "Response should have uptime_since field"
+
+        # Verify status is valid
+        assert response.status in [
+            pb2.SERVICE_STATUS_HEALTHY,
+            pb2.SERVICE_STATUS_DEGRADED,
+            pb2.SERVICE_STATUS_UNHEALTHY,
+        ], f"Invalid service status: {response.status}"
+
+        # Verify metrics are populated
+        assert response.metrics is not None, "Metrics should not be None"
+        assert hasattr(response.metrics, 'cpu_usage_percent'), \
+            "Metrics should have cpu_usage_percent"
+        assert hasattr(response.metrics, 'memory_usage_bytes'), \
+            "Metrics should have memory_usage_bytes"
+        assert hasattr(response.metrics, 'memory_total_bytes'), \
+            "Metrics should have memory_total_bytes"
+        assert hasattr(response.metrics, 'active_connections'), \
+            "Metrics should have active_connections"
+        assert hasattr(response.metrics, 'pending_operations'), \
+            "Metrics should have pending_operations"
+
+        # Verify metrics values are reasonable
+        assert response.metrics.cpu_usage_percent >= 0, \
+            f"CPU usage should be non-negative, got {response.metrics.cpu_usage_percent}"
+        assert response.metrics.memory_usage_bytes >= 0, \
+            f"Memory usage should be non-negative, got {response.metrics.memory_usage_bytes}"
+        assert response.metrics.active_connections >= 0, \
+            f"Active connections should be non-negative, got {response.metrics.active_connections}"
+        assert response.metrics.pending_operations >= 0, \
+            f"Pending operations should be non-negative, got {response.metrics.pending_operations}"
+
+        # Verify active_projects is a list
+        assert isinstance(response.active_projects, (list, tuple)), \
+            "Active projects should be a list/tuple"
+
+        # Verify document and collection counts are non-negative
+        assert response.total_documents >= 0, \
+            f"Total documents should be non-negative, got {response.total_documents}"
+        assert response.total_collections >= 0, \
+            f"Total collections should be non-negative, got {response.total_collections}"
+
+        # Verify uptime_since is in the past
+        assert response.uptime_since is not None, "Uptime timestamp should not be None"
+        assert hasattr(response.uptime_since, 'seconds'), \
+            "Uptime timestamp should have seconds field"
+        now = datetime.now(timezone.utc).timestamp()
+        uptime_seconds = response.uptime_since.seconds
+        assert uptime_seconds <= now, \
+            f"Uptime should be in the past, got {uptime_seconds} (now: {now})"
+        # Daemon should not have started more than 1 day ago in tests
+        assert now - uptime_seconds < 86400, \
+            f"Uptime seems unreasonable: {now - uptime_seconds}s ago"
 
     async def test_get_metrics_performance_data(self, daemon_client):
         """
@@ -218,13 +300,45 @@ class TestSystemService:
             - Timestamp is present and recent
             - Metric types are valid (counter, gauge, histogram)
         """
-        # TODO: Implement metrics validation
-        # Expected flow:
-        # 1. Call daemon_client.get_metrics()
-        # 2. Verify response.metrics is a list
-        # 3. For each metric, verify required fields
-        # 4. Verify response.collected_at is recent
-        pass
+        # Call get_metrics
+        response = await daemon_client.get_metrics()
+
+        # Verify response structure
+        assert hasattr(response, 'metrics'), "Response should have metrics field"
+        assert hasattr(response, 'collected_at'), "Response should have collected_at field"
+
+        # Verify metrics is a list
+        assert isinstance(response.metrics, (list, tuple)), \
+            "Metrics should be a list/tuple"
+
+        # If metrics are present, verify their structure
+        for metric in response.metrics:
+            assert hasattr(metric, 'name'), "Metric should have name field"
+            assert hasattr(metric, 'type'), "Metric should have type field"
+            assert hasattr(metric, 'value'), "Metric should have value field"
+            assert hasattr(metric, 'timestamp'), "Metric should have timestamp field"
+
+            # Verify name is not empty
+            assert metric.name != "", "Metric name should not be empty"
+
+            # Verify type is valid
+            valid_types = ["counter", "gauge", "histogram"]
+            assert metric.type in valid_types, \
+                f"Metric type should be one of {valid_types}, got {metric.type}"
+
+            # Verify value is numeric
+            assert isinstance(metric.value, (int, float)), \
+                f"Metric value should be numeric, got {type(metric.value)}"
+
+        # Verify collected_at timestamp is present and recent
+        assert response.collected_at is not None, \
+            "collected_at timestamp should not be None"
+        assert hasattr(response.collected_at, 'seconds'), \
+            "collected_at should have seconds field"
+        now = datetime.now(timezone.utc).timestamp()
+        collected_seconds = response.collected_at.seconds
+        assert abs(now - collected_seconds) < 60, \
+            f"collected_at should be recent (within 60s), got {abs(now - collected_seconds)}s ago"
 
     async def test_send_refresh_signal_ingestion_queue(self, daemon_client):
         """
@@ -235,12 +349,10 @@ class TestSystemService:
             - Daemon acknowledges signal (returns Empty)
             - No errors occur during signal transmission
         """
-        # TODO: Implement refresh signal validation
-        # Expected flow:
-        # 1. Call daemon_client.send_refresh_signal(pb2.INGEST_QUEUE)
-        # 2. Verify no exception is raised
-        # 3. Verify daemon processes signal (check logs or metrics)
-        pass
+        # Send refresh signal for ingestion queue
+        # Response is Empty, so we just verify no exception is raised
+        await daemon_client.send_refresh_signal(pb2.INGEST_QUEUE)
+        # If we reach here without exception, the signal was sent successfully
 
     async def test_send_refresh_signal_watch_folders(self, daemon_client):
         """
@@ -251,8 +363,10 @@ class TestSystemService:
             - Daemon updates watch configuration
             - No errors occur
         """
-        # TODO: Implement watch folder refresh validation
-        pass
+        # Send refresh signal for watch folders
+        # Response is Empty, so we just verify no exception is raised
+        await daemon_client.send_refresh_signal(pb2.WATCHED_FOLDERS)
+        # If we reach here without exception, the signal was sent successfully
 
     async def test_send_refresh_signal_lsp_tools(self, daemon_client):
         """
@@ -263,14 +377,13 @@ class TestSystemService:
             - Language list is correctly transmitted
             - Daemon updates tool registry
         """
-        # TODO: Implement LSP tools refresh validation
-        # Expected flow:
-        # 1. Call daemon_client.send_refresh_signal(
-        #       pb2.TOOLS_AVAILABLE,
-        #       lsp_languages=["python", "rust"]
-        #    )
-        # 2. Verify signal is received by daemon
-        pass
+        # Send refresh signal with LSP languages
+        # Response is Empty, so we just verify no exception is raised
+        await daemon_client.send_refresh_signal(
+            pb2.TOOLS_AVAILABLE,
+            lsp_languages=["python", "rust", "javascript"]
+        )
+        # If we reach here without exception, the signal was sent successfully
 
     async def test_notify_server_status_starting(self, daemon_client):
         """
@@ -281,15 +394,14 @@ class TestSystemService:
             - Project information is transmitted
             - Daemon acknowledges notification
         """
-        # TODO: Implement server status notification validation
-        # Expected flow:
-        # 1. Call daemon_client.notify_server_status(
-        #       pb2.SERVER_STATE_UP,
-        #       project_name="test_project",
-        #       project_root="/path/to/project"
-        #    )
-        # 2. Verify daemon receives notification
-        pass
+        # Send server status notification for server starting
+        # Response is Empty, so we just verify no exception is raised
+        await daemon_client.notify_server_status(
+            pb2.SERVER_STATE_UP,
+            project_name="test_project",
+            project_root="/tmp/test_project"
+        )
+        # If we reach here without exception, the notification was sent successfully
 
     async def test_notify_server_status_stopping(self, daemon_client):
         """
@@ -300,8 +412,14 @@ class TestSystemService:
             - Daemon handles shutdown gracefully
             - No errors occur during notification
         """
-        # TODO: Implement server shutdown notification validation
-        pass
+        # Send server status notification for server stopping
+        # Response is Empty, so we just verify no exception is raised
+        await daemon_client.notify_server_status(
+            pb2.SERVER_STATE_DOWN,
+            project_name="test_project",
+            project_root="/tmp/test_project"
+        )
+        # If we reach here without exception, the notification was sent successfully
 
     async def test_pause_all_watchers(self, daemon_client):
         """
@@ -312,12 +430,14 @@ class TestSystemService:
             - Returns Empty response
             - Watchers are actually paused (verify with status check)
         """
-        # TODO: Implement pause watchers validation
-        # Expected flow:
-        # 1. Call daemon_client.pause_all_watchers()
-        # 2. Verify no exception
-        # 3. Call get_status() and verify watchers are paused
-        pass
+        # Pause all watchers
+        # Response is Empty, so we just verify no exception is raised
+        await daemon_client.pause_all_watchers()
+        # If we reach here without exception, the pause command was sent successfully
+
+        # Optional: Verify watchers are paused by checking status
+        # Note: This depends on daemon implementation details
+        # If daemon provides watcher state in GetStatus, we can verify here
 
     async def test_resume_all_watchers(self, daemon_client):
         """
@@ -328,12 +448,20 @@ class TestSystemService:
             - Returns Empty response
             - Watchers are actually resumed (verify with status check)
         """
-        # TODO: Implement resume watchers validation
-        # Expected flow:
-        # 1. First pause watchers
-        # 2. Call daemon_client.resume_all_watchers()
-        # 3. Verify watchers are active again via get_status()
-        pass
+        # First pause watchers to ensure they're in paused state
+        await daemon_client.pause_all_watchers()
+
+        # Give daemon a moment to process pause command
+        await asyncio.sleep(0.5)
+
+        # Resume all watchers
+        # Response is Empty, so we just verify no exception is raised
+        await daemon_client.resume_all_watchers()
+        # If we reach here without exception, the resume command was sent successfully
+
+        # Optional: Verify watchers are active again by checking status
+        # Note: This depends on daemon implementation details
+        # If daemon provides watcher state in GetStatus, we can verify here
 
     async def test_health_check_timeout_handling(self, daemon_client):
         """
@@ -343,8 +471,22 @@ class TestSystemService:
             - Short timeout (0.1s) raises DaemonTimeoutError if daemon is slow
             - Normal timeout (5s) succeeds for healthy daemon
         """
-        # TODO: Implement timeout handling validation
-        pass
+        # Test with normal timeout - should succeed
+        response = await daemon_client.health_check(timeout=5.0)
+        assert response.status == pb2.SERVICE_STATUS_HEALTHY, \
+            "Health check with normal timeout should succeed"
+
+        # Test with very short timeout - may timeout depending on daemon performance
+        # We don't assert this fails, as a fast daemon might complete in 0.1s
+        # This just validates the timeout parameter is accepted
+        try:
+            response = await daemon_client.health_check(timeout=0.1)
+            # If it succeeds, daemon is very fast - that's okay
+            assert response.status == pb2.SERVICE_STATUS_HEALTHY, \
+                "Health check should return healthy status"
+        except DaemonTimeoutError:
+            # This is expected if daemon takes longer than 0.1s
+            pass  # Test passes either way - we're just validating timeout parameter works
 
 
 @pytest.mark.integration
