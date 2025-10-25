@@ -317,7 +317,7 @@ mod tests {
         for _ in 0..10 {
             let embedding = strategy.new_tree(&mut runner).unwrap().current();
             assert_eq!(embedding.len(), TEST_EMBEDDING_DIM);
-            assert!(embedding.iter().all(|&x| x >= -1.0 && x <= 1.0));
+            assert!(embedding.iter().all(|&x| (-1.0..=1.0).contains(&x)));
         }
     }
 
@@ -342,7 +342,7 @@ mod tests {
             let (indices, values) = strategy.new_tree(&mut runner).unwrap().current();
             assert_eq!(indices.len(), values.len());
             assert!(indices.windows(2).all(|w| w[0] < w[1])); // Should be sorted
-            assert!(values.iter().all(|&x| x >= 0.0 && x <= 1.0));
+            assert!(values.iter().all(|&x| (0.0..=1.0).contains(&x)));
         }
     }
 

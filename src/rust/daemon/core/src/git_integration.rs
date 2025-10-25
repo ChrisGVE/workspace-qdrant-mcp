@@ -338,7 +338,7 @@ mod tests {
         let repo_path = temp_dir.path();
 
         // Initialize Git repository
-        let repo = create_test_repo(repo_path).unwrap();
+        let _repo = create_test_repo(repo_path).unwrap();
 
         // Default branch should be "main" or "master"
         let detector = GitBranchDetector::new();

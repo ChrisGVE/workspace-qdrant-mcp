@@ -95,7 +95,6 @@ where
 }
 
 /// Advanced tokio-test utilities for async operation testing
-
 /// Test that a future is initially pending
 pub fn assert_future_pending<F>(future: Pin<&mut F>) -> TestResult<()>
 where
