@@ -37,24 +37,24 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            src/rust/daemon/core/target
-          key: rust-${{ runner.os }}-${{ hashFiles('src/rust/daemon/core/Cargo.lock') }}
-      
+            src/rust/daemon/target
+          key: rust-${{ runner.os }}-${{ hashFiles('src/rust/daemon/Cargo.lock') }}
+
       - name: Check formatting
         run: cargo fmt --all --check
-        working-directory: src/rust/daemon/core
-      
+        working-directory: src/rust/daemon
+
       - name: Lint with clippy
         run: cargo clippy --workspace --exclude workspace-qdrant-python-bindings -- -D warnings
-        working-directory: src/rust/daemon/core
-      
+        working-directory: src/rust/daemon
+
       - name: Run tests
         run: cargo test --workspace --exclude workspace-qdrant-python-bindings
-        working-directory: src/rust/daemon/core
-      
+        working-directory: src/rust/daemon
+
       - name: Build documentation
         run: cargo doc --all-features --no-deps
-        working-directory: src/rust/daemon/core
+        working-directory: src/rust/daemon
 
   # Build wheels for different platforms
   build-wheels:
@@ -114,8 +114,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            src/rust/daemon/core/target
-          key: rust-${{ matrix.target }}-${{ hashFiles('src/rust/daemon/core/Cargo.lock') }}
+            src/rust/daemon/target
+          key: rust-${{ matrix.target }}-${{ hashFiles('src/rust/daemon/Cargo.lock') }}
       
       - name: Install maturin
         run: pip install maturin[patchelf]
@@ -150,7 +150,7 @@ jobs:
             --target ${{ matrix.target }} \
             --out ../wheels \
             --interpreter python
-        working-directory: src/rust/daemon/core/python-bindings
+        working-directory: src/rust/daemon/python-bindings
         env:
           # Enable PyO3 forward compatibility for newer Python versions
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
@@ -206,7 +206,7 @@ jobs:
       
       - name: Build source distribution
         run: maturin sdist --out ../dist
-        working-directory: src/rust/daemon/core/python-bindings
+        working-directory: src/rust/daemon/python-bindings
         env:
           # Enable PyO3 forward compatibility for newer Python versions
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
@@ -344,22 +344,22 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            src/rust/daemon/core/target
-          key: rust-security-${{ hashFiles('src/rust/daemon/core/Cargo.lock') }}
-      
+            src/rust/daemon/target
+          key: rust-security-${{ hashFiles('src/rust/daemon/Cargo.lock') }}
+
       - name: Install cargo-audit
         run: cargo install cargo-audit
-      
+
       - name: Run security audit
         run: cargo audit
-        working-directory: src/rust/daemon/core
-      
+        working-directory: src/rust/daemon
+
       - name: Install cargo-deny
         run: cargo install cargo-deny
-      
+
       - name: Check licenses and dependencies
         run: cargo deny check
-        working-directory: src/rust/daemon/core
+        working-directory: src/rust/daemon
         continue-on-error: true  # Don't fail build on license issues
 
   # Benchmark performance
@@ -380,18 +380,18 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            src/rust/daemon/core/target
-          key: rust-bench-${{ hashFiles('src/rust/daemon/core/Cargo.lock') }}
-      
+            src/rust/daemon/target
+          key: rust-bench-${{ hashFiles('src/rust/daemon/Cargo.lock') }}
+
       - name: Run benchmarks
         run: cargo bench --features benchmarks
-        working-directory: src/rust/daemon/core
-      
+        working-directory: src/rust/daemon
+
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
-          path: src/rust/daemon/core/target/criterion/
+          path: src/rust/daemon/target/criterion/
 
   # Publish to PyPI
   publish:
