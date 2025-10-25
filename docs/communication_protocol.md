@@ -146,7 +146,7 @@ Daemon batches signals and refreshes internal state periodically (threshold: 10 
 
 ### Schema Definition
 
-**Location:** `rust-engine-legacy/proto/workspace_daemon.proto` (DEPRECATED - see `src/rust/daemon/proto/`)
+**Location:** `src/rust/daemon/core/proto/workspace_daemon.proto` (DEPRECATED - see `src/rust/daemon/proto/`)
 
 **Package:** `workspace_daemon`
 

@@ -22,7 +22,7 @@ uv tool install .
 
 # Build and install Rust daemon
 echo "Building Rust daemon..."
-cd rust-engine-legacy
+cd src/rust/daemon/core
 cargo build --release --bin memexd
 
 # Install daemon to /usr/local/bin (no sudo needed on macOS)

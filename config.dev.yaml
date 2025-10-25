@@ -4,7 +4,7 @@
 
 deployment:
   develop: true
-  # Override base path to point to project root when running from rust-engine-legacy directory
+  # Override base path to point to project root when running from src/rust/daemon/core directory
   base_path: "/Users/chris/dev/ai/claude-code-cfg/mcp/workspace-qdrant-mcp"
 
 # Override specific settings for development

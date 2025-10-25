@@ -69,7 +69,7 @@ RUN uv venv --python python3.11 .venv \
     && uv pip install pytest-testmon pytest-sugar pytest-clarity
 
 # Build Rust components
-RUN cd rust-engine-legacy \
+RUN cd src/rust/daemon/core \
     && cargo build --release \
     && cargo test --release --no-run
 
@@ -146,9 +146,9 @@ source .venv/bin/activate
 python -c "import workspace_qdrant_mcp; print('Python imports OK')" || exit 1
 
 # Check Rust components
-cd rust-engine-legacy
+cd src/rust/daemon/core
 cargo check --release >/dev/null 2>&1 || exit 1
-cd ..
+cd /app
 
 echo "Health check passed"
 EOF

@@ -80,14 +80,14 @@ repos:
         pass_filenames: false
         always_run: true
 
-  # Rust formatting and linting (for rust-engine-legacy)
+  # Rust formatting and linting (for src/rust/daemon/core)
   - repo: https://github.com/doublify/pre-commit-rust
     rev: v1.0
     hooks:
       - id: fmt
-        args: ['--manifest-path', 'rust-engine-legacy/Cargo.toml', '--all']
+        args: ['--manifest-path', 'src/rust/daemon/core/Cargo.toml', '--all']
       - id: clippy
-        args: ['--manifest-path', 'rust-engine-legacy/Cargo.toml', '--all-targets', '--all-features', '--', '-D', 'warnings']
+        args: ['--manifest-path', 'src/rust/daemon/core/Cargo.toml', '--all-targets', '--all-features', '--', '-D', 'warnings']
 
   # Rust security audit
   - repo: local
@@ -96,7 +96,7 @@ repos:
         name: Cargo Security Audit
         entry: cargo audit
         language: system
-        files: rust-engine-legacy/.*\.rs$
+        files: src/rust/daemon/core/.*\.rs$
         pass_filenames: false
         always_run: false
 
@@ -147,7 +147,7 @@ exclude: |
       coverage\.xml|
       20[0-9]{6}-[0-9]{4}_.*|
       LT_20[0-9]{6}-[0-9]{4}_.*|
-      rust-engine-legacy/target.*|
+      src/rust/daemon/core/target.*|
       \.venv/.*|
       __pycache__/.*
   )$

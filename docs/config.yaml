@@ -11,7 +11,7 @@ sources:
   python:
     - "src/python"
   rust:
-    - "rust-engine-legacy"
+    - "src/rust/daemon/core"
 
 # Output configuration
 output:

@@ -10,8 +10,8 @@
 
 ### 1. Parallel Daemon Implementations
 
-- Two Rust codebases coexist: the legacy `rust-engine-legacy` (builds `workspace-qdrant-daemon`) and the modular `src/rust/daemon` workspace with `workspace-qdrant-core`, `workspace-qdrant-grpc`, and Python bindings.
-- Both trees carry overlapping responsibilities (gRPC services, document processing, queue management). Tooling still targets `rust-engine-legacy` (`src/python/wqm_cli/cli/commands/service.py:157-214`), while new features land in `src/rust/daemon`. Maintaining both doubles build, testing, and documentation overhead.
+- Two Rust codebases coexist: the legacy `src/rust/daemon/core` (builds `workspace-qdrant-daemon`) and the modular `src/rust/daemon` workspace with `workspace-qdrant-core`, `workspace-qdrant-grpc`, and Python bindings.
+- Both trees carry overlapping responsibilities (gRPC services, document processing, queue management). Tooling still targets `src/rust/daemon/core` (`src/python/wqm_cli/cli/commands/service.py:157-214`), while new features land in `src/rust/daemon`. Maintaining both doubles build, testing, and documentation overhead.
 - Simplification: converge on a single Rust workspace and retire the duplicate. Migrate CLI build/install scripts to the consolidated target.
 
 ### 2. Redundant Daemon Clients & Protocol Abstractions

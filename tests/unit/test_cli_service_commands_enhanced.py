@@ -244,7 +244,7 @@ class TestServiceBinaryBuild:
     @patch('platform.system', return_value='Darwin')
     @patch('pathlib.Path.exists', return_value=False)
     async def test_install_binary_source_not_found(self, mock_exists, mock_system):
-        """Test binary build when rust-engine-legacy directory not found."""
+        """Test binary build when src/rust/daemon/core directory not found."""
         from wqm_cli.cli.commands.service import MemexdServiceManager
 
         with patch.object(MemexdServiceManager, 'validate_binary'):
@@ -252,7 +252,7 @@ class TestServiceBinaryBuild:
             result = await manager.install_binary_from_source()
 
             assert result["success"] is False
-            assert "rust-engine-legacy directory not found" in result["error"]
+            assert "src/rust/daemon/core directory not found" in result["error"]
 
 
 class TestPlatformSpecificMacOS:

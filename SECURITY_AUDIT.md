@@ -19,13 +19,13 @@
   The `store` tool falls back to direct Qdrant writes whenever the daemon is unavailable (`src/python/workspace_qdrant_mcp/server.py:482-519`). This path omits the `validate_llm_collection_access` checks present in the daemon client (`src/python/common/core/daemon_client.py:342-353`), allowing writes to protected collections (`memory`, `__*`, etc.) and bypassing experimental metadata validation. Any transient daemon outage (or deliberate disabling) leads to unrestricted writes.
 
 - **Unauthenticated & Unencrypted gRPC Control Plane**  
-  The daemon client constructs an insecure channel by default (`src/python/common/grpc/daemon_client.py:111-127`) and the server never enables TLS or any form of authentication (`rust-engine-legacy/src/grpc/server.rs:81-137`). Anyone with network access to port 50051 can invoke daemon RPCs (collection creation, ingestion, watcher control). Since CLI/service scripts encourage daemon deployment as a user-level service, a local adversary gains high-impact manipulation primitives.
+  The daemon client constructs an insecure channel by default (`src/python/common/grpc/daemon_client.py:111-127`) and the server never enables TLS or any form of authentication (`src/rust/daemon/core/src/grpc/server.rs:81-137`). Anyone with network access to port 50051 can invoke daemon RPCs (collection creation, ingestion, watcher control). Since CLI/service scripts encourage daemon deployment as a user-level service, a local adversary gains high-impact manipulation primitives.
 
 - **Authentication-Free HTTP Hook Server**  
   `http_server.py` exposes FastAPI endpoints for session start/stop and hook processing without authentication or CSRF protection (`src/python/workspace_qdrant_mcp/http_server.py:31-153`). If started with `--host 0.0.0.0`, an attacker can spoof Claude session events, trigger ingest actions, or manipulate daemon state in current implementation (the server forwards status notifications to the daemon). No origin or token validation is performed.
 
 - **gRPC Protocol Mismatch Forces Fallback**  
-  The Rust daemon compiled from `rust-engine-legacy` registers only `SystemService` (`rust-engine-legacy/src/grpc/services/mod.rs:3-13`), while Python expects `DocumentService`/`CollectionService`. This mismatch means every write immediately hits the insecure fallback path above, making the “daemon required” guard ineffective.
+  The Rust daemon compiled from `src/rust/daemon/core` registers only `SystemService` (`src/rust/daemon/core/src/grpc/services/mod.rs:3-13`), while Python expects `DocumentService`/`CollectionService`. This mismatch means every write immediately hits the insecure fallback path above, making the “daemon required” guard ineffective.
 
 ## Medium-Risk Findings
 
@@ -39,7 +39,7 @@
   When the fallback path writes directly to Qdrant, arbitrary payload metadata (including `file_path`, `domain`) is stored verbatim (`src/python/workspace_qdrant_mcp/server.py:492-504`). No redaction or filtering occurs, so ingestion of sensitive repositories can expose internal file system structures, access tokens embedded in paths, etc.
 
 - **No Rate Limiting or Abuse Detection**  
-  The HTTP server and gRPC services have no explicit rate limiting; the connection manager on the Rust server enforces counts per client (`rust-engine-legacy/src/grpc/server.rs:30-52`), but without authentication attackers can trivially cycle sources to avoid penalties. The FastAPI server ties directly into daemon notifications without trust boundaries.
+  The HTTP server and gRPC services have no explicit rate limiting; the connection manager on the Rust server enforces counts per client (`src/rust/daemon/core/src/grpc/server.rs:30-52`), but without authentication attackers can trivially cycle sources to avoid penalties. The FastAPI server ties directly into daemon notifications without trust boundaries.
 
 - **Multiple gRPC Clients with Divergent Behaviour**  
   Two active daemon clients (`src/python/common/core/daemon_client.py` vs. `src/python/common/grpc/daemon_client.py`) maintain separate retry, timeout, and error-handling logic. Divergent defaults (e.g., circuit breaker vs. none) make it difficult to reason about security guarantees (such as fail-closed vs. fail-open) across components.
@@ -50,7 +50,7 @@
   `default_configuration.yaml` sets loopback hosts for MCP and daemon, but documentation encourages manual overrides. Without clear warnings, operators might bind to `0.0.0.0` for convenience, exposing unauthenticated services.
 
 - **Daemon Health Responses Contain Synthetic Data**  
-  `SystemService` returns hard-coded metrics (`rust-engine-legacy/src/grpc/services/system_service.rs:42-118`), preventing reliable detection of misbehaviour. Operators may miss security incidents (e.g., queue flooding) because health responses always read “healthy.”
+  `SystemService` returns hard-coded metrics (`src/rust/daemon/core/src/grpc/services/system_service.rs:42-118`), preventing reliable detection of misbehaviour. Operators may miss security incidents (e.g., queue flooding) because health responses always read “healthy.”
 
 - **Service Discovery Stubbed Out**  
   Automatic discovery is disabled (`src/python/common/core/daemon_client.py:154-185`), but the scaffolding leaves open questions about how endpoints will be shared. A future discovery mechanism must authenticate peer advertisements to avoid rogue daemon injection.

@@ -29,7 +29,7 @@ sources:
   python:
     - "src/python"
   rust:
-    - "rust-engine-legacy"
+    - "src/rust/daemon/core"
 
 output:
   base_dir: "docs/generated"

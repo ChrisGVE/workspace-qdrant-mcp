@@ -108,7 +108,7 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup update stable
 
 # Build manually to see detailed errors
-cd rust-engine-legacy
+cd src/rust/daemon/core
 cargo clean
 cargo build --release
 
@@ -429,7 +429,7 @@ wqm service status
 wqm service logs
 
 # Try starting manually to see errors
-/path/to/rust-engine-legacy/target/release/memexd --foreground --log-level debug
+/path/to/src/rust/daemon/core/target/release/memexd --foreground --log-level debug
 ```
 
 **Common errors and solutions:**

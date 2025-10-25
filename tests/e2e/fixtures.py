@@ -73,7 +73,7 @@ class DaemonManager:
         """
         # Build daemon start command
         cmd = [
-            "./rust-engine-legacy/target/release/memexd",
+            "./src/rust/daemon/core/target/release/memexd",
             "--foreground",
             "--log-level",
             self.log_level,

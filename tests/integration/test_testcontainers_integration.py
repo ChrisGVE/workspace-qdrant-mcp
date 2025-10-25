@@ -92,8 +92,8 @@ class TestDockerTestEnvironment:
         result = test_environment_container.exec("cargo --version")
         assert result.exit_code == 0
 
-        # Test Rust project build (legacy)
-        result = test_environment_container.exec("ls -la /app/rust-engine-legacy")
+        # Test Rust daemon directory exists
+        result = test_environment_container.exec("ls -la /app/src/rust/daemon")
         assert result.exit_code == 0
 
     def test_container_unit_tests(self, test_environment_container):

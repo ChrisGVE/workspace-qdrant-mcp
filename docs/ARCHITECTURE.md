@@ -707,7 +707,7 @@ For detailed component specifications and implementation details:
 
 **Reference Implementation:**
 - **Server**: `src/python/workspace_qdrant_mcp/server.py` - MCP tools implementation
-- **Daemon**: `src/rust/daemon/` - Unified Rust daemon (current), `rust-engine-legacy/` (archived)
+- **Daemon**: `src/rust/daemon/` - Unified Rust daemon (current), `src/rust/daemon/core/` (archived)
 - **CLI**: `src/python/wqm_cli/` - Command-line interface
 - **State**: `src/python/common/core/sqlite_state_manager.py` - SQLite management
 
