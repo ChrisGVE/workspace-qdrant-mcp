@@ -13,7 +13,8 @@ from typing import Any, Dict, List, Optional
 
 from loguru import logger
 from .client import QdrantWorkspaceClient
-from .daemon_client import DaemonClient, DaemonError
+from .daemon_client import DaemonClient
+from ..grpc.daemon_client import DaemonClientError as DaemonError
 
 # logger imported from loguru
 
