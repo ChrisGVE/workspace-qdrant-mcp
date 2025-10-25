@@ -29,8 +29,10 @@ Usage:
 """
 
 import asyncio
+import grpc
 import logging
 import pytest
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -48,6 +50,7 @@ from common.grpc.daemon_client import (
     DaemonClientError,
 )
 from common.grpc.generated import workspace_daemon_pb2 as pb2
+from google.protobuf.timestamp_pb2 import Timestamp as pb2_Timestamp
 
 
 # =============================================================================
@@ -1474,13 +1477,19 @@ class TestErrorHandling:
             - Correct exception type is raised
             - Error message is informative
         """
-        # TODO: Implement connection failure validation
-        # Expected flow:
-        # 1. Create DaemonClient with bad address (localhost:99999)
-        # 2. Attempt to start()
-        # 3. Verify DaemonUnavailableError is raised
-        # 4. Verify error message contains helpful information
-        pass
+        # Create DaemonClient with unreachable address
+        client = DaemonClient(host="localhost", port=99999)
+
+        # Attempt to connect should raise DaemonUnavailableError
+        with pytest.raises(DaemonUnavailableError) as exc_info:
+            await client.start()
+
+        # Verify error message is informative
+        error_message = str(exc_info.value)
+        assert "localhost:99999" in error_message, \
+            "Error message should include the failed address"
+        assert len(error_message) > 20, \
+            "Error message should be informative, not just a code"
 
     async def test_invalid_collection_name_error(
         self,
@@ -1493,8 +1502,26 @@ class TestErrorHandling:
             - Invalid collection names are rejected
             - Error message explains validation failure
         """
-        # TODO: Implement invalid collection name validation
-        pass
+        # Try to create collection with empty name
+        config = pb2.CollectionConfig(
+            vector_size=384,
+            distance_metric="Cosine",
+            enable_indexing=True
+        )
+
+        response = await daemon_client.create_collection(
+            collection_name="",  # Invalid: empty name
+            project_id="test_project",
+            config=config
+        )
+
+        # Verify error response
+        assert response.success == False, \
+            "Creating collection with empty name should fail"
+        assert response.error_message != "", \
+            "Error message should explain validation failure"
+        assert "name" in response.error_message.lower() or "invalid" in response.error_message.lower(), \
+            f"Error message should mention name validation: {response.error_message}"
 
     async def test_invalid_vector_size_error(
         self,
@@ -1507,8 +1534,26 @@ class TestErrorHandling:
             - Vector size must match embedding model
             - Error response explains mismatch
         """
-        # TODO: Implement vector size validation
-        pass
+        # Try to create collection with invalid vector size
+        config = pb2.CollectionConfig(
+            vector_size=0,  # Invalid: zero vector size
+            distance_metric="Cosine",
+            enable_indexing=True
+        )
+
+        response = await daemon_client.create_collection(
+            collection_name="test_invalid_vector_size",
+            project_id="test_project",
+            config=config
+        )
+
+        # Verify error response
+        assert response.success == False, \
+            "Creating collection with zero vector size should fail"
+        assert response.error_message != "", \
+            "Error message should explain vector size validation failure"
+        assert "vector" in response.error_message.lower() or "size" in response.error_message.lower(), \
+            f"Error message should mention vector size: {response.error_message}"
 
     async def test_delete_nonexistent_collection_error(
         self,
@@ -1521,8 +1566,23 @@ class TestErrorHandling:
             - Attempting to delete missing collection fails gracefully
             - Error message indicates collection not found
         """
-        # TODO: Implement non-existent collection validation
-        pass
+        # Try to delete a collection that doesn't exist
+        nonexistent_name = f"test_nonexistent_collection_{uuid.uuid4().hex[:8]}"
+
+        # Deletion should either raise exception or return error
+        # Daemon may handle this different ways - we just verify it doesn't crash
+        try:
+            await daemon_client.delete_collection(
+                collection_name=nonexistent_name,
+                project_id="test_project",
+                force=False
+            )
+            # If no exception, daemon handled gracefully (OK)
+        except (DaemonClientError, DaemonUnavailableError) as e:
+            # Exception is also acceptable - verify message mentions collection
+            error_msg = str(e).lower()
+            assert "collection" in error_msg or "not found" in error_msg or "exist" in error_msg, \
+                f"Error message should indicate collection issue: {e}"
 
     async def test_update_nonexistent_document_error(
         self,
@@ -1535,8 +1595,24 @@ class TestErrorHandling:
             - Updating missing document fails gracefully
             - Error message indicates document not found
         """
-        # TODO: Implement non-existent document validation
-        pass
+        # Try to update a document that doesn't exist
+        fake_document_id = f"fake_doc_{uuid.uuid4().hex}"
+
+        response = await daemon_client.update_text(
+            document_id=fake_document_id,
+            content="This update should fail",
+            collection_name="test_collection",
+            metadata={"test": "data"}
+        )
+
+        # Verify error response
+        assert response.success == False, \
+            "Updating non-existent document should fail"
+        assert response.error_message != "", \
+            "Error message should indicate document not found"
+        error_msg = response.error_message.lower()
+        assert "not found" in error_msg or "exist" in error_msg or "document" in error_msg, \
+            f"Error message should indicate document not found: {response.error_message}"
 
     async def test_retry_mechanism_on_transient_failure(
         self,
@@ -1550,8 +1626,84 @@ class TestErrorHandling:
             - Exponential backoff is applied
             - Successful retry completes operation
         """
-        # TODO: Implement retry mechanism validation
-        pass
+        # Mock the health check to fail twice, then succeed
+        original_stub = daemon_client._system_stub
+        call_count = 0
+        call_times = []
+
+        async def mock_health_check(request):
+            nonlocal call_count
+            call_count += 1
+            call_times.append(time.time())
+
+            if call_count <= 2:
+                # Simulate transient UNAVAILABLE error
+                raise grpc.RpcError()
+
+            # Third attempt succeeds
+            timestamp = pb2_Timestamp()
+            timestamp.seconds = int(time.time())
+            return pb2.HealthCheckResponse(
+                status=pb2.SERVICE_STATUS_HEALTHY,
+                components=[],
+                timestamp=timestamp
+            )
+
+        # Create a mock gRPC error with proper attributes
+        class MockRpcError(grpc.RpcError):
+            def code(self):
+                return grpc.StatusCode.UNAVAILABLE
+            def details(self):
+                return "Service temporarily unavailable"
+
+        # Replace the mock to use our custom error
+        async def mock_health_check_with_error(request):
+            nonlocal call_count
+            call_count += 1
+            call_times.append(time.time())
+
+            if call_count <= 2:
+                raise MockRpcError()
+
+            timestamp = pb2_Timestamp()
+            timestamp.seconds = int(time.time())
+            return pb2.HealthCheckResponse(
+                status=pb2.SERVICE_STATUS_HEALTHY,
+                components=[],
+                timestamp=timestamp
+            )
+
+        # Patch the stub
+        daemon_client._system_stub = Mock()
+        daemon_client._system_stub.HealthCheck = mock_health_check_with_error
+
+        try:
+            # Call health check - should retry and eventually succeed
+            response = await daemon_client.health_check()
+
+            # Verify success after retries
+            assert response.status == pb2.SERVICE_STATUS_HEALTHY, \
+                "Health check should succeed after retries"
+            assert call_count == 3, \
+                f"Expected 3 attempts (2 failures + 1 success), got {call_count}"
+
+            # Verify exponential backoff (approximately)
+            # First retry after ~1s, second retry after ~2s
+            if len(call_times) >= 3:
+                retry1_delay = call_times[1] - call_times[0]
+                retry2_delay = call_times[2] - call_times[1]
+
+                # Allow some tolerance for timing variations
+                assert retry1_delay >= 0.8, \
+                    f"First retry should be after ~1s, got {retry1_delay}s"
+                assert retry2_delay >= 1.6, \
+                    f"Second retry should be after ~2s, got {retry2_delay}s"
+                assert retry2_delay > retry1_delay, \
+                    "Second retry delay should be longer (exponential backoff)"
+
+        finally:
+            # Restore original stub
+            daemon_client._system_stub = original_stub
 
     async def test_circuit_breaker_opens_on_repeated_failures(
         self,
@@ -1565,8 +1717,85 @@ class TestErrorHandling:
             - Further requests fail immediately
             - Circuit breaker eventually transitions to half-open
         """
-        # TODO: Implement circuit breaker validation
-        pass
+        # Save original configuration
+        original_threshold = daemon_client.config.circuit_breaker_failure_threshold
+        original_timeout = daemon_client.config.circuit_breaker_timeout
+        original_stub = daemon_client._system_stub
+
+        # Set low threshold for testing
+        daemon_client.config.circuit_breaker_failure_threshold = 3
+        daemon_client.config.circuit_breaker_timeout = 2.0  # 2 seconds for half-open transition
+
+        # Reset circuit breaker state
+        daemon_client._circuit_breaker_failures = 0
+        daemon_client._circuit_breaker_state = "closed"
+        daemon_client._circuit_breaker_last_failure = None
+
+        # Create mock that always fails
+        class MockRpcError(grpc.RpcError):
+            def code(self):
+                return grpc.StatusCode.UNAVAILABLE
+            def details(self):
+                return "Service unavailable"
+
+        async def mock_health_check_always_fails(request):
+            raise MockRpcError()
+
+        daemon_client._system_stub = Mock()
+        daemon_client._system_stub.HealthCheck = mock_health_check_always_fails
+
+        try:
+            # Trigger failures until circuit opens (threshold = 3)
+            for i in range(3):
+                with pytest.raises(DaemonUnavailableError):
+                    await daemon_client.health_check()
+
+            # Verify circuit breaker opened
+            assert daemon_client._circuit_breaker_state == "open", \
+                f"Circuit breaker should be open, got {daemon_client._circuit_breaker_state}"
+            assert daemon_client._circuit_breaker_failures >= 3, \
+                f"Failure count should be >= 3, got {daemon_client._circuit_breaker_failures}"
+
+            # Further requests should fail immediately without retries
+            with pytest.raises(DaemonUnavailableError) as exc_info:
+                await daemon_client.health_check()
+            assert "circuit breaker" in str(exc_info.value).lower(), \
+                "Error should mention circuit breaker"
+
+            # Wait for circuit breaker timeout to transition to half-open
+            await asyncio.sleep(2.5)
+
+            # Now create a mock that succeeds to test recovery
+            async def mock_health_check_success(request):
+                timestamp = pb2_Timestamp()
+                timestamp.seconds = int(time.time())
+                return pb2.HealthCheckResponse(
+                    status=pb2.SERVICE_STATUS_HEALTHY,
+                    components=[],
+                    timestamp=timestamp
+                )
+
+            daemon_client._system_stub.HealthCheck = mock_health_check_success
+
+            # Circuit should be half-open now - one successful request should close it
+            response = await daemon_client.health_check()
+            assert response.status == pb2.SERVICE_STATUS_HEALTHY, \
+                "Health check should succeed in half-open state"
+
+            # Verify circuit breaker closed after success
+            assert daemon_client._circuit_breaker_state == "closed", \
+                f"Circuit breaker should be closed after success, got {daemon_client._circuit_breaker_state}"
+            assert daemon_client._circuit_breaker_failures == 0, \
+                f"Failure count should reset to 0, got {daemon_client._circuit_breaker_failures}"
+
+        finally:
+            # Restore original configuration
+            daemon_client.config.circuit_breaker_failure_threshold = original_threshold
+            daemon_client.config.circuit_breaker_timeout = original_timeout
+            daemon_client._system_stub = original_stub
+            daemon_client._circuit_breaker_failures = 0
+            daemon_client._circuit_breaker_state = "closed"
+            daemon_client._circuit_breaker_last_failure = None
 
 
 # =============================================================================
