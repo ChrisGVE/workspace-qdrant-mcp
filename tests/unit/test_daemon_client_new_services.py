@@ -52,10 +52,12 @@ def daemon_client(mock_config):
 def connected_client(daemon_client):
     """Create a connected DaemonClient with mocked stubs."""
     daemon_client._connected = True
-    daemon_client.channel = MagicMock()
-    daemon_client.stub = MagicMock()
-    daemon_client.document_service = MagicMock()
-    daemon_client.collection_service = MagicMock()
+    daemon_client._started = True  # Prevent start() from attempting connection
+    daemon_client._channel = MagicMock()
+    daemon_client._system_stub = MagicMock()
+    daemon_client._document_stub = MagicMock()
+    daemon_client._collection_stub = MagicMock()
+    daemon_client._ingest_stub = MagicMock()
     return daemon_client
 
 
@@ -72,7 +74,7 @@ class TestDocumentServiceMethods:
             chunks_created=3,
             error_message="",
         )
-        connected_client.document_service.IngestText = AsyncMock(return_value=mock_response)
+        connected_client._document_stub.IngestText = AsyncMock(return_value=mock_response)
 
         # Call the method
         with patch("common.grpc.daemon_client.validate_llm_collection_access"):
@@ -87,10 +89,10 @@ class TestDocumentServiceMethods:
         assert response.document_id == "doc123"
         assert response.success is True
         assert response.chunks_created == 3
-        connected_client.document_service.IngestText.assert_called_once()
+        connected_client._document_stub.IngestText.assert_called_once()
 
         # Check request parameters
-        call_args = connected_client.document_service.IngestText.call_args
+        call_args = connected_client._document_stub.IngestText.call_args
         request = call_args[0][0]
         assert request.content == "Test content"
         assert request.collection_basename == "scratchbook"
@@ -101,7 +103,7 @@ class TestDocumentServiceMethods:
     @pytest.mark.asyncio
     async def test_ingest_text_not_connected(self, daemon_client):
         """Test ingest_text raises error when not connected."""
-        with pytest.raises(DaemonConnectionError, match="daemon not connected"):
+        with pytest.raises(DaemonClientError, match="daemon not connected"):
             await daemon_client.ingest_text(
                 content="Test",
                 collection_basename="test",
@@ -111,9 +113,9 @@ class TestDocumentServiceMethods:
     @pytest.mark.asyncio
     async def test_ingest_text_service_unavailable(self, connected_client):
         """Test ingest_text when DocumentService is not available."""
-        connected_client.document_service = None
+        connected_client._document_stub = None
 
-        with pytest.raises(DaemonConnectionError, match="DocumentService not available"):
+        with pytest.raises(DaemonClientError, match="DocumentService not available"):
             await connected_client.ingest_text(
                 content="Test",
                 collection_basename="test",
@@ -127,10 +129,10 @@ class TestDocumentServiceMethods:
         mock_error = grpc.RpcError()
         mock_error.code = MagicMock(return_value=grpc.StatusCode.UNAVAILABLE)
         mock_error.details = MagicMock(return_value="Service unavailable")
-        connected_client.document_service.IngestText = AsyncMock(side_effect=mock_error)
+        connected_client._document_stub.IngestText = AsyncMock(side_effect=mock_error)
 
         with patch("common.grpc.daemon_client.validate_llm_collection_access"):
-            with pytest.raises(DaemonConnectionError, match="Failed to ingest text"):
+            with pytest.raises(DaemonClientError, match="Failed to ingest text"):
                 await connected_client.ingest_text(
                     content="Test",
                     collection_basename="test",
@@ -149,7 +151,7 @@ class TestDocumentServiceMethods:
             error_message="",
             updated_at=timestamp,
         )
-        connected_client.document_service.UpdateText = AsyncMock(return_value=mock_response)
+        connected_client._document_stub.UpdateText = AsyncMock(return_value=mock_response)
 
         response = await connected_client.update_text(
             document_id="doc123",
@@ -159,22 +161,22 @@ class TestDocumentServiceMethods:
         )
 
         assert response.success is True
-        connected_client.document_service.UpdateText.assert_called_once()
+        connected_client._document_stub.UpdateText.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_delete_text_success(self, connected_client):
         """Test successful text deletion."""
         from google.protobuf.empty_pb2 import Empty
         mock_response = Empty()
-        connected_client.document_service.DeleteText = AsyncMock(return_value=mock_response)
+        connected_client._document_stub.DeleteText = AsyncMock(return_value=mock_response)
 
         await connected_client.delete_text(
             document_id="doc123",
             collection_name="scratchbook_user123",
         )
 
-        connected_client.document_service.DeleteText.assert_called_once()
-        call_args = connected_client.document_service.DeleteText.call_args
+        connected_client._document_stub.DeleteText.assert_called_once()
+        call_args = connected_client._document_stub.DeleteText.call_args
         request = call_args[0][0]
         assert request.document_id == "doc123"
         assert request.collection_name == "scratchbook_user123"
@@ -191,7 +193,7 @@ class TestCollectionServiceMethods:
             error_message="",
             collection_id="coll123",
         )
-        connected_client.collection_service.CreateCollection = AsyncMock(return_value=mock_response)
+        connected_client._collection_stub.CreateCollection = AsyncMock(return_value=mock_response)
 
         with patch("common.grpc.daemon_client.validate_llm_collection_access"):
             response = await connected_client.create_collection_v2(
@@ -205,10 +207,10 @@ class TestCollectionServiceMethods:
 
         assert response.success is True
         assert response.collection_id == "coll123"
-        connected_client.collection_service.CreateCollection.assert_called_once()
+        connected_client._collection_stub.CreateCollection.assert_called_once()
 
         # Check request parameters
-        call_args = connected_client.collection_service.CreateCollection.call_args
+        call_args = connected_client._collection_stub.CreateCollection.call_args
         request = call_args[0][0]
         assert request.collection_name == "test_collection"
         assert request.project_id == "proj123"
@@ -219,9 +221,9 @@ class TestCollectionServiceMethods:
     @pytest.mark.asyncio
     async def test_create_collection_v2_service_unavailable(self, connected_client):
         """Test create_collection_v2 when CollectionService is not available."""
-        connected_client.collection_service = None
+        connected_client._collection_stub = None
 
-        with pytest.raises(DaemonConnectionError, match="CollectionService not available"):
+        with pytest.raises(DaemonClientError, match="CollectionService not available"):
             await connected_client.create_collection_v2(
                 collection_name="test",
             )
@@ -234,7 +236,7 @@ class TestCollectionServiceMethods:
             error_message="Collection already exists",
             collection_id="",
         )
-        connected_client.collection_service.CreateCollection = AsyncMock(return_value=mock_response)
+        connected_client._collection_stub.CreateCollection = AsyncMock(return_value=mock_response)
 
         with patch("common.grpc.daemon_client.validate_llm_collection_access"):
             response = await connected_client.create_collection_v2(
@@ -249,7 +251,7 @@ class TestCollectionServiceMethods:
         """Test successful collection deletion via CollectionService."""
         from google.protobuf.empty_pb2 import Empty
         mock_response = Empty()
-        connected_client.collection_service.DeleteCollection = AsyncMock(return_value=mock_response)
+        connected_client._collection_stub.DeleteCollection = AsyncMock(return_value=mock_response)
 
         with patch("common.grpc.daemon_client.validate_llm_collection_access"):
             await connected_client.delete_collection_v2(
@@ -258,8 +260,8 @@ class TestCollectionServiceMethods:
                 force=True,
             )
 
-        connected_client.collection_service.DeleteCollection.assert_called_once()
-        call_args = connected_client.collection_service.DeleteCollection.call_args
+        connected_client._collection_stub.DeleteCollection.assert_called_once()
+        call_args = connected_client._collection_stub.DeleteCollection.call_args
         request = call_args[0][0]
         assert request.collection_name == "test_collection"
         assert request.project_id == "proj123"
@@ -275,7 +277,7 @@ class TestCollectionServiceMethods:
 
         mock_collection = CollectionInfo(name="test_collection")
         mock_response = ListCollectionsResponse(collections=[mock_collection])
-        connected_client.stub.ListCollections = AsyncMock(return_value=mock_response)
+        connected_client._ingest_stub.ListCollections = AsyncMock(return_value=mock_response)
 
         result = await connected_client.collection_exists("test_collection")
 
@@ -291,7 +293,7 @@ class TestCollectionServiceMethods:
 
         mock_collection = CollectionInfo(name="other_collection")
         mock_response = ListCollectionsResponse(collections=[mock_collection])
-        connected_client.stub.ListCollections = AsyncMock(return_value=mock_response)
+        connected_client._ingest_stub.ListCollections = AsyncMock(return_value=mock_response)
 
         result = await connected_client.collection_exists("test_collection")
 
@@ -300,7 +302,7 @@ class TestCollectionServiceMethods:
     @pytest.mark.asyncio
     async def test_collection_exists_error_handling(self, connected_client):
         """Test collection_exists returns False on error."""
-        connected_client.stub.ListCollections = AsyncMock(side_effect=Exception("Error"))
+        connected_client._ingest_stub.ListCollections = AsyncMock(side_effect=Exception("Error"))
 
         result = await connected_client.collection_exists("test_collection")
 
@@ -311,15 +313,15 @@ class TestCollectionServiceMethods:
         """Test successful collection alias creation."""
         from google.protobuf.empty_pb2 import Empty
         mock_response = Empty()
-        connected_client.collection_service.CreateCollectionAlias = AsyncMock(return_value=mock_response)
+        connected_client._collection_stub.CreateCollectionAlias = AsyncMock(return_value=mock_response)
 
         await connected_client.create_collection_alias(
             alias_name="test_alias",
             collection_name="test_collection",
         )
 
-        connected_client.collection_service.CreateCollectionAlias.assert_called_once()
-        call_args = connected_client.collection_service.CreateCollectionAlias.call_args
+        connected_client._collection_stub.CreateCollectionAlias.assert_called_once()
+        call_args = connected_client._collection_stub.CreateCollectionAlias.call_args
         request = call_args[0][0]
         assert request.alias_name == "test_alias"
         assert request.collection_name == "test_collection"
@@ -329,12 +331,12 @@ class TestCollectionServiceMethods:
         """Test successful collection alias deletion."""
         from google.protobuf.empty_pb2 import Empty
         mock_response = Empty()
-        connected_client.collection_service.DeleteCollectionAlias = AsyncMock(return_value=mock_response)
+        connected_client._collection_stub.DeleteCollectionAlias = AsyncMock(return_value=mock_response)
 
         await connected_client.delete_collection_alias(alias_name="test_alias")
 
-        connected_client.collection_service.DeleteCollectionAlias.assert_called_once()
-        call_args = connected_client.collection_service.DeleteCollectionAlias.call_args
+        connected_client._collection_stub.DeleteCollectionAlias.assert_called_once()
+        call_args = connected_client._collection_stub.DeleteCollectionAlias.call_args
         request = call_args[0][0]
         assert request.alias_name == "test_alias"
 
@@ -343,7 +345,7 @@ class TestCollectionServiceMethods:
         """Test successful collection alias rename."""
         from google.protobuf.empty_pb2 import Empty
         mock_response = Empty()
-        connected_client.collection_service.RenameCollectionAlias = AsyncMock(return_value=mock_response)
+        connected_client._collection_stub.RenameCollectionAlias = AsyncMock(return_value=mock_response)
 
         await connected_client.rename_collection_alias(
             old_alias_name="old_alias",
@@ -351,8 +353,8 @@ class TestCollectionServiceMethods:
             collection_name="test_collection",
         )
 
-        connected_client.collection_service.RenameCollectionAlias.assert_called_once()
-        call_args = connected_client.collection_service.RenameCollectionAlias.call_args
+        connected_client._collection_stub.RenameCollectionAlias.assert_called_once()
+        call_args = connected_client._collection_stub.RenameCollectionAlias.call_args
         request = call_args[0][0]
         assert request.old_alias_name == "old_alias"
         assert request.new_alias_name == "new_alias"
@@ -376,21 +378,21 @@ class TestConnectionManagement:
                             await daemon_client.connect()
 
         assert daemon_client._connected is True
-        assert daemon_client.stub is not None
-        assert daemon_client.document_service is not None
-        assert daemon_client.collection_service is not None
+        assert daemon_client._ingest_stub is not None
+        assert daemon_client._document_stub is not None
+        assert daemon_client._collection_stub is not None
 
     @pytest.mark.asyncio
     async def test_disconnect_clears_all_stubs(self, connected_client):
         """Test that disconnect() clears all service stubs."""
-        connected_client.channel.close = AsyncMock()
+        connected_client._channel.close = AsyncMock()
 
         await connected_client.disconnect()
 
         assert connected_client._connected is False
-        assert connected_client.stub is None
-        assert connected_client.document_service is None
-        assert connected_client.collection_service is None
+        assert connected_client._ingest_stub is None
+        assert connected_client._document_stub is None
+        assert connected_client._collection_stub is None
 
     @pytest.mark.asyncio
     async def test_connect_error_clears_all_stubs(self, daemon_client):
@@ -404,13 +406,13 @@ class TestConnectionManagement:
                 with patch("common.grpc.ingestion_pb2_grpc.IngestServiceStub"):
                     with patch("common.grpc.generated.workspace_daemon_pb2_grpc.DocumentServiceStub"):
                         with patch("common.grpc.generated.workspace_daemon_pb2_grpc.CollectionServiceStub"):
-                            with pytest.raises(DaemonConnectionError):
+                            with pytest.raises(DaemonClientError):
                                 await daemon_client.connect()
 
         assert daemon_client._connected is False
-        assert daemon_client.stub is None
-        assert daemon_client.document_service is None
-        assert daemon_client.collection_service is None
+        assert daemon_client._ingest_stub is None
+        assert daemon_client._document_stub is None
+        assert daemon_client._collection_stub is None
 
 
 class TestLLMAccessControl:
@@ -436,7 +438,7 @@ class TestLLMAccessControl:
         with patch("common.grpc.daemon_client.validate_llm_collection_access") as mock_validate:
             mock_validate.side_effect = LLMAccessControlError(violation)
 
-            with pytest.raises(DaemonConnectionError, match="Text ingestion blocked"):
+            with pytest.raises(DaemonClientError, match="Text ingestion blocked"):
                 await connected_client.ingest_text(
                     content="Test",
                     collection_basename="protected",
@@ -463,7 +465,7 @@ class TestLLMAccessControl:
         with patch("common.grpc.daemon_client.validate_llm_collection_access") as mock_validate:
             mock_validate.side_effect = LLMAccessControlError(violation)
 
-            with pytest.raises(DaemonConnectionError, match="Collection creation blocked"):
+            with pytest.raises(DaemonClientError, match="Collection creation blocked"):
                 await connected_client.create_collection_v2(
                     collection_name="protected_collection",
                 )
@@ -488,7 +490,7 @@ class TestLLMAccessControl:
         with patch("common.grpc.daemon_client.validate_llm_collection_access") as mock_validate:
             mock_validate.side_effect = LLMAccessControlError(violation)
 
-            with pytest.raises(DaemonConnectionError, match="Collection deletion blocked"):
+            with pytest.raises(DaemonClientError, match="Collection deletion blocked"):
                 await connected_client.delete_collection_v2(
                     collection_name="protected_collection",
                 )
