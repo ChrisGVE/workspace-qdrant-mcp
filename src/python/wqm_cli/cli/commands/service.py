@@ -213,8 +213,8 @@ class MemexdServiceManager:
 
             logger.info(f"Building memexd from source at {project_root}")
 
-            # Run cargo build --release
-            build_cmd = ["cargo", "build", "--release"]
+            # Run cargo build --release --bin memexd (exclude Python bindings)
+            build_cmd = ["cargo", "build", "--release", "--bin", "memexd"]
             build_result = await asyncio.create_subprocess_exec(
                 *build_cmd,
                 cwd=project_root,
