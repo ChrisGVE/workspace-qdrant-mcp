@@ -234,3 +234,4 @@ tmp/
 
 # Git cleanup artifacts
 affected_commits.txt
+*.profraw
