@@ -7,7 +7,7 @@ in the unified database. Supports incremental result collection for CI/CD pipeli
 
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 from .models import TestRun, TestSource
 from .parsers.base import BaseParser
@@ -25,7 +25,7 @@ class TestResultAggregator:
     from pytest, cargo test, benchmarks, and other sources.
     """
 
-    def __init__(self, storage: Optional[TestResultStorage] = None):
+    def __init__(self, storage: TestResultStorage | None = None):
         """
         Initialize aggregator.
 
@@ -35,7 +35,7 @@ class TestResultAggregator:
         self.storage = storage or TestResultStorage()
 
         # Register parsers
-        self.parsers: Dict[TestSource, BaseParser] = {
+        self.parsers: dict[TestSource, BaseParser] = {
             TestSource.PYTEST: PytestParser(),
             TestSource.CARGO: CargoTestParser(),
             TestSource.BENCHMARK_JSON: BenchmarkJsonParser(),
@@ -44,9 +44,9 @@ class TestResultAggregator:
 
     def aggregate_from_file(
         self,
-        file_path: Union[str, Path],
+        file_path: str | Path,
         source: TestSource,
-        run_id: Optional[str] = None,
+        run_id: str | None = None,
     ) -> TestRun:
         """
         Parse and store test results from a file.
@@ -77,9 +77,9 @@ class TestResultAggregator:
 
     def aggregate_from_data(
         self,
-        data: Union[str, dict],
+        data: str | dict,
         source: TestSource,
-        run_id: Optional[str] = None,
+        run_id: str | None = None,
     ) -> TestRun:
         """
         Parse and store test results from raw data.
@@ -109,8 +109,8 @@ class TestResultAggregator:
 
     def aggregate_multiple(
         self,
-        sources: List[Dict[str, Any]],
-        run_id: Optional[str] = None,
+        sources: list[dict[str, Any]],
+        run_id: str | None = None,
     ) -> TestRun:
         """
         Aggregate test results from multiple sources into a single test run.
@@ -141,7 +141,7 @@ class TestResultAggregator:
 
             run_id = str(uuid4())
 
-        combined_run: Optional[TestRun] = None
+        combined_run: TestRun | None = None
 
         for source_spec in sources:
             source_type = source_spec.get("source")
@@ -174,7 +174,7 @@ class TestResultAggregator:
 
         return combined_run
 
-    def get_test_run(self, run_id: str) -> Optional[TestRun]:
+    def get_test_run(self, run_id: str) -> TestRun | None:
         """
         Retrieve a test run by ID.
 
@@ -190,10 +190,10 @@ class TestResultAggregator:
         self,
         limit: int = 100,
         offset: int = 0,
-        source: Optional[TestSource] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> List[Dict[str, Any]]:
+        source: TestSource | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[dict[str, Any]]:
         """
         List test runs with optional filtering.
 
@@ -227,7 +227,7 @@ class TestResultAggregator:
         """
         return self.storage.delete_test_run(run_id)
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get overall statistics from all test runs.
 
@@ -267,9 +267,9 @@ class TestResultAggregator:
 
 # Convenience function for quick aggregation
 def aggregate_test_results(
-    file_path: Union[str, Path],
+    file_path: str | Path,
     source: TestSource,
-    storage_path: Optional[Path] = None,
+    storage_path: Path | None = None,
 ) -> TestRun:
     """
     Quick helper to aggregate test results from a file.

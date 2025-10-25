@@ -24,7 +24,7 @@ import logging
 import statistics
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import httpx
 import pytest
@@ -305,7 +305,7 @@ class TestPendingOperationRetry:
                 # Operations might be queued (503) or processed immediately (200)
                 assert response.status_code in [200, 503]
                 if response.status_code == 200:
-                    result = response.json()
+                    response.json()
                     operation_ids.append(i)
 
                 await asyncio.sleep(0.1)
@@ -506,7 +506,7 @@ class TestSQLiteStateConsistency:
 
 # Test report generation
 def generate_connection_recovery_test_report(
-    test_results: Dict[str, Any], output_path: Path = None
+    test_results: dict[str, Any], output_path: Path = None
 ) -> str:
     """Generate comprehensive connection recovery test report."""
     if output_path is None:

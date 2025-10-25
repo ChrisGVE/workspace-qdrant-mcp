@@ -9,26 +9,41 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, Mock, patch, mock_open
+from typing import Any, Optional
+from unittest.mock import AsyncMock, Mock, mock_open, patch
 
 import pytest
 
+from src.python.common.core.language_filters import LanguageAwareFilter
+from src.python.common.core.lsp_client import (
+    AsyncioLspClient,
+    ConnectionState,
+    LspError,
+)
 from src.python.common.core.lsp_metadata_extractor import (
+    CodeSymbol,
+    CppExtractor,
+    Documentation,
+    ExtractionStatistics,
+    FileMetadata,
+    GoExtractor,
+    JavaExtractor,
+    JavaScriptExtractor,
+    LanguageSpecificExtractor,
     # Core classes
     LspMetadataExtractor,
     # Data classes
-    Position, Range, TypeInformation, Documentation, CodeSymbol,
-    SymbolRelationship, FileMetadata, ExtractionStatistics,
-    # Enums
-    SymbolKind, RelationshipType,
+    Position,
     # Language extractors
-    PythonExtractor, RustExtractor, JavaScriptExtractor,
-    JavaExtractor, GoExtractor, CppExtractor,
-    LanguageSpecificExtractor,
+    PythonExtractor,
+    Range,
+    RelationshipType,
+    RustExtractor,
+    # Enums
+    SymbolKind,
+    SymbolRelationship,
+    TypeInformation,
 )
-from src.python.common.core.lsp_client import AsyncioLspClient, LspError, ConnectionState
-from src.python.common.core.language_filters import LanguageAwareFilter
 
 
 class TestPosition:
@@ -504,7 +519,7 @@ class TestPythonExtractor:
         """Test extraction of Python imports and exports"""
         source_lines = [
             "import os",
-            "from typing import List, Dict",
+            "from typing import Dict",
             "import json as js",
             "",
             "__all__ = ['function1', 'Class1']",
@@ -514,7 +529,7 @@ class TestPythonExtractor:
         ]
         imports, exports = self.extractor.extract_imports_exports(source_lines)
         assert "import os" in imports
-        assert "from typing import List, Dict" in imports
+        assert "from typing import Dict" in imports
         assert "import json as js" in imports
         assert "function1" in exports
         assert "Class1" in exports
@@ -1036,7 +1051,7 @@ class TestLspMetadataExtractor:
         mock_client.is_initialized = True
         self.extractor.lsp_clients["python"] = mock_client
 
-        with patch('pathlib.Path.read_text', side_effect=IOError("Permission denied")), \
+        with patch('pathlib.Path.read_text', side_effect=OSError("Permission denied")), \
              patch('pathlib.Path.resolve', return_value=Path("/test/file.py")):
 
             result = await self.extractor.extract_file_metadata("/test/file.py")
@@ -1160,7 +1175,7 @@ class TestLspMetadataExtractor:
         """Test Python import statement parsing"""
         # Test 'from ... import ...' statement
         imports1 = self.extractor._parse_import_statement(
-            "from typing import List, Dict", "python"
+            "from typing import Dict", "python"
         )
         assert "List" in imports1
         assert "Dict" in imports1

@@ -10,16 +10,15 @@ This module provides comprehensive token management including:
 """
 
 import asyncio
-import time
-import secrets
+import base64
 import hashlib
-import hmac
-from typing import Dict, Optional, Set, Tuple, Union, Any, Callable
+import json
+import secrets
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from threading import RLock
-import json
-import base64
+from typing import Any
 
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
@@ -43,12 +42,12 @@ class AuthToken:
     def __init__(
         self,
         token: str,
-        expires_at: Optional[datetime] = None,
-        issued_at: Optional[datetime] = None,
+        expires_at: datetime | None = None,
+        issued_at: datetime | None = None,
         issuer: str = "workspace-qdrant-mcp",
-        subject: Optional[str] = None,
-        scopes: Optional[Set[str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        subject: str | None = None,
+        scopes: set[str] | None = None,
+        metadata: dict[str, Any] | None = None,
     ):
         """Initialize authentication token.
 
@@ -80,7 +79,7 @@ class AuthToken:
             return False
         return datetime.utcnow() > self.expires_at
 
-    def expires_in(self) -> Optional[timedelta]:
+    def expires_in(self) -> timedelta | None:
         """Get time until expiration."""
         if self.expires_at is None:
             return None
@@ -94,7 +93,7 @@ class AuthToken:
         """Check if token has specific scope."""
         return scope in self.scopes
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             'token_hash': self.token_hash,
@@ -107,7 +106,7 @@ class AuthToken:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], token: str) -> 'AuthToken':
+    def from_dict(cls, data: dict[str, Any], token: str) -> 'AuthToken':
         """Create token from dictionary representation."""
         expires_at = None
         if data.get('expires_at'):
@@ -129,7 +128,7 @@ class AuthToken:
 class SecureTokenStorage:
     """Secure encrypted token storage."""
 
-    def __init__(self, storage_path: Optional[Path] = None, encryption_key: Optional[bytes] = None):
+    def __init__(self, storage_path: Path | None = None, encryption_key: bytes | None = None):
         """Initialize secure token storage.
 
         Args:
@@ -175,7 +174,7 @@ class SecureTokenStorage:
         key = base64.urlsafe_b64encode(kdf.derive(system_id))
         return Fernet(key)
 
-    def store_tokens(self, tokens: Dict[str, AuthToken]) -> None:
+    def store_tokens(self, tokens: dict[str, AuthToken]) -> None:
         """Store tokens securely."""
         with self._lock:
             # Convert tokens to serializable format
@@ -196,7 +195,7 @@ class SecureTokenStorage:
             # Restrict file permissions
             self.storage_path.chmod(0o600)
 
-    def load_tokens(self) -> Dict[str, AuthToken]:
+    def load_tokens(self) -> dict[str, AuthToken]:
         """Load tokens from storage."""
         with self._lock:
             if not self.storage_path.exists():
@@ -238,8 +237,8 @@ class AuthTokenManager:
         default_token_lifetime: timedelta = timedelta(hours=24),
         rotation_threshold: timedelta = timedelta(hours=6),
         max_tokens_per_subject: int = 5,
-        token_storage: Optional[SecureTokenStorage] = None,
-        token_refresh_callback: Optional[Callable[[str], Tuple[str, Optional[datetime]]]] = None,
+        token_storage: SecureTokenStorage | None = None,
+        token_refresh_callback: Callable[[str], tuple[str, datetime | None]] | None = None,
     ):
         """Initialize token manager.
 
@@ -257,9 +256,9 @@ class AuthTokenManager:
         self.token_refresh_callback = token_refresh_callback
 
         # Runtime token cache
-        self._tokens: Dict[str, AuthToken] = {}
-        self._revoked_tokens: Set[str] = set()
-        self._token_usage: Dict[str, int] = {}
+        self._tokens: dict[str, AuthToken] = {}
+        self._revoked_tokens: set[str] = set()
+        self._token_usage: dict[str, int] = {}
         self._lock = RLock()
 
         # Load tokens from storage
@@ -291,9 +290,9 @@ class AuthTokenManager:
     def create_token(
         self,
         subject: str,
-        scopes: Optional[Set[str]] = None,
-        lifetime: Optional[timedelta] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        scopes: set[str] | None = None,
+        lifetime: timedelta | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> AuthToken:
         """Create a new authentication token.
 
@@ -345,7 +344,7 @@ class AuthTokenManager:
             logger.info(f"Created new token for subject {subject}, expires at {expires_at}")
             return token
 
-    def get_token(self, subject: str) -> Optional[AuthToken]:
+    def get_token(self, subject: str) -> AuthToken | None:
         """Get valid token for subject.
 
         Args:
@@ -382,7 +381,7 @@ class AuthTokenManager:
 
             return token
 
-    def validate_token(self, token_string: str) -> Optional[AuthToken]:
+    def validate_token(self, token_string: str) -> AuthToken | None:
         """Validate a token string.
 
         Args:
@@ -484,7 +483,7 @@ class AuthTokenManager:
         time_to_expiry = token.expires_at - datetime.utcnow()
         return time_to_expiry <= self.rotation_threshold
 
-    def _rotate_token(self, old_key: str, old_token: AuthToken) -> Optional[AuthToken]:
+    def _rotate_token(self, old_key: str, old_token: AuthToken) -> AuthToken | None:
         """Rotate an expiring token."""
         if not self.token_refresh_callback:
             logger.debug("No token refresh callback configured")
@@ -579,11 +578,11 @@ class AuthTokenManager:
                 except Exception as e:
                     logger.warning(f"Failed to rotate token for {token.subject}: {e}")
 
-    def get_token_stats(self) -> Dict[str, Any]:
+    def get_token_stats(self) -> dict[str, Any]:
         """Get token manager statistics."""
         with self._lock:
             valid_tokens = sum(1 for token in self._tokens.values() if token.is_valid())
-            subjects = len(set(token.subject for token in self._tokens.values() if token.is_valid()))
+            subjects = len({token.subject for token in self._tokens.values() if token.is_valid()})
 
             return {
                 'total_tokens': len(self._tokens),

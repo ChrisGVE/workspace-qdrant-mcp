@@ -29,34 +29,33 @@ Features Validated:
 
 import asyncio
 import os
-import pytest
 import shutil
 import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from common.utils.project_detection import (
-    ProjectDetector,
-    DaemonIdentifier,
-    calculate_tenant_id,
-)
+import pytest
 from common.core.sqlite_state_manager import (
+    ProjectRecord,
     SQLiteStateManager,
     WatchFolderConfig,
-    ProjectRecord,
+)
+from common.utils.project_detection import (
+    DaemonIdentifier,
+    ProjectDetector,
+    calculate_tenant_id,
 )
 
 from .utils import (
     HealthChecker,
-    WorkflowTimer,
     TestDataGenerator,
+    WorkflowTimer,
     assert_within_threshold,
     run_git_command,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -262,12 +261,12 @@ class TestProjectDetection:
         # Project A: Should use remote name (GitHub user owned)
         project_a = multi_project_workspace["project_a"]["path"]
         name_a = project_detector_fixture.get_project_name(str(project_a))
-        assert name_a == "project-a", f"Project A should use remote name"
+        assert name_a == "project-a", "Project A should use remote name"
 
         # Project B: Should use directory name (no remote)
         project_b = multi_project_workspace["project_b"]["path"]
         name_b = project_detector_fixture.get_project_name(str(project_b))
-        assert name_b == "project-b", f"Project B should use directory name"
+        assert name_b == "project-b", "Project B should use directory name"
 
         timer.checkpoint("both_detected")
 
@@ -350,7 +349,7 @@ class TestProjectSwitching:
 
         # Detect first project
         name_a = project_detector_fixture.get_project_name(str(project_a))
-        tenant_id_a = calculate_tenant_id(project_a)
+        calculate_tenant_id(project_a)
         timer.checkpoint("detect_project_a")
 
         # Create watch folder for project A to track state
@@ -368,7 +367,7 @@ class TestProjectSwitching:
 
         # Switch to project B
         name_b = project_detector_fixture.get_project_name(str(project_b))
-        tenant_id_b = calculate_tenant_id(project_b)
+        calculate_tenant_id(project_b)
         timer.checkpoint("detect_project_b")
 
         # Create watch folder for project B
@@ -507,7 +506,7 @@ class TestCollectionManagement:
         ]
 
         assert collections == expected_collections, \
-            f"Collections don't match expected pattern"
+            "Collections don't match expected pattern"
 
         print(f"✓ Collection naming validated: {collections}")
 
@@ -694,7 +693,7 @@ class TestWatchFolderReconfiguration:
 
             await state_manager_2.close()
 
-            print(f"✓ Watch folder config persisted across restarts")
+            print("✓ Watch folder config persisted across restarts")
 
     @pytest.mark.asyncio
     async def test_disable_watch_folder_on_project_switch(
@@ -920,7 +919,7 @@ class TestStateIsolation:
         watch_ids = [w["watch_id"] for w in all_watches]
         assert watch_config.watch_id not in watch_ids, "Watch should be removed"
 
-        print(f"✓ Project state cleanup successful")
+        print("✓ Project state cleanup successful")
 
 
 # ============================================================================
@@ -972,7 +971,7 @@ class TestGitBoundaries:
         assert info["git_root"] is None
         assert info["main_project"] == "not-a-repo"
 
-        print(f"✓ Non-Git directory handled correctly")
+        print("✓ Non-Git directory handled correctly")
 
     @pytest.mark.asyncio
     async def test_git_boundary_stops_at_root(
@@ -995,7 +994,7 @@ class TestGitBoundaries:
         assert info["git_root"] == str(project_a)
         assert info["main_project"] == "project-a"
 
-        print(f"✓ Git boundary detection stopped at correct root")
+        print("✓ Git boundary detection stopped at correct root")
 
 
 # ============================================================================
@@ -1041,7 +1040,7 @@ class TestSubmoduleHandling:
         info = project_detector_fixture.get_project_info(str(project_c))
 
         # Validate filtering mechanism
-        detailed_submodules = info.get("detailed_submodules", [])
+        info.get("detailed_submodules", [])
         user_owned = info.get("user_owned_submodules", [])
 
         # All returned submodules should be user-owned when user filter is active
@@ -1049,7 +1048,7 @@ class TestSubmoduleHandling:
             assert submodule.get("user_owned") is True, \
                 "User-owned submodules must have user_owned=True"
 
-        print(f"✓ Submodule user filtering validated")
+        print("✓ Submodule user filtering validated")
 
     @pytest.mark.asyncio
     async def test_nested_repository_handling(
@@ -1070,7 +1069,7 @@ class TestSubmoduleHandling:
         assert info["main_project"] == "project-c"
         assert info["is_git_repo"] is True
 
-        print(f"✓ Nested repository structure handled correctly")
+        print("✓ Nested repository structure handled correctly")
 
 
 # ============================================================================
@@ -1121,7 +1120,7 @@ class TestMetadataPersistence:
         if retrieved_metadata:
             assert "branch" in retrieved_metadata or isinstance(retrieved_metadata, dict)
 
-        print(f"✓ Project metadata persisted correctly")
+        print("✓ Project metadata persisted correctly")
 
     @pytest.mark.asyncio
     async def test_tenant_id_calculation_and_persistence(
@@ -1188,7 +1187,7 @@ class TestMetadataPersistence:
         project_ids = [p["project_id"] for p in all_projects]
         assert tenant_id_a[:12] in project_ids
 
-        print(f"✓ Cleanup validation completed")
+        print("✓ Cleanup validation completed")
 
 
 # ============================================================================
@@ -1321,6 +1320,6 @@ class TestComprehensiveProjectSwitchingWorkflow:
         print(f"✓ Total duration: {total_duration:.3f}s")
         print(f"✓ Projects managed: {len(all_projects)}")
         print(f"✓ Watch configs: {len(all_watches)}")
-        print(f"✓ State isolation: VERIFIED")
-        print(f"✓ Tenant ID uniqueness: VERIFIED")
+        print("✓ State isolation: VERIFIED")
+        print("✓ Tenant ID uniqueness: VERIFIED")
         print("="*60)

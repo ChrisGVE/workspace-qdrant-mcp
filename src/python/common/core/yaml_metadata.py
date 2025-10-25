@@ -13,16 +13,13 @@ Features:
     - User-friendly error messages and guidance
 """
 
-import asyncio
-from loguru import logger
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any
 
 import yaml
-from qdrant_client.http import models
-
+from loguru import logger
 from wqm_cli.cli.parsers import (
     DocumentParser,
     MarkdownParser,
@@ -31,6 +28,7 @@ from wqm_cli.cli.parsers import (
     PptxParser,
     TextParser,
 )
+
 from ..core.client import QdrantWorkspaceClient
 
 # logger imported from loguru

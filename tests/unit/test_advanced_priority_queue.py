@@ -6,21 +6,22 @@ starvation prevention, and performance scenarios.
 """
 
 import asyncio
-import time
-import pytest
 import threading
+import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch, AsyncMock
-from typing import List, Dict, Any
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from src.python.common.core.advanced_priority_queue import (
     AdvancedPriorityQueue,
+    FairnesManager,
     PriorityTask,
-    TaskPriority,
-    TaskMetrics,
     ResourceMonitor,
     ResourceType,
-    FairnesManager
+    TaskMetrics,
+    TaskPriority,
 )
 
 
@@ -309,7 +310,7 @@ class TestResourceMonitor:
             mock_disk_io.return_value = mock_io_counter1
 
             monitor = ResourceMonitor()
-            usage1 = monitor.get_current_usage()
+            monitor.get_current_usage()
 
             # Small delay and second call with more I/O
             time.sleep(0.01)

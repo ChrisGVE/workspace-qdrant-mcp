@@ -7,10 +7,7 @@ for monitoring search performance, accuracy metrics, and baseline compliance.
 Task 233.6: Performance monitoring and benchmarking for metadata filtering.
 """
 
-from .performance_dashboard import (
-    PerformanceDashboardServer,
-    create_dashboard_server
-)
+from .performance_dashboard import PerformanceDashboardServer, create_dashboard_server
 
 __all__ = [
     "PerformanceDashboardServer",

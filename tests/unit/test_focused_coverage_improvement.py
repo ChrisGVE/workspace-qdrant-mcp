@@ -6,12 +6,12 @@ and tested, providing meaningful coverage improvements without complex import is
 """
 
 import asyncio
-import sys
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
-from typing import Dict, Any, List, Optional
-import tempfile
 import os
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
@@ -70,8 +70,8 @@ class TestCoreEmbeddings:
     def test_embedding_service_creation(self):
         """Test embedding service initialization."""
         try:
-            from common.core.embeddings import EmbeddingService
             from common.core.config import Config
+            from common.core.embeddings import EmbeddingService
 
             config = Config()
             service = EmbeddingService(config)
@@ -92,8 +92,8 @@ class TestCoreEmbeddings:
     async def test_embedding_initialization(self):
         """Test async embedding service initialization."""
         try:
-            from common.core.embeddings import EmbeddingService
             from common.core.config import Config
+            from common.core.embeddings import EmbeddingService
 
             config = Config()
             service = EmbeddingService(config)
@@ -113,8 +113,8 @@ class TestCoreEmbeddings:
     async def test_embed_text_functionality(self):
         """Test text embedding functionality."""
         try:
-            from common.core.embeddings import EmbeddingService
             from common.core.config import Config
+            from common.core.embeddings import EmbeddingService
 
             config = Config()
             service = EmbeddingService(config)
@@ -188,12 +188,12 @@ class TestWorkspaceQdrantMCPServer:
                 # Test that tools can be called (even if they fail due to missing dependencies)
                 first_tool = app.tools[0]
 
-                if hasattr(first_tool, '__call__'):
+                if callable(first_tool):
                     try:
                         # Try calling with empty args - expect it to handle gracefully
                         result = await first_tool()
                         assert result is not None
-                    except Exception as e:
+                    except Exception:
                         # Tool exists but may require specific arguments or setup
                         # This is expected and still indicates the tool is registered
                         assert True
@@ -492,8 +492,8 @@ class TestCodePathExploration:
     def test_exception_handling_paths(self):
         """Test exception handling code paths."""
         try:
-            from common.core.embeddings import EmbeddingService
             from common.core.config import Config
+            from common.core.embeddings import EmbeddingService
 
             config = Config()
             service = EmbeddingService(config)

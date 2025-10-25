@@ -6,7 +6,6 @@ Tests cover all extraction strategies, edge cases, and quality assessment.
 from unittest.mock import patch
 
 import pytest
-
 from workspace_qdrant_mcp.web.extractor import (
     ContentExtractor,
     ContentQuality,
@@ -133,7 +132,7 @@ class TestContentExtractor:
 
         # Check headings
         assert len(result.headings) >= 3
-        headings_dict = {level: text for level, text in result.headings}
+        headings_dict = dict(result.headings)
         assert 1 in headings_dict
         assert "Main Article Title" in headings_dict[1]
         assert 2 in headings_dict

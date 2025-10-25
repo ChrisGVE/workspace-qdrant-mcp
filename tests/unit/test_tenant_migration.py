@@ -14,21 +14,22 @@ Tests cover:
 
 import asyncio
 import json
-import pytest
 import sqlite3
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
-from src.python.common.core.tenant_migration import (
-    TenantMigrationManager,
-    MigrationStatus,
-    MigrationPlan,
-    MigrationStatistics,
-    MigrationResult,
-)
+import pytest
+
 from src.python.common.core.sqlite_state_manager import SQLiteStateManager
+from src.python.common.core.tenant_migration import (
+    MigrationPlan,
+    MigrationResult,
+    MigrationStatistics,
+    MigrationStatus,
+    TenantMigrationManager,
+)
 
 
 @pytest.fixture

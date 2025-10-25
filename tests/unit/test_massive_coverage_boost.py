@@ -6,14 +6,14 @@ testing all accessible functionality across the codebase with minimal external d
 """
 
 import asyncio
-import sys
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
-from typing import Dict, Any, List, Optional
-import tempfile
-import os
 import json
+import os
+import sys
+import tempfile
 import time
+from pathlib import Path
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
@@ -105,8 +105,8 @@ class TestEmbeddingServiceComprehensive:
     def test_embedding_service_all_methods(self):
         """Test all embedding service methods."""
         try:
-            from common.core.embeddings import EmbeddingService
             from common.core.config import Config
+            from common.core.embeddings import EmbeddingService
 
             config = Config()
             service = EmbeddingService(config)
@@ -128,7 +128,7 @@ class TestEmbeddingServiceComprehensive:
                                     mock_model.encode.return_value = [[0.1] * 384]
                                     asyncio.get_event_loop().run_until_complete(method("test"))
                             else:
-                                result = method()
+                                method()
                         except (TypeError, AttributeError, RuntimeError):
                             # Method might need different parameters or setup
                             try:
@@ -148,8 +148,8 @@ class TestEmbeddingServiceComprehensive:
     async def test_embedding_service_async_operations(self):
         """Test async embedding operations."""
         try:
-            from common.core.embeddings import EmbeddingService
             from common.core.config import Config
+            from common.core.embeddings import EmbeddingService
 
             config = Config()
             service = EmbeddingService(config)
@@ -293,7 +293,7 @@ class TestClientComprehensiveOperations:
                     method = getattr(client, op_name)
                     if not asyncio.iscoroutinefunction(method):
                         try:
-                            result = method()
+                            method()
                             # If no error, operation handled gracefully
                         except (RuntimeError, AttributeError):
                             # Expected error for uninitialized client
@@ -322,7 +322,7 @@ class TestMCPServerToolsComprehensive:
                 for tool in tools:
                     if hasattr(tool, 'name'):
                         assert tool.name is not None
-                    if hasattr(tool, '__call__'):
+                    if callable(tool):
                         assert callable(tool)
 
         except ImportError:
@@ -337,20 +337,20 @@ class TestMCPServerToolsComprehensive:
             if hasattr(app, 'tools') and app.tools:
                 # Test calling each tool with minimal valid inputs
                 for tool in app.tools:
-                    if hasattr(tool, '__call__') and callable(tool):
+                    if callable(tool) and callable(tool):
                         try:
                             # Try calling with no arguments
                             if asyncio.iscoroutinefunction(tool):
-                                result = await tool()
+                                await tool()
                             else:
-                                result = tool()
+                                tool()
                         except TypeError:
                             # Tool requires arguments - try with common parameters
                             try:
                                 if asyncio.iscoroutinefunction(tool):
-                                    result = await tool(query="test")
+                                    await tool(query="test")
                                 else:
-                                    result = tool(query="test")
+                                    tool(query="test")
                             except (TypeError, AttributeError):
                                 # Tool might need different parameters
                                 pass
@@ -423,7 +423,10 @@ class TestUtilityModulesComprehensive:
     def test_config_validation_comprehensive(self):
         """Test comprehensive configuration validation."""
         try:
-            from common.utils.config_validator import validate_config, ConfigValidationError
+            from common.utils.config_validator import (
+                ConfigValidationError,
+                validate_config,
+            )
 
             # Test various config scenarios
             test_configs = [
@@ -448,7 +451,11 @@ class TestUtilityModulesComprehensive:
     def test_os_directories_functionality(self):
         """Test OS-specific directory utilities."""
         try:
-            from common.utils.os_directories import get_data_dir, get_config_dir, get_cache_dir
+            from common.utils.os_directories import (
+                get_cache_dir,
+                get_config_dir,
+                get_data_dir,
+            )
 
             directory_functions = [get_data_dir, get_config_dir, get_cache_dir]
 
@@ -503,7 +510,11 @@ class TestSecurityModules:
     def test_encryption_functionality(self):
         """Test encryption utilities."""
         try:
-            from common.security.encryption import encrypt_data, decrypt_data, generate_key
+            from common.security.encryption import (
+                decrypt_data,
+                encrypt_data,
+                generate_key,
+            )
 
             # Test key generation
             if callable(generate_key):
@@ -758,7 +769,7 @@ async def test_comprehensive_async_operations():
             module = __import__(module_name, fromlist=[class_or_obj])
             obj = getattr(module, class_or_obj)
 
-            if hasattr(obj, '__call__') and asyncio.iscoroutinefunction(obj):
+            if callable(obj) and asyncio.iscoroutinefunction(obj):
                 try:
                     await obj()
                 except (TypeError, AttributeError):

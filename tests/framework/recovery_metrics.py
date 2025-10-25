@@ -16,14 +16,13 @@ Features:
 8. Performance degradation during recovery tracking
 """
 
-import time
+import logging
 import statistics
+import time
+from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple
-from collections import deque
-import logging
-
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -51,30 +50,30 @@ class RecoveryEvent:
     failure_time: float
     detection_time: float
     recovery_start_time: float
-    recovery_complete_time: Optional[float] = None
+    recovery_complete_time: float | None = None
     recovery_strategy: RecoveryDetectionStrategy = RecoveryDetectionStrategy.HEALTH_CHECK
 
     # Recovery metrics
-    recovery_duration: Optional[float] = None  # Time from start to complete
-    time_to_detect: Optional[float] = None     # Time from failure to detection
-    time_to_recover: Optional[float] = None    # Total time from failure to recovery
+    recovery_duration: float | None = None  # Time from start to complete
+    time_to_detect: float | None = None     # Time from failure to detection
+    time_to_recover: float | None = None    # Total time from failure to recovery
 
     # Performance metrics during recovery
-    baseline_performance: Optional[Dict[str, float]] = None
-    recovery_performance: Optional[Dict[str, float]] = None
+    baseline_performance: dict[str, float] | None = None
+    recovery_performance: dict[str, float] | None = None
     performance_degradation_percent: float = 0.0
 
     # Recovery outcome
     recovery_successful: bool = False
     recovery_state: RecoveryState = RecoveryState.FAILED
-    failure_reason: Optional[str] = None
+    failure_reason: str | None = None
     recovery_notes: str = ""
 
     def complete_recovery(
         self,
         recovery_time: float,
         successful: bool = True,
-        performance: Optional[Dict[str, float]] = None
+        performance: dict[str, float] | None = None
     ):
         """Mark recovery as complete."""
         self.recovery_complete_time = recovery_time
@@ -179,7 +178,7 @@ class MTTFAnalysis:
 @dataclass
 class RecoveryMetricsReport:
     """Comprehensive recovery metrics report."""
-    component_metrics: Dict[str, Tuple[MTTRAnalysis, MTTFAnalysis]] = field(default_factory=dict)
+    component_metrics: dict[str, tuple[MTTRAnalysis, MTTFAnalysis]] = field(default_factory=dict)
     system_mttr: float = 0.0
     system_mttf: float = 0.0
     system_availability: float = 100.0
@@ -200,7 +199,7 @@ class RecoveryTimeTracker:
 
     def __init__(
         self,
-        baseline_performance: Optional[Dict[str, float]] = None,
+        baseline_performance: dict[str, float] | None = None,
         recovery_detection_strategy: RecoveryDetectionStrategy = RecoveryDetectionStrategy.HEALTH_CHECK
     ):
         """
@@ -214,16 +213,16 @@ class RecoveryTimeTracker:
         self.recovery_strategy = recovery_detection_strategy
 
         # Active recovery events (component -> event)
-        self.active_recoveries: Dict[str, RecoveryEvent] = {}
+        self.active_recoveries: dict[str, RecoveryEvent] = {}
 
         # Historical recovery events
-        self.recovery_history: List[RecoveryEvent] = []
+        self.recovery_history: list[RecoveryEvent] = []
 
         # Failure timestamps for MTTF calculation (component -> [timestamps])
-        self.failure_times: Dict[str, deque] = {}
+        self.failure_times: dict[str, deque] = {}
 
         # Last healthy timestamp (component -> timestamp)
-        self.last_healthy_time: Dict[str, float] = {}
+        self.last_healthy_time: dict[str, float] = {}
 
         # Observation period
         self.observation_start = time.time()
@@ -231,8 +230,8 @@ class RecoveryTimeTracker:
     def record_failure(
         self,
         component_name: str,
-        failure_time: Optional[float] = None,
-        failure_reason: Optional[str] = None
+        failure_time: float | None = None,
+        failure_reason: str | None = None
     ):
         """
         Record component failure.
@@ -270,7 +269,7 @@ class RecoveryTimeTracker:
     def record_recovery_start(
         self,
         component_name: str,
-        start_time: Optional[float] = None
+        start_time: float | None = None
     ):
         """
         Record start of recovery process.
@@ -289,10 +288,10 @@ class RecoveryTimeTracker:
     def record_recovery_complete(
         self,
         component_name: str,
-        recovery_time: Optional[float] = None,
+        recovery_time: float | None = None,
         successful: bool = True,
-        current_performance: Optional[Dict[str, float]] = None
-    ) -> Optional[RecoveryEvent]:
+        current_performance: dict[str, float] | None = None
+    ) -> RecoveryEvent | None:
         """
         Record completion of recovery.
 
@@ -331,8 +330,8 @@ class RecoveryTimeTracker:
 
     def calculate_mttr(
         self,
-        component_name: Optional[str] = None,
-        lookback_count: Optional[int] = None
+        component_name: str | None = None,
+        lookback_count: int | None = None
     ) -> MTTRAnalysis:
         """
         Calculate MTTR analysis.
@@ -425,8 +424,8 @@ class RecoveryTimeTracker:
 
     def calculate_mttf(
         self,
-        component_name: Optional[str] = None,
-        observation_period_hours: Optional[float] = None
+        component_name: str | None = None,
+        observation_period_hours: float | None = None
     ) -> MTTFAnalysis:
         """
         Calculate MTTF analysis.

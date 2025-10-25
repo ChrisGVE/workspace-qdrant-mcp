@@ -12,25 +12,25 @@ This test suite validates:
 """
 
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch, PropertyMock
-from typing import Any, Dict, List
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, PropertyMock, patch
 
 import pytest
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, Distance, VectorParams
+from qdrant_client.models import Distance, PointStruct, VectorParams
 
 # Add src/python to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
+from common.core.collection_naming import CollectionNamingManager
 from common.core.memory import (
+    AuthorityLevel,
+    MemoryCategory,
     MemoryManager,
     MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
 )
-from common.core.collection_naming import CollectionNamingManager
 from common.core.sparse_vectors import BM25SparseEncoder
 
 

@@ -7,10 +7,10 @@ IncompatibleVersionError for backup/restore version validation.
 
 import pytest
 from common.core.error_handling import (
-    WorkspaceError,
-    IncompatibleVersionError,
     ErrorCategory,
     ErrorSeverity,
+    IncompatibleVersionError,
+    WorkspaceError,
 )
 
 

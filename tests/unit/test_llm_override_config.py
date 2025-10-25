@@ -15,8 +15,8 @@ from src.python.common.core.context_injection import (
     LLMOverrideConfig,
     LLMOverrideManager,
     LLMToolType,
-    set_llm_override_cli,
     clear_llm_override_cli,
+    set_llm_override_cli,
     show_llm_override_cli,
 )
 
@@ -155,7 +155,7 @@ class TestLLMOverrideManager:
         assert config_path.exists()
 
         # Verify content
-        with open(config_path, "r") as f:
+        with open(config_path) as f:
             data = json.load(f)
 
         assert data["enabled"] is True

@@ -13,7 +13,6 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
 from workspace_qdrant_mcp.utils.project_detection import DaemonIdentifier
 
 

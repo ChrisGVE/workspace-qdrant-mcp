@@ -29,29 +29,28 @@ Usage:
 """
 
 import asyncio
-import grpc
 import logging
-import pytest
 import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
 from unittest.mock import Mock, patch
 
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+import grpc
+import pytest
 
 # Import daemon client and gRPC types
 from common.grpc.daemon_client import (
     DaemonClient,
-    DaemonUnavailableError,
-    DaemonTimeoutError,
     DaemonClientError,
+    DaemonTimeoutError,
+    DaemonUnavailableError,
 )
 from common.grpc.generated import workspace_daemon_pb2 as pb2
 from google.protobuf.timestamp_pb2 import Timestamp as pb2_Timestamp
-
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams
 
 # =============================================================================
 # FIXTURES
@@ -144,7 +143,7 @@ def log_capture():
 
 
 @pytest.fixture
-def sample_metadata() -> Dict[str, str]:
+def sample_metadata() -> dict[str, str]:
     """
     Provide sample metadata for testing.
 
@@ -533,7 +532,7 @@ class TestCollectionService:
         )
 
         # Verify response structure
-        assert response.success == True, f"Collection creation failed: {response.error_message}"
+        assert response.success, f"Collection creation failed: {response.error_message}"
         assert response.collection_id != "", "collection_id should not be empty"
         assert response.error_message == "", "error_message should be empty on success"
 
@@ -577,7 +576,7 @@ class TestCollectionService:
         )
 
         # Verify response
-        assert response.success == True, f"Collection creation failed: {response.error_message}"
+        assert response.success, f"Collection creation failed: {response.error_message}"
 
         # Verify collection exists with custom configuration
         collection_info = qdrant_client.get_collection(collection_name)
@@ -612,7 +611,7 @@ class TestCollectionService:
             project_id="test_project",
             config=config
         )
-        assert create_response.success == True, "Collection creation failed"
+        assert create_response.success, "Collection creation failed"
 
         # Verify collection exists
         collections = qdrant_client.get_collections().collections
@@ -658,7 +657,7 @@ class TestCollectionService:
             project_id="test_project",
             config=config
         )
-        assert create_response.success == True, "Collection creation failed"
+        assert create_response.success, "Collection creation failed"
 
         # Add some data to make collection non-empty
         from qdrant_client.models import PointStruct
@@ -718,7 +717,7 @@ class TestCollectionService:
             project_id="test_project",
             config=config
         )
-        assert create_response.success == True, "Collection creation failed"
+        assert create_response.success, "Collection creation failed"
 
         # Create alias via daemon
         await daemon_client.create_collection_alias(
@@ -764,7 +763,7 @@ class TestCollectionService:
             project_id="test_project",
             config=config
         )
-        assert create_response.success == True, "Collection creation failed"
+        assert create_response.success, "Collection creation failed"
 
         await daemon_client.create_collection_alias(
             alias_name=alias_name,
@@ -781,7 +780,7 @@ class TestCollectionService:
         # Verify alias no longer resolves
         try:
             qdrant_client.get_collection(alias_name)
-            assert False, "Alias should not resolve after deletion"
+            raise AssertionError("Alias should not resolve after deletion")
         except Exception:
             pass  # Expected - alias should not exist
 
@@ -820,7 +819,7 @@ class TestCollectionService:
             project_id="test_project",
             config=config
         )
-        assert create_response.success == True, "Collection creation failed"
+        assert create_response.success, "Collection creation failed"
 
         await daemon_client.create_collection_alias(
             alias_name=old_alias_name,
@@ -841,7 +840,7 @@ class TestCollectionService:
         # Verify old alias no longer exists
         try:
             qdrant_client.get_collection(old_alias_name)
-            assert False, "Old alias should not exist after rename"
+            raise AssertionError("Old alias should not exist after rename")
         except Exception:
             pass  # Expected - old alias should be gone
 
@@ -883,7 +882,7 @@ class TestCollectionService:
             project_id="test_project",
             config=config
         )
-        assert create_response.success == True, "Collection creation failed"
+        assert create_response.success, "Collection creation failed"
 
         # Verify collection exists
         collections = qdrant_client.get_collections().collections
@@ -910,7 +909,7 @@ class TestCollectionService:
         # Verify old alias gone, new alias exists
         try:
             qdrant_client.get_collection(alias_name_1)
-            assert False, "Old alias should not exist after rename"
+            raise AssertionError("Old alias should not exist after rename")
         except Exception:
             pass  # Expected
 
@@ -923,7 +922,7 @@ class TestCollectionService:
         # Verify alias is gone
         try:
             qdrant_client.get_collection(alias_name_2)
-            assert False, "Alias should not exist after deletion"
+            raise AssertionError("Alias should not exist after deletion")
         except Exception:
             pass  # Expected
 
@@ -981,7 +980,7 @@ class TestDocumentService:
         )
 
         # Verify response structure
-        assert response.success == True, f"Ingestion failed: {response.error_message}"
+        assert response.success, f"Ingestion failed: {response.error_message}"
         assert response.document_id != "", "document_id should not be empty"
         assert response.chunks_created > 0, "Should create at least one chunk"
 
@@ -1081,7 +1080,7 @@ class TestDocumentService:
         )
 
         # Verify response
-        assert response.success == True, f"Ingestion failed: {response.error_message}"
+        assert response.success, f"Ingestion failed: {response.error_message}"
         assert response.document_id != "", "document_id should not be empty"
         assert response.chunks_created > 1, f"Should create multiple chunks for large content, got {response.chunks_created}"
 
@@ -1141,7 +1140,7 @@ class TestDocumentService:
             chunk_text=False  # Single chunk for simplicity
         )
 
-        assert ingest_response.success == True, f"Initial ingestion failed: {ingest_response.error_message}"
+        assert ingest_response.success, f"Initial ingestion failed: {ingest_response.error_message}"
         document_id = ingest_response.document_id
 
         # Wait for initial ingestion
@@ -1156,7 +1155,7 @@ class TestDocumentService:
         )
 
         # Verify update response
-        assert update_response.success == True, f"Update failed: {update_response.error_message}"
+        assert update_response.success, f"Update failed: {update_response.error_message}"
         assert update_response.updated_at is not None, "updated_at timestamp should be set"
 
         # Wait for update processing
@@ -1229,7 +1228,7 @@ class TestDocumentService:
             chunk_text=True
         )
 
-        assert ingest_response.success == True, f"Initial ingestion failed: {ingest_response.error_message}"
+        assert ingest_response.success, f"Initial ingestion failed: {ingest_response.error_message}"
         document_id = ingest_response.document_id
 
         # Wait for ingestion
@@ -1309,7 +1308,7 @@ class TestDocumentService:
             chunk_text=False
         )
 
-        assert ingest_response.success == True, f"Ingestion failed: {ingest_response.error_message}"
+        assert ingest_response.success, f"Ingestion failed: {ingest_response.error_message}"
         document_id = ingest_response.document_id
         assert ingest_response.chunks_created == 1, "Should create exactly one chunk"
 
@@ -1342,7 +1341,7 @@ class TestDocumentService:
             metadata={**sample_metadata, "version": "2", "updated": "true"}
         )
 
-        assert update_response.success == True, f"Update failed: {update_response.error_message}"
+        assert update_response.success, f"Update failed: {update_response.error_message}"
         assert update_response.updated_at is not None, "updated_at should be set"
 
         await wait_for_daemon_processing()
@@ -1427,7 +1426,7 @@ class TestFallbackDetection:
             result = await server_module.ensure_collection_exists(collection_name)
 
             # Verify collection was created (fallback succeeded)
-            assert result == True, "Collection creation should succeed via fallback"
+            assert result, "Collection creation should succeed via fallback"
 
             # Verify collection exists in Qdrant
             collection_info = qdrant_client.get_collection(collection_name)
@@ -1462,8 +1461,9 @@ class TestFallbackDetection:
             - Timeout errors trigger fallback path
             - Warnings are logged for timeout condition
         """
-        import workspace_qdrant_mcp.server as server_module
         from unittest.mock import AsyncMock, MagicMock
+
+        import workspace_qdrant_mcp.server as server_module
 
         # Save original daemon_client
         original_daemon_client = server_module.daemon_client
@@ -1482,7 +1482,7 @@ class TestFallbackDetection:
             result = await server_module.ensure_collection_exists(collection_name)
 
             # Verify fallback occurred (should still succeed via direct Qdrant)
-            assert result == True, "Collection creation should succeed via fallback after timeout"
+            assert result, "Collection creation should succeed via fallback after timeout"
 
             # Verify WARNING logs were emitted
             warnings = [r for r in log_capture.buffer if r.levelno == logging.WARNING]
@@ -1529,7 +1529,7 @@ class TestFallbackDetection:
         )
 
         # Verify creation succeeded
-        assert response.success == True, f"Collection creation failed: {response.error_message}"
+        assert response.success, f"Collection creation failed: {response.error_message}"
 
         # Verify collection exists in Qdrant
         collection_info = qdrant_client.get_collection(collection_name)
@@ -1550,7 +1550,7 @@ class TestFallbackDetection:
         )
 
         # Verify ingestion succeeded
-        assert ingest_response.success == True, f"Ingestion failed: {ingest_response.error_message}"
+        assert ingest_response.success, f"Ingestion failed: {ingest_response.error_message}"
         assert ingest_response.document_id != "", "document_id should not be empty"
 
         # Wait for daemon to complete processing
@@ -1632,7 +1632,7 @@ class TestErrorHandling:
         )
 
         # Verify error response
-        assert response.success == False, \
+        assert not response.success, \
             "Creating collection with empty name should fail"
         assert response.error_message != "", \
             "Error message should explain validation failure"
@@ -1664,7 +1664,7 @@ class TestErrorHandling:
         )
 
         # Verify error response
-        assert response.success == False, \
+        assert not response.success, \
             "Creating collection with zero vector size should fail"
         assert response.error_message != "", \
             "Error message should explain vector size validation failure"
@@ -1722,7 +1722,7 @@ class TestErrorHandling:
         )
 
         # Verify error response
-        assert response.success == False, \
+        assert not response.success, \
             "Updating non-existent document should fail"
         assert response.error_message != "", \
             "Error message should indicate document not found"
@@ -1862,7 +1862,7 @@ class TestErrorHandling:
 
         try:
             # Trigger failures until circuit opens (threshold = 3)
-            for i in range(3):
+            for _i in range(3):
                 with pytest.raises(DaemonUnavailableError):
                     await daemon_client.health_check()
 
@@ -1918,7 +1918,7 @@ class TestErrorHandling:
 # HELPER FUNCTIONS
 # =============================================================================
 
-def verify_grpc_response(response: Any, expected_fields: List[str]) -> None:
+def verify_grpc_response(response: Any, expected_fields: list[str]) -> None:
     """
     Verify gRPC response has all expected fields.
 
@@ -1936,7 +1936,7 @@ def verify_grpc_response(response: Any, expected_fields: List[str]) -> None:
 def assert_collection_exists(
     qdrant_client: QdrantClient,
     collection_name: str,
-    expected_vector_size: Optional[int] = None
+    expected_vector_size: int | None = None
 ) -> None:
     """
     Assert collection exists in Qdrant with optional vector size check.
@@ -1993,7 +1993,7 @@ async def wait_for_daemon_processing(delay_seconds: float = 2.0) -> None:
     await asyncio.sleep(delay_seconds)
 
 
-def extract_fallback_warnings(log_capture) -> List[str]:
+def extract_fallback_warnings(log_capture) -> list[str]:
     """
     Extract fallback-related WARNING messages from log capture.
 
@@ -2101,15 +2101,15 @@ async def test_generate_phase1_validation_report():
     print("PHASE 1 gRPC PROTOCOL VALIDATION TEST REPORT")
     print("=" * 70)
     print(f"\nTotal RPCs: {report['total_rpcs']}")
-    print(f"\nServices:")
+    print("\nServices:")
     for service_name, service_info in report['services'].items():
         print(f"  • {service_name}: {service_info['rpcs']} RPCs - {service_info['status']}")
 
-    print(f"\n📋 Write Path Validation:")
+    print("\n📋 Write Path Validation:")
     print(f"  • First Principle: {report['write_path_validation']['first_principle']}")
     print(f"  • Status: {report['write_path_validation']['status']}")
 
-    print(f"\n🎯 Recommendations:")
+    print("\n🎯 Recommendations:")
     for rec in report['recommendations']:
         print(f"  {rec}")
 

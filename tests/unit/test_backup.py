@@ -10,14 +10,13 @@ import time
 from pathlib import Path
 
 import pytest
-
 from common.core.backup import (
-    BackupMetadata,
-    VersionValidator,
-    CompatibilityStatus,
     BackupManager,
+    BackupMetadata,
+    CompatibilityStatus,
+    VersionValidator,
 )
-from common.core.error_handling import IncompatibleVersionError, FileSystemError
+from common.core.error_handling import FileSystemError, IncompatibleVersionError
 
 
 class TestBackupMetadata:
@@ -658,7 +657,11 @@ class TestRestoreManager:
 
     def test_validate_backup_incompatible_version(self):
         """Test validation fails with incompatible version."""
-        from common.core.backup import BackupManager, RestoreManager, IncompatibleVersionError
+        from common.core.backup import (
+            BackupManager,
+            IncompatibleVersionError,
+            RestoreManager,
+        )
 
         backup_mgr = BackupManager(current_version="0.1.0")
         restore_mgr = RestoreManager(current_version="0.2.1")
@@ -680,7 +683,11 @@ class TestRestoreManager:
 
     def test_validate_backup_downgrade_rejected(self):
         """Test validation rejects downgrade by default."""
-        from common.core.backup import BackupManager, RestoreManager, IncompatibleVersionError
+        from common.core.backup import (
+            BackupManager,
+            IncompatibleVersionError,
+            RestoreManager,
+        )
 
         backup_mgr = BackupManager(current_version="0.2.2")
         restore_mgr = RestoreManager(current_version="0.2.1")
@@ -748,7 +755,11 @@ class TestRestoreManager:
 
     def test_check_compatibility_compatible(self):
         """Test compatibility check with compatible versions."""
-        from common.core.backup import BackupManager, RestoreManager, CompatibilityStatus
+        from common.core.backup import (
+            BackupManager,
+            CompatibilityStatus,
+            RestoreManager,
+        )
 
         backup_mgr = BackupManager(current_version="0.2.1")
         restore_mgr = RestoreManager(current_version="0.2.2")
@@ -768,7 +779,11 @@ class TestRestoreManager:
 
     def test_check_compatibility_incompatible(self):
         """Test compatibility check with incompatible versions."""
-        from common.core.backup import BackupManager, RestoreManager, CompatibilityStatus
+        from common.core.backup import (
+            BackupManager,
+            CompatibilityStatus,
+            RestoreManager,
+        )
 
         backup_mgr = BackupManager(current_version="0.1.0")
         restore_mgr = RestoreManager(current_version="0.2.1")
@@ -916,7 +931,11 @@ class TestRestoreManager:
 
     def test_prepare_restore_incompatible_version(self):
         """Test restore preparation fails with incompatible version."""
-        from common.core.backup import BackupManager, RestoreManager, IncompatibleVersionError
+        from common.core.backup import (
+            BackupManager,
+            IncompatibleVersionError,
+            RestoreManager,
+        )
 
         backup_mgr = BackupManager(current_version="0.1.0")
         restore_mgr = RestoreManager(current_version="0.2.1")

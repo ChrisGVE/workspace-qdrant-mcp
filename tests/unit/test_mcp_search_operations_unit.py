@@ -13,8 +13,7 @@ Task 281: Unit-level tests for search operation components
 
 import sys
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
-from typing import List, Dict
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 from qdrant_client.http import models
@@ -23,12 +22,12 @@ from qdrant_client.http import models
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 from common.core.hybrid_search import (
-    RRFFusionRanker,
-    WeightedSumFusionRanker,
     HybridSearchEngine,
+    MultiTenantResultAggregator,
+    RRFFusionRanker,
     TenantAwareResult,
     TenantAwareResultDeduplicator,
-    MultiTenantResultAggregator
+    WeightedSumFusionRanker,
 )
 
 

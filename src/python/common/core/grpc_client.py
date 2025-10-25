@@ -8,16 +8,15 @@ This module provides a hybrid client that can operate in two modes:
 The client automatically falls back to direct mode if the gRPC server is unavailable.
 """
 
-import asyncio
-from loguru import logger
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
+
+from loguru import logger
 
 from ..grpc.client import AsyncIngestClient
 from ..grpc.connection_manager import ConnectionConfig
 from .client import QdrantWorkspaceClient
-from .config import get_config, ConfigManager
+from .config import ConfigManager
 from .daemon_manager import ensure_daemon_running, get_daemon_for_project
 
 # logger imported from loguru
@@ -36,11 +35,11 @@ class GrpcWorkspaceClient:
         config: ConfigManager,
         grpc_enabled: bool = True,
         grpc_host: str = "127.0.0.1",
-        grpc_port: Optional[int] = None,
+        grpc_port: int | None = None,
         fallback_to_direct: bool = True,
         auto_start_daemon: bool = True,
-        project_name: Optional[str] = None,
-        project_path: Optional[str] = None,
+        project_name: str | None = None,
+        project_path: str | None = None,
     ):
         """Initialize the gRPC-enabled workspace client.
 
@@ -67,7 +66,7 @@ class GrpcWorkspaceClient:
         self.direct_client = QdrantWorkspaceClient(config)
 
         # gRPC client and daemon info - will be initialized during startup
-        self.grpc_client: Optional[AsyncIngestClient] = None
+        self.grpc_client: AsyncIngestClient | None = None
         self.grpc_available = False
         self.grpc_host = grpc_host
         self.grpc_port = grpc_port  # Will be determined by daemon manager if None
@@ -138,7 +137,7 @@ class GrpcWorkspaceClient:
         """Check if gRPC mode is available."""
         return self.grpc_available
 
-    async def get_status(self) -> Dict[str, Any]:
+    async def get_status(self) -> dict[str, Any]:
         """Get comprehensive workspace status including gRPC information."""
         # Get base status from direct client
         status = await self.direct_client.get_status()
@@ -164,7 +163,7 @@ class GrpcWorkspaceClient:
 
         return status
 
-    async def list_collections(self) -> List[str]:
+    async def list_collections(self) -> list[str]:
         """List available collections."""
         # This always uses direct client as it's a metadata operation
         return self.direct_client.list_collections()
@@ -173,10 +172,10 @@ class GrpcWorkspaceClient:
         self,
         content: str,
         collection: str,
-        metadata: Optional[Dict[str, str]] = None,
-        document_id: Optional[str] = None,
+        metadata: dict[str, str] | None = None,
+        document_id: str | None = None,
         chunk_text: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Add a document to a collection, using gRPC if available."""
 
         # For file-based operations, prefer gRPC if available
@@ -213,10 +212,10 @@ class GrpcWorkspaceClient:
         self,
         file_path: str,
         collection: str,
-        metadata: Optional[Dict[str, str]] = None,
-        document_id: Optional[str] = None,
+        metadata: dict[str, str] | None = None,
+        document_id: str | None = None,
         chunk_text: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Process a document file, preferring gRPC for file-based operations."""
 
         if self.grpc_available and self.grpc_client:
@@ -254,7 +253,7 @@ class GrpcWorkspaceClient:
         # Fall back to direct client
         # Read file content and use direct addition
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 content = f.read()
 
             result = await self.direct_client.add_document(
@@ -274,11 +273,11 @@ class GrpcWorkspaceClient:
     async def search_workspace(
         self,
         query: str,
-        collections: Optional[List[str]] = None,
+        collections: list[str] | None = None,
         mode: str = "hybrid",
         limit: int = 10,
         score_threshold: float = 0.7,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Execute a search query, using gRPC if available for better performance."""
 
         if self.grpc_available and self.grpc_client:
@@ -331,13 +330,13 @@ class GrpcWorkspaceClient:
 
     async def get_document(
         self, document_id: str, collection: str, include_vectors: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Get a document by ID (always uses direct client for metadata operations)."""
         return await self.direct_client.get_document(
             document_id, collection, include_vectors
         )
 
-    async def get_grpc_stats(self) -> Optional[Dict[str, Any]]:
+    async def get_grpc_stats(self) -> dict[str, Any] | None:
         """Get statistics from the gRPC server if available."""
         if self.grpc_available and self.grpc_client:
             try:
@@ -348,7 +347,7 @@ class GrpcWorkspaceClient:
         return None
 
     async def start_file_watching(
-        self, path: str, collection: str, patterns: Optional[List[str]] = None, **kwargs
+        self, path: str, collection: str, patterns: list[str] | None = None, **kwargs
     ):
         """Start file watching using gRPC if available."""
         if self.grpc_available and self.grpc_client:
@@ -476,7 +475,7 @@ class GrpcWorkspaceClient:
 
         return False
 
-    async def get_daemon_status(self) -> Optional[Dict[str, Any]]:
+    async def get_daemon_status(self) -> dict[str, Any] | None:
         """Get status of the associated daemon."""
         if self.daemon_instance:
             return self.daemon_instance.get_status()

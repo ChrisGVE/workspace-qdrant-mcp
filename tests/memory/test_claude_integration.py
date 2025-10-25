@@ -16,10 +16,9 @@ import os
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, mock_open
+from unittest.mock import AsyncMock, Mock, mock_open, patch
 
 import pytest
-
 from workspace_qdrant_mcp.memory.claude_integration import ClaudeCodeIntegration
 from workspace_qdrant_mcp.memory.token_counter import TokenCounter, TokenUsage
 from workspace_qdrant_mcp.memory.types import (
@@ -53,7 +52,7 @@ class TestClaudeCodeIntegrationInit:
         """Test initialization with custom config path."""
         token_counter = TokenCounter()
         custom_path = "/custom/path/to/claude.json"
-        
+
         integration = ClaudeCodeIntegration(
             token_counter=token_counter,
             claude_config_path=custom_path
@@ -64,12 +63,12 @@ class TestClaudeCodeIntegrationInit:
     def test_config_path_discovery(self):
         """Test automatic config path discovery."""
         token_counter = TokenCounter()
-        
+
         with patch.object(ClaudeCodeIntegration, '_find_claude_config') as mock_find:
             mock_find.return_value = "/discovered/claude.json"
-            
+
             integration = ClaudeCodeIntegration(token_counter=token_counter)
-            
+
             assert integration.claude_config_path == "/discovered/claude.json"
             mock_find.assert_called_once()
 
@@ -79,10 +78,10 @@ class TestClaudeCodeIntegrationInit:
         """Test finding Claude config in home directory."""
         mock_expanduser.return_value = "/home/user"
         mock_exists.side_effect = lambda path: path == "/home/user/.claude/claude.json"
-        
+
         token_counter = TokenCounter()
         integration = ClaudeCodeIntegration(token_counter=token_counter)
-        
+
         # Should find config in home directory
         assert integration.claude_config_path == "/home/user/.claude/claude.json"
 
@@ -92,10 +91,10 @@ class TestClaudeCodeIntegrationInit:
         """Test finding Claude config in current directory."""
         mock_expanduser.return_value = "/home/user"
         mock_exists.side_effect = lambda path: path == "./claude.json"
-        
+
         token_counter = TokenCounter()
         integration = ClaudeCodeIntegration(token_counter=token_counter)
-        
+
         # Should find config in current directory
         assert integration.claude_config_path == "./claude.json"
 
@@ -105,10 +104,10 @@ class TestClaudeCodeIntegrationInit:
         """Test handling when no Claude config is found."""
         mock_expanduser.return_value = "/home/user"
         mock_exists.return_value = False
-        
+
         token_counter = TokenCounter()
         integration = ClaudeCodeIntegration(token_counter=token_counter)
-        
+
         # Should return None when no config found
         assert integration.claude_config_path is None
 
@@ -184,7 +183,7 @@ class TestSessionInitialization:
 
         with patch.object(integration, '_inject_rules_to_claude') as mock_inject:
             mock_inject.return_value = True
-            
+
             result = await integration.initialize_session(session, rules)
 
             assert result.success is True
@@ -311,12 +310,12 @@ class TestRuleInjection:
         }
 
         integration.claude_config_path = "/test/claude.json"
-        
+
         result = integration._inject_rules_to_claude("New memory rules content")
 
         assert result is True
         mock_json_dump.assert_called_once()
-        
+
         # Verify the call to json.dump had updated content
         call_args = mock_json_dump.call_args[0][0]
         assert "system_prompt" in call_args
@@ -325,7 +324,7 @@ class TestRuleInjection:
     def test_inject_rules_no_config_path(self, integration):
         """Test rule injection when no config path is available."""
         integration.claude_config_path = None
-        
+
         result = integration._inject_rules_to_claude("Memory rules content")
 
         assert result is False
@@ -334,7 +333,7 @@ class TestRuleInjection:
     def test_inject_rules_file_error(self, mock_open, integration):
         """Test rule injection when config file is not found."""
         integration.claude_config_path = "/nonexistent/claude.json"
-        
+
         result = integration._inject_rules_to_claude("Memory rules content")
 
         assert result is False
@@ -344,7 +343,7 @@ class TestRuleInjection:
     def test_inject_rules_invalid_json(self, mock_json_load, integration):
         """Test rule injection with invalid JSON config."""
         integration.claude_config_path = "/test/claude.json"
-        
+
         result = integration._inject_rules_to_claude("Memory rules content")
 
         assert result is False
@@ -421,7 +420,7 @@ class TestConversationalUpdates:
         updates = await integration.detect_conversational_updates(text)
 
         assert len(updates) >= 2
-        
+
         # Should detect name preference and TypeScript preference
         rule_texts = [u.extracted_rule.lower() for u in updates]
         assert any("chris" in text for text in rule_texts)
@@ -465,12 +464,12 @@ class TestContextManagement:
 
     def test_session_context_caching(self, integration):
         """Test that session contexts are cached."""
-        session1 = ClaudeCodeSession(
+        ClaudeCodeSession(
             session_id="session-1",
             workspace_path="/path1"
         )
-        
-        session2 = ClaudeCodeSession(
+
+        ClaudeCodeSession(
             session_id="session-2",
             workspace_path="/path2"
         )
@@ -478,7 +477,7 @@ class TestContextManagement:
         # Simulate adding contexts
         context1 = MemoryContext(session_id="session-1", project_name="proj1")
         context2 = MemoryContext(session_id="session-2", project_name="proj2")
-        
+
         integration._session_contexts["session-1"] = context1
         integration._session_contexts["session-2"] = context2
 
@@ -495,13 +494,13 @@ class TestContextManagement:
         integration._session_contexts["cached-session"] = context
 
         retrieved = integration.get_session_context("cached-session")
-        
+
         assert retrieved == context
 
     def test_get_missing_context(self, integration):
         """Test retrieval of non-existent context."""
         retrieved = integration.get_session_context("missing-session")
-        
+
         assert retrieved is None
 
     def test_context_cleanup(self, integration):
@@ -536,86 +535,86 @@ class TestProjectAnalysis:
     def test_detect_python_project(self, integration):
         """Test detection of Python project characteristics."""
         workspace_path = "/path/to/python-project"
-        
+
         with patch('os.listdir') as mock_listdir:
             mock_listdir.return_value = [
                 "main.py", "requirements.txt", "setup.py",
                 "tests", "src", "venv"
             ]
-            
+
             scopes = integration._analyze_project_scopes(workspace_path)
-            
+
             assert "python" in scopes
 
     def test_detect_javascript_project(self, integration):
         """Test detection of JavaScript project characteristics."""
         workspace_path = "/path/to/js-project"
-        
+
         with patch('os.listdir') as mock_listdir:
             mock_listdir.return_value = [
                 "package.json", "index.js", "node_modules",
                 "src", "dist"
             ]
-            
+
             scopes = integration._analyze_project_scopes(workspace_path)
-            
+
             assert "javascript" in scopes or "node" in scopes
 
     def test_detect_web_project(self, integration):
         """Test detection of web project characteristics."""
         workspace_path = "/path/to/web-project"
-        
+
         with patch('os.listdir') as mock_listdir:
             mock_listdir.return_value = [
                 "index.html", "style.css", "script.js",
                 "assets", "public"
             ]
-            
+
             scopes = integration._analyze_project_scopes(workspace_path)
-            
+
             assert "web" in scopes or "frontend" in scopes
 
     def test_analyze_nonexistent_project(self, integration):
         """Test handling of nonexistent project path."""
         workspace_path = "/nonexistent/path"
-        
+
         scopes = integration._analyze_project_scopes(workspace_path)
-        
+
         # Should return empty list or handle gracefully
         assert isinstance(scopes, list)
 
     def test_analyze_empty_project(self, integration):
         """Test analysis of empty project directory."""
         workspace_path = "/empty/project"
-        
+
         with patch('os.listdir') as mock_listdir:
             mock_listdir.return_value = []
-            
+
             scopes = integration._analyze_project_scopes(workspace_path)
-            
+
             assert isinstance(scopes, list)
 
     def test_git_branch_detection(self, integration):
         """Test Git branch detection for context."""
         workspace_path = "/git/project"
-        
+
         with patch('subprocess.check_output') as mock_subprocess:
             mock_subprocess.return_value = b"feature/authentication\n"
-            
+
             scopes = integration._analyze_project_scopes(workspace_path)
-            
+
             # Should include branch-related scope
             assert any("feature" in scope or "auth" in scope for scope in scopes)
 
     def test_git_branch_detection_failure(self, integration):
         """Test handling Git branch detection failure."""
         workspace_path = "/non-git/project"
-        
+
         with patch('subprocess.check_output') as mock_subprocess:
             mock_subprocess.side_effect = subprocess.CalledProcessError(1, "git")
-            
+
             scopes = integration._analyze_project_scopes(workspace_path)
-            
+
             # Should handle failure gracefully
             assert isinstance(scopes, list)
 
@@ -693,7 +692,7 @@ class TestErrorHandling:
         """Test concurrent access to session contexts."""
         import threading
         import time
-        
+
         def add_context(session_id):
             context = MemoryContext(
                 session_id=session_id,

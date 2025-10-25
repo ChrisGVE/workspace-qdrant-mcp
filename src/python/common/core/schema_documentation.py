@@ -37,16 +37,16 @@ Example:
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Any, Union
 from enum import Enum
+from typing import Any
 
 try:
     from .metadata_schema import (
-        MultiTenantMetadataSchema,
-        CollectionCategory,
-        WorkspaceScope,
+        METADATA_SCHEMA_VERSION,
         AccessLevel,
-        METADATA_SCHEMA_VERSION
+        CollectionCategory,
+        MultiTenantMetadataSchema,
+        WorkspaceScope,
     )
 except ImportError:
     # Fallback for development
@@ -74,13 +74,13 @@ class FieldSpecification:
     type_info: str
     required: bool
     indexed: bool
-    constraints: List[str] = field(default_factory=list)
-    examples: List[str] = field(default_factory=list)
-    default_value: Optional[Any] = None
-    validation_rules: List[str] = field(default_factory=list)
-    related_fields: List[str] = field(default_factory=list)
-    migration_notes: Optional[str] = None
-    performance_notes: Optional[str] = None
+    constraints: list[str] = field(default_factory=list)
+    examples: list[str] = field(default_factory=list)
+    default_value: Any | None = None
+    validation_rules: list[str] = field(default_factory=list)
+    related_fields: list[str] = field(default_factory=list)
+    migration_notes: str | None = None
+    performance_notes: str | None = None
 
 
 @dataclass
@@ -91,9 +91,9 @@ class UsagePattern:
     description: str
     scenario: str
     example_code: str
-    metadata_example: Dict[str, Any]
-    notes: List[str] = field(default_factory=list)
-    best_practices: List[str] = field(default_factory=list)
+    metadata_example: dict[str, Any]
+    notes: list[str] = field(default_factory=list)
+    best_practices: list[str] = field(default_factory=list)
 
 
 class SchemaDocumentation:
@@ -110,7 +110,7 @@ class SchemaDocumentation:
         self._usage_patterns = self._build_usage_patterns()
         self._migration_scenarios = self._build_migration_scenarios()
 
-    def _build_field_specifications(self) -> Dict[str, FieldSpecification]:
+    def _build_field_specifications(self) -> dict[str, FieldSpecification]:
         """Build complete field specifications for all metadata fields."""
         specs = {}
 
@@ -612,7 +612,7 @@ class SchemaDocumentation:
 
         return specs
 
-    def _build_usage_patterns(self) -> Dict[str, UsagePattern]:
+    def _build_usage_patterns(self) -> dict[str, UsagePattern]:
         """Build documentation for common usage patterns."""
         patterns = {}
 
@@ -840,7 +840,7 @@ metadata.original_name_pattern = original_name
 
         return patterns
 
-    def _build_migration_scenarios(self) -> Dict[str, Dict[str, Any]]:
+    def _build_migration_scenarios(self) -> dict[str, dict[str, Any]]:
         """Build documentation for migration scenarios."""
         scenarios = {}
 
@@ -868,31 +868,31 @@ metadata.original_name_pattern = original_name
 
         return scenarios
 
-    def get_field_specification(self, field_name: str) -> Optional[FieldSpecification]:
+    def get_field_specification(self, field_name: str) -> FieldSpecification | None:
         """Get complete specification for a specific field."""
         return self._field_specifications.get(field_name)
 
-    def get_all_fields(self) -> Dict[str, FieldSpecification]:
+    def get_all_fields(self) -> dict[str, FieldSpecification]:
         """Get specifications for all fields."""
         return self._field_specifications.copy()
 
-    def get_required_fields(self) -> List[FieldSpecification]:
+    def get_required_fields(self) -> list[FieldSpecification]:
         """Get specifications for all required fields."""
         return [spec for spec in self._field_specifications.values() if spec.required]
 
-    def get_indexed_fields(self) -> List[FieldSpecification]:
+    def get_indexed_fields(self) -> list[FieldSpecification]:
         """Get specifications for all indexed fields."""
         return [spec for spec in self._field_specifications.values() if spec.indexed]
 
-    def get_usage_examples(self, pattern_name: str) -> Optional[UsagePattern]:
+    def get_usage_examples(self, pattern_name: str) -> UsagePattern | None:
         """Get usage examples for a specific pattern."""
         return self._usage_patterns.get(pattern_name)
 
-    def get_all_usage_patterns(self) -> Dict[str, UsagePattern]:
+    def get_all_usage_patterns(self) -> dict[str, UsagePattern]:
         """Get all usage patterns."""
         return self._usage_patterns.copy()
 
-    def get_migration_scenarios(self) -> Dict[str, Dict[str, Any]]:
+    def get_migration_scenarios(self) -> dict[str, dict[str, Any]]:
         """Get all migration scenarios."""
         return self._migration_scenarios.copy()
 
@@ -962,7 +962,7 @@ metadata.original_name_pattern = original_name
         markdown += "in different scenarios. Each pattern includes code examples, metadata examples, "
         markdown += "and best practices.\n\n"
 
-        for pattern_name, pattern in self._usage_patterns.items():
+        for _pattern_name, pattern in self._usage_patterns.items():
             markdown += f"## {pattern.name}\n\n"
             markdown += f"**Scenario:** {pattern.scenario}\n\n"
             markdown += f"{pattern.description}\n\n"
@@ -994,19 +994,19 @@ metadata.original_name_pattern = original_name
 
 
 # Module-level convenience functions
-def get_field_specification(field_name: str) -> Optional[FieldSpecification]:
+def get_field_specification(field_name: str) -> FieldSpecification | None:
     """Get specification for a specific field."""
     docs = SchemaDocumentation()
     return docs.get_field_specification(field_name)
 
 
-def get_usage_pattern(pattern_name: str) -> Optional[UsagePattern]:
+def get_usage_pattern(pattern_name: str) -> UsagePattern | None:
     """Get usage pattern by name."""
     docs = SchemaDocumentation()
     return docs.get_usage_examples(pattern_name)
 
 
-def generate_documentation() -> Dict[str, str]:
+def generate_documentation() -> dict[str, str]:
     """Generate complete documentation set."""
     docs = SchemaDocumentation()
     return {

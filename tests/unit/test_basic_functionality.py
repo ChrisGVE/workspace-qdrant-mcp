@@ -1,8 +1,9 @@
 """Basic functionality tests - simple object instantiation and method calls."""
 
 import sys
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, Mock
 
 
 class TestBasicInstantiation:
@@ -21,7 +22,7 @@ class TestBasicInstantiation:
 
         # Just check the method exists, don't call it
         assert hasattr(counter, 'count_tokens')
-        assert callable(getattr(counter, 'count_tokens'))
+        assert callable(counter.count_tokens)
 
     @patch.dict(sys.modules, {'qdrant_client': MagicMock()})
     def test_qdrant_client_instantiation(self):
@@ -98,7 +99,7 @@ class TestBasicErrorHandling:
         try:
             # Try to import a non-existent module
             import non_existent_module_12345
-            assert False, "Should have raised ImportError"
+            raise AssertionError("Should have raised ImportError")
         except ImportError:
             # This is expected
             assert True

@@ -3,17 +3,18 @@ Final comprehensive test for 100% server.py coverage.
 Focuses on actually working tests that cover all code paths.
 """
 
-import pytest
 import asyncio
-import sys
 import os
 import stat
 import subprocess
-from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock, call
-from typing import Dict, Any, List
+import sys
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 
 # Add source path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "python"))
@@ -28,40 +29,40 @@ class TestServerComprehensive:
 
         # Test explicit true
         with patch.dict(os.environ, {"WQM_STDIO_MODE": "true"}):
-            assert _detect_stdio_mode() == True
+            assert _detect_stdio_mode()
 
         # Test CLI mode false override
         with patch.dict(os.environ, {"WQM_CLI_MODE": "true"}):
-            assert _detect_stdio_mode() == False
+            assert not _detect_stdio_mode()
 
         # Test pipe detection
         mock_stat = Mock()
         mock_stat.st_mode = stat.S_IFIFO
         with patch('os.fstat', return_value=mock_stat):
             with patch('sys.stdin.fileno', return_value=0):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
         # Test regular file detection
         mock_stat.st_mode = stat.S_IFREG
         with patch('os.fstat', return_value=mock_stat):
             with patch('sys.stdin.fileno', return_value=0):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
         # Test OS error handling
         with patch('os.fstat', side_effect=OSError()):
             with patch.object(sys, 'argv', ['program', 'stdio']):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
         # Test argv mcp
         with patch('os.fstat', side_effect=OSError()):
             with patch.object(sys, 'argv', ['program', 'mcp']):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
         # Test default false
         with patch.dict(os.environ, {}, clear=True):
             with patch('os.fstat', side_effect=OSError()):
                 with patch.object(sys, 'argv', ['program']):
-                    assert _detect_stdio_mode() == False
+                    assert not _detect_stdio_mode()
 
     def test_get_project_name_all_paths(self):
         """Test all project name detection paths."""
@@ -93,8 +94,8 @@ class TestServerComprehensive:
     @pytest.mark.asyncio
     async def test_initialize_components_all_paths(self):
         """Test all component initialization paths."""
-        from workspace_qdrant_mcp.server import initialize_components
         import workspace_qdrant_mcp.server as server_module
+        from workspace_qdrant_mcp.server import initialize_components
 
         # Test first initialization
         server_module.qdrant_client = None
@@ -131,8 +132,8 @@ class TestServerComprehensive:
     @pytest.mark.asyncio
     async def test_generate_embeddings_all_paths(self):
         """Test generate_embeddings function."""
-        from workspace_qdrant_mcp.server import generate_embeddings
         import workspace_qdrant_mcp.server as server_module
+        from workspace_qdrant_mcp.server import generate_embeddings
 
         # Test with existing embedding model
         mock_embedding = Mock()
@@ -155,8 +156,8 @@ class TestServerComprehensive:
     @pytest.mark.asyncio
     async def test_ensure_collection_exists_all_paths(self):
         """Test ensure_collection_exists function."""
-        from workspace_qdrant_mcp.server import ensure_collection_exists
         import workspace_qdrant_mcp.server as server_module
+        from workspace_qdrant_mcp.server import ensure_collection_exists
 
         mock_client = Mock()
         server_module.qdrant_client = mock_client
@@ -164,18 +165,18 @@ class TestServerComprehensive:
         # Test collection exists
         mock_client.get_collection.return_value = Mock()
         result = await ensure_collection_exists("test-collection")
-        assert result == True
+        assert result
 
         # Test collection creation success
         mock_client.get_collection.side_effect = Exception("Not found")
         mock_client.create_collection.return_value = True
         result = await ensure_collection_exists("new-collection")
-        assert result == True
+        assert result
 
         # Test collection creation failure
         mock_client.create_collection.side_effect = Exception("Creation failed")
         result = await ensure_collection_exists("fail-collection")
-        assert result == False
+        assert not result
 
     def test_determine_collection_name_all_paths(self):
         """Test determine_collection_name function."""
@@ -245,7 +246,7 @@ class TestServerComprehensive:
                         metadata={"tag": "test"},
                         source="user_input"
                     )
-                    assert result["success"] == True
+                    assert result["success"]
                     assert "document_id" in result
                     assert result["collection"] == "test-docs"
                     mock_client.upsert.assert_called()
@@ -253,7 +254,7 @@ class TestServerComprehensive:
         # Test collection creation failure
         with patch('workspace_qdrant_mcp.server.ensure_collection_exists', return_value=False):
             result = await store_tool(content="Test")
-            assert result["success"] == False
+            assert not result["success"]
             assert "Failed to create/access collection" in result["error"]
 
         # Test upsert exception
@@ -262,14 +263,14 @@ class TestServerComprehensive:
             with patch('workspace_qdrant_mcp.server.determine_collection_name', return_value="test-docs"):
                 with patch('workspace_qdrant_mcp.server.get_project_name', return_value="test"):
                     result = await store_tool(content="Test")
-                    assert result["success"] == False
+                    assert not result["success"]
                     assert "Upsert failed" in result["error"]
 
     @pytest.mark.asyncio
     async def test_search_function_all_paths(self):
         """Test search function comprehensively."""
-        from workspace_qdrant_mcp.server import search
         import workspace_qdrant_mcp.server as server_module
+        from workspace_qdrant_mcp.server import search
 
         mock_client = Mock()
         mock_embedding = Mock()
@@ -286,7 +287,7 @@ class TestServerComprehensive:
 
         with patch('workspace_qdrant_mcp.server.get_project_name', return_value="test"):
             result = await search(query="test query", mode="semantic")
-            assert result["success"] == True
+            assert result["success"]
             assert len(result["results"]) == 1
 
         # Test exact search
@@ -295,24 +296,24 @@ class TestServerComprehensive:
         mock_client.scroll.return_value = (scroll_result, None)
 
         result = await search(query="exact match", mode="exact")
-        assert result["success"] == True
+        assert result["success"]
         assert len(result["results"]) == 1
 
         # Test hybrid search
         result = await search(query="test", mode="hybrid")
-        assert result["success"] == True
+        assert result["success"]
 
         # Test search exception
         mock_embedding.embed.side_effect = Exception("Embed failed")
         result = await search(query="test", mode="semantic")
-        assert result["success"] == False
+        assert not result["success"]
         assert "Embed failed" in result["error"]
 
     @pytest.mark.asyncio
     async def test_manage_function_all_paths(self):
         """Test manage function comprehensively."""
-        from workspace_qdrant_mcp.server import manage
         import workspace_qdrant_mcp.server as server_module
+        from workspace_qdrant_mcp.server import manage
 
         mock_client = Mock()
         server_module.qdrant_client = mock_client
@@ -323,7 +324,7 @@ class TestServerComprehensive:
 
         with patch('workspace_qdrant_mcp.server.get_project_name', return_value="test"):
             result = await manage(action="list_collections")
-            assert result["success"] == True
+            assert result["success"]
             assert len(result["collections"]) == 1
 
         # Test create collection
@@ -331,40 +332,40 @@ class TestServerComprehensive:
         mock_client.create_collection.return_value = True
 
         result = await manage(action="create_collection", name="new-collection")
-        assert result["success"] == True
+        assert result["success"]
 
         # Test delete collection
         result = await manage(action="delete_collection", name="old-collection")
-        assert result["success"] == True
+        assert result["success"]
 
         # Test workspace status
         result = await manage(action="workspace_status")
-        assert result["success"] == True
+        assert result["success"]
         assert "project_name" in result
 
         # Test init project
         result = await manage(action="init_project")
-        assert result["success"] == True
+        assert result["success"]
 
         # Test cleanup
         result = await manage(action="cleanup")
-        assert result["success"] == True
+        assert result["success"]
 
         # Test unknown action
         result = await manage(action="unknown")
-        assert result["success"] == False
+        assert not result["success"]
         assert "Unknown action" in result["error"]
 
         # Test manage exception
         mock_client.get_collections.side_effect = Exception("Client error")
         result = await manage(action="list_collections")
-        assert result["success"] == False
+        assert not result["success"]
 
     @pytest.mark.asyncio
     async def test_retrieve_function_all_paths(self):
         """Test retrieve function comprehensively."""
-        from workspace_qdrant_mcp.server import retrieve
         import workspace_qdrant_mcp.server as server_module
+        from workspace_qdrant_mcp.server import retrieve
 
         mock_client = Mock()
         server_module.qdrant_client = mock_client
@@ -375,7 +376,7 @@ class TestServerComprehensive:
 
         with patch('workspace_qdrant_mcp.server.get_project_name', return_value="test"):
             result = await retrieve(document_id="test-id")
-            assert result["success"] == True
+            assert result["success"]
             assert len(result["documents"]) == 1
 
         # Test retrieve by metadata
@@ -384,23 +385,23 @@ class TestServerComprehensive:
         mock_client.scroll.return_value = (scroll_result, None)
 
         result = await retrieve(metadata={"tag": "important"})
-        assert result["success"] == True
+        assert result["success"]
         assert len(result["documents"]) == 1
 
         # Test no parameters error
         result = await retrieve()
-        assert result["success"] == False
+        assert not result["success"]
         assert "document_id or metadata" in result["error"]
 
         # Test retrieve exception
         mock_client.retrieve.side_effect = Exception("Retrieve failed")
         result = await retrieve(document_id="test")
-        assert result["success"] == False
+        assert not result["success"]
 
     @pytest.mark.asyncio
     async def test_run_server_all_paths(self):
         """Test run_server function."""
-        from workspace_qdrant_mcp.server import run_server, app
+        from workspace_qdrant_mcp.server import app, run_server
 
         # Test stdio mode
         with patch('workspace_qdrant_mcp.server._detect_stdio_mode', return_value=True):

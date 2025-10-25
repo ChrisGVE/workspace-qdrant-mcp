@@ -21,17 +21,13 @@ Usage (CURRENTLY DISABLED):
     wqm web dev                                       # Start development server
 """
 
-import asyncio
 import os
 import subprocess
-import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
 from rich.console import Console
 
-from loguru import logger
 from ..utils import create_command_app
 
 console = Console()
@@ -114,7 +110,7 @@ def start(
         env["PORT"] = str(port)
         env["HOST"] = host
 
-        process = subprocess.run(
+        subprocess.run(
             ["npm", "run", "serve", "--", "--port", str(port), "--host", host],
             cwd=web_ui_path,
             env=env,
@@ -159,7 +155,7 @@ def dev(
 
 @web_app.command()
 def build(
-    output_dir: Optional[str] = typer.Option(
+    output_dir: str | None = typer.Option(
         None, "--output", "-o", help="Custom output directory"
     ),
 ) -> None:
@@ -184,7 +180,7 @@ def build(
         )
 
         dist_path = web_ui_path / "dist"
-        console.print(f"[green]Build completed successfully![/green]")
+        console.print("[green]Build completed successfully![/green]")
         console.print(f"Output directory: {output_dir or dist_path}")
 
     except subprocess.CalledProcessError as e:

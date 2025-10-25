@@ -32,26 +32,23 @@ import asyncio
 import hashlib
 import json
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 import typer
+from common.core.config import get_config
+from common.utils.git_utils import get_current_branch
+from common.utils.project_detection import calculate_tenant_id
 from loguru import logger
 from qdrant_client import QdrantClient
-from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
+from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.http.models import (
-    CollectionStatus,
     Distance,
     PointStruct,
     VectorParams,
 )
-
-from common.core.config import get_config
-from common.utils.project_detection import calculate_tenant_id
-from common.utils.git_utils import get_current_branch
-
 
 # Create Typer app for migrate commands
 migrate_app = typer.Typer(
@@ -87,17 +84,17 @@ class MigrationPlan:
     """Plan for migrating old collections to new architecture."""
 
     project_name: str
-    project_root: Optional[Path]
-    old_collections: List[str]
+    project_root: Path | None
+    old_collections: list[str]
     new_collection: str
     project_id: str
     branch: str
     document_count: int
     estimated_time_ms: float
-    metadata_enrichment: Dict[str, str] = field(default_factory=dict)
-    warnings: List[str] = field(default_factory=list)
+    metadata_enrichment: dict[str, str] = field(default_factory=dict)
+    warnings: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = asdict(self)
         if self.project_root:
@@ -112,14 +109,14 @@ class MigrationResult:
     project_name: str
     success: bool
     new_collection: str
-    old_collections: List[str]
+    old_collections: list[str]
     documents_migrated: int
-    backup_files: List[str]
+    backup_files: list[str]
     duration_ms: float
-    error_message: Optional[str] = None
-    warnings: List[str] = field(default_factory=list)
+    error_message: str | None = None
+    warnings: list[str] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return asdict(self)
 
@@ -133,9 +130,9 @@ class BackupMetadata:
     backup_file: Path
     timestamp: str
     document_count: int
-    project_name: Optional[str] = None
+    project_name: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         result = asdict(self)
         result["backup_file"] = str(self.backup_file)
@@ -148,7 +145,7 @@ class CollectionMigrationManager:
     def __init__(
         self,
         qdrant_client: QdrantClient,
-        backup_dir: Optional[Path] = None,
+        backup_dir: Path | None = None,
     ):
         """
         Initialize migration manager.
@@ -164,10 +161,10 @@ class CollectionMigrationManager:
         self.backup_dir.mkdir(parents=True, exist_ok=True)
 
         # Migration history
-        self.migration_history: List[MigrationResult] = []
-        self.backup_metadata: List[BackupMetadata] = []
+        self.migration_history: list[MigrationResult] = []
+        self.backup_metadata: list[BackupMetadata] = []
 
-    async def detect_old_collections(self) -> Dict[str, List[str]]:
+    async def detect_old_collections(self) -> dict[str, list[str]]:
         """
         Detect old {project}-{suffix} collections.
 
@@ -181,7 +178,7 @@ class CollectionMigrationManager:
             logger.error(f"Failed to retrieve collections: {e}")
             raise
 
-        old_collections: Dict[str, List[str]] = {}
+        old_collections: dict[str, list[str]] = {}
 
         for name in all_collections:
             # Skip new format collections (start with _)
@@ -213,8 +210,8 @@ class CollectionMigrationManager:
     async def generate_migration_plan(
         self,
         project_name: str,
-        old_collections: List[str],
-        project_root: Optional[Path] = None,
+        old_collections: list[str],
+        project_root: Path | None = None,
     ) -> MigrationPlan:
         """
         Generate migration plan for a project.
@@ -227,7 +224,7 @@ class CollectionMigrationManager:
         Returns:
             MigrationPlan with detailed migration information
         """
-        warnings: List[str] = []
+        warnings: list[str] = []
 
         # Calculate project_id
         if project_root and project_root.exists():
@@ -236,7 +233,7 @@ class CollectionMigrationManager:
         else:
             # Fallback: generate project_id from project name
             warnings.append(
-                f"Project root not found, using hash of project name for project_id"
+                "Project root not found, using hash of project name for project_id"
             )
             project_id = hashlib.md5(project_name.encode()).hexdigest()[:16]
             branch = "main"
@@ -284,7 +281,7 @@ class CollectionMigrationManager:
         return plan
 
     async def create_backup(
-        self, collection_name: str, project_name: Optional[str] = None
+        self, collection_name: str, project_name: str | None = None
     ) -> BackupMetadata:
         """
         Create backup of a collection to JSON file.
@@ -305,7 +302,6 @@ class CollectionMigrationManager:
         try:
             # Get collection info for metadata
             collection_info = self.qdrant_client.get_collection(collection_name)
-            document_count = collection_info.points_count or 0
 
             # Scroll through all documents
             documents = []
@@ -386,8 +382,8 @@ class CollectionMigrationManager:
         """
         start_time = time.time()
         documents_migrated = 0
-        backup_files: List[str] = []
-        warnings: List[str] = list(plan.warnings)
+        backup_files: list[str] = []
+        warnings: list[str] = list(plan.warnings)
 
         logger.info(
             f"{'[DRY RUN] ' if dry_run else ''}Starting migration for {plan.project_name}"
@@ -552,7 +548,7 @@ class CollectionMigrationManager:
 
         try:
             # Load backup data
-            with open(backup_file, "r") as f:
+            with open(backup_file) as f:
                 backup_data = json.load(f)
 
             collection_name = backup_data["collection_name"]
@@ -570,7 +566,7 @@ class CollectionMigrationManager:
                 pass  # Collection doesn't exist, that's fine
 
             # Get vector config from backup or use default
-            config = backup_data.get("collection_config", {})
+            backup_data.get("collection_config", {})
 
             # Create collection (simplified - using default config)
             # In production, would restore exact vector configuration
@@ -643,9 +639,9 @@ def detect_command():
             print()
 
         print(
-            f"\nNext steps:\n"
-            f"  1. Review migration plan: wqm migrate plan <PROJECT_NAME>\n"
-            f"  2. Execute migration: wqm migrate execute <PROJECT_NAME> --project-root PATH\n"
+            "\nNext steps:\n"
+            "  1. Review migration plan: wqm migrate plan <PROJECT_NAME>\n"
+            "  2. Execute migration: wqm migrate execute <PROJECT_NAME> --project-root PATH\n"
         )
 
     except Exception as e:
@@ -656,7 +652,7 @@ def detect_command():
 @migrate_app.command("plan")
 def plan_command(
     project_name: str = typer.Argument(..., help="Project name to migrate"),
-    project_root: Optional[Path] = typer.Option(
+    project_root: Path | None = typer.Option(
         None,
         "--project-root",
         "-p",
@@ -707,17 +703,17 @@ def plan_command(
         print(f"Documents:        {plan.document_count}")
         print(f"Estimated Time:   {plan.estimated_time_ms/1000:.2f} seconds")
 
-        print(f"\nMetadata Enrichment:")
+        print("\nMetadata Enrichment:")
         for key, value in plan.metadata_enrichment.items():
             print(f"  - {key}: {value}")
 
         if plan.warnings:
-            print(f"\nWARNINGS:")
+            print("\nWARNINGS:")
             for warning in plan.warnings:
                 print(f"  ! {warning}")
 
         print(f"\n{'='*80}")
-        print(f"Next: Execute migration with:")
+        print("Next: Execute migration with:")
         print(f"  wqm migrate execute {project_name}" + (f" --project-root {project_root}" if project_root else ""))
         print(f"{'='*80}\n")
 
@@ -729,7 +725,7 @@ def plan_command(
 @migrate_app.command("execute")
 def execute_command(
     project_name: str = typer.Argument(..., help="Project name to migrate"),
-    project_root: Optional[Path] = typer.Option(
+    project_root: Path | None = typer.Option(
         None,
         "--project-root",
         "-p",
@@ -740,7 +736,7 @@ def execute_command(
         "--dry-run",
         help="Simulate migration without making changes",
     ),
-    backup_dir: Optional[Path] = typer.Option(
+    backup_dir: Path | None = typer.Option(
         None,
         "--backup-dir",
         "-b",
@@ -781,7 +777,7 @@ def execute_command(
             print(f"Old Collections:  {len(plan.old_collections)}")
             print(f"New Collection:   {plan.new_collection}")
             print(f"Documents:        {plan.document_count}")
-            print(f"\nBackups will be created before migration.")
+            print("\nBackups will be created before migration.")
             print(f"Backup directory: {manager.backup_dir}")
             print(f"\n{'='*80}\n")
 
@@ -820,17 +816,17 @@ def execute_command(
         print(f"\n{'='*80}\n")
 
         if result.success and not dry_run:
-            print(f"Migration completed successfully!")
-            print(f"\nOld collections have NOT been deleted for safety.")
-            print(f"After verifying the migration, you can delete them manually using:")
-            print(f"  wqm admin delete-collection <COLLECTION_NAME>")
+            print("Migration completed successfully!")
+            print("\nOld collections have NOT been deleted for safety.")
+            print("After verifying the migration, you can delete them manually using:")
+            print("  wqm admin delete-collection <COLLECTION_NAME>")
         elif result.success and dry_run:
-            print(f"Dry run completed successfully!")
-            print(f"No changes were made. Execute without --dry-run to perform migration.")
+            print("Dry run completed successfully!")
+            print("No changes were made. Execute without --dry-run to perform migration.")
         else:
-            print(f"Migration failed. See error above.")
+            print("Migration failed. See error above.")
             if result.backup_files:
-                print(f"\nRollback available using backup IDs from backup files.")
+                print("\nRollback available using backup IDs from backup files.")
 
     except Exception as e:
         print(f"Error: {e}")
@@ -840,7 +836,7 @@ def execute_command(
 @migrate_app.command("rollback")
 def rollback_command(
     backup_id: str = typer.Argument(..., help="Backup ID to restore"),
-    backup_dir: Optional[Path] = typer.Option(
+    backup_dir: Path | None = typer.Option(
         None,
         "--backup-dir",
         "-b",
@@ -861,7 +857,7 @@ def rollback_command(
 
         # Confirm rollback
         print(f"\nRollback from backup: {backup_id}")
-        print(f"This will DELETE the current collection and restore from backup.")
+        print("This will DELETE the current collection and restore from backup.")
         print(f"\nBackup directory: {manager.backup_dir}")
 
         confirm = typer.confirm("Proceed with rollback?")
@@ -870,14 +866,14 @@ def rollback_command(
             raise typer.Exit(0)
 
         # Execute rollback
-        print(f"\nRestoring from backup...\n")
+        print("\nRestoring from backup...\n")
 
         success = asyncio.run(manager.rollback_from_backup(backup_id))
 
         if success:
-            print(f"\nRollback completed successfully!")
+            print("\nRollback completed successfully!")
         else:
-            print(f"\nRollback failed. See error above.")
+            print("\nRollback failed. See error above.")
             raise typer.Exit(1)
 
     except Exception as e:
@@ -887,7 +883,7 @@ def rollback_command(
 
 @migrate_app.command("status")
 def status_command(
-    backup_dir: Optional[Path] = typer.Option(
+    backup_dir: Path | None = typer.Option(
         None,
         "--backup-dir",
         "-b",
@@ -903,7 +899,7 @@ def status_command(
         manager = CollectionMigrationManager(qdrant_client, backup_dir)
 
         print(f"\n{'='*80}")
-        print(f"MIGRATION STATUS")
+        print("MIGRATION STATUS")
         print(f"{'='*80}\n")
 
         print(f"Backup Directory: {manager.backup_dir}")
@@ -915,7 +911,7 @@ def status_command(
 
             for backup_file in sorted(backup_files, reverse=True):
                 try:
-                    with open(backup_file, "r") as f:
+                    with open(backup_file) as f:
                         data = json.load(f)
                     print(f"  Backup ID: {data['backup_id']}")
                     print(f"    Collection: {data['collection_name']}")
@@ -925,7 +921,7 @@ def status_command(
                 except Exception as e:
                     print(f"  {backup_file.name} (error reading: {e})\n")
         else:
-            print(f"No backups found.\n")
+            print("No backups found.\n")
 
         print(f"{'='*80}\n")
 

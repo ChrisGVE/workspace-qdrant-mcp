@@ -2,7 +2,7 @@
 
 import os
 import sys
-from typing import Optional
+
 
 # Check for stdio mode to prevent problematic imports
 def _is_stdio_mode() -> bool:
@@ -31,39 +31,39 @@ else:
     WatchToolsManager = None
 
 # Global state-aware ingestion manager instance
-_ingestion_manager: Optional[AutoIngestionManager] = None
+_ingestion_manager: AutoIngestionManager | None = None
 
 
 async def get_ingestion_manager(
     workspace_client: QdrantWorkspaceClient,
-    watch_manager: Optional[WatchToolsManager],
-    config: Optional[AutoIngestionConfig] = None,
+    watch_manager: WatchToolsManager | None,
+    config: AutoIngestionConfig | None = None,
     state_db_path: str = "workspace_ingestion_state.db"
-) -> Optional[AutoIngestionManager]:
+) -> AutoIngestionManager | None:
     """Get or create global state-aware ingestion manager."""
     global _ingestion_manager
 
     # Return None in stdio mode where auto-ingestion is disabled
     if AutoIngestionManager is None or watch_manager is None:
         return None
-    
+
     if _ingestion_manager is None:
         _ingestion_manager = AutoIngestionManager(
             workspace_client=workspace_client,
             watch_manager=watch_manager,
             config=config
         )
-        
+
         # AutoIngestionManager doesn't need explicit initialization
         # It's ready to use after construction
-    
+
     return _ingestion_manager
 
 
 async def shutdown_ingestion_manager():
     """Shutdown global ingestion manager."""
     global _ingestion_manager
-    
+
     # AutoIngestionManager doesn't need explicit shutdown
     # Just clear the reference
     if _ingestion_manager:

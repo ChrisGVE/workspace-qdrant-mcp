@@ -9,19 +9,21 @@ import asyncio
 import gc
 import json
 import os
-import psutil
-import pytest
 import random
 import shutil
 import string
 import tempfile
 import time
 import tracemalloc
+from collections.abc import Callable
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Callable
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock
 
-from . import STRESS_CONFIG, MONITORING_CONFIG, PERFORMANCE_THRESHOLDS
+import psutil
+import pytest
+
+from . import MONITORING_CONFIG, PERFORMANCE_THRESHOLDS, STRESS_CONFIG
 
 
 def pytest_configure(config):
@@ -108,7 +110,7 @@ def resource_monitor():
     class ResourceMonitor:
         def __init__(self):
             self.process = psutil.Process()
-            self.monitoring_data: List[Dict[str, Any]] = []
+            self.monitoring_data: list[dict[str, Any]] = []
             self.monitoring_active = False
             self.start_time = None
             self.baseline_memory_mb = None
@@ -127,7 +129,7 @@ def resource_monitor():
             """Stop monitoring system resources."""
             self.monitoring_active = False
 
-        def record_snapshot(self) -> Dict[str, Any]:
+        def record_snapshot(self) -> dict[str, Any]:
             """Record a snapshot of current metrics."""
             memory_info = self.process.memory_info()
             cpu_percent = self.process.cpu_percent()
@@ -156,7 +158,7 @@ def resource_monitor():
             self.monitoring_data.append(snapshot)
             return snapshot
 
-        def get_summary(self) -> Dict[str, Any]:
+        def get_summary(self) -> dict[str, Any]:
             """Get summary of monitoring data."""
             if not self.monitoring_data:
                 return {'error': 'No monitoring data collected'}
@@ -192,7 +194,7 @@ def resource_monitor():
                 'baseline_memory_mb': self.baseline_memory_mb,
             }
 
-        def check_thresholds(self) -> Dict[str, List[str]]:
+        def check_thresholds(self) -> dict[str, list[str]]:
             """Check if any thresholds were exceeded."""
             warnings = []
             criticals = []
@@ -251,8 +253,8 @@ def file_generator():
             self,
             directory: Path,
             filename: str,
-            content: Optional[str] = None,
-            size_bytes: Optional[int] = None
+            content: str | None = None,
+            size_bytes: int | None = None
         ) -> Path:
             """Create a single test file."""
             file_path = directory / filename
@@ -272,7 +274,7 @@ def file_generator():
             prefix: str = "test_",
             extension: str = ".txt",
             size_bytes: int = 100
-        ) -> List[Path]:
+        ) -> list[Path]:
             """Create a batch of test files efficiently."""
             files = []
             content = self.generate_random_content(size_bytes)
@@ -292,7 +294,7 @@ def file_generator():
             rate_per_second: int,
             prefix: str = "rapid_",
             extension: str = ".txt"
-        ) -> List[Path]:
+        ) -> list[Path]:
             """Create files at a specified rate (files/second)."""
             files = []
             interval = 1.0 / rate_per_second
@@ -323,8 +325,8 @@ def performance_tracker():
 
     class PerformanceTracker:
         def __init__(self):
-            self.metrics: Dict[str, List[float]] = {}
-            self.start_times: Dict[str, float] = {}
+            self.metrics: dict[str, list[float]] = {}
+            self.start_times: dict[str, float] = {}
 
         def start_operation(self, operation_name: str):
             """Start timing an operation."""
@@ -349,7 +351,7 @@ def performance_tracker():
                 self.metrics[metric_name] = []
             self.metrics[metric_name].append(value)
 
-        def get_summary(self) -> Dict[str, Dict[str, float]]:
+        def get_summary(self) -> dict[str, dict[str, float]]:
             """Get summary statistics for all metrics."""
             summary = {}
 
@@ -428,7 +430,7 @@ def memory_tracker():
             gc.collect()
             self.baseline = tracemalloc.take_snapshot()
 
-        def snapshot(self) -> Dict[str, Any]:
+        def snapshot(self) -> dict[str, Any]:
             """Take a memory snapshot and return stats."""
             gc.collect()
             current = tracemalloc.take_snapshot()
@@ -445,7 +447,7 @@ def memory_tracker():
             self.snapshots.append(stats)
             return stats
 
-        def stop(self) -> Dict[str, Any]:
+        def stop(self) -> dict[str, Any]:
             """Stop tracking and return summary."""
             if not self.snapshots:
                 return {}

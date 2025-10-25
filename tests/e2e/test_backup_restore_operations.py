@@ -15,22 +15,23 @@ Comprehensive E2E tests for system backup and restore procedures:
 import asyncio
 import hashlib
 import json
-import pytest
 import shutil
 import tarfile
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
 
-from common.core.backup import BackupManager, RestoreManager, IncompatibleVersionError
+import pytest
+from common.core.backup import BackupManager, IncompatibleVersionError, RestoreManager
+
 from tests.e2e.utils import (
     HealthChecker,
-    WorkflowTimer,
-    TestDataGenerator,
     QdrantTestHelper,
+    TestDataGenerator,
+    WorkflowTimer,
     assert_within_threshold,
-    run_git_command
+    run_git_command,
 )
 
 
@@ -647,7 +648,6 @@ class TestPartialRestore:
         await component_lifecycle_manager.wait_for_ready(timeout=30)
 
         all_collections = ["project-code", "project-docs", "project-config"]
-        restore_collections = ["project-code", "project-docs"]
 
         timer = WorkflowTimer()
         timer.start()
@@ -1049,7 +1049,7 @@ class TestDataConsistencyAfterRestore:
             # Validate checksums after restore
             restored_docs = json.loads((backup_path / "documents.json").read_text())
 
-            for original, restored in zip(documents, restored_docs):
+            for original, restored in zip(documents, restored_docs, strict=False):
                 # Verify checksum matches
                 restored_checksum = hashlib.sha256(restored["content"].encode()).hexdigest()
                 assert restored_checksum == original["checksum"], \

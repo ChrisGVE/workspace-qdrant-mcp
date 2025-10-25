@@ -7,13 +7,14 @@ for malformed input, conflicting options, and failure scenarios.
 Task 251: Comprehensive testing for unified CLI interface error handling.
 """
 
-import pytest
+import os
 import subprocess
 import sys
-import os
-from pathlib import Path
-from unittest.mock import Mock, patch, call, MagicMock
 from contextlib import contextmanager
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, call, patch
+
+import pytest
 
 # Add src paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
@@ -24,15 +25,15 @@ os.environ["WQM_LOG_INIT"] = "false"
 
 try:
     from wqm_cli.cli.error_handling import (
-        ErrorHandler,
-        ErrorSeverity,
         ErrorCategory,
         ErrorContext,
+        ErrorHandler,
+        ErrorSeverity,
         RecoveryAction,
         WqmError,
         error_handler,
         handle_cli_error,
-        setup_exception_hook
+        setup_exception_hook,
     )
     ERROR_HANDLING_AVAILABLE = True
 except ImportError as e:
@@ -739,11 +740,10 @@ class TestGlobalErrorHandling:
         """Test exception hook lets typer.Exit through."""
         import typer
 
-        original_hook = sys.excepthook
         setup_exception_hook()
 
         # Should call original hook for typer.Exit
-        with patch.object(sys, 'excepthook', wraps=sys.excepthook) as mock_hook:
+        with patch.object(sys, 'excepthook', wraps=sys.excepthook):
             with pytest.raises(SystemExit):
                 raise typer.Exit()
 

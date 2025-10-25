@@ -10,23 +10,24 @@ Tests comprehensive coverage of:
 - Validation rules
 """
 
-import pytest
 from datetime import datetime, timezone
-from typing import Dict, Any
+from typing import Any
+
+import pytest
 
 from src.python.common.core.collection_type_config import (
-    DeletionMode,
-    MetadataFieldType,
-    MetadataFieldSpec,
-    PerformanceSettings,
-    MigrationSettings,
     CollectionTypeConfig,
-    get_type_config,
+    DeletionMode,
+    MetadataFieldSpec,
+    MetadataFieldType,
+    MigrationSettings,
+    PerformanceSettings,
     get_all_type_configs,
-    validate_metadata_for_type,
     get_deletion_mode,
+    get_type_config,
     should_use_cumulative_deletion,
     should_use_dynamic_deletion,
+    validate_metadata_for_type,
 )
 from src.python.common.core.collection_types import CollectionType
 
@@ -340,7 +341,7 @@ class TestCollectionTypeConfig:
 
     def test_validate_metadata_with_custom_rule(self):
         """Test metadata validation with custom validation rules."""
-        def custom_rule(metadata: Dict[str, Any]) -> tuple:
+        def custom_rule(metadata: dict[str, Any]) -> tuple:
             if "name" in metadata and "test" not in metadata["name"]:
                 return False, "Name must contain 'test'"
             return True, None

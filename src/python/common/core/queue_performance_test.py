@@ -24,15 +24,13 @@ Usage:
 """
 
 import asyncio
-import multiprocessing
 import os
 import statistics
 import time
 import tracemalloc
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
@@ -83,8 +81,8 @@ class QueuePerformanceTester:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        target: Optional[PerformanceTarget] = None
+        db_path: str | None = None,
+        target: PerformanceTarget | None = None
     ):
         """
         Initialize performance tester.
@@ -102,7 +100,7 @@ class QueuePerformanceTester:
             self.temp_dir = None
 
         self.target = target or PerformanceTarget()
-        self.results: List[PerformanceMetrics] = []
+        self.results: list[PerformanceMetrics] = []
 
     async def setup(self):
         """Initialize test environment."""
@@ -324,7 +322,7 @@ class QueuePerformanceTester:
 
                     latencies.append((time.time() - start) * 1000)
 
-                except Exception as e:
+                except Exception:
                     errors += 1
 
             return latencies, errors
@@ -428,7 +426,7 @@ class QueuePerformanceTester:
 
         return metrics
 
-    async def analyze_query_performance(self) -> Dict[str, Any]:
+    async def analyze_query_performance(self) -> dict[str, Any]:
         """
         Analyze query performance with EXPLAIN QUERY PLAN.
 
@@ -476,7 +474,7 @@ class QueuePerformanceTester:
 
         return analysis
 
-    def validate_performance(self, metrics: PerformanceMetrics) -> Tuple[bool, List[str]]:
+    def validate_performance(self, metrics: PerformanceMetrics) -> tuple[bool, list[str]]:
         """
         Validate metrics against performance targets.
 
@@ -533,7 +531,7 @@ class QueuePerformanceTester:
 
         return passed, failures
 
-    async def run_full_suite(self) -> Dict[str, Any]:
+    async def run_full_suite(self) -> dict[str, Any]:
         """
         Run complete performance test suite.
 
@@ -546,11 +544,11 @@ class QueuePerformanceTester:
 
         try:
             # Run all benchmarks
-            enqueue_metrics = await self.benchmark_enqueue(1000, batch_size=1)
-            batch_enqueue_metrics = await self.benchmark_enqueue(1000, batch_size=100)
-            dequeue_metrics = await self.benchmark_dequeue(1000, batch_size=10)
-            concurrent_metrics = await self.benchmark_concurrent_access(3, 100)
-            wal_metrics = await self.benchmark_wal_checkpoint(1000)
+            await self.benchmark_enqueue(1000, batch_size=1)
+            await self.benchmark_enqueue(1000, batch_size=100)
+            await self.benchmark_dequeue(1000, batch_size=10)
+            await self.benchmark_concurrent_access(3, 100)
+            await self.benchmark_wal_checkpoint(1000)
 
             # Analyze queries
             query_analysis = await self.analyze_query_performance()
@@ -595,7 +593,7 @@ class QueuePerformanceTester:
         finally:
             await self.teardown()
 
-    def _percentile(self, data: List[float], percentile: float) -> float:
+    def _percentile(self, data: list[float], percentile: float) -> float:
         """Calculate percentile."""
         if not data:
             return 0
@@ -614,7 +612,7 @@ class QueuePerformanceTester:
             f"mem={metrics.memory_peak_mb:.2f}MB"
         )
 
-    def _metrics_to_dict(self, metrics: PerformanceMetrics) -> Dict[str, Any]:
+    def _metrics_to_dict(self, metrics: PerformanceMetrics) -> dict[str, Any]:
         """Convert metrics to dictionary."""
         return {
             "operation": metrics.operation,

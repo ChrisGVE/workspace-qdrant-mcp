@@ -14,32 +14,33 @@ This test suite provides complete coverage of the hybrid search module including
 Tests cover all code paths, error conditions, edge cases, and async operations.
 """
 
-import sys
-from pathlib import Path
 import asyncio
-import time
-from unittest.mock import AsyncMock, MagicMock, patch, call
-from typing import Dict, List, Optional, Union
-from dataclasses import dataclass, field
-from collections import defaultdict
 import random
+import sys
+import time
+from collections import defaultdict
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Optional, Union
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 # Add src/python to path for common module imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 import pytest
-from qdrant_client.http import models
-from qdrant_client import QdrantClient
 
 # Import hybrid search components
 from common.core.hybrid_search import (
-    TenantAwareResult,
-    TenantAwareResultDeduplicator,
+    HybridSearchEngine,
     MultiTenantResultAggregator,
     RRFFusionRanker,
+    TenantAwareResult,
+    TenantAwareResultDeduplicator,
     WeightedSumFusionRanker,
-    HybridSearchEngine
 )
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
+
 
 # Mock classes for dependencies that might not be available in test environment
 @dataclass
@@ -53,10 +54,10 @@ class MockProjectMetadata:
 @dataclass
 class MockFilterResult:
     """Mock filter result."""
-    filter: Optional[models.Filter] = None
+    filter: models.Filter | None = None
     cache_hit: bool = False
-    performance_metrics: Dict = field(default_factory=dict)
-    optimizations_applied: List = field(default_factory=list)
+    performance_metrics: dict = field(default_factory=dict)
+    optimizations_applied: list = field(default_factory=list)
 
 class MockProjectIsolationManager:
     """Mock ProjectIsolationManager."""
@@ -125,7 +126,7 @@ class MockMetadataFilterManager:
         )
         return MockFilterResult(filter=filter_obj, cache_hit=False)
 
-    def get_filter_performance_stats(self) -> Dict:
+    def get_filter_performance_stats(self) -> dict:
         return {
             "cache_hit_rate": 0.85,
             "average_construction_time_ms": 1.5,
@@ -286,7 +287,7 @@ class MockBenchmarkResult:
     avg_recall: float = 0.90
     performance_regression: float = 0.0
     accuracy_regression: float = 0.0
-    baseline_comparison: Dict = field(default_factory=dict)
+    baseline_comparison: dict = field(default_factory=dict)
 
     def passes_baseline(self, baseline):
         return self.avg_response_time <= baseline.target_response_time
@@ -375,10 +376,10 @@ class TestTenantAwareResultDeduplicator:
     def test_init(self):
         """Test deduplicator initialization."""
         deduplicator = TenantAwareResultDeduplicator(preserve_tenant_isolation=True)
-        assert deduplicator.preserve_tenant_isolation == True
+        assert deduplicator.preserve_tenant_isolation
 
         deduplicator_no_isolation = TenantAwareResultDeduplicator(preserve_tenant_isolation=False)
-        assert deduplicator_no_isolation.preserve_tenant_isolation == False
+        assert not deduplicator_no_isolation.preserve_tenant_isolation
 
     def test_deduplicate_empty_results(self):
         """Test deduplication with empty results."""
@@ -513,8 +514,8 @@ class TestMultiTenantResultAggregator:
             default_aggregation_method="max_score"
         )
 
-        assert aggregator.preserve_tenant_isolation == True
-        assert aggregator.enable_score_normalization == True
+        assert aggregator.preserve_tenant_isolation
+        assert aggregator.enable_score_normalization
         assert aggregator.default_aggregation_method == "max_score"
         assert isinstance(aggregator.deduplicator, TenantAwareResultDeduplicator)
 
@@ -905,9 +906,9 @@ class TestHybridSearchEngine:
         assert engine.client == mock_client
         assert isinstance(engine.rrf_ranker, RRFFusionRanker)
         assert isinstance(engine.weighted_ranker, WeightedSumFusionRanker)
-        assert engine.optimizations_enabled == True  # Default
-        assert engine.multi_tenant_aggregation_enabled == True  # Default
-        assert engine.performance_monitoring_enabled == True  # Default
+        assert engine.optimizations_enabled  # Default
+        assert engine.multi_tenant_aggregation_enabled  # Default
+        assert engine.performance_monitoring_enabled  # Default
 
     def test_init_disabled_features(self, mock_client, mock_dependencies):
         """Test initialization with disabled features."""
@@ -918,9 +919,9 @@ class TestHybridSearchEngine:
             enable_performance_monitoring=False
         )
 
-        assert engine.optimizations_enabled == False
-        assert engine.multi_tenant_aggregation_enabled == False
-        assert engine.performance_monitoring_enabled == False
+        assert not engine.optimizations_enabled
+        assert not engine.multi_tenant_aggregation_enabled
+        assert not engine.performance_monitoring_enabled
         assert engine.filter_optimizer is None
         assert engine.result_aggregator is None
         assert engine.performance_monitor is None
@@ -1098,7 +1099,7 @@ class TestHybridSearchEngine:
 
         query_embeddings = {"dense": [0.1] * 384}
 
-        result = await hybrid_engine.hybrid_search(
+        await hybrid_engine.hybrid_search(
             collection_name="test_collection",
             query_embeddings=query_embeddings,
             filter_conditions=base_filter,
@@ -1343,8 +1344,8 @@ class TestHybridSearchEngine:
 
     def test_validate_workspace_type(self, hybrid_engine):
         """Test workspace type validation."""
-        assert hybrid_engine.validate_workspace_type("project") == True
-        assert hybrid_engine.validate_workspace_type("invalid") == False
+        assert hybrid_engine.validate_workspace_type("project")
+        assert not hybrid_engine.validate_workspace_type("invalid")
 
     @pytest.mark.asyncio
     async def test_multi_collection_hybrid_search(self, hybrid_engine):
@@ -1442,7 +1443,7 @@ class TestHybridSearchEngine:
             )
 
         assert result["total_results"] == 1
-        assert result["aggregation_metadata"]["basic_aggregation"] == True
+        assert result["aggregation_metadata"]["basic_aggregation"]
 
     @pytest.mark.asyncio
     async def test_basic_multi_collection_search_error(self, hybrid_engine):
@@ -1474,8 +1475,8 @@ class TestHybridSearchEngine:
             default_aggregation_method="avg_score"
         )
 
-        assert config["preserve_tenant_isolation"] == False
-        assert config["enable_score_normalization"] == False
+        assert not config["preserve_tenant_isolation"]
+        assert not config["enable_score_normalization"]
         assert config["default_aggregation_method"] == "avg_score"
 
     def test_configure_result_aggregation_disabled(self, mock_client, mock_dependencies):
@@ -1490,7 +1491,7 @@ class TestHybridSearchEngine:
         stats = hybrid_engine.get_result_aggregation_stats()
 
         assert "multi_tenant_aggregation_enabled" in stats
-        assert stats["multi_tenant_aggregation_enabled"] == True
+        assert stats["multi_tenant_aggregation_enabled"]
 
     def test_get_result_aggregation_stats_disabled(self, mock_client, mock_dependencies):
         """Test getting aggregation stats when disabled."""
@@ -1533,7 +1534,7 @@ class TestHybridSearchEngine:
         performance = hybrid_engine.get_optimization_performance()
 
         assert "optimizations_enabled" in performance
-        assert performance["optimizations_enabled"] == True
+        assert performance["optimizations_enabled"]
         assert "filter_cache" in performance
         assert "query_optimization" in performance
 

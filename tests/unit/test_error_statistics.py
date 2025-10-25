@@ -6,25 +6,24 @@ top errors detection, resolution metrics, and report formatting.
 """
 
 import json
-import pytest
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
 
+import pytest
+from common.core.error_categorization import ErrorCategory, ErrorSeverity
+from common.core.error_message_manager import ErrorMessageManager
 from common.core.error_statistics import (
     DetailedErrorStatistics,
     ErrorReportGenerator,
     ResolutionMetrics,
+    ResolutionReport,
     SummaryReport,
     TimePeriodData,
     TopError,
     TopErrorsReport,
     TrendReport,
-    ResolutionReport
 )
-from common.core.error_message_manager import ErrorMessageManager
-from common.core.error_categorization import ErrorCategory, ErrorSeverity
 
 
 @pytest.fixture
@@ -414,7 +413,7 @@ class TestErrorReportGenerator:
         now = datetime.now(timezone.utc)
 
         # Recent errors
-        for i in range(5):
+        for _i in range(5):
             await create_test_error(
                 error_manager,
                 "Recent error",
@@ -422,7 +421,7 @@ class TestErrorReportGenerator:
             )
 
         # Old errors (more frequent but outside range)
-        for i in range(10):
+        for _i in range(10):
             await create_test_error(
                 error_manager,
                 "Old error",

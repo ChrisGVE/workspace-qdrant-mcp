@@ -5,25 +5,27 @@ Tests cover MemoryManager and all memory system functionality
 with 100% coverage including async patterns, rule management, and conflict detection.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from datetime import datetime, timezone
-from typing import List, Dict, Any, Optional
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
+
+from src.python.common.core.config import Config
 
 # Import modules under test
 from src.python.common.memory.manager import MemoryManager
+from src.python.common.memory.token_counter import TokenUsage
 from src.python.common.memory.types import (
+    AuthorityLevel,
+    ClaudeCodeSession,
+    ConversationalUpdate,
+    MemoryCategory,
+    MemoryContext,
+    MemoryInjectionResult,
     MemoryRule,
     MemoryRuleConflict,
-    MemoryCategory,
-    AuthorityLevel,
-    MemoryContext,
-    ClaudeCodeSession,
-    MemoryInjectionResult,
-    ConversationalUpdate,
 )
-from src.python.common.memory.token_counter import TokenUsage
-from src.python.common.core.config import Config
 
 
 class TestMemoryManager:
@@ -113,10 +115,10 @@ class TestMemoryManager:
     @pytest.fixture
     def memory_manager(self, mock_config, mock_qdrant_client, mock_embedding_service):
         """Create MemoryManager instance with mocked dependencies."""
-        with patch('src.python.common.memory.manager.MemoryCollectionSchema') as mock_schema_class:
-            with patch('src.python.common.memory.manager.ConflictDetector') as mock_detector_class:
-                with patch('src.python.common.memory.manager.TokenCounter') as mock_counter_class:
-                    with patch('src.python.common.memory.manager.ClaudeCodeIntegration') as mock_integration_class:
+        with patch('src.python.common.memory.manager.MemoryCollectionSchema'):
+            with patch('src.python.common.memory.manager.ConflictDetector'):
+                with patch('src.python.common.memory.manager.TokenCounter'):
+                    with patch('src.python.common.memory.manager.ClaudeCodeIntegration'):
                         manager = MemoryManager(mock_config, mock_qdrant_client, mock_embedding_service)
 
                         # Replace with controlled mocks
@@ -138,7 +140,7 @@ class TestMemoryManager:
                         assert manager.config == mock_config
                         assert manager.qdrant_client == mock_qdrant_client
                         assert manager.embedding_service == mock_embedding_service
-                        assert manager._initialized == False
+                        assert not manager._initialized
 
     def test_init_with_defaults(self):
         """Test MemoryManager initialization with default parameters."""
@@ -170,8 +172,8 @@ class TestMemoryManager:
 
         result = await memory_manager.initialize()
 
-        assert result == True
-        assert memory_manager._initialized == True
+        assert result
+        assert memory_manager._initialized
         memory_manager.schema.ensure_collection_exists.assert_called_once()
 
     async def test_initialize_collection_failure(self, memory_manager):
@@ -180,8 +182,8 @@ class TestMemoryManager:
 
         result = await memory_manager.initialize()
 
-        assert result == False
-        assert memory_manager._initialized == False
+        assert not result
+        assert not memory_manager._initialized
 
     async def test_initialize_exception(self, memory_manager):
         """Test initialization with exception."""
@@ -189,8 +191,8 @@ class TestMemoryManager:
 
         result = await memory_manager.initialize()
 
-        assert result == False
-        assert memory_manager._initialized == False
+        assert not result
+        assert not memory_manager._initialized
 
     async def test_initialize_no_embedding_initialize(self, memory_manager):
         """Test initialization when embedding service has no initialize method."""
@@ -200,8 +202,8 @@ class TestMemoryManager:
 
         result = await memory_manager.initialize()
 
-        assert result == True
-        assert memory_manager._initialized == True
+        assert result
+        assert memory_manager._initialized
 
     async def test_add_rule_success(self, memory_manager):
         """Test successfully adding a memory rule."""
@@ -316,7 +318,7 @@ class TestMemoryManager:
 
         result = await memory_manager.update_rule(rule)
 
-        assert result == True
+        assert result
         memory_manager.schema.update_rule.assert_called_once_with(rule)
         # Should update the timestamp
         assert rule.updated_at is not None
@@ -334,7 +336,7 @@ class TestMemoryManager:
 
         result = await memory_manager.update_rule(rule)
 
-        assert result == False
+        assert not result
 
     async def test_update_rule_exception(self, memory_manager):
         """Test updating a rule with exception."""
@@ -349,7 +351,7 @@ class TestMemoryManager:
 
         result = await memory_manager.update_rule(rule)
 
-        assert result == False
+        assert not result
 
     async def test_get_rule(self, memory_manager):
         """Test getting a memory rule by ID."""
@@ -381,7 +383,7 @@ class TestMemoryManager:
 
         result = await memory_manager.delete_rule("rule1")
 
-        assert result == True
+        assert result
         memory_manager.schema.delete_rule.assert_called_once_with("rule1")
 
     async def test_delete_rule_failure(self, memory_manager):
@@ -390,7 +392,7 @@ class TestMemoryManager:
 
         result = await memory_manager.delete_rule("rule1")
 
-        assert result == False
+        assert not result
 
     async def test_delete_rule_exception(self, memory_manager):
         """Test deleting a rule with exception."""
@@ -398,7 +400,7 @@ class TestMemoryManager:
 
         result = await memory_manager.delete_rule("rule1")
 
-        assert result == False
+        assert not result
 
     async def test_list_rules_no_filters(self, memory_manager):
         """Test listing all memory rules without filters."""

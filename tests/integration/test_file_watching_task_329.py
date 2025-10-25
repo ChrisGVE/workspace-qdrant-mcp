@@ -18,13 +18,14 @@ Test Coverage (Task 329.4):
 """
 
 import asyncio
-import httpx
 import json
-import pytest
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
+import httpx
+import pytest
 from qdrant_client import QdrantClient
 
 

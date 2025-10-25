@@ -15,10 +15,11 @@ Test Scenarios:
 """
 
 import asyncio
-import pytest
 from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any
+from typing import Any, Optional
 from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from src.python.common.memory.types import (
     AuthorityLevel,
@@ -28,10 +29,10 @@ from src.python.common.memory.types import (
 
 # Import test harness from Task 337.1
 from tests.integration.test_llm_behavioral_harness import (
+    BehavioralMetrics,
+    ExecutionMode,
     LLMBehavioralHarness,
     MockLLMProvider,
-    ExecutionMode,
-    BehavioralMetrics,
 )
 
 
@@ -42,7 +43,7 @@ class RuleEnforcer:
     Implements authority-based rule filtering and conflict resolution.
     """
 
-    def __init__(self, min_authority: Optional[AuthorityLevel] = None):
+    def __init__(self, min_authority: AuthorityLevel | None = None):
         """
         Initialize rule enforcer.
 
@@ -64,9 +65,9 @@ class RuleEnforcer:
 
     def filter_by_authority(
         self,
-        rules: List[MemoryRule],
-        min_authority: Optional[AuthorityLevel] = None
-    ) -> List[MemoryRule]:
+        rules: list[MemoryRule],
+        min_authority: AuthorityLevel | None = None
+    ) -> list[MemoryRule]:
         """Filter rules by minimum authority level."""
         min_auth = min_authority or self.min_authority
         if not min_auth:
@@ -80,16 +81,16 @@ class RuleEnforcer:
 
     def resolve_conflicts(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         conflict_key: str = "rule"
-    ) -> List[MemoryRule]:
+    ) -> list[MemoryRule]:
         """
         Resolve conflicting rules by authority level.
 
         When rules conflict, keeps highest authority rule.
         """
         # Group rules by conflict key (e.g., similar content)
-        rule_groups: Dict[str, List[MemoryRule]] = {}
+        rule_groups: dict[str, list[MemoryRule]] = {}
 
         for rule in rules:
             key = getattr(rule, conflict_key, str(rule))
@@ -142,15 +143,15 @@ async def authority_aware_memory_manager():
         manager._rules.append(rule)
 
     async def get_rules(
-        min_authority: Optional[AuthorityLevel] = None
-    ) -> List[MemoryRule]:
+        min_authority: AuthorityLevel | None = None
+    ) -> list[MemoryRule]:
         """Get rules filtered by minimum authority."""
         return manager._enforcer.filter_by_authority(
             manager._rules,
             min_authority
         )
 
-    async def get_effective_rules() -> List[MemoryRule]:
+    async def get_effective_rules() -> list[MemoryRule]:
         """Get rules after conflict resolution."""
         return manager._enforcer.resolve_conflicts(manager._rules)
 

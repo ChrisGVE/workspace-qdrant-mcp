@@ -11,10 +11,13 @@ from pathlib import Path
 # Add src/python to path for common module imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
-import pytest
 from unittest.mock import patch
 
-from workspace_qdrant_mcp.utils.project_collection_validator import ProjectCollectionValidator, CollectionNamingRule
+import pytest
+from workspace_qdrant_mcp.utils.project_collection_validator import (
+    CollectionNamingRule,
+    ProjectCollectionValidator,
+)
 
 
 class TestProjectCollectionValidator:
@@ -273,4 +276,4 @@ class TestProjectCollectionValidator:
                 )
                 # Should be valid but with warnings
                 assert result['valid'], f"Collection '{collection_name}' should be valid"
-                assert len(result['warnings']) > 0, f"Should have warnings for global type in project context"
+                assert len(result['warnings']) > 0, "Should have warnings for global type in project context"

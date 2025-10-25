@@ -23,8 +23,8 @@ import asyncio
 import json
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from typing import Any, Dict, List
 
 import pytest
 from typer.testing import CliRunner
@@ -181,8 +181,8 @@ class TestLibraryCreation:
     @patch('wqm_cli.cli.commands.library.get_config_manager')
     def test_create_library_invalid_name(self, mock_config, mock_daemon_client, mock_validate):
         """Test library creation with invalid collection name."""
-        from wqm_cli.cli.commands.library import library_app
         from common.core.collection_naming import CollectionNameError
+        from wqm_cli.cli.commands.library import library_app
 
         # Mock validation to raise error
         mock_validate.side_effect = CollectionNameError("Invalid name: contains invalid characters")
@@ -950,8 +950,8 @@ class TestFolderWatching:
     @patch('wqm_cli.cli.commands.watch._get_state_manager')
     def test_add_watch_folder_to_library(self, mock_state_mgr, mock_daemon_client):
         """Test adding a watch folder configuration for a library collection."""
-        from wqm_cli.cli.commands.watch import watch_app
         from common.core.sqlite_state_manager import WatchFolderConfig
+        from wqm_cli.cli.commands.watch import watch_app
 
         # Create test folder
         test_folder = Path(self.temp_dir) / "library_docs"
@@ -996,9 +996,10 @@ class TestFolderWatching:
     @patch('wqm_cli.cli.commands.watch._get_state_manager')
     def test_list_watch_folders(self, mock_state_mgr):
         """Test listing all watch folder configurations."""
-        from wqm_cli.cli.commands.watch import watch_app
-        from common.core.sqlite_state_manager import WatchFolderConfig
         from datetime import datetime, timezone
+
+        from common.core.sqlite_state_manager import WatchFolderConfig
+        from wqm_cli.cli.commands.watch import watch_app
 
         # Mock state manager with sample watches
         mock_mgr = AsyncMock()
@@ -1032,9 +1033,10 @@ class TestFolderWatching:
     @patch('wqm_cli.cli.commands.watch._get_state_manager')
     def test_remove_watch_folder(self, mock_state_mgr):
         """Test removing a watch folder configuration."""
-        from wqm_cli.cli.commands.watch import watch_app
-        from common.core.sqlite_state_manager import WatchFolderConfig
         from datetime import datetime, timezone
+
+        from common.core.sqlite_state_manager import WatchFolderConfig
+        from wqm_cli.cli.commands.watch import watch_app
 
         # Create test folder for path matching - use resolved path for consistency
         test_folder = Path(self.temp_dir) / "docs"
@@ -1099,9 +1101,10 @@ class TestFolderWatching:
     @patch('wqm_cli.cli.commands.watch._get_state_manager')
     def test_pause_and_resume_watch(self, mock_state_mgr):
         """Test pausing and resuming watch configurations."""
-        from wqm_cli.cli.commands.watch import watch_app
-        from common.core.sqlite_state_manager import WatchFolderConfig
         from datetime import datetime, timezone
+
+        from common.core.sqlite_state_manager import WatchFolderConfig
+        from wqm_cli.cli.commands.watch import watch_app
 
         # Create test folder
         test_folder = Path(self.temp_dir) / "docs"
@@ -1147,9 +1150,10 @@ class TestFolderWatching:
     @patch('wqm_cli.cli.commands.watch._get_state_manager')
     def test_configure_existing_watch(self, mock_state_mgr):
         """Test configuring an existing watch folder."""
-        from wqm_cli.cli.commands.watch import watch_app
-        from common.core.sqlite_state_manager import WatchFolderConfig
         from datetime import datetime, timezone
+
+        from common.core.sqlite_state_manager import WatchFolderConfig
+        from wqm_cli.cli.commands.watch import watch_app
 
         # Create test folder
         test_folder = Path(self.temp_dir) / "docs"
@@ -1226,9 +1230,10 @@ class TestFolderWatching:
     @patch('wqm_cli.cli.commands.watch._get_state_manager')
     def test_watch_status_displays_statistics(self, mock_state_mgr):
         """Test watch status command displays statistics correctly."""
-        from wqm_cli.cli.commands.watch import watch_app
-        from common.core.sqlite_state_manager import WatchFolderConfig
         from datetime import datetime, timezone
+
+        from common.core.sqlite_state_manager import WatchFolderConfig
+        from wqm_cli.cli.commands.watch import watch_app
 
         # Mock state manager with watches
         mock_mgr = AsyncMock()
@@ -1628,9 +1633,10 @@ class TestLibraryEnumeration:
     @patch('wqm_cli.cli.commands.library.get_config_manager')
     def test_list_libraries_json_format(self, mock_config, mock_with_daemon):
         """Test library listing in JSON format."""
-        from wqm_cli.cli.commands.library import library_app
-        from types import SimpleNamespace
         import json
+        from types import SimpleNamespace
+
+        from wqm_cli.cli.commands.library import library_app
 
         mock_config.return_value = MagicMock()
 
@@ -1667,7 +1673,7 @@ class TestLibraryEnumeration:
             assert data[0]["display_name"] == "docs"
             assert data[0]["points_count"] == 50
         except json.JSONDecodeError:
-            assert False, "Output is not valid JSON"
+            raise AssertionError("Output is not valid JSON")
 
     @patch('wqm_cli.cli.commands.library.with_daemon_client')
     @patch('wqm_cli.cli.commands.library.get_config_manager')
@@ -1878,9 +1884,10 @@ class TestBulkOperationsAndPerformance:
     @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
     def test_bulk_document_addition(self, mock_with_daemon):
         """Test adding multiple documents to a library in bulk."""
-        from wqm_cli.cli.commands.ingest import ingest_app
         import tempfile
         from pathlib import Path
+
+        from wqm_cli.cli.commands.ingest import ingest_app
 
         # Create temporary directory with multiple files
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -1971,8 +1978,9 @@ class TestBulkOperationsAndPerformance:
     @patch('wqm_cli.cli.commands.library.get_config_manager')
     def test_performance_listing_many_libraries(self, mock_config, mock_with_daemon):
         """Test performance of listing 200+ libraries."""
-        from wqm_cli.cli.commands.library import library_app
         import time
+
+        from wqm_cli.cli.commands.library import library_app
 
         mock_config.return_value = MagicMock()
 
@@ -2489,9 +2497,10 @@ class TestErrorHandlingAndEdgeCases:
     @patch('wqm_cli.cli.commands.ingest.with_daemon_client')
     def test_ingest_to_invalid_library_name(self, mock_with_daemon):
         """Test ingesting to library with invalid name format."""
-        from wqm_cli.cli.commands.ingest import ingest_app
         import tempfile
         from pathlib import Path
+
+        from wqm_cli.cli.commands.ingest import ingest_app
 
         with tempfile.TemporaryDirectory() as temp_dir:
             test_file = Path(temp_dir) / "test.txt"

@@ -39,7 +39,6 @@ Example:
     ```
 """
 
-from typing import Dict, Optional
 
 from loguru import logger
 
@@ -68,7 +67,7 @@ class ToolDatabaseIntegration:
         logger.debug("ToolDatabaseIntegration initialized")
 
     async def update_lsp_path(
-        self, language_name: str, lsp_absolute_path: Optional[str]
+        self, language_name: str, lsp_absolute_path: str | None
     ) -> bool:
         """Update LSP path for a specific language.
 
@@ -184,7 +183,7 @@ class ToolDatabaseIntegration:
             return False
 
     async def update_tool_path(
-        self, tool_name: str, tool_path: Optional[str], tool_type: str
+        self, tool_name: str, tool_path: str | None, tool_type: str
     ) -> bool:
         """Update or insert tool path in tools table.
 
@@ -273,7 +272,7 @@ class ToolDatabaseIntegration:
             return False
 
     async def batch_update_lsp_paths(
-        self, lsp_paths: Dict[str, Optional[str]]
+        self, lsp_paths: dict[str, str | None]
     ) -> int:
         """Batch update LSP paths for multiple languages.
 
@@ -351,7 +350,7 @@ class ToolDatabaseIntegration:
             return 0
 
     async def batch_update_tool_paths(
-        self, tool_paths: Dict[str, str], tool_type: str
+        self, tool_paths: dict[str, str], tool_type: str
     ) -> int:
         """Batch update tool paths for multiple tools.
 

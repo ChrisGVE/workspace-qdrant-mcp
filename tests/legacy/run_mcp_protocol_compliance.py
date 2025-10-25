@@ -29,27 +29,27 @@ import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 # Add parent directory to path for imports
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src" / "python"))
 sys.path.insert(0, str(project_root / "tests"))
 
-from workspace_qdrant_mcp.server import app
+from integration.test_mcp_protocol_compliance import (
+    MCPProtocolComplianceTester,
+)
 from utils.fastmcp_test_infrastructure import (
     FastMCPTestServer,
     fastmcp_test_environment,
 )
-from integration.test_mcp_protocol_compliance import (
-    MCPProtocolComplianceTester,
-)
+from workspace_qdrant_mcp.server import app
 
 
 class MCPComplianceReportGenerator:
     """Generate comprehensive MCP protocol compliance reports."""
 
-    def __init__(self, compliance_results: Dict[str, Any]):
+    def __init__(self, compliance_results: dict[str, Any]):
         """
         Initialize report generator.
 
@@ -137,7 +137,7 @@ class MCPComplianceReportGenerator:
 
         return "\n".join(lines)
 
-    def generate_json_report(self) -> Dict[str, Any]:
+    def generate_json_report(self) -> dict[str, Any]:
         """Generate machine-readable JSON report."""
         return {
             "report_metadata": {
@@ -310,7 +310,7 @@ class MCPComplianceReportGenerator:
 
         return html
 
-    def _generate_recommendations(self) -> List[str]:
+    def _generate_recommendations(self) -> list[str]:
         """Generate recommendations based on test results."""
         recommendations = []
         summary = self.results.get("summary", {})
@@ -351,7 +351,7 @@ class MCPComplianceReportGenerator:
         return recommendations
 
 
-async def run_compliance_tests() -> Dict[str, Any]:
+async def run_compliance_tests() -> dict[str, Any]:
     """Run comprehensive MCP protocol compliance tests."""
     async with fastmcp_test_environment(app) as (server, client):
         tester = MCPProtocolComplianceTester(server)

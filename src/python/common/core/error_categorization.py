@@ -30,11 +30,11 @@ Example usage:
     tool_missing: error
 """
 
-from enum import Enum
-from typing import Optional, Tuple, Dict, Any, Type, List
-import socket
 import asyncio
 import re
+import socket
+from enum import Enum
+from typing import Any
 
 
 class ErrorSeverity(Enum):
@@ -144,7 +144,7 @@ class ErrorCategorizer:
 
     # Exception type to (category, severity) mapping
     # Confidence is 1.0 for direct exception type matches
-    EXCEPTION_TYPE_MAP: Dict[Type[Exception], Tuple[ErrorCategory, ErrorSeverity]] = {
+    EXCEPTION_TYPE_MAP: dict[type[Exception], tuple[ErrorCategory, ErrorSeverity]] = {
         # File and IO errors
         FileNotFoundError: (ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR),
         FileExistsError: (ErrorCategory.FILE_CORRUPT, ErrorSeverity.ERROR),
@@ -186,7 +186,7 @@ class ErrorCategorizer:
     # Keyword patterns for message-based categorization
     # Order matters - more specific patterns should come first
     # Each pattern maps to (category, severity, confidence_multiplier)
-    MESSAGE_PATTERNS: List[Tuple[re.Pattern, ErrorCategory, ErrorSeverity, float]] = [
+    MESSAGE_PATTERNS: list[tuple[re.Pattern, ErrorCategory, ErrorSeverity, float]] = [
         # Timeout patterns (check before network patterns)
         (re.compile(r'\btimeout\b', re.IGNORECASE), ErrorCategory.TIMEOUT, ErrorSeverity.ERROR, 0.9),
         (re.compile(r'\btimed out\b', re.IGNORECASE), ErrorCategory.TIMEOUT, ErrorSeverity.ERROR, 0.9),
@@ -235,12 +235,12 @@ class ErrorCategorizer:
 
     def categorize(
         self,
-        exception: Optional[Exception] = None,
-        message: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
-        manual_category: Optional[ErrorCategory] = None,
-        manual_severity: Optional[ErrorSeverity] = None,
-    ) -> Tuple[ErrorCategory, ErrorSeverity, float]:
+        exception: Exception | None = None,
+        message: str | None = None,
+        context: dict[str, Any] | None = None,
+        manual_category: ErrorCategory | None = None,
+        manual_severity: ErrorSeverity | None = None,
+    ) -> tuple[ErrorCategory, ErrorSeverity, float]:
         """
         Categorize an error and determine its severity.
 
@@ -269,7 +269,7 @@ class ErrorCategorizer:
             return manual_category, manual_severity, 1.0
 
         # Collect all signals and their confidences
-        signals: List[Tuple[ErrorCategory, ErrorSeverity, float]] = []
+        signals: list[tuple[ErrorCategory, ErrorSeverity, float]] = []
 
         # 1. Try exception type categorization
         if exception is not None:
@@ -312,7 +312,7 @@ class ErrorCategorizer:
     def _categorize_by_exception_type(
         self,
         exception: Exception
-    ) -> Optional[Tuple[ErrorCategory, ErrorSeverity, float]]:
+    ) -> tuple[ErrorCategory, ErrorSeverity, float] | None:
         """
         Categorize error based on exception type.
 
@@ -340,7 +340,7 @@ class ErrorCategorizer:
     def _categorize_by_message(
         self,
         message: str
-    ) -> Optional[Tuple[ErrorCategory, ErrorSeverity, float]]:
+    ) -> tuple[ErrorCategory, ErrorSeverity, float] | None:
         """
         Categorize error based on message content.
 
@@ -362,9 +362,9 @@ class ErrorCategorizer:
 
     def _categorize_by_context(
         self,
-        context: Dict[str, Any],
-        message: Optional[str] = None
-    ) -> Optional[Tuple[ErrorCategory, ErrorSeverity, float]]:
+        context: dict[str, Any],
+        message: str | None = None
+    ) -> tuple[ErrorCategory, ErrorSeverity, float] | None:
         """
         Categorize error based on contextual information.
 

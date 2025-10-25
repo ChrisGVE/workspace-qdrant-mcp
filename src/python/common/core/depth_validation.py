@@ -5,8 +5,9 @@ This module provides comprehensive validation logic for recursive depth limits
 including performance warnings and reasonable bounds checking.
 """
 
+from typing import Any
+
 from loguru import logger
-from typing import Optional, Dict, Any
 
 # logger imported from loguru
 
@@ -25,14 +26,14 @@ class DepthValidationError(Exception):
 
 class DepthValidationResult:
     """Result of depth validation with warnings and recommendations."""
-    
+
     def __init__(
         self,
         is_valid: bool,
         depth: int,
-        error_message: Optional[str] = None,
-        warnings: Optional[list] = None,
-        recommendations: Optional[list] = None,
+        error_message: str | None = None,
+        warnings: list | None = None,
+        recommendations: list | None = None,
         performance_impact: str = "low"
     ):
         self.is_valid = is_valid
@@ -41,8 +42,8 @@ class DepthValidationResult:
         self.warnings = warnings or []
         self.recommendations = recommendations or []
         self.performance_impact = performance_impact
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "is_valid": self.is_valid,
@@ -57,20 +58,20 @@ class DepthValidationResult:
 def validate_recursive_depth(depth: int) -> DepthValidationResult:
     """
     Validate recursive depth parameter with comprehensive checks.
-    
+
     Args:
         depth: The recursive depth to validate (-1 for unlimited, 0+ for specific depth)
-    
+
     Returns:
         DepthValidationResult: Detailed validation result with warnings and recommendations
-    
+
     Raises:
         DepthValidationError: If depth is critically invalid
     """
     warnings = []
     recommendations = []
     performance_impact = "low"
-    
+
     # Basic validation
     if not isinstance(depth, int):
         return DepthValidationResult(
@@ -78,7 +79,7 @@ def validate_recursive_depth(depth: int) -> DepthValidationResult:
             depth=depth,
             error_message="Depth must be an integer"
         )
-    
+
     # Check minimum bounds
     if depth < MIN_DEPTH:
         return DepthValidationResult(
@@ -86,7 +87,7 @@ def validate_recursive_depth(depth: int) -> DepthValidationResult:
             depth=depth,
             error_message=f"Depth must be -1 (unlimited) or a non-negative integer, got: {depth}"
         )
-    
+
     # Check maximum reasonable bounds
     if depth > MAX_REASONABLE_DEPTH:
         return DepthValidationResult(
@@ -94,7 +95,7 @@ def validate_recursive_depth(depth: int) -> DepthValidationResult:
             depth=depth,
             error_message=f"Depth {depth} exceeds maximum reasonable limit of {MAX_REASONABLE_DEPTH}"
         )
-    
+
     # Unlimited depth (-1) analysis
     if depth == -1:
         warnings.append("Unlimited depth may impact performance on large directory structures")
@@ -104,13 +105,13 @@ def validate_recursive_depth(depth: int) -> DepthValidationResult:
             "Ensure adequate ignore patterns to exclude large subdirectories"
         ])
         performance_impact = "high"
-    
+
     # Performance warning for deep structures
     elif depth >= PERFORMANCE_WARNING_DEPTH:
         warnings.append(f"Depth {depth} may cause performance issues on large directory trees")
         recommendations.append("Consider reducing depth or adding specific ignore patterns")
         performance_impact = "medium"
-    
+
     # Performance and depth-specific recommendations (only if not unlimited)
     if depth != -1:
         # Current directory only (depth 0) - special case
@@ -125,9 +126,9 @@ def validate_recursive_depth(depth: int) -> DepthValidationResult:
         elif depth >= DEEP_DEPTH_THRESHOLD:
             recommendations.append(f"Depth {depth} will traverse deep directory structures")
             performance_impact = "medium"
-    
+
     logger.debug(f"Depth validation for {depth}: valid={True}, warnings={len(warnings)}")
-    
+
     return DepthValidationResult(
         is_valid=True,
         depth=depth,
@@ -137,14 +138,14 @@ def validate_recursive_depth(depth: int) -> DepthValidationResult:
     )
 
 
-def get_depth_recommendations(directory_structure_info: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def get_depth_recommendations(directory_structure_info: dict[str, Any] | None = None) -> dict[str, Any]:
     """
     Get depth recommendations based on directory structure analysis.
-    
+
     Args:
         directory_structure_info: Optional info about directory structure
             Expected keys: 'max_depth', 'file_count', 'directory_count'
-    
+
     Returns:
         Dict with recommended depth and reasoning
     """
@@ -158,12 +159,12 @@ def get_depth_recommendations(directory_structure_info: Optional[Dict[str, Any]]
             "unlimited": {"depth": -1, "description": "For unknown or highly variable structures"}
         }
     }
-    
+
     if directory_structure_info:
         max_depth = directory_structure_info.get('max_depth', 0)
         file_count = directory_structure_info.get('file_count', 0)
-        directory_count = directory_structure_info.get('directory_count', 0)
-        
+        directory_structure_info.get('directory_count', 0)
+
         # Adjust recommendation based on structure
         if max_depth <= 2:
             recommendations["recommended_depth"] = max_depth
@@ -177,23 +178,23 @@ def get_depth_recommendations(directory_structure_info: Optional[Dict[str, Any]]
         else:
             recommendations["recommended_depth"] = -1
             recommendations["reasoning"] = "Structure is very deep, unlimited depth may be needed"
-        
+
         # Adjust for large file counts
         if file_count > 10000:
             if recommendations["recommended_depth"] > 5:
                 recommendations["recommended_depth"] = 5
                 recommendations["reasoning"] += " (reduced due to large file count)"
-    
+
     return recommendations
 
 
 def format_depth_display(depth: int) -> str:
     """
     Format depth value for user display.
-    
+
     Args:
         depth: The depth value to format
-    
+
     Returns:
         str: Human-readable depth description
     """
@@ -207,14 +208,14 @@ def format_depth_display(depth: int) -> str:
         return f"{depth} levels deep"
 
 
-def estimate_performance_impact(depth: int, estimated_directory_count: int = 100) -> Dict[str, Any]:
+def estimate_performance_impact(depth: int, estimated_directory_count: int = 100) -> dict[str, Any]:
     """
     Estimate performance impact of a given depth setting.
-    
+
     Args:
         depth: The recursive depth
         estimated_directory_count: Estimated number of directories at each level
-    
+
     Returns:
         Dict with performance impact analysis
     """
@@ -227,9 +228,9 @@ def estimate_performance_impact(depth: int, estimated_directory_count: int = 100
             "scan_time": "high",
             "recommendation": "Use specific depth limit for better performance"
         }
-    
+
     estimated_total = min(estimated_directory_count ** depth, 1000000)  # Cap at 1M
-    
+
     if depth <= 3:
         impact_level = "low"
         memory_usage = "low"
@@ -242,7 +243,7 @@ def estimate_performance_impact(depth: int, estimated_directory_count: int = 100
         impact_level = "high"
         memory_usage = "high"
         scan_time = "slow"
-    
+
     return {
         "impact_level": impact_level,
         "estimated_directories": estimated_total,

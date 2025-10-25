@@ -17,12 +17,13 @@ Features:
 import asyncio
 import logging
 import random
-import time
 import threading
+import time
+from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from enum import Enum
-from typing import Optional, Dict, Any, List, Callable
-from collections import defaultdict
+from typing import Any, Optional
 
 
 class NetworkCondition(Enum):
@@ -45,12 +46,12 @@ class LatencyDistribution(Enum):
 @dataclass
 class NetworkInstabilityScenario:
     """Configuration for a network instability scenario."""
-    latency_ms: Optional[int] = None
+    latency_ms: int | None = None
     latency_distribution: LatencyDistribution = LatencyDistribution.CONSTANT
-    latency_variance_ms: Optional[int] = None
-    packet_loss_percent: Optional[float] = None
-    connection_timeout_ms: Optional[int] = None
-    intermittent_pattern_seconds: Optional[float] = None
+    latency_variance_ms: int | None = None
+    packet_loss_percent: float | None = None
+    connection_timeout_ms: int | None = None
+    intermittent_pattern_seconds: float | None = None
     intermittent_uptime_percent: float = 50.0
     duration_seconds: float = 60.0
 
@@ -363,7 +364,7 @@ class NetworkInstabilitySimulator:
         self.intermittent_simulator = IntermittentConnectivitySimulator()
 
         # Active conditions tracking
-        self._active_conditions: Dict[NetworkCondition, bool] = {}
+        self._active_conditions: dict[NetworkCondition, bool] = {}
 
     async def simulate_latency(
         self,

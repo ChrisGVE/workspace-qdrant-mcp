@@ -6,15 +6,16 @@ using testcontainers for isolated and reproducible testing.
 """
 
 import os
-import pytest
 import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
+
+import pytest
 
 try:
+    from testcontainers.compose import DockerCompose
     from testcontainers.core.container import DockerContainer
     from testcontainers.core.waiting_utils import wait_container_is_ready
-    from testcontainers.compose import DockerCompose
     TESTCONTAINERS_AVAILABLE = True
 except ImportError:
     TESTCONTAINERS_AVAILABLE = False

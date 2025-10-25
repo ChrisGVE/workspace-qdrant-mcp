@@ -8,7 +8,7 @@ metadata extraction, symbol resolution, and various LSP-related error scenarios.
 import asyncio
 import json
 import random
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 from unittest.mock import AsyncMock, Mock
 
 from .error_injection import ErrorInjector, FailureScenarios
@@ -54,13 +54,13 @@ class LSPErrorInjector(ErrorInjector):
 class LSPServerMock:
     """Mock LSP server for testing language server interactions."""
 
-    def __init__(self, language: str = "python", error_injector: Optional[LSPErrorInjector] = None):
+    def __init__(self, language: str = "python", error_injector: LSPErrorInjector | None = None):
         self.language = language
         self.error_injector = error_injector or LSPErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
         self.initialized = False
-        self.workspace_folders: List[str] = []
-        self.open_documents: Dict[str, Dict[str, Any]] = {}
+        self.workspace_folders: list[str] = []
+        self.open_documents: dict[str, dict[str, Any]] = {}
 
         # Setup method mocks
         self._setup_lsp_methods()
@@ -110,7 +110,7 @@ class LSPServerMock:
         elif error_type == "memory_exhausted":
             raise MemoryError("LSP server out of memory")
 
-    async def _mock_initialize(self, workspace_folders: List[str], capabilities: Dict[str, Any]) -> Dict[str, Any]:
+    async def _mock_initialize(self, workspace_folders: list[str], capabilities: dict[str, Any]) -> dict[str, Any]:
         """Mock LSP server initialization."""
         await self._inject_lsp_error("initialize")
 
@@ -182,7 +182,7 @@ class LSPServerMock:
             "file_path": file_path
         })
 
-    async def _mock_get_symbols(self, file_path: str) -> List[Dict[str, Any]]:
+    async def _mock_get_symbols(self, file_path: str) -> list[dict[str, Any]]:
         """Mock getting document symbols."""
         await self._inject_lsp_error("get_symbols")
 
@@ -200,7 +200,7 @@ class LSPServerMock:
         # Generate realistic symbols based on language
         return self._generate_mock_symbols(file_path)
 
-    async def _mock_get_hover_info(self, file_path: str, line: int, column: int) -> Optional[Dict[str, Any]]:
+    async def _mock_get_hover_info(self, file_path: str, line: int, column: int) -> dict[str, Any] | None:
         """Mock getting hover information."""
         await self._inject_lsp_error("get_hover_info")
 
@@ -225,7 +225,7 @@ class LSPServerMock:
             }
         }
 
-    async def _mock_get_definition(self, file_path: str, line: int, column: int) -> List[Dict[str, Any]]:
+    async def _mock_get_definition(self, file_path: str, line: int, column: int) -> list[dict[str, Any]]:
         """Mock getting symbol definition."""
         await self._inject_lsp_error("get_definition")
 
@@ -247,7 +247,7 @@ class LSPServerMock:
             }
         }]
 
-    async def _mock_get_references(self, file_path: str, line: int, column: int, include_declaration: bool = True) -> List[Dict[str, Any]]:
+    async def _mock_get_references(self, file_path: str, line: int, column: int, include_declaration: bool = True) -> list[dict[str, Any]]:
         """Mock getting symbol references."""
         await self._inject_lsp_error("get_references")
 
@@ -275,7 +275,7 @@ class LSPServerMock:
 
         return references
 
-    async def _mock_get_diagnostics(self, file_path: str) -> List[Dict[str, Any]]:
+    async def _mock_get_diagnostics(self, file_path: str) -> list[dict[str, Any]]:
         """Mock getting file diagnostics."""
         await self._inject_lsp_error("get_diagnostics")
 
@@ -303,7 +303,7 @@ class LSPServerMock:
 
         return diagnostics
 
-    def _generate_mock_symbols(self, file_path: str) -> List[Dict[str, Any]]:
+    def _generate_mock_symbols(self, file_path: str) -> list[dict[str, Any]]:
         """Generate realistic symbols based on language."""
         symbols = []
 
@@ -354,7 +354,7 @@ class LSPServerMock:
 
         return symbols
 
-    def get_operation_history(self) -> List[Dict[str, Any]]:
+    def get_operation_history(self) -> list[dict[str, Any]]:
         """Get history of LSP operations."""
         return self.operation_history.copy()
 
@@ -370,10 +370,10 @@ class LSPServerMock:
 class LSPMetadataExtractorMock:
     """Mock LSP metadata extractor for testing code analysis."""
 
-    def __init__(self, error_injector: Optional[LSPErrorInjector] = None):
+    def __init__(self, error_injector: LSPErrorInjector | None = None):
         self.error_injector = error_injector or LSPErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
-        self.language_servers: Dict[str, LSPServerMock] = {}
+        self.operation_history: list[dict[str, Any]] = []
+        self.language_servers: dict[str, LSPServerMock] = {}
 
         # Setup method mocks
         self._setup_extractor_methods()
@@ -386,7 +386,7 @@ class LSPMetadataExtractorMock:
         self.extract_documentation = AsyncMock(side_effect=self._mock_extract_documentation)
         self.get_supported_languages = Mock(side_effect=self._mock_get_supported_languages)
 
-    async def _mock_extract_metadata(self, file_path: str, content: str, language: str) -> Dict[str, Any]:
+    async def _mock_extract_metadata(self, file_path: str, content: str, language: str) -> dict[str, Any]:
         """Mock comprehensive metadata extraction."""
         await self._inject_extractor_error("extract_metadata")
 
@@ -429,7 +429,7 @@ class LSPMetadataExtractorMock:
             "documentation": self._extract_mock_documentation(content, language)
         }
 
-    async def _mock_extract_symbols(self, file_path: str, content: str, language: str) -> List[Dict[str, Any]]:
+    async def _mock_extract_symbols(self, file_path: str, content: str, language: str) -> list[dict[str, Any]]:
         """Mock symbol extraction only."""
         await self._inject_extractor_error("extract_symbols")
 
@@ -450,7 +450,7 @@ class LSPMetadataExtractorMock:
         await lsp_server.open_document(file_path, content, language)
         return await lsp_server.get_symbols(file_path)
 
-    async def _mock_extract_dependencies(self, file_path: str, content: str, language: str) -> List[Dict[str, Any]]:
+    async def _mock_extract_dependencies(self, file_path: str, content: str, language: str) -> list[dict[str, Any]]:
         """Mock dependency extraction."""
         await self._inject_extractor_error("extract_dependencies")
 
@@ -462,7 +462,7 @@ class LSPMetadataExtractorMock:
 
         return self._extract_mock_dependencies(content, language)
 
-    async def _mock_extract_documentation(self, file_path: str, content: str, language: str) -> Dict[str, Any]:
+    async def _mock_extract_documentation(self, file_path: str, content: str, language: str) -> dict[str, Any]:
         """Mock documentation extraction."""
         await self._inject_extractor_error("extract_documentation")
 
@@ -474,7 +474,7 @@ class LSPMetadataExtractorMock:
 
         return self._extract_mock_documentation(content, language)
 
-    def _mock_get_supported_languages(self) -> List[str]:
+    def _mock_get_supported_languages(self) -> list[str]:
         """Mock getting supported languages."""
         return [
             "python", "javascript", "typescript", "java", "csharp", "cpp", "c",
@@ -488,7 +488,7 @@ class LSPMetadataExtractorMock:
             if error_type in ["parsing_error", "file_not_supported"]:
                 await self.error_injector._raise_lsp_error(error_type)
 
-    def _extract_mock_dependencies(self, content: str, language: str) -> List[Dict[str, Any]]:
+    def _extract_mock_dependencies(self, content: str, language: str) -> list[dict[str, Any]]:
         """Extract mock dependencies based on language."""
         dependencies = []
 
@@ -516,7 +516,7 @@ class LSPMetadataExtractorMock:
 
         return dependencies
 
-    def _extract_mock_documentation(self, content: str, language: str) -> Dict[str, Any]:
+    def _extract_mock_documentation(self, content: str, language: str) -> dict[str, Any]:
         """Extract mock documentation based on language."""
         doc_info = {
             "docstring_count": 0,
@@ -551,16 +551,16 @@ class LSPMetadataExtractorMock:
 class LanguageDetectorMock:
     """Mock language detector for file type identification."""
 
-    def __init__(self, error_injector: Optional[LSPErrorInjector] = None):
+    def __init__(self, error_injector: LSPErrorInjector | None = None):
         self.error_injector = error_injector or LSPErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
 
         # Setup method mocks
         self.detect_language = Mock(side_effect=self._mock_detect_language)
         self.get_lsp_server_for_language = Mock(side_effect=self._mock_get_lsp_server_for_language)
         self.is_supported = Mock(side_effect=self._mock_is_supported)
 
-    def _mock_detect_language(self, file_path: str, content: Optional[str] = None) -> str:
+    def _mock_detect_language(self, file_path: str, content: str | None = None) -> str:
         """Mock language detection from file path or content."""
         self.operation_history.append({
             "operation": "detect_language",
@@ -594,7 +594,7 @@ class LanguageDetectorMock:
         else:
             return "plaintext"
 
-    def _mock_get_lsp_server_for_language(self, language: str) -> Optional[str]:
+    def _mock_get_lsp_server_for_language(self, language: str) -> str | None:
         """Mock getting LSP server executable for language."""
         self.operation_history.append({
             "operation": "get_lsp_server_for_language",
@@ -635,7 +635,7 @@ def create_lsp_mock(
     language: str = "python",
     with_error_injection: bool = False,
     error_probability: float = 0.1
-) -> Union[LSPServerMock, LSPMetadataExtractorMock, LanguageDetectorMock]:
+) -> LSPServerMock | LSPMetadataExtractorMock | LanguageDetectorMock:
     """
     Create an LSP mock component with optional error injection.
 

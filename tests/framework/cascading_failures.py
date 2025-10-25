@@ -17,18 +17,19 @@ Features:
 import asyncio
 import logging
 import time
+from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional, Dict, Any, List, Callable, Set
-from collections import defaultdict
+from typing import Any, Optional
 
-from tests.framework.resource_exhaustion import (
-    ResourceExhaustionSimulator,
-    ResourceExhaustionScenario,
-)
 from tests.framework.network_instability import (
-    NetworkInstabilitySimulator,
     NetworkInstabilityScenario,
+    NetworkInstabilitySimulator,
+)
+from tests.framework.resource_exhaustion import (
+    ResourceExhaustionScenario,
+    ResourceExhaustionSimulator,
 )
 
 
@@ -55,15 +56,15 @@ class FailureNode:
     failure_type: FailureType
     trigger_delay_seconds: float = 0.0
     recovery_delay_seconds: float = 5.0
-    dependencies: List[str] = field(default_factory=list)
-    propagates_to: List[str] = field(default_factory=list)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    dependencies: list[str] = field(default_factory=list)
+    propagates_to: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
 class CascadeScenario:
     """Configuration for a cascading failure scenario."""
-    failure_nodes: List[FailureNode]
+    failure_nodes: list[FailureNode]
     initial_trigger: str
     max_cascade_depth: int = 5
     propagation_delay_seconds: float = 1.0
@@ -123,8 +124,8 @@ class CircuitBreaker:
         self._timeout_seconds = timeout_seconds
         self._state = CircuitState.CLOSED
         self._failure_count = 0
-        self._last_failure_time: Optional[float] = None
-        self._state_change_callbacks: List[Callable] = []
+        self._last_failure_time: float | None = None
+        self._state_change_callbacks: list[Callable] = []
 
     def record_success(self) -> None:
         """Record successful operation."""
@@ -217,10 +218,10 @@ class FailureChainSimulator:
     def __init__(self):
         """Initialize failure chain simulator."""
         self.logger = logging.getLogger(__name__)
-        self._nodes: Dict[str, FailureNode] = {}
-        self._failed_nodes: Set[str] = set()
-        self._recovering_nodes: Set[str] = set()
-        self._circuit_breakers: Dict[str, CircuitBreaker] = {}
+        self._nodes: dict[str, FailureNode] = {}
+        self._failed_nodes: set[str] = set()
+        self._recovering_nodes: set[str] = set()
+        self._circuit_breakers: dict[str, CircuitBreaker] = {}
 
     def add_node(self, node: FailureNode) -> None:
         """Add failure node to simulation.
@@ -334,7 +335,7 @@ class FailureChainSimulator:
         """
         return node_id in self._failed_nodes
 
-    def get_failed_nodes(self) -> List[str]:
+    def get_failed_nodes(self) -> list[str]:
         """Get list of currently failed nodes.
 
         Returns:
@@ -342,7 +343,7 @@ class FailureChainSimulator:
         """
         return list(self._failed_nodes)
 
-    def get_circuit_breaker_states(self) -> Dict[str, CircuitState]:
+    def get_circuit_breaker_states(self) -> dict[str, CircuitState]:
         """Get circuit breaker states for all nodes.
 
         Returns:
@@ -375,7 +376,7 @@ class CascadingFailureSimulator:
         self.resource_simulator = ResourceExhaustionSimulator()
         self.network_simulator = NetworkInstabilitySimulator()
 
-    async def execute_scenario(self, scenario: CascadeScenario) -> Dict[str, Any]:
+    async def execute_scenario(self, scenario: CascadeScenario) -> dict[str, Any]:
         """Execute cascading failure scenario.
 
         Args:
@@ -384,7 +385,7 @@ class CascadingFailureSimulator:
         Returns:
             Dictionary with test results and metrics
         """
-        self.logger.info(f"Executing cascading failure scenario")
+        self.logger.info("Executing cascading failure scenario")
 
         # Setup failure nodes
         for node in scenario.failure_nodes:
@@ -415,7 +416,7 @@ class CascadingFailureSimulator:
             await asyncio.sleep(scenario.duration_seconds)
 
             # Attempt recovery for all failed nodes
-            recovery_start = time.time()
+            time.time()
             for node_id in failed_nodes:
                 node_recovery_start = time.time()
                 await self.chain_simulator.recover_node(node_id)
@@ -456,9 +457,9 @@ class CascadingFailureSimulator:
     async def simulate_graceful_degradation(
         self,
         primary_node: str,
-        fallback_nodes: List[str],
+        fallback_nodes: list[str],
         test_duration_seconds: float = 10.0
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Simulate graceful degradation with fallback nodes.
 
         Args:
@@ -481,8 +482,7 @@ class CascadingFailureSimulator:
         )
         self.chain_simulator.add_node(primary)
 
-        fallback_sequence = []
-        for i, fallback_id in enumerate(fallback_nodes):
+        for _i, fallback_id in enumerate(fallback_nodes):
             fallback = FailureNode(
                 node_id=fallback_id,
                 failure_type=FailureType.OVERLOAD,

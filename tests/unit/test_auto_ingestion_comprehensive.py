@@ -11,10 +11,11 @@ Goal: Achieve >90% test coverage with comprehensive mocking.
 
 import asyncio
 import sys
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, PropertyMock
-from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, PropertyMock, patch
+
 import pytest
 
 # Add src/python to path for imports
@@ -22,11 +23,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 try:
     from common.core.auto_ingestion import (
+        AutoIngestionManager,
+        IngestionProgressTracker,
+        ProjectPatterns,
         build_project_collection_name,
         normalize_collection_name_component,
-        ProjectPatterns,
-        IngestionProgressTracker,
-        AutoIngestionManager
     )
 except ImportError as e:
     pytest.skip(f"Required modules not available: {e}", allow_module_level=True)

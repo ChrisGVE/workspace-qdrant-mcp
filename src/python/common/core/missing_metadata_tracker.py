@@ -54,10 +54,8 @@ Example:
 """
 
 import asyncio
-import sqlite3
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -85,7 +83,7 @@ class MissingMetadataTracker:
             state_manager: Initialized SQLiteStateManager instance for database access
         """
         self.state_manager = state_manager
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: asyncio.Task | None = None
 
     async def track_missing_metadata(
         self,
@@ -169,11 +167,11 @@ class MissingMetadataTracker:
 
     async def get_files_missing_metadata(
         self,
-        language: Optional[str] = None,
-        missing_lsp: Optional[bool] = None,
-        missing_ts: Optional[bool] = None,
-        branch: Optional[str] = None,
-    ) -> List[Dict]:
+        language: str | None = None,
+        missing_lsp: bool | None = None,
+        missing_ts: bool | None = None,
+        branch: str | None = None,
+    ) -> list[dict]:
         """
         Query files with missing metadata using optional filters.
 
@@ -318,7 +316,7 @@ class MissingMetadataTracker:
             logger.error(f"Failed to remove tracked file {file_path}: {e}")
             return False
 
-    async def get_tracked_file_count(self) -> Dict[str, int]:
+    async def get_tracked_file_count(self) -> dict[str, int]:
         """
         Get count of tracked files by category.
 
@@ -388,7 +386,7 @@ class MissingMetadataTracker:
 
     # Tool Availability Detection Methods
 
-    async def check_lsp_available(self, language_name: str) -> Dict[str, Any]:
+    async def check_lsp_available(self, language_name: str) -> dict[str, Any]:
         """
         Check if LSP server is available for a language.
 
@@ -465,7 +463,7 @@ class MissingMetadataTracker:
                 "path": None,
             }
 
-    async def check_tree_sitter_available(self) -> Dict[str, Any]:
+    async def check_tree_sitter_available(self) -> dict[str, Any]:
         """
         Check if tree-sitter CLI is available.
 
@@ -528,7 +526,7 @@ class MissingMetadataTracker:
             )
             return {"available": False, "path": None}
 
-    async def check_tools_available(self, language_name: str) -> Dict[str, Any]:
+    async def check_tools_available(self, language_name: str) -> dict[str, Any]:
         """
         Check availability of both LSP and tree-sitter for a language.
 
@@ -597,7 +595,7 @@ class MissingMetadataTracker:
                 "tree_sitter": {"available": False, "path": None},
             }
 
-    async def get_missing_tools_summary(self) -> Dict[str, List[str]]:
+    async def get_missing_tools_summary(self) -> dict[str, list[str]]:
         """
         Get summary of languages grouped by missing tools.
 
@@ -642,9 +640,9 @@ class MissingMetadataTracker:
                 )
                 rows = cursor.fetchall()
 
-                missing_lsp: List[str] = []
-                missing_tree_sitter: List[str] = []
-                both_available: List[str] = []
+                missing_lsp: list[str] = []
+                missing_tree_sitter: list[str] = []
+                both_available: list[str] = []
 
                 for row in rows:
                     language_name = row["language_name"]
@@ -714,8 +712,8 @@ class MissingMetadataTracker:
         self,
         file_path: str,
         file_branch: str,
-        current_project_root: Optional[str] = None,
-        current_branch: Optional[str] = None,
+        current_project_root: str | None = None,
+        current_branch: str | None = None,
     ) -> int:
         """
         Calculate priority for requeuing based on project context.
@@ -793,10 +791,10 @@ class MissingMetadataTracker:
     async def requeue_when_tools_available(
         self,
         tool_type: str,
-        language: Optional[str] = None,
-        current_project_root: Optional[str] = None,
-        priority: Optional[int] = None,
-    ) -> Dict[str, Any]:
+        language: str | None = None,
+        current_project_root: str | None = None,
+        priority: int | None = None,
+    ) -> dict[str, Any]:
         """
         Requeue files when tools become available.
 
@@ -935,7 +933,7 @@ class MissingMetadataTracker:
 
         return result
 
-    async def _get_languages_with_missing_lsp(self) -> List[str]:
+    async def _get_languages_with_missing_lsp(self) -> list[str]:
         """
         Get distinct languages with files missing LSP metadata.
 
@@ -965,10 +963,10 @@ class MissingMetadataTracker:
     async def _requeue_for_language_lsp(
         self,
         language: str,
-        current_project_root: Optional[str] = None,
-        current_branch: Optional[str] = None,
-        explicit_priority: Optional[int] = None,
-    ) -> Dict[str, int]:
+        current_project_root: str | None = None,
+        current_branch: str | None = None,
+        explicit_priority: int | None = None,
+    ) -> dict[str, int]:
         """
         Requeue files for a specific language when LSP becomes available.
 
@@ -1065,10 +1063,10 @@ class MissingMetadataTracker:
 
     async def _requeue_files_missing_tree_sitter(
         self,
-        current_project_root: Optional[str] = None,
-        current_branch: Optional[str] = None,
-        explicit_priority: Optional[int] = None,
-    ) -> Dict[str, int]:
+        current_project_root: str | None = None,
+        current_branch: str | None = None,
+        explicit_priority: int | None = None,
+    ) -> dict[str, int]:
         """
         Requeue all files missing tree-sitter when CLI becomes available.
 

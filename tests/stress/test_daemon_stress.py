@@ -34,24 +34,24 @@ import gc
 import json
 import os
 import platform
-import psutil
-import pytest
 import random
 import resource
 import shutil
 import tempfile
 import time
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import psutil
+import pytest
+
 from . import (
-    STRESS_CONFIG,
+    DEGRADATION_THRESHOLDS,
     MONITORING_CONFIG,
     PERFORMANCE_THRESHOLDS,
-    DEGRADATION_THRESHOLDS,
+    STRESS_CONFIG,
 )
-
 
 # ============================================================================
 # TASK 317.1: HIGH-VOLUME FILE PROCESSING STRESS TEST
@@ -384,7 +384,7 @@ class TestRapidIngestionRate:
                 prefix=f"sustained_{batch_num}_"
             )
 
-            results = await mock_pipeline.process_documents(
+            await mock_pipeline.process_documents(
                 file_paths=[str(f) for f in files],
                 collection="stress-sustained"
             )
@@ -603,7 +603,7 @@ class TestMultipleFolderWatching:
 
         # Validate consistent performance across folders
         monitoring_summary = resource_monitor.get_summary()
-        samples = len(monitoring_summary['summary']['memory_rss_mb'])
+        len(monitoring_summary['summary']['memory_rss_mb'])
 
         # Memory should be relatively stable across folders
         memory_avg = monitoring_summary['summary']['memory_rss_mb']['avg']
@@ -640,7 +640,6 @@ class TestMultipleFolderWatching:
         all_results = []
 
         for batch_start in range(0, folder_count, batch_size):
-            batch_folders = []
 
             # Create batch of folders
             for i in range(batch_start, min(batch_start + batch_size, folder_count)):
@@ -1234,7 +1233,7 @@ class TestNetworkInterruption:
 
         if failed_files:
             # Reset failure probability for retry
-            retry_results = await mock_pipeline.process_documents(
+            await mock_pipeline.process_documents(
                 file_paths=failed_files,
                 collection="stress-intermittent-retry"
             )
@@ -1445,7 +1444,7 @@ class TestResourceMonitoringIntegration:
             resource_monitor.record_snapshot()
             memory_tracker.snapshot()
 
-        memory_summary = memory_tracker.stop()
+        memory_tracker.stop()
         resource_monitor.stop_monitoring()
 
         # Validate memory monitoring
@@ -1503,7 +1502,7 @@ class TestResourceMonitoringIntegration:
         resource_monitor.stop_monitoring()
 
         # Validate disk I/O monitoring (if available)
-        monitoring_summary = resource_monitor.get_summary()
+        resource_monitor.get_summary()
 
         # Disk I/O may not be available on all platforms
         # If available, validate it
@@ -1663,7 +1662,7 @@ class TestPerformanceDegradationTracking:
 
         # Calculate baseline metrics
         monitoring_summary = resource_monitor.get_summary()
-        performance_summary = performance_tracker.get_summary()
+        performance_tracker.get_summary()
 
         baseline = {
             'file_count': file_count,
@@ -1731,7 +1730,7 @@ class TestPerformanceDegradationTracking:
         # Simulate slightly slower processing
         await asyncio.sleep(0.1)
 
-        results = await mock_pipeline.process_documents(
+        await mock_pipeline.process_documents(
             file_paths=[str(f) for f in files],
             collection="stress-comparison"
         )

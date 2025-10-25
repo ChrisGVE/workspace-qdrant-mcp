@@ -8,17 +8,17 @@ Tests cover:
 - Error handling and edge cases
 """
 
-import pytest
 from unittest.mock import MagicMock, patch
 
+import pytest
 from common.core.version_migration import (
     BackupData,
     BaseMigration,
-    MigrationRegistry,
     MigrationManager,
+    MigrationRegistry,
     MigrationResult,
-    register_migration,
     get_registry,
+    register_migration,
 )
 
 
@@ -485,7 +485,7 @@ class TestMigrationIntegration:
 
     def test_complete_migration_workflow(self):
         """Test complete workflow of defining and applying migration."""
-        registry = MigrationRegistry()
+        MigrationRegistry()
 
         @register_migration(from_version="0.2.0", to_version="0.3.0")
         class MigrateTo030(BaseMigration):
@@ -493,7 +493,7 @@ class TestMigrationIntegration:
 
             def migrate(self, backup_data):
                 # Add new metadata field to all collections
-                for coll_name, coll_data in backup_data.collections.items():
+                for _coll_name, coll_data in backup_data.collections.items():
                     if isinstance(coll_data, dict):
                         coll_data["schema_version"] = "2.0"
 

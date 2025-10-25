@@ -5,12 +5,13 @@ Tests cover PatternManager functionality including pattern loading,
 file filtering, ecosystem detection, and caching with 100% coverage.
 """
 
-import pytest
 import tempfile
-import yaml
-from unittest.mock import Mock, patch, mock_open
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+from unittest.mock import Mock, mock_open, patch
+
+import pytest
+import yaml
 
 # Import modules under test
 from src.python.common.core.pattern_manager import PatternManager
@@ -250,7 +251,7 @@ class TestPatternManager:
         """Test should_include with custom pattern match."""
         result, reason = pattern_manager.should_include("test.custom")
 
-        assert result == True
+        assert result
         assert "custom_include_pattern" in reason
         assert "*.custom" in reason
 
@@ -258,14 +259,14 @@ class TestPatternManager:
         """Test should_include with hardcoded pattern match."""
         result, reason = pattern_manager.should_include("script.py")
 
-        assert result == True
+        assert result
         assert "hardcoded_include" in reason
 
     def test_should_include_no_match(self, pattern_manager):
         """Test should_include with no pattern match."""
         result, reason = pattern_manager.should_include("unknown.xyz")
 
-        assert result == False
+        assert not result
         assert reason == "no_include_pattern_match"
 
     def test_should_include_cached_result(self, pattern_manager):
@@ -276,7 +277,7 @@ class TestPatternManager:
         # Second call should use cache
         result, reason = pattern_manager.should_include("test.py")
 
-        assert result == True
+        assert result
         assert reason == "cached_decision"
 
     def test_should_include_string_pattern(self, temp_patterns_dir):
@@ -291,14 +292,14 @@ class TestPatternManager:
         pm = PatternManager(patterns_base_dir=temp_patterns_dir)
         result, reason = pm.should_include("README.md")
 
-        assert result == True
+        assert result
         assert "hardcoded_include" in reason
 
     def test_should_exclude_custom_pattern_match(self, pattern_manager):
         """Test should_exclude with custom pattern match."""
         result, reason = pattern_manager.should_exclude("file.excluded")
 
-        assert result == True
+        assert result
         assert "custom_exclude_pattern" in reason
         assert "*.excluded" in reason
 
@@ -306,14 +307,14 @@ class TestPatternManager:
         """Test should_exclude with hardcoded pattern match."""
         result, reason = pattern_manager.should_exclude("script.pyc")
 
-        assert result == True
+        assert result
         assert "hardcoded_exclude" in reason
 
     def test_should_exclude_no_match(self, pattern_manager):
         """Test should_exclude with no pattern match."""
         result, reason = pattern_manager.should_exclude("normal.py")
 
-        assert result == False
+        assert not result
         assert reason == "no_exclude_pattern_match"
 
     def test_should_exclude_cached_result(self, pattern_manager):
@@ -324,7 +325,7 @@ class TestPatternManager:
         # Second call should use cache
         result, reason = pattern_manager.should_exclude("build/file.o")
 
-        assert result == True
+        assert result
         assert reason == "cached_decision"
 
     def test_detect_ecosystem_python_project(self, temp_patterns_dir, pattern_manager):
@@ -409,29 +410,29 @@ class TestPatternManager:
 
     def test_match_pattern_basic_glob(self, pattern_manager):
         """Test basic glob pattern matching."""
-        assert pattern_manager._match_pattern("*.py", "script.py") == True
-        assert pattern_manager._match_pattern("*.py", "script.js") == False
+        assert pattern_manager._match_pattern("*.py", "script.py")
+        assert not pattern_manager._match_pattern("*.py", "script.js")
 
     def test_match_pattern_directory(self, pattern_manager):
         """Test directory pattern matching."""
-        assert pattern_manager._match_pattern("build/", "build/file.o") == True
-        assert pattern_manager._match_pattern("build/", "src/file.py") == False
+        assert pattern_manager._match_pattern("build/", "build/file.o")
+        assert not pattern_manager._match_pattern("build/", "src/file.py")
 
     def test_match_pattern_recursive_wildcard(self, pattern_manager):
         """Test recursive wildcard pattern matching."""
         # Pattern starts with **
-        assert pattern_manager._match_pattern("**/*.py", "deep/nested/script.py") == True
+        assert pattern_manager._match_pattern("**/*.py", "deep/nested/script.py")
 
         # Pattern ends with **
-        assert pattern_manager._match_pattern("src/**", "src/anything") == True
+        assert pattern_manager._match_pattern("src/**", "src/anything")
 
         # Pattern has ** in middle
-        assert pattern_manager._match_pattern("src/**/test.py", "src/deep/test.py") == True
+        assert pattern_manager._match_pattern("src/**/test.py", "src/deep/test.py")
 
     def test_match_pattern_filename_only(self, pattern_manager):
         """Test pattern matching against filename only."""
-        assert pattern_manager._match_pattern("test.py", "path/to/test.py") == True
-        assert pattern_manager._match_pattern("*.txt", "path/to/file.txt") == True
+        assert pattern_manager._match_pattern("test.py", "path/to/test.py")
+        assert pattern_manager._match_pattern("*.txt", "path/to/file.txt")
 
     def test_match_pattern_exception_handling(self, pattern_manager):
         """Test pattern matching with invalid pattern."""
@@ -439,7 +440,7 @@ class TestPatternManager:
             with patch('src.python.common.core.pattern_manager.logger') as mock_logger:
                 result = pattern_manager._match_pattern("invalid[", "test.py")
 
-                assert result == False
+                assert not result
                 mock_logger.debug.assert_called()
 
     def test_check_ecosystem_indicators_required_files(self, temp_patterns_dir, pattern_manager):
@@ -455,7 +456,7 @@ class TestPatternManager:
 
         result = pattern_manager._check_ecosystem_indicators(project_dir, indicators)
 
-        assert result == True
+        assert result
 
     def test_check_ecosystem_indicators_missing_required(self, temp_patterns_dir, pattern_manager):
         """Test ecosystem indicator checking with missing required file."""
@@ -470,7 +471,7 @@ class TestPatternManager:
 
         result = pattern_manager._check_ecosystem_indicators(project_dir, indicators)
 
-        assert result == False
+        assert not result
 
     def test_check_ecosystem_indicators_optional_files(self, temp_patterns_dir, pattern_manager):
         """Test ecosystem indicator checking with optional files."""
@@ -487,7 +488,7 @@ class TestPatternManager:
 
         result = pattern_manager._check_ecosystem_indicators(project_dir, indicators)
 
-        assert result == True
+        assert result
 
     def test_check_ecosystem_indicators_insufficient_optional(self, temp_patterns_dir, pattern_manager):
         """Test ecosystem indicator checking with insufficient optional files."""
@@ -504,7 +505,7 @@ class TestPatternManager:
 
         result = pattern_manager._check_ecosystem_indicators(project_dir, indicators)
 
-        assert result == False
+        assert not result
 
     def test_check_ecosystem_indicators_no_optional_requirement(self, temp_patterns_dir, pattern_manager):
         """Test ecosystem indicator checking without optional file requirement."""
@@ -520,7 +521,7 @@ class TestPatternManager:
 
         result = pattern_manager._check_ecosystem_indicators(project_dir, indicators)
 
-        assert result == True
+        assert result
 
     def test_check_ecosystem_indicators_exception(self, temp_patterns_dir, pattern_manager):
         """Test ecosystem indicator checking with exception."""
@@ -528,14 +529,14 @@ class TestPatternManager:
             with patch('src.python.common.core.pattern_manager.logger') as mock_logger:
                 result = pattern_manager._check_ecosystem_indicators(temp_patterns_dir, {"required_files": ["test.txt"]})
 
-                assert result == False
+                assert not result
                 mock_logger.debug.assert_called()
 
     def test_cache_result_normal_operation(self, pattern_manager):
         """Test normal cache result operation."""
         pattern_manager._cache_result("test_key", True)
 
-        assert pattern_manager._pattern_cache["test_key"] == True
+        assert pattern_manager._pattern_cache["test_key"]
 
     def test_cache_result_size_limit_eviction(self, pattern_manager):
         """Test cache eviction when size limit is reached."""
@@ -655,7 +656,7 @@ class TestPatternManager:
         # Test with Path object
         result2, _ = pattern_manager.should_include(Path("test.py"))
 
-        assert result1 == result2 == True
+        assert result1 == result2 is True
 
         # Test language info
         info1 = pattern_manager.get_language_info("script.py")
@@ -702,12 +703,12 @@ class TestPatternManagerIntegration:
             })
 
         # Verify expected results
-        assert results[0]["final"] == True   # script.py
-        assert results[1]["final"] == True   # config.yaml
-        assert results[2]["final"] == True   # file.important
-        assert results[3]["final"] == False  # data.secret (excluded)
-        assert results[4]["final"] == False  # build.pyc (excluded)
-        assert results[5]["final"] == False  # unknown.xyz (not included)
+        assert results[0]["final"]   # script.py
+        assert results[1]["final"]   # config.yaml
+        assert results[2]["final"]   # file.important
+        assert not results[3]["final"]  # data.secret (excluded)
+        assert not results[4]["final"]  # build.pyc (excluded)
+        assert not results[5]["final"]  # unknown.xyz (not included)
 
     def test_ecosystem_detection_workflow(self, temp_patterns_dir):
         """Test complete ecosystem detection workflow."""
@@ -778,7 +779,7 @@ class TestPatternManagerIntegration:
         pm.custom_include_patterns = ["*.test"]
         include_result, reason = pm.should_include("file.test")
 
-        assert include_result == True
+        assert include_result
         assert "custom_include_pattern" in reason
 
 

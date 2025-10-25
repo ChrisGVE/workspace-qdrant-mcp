@@ -28,7 +28,6 @@ import json
 import os
 import tempfile
 from pathlib import Path
-from typing import List
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -37,12 +36,12 @@ from src.python.common.core.context_injection.context_switcher import (
     ContextSwitcher,
     SwitchValidationResult,
 )
-from src.python.common.core.context_injection.formatters.manager import FormatManager
 from src.python.common.core.context_injection.formatters.base import (
     FormattedContext,
     LLMToolAdapter,
     ToolCapabilities,
 )
+from src.python.common.core.context_injection.formatters.manager import FormatManager
 from src.python.common.core.context_injection.llm_override_config import (
     LLMOverrideConfig,
     LLMOverrideManager,
@@ -57,7 +56,6 @@ from src.python.common.core.context_injection.tool_token_manager import (
     ToolTokenManager,
 )
 from src.python.common.core.memory import MemoryRule
-
 
 # ============================================================================
 # Test Fixtures
@@ -120,7 +118,7 @@ def mock_format_manager():
 
     class MockFormatManager:
         def format_for_tool(
-            self, tool_name: str, rules: List[MemoryRule], token_budget: int, options=None
+            self, tool_name: str, rules: list[MemoryRule], token_budget: int, options=None
         ) -> FormattedContext:
             """Mock formatting with predictable token counts."""
             # Estimate tokens: ~4 chars per token

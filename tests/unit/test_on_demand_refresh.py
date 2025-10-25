@@ -10,20 +10,21 @@ Tests the on-demand refresh trigger functionality including:
 """
 
 import asyncio
-import pytest
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 from src.python.common.core.context_injection.session_trigger import (
     OnDemandRefreshTrigger,
+    TriggerContext,
     TriggerManager,
     TriggerPhase,
     TriggerPriority,
-    TriggerContext,
     refresh_claude_code_context,
 )
-from src.python.common.memory.types import MemoryRule, MemoryCategory, AuthorityLevel
+from src.python.common.memory.types import AuthorityLevel, MemoryCategory, MemoryRule
 
 
 @pytest.fixture

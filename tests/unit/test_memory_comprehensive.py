@@ -12,38 +12,39 @@ Goal: Achieve >90% test coverage with comprehensive mocking.
 import asyncio
 import json
 import sys
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, PropertyMock
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timezone, timedelta
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
+from pathlib import Path
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, PropertyMock, patch
+
 import pytest
 
 # Add src/python to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 try:
-    from common.core.memory import (
-        MemoryManager,
-        MemoryEntry,
-        MemoryType,
-        AuthorityLevel,
-        AgentDefinition,
-        ConversationalMemoryProcessor,
-        MemoryConflictDetector,
-        MemoryOptimizer,
-        MemorySessionInitializer,
-        MemorySearchResult,
-        MemoryStats,
-        BehavioralRule,
-        UserPreference,
-        MemoryCollectionManager,
-        MemoryVectorStore,
-        MemoryAnalytics,
-        ConflictResolutionStrategy
-    )
     from common.core.collection_naming import CollectionNamingManager, CollectionType
+    from common.core.memory import (
+        AgentDefinition,
+        AuthorityLevel,
+        BehavioralRule,
+        ConflictResolutionStrategy,
+        ConversationalMemoryProcessor,
+        MemoryAnalytics,
+        MemoryCollectionManager,
+        MemoryConflictDetector,
+        MemoryEntry,
+        MemoryManager,
+        MemoryOptimizer,
+        MemorySearchResult,
+        MemorySessionInitializer,
+        MemoryStats,
+        MemoryType,
+        MemoryVectorStore,
+        UserPreference,
+    )
 except ImportError as e:
     pytest.skip(f"Required modules not available: {e}", allow_module_level=True)
 
@@ -173,7 +174,7 @@ class MockEmbeddingService:
         text_hash = hash(text) % 1000000
         return [float((text_hash + i) % 100) / 100.0 for i in range(self.dimension)]
 
-    async def embed_batch(self, texts: List[str]):
+    async def embed_batch(self, texts: list[str]):
         """Mock batch embedding."""
         return [await self.embed_text(text) for text in texts]
 
@@ -597,7 +598,7 @@ class TestMemoryManager:
 
         await manager.initialize()
 
-        results = await manager.search_by_type(MemoryType.USER_PREFERENCE, limit=5)
+        await manager.search_by_type(MemoryType.USER_PREFERENCE, limit=5)
 
         # Should have performed search with type filter
         assert len(mock_qdrant_client.search_calls) == 1
@@ -616,7 +617,7 @@ class TestMemoryManager:
 
         await manager.initialize()
 
-        results = await manager.search_by_tags(["python", "testing"], limit=10)
+        await manager.search_by_tags(["python", "testing"], limit=10)
 
         # Should have performed search with tag filters
         assert len(mock_qdrant_client.search_calls) == 1
@@ -764,7 +765,7 @@ class TestMemoryManager:
         await manager.initialize()
 
         # Mock collection info
-        mock_collection_info = Mock(points_count=10, vectors_count=10)
+        Mock(points_count=10, vectors_count=10)
         mock_qdrant_client.collections[manager.collection_name] = {
             "points_count": 10,
             "vectors_count": 10

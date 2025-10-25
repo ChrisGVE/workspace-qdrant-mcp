@@ -8,19 +8,18 @@ JSON-RPC communication, request/response handling, and streaming notification pr
 import asyncio
 import json
 import os
-import subprocess
+import time
 import uuid
-from contextlib import asynccontextmanager
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-import time
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
 from weakref import WeakSet
 
-
-from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 from loguru import logger
+
+from .error_handling import ErrorCategory, ErrorSeverity, WorkspaceError
 
 # logger imported from loguru
 
@@ -44,7 +43,7 @@ class CommunicationMode(Enum):
 class CircuitBreakerState(Enum):
     """Circuit breaker states for error recovery"""
     CLOSED = "closed"      # Normal operation
-    OPEN = "open"          # Blocking requests due to failures  
+    OPEN = "open"          # Blocking requests due to failures
     HALF_OPEN = "half_open"  # Testing if service recovered
 
 
@@ -54,16 +53,16 @@ class LspError(WorkspaceError):
     def __init__(
         self,
         message: str,
-        server_name: Optional[str] = None,
-        method: Optional[str] = None,
+        server_name: str | None = None,
+        method: str | None = None,
         **kwargs
     ):
         context = kwargs.pop("context", {})
         context.update({"server_name": server_name, "method": method})
-        
+
         # Use provided category or default to IPC
         category = kwargs.pop("category", ErrorCategory.IPC)
-        
+
         super().__init__(
             message,
             category=category,
@@ -91,7 +90,7 @@ class LspTimeoutError(LspError):
 class LspProtocolError(LspError):
     """LSP protocol violation error"""
 
-    def __init__(self, message: str, raw_data: Optional[str] = None, **kwargs):
+    def __init__(self, message: str, raw_data: str | None = None, **kwargs):
         super().__init__(
             f"LSP protocol error: {message}",
             severity=ErrorSeverity.HIGH,
@@ -106,18 +105,18 @@ class JsonRpcError:
     """JSON-RPC error object"""
     code: int
     message: str
-    data: Optional[Any] = None
+    data: Any | None = None
 
 
 @dataclass
 class JsonRpcRequest:
     """JSON-RPC request message"""
     jsonrpc: str = "2.0"
-    id: Union[str, int, None] = None
+    id: str | int | None = None
     method: str = ""
-    params: Optional[Dict[str, Any]] = None
+    params: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         result = {"jsonrpc": self.jsonrpc, "id": self.id, "method": self.method}
         if self.params is not None:
             result["params"] = self.params
@@ -128,11 +127,11 @@ class JsonRpcRequest:
 class JsonRpcResponse:
     """JSON-RPC response message"""
     jsonrpc: str = "2.0"
-    id: Union[str, int, None] = None
-    result: Optional[Any] = None
-    error: Optional[JsonRpcError] = None
+    id: str | int | None = None
+    result: Any | None = None
+    error: JsonRpcError | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         result = {"jsonrpc": self.jsonrpc, "id": self.id}
         if self.result is not None:
             result["result"] = self.result
@@ -146,7 +145,7 @@ class JsonRpcResponse:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "JsonRpcResponse":
+    def from_dict(cls, data: dict[str, Any]) -> "JsonRpcResponse":
         error = None
         if "error" in data:
             error_data = data["error"]
@@ -168,16 +167,16 @@ class JsonRpcNotification:
     """JSON-RPC notification message"""
     jsonrpc: str = "2.0"
     method: str = ""
-    params: Optional[Dict[str, Any]] = None
+    params: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         result = {"jsonrpc": self.jsonrpc, "method": self.method}
         if self.params is not None:
             result["params"] = self.params
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "JsonRpcNotification":
+    def from_dict(cls, data: dict[str, Any]) -> "JsonRpcNotification":
         return cls(
             jsonrpc=data.get("jsonrpc", "2.0"),
             method=data["method"],
@@ -213,7 +212,7 @@ class RetryConfig:
     max_delay: float = 30.0             # Maximum delay between retries
     exponential_backoff: bool = True    # Use exponential backoff
     jitter: bool = True                 # Add random jitter to delays
-    retryable_errors: List[str] = field(default_factory=lambda: [
+    retryable_errors: list[str] = field(default_factory=lambda: [
         "timeout", "connection", "network", "server_error"
     ])
 
@@ -221,12 +220,12 @@ class RetryConfig:
 @dataclass
 class ClientCapabilities:
     """LSP client capabilities for initialization"""
-    workspace: Optional[Dict[str, Any]] = None
-    textDocument: Optional[Dict[str, Any]] = None
-    window: Optional[Dict[str, Any]] = None
-    general: Optional[Dict[str, Any]] = None
+    workspace: dict[str, Any] | None = None
+    textDocument: dict[str, Any] | None = None
+    window: dict[str, Any] | None = None
+    general: dict[str, Any] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON-RPC"""
         result = {}
         if self.workspace is not None:
@@ -243,16 +242,16 @@ class ClientCapabilities:
 @dataclass
 class InitializeParams:
     """LSP initialize request parameters"""
-    processId: Optional[int] = None
-    clientInfo: Optional[Dict[str, str]] = None
-    locale: Optional[str] = None
-    rootPath: Optional[str] = None
-    rootUri: Optional[str] = None
-    capabilities: Optional[ClientCapabilities] = None
-    initializationOptions: Optional[Any] = None
-    workspaceFolders: Optional[List[Dict[str, Any]]] = None
+    processId: int | None = None
+    clientInfo: dict[str, str] | None = None
+    locale: str | None = None
+    rootPath: str | None = None
+    rootUri: str | None = None
+    capabilities: ClientCapabilities | None = None
+    initializationOptions: Any | None = None
+    workspaceFolders: list[dict[str, Any]] | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for JSON-RPC"""
         result = {}
         if self.processId is not None:
@@ -277,7 +276,7 @@ class InitializeParams:
 @dataclass
 class ServerCapabilities:
     """LSP server capabilities from initialization response"""
-    raw_data: Dict[str, Any]
+    raw_data: dict[str, Any]
 
     def supports_hover(self) -> bool:
         """Check if server supports textDocument/hover"""
@@ -307,7 +306,7 @@ class ServerCapabilities:
         """Check if server provides diagnostics"""
         return self.raw_data.get("textDocumentSync") is not None
 
-    def get_text_document_sync(self) -> Dict[str, Any]:
+    def get_text_document_sync(self) -> dict[str, Any]:
         """Get textDocumentSync capabilities"""
         sync = self.raw_data.get("textDocumentSync")
         if isinstance(sync, int):
@@ -317,7 +316,7 @@ class ServerCapabilities:
         else:
             return {}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Get raw capabilities data"""
         return self.raw_data
 
@@ -325,7 +324,7 @@ class ServerCapabilities:
 class AsyncioLspClient:
     """
     Asyncio-based LSP client with JSON-RPC communication support.
-    
+
     This client provides the foundation for LSP communication with:
     - Request correlation and timeout handling
     - Notification routing and handler registration
@@ -338,55 +337,55 @@ class AsyncioLspClient:
         server_name: str = "lsp-server",
         request_timeout: float = 30.0,
         max_pending_requests: int = 100,
-        circuit_breaker_config: Optional[CircuitBreakerConfig] = None,
-        retry_config: Optional[RetryConfig] = None,
+        circuit_breaker_config: CircuitBreakerConfig | None = None,
+        retry_config: RetryConfig | None = None,
     ):
         self._server_name = server_name
         self._request_timeout = request_timeout
         self._max_pending_requests = max_pending_requests
-        
+
         # Error recovery configuration
         self._circuit_breaker_config = circuit_breaker_config or CircuitBreakerConfig()
         self._retry_config = retry_config or RetryConfig()
-        
+
         # Connection management
         self._connection_state = ConnectionState.DISCONNECTED
-        self._reader: Optional[asyncio.StreamReader] = None
-        self._writer: Optional[asyncio.StreamWriter] = None
-        
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+
         # Request correlation
-        self._pending_requests: Dict[str, PendingRequest] = {}
-        self._request_cleanup_task: Optional[asyncio.Task] = None
-        
+        self._pending_requests: dict[str, PendingRequest] = {}
+        self._request_cleanup_task: asyncio.Task | None = None
+
         # Notification handling
-        self._notification_handlers: Dict[str, List[Callable]] = {}
+        self._notification_handlers: dict[str, list[Callable]] = {}
         self._global_handlers: WeakSet[Callable] = WeakSet()
-        
+
         # LSP initialization state
         self._initialized = False
-        self._server_capabilities: Optional[ServerCapabilities] = None
-        
+        self._server_capabilities: ServerCapabilities | None = None
+
         # Communication mode management
         self._communication_mode = CommunicationMode.MANUAL
-        self._server_process: Optional[asyncio.subprocess.Process] = None
-        self._tcp_host: Optional[str] = None
-        self._tcp_port: Optional[int] = None
-        
+        self._server_process: asyncio.subprocess.Process | None = None
+        self._tcp_host: str | None = None
+        self._tcp_port: int | None = None
+
         # Circuit breaker state
         self._circuit_breaker_state = CircuitBreakerState.CLOSED
         self._failure_count = 0
         self._success_count = 0
         self._last_failure_time = 0.0
         self._circuit_open_time = 0.0
-        
+
         # Health monitoring
-        self._health_check_task: Optional[asyncio.Task] = None
+        self._health_check_task: asyncio.Task | None = None
         self._last_successful_request = time.time()
-        
+
         # Background tasks
-        self._message_reader_task: Optional[asyncio.Task] = None
+        self._message_reader_task: asyncio.Task | None = None
         self._shutdown_event = asyncio.Event()
-        
+
         logger.info(
             "LSP client initialized",
             server_name=self._server_name,
@@ -413,7 +412,7 @@ class AsyncioLspClient:
         return self._initialized
 
     @property
-    def server_capabilities(self) -> Optional[ServerCapabilities]:
+    def server_capabilities(self) -> ServerCapabilities | None:
         """Get server capabilities (available after initialization)"""
         return self._server_capabilities
 
@@ -434,14 +433,14 @@ class AsyncioLspClient:
 
     async def connect_stdio(
         self,
-        server_command: List[str],
-        server_args: Optional[List[str]] = None,
-        cwd: Optional[str] = None,
-        env: Optional[Dict[str, str]] = None,
+        server_command: list[str],
+        server_args: list[str] | None = None,
+        cwd: str | None = None,
+        env: dict[str, str] | None = None,
     ) -> None:
         """
         Connect to an LSP server via stdio subprocess.
-        
+
         Args:
             server_command: Command and arguments to start the LSP server
             server_args: Additional arguments for the server
@@ -461,9 +460,9 @@ class AsyncioLspClient:
             server_name=self._server_name,
             command=command,
         )
-        
+
         self._connection_state = ConnectionState.CONNECTING
-        
+
         try:
             # Start the LSP server process
             self._server_process = await asyncio.create_subprocess_exec(
@@ -474,36 +473,36 @@ class AsyncioLspClient:
                 cwd=cwd,
                 env=env,
             )
-            
+
             if not self._server_process.stdin or not self._server_process.stdout:
                 raise LspError(
                     "Failed to create stdio pipes for LSP server",
                     server_name=self._server_name,
                 )
-            
+
             # Connect using the process streams
             reader = asyncio.StreamReader()
             protocol = asyncio.StreamReaderProtocol(reader)
             await asyncio.get_event_loop().connect_read_pipe(
                 lambda: protocol, self._server_process.stdout
             )
-            
+
             writer = asyncio.StreamWriter(
                 self._server_process.stdin,
                 protocol,
                 reader,
                 asyncio.get_event_loop(),
             )
-            
+
             self._communication_mode = CommunicationMode.STDIO
             await self._connect_streams(reader, writer)
-            
+
             logger.info(
                 "Connected to LSP server via stdio",
                 server_name=self._server_name,
                 pid=self._server_process.pid,
             )
-            
+
         except Exception as e:
             self._connection_state = ConnectionState.ERROR
             if self._server_process:
@@ -513,7 +512,7 @@ class AsyncioLspClient:
                 except:
                     pass
                 self._server_process = None
-            
+
             logger.error(
                 "Failed to connect to LSP server via stdio",
                 server_name=self._server_name,
@@ -534,10 +533,10 @@ class AsyncioLspClient:
     ) -> None:
         """
         Connect to an LSP server via TCP socket.
-        
+
         Args:
             host: Server hostname or IP address
-            port: Server port number  
+            port: Server port number
             connect_timeout: Connection timeout in seconds
         """
         if self._connection_state != ConnectionState.DISCONNECTED:
@@ -553,29 +552,29 @@ class AsyncioLspClient:
             host=host,
             port=port,
         )
-        
+
         self._connection_state = ConnectionState.CONNECTING
-        
+
         try:
             # Connect to TCP socket
             reader, writer = await asyncio.wait_for(
                 asyncio.open_connection(host, port),
                 timeout=connect_timeout,
             )
-            
+
             self._tcp_host = host
             self._tcp_port = port
             self._communication_mode = CommunicationMode.TCP
-            
+
             await self._connect_streams(reader, writer)
-            
+
             logger.info(
                 "Connected to LSP server via TCP",
                 server_name=self._server_name,
                 host=host,
                 port=port,
             )
-            
+
         except asyncio.TimeoutError:
             self._connection_state = ConnectionState.ERROR
             raise LspTimeoutError(
@@ -599,13 +598,13 @@ class AsyncioLspClient:
             ) from e
 
     async def connect(
-        self, 
-        reader: asyncio.StreamReader, 
+        self,
+        reader: asyncio.StreamReader,
         writer: asyncio.StreamWriter
     ) -> None:
         """
         Connect the LSP client to a server via manually provided streams.
-        
+
         Args:
             reader: StreamReader for receiving messages
             writer: StreamWriter for sending messages
@@ -619,12 +618,12 @@ class AsyncioLspClient:
 
         logger.info("Connecting to LSP server via manual streams", server_name=self._server_name)
         self._connection_state = ConnectionState.CONNECTING
-        
+
         try:
             self._communication_mode = CommunicationMode.MANUAL
             await self._connect_streams(reader, writer)
             logger.info("LSP client connected via manual streams", server_name=self._server_name)
-            
+
         except Exception as e:
             self._connection_state = ConnectionState.ERROR
             logger.error(
@@ -645,7 +644,7 @@ class AsyncioLspClient:
     ) -> None:
         """
         Internal method to establish connection using provided streams.
-        
+
         Args:
             reader: StreamReader for receiving messages
             writer: StreamWriter for sending messages
@@ -653,7 +652,7 @@ class AsyncioLspClient:
         self._reader = reader
         self._writer = writer
         self._shutdown_event.clear()
-        
+
         # Start background tasks
         self._message_reader_task = asyncio.create_task(
             self._message_reader_loop()
@@ -664,10 +663,10 @@ class AsyncioLspClient:
         self._health_check_task = asyncio.create_task(
             self._health_check_loop()
         )
-        
+
         # Reset circuit breaker on successful connection
         self._reset_circuit_breaker()
-        
+
         self._connection_state = ConnectionState.CONNECTED
 
     def _reset_circuit_breaker(self) -> None:
@@ -682,7 +681,7 @@ class AsyncioLspClient:
     def _record_success(self) -> None:
         """Record successful request for circuit breaker"""
         self._last_successful_request = time.time()
-        
+
         if self._circuit_breaker_state == CircuitBreakerState.HALF_OPEN:
             self._success_count += 1
             if self._success_count >= self._circuit_breaker_config.success_threshold:
@@ -697,7 +696,7 @@ class AsyncioLspClient:
     def _record_failure(self) -> None:
         """Record failed request for circuit breaker"""
         self._last_failure_time = time.time()
-        
+
         if self._circuit_breaker_state == CircuitBreakerState.CLOSED:
             self._failure_count += 1
             if self._failure_count >= self._circuit_breaker_config.failure_threshold:
@@ -745,30 +744,30 @@ class AsyncioLspClient:
                 self._retry_config.base_delay * (2 ** attempt),
                 self._retry_config.max_delay
             )
-        
+
         # Add jitter if enabled
         if self._retry_config.jitter:
             import random
             jitter = random.uniform(0.1, 0.3) * delay
             delay += jitter
-            
+
         return delay
 
     def _is_retryable_error(self, error: Exception) -> bool:
         """Check if error is retryable based on configuration"""
         error_type = type(error).__name__.lower()
         error_message = str(error).lower()
-        
+
         for retryable in self._retry_config.retryable_errors:
             if retryable in error_type or retryable in error_message:
                 return True
-        
+
         # Special handling for LSP-specific errors
         if isinstance(error, (LspTimeoutError, LspProtocolError)):
             return True
         if isinstance(error, LspError) and error.retryable:
             return True
-            
+
         return False
 
     async def disconnect(self) -> None:
@@ -778,16 +777,16 @@ class AsyncioLspClient:
 
         logger.info("Disconnecting LSP client", server_name=self._server_name)
         self._connection_state = ConnectionState.DISCONNECTING
-        
+
         # Signal shutdown
         self._shutdown_event.set()
-        
+
         # Cancel pending requests
-        for request_id, pending in list(self._pending_requests.items()):
+        for _request_id, pending in list(self._pending_requests.items()):
             if not pending.future.done():
                 pending.future.cancel()
         self._pending_requests.clear()
-        
+
         # Stop background tasks
         if self._message_reader_task and not self._message_reader_task.done():
             self._message_reader_task.cancel()
@@ -795,21 +794,21 @@ class AsyncioLspClient:
                 await self._message_reader_task
             except asyncio.CancelledError:
                 pass
-                
+
         if self._request_cleanup_task and not self._request_cleanup_task.done():
             self._request_cleanup_task.cancel()
             try:
                 await self._request_cleanup_task
             except asyncio.CancelledError:
                 pass
-                
+
         if self._health_check_task and not self._health_check_task.done():
             self._health_check_task.cancel()
             try:
                 await self._health_check_task
             except asyncio.CancelledError:
                 pass
-        
+
         # Close writer
         if self._writer:
             self._writer.close()
@@ -817,11 +816,11 @@ class AsyncioLspClient:
                 await self._writer.wait_closed()
             except Exception:
                 pass  # Writer might already be closed
-        
+
         self._reader = None
         self._writer = None
         self._connection_state = ConnectionState.DISCONNECTED
-        
+
         # Terminate server process if stdio mode
         if self._communication_mode == CommunicationMode.STDIO and self._server_process:
             logger.debug("Terminating LSP server process", server_name=self._server_name)
@@ -829,25 +828,25 @@ class AsyncioLspClient:
                 self._server_process.terminate()
                 await asyncio.wait_for(self._server_process.wait(), timeout=5.0)
             except asyncio.TimeoutError:
-                logger.warning("LSP server process did not terminate gracefully, killing", 
+                logger.warning("LSP server process did not terminate gracefully, killing",
                              server_name=self._server_name)
                 self._server_process.kill()
                 await self._server_process.wait()
             except Exception as e:
-                logger.warning("Error terminating LSP server process", 
+                logger.warning("Error terminating LSP server process",
                              server_name=self._server_name, error=str(e))
             finally:
                 self._server_process = None
-        
+
         # Reset connection state
         self._communication_mode = CommunicationMode.MANUAL
         self._tcp_host = None
         self._tcp_port = None
-        
+
         # Reset initialization state
         self._initialized = False
         self._server_capabilities = None
-        
+
         logger.info("LSP client disconnected", server_name=self._server_name)
 
     async def initialize(
@@ -855,22 +854,22 @@ class AsyncioLspClient:
         root_uri: str,
         client_name: str = "workspace-qdrant-mcp",
         client_version: str = "1.0.0",
-        workspace_folders: Optional[List[str]] = None,
-        initialization_options: Optional[Dict[str, Any]] = None,
+        workspace_folders: list[str] | None = None,
+        initialization_options: dict[str, Any] | None = None,
     ) -> ServerCapabilities:
         """
         Initialize the LSP client with capability negotiation.
-        
+
         Args:
             root_uri: Root URI of the workspace (file:// format)
             client_name: Name of the client application
             client_version: Version of the client application
             workspace_folders: List of workspace folder paths
             initialization_options: Server-specific initialization options
-            
+
         Returns:
             ServerCapabilities object with negotiated server capabilities
-            
+
         Raises:
             LspError: If initialization fails or client is already initialized
         """
@@ -1037,15 +1036,15 @@ class AsyncioLspClient:
         file_uri: str,
         line: int,
         character: int,
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Get hover information for a symbol at the given position.
-        
+
         Args:
             file_uri: URI of the file (file:// format)
             line: Line number (0-based)
             character: Character position (0-based)
-            
+
         Returns:
             Hover information or None if not available
         """
@@ -1060,7 +1059,7 @@ class AsyncioLspClient:
             "textDocument": {"uri": file_uri},
             "position": {"line": line, "character": character},
         }
-        
+
         try:
             result = await self.send_request("textDocument/hover", params)
             return result
@@ -1080,15 +1079,15 @@ class AsyncioLspClient:
         file_uri: str,
         line: int,
         character: int,
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> list[dict[str, Any]] | None:
         """
         Get definition location(s) for a symbol at the given position.
-        
+
         Args:
             file_uri: URI of the file (file:// format)
             line: Line number (0-based)
             character: Character position (0-based)
-            
+
         Returns:
             List of Location objects or None if not available
         """
@@ -1103,10 +1102,10 @@ class AsyncioLspClient:
             "textDocument": {"uri": file_uri},
             "position": {"line": line, "character": character},
         }
-        
+
         try:
             result = await self.send_request("textDocument/definition", params)
-            
+
             # Normalize result to always be a list
             if result is None:
                 return None
@@ -1121,7 +1120,7 @@ class AsyncioLspClient:
                     result_type=type(result).__name__,
                 )
                 return None
-                
+
         except LspError as e:
             logger.warning(
                 "Definition request failed",
@@ -1139,16 +1138,16 @@ class AsyncioLspClient:
         line: int,
         character: int,
         include_declaration: bool = True,
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> list[dict[str, Any]] | None:
         """
         Get reference locations for a symbol at the given position.
-        
+
         Args:
             file_uri: URI of the file (file:// format)
             line: Line number (0-based)
             character: Character position (0-based)
             include_declaration: Whether to include the symbol declaration
-            
+
         Returns:
             List of Location objects or None if not available
         """
@@ -1164,7 +1163,7 @@ class AsyncioLspClient:
             "position": {"line": line, "character": character},
             "context": {"includeDeclaration": include_declaration},
         }
-        
+
         try:
             result = await self.send_request("textDocument/references", params)
             return result if isinstance(result, list) else None
@@ -1182,13 +1181,13 @@ class AsyncioLspClient:
     async def document_symbol(
         self,
         file_uri: str,
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> list[dict[str, Any]] | None:
         """
         Get document symbols (outline) for the given file.
-        
+
         Args:
             file_uri: URI of the file (file:// format)
-            
+
         Returns:
             List of DocumentSymbol or SymbolInformation objects or None if not available
         """
@@ -1202,7 +1201,7 @@ class AsyncioLspClient:
         params = {
             "textDocument": {"uri": file_uri},
         }
-        
+
         try:
             result = await self.send_request("textDocument/documentSymbol", params)
             return result if isinstance(result, list) else None
@@ -1218,13 +1217,13 @@ class AsyncioLspClient:
     async def workspace_symbol(
         self,
         query: str,
-    ) -> Optional[List[Dict[str, Any]]]:
+    ) -> list[dict[str, Any]] | None:
         """
         Search for symbols across the workspace.
-        
+
         Args:
             query: Search query string
-            
+
         Returns:
             List of SymbolInformation objects or None if not available
         """
@@ -1236,7 +1235,7 @@ class AsyncioLspClient:
             return None
 
         params = {"query": query}
-        
+
         try:
             result = await self.send_request("workspace/symbol", params)
             return result if isinstance(result, list) else None
@@ -1259,7 +1258,7 @@ class AsyncioLspClient:
     ) -> None:
         """
         Notify server that a document was opened.
-        
+
         Args:
             file_uri: URI of the opened file
             language_id: Language identifier (e.g., 'python', 'rust')
@@ -1274,7 +1273,7 @@ class AsyncioLspClient:
                 "text": text,
             }
         }
-        
+
         await self.send_notification("textDocument/didOpen", params)
         logger.debug(
             "Sent didOpen notification",
@@ -1287,11 +1286,11 @@ class AsyncioLspClient:
         self,
         file_uri: str,
         version: int,
-        changes: List[Dict[str, Any]],
+        changes: list[dict[str, Any]],
     ) -> None:
         """
         Notify server that a document was changed.
-        
+
         Args:
             file_uri: URI of the changed file
             version: New document version number
@@ -1304,7 +1303,7 @@ class AsyncioLspClient:
             },
             "contentChanges": changes,
         }
-        
+
         await self.send_notification("textDocument/didChange", params)
         logger.debug(
             "Sent didChange notification",
@@ -1316,11 +1315,11 @@ class AsyncioLspClient:
     async def did_save(
         self,
         file_uri: str,
-        text: Optional[str] = None,
+        text: str | None = None,
     ) -> None:
         """
         Notify server that a document was saved.
-        
+
         Args:
             file_uri: URI of the saved file
             text: Complete document content (if server requires it)
@@ -1330,7 +1329,7 @@ class AsyncioLspClient:
         }
         if text is not None:
             params["text"] = text
-        
+
         await self.send_notification("textDocument/didSave", params)
         logger.debug(
             "Sent didSave notification",
@@ -1344,14 +1343,14 @@ class AsyncioLspClient:
     ) -> None:
         """
         Notify server that a document was closed.
-        
+
         Args:
             file_uri: URI of the closed file
         """
         params = {
             "textDocument": {"uri": file_uri}
         }
-        
+
         await self.send_notification("textDocument/didClose", params)
         logger.debug(
             "Sent didClose notification",
@@ -1362,11 +1361,11 @@ class AsyncioLspClient:
     # Notification handler management
     def register_diagnostics_handler(
         self,
-        handler: Callable[[str, List[Dict[str, Any]]], None],
+        handler: Callable[[str, list[dict[str, Any]]], None],
     ) -> None:
         """
         Register handler for diagnostic notifications.
-        
+
         Args:
             handler: Function that takes (file_uri, diagnostics_list)
         """
@@ -1382,7 +1381,7 @@ class AsyncioLspClient:
                     server_name=self._server_name,
                     error=str(e),
                 )
-        
+
         self.register_notification_handler("textDocument/publishDiagnostics", diagnostics_wrapper)
         logger.info(
             "Registered diagnostics handler",
@@ -1391,11 +1390,11 @@ class AsyncioLspClient:
 
     def register_progress_handler(
         self,
-        handler: Callable[[str, Dict[str, Any]], None],
+        handler: Callable[[str, dict[str, Any]], None],
     ) -> None:
         """
         Register handler for work progress notifications.
-        
+
         Args:
             handler: Function that takes (token, progress_data)
         """
@@ -1411,7 +1410,7 @@ class AsyncioLspClient:
                     server_name=self._server_name,
                     error=str(e),
                 )
-        
+
         self.register_notification_handler("$/progress", progress_wrapper)
         logger.info(
             "Registered progress handler",
@@ -1424,7 +1423,7 @@ class AsyncioLspClient:
     ) -> None:
         """
         Register handler for server log messages.
-        
+
         Args:
             handler: Function that takes (message_type, message)
         """
@@ -1440,7 +1439,7 @@ class AsyncioLspClient:
                     server_name=self._server_name,
                     error=str(e),
                 )
-        
+
         self.register_notification_handler("window/logMessage", log_wrapper)
         logger.info(
             "Registered log message handler",
@@ -1453,7 +1452,7 @@ class AsyncioLspClient:
     ) -> None:
         """
         Register handler for server show message notifications.
-        
+
         Args:
             handler: Function that takes (message_type, message)
         """
@@ -1469,7 +1468,7 @@ class AsyncioLspClient:
                     server_name=self._server_name,
                     error=str(e),
                 )
-        
+
         self.register_notification_handler("window/showMessage", show_message_wrapper)
         logger.info(
             "Registered show message handler",
@@ -1478,16 +1477,16 @@ class AsyncioLspClient:
 
     def register_configuration_handler(
         self,
-        handler: Callable[[List[Dict[str, Any]]], List[Any]],
+        handler: Callable[[list[dict[str, Any]]], list[Any]],
     ) -> None:
         """
         Register handler for workspace configuration requests.
         Note: This is actually a request from server, but handled here for convenience.
-        
+
         Args:
             handler: Function that takes configuration items and returns values
         """
-        async def config_wrapper(request_data: Dict[str, Any]) -> Dict[str, Any]:
+        async def config_wrapper(request_data: dict[str, Any]) -> dict[str, Any]:
             try:
                 params = request_data.get("params", {})
                 items = params.get("items", [])
@@ -1505,7 +1504,7 @@ class AsyncioLspClient:
                         "message": f"Configuration handler error: {e}",
                     }
                 }
-        
+
         # Note: This would need request handling support in the base client
         logger.info(
             "Configuration handler registered (requires request handling)",
@@ -1517,18 +1516,18 @@ class AsyncioLspClient:
         self,
         file_path: str,
         content: str,
-        language_id: Optional[str] = None,
+        language_id: str | None = None,
     ) -> None:
         """
         Convenience method to sync a newly opened file with the LSP server.
-        
+
         Args:
             file_path: Local file path
             content: File content
             language_id: Language identifier (auto-detected if None)
         """
         file_uri = f"file://{Path(file_path).resolve()}"
-        
+
         if language_id is None:
             # Auto-detect language from file extension
             extension = Path(file_path).suffix.lstrip('.')
@@ -1558,7 +1557,7 @@ class AsyncioLspClient:
                 'sql': 'sql',
             }
             language_id = language_map.get(extension, 'plaintext')
-        
+
         await self.did_open(file_uri, language_id, 1, content)
 
     async def sync_file_changed(
@@ -1569,27 +1568,27 @@ class AsyncioLspClient:
     ) -> None:
         """
         Convenience method to sync file changes with the LSP server.
-        
+
         Args:
             file_path: Local file path
             content: New file content
             version: Document version number
         """
         file_uri = f"file://{Path(file_path).resolve()}"
-        
+
         # Send full document change (simpler than incremental changes)
         changes = [{"text": content}]
-        
+
         await self.did_change(file_uri, version, changes)
 
     async def sync_file_saved(
         self,
         file_path: str,
-        content: Optional[str] = None,
+        content: str | None = None,
     ) -> None:
         """
         Convenience method to notify server of file save.
-        
+
         Args:
             file_path: Local file path
             content: File content (if server requires it)
@@ -1603,7 +1602,7 @@ class AsyncioLspClient:
     ) -> None:
         """
         Convenience method to notify server of file close.
-        
+
         Args:
             file_path: Local file path
         """
@@ -1613,20 +1612,20 @@ class AsyncioLspClient:
     async def send_request(
         self,
         method: str,
-        params: Optional[Dict[str, Any]] = None,
-        timeout: Optional[float] = None,
+        params: dict[str, Any] | None = None,
+        timeout: float | None = None,
     ) -> Any:
         """
         Send a JSON-RPC request and wait for response.
-        
+
         Args:
             method: LSP method name
             params: Method parameters
             timeout: Request timeout (defaults to client timeout)
-            
+
         Returns:
             Response result data
-            
+
         Raises:
             LspError: On communication or protocol errors
             LspTimeoutError: On request timeout
@@ -1648,13 +1647,13 @@ class AsyncioLspClient:
 
         request_id = str(uuid.uuid4())
         request_timeout = timeout or self._request_timeout
-        
+
         request = JsonRpcRequest(
             id=request_id,
             method=method,
             params=params,
         )
-        
+
         # Create future for response
         response_future = asyncio.get_event_loop().create_future()
         self._pending_requests[request_id] = PendingRequest(
@@ -1663,14 +1662,14 @@ class AsyncioLspClient:
             created_at=asyncio.get_event_loop().time(),
             timeout=request_timeout,
         )
-        
+
         try:
             # Send request
             await self._send_message(request.to_dict())
-            
+
             # Wait for response
             response = await asyncio.wait_for(response_future, timeout=request_timeout)
-            
+
             if response.error:
                 raise LspError(
                     f"LSP server returned error: {response.error.message}",
@@ -1681,16 +1680,16 @@ class AsyncioLspClient:
                         "error_data": response.error.data,
                     },
                 )
-            
+
             logger.debug(
                 "LSP request completed",
                 server_name=self._server_name,
                 method=method,
                 request_id=request_id,
             )
-            
+
             return response.result
-            
+
         except asyncio.TimeoutError:
             raise LspTimeoutError(method, request_timeout, server_name=self._server_name)
         except Exception as e:
@@ -1712,11 +1711,11 @@ class AsyncioLspClient:
     async def send_notification(
         self,
         method: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: dict[str, Any] | None = None,
     ) -> None:
         """
         Send a JSON-RPC notification (no response expected).
-        
+
         Args:
             method: LSP method name
             params: Method parameters
@@ -1730,7 +1729,7 @@ class AsyncioLspClient:
 
         notification = JsonRpcNotification(method=method, params=params)
         await self._send_message(notification.to_dict())
-        
+
         logger.debug(
             "LSP notification sent",
             server_name=self._server_name,
@@ -1746,7 +1745,7 @@ class AsyncioLspClient:
         if method not in self._notification_handlers:
             self._notification_handlers[method] = []
         self._notification_handlers[method].append(handler)
-        
+
         logger.debug(
             "Notification handler registered",
             server_name=self._server_name,
@@ -1760,21 +1759,21 @@ class AsyncioLspClient:
         """Register a handler for all notifications"""
         self._global_handlers.add(handler)
 
-    async def _send_message(self, message: Dict[str, Any]) -> None:
+    async def _send_message(self, message: dict[str, Any]) -> None:
         """Send a JSON-RPC message with LSP content-length header"""
         if not self._writer:
             raise LspError(
                 "No writer available for sending message",
                 server_name=self._server_name,
             )
-        
+
         message_json = json.dumps(message, separators=(',', ':'))
         message_bytes = message_json.encode('utf-8')
         content_length = len(message_bytes)
-        
+
         header = f"Content-Length: {content_length}\r\n\r\n"
         full_message = header.encode('ascii') + message_bytes
-        
+
         try:
             self._writer.write(full_message)
             await self._writer.drain()
@@ -1789,7 +1788,7 @@ class AsyncioLspClient:
     async def _message_reader_loop(self) -> None:
         """Background task to read and process incoming messages"""
         logger.debug("Starting LSP message reader loop", server_name=self._server_name)
-        
+
         try:
             while not self._shutdown_event.is_set() and self._reader:
                 try:
@@ -1800,7 +1799,7 @@ class AsyncioLspClient:
                     )
                     if message:
                         await self._handle_incoming_message(message)
-                        
+
                 except asyncio.TimeoutError:
                     # Normal timeout, continue loop
                     continue
@@ -1814,23 +1813,23 @@ class AsyncioLspClient:
                     )
                     self._connection_state = ConnectionState.ERROR
                     break
-                    
+
         except asyncio.CancelledError:
             pass
         finally:
             logger.debug("LSP message reader loop ended", server_name=self._server_name)
 
-    async def _read_message(self) -> Optional[Dict[str, Any]]:
+    async def _read_message(self) -> dict[str, Any] | None:
         """Read a single LSP message with content-length header"""
         if not self._reader:
             return None
-        
+
         try:
             # Read Content-Length header
             header_line = await self._reader.readline()
             if not header_line:
                 return None  # EOF
-                
+
             header = header_line.decode('ascii').strip()
             if not header.startswith('Content-Length:'):
                 logger.warning(
@@ -1839,9 +1838,9 @@ class AsyncioLspClient:
                     header=header,
                 )
                 return None
-                
+
             content_length = int(header[len('Content-Length:'):].strip())
-            
+
             # Read empty line
             empty_line = await self._reader.readline()
             if empty_line.strip():
@@ -1849,13 +1848,13 @@ class AsyncioLspClient:
                     "Expected empty line after Content-Length header",
                     server_name=self._server_name,
                 )
-            
+
             # Read message content
             content = await self._reader.readexactly(content_length)
             message_text = content.decode('utf-8')
-            
+
             return json.loads(message_text)
-            
+
         except json.JSONDecodeError as e:
             raise LspProtocolError(
                 "Invalid JSON in LSP message",
@@ -1871,7 +1870,7 @@ class AsyncioLspClient:
                 cause=e,
             ) from e
 
-    async def _handle_incoming_message(self, message: Dict[str, Any]) -> None:
+    async def _handle_incoming_message(self, message: dict[str, Any]) -> None:
         """Handle an incoming JSON-RPC message"""
         try:
             # Determine message type
@@ -1894,7 +1893,7 @@ class AsyncioLspClient:
                     raw_data=json.dumps(message),
                     server_name=self._server_name,
                 )
-                
+
         except Exception as e:
             logger.error(
                 "Error handling incoming LSP message",
@@ -1903,14 +1902,14 @@ class AsyncioLspClient:
                 message=message,
             )
 
-    async def _handle_response(self, message: Dict[str, Any]) -> None:
+    async def _handle_response(self, message: dict[str, Any]) -> None:
         """Handle a JSON-RPC response"""
         request_id = str(message.get("id", ""))
-        
+
         if request_id in self._pending_requests:
             pending = self._pending_requests[request_id]
             response = JsonRpcResponse.from_dict(message)
-            
+
             if not pending.future.done():
                 pending.future.set_result(response)
         else:
@@ -1920,11 +1919,11 @@ class AsyncioLspClient:
                 request_id=request_id,
             )
 
-    async def _handle_notification(self, message: Dict[str, Any]) -> None:
+    async def _handle_notification(self, message: dict[str, Any]) -> None:
         """Handle a JSON-RPC notification"""
         notification = JsonRpcNotification.from_dict(message)
         method = notification.method
-        
+
         # Call method-specific handlers
         if method in self._notification_handlers:
             for handler in self._notification_handlers[method]:
@@ -1940,7 +1939,7 @@ class AsyncioLspClient:
                         method=method,
                         error=str(e),
                     )
-        
+
         # Call global handlers
         for handler in list(self._global_handlers):
             try:
@@ -1961,14 +1960,14 @@ class AsyncioLspClient:
         while not self._shutdown_event.is_set():
             try:
                 await asyncio.sleep(5.0)  # Check every 5 seconds
-                
+
                 current_time = asyncio.get_event_loop().time()
                 expired_requests = []
-                
+
                 for request_id, pending in self._pending_requests.items():
                     if current_time - pending.created_at > pending.timeout:
                         expired_requests.append(request_id)
-                
+
                 for request_id in expired_requests:
                     pending = self._pending_requests.pop(request_id, None)
                     if pending and not pending.future.done():
@@ -1979,7 +1978,7 @@ class AsyncioLspClient:
                             method=pending.method,
                             request_id=request_id,
                         )
-                        
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -1994,11 +1993,11 @@ class AsyncioLspClient:
         while not self._shutdown_event.is_set():
             try:
                 await asyncio.sleep(self._circuit_breaker_config.health_check_interval)
-                
+
                 # Check if connection is still alive
                 if self.is_connected():
                     time_since_last_success = time.time() - self._last_successful_request
-                    
+
                     # If no successful requests for too long, consider it unhealthy
                     if time_since_last_success > self._circuit_breaker_config.timeout_seconds * 2:
                         logger.warning(
@@ -2007,7 +2006,7 @@ class AsyncioLspClient:
                             time_since_last_success=time_since_last_success,
                         )
                         self._record_failure()
-                
+
                 # Log circuit breaker state periodically
                 if self._circuit_breaker_state != CircuitBreakerState.CLOSED:
                     logger.debug(
@@ -2017,7 +2016,7 @@ class AsyncioLspClient:
                         failure_count=self._failure_count,
                         success_count=self._success_count,
                     )
-                        
+
             except asyncio.CancelledError:
                 break
             except Exception as e:
@@ -2027,7 +2026,7 @@ class AsyncioLspClient:
                     error=str(e),
                 )
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get client statistics"""
         stats = {
             "server_name": self._server_name,
@@ -2041,7 +2040,7 @@ class AsyncioLspClient:
             },
             "global_handlers": len(self._global_handlers),
         }
-        
+
         # Add communication-specific details
         if self._communication_mode == CommunicationMode.STDIO and self._server_process:
             stats["process_id"] = self._server_process.pid
@@ -2049,7 +2048,7 @@ class AsyncioLspClient:
         elif self._communication_mode == CommunicationMode.TCP:
             stats["tcp_host"] = self._tcp_host
             stats["tcp_port"] = self._tcp_port
-        
+
         # Add server capabilities if available
         if self._server_capabilities:
             stats["server_capabilities"] = {
@@ -2061,7 +2060,7 @@ class AsyncioLspClient:
                 "completion": self._server_capabilities.supports_completion(),
                 "diagnostics": self._server_capabilities.supports_diagnostics(),
             }
-        
+
         return stats
 
     async def __aenter__(self):

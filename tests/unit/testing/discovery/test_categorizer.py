@@ -5,22 +5,22 @@ Tests categorization logic, coverage analysis, gap detection,
 and recommendation generation with extensive edge case coverage.
 """
 
-import pytest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+import pytest
 from src.python.workspace_qdrant_mcp.testing.discovery.categorizer import (
+    CoverageAnalysis,
+    CoverageGap,
     TestCategorizer,
     TestCategory,
-    CoverageGap,
     TestPattern,
-    CoverageAnalysis
 )
 from src.python.workspace_qdrant_mcp.testing.documentation.parser import (
+    DecoratorInfo,
     TestFileInfo,
     TestMetadata,
     TestType,
-    DecoratorInfo
 )
 
 

@@ -7,10 +7,9 @@ This module provides a document parser interface for web content,
 integrating the secure web crawler with the existing document processing pipeline.
 """
 
-import logging
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from urllib.parse import urlparse
 
 from .base import DocumentParser, ParsedDocument
@@ -29,13 +28,13 @@ class WebParser(DocumentParser):
     hardening and malware protection.
     """
 
-    def __init__(self, security_config: Optional[SecurityConfig] = None):
+    def __init__(self, security_config: SecurityConfig | None = None):
         """Initialize web parser with security configuration."""
         self.security_config = security_config or SecurityConfig()
-        self._crawler: Optional[SecureWebCrawler] = None
+        self._crawler: SecureWebCrawler | None = None
 
     @property
-    def supported_extensions(self) -> List[str]:
+    def supported_extensions(self) -> list[str]:
         """Supported URL patterns (not file extensions)."""
         return [".html", ".htm"]  # For compatibility, but we handle URLs
 
@@ -44,7 +43,7 @@ class WebParser(DocumentParser):
         """Human-readable format name."""
         return "Web Content"
 
-    def can_parse(self, file_path: Union[str, Path]) -> bool:
+    def can_parse(self, file_path: str | Path) -> bool:
         """Check if input is a web URL."""
         try:
             url_str = str(file_path)
@@ -54,7 +53,7 @@ class WebParser(DocumentParser):
             return False
 
     async def parse(
-        self, file_path: Union[str, Path], **options: Any
+        self, file_path: str | Path, **options: Any
     ) -> ParsedDocument:
         """
         Parse web content from URL.
@@ -146,7 +145,7 @@ class WebParser(DocumentParser):
         return config
 
     async def _process_crawl_results(
-        self, original_url: str, results: List[CrawlResult], **options
+        self, original_url: str, results: list[CrawlResult], **options
     ) -> ParsedDocument:
         """Process crawl results into a ParsedDocument."""
 
@@ -246,7 +245,7 @@ class WebParser(DocumentParser):
             parsing_info=parsing_info,
         )
 
-    def get_parsing_options(self) -> Dict[str, Dict[str, Any]]:
+    def get_parsing_options(self) -> dict[str, dict[str, Any]]:
         """Get available parsing options for web content."""
         return {
             "crawl_depth": {
@@ -305,7 +304,7 @@ class WebIngestionInterface:
     with built-in security best practices.
     """
 
-    def __init__(self, security_config: Optional[SecurityConfig] = None):
+    def __init__(self, security_config: SecurityConfig | None = None):
         self.parser = WebParser(security_config)
 
     async def ingest_url(self, url: str, **options) -> ParsedDocument:
@@ -339,7 +338,7 @@ class WebIngestionInterface:
         )
 
     async def ingest_with_allowlist(
-        self, url: str, allowed_domains: List[str], **options
+        self, url: str, allowed_domains: list[str], **options
     ) -> ParsedDocument:
         """Ingest content with strict domain restrictions.
 
@@ -355,7 +354,7 @@ class WebIngestionInterface:
 
 
 def create_secure_web_parser(
-    allowed_domains: Optional[List[str]] = None,
+    allowed_domains: list[str] | None = None,
     enable_scanning: bool = True,
     quarantine_threats: bool = True,
 ) -> WebParser:

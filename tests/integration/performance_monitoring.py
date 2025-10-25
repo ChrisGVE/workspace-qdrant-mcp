@@ -20,15 +20,17 @@ Parent: #290 - Build MCP-daemon integration test framework
 """
 
 import asyncio
-import time
-import psutil
-import statistics
-from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Any, Optional, Callable
-from pathlib import Path
 import json
-from datetime import datetime
+import statistics
+import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
+
+import psutil
 
 
 @dataclass
@@ -40,7 +42,7 @@ class PerformanceMetrics:
     duration_ms: float
 
     # Latency metrics
-    latencies_ms: List[float] = field(default_factory=list)
+    latencies_ms: list[float] = field(default_factory=list)
     avg_latency_ms: float = 0.0
     median_latency_ms: float = 0.0
     p95_latency_ms: float = 0.0
@@ -63,7 +65,7 @@ class PerformanceMetrics:
     # Additional metrics
     errors_count: int = 0
     warnings_count: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def calculate_statistics(self):
         """Calculate statistical metrics from collected data."""
@@ -89,7 +91,7 @@ class PerformanceMetrics:
         if duration_sec > 0:
             self.throughput_ops_per_sec = self.operations_count / duration_sec
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert metrics to dictionary, excluding raw latencies."""
         data = asdict(self)
         # Remove raw latencies list (too large for storage)
@@ -122,7 +124,7 @@ class PerformanceMonitor:
     Collects metrics, tracks baselines, and detects regressions.
     """
 
-    def __init__(self, baselines_path: Optional[Path] = None):
+    def __init__(self, baselines_path: Path | None = None):
         """
         Initialize performance monitor.
 
@@ -132,20 +134,20 @@ class PerformanceMonitor:
         self.baselines_path = baselines_path or Path("test_results/performance_baselines.json")
         self.baselines_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.current_metrics: Optional[PerformanceMetrics] = None
-        self.baselines: Dict[str, PerformanceBaseline] = {}
+        self.current_metrics: PerformanceMetrics | None = None
+        self.baselines: dict[str, PerformanceBaseline] = {}
         self.load_baselines()
 
         # Resource monitoring
         self.process = psutil.Process()
-        self.resource_samples: List[Dict[str, float]] = []
-        self.monitoring_task: Optional[asyncio.Task] = None
+        self.resource_samples: list[dict[str, float]] = []
+        self.monitoring_task: asyncio.Task | None = None
 
     def load_baselines(self):
         """Load performance baselines from file."""
         if self.baselines_path.exists():
             try:
-                with open(self.baselines_path, 'r') as f:
+                with open(self.baselines_path) as f:
                     data = json.load(f)
                     self.baselines = {
                         name: PerformanceBaseline(**baseline)
@@ -303,7 +305,7 @@ class PerformanceMonitor:
         self.baselines[metrics.test_name] = baseline
         self.save_baselines()
 
-    def check_regression(self, metrics: PerformanceMetrics) -> List[str]:
+    def check_regression(self, metrics: PerformanceMetrics) -> list[str]:
         """
         Check for performance regressions against baseline.
 
@@ -404,7 +406,7 @@ class PerformanceMonitor:
         report.append(f"\nTest Duration: {metrics.duration_ms:.2f}ms ({metrics.duration_ms/1000:.2f}s)")
 
         # Operations
-        report.append(f"\nOperations:")
+        report.append("\nOperations:")
         report.append(f"  Total: {metrics.operations_count}")
         report.append(f"  Errors: {metrics.errors_count}")
         report.append(f"  Warnings: {metrics.warnings_count}")
@@ -412,7 +414,7 @@ class PerformanceMonitor:
 
         # Latency
         if metrics.latencies_ms:
-            report.append(f"\nLatency (ms):")
+            report.append("\nLatency (ms):")
             report.append(f"  Average: {metrics.avg_latency_ms:.2f}")
             report.append(f"  Median: {metrics.median_latency_ms:.2f}")
             report.append(f"  Min: {metrics.min_latency_ms:.2f}")
@@ -421,7 +423,7 @@ class PerformanceMonitor:
             report.append(f"  P99: {metrics.p99_latency_ms:.2f}")
 
         # Resources
-        report.append(f"\nResource Usage:")
+        report.append("\nResource Usage:")
         report.append(f"  CPU Average: {metrics.cpu_percent_avg:.2f}%")
         report.append(f"  CPU Peak: {metrics.cpu_percent_max:.2f}%")
         report.append(f"  Memory Average: {metrics.memory_mb_avg:.2f}MB")
@@ -430,7 +432,7 @@ class PerformanceMonitor:
         # Regression check
         regressions = self.check_regression(metrics)
         if regressions:
-            report.append(f"\n⚠️  PERFORMANCE REGRESSIONS DETECTED:")
+            report.append("\n⚠️  PERFORMANCE REGRESSIONS DETECTED:")
             for regression in regressions:
                 report.append(f"  - {regression}")
         else:
@@ -461,7 +463,7 @@ class PerformanceFixture:
 
     def __init__(self):
         self.monitor = PerformanceMonitor()
-        self.current_test_metrics: Optional[PerformanceMetrics] = None
+        self.current_test_metrics: PerformanceMetrics | None = None
 
     @asynccontextmanager
     async def track_performance(self, test_name: str):
@@ -472,7 +474,7 @@ class PerformanceFixture:
         # Store metrics for reporting
         self.current_test_metrics = self.monitor.current_metrics
 
-    def get_metrics(self) -> Optional[PerformanceMetrics]:
+    def get_metrics(self) -> PerformanceMetrics | None:
         """Get metrics from last tracked test."""
         return self.current_test_metrics
 
@@ -496,7 +498,7 @@ async def example_test_with_monitoring():
 
     async with monitor.monitor_test("example_concurrent_requests"):
         # Simulate operations
-        for i in range(100):
+        for _i in range(100):
             start = time.time()
             await asyncio.sleep(0.01)  # Simulate work
             latency_ms = (time.time() - start) * 1000

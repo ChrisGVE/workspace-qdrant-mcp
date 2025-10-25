@@ -8,10 +8,9 @@ Example files: 20250924-1829_benchmark_results.json, grpc_integration_test_resul
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any, Union
 from uuid import uuid4
 
-from .base import BaseParser
 from ..models import (
     PerformanceMetrics,
     TestCase,
@@ -22,12 +21,13 @@ from ..models import (
     TestSuite,
     TestType,
 )
+from .base import BaseParser
 
 
 class BenchmarkJsonParser(BaseParser):
     """Parser for custom benchmark JSON format."""
 
-    def parse(self, source: Union[str, Path, dict]) -> TestRun:
+    def parse(self, source: str | Path | dict) -> TestRun:
         """
         Parse benchmark JSON results into TestRun.
 
@@ -42,7 +42,7 @@ class BenchmarkJsonParser(BaseParser):
             data = source
         else:
             path = self._ensure_path(source)
-            with open(path, "r") as f:
+            with open(path) as f:
                 data = json.load(f)
 
         # Determine benchmark type and create appropriate test run
@@ -55,7 +55,7 @@ class BenchmarkJsonParser(BaseParser):
         else:
             raise ValueError("Unknown benchmark JSON format")
 
-    def _parse_custom_benchmark(self, data: Dict[str, Any]) -> TestRun:
+    def _parse_custom_benchmark(self, data: dict[str, Any]) -> TestRun:
         """Parse custom benchmark format (e.g., 20250924-1829_benchmark_results.json)."""
         # Extract timestamp from summary
         timestamp_unix = data.get("summary", {}).get("timestamp")
@@ -96,7 +96,7 @@ class BenchmarkJsonParser(BaseParser):
         return test_run
 
     def _parse_benchmark_category(
-        self, name: str, data: Dict[str, Any], timestamp: datetime
+        self, name: str, data: dict[str, Any], timestamp: datetime
     ) -> TestCase:
         """Parse a single benchmark category."""
         case = TestCase(
@@ -175,7 +175,7 @@ class BenchmarkJsonParser(BaseParser):
         case.add_result(result)
         return case
 
-    def _parse_grpc_integration_test(self, data: Dict[str, Any]) -> TestRun:
+    def _parse_grpc_integration_test(self, data: dict[str, Any]) -> TestRun:
         """Parse gRPC integration test format."""
         # Extract timestamp
         timestamp_unix = data.get("test_summary", {}).get("start_time")
@@ -250,7 +250,7 @@ class BenchmarkJsonParser(BaseParser):
         return test_run
 
     def _parse_grpc_service(
-        self, service_name: str, data: Dict[str, Any], timestamp: datetime
+        self, service_name: str, data: dict[str, Any], timestamp: datetime
     ) -> TestCase:
         """Parse a gRPC service test."""
         case = TestCase(
@@ -289,7 +289,7 @@ class BenchmarkJsonParser(BaseParser):
         return case
 
     def _parse_grpc_integration(
-        self, test_name: str, data: Dict[str, Any], timestamp: datetime
+        self, test_name: str, data: dict[str, Any], timestamp: datetime
     ) -> TestCase:
         """Parse a gRPC integration test."""
         case = TestCase(
@@ -328,7 +328,7 @@ class BenchmarkJsonParser(BaseParser):
         return case
 
     def _parse_grpc_performance(
-        self, test_name: str, data: Dict[str, Any], timestamp: datetime
+        self, test_name: str, data: dict[str, Any], timestamp: datetime
     ) -> TestCase:
         """Parse a gRPC performance test."""
         case = TestCase(

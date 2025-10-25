@@ -6,22 +6,21 @@ timeout behavior, retry logic, and circuit breaker functionality.
 """
 
 import asyncio
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import grpc
-from google.protobuf.empty_pb2 import Empty
-from google.protobuf.timestamp_pb2 import Timestamp
-
+import pytest
+from common.grpc.connection_manager import ConnectionConfig
 from common.grpc.daemon_client import (
     DaemonClient,
     DaemonClientError,
-    DaemonUnavailableError,
     DaemonTimeoutError,
+    DaemonUnavailableError,
 )
 from common.grpc.generated import workspace_daemon_pb2 as pb2
-from common.grpc.connection_manager import ConnectionConfig
+from google.protobuf.empty_pb2 import Empty
+from google.protobuf.timestamp_pb2 import Timestamp
 
 
 @pytest.fixture
@@ -390,7 +389,7 @@ class TestDocumentServiceRPCs:
     @pytest.mark.asyncio
     async def test_ingest_text_with_document_id(self, daemon_client):
         """Test ingest_text() with explicit document_id."""
-        response = await daemon_client.ingest_text(
+        await daemon_client.ingest_text(
             content="Sample content",
             collection_basename="myapp-notes",
             tenant_id="project_123",

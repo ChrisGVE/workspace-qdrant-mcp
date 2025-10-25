@@ -8,10 +8,10 @@ integration with embedding services.
 
 import asyncio
 import sys
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
-from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 from qdrant_client.http import models
@@ -21,14 +21,14 @@ from qdrant_client.http.exceptions import ResponseHandlingException
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 from common.core.memory import (
-    DocumentMemoryManager,
-    Document,
-    DocumentMetadata,
-    DocumentChunk,
     ChunkingStrategy,
-    RetrievalOptions,
+    Document,
+    DocumentChunk,
+    DocumentMemoryManager,
+    DocumentMetadata,
     MemoryIndex,
-    create_chunking_strategy
+    RetrievalOptions,
+    create_chunking_strategy,
 )
 
 
@@ -364,8 +364,8 @@ class TestChunkingStrategy:
         # Test overlap
         if len(chunks) > 1:
             # Should have some overlap between consecutive chunks
-            chunk1_end = chunks[0].content[-10:]  # Last 10 chars
-            chunk2_start = chunks[1].content[:10]  # First 10 chars
+            chunks[0].content[-10:]  # Last 10 chars
+            chunks[1].content[:10]  # First 10 chars
             # Some overlap should exist (exact match not guaranteed due to word boundaries)
 
     def test_sentence_based_chunking(self):
@@ -742,7 +742,7 @@ class TestRetrievalOptions:
             models.ScoredPoint(id="doc1", score=0.95, payload={"content": "test"})
         ]
 
-        results = await manager.search_documents("query", options=options)
+        await manager.search_documents("query", options=options)
 
         # Verify options were applied
         search_call = mock_qdrant_client.search.call_args

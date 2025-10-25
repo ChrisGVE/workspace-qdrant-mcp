@@ -7,11 +7,12 @@ for AMD64 and ARM64 architectures.
 
 import os
 import platform
-import pytest
 import subprocess
 import time
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional
+
+import pytest
 
 
 # Check if Docker is available
@@ -341,7 +342,7 @@ class TestDockerVolumes:
 class TestDockerComposeOperations:
     """Test Docker Compose operations."""
 
-    def _get_compose_command(self) -> List[str]:
+    def _get_compose_command(self) -> list[str]:
         """Get the appropriate docker-compose command."""
         # Try docker-compose first
         result = subprocess.run(

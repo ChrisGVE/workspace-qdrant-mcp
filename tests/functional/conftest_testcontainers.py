@@ -7,17 +7,19 @@ This module provides containerized services for isolated testing including:
 - Network isolation testing scenarios
 """
 
-import pytest
 import asyncio
+import json
 import logging
-from typing import Generator, Dict, Any, Optional
+import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from testcontainers.qdrant import QdrantContainer
-from testcontainers.compose import DockerCompose
+from typing import Any, Optional
+
+import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
-import tempfile
-import json
+from testcontainers.compose import DockerCompose
+from testcontainers.qdrant import QdrantContainer
 
 logger = logging.getLogger(__name__)
 
@@ -66,7 +68,7 @@ def qdrant_container(docker_available) -> Generator[QdrantContainer, None, None]
         max_retries = 30
         for i in range(max_retries):
             try:
-                collections = client.get_collections()
+                client.get_collections()
                 logger.info(f"Qdrant container ready after {i} retries")
                 break
             except Exception as e:
@@ -210,7 +212,7 @@ services:
 
 
 @pytest.fixture
-def isolated_environment(docker_compose_environment) -> Dict[str, Any]:
+def isolated_environment(docker_compose_environment) -> dict[str, Any]:
     """
     Provide connection details for isolated testing environment.
 
@@ -258,7 +260,7 @@ def wait_for_container_health(container, port: int, max_retries: int = 30) -> bo
     """Wait for container to become healthy."""
     import requests
 
-    for i in range(max_retries):
+    for _i in range(max_retries):
         try:
             response = requests.get(
                 f"http://{container.get_container_host_ip()}:{container.get_exposed_port(port)}/health",

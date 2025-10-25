@@ -22,9 +22,9 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from src.python.common.core.sqlite_state_manager import (
-    SQLiteStateManager,
     FileProcessingStatus,
     ProcessingPriority,
+    SQLiteStateManager,
     WatchFolderConfig,
 )
 

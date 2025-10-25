@@ -7,19 +7,20 @@ Verifies graceful degradation, automatic recovery, error handling, and overall
 system resilience under adverse conditions.
 """
 
-import pytest
-import time
 import signal
 import subprocess
-import psutil
+import time
 from pathlib import Path
 from typing import Optional
 
+import psutil
+import pytest
+
 from tests.e2e.fixtures import (
-    SystemComponents,
     CLIHelper,
     DaemonManager,
     MCPServerManager,
+    SystemComponents,
 )
 
 
@@ -136,7 +137,7 @@ class TestDaemonCrashRecovery:
         pids = []
 
         # Perform multiple restart cycles
-        for i in range(3):
+        for _i in range(3):
             daemon_manager.start(timeout=15)
             pid = daemon_manager.pid
             pids.append(pid)
@@ -337,8 +338,8 @@ class TestSQLiteCorruption:
         self, system_components: SystemComponents
     ):
         """Test recovering from backup after corruption."""
-        import sqlite3
         import shutil
+        import sqlite3
 
         state_db = system_components.state_db_path
         test_db = state_db.parent / "recovery_test.db"
@@ -551,7 +552,7 @@ class TestAutomaticRecovery:
     ):
         """Test connection pool recovers from failures."""
         # Multiple operations to test connection recovery
-        for i in range(3):
+        for _i in range(3):
             result = cli_helper.run_command(["status", "--quiet"])
             assert result is not None
             time.sleep(1)

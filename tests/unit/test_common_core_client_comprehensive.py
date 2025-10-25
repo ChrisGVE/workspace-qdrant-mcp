@@ -9,8 +9,8 @@ integration points with proper mocking of external dependencies.
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, PropertyMock, call
-from typing import Dict, Any, Optional, List
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, PropertyMock, call, patch
 
 import pytest
 from qdrant_client.http import models

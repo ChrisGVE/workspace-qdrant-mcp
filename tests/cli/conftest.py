@@ -5,11 +5,12 @@ Provides fixtures specific to CLI testing including command
 execution, output capture, and configuration management.
 """
 
-import pytest
-import tempfile
 import shutil
+import tempfile
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
+import pytest
 from typer.testing import CliRunner
 
 
@@ -28,7 +29,7 @@ def cli_config_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def cli_test_environment(cli_config_dir: Path, tmp_path: Path) -> Dict[str, str]:
+def cli_test_environment(cli_config_dir: Path, tmp_path: Path) -> dict[str, str]:
     """Provide test environment variables for CLI."""
     return {
         "WQM_CONFIG_DIR": str(cli_config_dir),
@@ -67,7 +68,7 @@ logging:
 
 
 @pytest.fixture
-def sample_cli_commands() -> List[Dict[str, Any]]:
+def sample_cli_commands() -> list[dict[str, Any]]:
     """Provide sample CLI commands for testing."""
     return [
         {
@@ -151,7 +152,7 @@ def test_documents_dir(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def cli_ingestion_config() -> Dict[str, Any]:
+def cli_ingestion_config() -> dict[str, Any]:
     """Provide ingestion configuration for testing."""
     return {
         "batch_size": 10,
@@ -165,7 +166,7 @@ def cli_ingestion_config() -> Dict[str, Any]:
 
 
 @pytest.fixture
-def cli_search_config() -> Dict[str, Any]:
+def cli_search_config() -> dict[str, Any]:
     """Provide search configuration for testing."""
     return {
         "default_limit": 10,
@@ -191,11 +192,12 @@ def cli_output_formatter():
             return json.dumps(data, indent=2)
 
         @staticmethod
-        def format_table(data: List[Dict[str, Any]], headers: List[str]) -> str:
+        def format_table(data: list[dict[str, Any]], headers: list[str]) -> str:
             """Format data as table."""
-            from rich.table import Table
-            from rich.console import Console
             from io import StringIO
+
+            from rich.console import Console
+            from rich.table import Table
 
             table = Table()
             for header in headers:

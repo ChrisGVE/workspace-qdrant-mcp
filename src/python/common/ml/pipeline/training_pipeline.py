@@ -7,52 +7,59 @@ error handling and monitoring capabilities.
 """
 
 import logging
-import time
 import pickle
-from typing import Any, Dict, List, Optional, Tuple, Union, Callable
-from pathlib import Path
-from dataclasses import dataclass, field
+import time
 import warnings
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import (
-    train_test_split,
-    GridSearchCV,
-    RandomizedSearchCV,
-    cross_val_score,
-    StratifiedKFold,
-    KFold
-)
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.svm import SVC, SVR
-from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.cluster import KMeans, DBSCAN
-from sklearn.neural_network import MLPClassifier, MLPRegressor
-from sklearn.metrics import (
-    accuracy_score, precision_score, recall_score, f1_score,
-    roc_auc_score, mean_squared_error, mean_absolute_error,
-    classification_report, confusion_matrix
-)
-from sklearn.preprocessing import StandardScaler, LabelEncoder
-from sklearn.impute import SimpleImputer
-from sklearn.feature_selection import (
-    SelectKBest, mutual_info_classif, chi2, f_classif, RFE
-)
+from sklearn.cluster import DBSCAN, KMeans
+from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
 from sklearn.exceptions import ConvergenceWarning
+from sklearn.feature_selection import (
+    SelectKBest,
+    chi2,
+    f_classif,
+    mutual_info_classif,
+)
+from sklearn.impute import SimpleImputer
+from sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    mean_absolute_error,
+    mean_squared_error,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
+from sklearn.model_selection import (
+    GridSearchCV,
+    KFold,
+    RandomizedSearchCV,
+    StratifiedKFold,
+    cross_val_score,
+    train_test_split,
+)
+from sklearn.neural_network import MLPClassifier, MLPRegressor
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.svm import SVC, SVR
 
 # Suppress sklearn warnings for cleaner output
 warnings.filterwarnings('ignore', category=ConvergenceWarning)
 warnings.filterwarnings('ignore', category=UserWarning)
 
 from ..config.ml_config import (
+    FeatureSelectionMethod,
     MLConfig,
-    MLExperimentConfig,
     MLModelConfig,
     MLPerformanceMetrics,
     MLTaskType,
     ModelType,
-    FeatureSelectionMethod
 )
 
 
@@ -62,13 +69,13 @@ class TrainingResult:
     model: Any
     metrics: MLPerformanceMetrics
     model_config: MLModelConfig
-    feature_names: List[str]
-    scaler: Optional[StandardScaler] = None
-    feature_selector: Optional[Any] = None
-    label_encoder: Optional[LabelEncoder] = None
-    cv_scores: Optional[Dict[str, float]] = None
-    best_params: Optional[Dict[str, Any]] = None
-    training_metadata: Dict[str, Any] = field(default_factory=dict)
+    feature_names: list[str]
+    scaler: StandardScaler | None = None
+    feature_selector: Any | None = None
+    label_encoder: LabelEncoder | None = None
+    cv_scores: dict[str, float] | None = None
+    best_params: dict[str, Any] | None = None
+    training_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -77,9 +84,9 @@ class PipelineState:
     current_step: str = "initialization"
     progress: float = 0.0
     start_time: float = field(default_factory=time.time)
-    step_times: Dict[str, float] = field(default_factory=dict)
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    step_times: dict[str, float] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 class MLPipelineError(Exception):
@@ -183,11 +190,11 @@ class TrainingPipeline:
 
     def fit(
         self,
-        X: Union[pd.DataFrame, np.ndarray],
-        y: Union[pd.Series, np.ndarray],
-        validation_data: Optional[Tuple[Any, Any]] = None,
-        progress_callback: Optional[Callable[[float], None]] = None
-    ) -> List[TrainingResult]:
+        X: pd.DataFrame | np.ndarray,
+        y: pd.Series | np.ndarray,
+        validation_data: tuple[Any, Any] | None = None,
+        progress_callback: Callable[[float], None] | None = None
+    ) -> list[TrainingResult]:
         """
         Train models using the configured pipeline.
 
@@ -273,9 +280,9 @@ class TrainingPipeline:
 
     def _validate_and_prepare_data(
         self,
-        X: Union[pd.DataFrame, np.ndarray],
-        y: Union[pd.Series, np.ndarray]
-    ) -> Tuple[pd.DataFrame, pd.Series]:
+        X: pd.DataFrame | np.ndarray,
+        y: pd.Series | np.ndarray
+    ) -> tuple[pd.DataFrame, pd.Series]:
         """Validate and prepare input data."""
         # Convert to pandas if needed
         if isinstance(X, np.ndarray):
@@ -330,7 +337,7 @@ class TrainingPipeline:
         self,
         X: pd.DataFrame,
         y: pd.Series
-    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
+    ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
         """Split data into train/test sets."""
         stratify = None
         task_type = self.experiment_config.model_configs[0].task_type
@@ -362,7 +369,7 @@ class TrainingPipeline:
         X_train: pd.DataFrame,
         X_test: pd.DataFrame,
         y_train: pd.Series
-    ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+    ) -> tuple[np.ndarray, np.ndarray, list[str]]:
         """Apply feature engineering and selection."""
         # Handle missing values
         if self.experiment_config.handle_missing == "drop":
@@ -420,9 +427,9 @@ class TrainingPipeline:
         X_test: np.ndarray,
         y_train: pd.Series,
         y_test: pd.Series,
-        feature_names: List[str],
-        validation_data: Optional[Tuple[Any, Any]],
-        progress_callback: Optional[Callable[[float], None]],
+        feature_names: list[str],
+        validation_data: tuple[Any, Any] | None,
+        progress_callback: Callable[[float], None] | None,
         progress_start: float,
         progress_end: float
     ) -> TrainingResult:
@@ -491,7 +498,7 @@ class TrainingPipeline:
         model_config: MLModelConfig,
         X_train: np.ndarray,
         y_train: pd.Series
-    ) -> Tuple[Any, Dict[str, Any]]:
+    ) -> tuple[Any, dict[str, Any]]:
         """Perform hyperparameter tuning."""
         try:
             param_grid = model_config.hyperparameters
@@ -535,8 +542,8 @@ class TrainingPipeline:
         X_train: np.ndarray,
         X_test: np.ndarray,
         y_train: pd.Series,
-        feature_names: List[str]
-    ) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+        feature_names: list[str]
+    ) -> tuple[np.ndarray, np.ndarray, list[str]]:
         """Perform feature selection."""
         method = model_config.feature_selection_method
         max_features = model_config.max_features or X_train.shape[1]
@@ -585,7 +592,7 @@ class TrainingPipeline:
         task_type: MLTaskType,
         X_test: np.ndarray,
         y_test: pd.Series,
-        validation_data: Optional[Tuple[Any, Any]],
+        validation_data: tuple[Any, Any] | None,
         training_time: float
     ) -> MLPerformanceMetrics:
         """Evaluate model performance."""
@@ -644,7 +651,7 @@ class TrainingPipeline:
         X_train: np.ndarray,
         y_train: pd.Series,
         task_type: MLTaskType
-    ) -> Dict[str, float]:
+    ) -> dict[str, float]:
         """Perform cross-validation."""
         try:
             # Choose CV strategy
@@ -767,7 +774,7 @@ class TrainingPipeline:
         self,
         step: str,
         progress: float,
-        callback: Optional[Callable[[float], None]]
+        callback: Callable[[float], None] | None
     ) -> None:
         """Update pipeline progress."""
         self.state.current_step = step
@@ -779,8 +786,8 @@ class TrainingPipeline:
 
     def save_results(
         self,
-        results: List[TrainingResult],
-        output_path: Union[str, Path]
+        results: list[TrainingResult],
+        output_path: str | Path
     ) -> None:
         """Save training results to disk."""
         output_path = Path(output_path)
@@ -793,7 +800,7 @@ class TrainingPipeline:
         self.logger.info(f"Results saved to {output_path}")
 
     @classmethod
-    def load_results(cls, input_path: Union[str, Path]) -> List[TrainingResult]:
+    def load_results(cls, input_path: str | Path) -> list[TrainingResult]:
         """Load training results from disk."""
         input_path = Path(input_path)
 

@@ -7,8 +7,9 @@ vector operations, and various embedding-related error scenarios.
 
 import asyncio
 import random
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 from unittest.mock import AsyncMock, Mock
+
 import numpy as np
 
 from .error_injection import ErrorInjector, FailureScenarios
@@ -56,13 +57,13 @@ class EnhancedEmbeddingServiceMock:
     def __init__(self,
                  model_name: str = "sentence-transformers/all-MiniLM-L6-v2",
                  vector_dim: int = 384,
-                 error_injector: Optional[EmbeddingErrorInjector] = None):
+                 error_injector: EmbeddingErrorInjector | None = None):
         self.model_name = model_name
         self.vector_dim = vector_dim
         self.error_injector = error_injector or EmbeddingErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
         self.initialized = False
-        self.batch_cache: Dict[str, List[float]] = {}
+        self.batch_cache: dict[str, list[float]] = {}
 
         # Performance characteristics
         self.performance_delays = {
@@ -125,7 +126,7 @@ class EnhancedEmbeddingServiceMock:
         elif error_type == "invalid_input":
             raise ValueError("Invalid input text for embedding")
 
-    async def _mock_initialize(self, model_name: Optional[str] = None) -> None:
+    async def _mock_initialize(self, model_name: str | None = None) -> None:
         """Mock embedding service initialization."""
         await self._inject_embedding_error("initialize")
 
@@ -149,7 +150,7 @@ class EnhancedEmbeddingServiceMock:
             "operation": "close"
         })
 
-    async def _mock_generate_embeddings(self, text: str) -> Dict[str, Any]:
+    async def _mock_generate_embeddings(self, text: str) -> dict[str, Any]:
         """Mock single text embedding generation."""
         await self._inject_embedding_error("generate_embeddings", 1)
 
@@ -179,7 +180,7 @@ class EnhancedEmbeddingServiceMock:
             "processing_time_ms": random.randint(50, 200)
         }
 
-    async def _mock_generate_batch_embeddings(self, texts: List[str]) -> List[Dict[str, Any]]:
+    async def _mock_generate_batch_embeddings(self, texts: list[str]) -> list[dict[str, Any]]:
         """Mock batch embedding generation."""
         await self._inject_embedding_error("generate_batch_embeddings", len(texts))
 
@@ -214,7 +215,7 @@ class EnhancedEmbeddingServiceMock:
 
         return embeddings
 
-    def _mock_get_model_info(self) -> Dict[str, Any]:
+    def _mock_get_model_info(self) -> dict[str, Any]:
         """Mock getting model information."""
         self.operation_history.append({
             "operation": "get_model_info"
@@ -230,7 +231,7 @@ class EnhancedEmbeddingServiceMock:
             "initialized": self.initialized
         }
 
-    async def _mock_encode_text(self, text: str, normalize: bool = True) -> List[float]:
+    async def _mock_encode_text(self, text: str, normalize: bool = True) -> list[float]:
         """Mock direct text encoding to vector."""
         await self._inject_embedding_error("encode_text", 1)
 
@@ -253,7 +254,7 @@ class EnhancedEmbeddingServiceMock:
 
         return vector
 
-    def _mock_similarity(self, vector1: List[float], vector2: List[float]) -> float:
+    def _mock_similarity(self, vector1: list[float], vector2: list[float]) -> float:
         """Mock vector similarity calculation."""
         if len(vector1) != len(vector2):
             raise ValueError("Vector dimension mismatch")
@@ -264,7 +265,7 @@ class EnhancedEmbeddingServiceMock:
         })
 
         # Calculate cosine similarity
-        dot_product = sum(a * b for a, b in zip(vector1, vector2))
+        dot_product = sum(a * b for a, b in zip(vector1, vector2, strict=False))
         norm1 = sum(a * a for a in vector1) ** 0.5
         norm2 = sum(b * b for b in vector2) ** 0.5
 
@@ -274,7 +275,7 @@ class EnhancedEmbeddingServiceMock:
         similarity = dot_product / (norm1 * norm2)
         return max(-1.0, min(1.0, similarity))  # Clamp to [-1, 1]
 
-    def _generate_realistic_vector(self, text: str) -> List[float]:
+    def _generate_realistic_vector(self, text: str) -> list[float]:
         """Generate realistic embedding vector based on text content."""
         # Use text hash as seed for reproducible vectors
         seed = hash(text) % (2**32)
@@ -320,7 +321,7 @@ class EnhancedEmbeddingServiceMock:
 
         return vector
 
-    def _generate_sparse_vector(self, text: str) -> Dict[str, Union[List[int], List[float]]]:
+    def _generate_sparse_vector(self, text: str) -> dict[str, list[int] | list[float]]:
         """Generate sparse vector representation (BM25-style)."""
         words = text.lower().split()
         word_counts = {}
@@ -351,7 +352,7 @@ class EnhancedEmbeddingServiceMock:
             "values": values
         }
 
-    def get_operation_history(self) -> List[Dict[str, Any]]:
+    def get_operation_history(self) -> list[dict[str, Any]]:
         """Get history of embedding operations."""
         return self.operation_history.copy()
 
@@ -366,16 +367,16 @@ class EnhancedEmbeddingServiceMock:
 class EmbeddingGeneratorMock:
     """Mock for direct embedding generation without service wrapper."""
 
-    def __init__(self, vector_dim: int = 384, error_injector: Optional[EmbeddingErrorInjector] = None):
+    def __init__(self, vector_dim: int = 384, error_injector: EmbeddingErrorInjector | None = None):
         self.vector_dim = vector_dim
         self.error_injector = error_injector or EmbeddingErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
 
         # Setup method mocks
         self.generate = Mock(side_effect=self._mock_generate)
         self.generate_batch = Mock(side_effect=self._mock_generate_batch)
 
-    def _mock_generate(self, text: str) -> List[float]:
+    def _mock_generate(self, text: str) -> list[float]:
         """Mock single vector generation."""
         if self.error_injector.should_inject_error():
             error_type = self.error_injector.get_random_error()
@@ -395,7 +396,7 @@ class EmbeddingGeneratorMock:
 
         return vector
 
-    def _mock_generate_batch(self, texts: List[str]) -> List[List[float]]:
+    def _mock_generate_batch(self, texts: list[str]) -> list[list[float]]:
         """Mock batch vector generation."""
         if self.error_injector.should_inject_error():
             error_type = self.error_injector.get_random_error()
@@ -418,10 +419,10 @@ class EmbeddingGeneratorMock:
 class FastEmbedMock:
     """Mock for FastEmbed library integration."""
 
-    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5", error_injector: Optional[EmbeddingErrorInjector] = None):
+    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5", error_injector: EmbeddingErrorInjector | None = None):
         self.model_name = model_name
         self.error_injector = error_injector or EmbeddingErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
         self.model_loaded = False
 
         # Setup method mocks
@@ -466,7 +467,7 @@ class FastEmbedMock:
 
         return vector
 
-    def _mock_embed_batch(self, texts: List[str]) -> np.ndarray:
+    def _mock_embed_batch(self, texts: list[str]) -> np.ndarray:
         """Mock batch embedding with FastEmbed."""
         if not self.model_loaded:
             raise RuntimeError("Model not loaded")
@@ -492,7 +493,7 @@ class FastEmbedMock:
         np.random.seed()  # Reset seed
         return np.array(vectors)
 
-    def _mock_get_available_models(self) -> List[Dict[str, Any]]:
+    def _mock_get_available_models(self) -> list[dict[str, Any]]:
         """Mock getting available FastEmbed models."""
         return [
             {
@@ -528,7 +529,7 @@ def create_embedding_mock(
     vector_dim: int = 384,
     with_error_injection: bool = False,
     error_probability: float = 0.1
-) -> Union[EnhancedEmbeddingServiceMock, EmbeddingGeneratorMock, FastEmbedMock]:
+) -> EnhancedEmbeddingServiceMock | EmbeddingGeneratorMock | FastEmbedMock:
     """
     Create an embedding mock with optional error injection.
 

@@ -35,14 +35,15 @@ Example:
 
 import asyncio
 import time
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+from typing import Any
 
 import psutil
-
 from loguru import logger
+
 from .metrics import metrics_instance
 
 # logger imported from loguru
@@ -62,12 +63,12 @@ class HealthCheck:
     """Individual health check definition."""
 
     name: str
-    check_function: Callable[[], Awaitable[Dict[str, Any]]]
+    check_function: Callable[[], Awaitable[dict[str, Any]]]
     timeout_seconds: float = 5.0
     critical: bool = True  # If false, failure won't mark system as unhealthy
     enabled: bool = True
-    last_check_time: Optional[float] = None
-    last_result: Optional[Dict[str, Any]] = None
+    last_check_time: float | None = None
+    last_result: dict[str, Any] | None = None
     consecutive_failures: int = 0
     max_failures: int = 3
 
@@ -79,19 +80,19 @@ class ComponentHealth:
     name: str
     status: HealthStatus
     message: str = ""
-    details: Dict[str, Any] = field(default_factory=dict)
-    last_check: Optional[float] = None
-    response_time: Optional[float] = None
-    error: Optional[str] = None
+    details: dict[str, Any] = field(default_factory=dict)
+    last_check: float | None = None
+    response_time: float | None = None
+    error: str | None = None
 
 
 class HealthChecker:
     """Main health checking and monitoring system."""
 
     def __init__(self):
-        self.health_checks: Dict[str, HealthCheck] = {}
+        self.health_checks: dict[str, HealthCheck] = {}
         self._enabled = True
-        self._background_task: Optional[asyncio.Task] = None
+        self._background_task: asyncio.Task | None = None
         self._check_interval = 30.0  # seconds
         self._system_thresholds = {
             "memory_usage_percent": 90.0,
@@ -129,7 +130,7 @@ class HealthChecker:
     def register_check(
         self,
         name: str,
-        check_function: Callable[[], Awaitable[Dict[str, Any]]],
+        check_function: Callable[[], Awaitable[dict[str, Any]]],
         timeout_seconds: float = 5.0,
         critical: bool = True,
     ):
@@ -270,7 +271,7 @@ class HealthChecker:
                 last_check=check_time,
             )
 
-    async def get_health_status(self) -> Dict[str, Any]:
+    async def get_health_status(self) -> dict[str, Any]:
         """Get overall system health status.
 
         Returns:
@@ -300,7 +301,7 @@ class HealthChecker:
         critical_failures = []
 
         # Process results
-        for (name, task), result in zip(check_tasks.items(), component_results):
+        for (name, _task), result in zip(check_tasks.items(), component_results, strict=False):
             if isinstance(result, Exception):
                 logger.error(
                     "Health check task failed", check_name=name, error=str(result)
@@ -361,7 +362,7 @@ class HealthChecker:
             },
         }
 
-    async def get_detailed_diagnostics(self) -> Dict[str, Any]:
+    async def get_detailed_diagnostics(self) -> dict[str, Any]:
         """Get detailed system diagnostics for troubleshooting.
 
         Returns:
@@ -380,7 +381,7 @@ class HealthChecker:
 
         return diagnostics
 
-    async def _get_system_info(self) -> Dict[str, Any]:
+    async def _get_system_info(self) -> dict[str, Any]:
         """Get system information for diagnostics."""
         try:
             process = psutil.Process()
@@ -402,7 +403,7 @@ class HealthChecker:
             logger.warning("Failed to get system info", error=str(e))
             return {"error": str(e)}
 
-    def _get_check_history(self) -> Dict[str, Any]:
+    def _get_check_history(self) -> dict[str, Any]:
         """Get health check history and statistics."""
         history = {}
 
@@ -419,7 +420,7 @@ class HealthChecker:
 
         return history
 
-    def _get_health_configuration(self) -> Dict[str, Any]:
+    def _get_health_configuration(self) -> dict[str, Any]:
         """Get current health checker configuration."""
         return {
             "enabled": self._enabled,
@@ -431,7 +432,7 @@ class HealthChecker:
 
     # Standard health check implementations
 
-    async def _check_system_resources(self) -> Dict[str, Any]:
+    async def _check_system_resources(self) -> dict[str, Any]:
         """Check system resource utilization."""
         try:
             # Memory check
@@ -502,11 +503,10 @@ class HealthChecker:
                 "details": {"error": str(e)},
             }
 
-    async def _check_qdrant_connectivity(self) -> Dict[str, Any]:
+    async def _check_qdrant_connectivity(self) -> dict[str, Any]:
         """Check Qdrant database connectivity and health."""
         try:
             # Import here to avoid circular dependency
-            from ..core.client import QdrantWorkspaceClient
             from ..server import workspace_client
 
             if not workspace_client:
@@ -550,7 +550,7 @@ class HealthChecker:
                 "details": {"error": str(e)},
             }
 
-    async def _check_embedding_service(self) -> Dict[str, Any]:
+    async def _check_embedding_service(self) -> dict[str, Any]:
         """Check embedding service availability."""
         try:
             from ..server import workspace_client
@@ -594,7 +594,7 @@ class HealthChecker:
                 "details": {"error": str(e)},
             }
 
-    async def _check_file_watchers(self) -> Dict[str, Any]:
+    async def _check_file_watchers(self) -> dict[str, Any]:
         """Check file watcher system health."""
         try:
             from ..server import watch_tools_manager
@@ -651,7 +651,7 @@ class HealthChecker:
                 "details": {"error": str(e)},
             }
 
-    async def _check_configuration(self) -> Dict[str, Any]:
+    async def _check_configuration(self) -> dict[str, Any]:
         """Check system configuration validity."""
         try:
             from ..core.config import Config
@@ -758,12 +758,12 @@ class HealthChecker:
 
 
 # Global health checker instance (lazy initialization)
-_health_checker_instance: Optional[HealthChecker] = None
+_health_checker_instance: HealthChecker | None = None
 
 
 def get_health_checker() -> HealthChecker:
     """Get the global health checker instance with lazy initialization.
-    
+
     Returns:
         The global HealthChecker instance, created on first access.
     """
@@ -775,10 +775,10 @@ def get_health_checker() -> HealthChecker:
 
 class LazyHealthChecker:
     """Lazy proxy for health checker instance."""
-    
+
     def __getattr__(self, name):
         return getattr(get_health_checker(), name)
-    
+
     def __call__(self, *args, **kwargs):
         return get_health_checker()(*args, **kwargs)
 

@@ -5,13 +5,13 @@ Provides domain-specific assertions for testing workspace-qdrant-mcp
 components including search results, collections, and protocol compliance.
 """
 
-from typing import Dict, List, Any, Optional
+from typing import Any, Optional
 
 
 def assert_search_results_valid(
-    results: List[Dict[str, Any]],
+    results: list[dict[str, Any]],
     min_score: float = 0.0,
-    expected_fields: Optional[List[str]] = None,
+    expected_fields: list[str] | None = None,
 ):
     """
     Assert search results are valid and well-formed.
@@ -56,9 +56,9 @@ def assert_search_results_valid(
 
 
 def assert_collection_valid(
-    collection: Dict[str, Any],
-    expected_name: Optional[str] = None,
-    min_points: Optional[int] = None,
+    collection: dict[str, Any],
+    expected_name: str | None = None,
+    min_points: int | None = None,
 ):
     """
     Assert collection info is valid.
@@ -87,7 +87,7 @@ def assert_collection_valid(
 
 
 def assert_mcp_response_valid(
-    response: Dict[str, Any], expected_id: Optional[int] = None
+    response: dict[str, Any], expected_id: int | None = None
 ):
     """
     Assert MCP protocol response is valid.
@@ -120,7 +120,7 @@ def assert_mcp_response_valid(
         assert "message" in error, "Error missing 'message' field"
 
 
-def assert_tool_definition_valid(tool: Dict[str, Any]):
+def assert_tool_definition_valid(tool: dict[str, Any]):
     """
     Assert MCP tool definition is valid.
 
@@ -154,7 +154,7 @@ def assert_tool_definition_valid(tool: Dict[str, Any]):
 
 
 def assert_hybrid_search_results_valid(
-    results: List[Dict[str, Any]],
+    results: list[dict[str, Any]],
     query: str,
     min_results: int = 0,
     check_relevance: bool = True,
@@ -211,7 +211,7 @@ def assert_hybrid_search_results_valid(
 
 
 def assert_document_ingested(
-    collection_info: Dict[str, Any], expected_min_documents: int = 1
+    collection_info: dict[str, Any], expected_min_documents: int = 1
 ):
     """
     Assert documents were successfully ingested.
@@ -233,7 +233,7 @@ def assert_document_ingested(
 
 
 def assert_vector_dimensions_match(
-    vector: List[float], expected_dim: int, vector_name: str = "vector"
+    vector: list[float], expected_dim: int, vector_name: str = "vector"
 ):
     """
     Assert vector has expected dimensions.

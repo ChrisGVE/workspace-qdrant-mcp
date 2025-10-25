@@ -6,13 +6,14 @@ watch folder updates, daemon instance management, and data isolation to
 ensure no cross-project leakage.
 """
 
-import pytest
 import time
 from pathlib import Path
 
+import pytest
+
 from tests.e2e.fixtures import (
-    SystemComponents,
     CLIHelper,
+    SystemComponents,
 )
 
 

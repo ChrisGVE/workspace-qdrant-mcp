@@ -6,23 +6,16 @@ smart defaults, configuration wizards, and enhanced user experience.
 Task 251: Advanced CLI features for unified interface.
 """
 
-import os
-import sys
 import json
-from typing import Dict, List, Optional, Any, Tuple
+import os
 from pathlib import Path
-from dataclasses import dataclass
-from enum import Enum
+from typing import Any
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
+from rich.prompt import Confirm, IntPrompt, Prompt
 from rich.table import Table
-from rich.prompt import Prompt, Confirm, IntPrompt, FloatPrompt
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.text import Text
-from rich.tree import Tree
-from rich.columns import Columns
 
 console = Console()
 
@@ -34,7 +27,7 @@ class ConfigurationWizard:
         """Initialize configuration wizard."""
         self.config_data = {}
 
-    def run_setup_wizard(self) -> Dict[str, Any]:
+    def run_setup_wizard(self) -> dict[str, Any]:
         """Run the complete setup wizard."""
         console.print(Panel.fit(
             "[bold blue]🚀 Welcome to wqm Setup Wizard[/bold blue]\n"
@@ -248,7 +241,7 @@ class ConfigurationWizard:
         else:
             console.print("❌ Configuration not saved")
 
-    def _detect_qdrant_setups(self) -> Dict[str, Dict[str, Any]]:
+    def _detect_qdrant_setups(self) -> dict[str, dict[str, Any]]:
         """Auto-detect common Qdrant setups."""
         setups = {}
 
@@ -282,7 +275,7 @@ class ConfigurationWizard:
 
         return setups
 
-    def _detect_github_user(self) -> Optional[str]:
+    def _detect_github_user(self) -> str | None:
         """Try to detect GitHub username from git config."""
         try:
             import subprocess
@@ -320,7 +313,7 @@ class SmartDefaults:
         self.usage_history_file = Path.home() / ".config" / "workspace-qdrant" / "usage_history.json"
         self.usage_history = self._load_usage_history()
 
-    def _load_usage_history(self) -> Dict[str, Any]:
+    def _load_usage_history(self) -> dict[str, Any]:
         """Load usage history from file."""
         try:
             if self.usage_history_file.exists():
@@ -344,7 +337,7 @@ class SmartDefaults:
         except:
             pass
 
-    def record_command_usage(self, command: str, subcommand: str = None, flags: Dict[str, Any] = None) -> None:
+    def record_command_usage(self, command: str, subcommand: str = None, flags: dict[str, Any] = None) -> None:
         """Record command usage for learning preferences."""
         full_command = f"{command}"
         if subcommand:
@@ -427,7 +420,7 @@ class CommandSuggestionSystem:
         self.command_relationships = self._build_command_relationships()
         self.context_patterns = self._build_context_patterns()
 
-    def _build_command_relationships(self) -> Dict[str, List[str]]:
+    def _build_command_relationships(self) -> dict[str, list[str]]:
         """Build relationships between commands."""
         return {
             "after_config": ["admin status", "service restart"],
@@ -437,7 +430,7 @@ class CommandSuggestionSystem:
             "setup_workflow": ["config init-unified", "service install", "service start"],
         }
 
-    def _build_context_patterns(self) -> Dict[str, List[str]]:
+    def _build_context_patterns(self) -> dict[str, list[str]]:
         """Build context-based command patterns."""
         return {
             "first_time_user": [
@@ -459,7 +452,7 @@ class CommandSuggestionSystem:
             ]
         }
 
-    def suggest_next_commands(self, last_command: str) -> List[str]:
+    def suggest_next_commands(self, last_command: str) -> list[str]:
         """Suggest logical next commands based on what user just ran."""
         suggestions = []
 
@@ -486,7 +479,7 @@ class CommandSuggestionSystem:
 
         return unique_suggestions[:5]
 
-    def suggest_for_context(self, context: str) -> List[str]:
+    def suggest_for_context(self, context: str) -> list[str]:
         """Suggest commands for a given context."""
         return self.context_patterns.get(context, [])
 
@@ -516,7 +509,7 @@ def create_advanced_features_app() -> typer.Typer:
     @features_app.command("suggest")
     def command_suggestions(
         last_command: str = typer.Argument(..., help="Last command that was run"),
-        context: Optional[str] = typer.Option(None, "--context", help="Additional context")
+        context: str | None = typer.Option(None, "--context", help="Additional context")
     ) -> None:
         """Get command suggestions based on your last action."""
         suggestion_system = CommandSuggestionSystem()

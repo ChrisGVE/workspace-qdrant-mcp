@@ -25,11 +25,12 @@ Test Coverage:
 import asyncio
 import json
 import os
-import pytest
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
+import pytest
 from testcontainers.compose import DockerCompose
 
 
@@ -237,7 +238,7 @@ metadata preservation and efficient vector search capabilities.
             search_result["search_time_ms"]
         )
 
-        print(f"\n   📊 End-to-End Pipeline Metrics:")
+        print("\n   📊 End-to-End Pipeline Metrics:")
         print(f"      Total pipeline time: {total_pipeline_time}ms")
         print(f"      Throughput: {detection_result['size_bytes']/total_pipeline_time*1000:.1f} bytes/sec")
 
@@ -262,7 +263,7 @@ Module for testing code ingestion pipeline.
 """
 
 import asyncio
-from typing import Dict, Any, List
+from typing import Any
 
 
 class DocumentProcessor:

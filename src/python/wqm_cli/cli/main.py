@@ -24,11 +24,11 @@ Usage:
     wqm backup info /path        # Show backup information
 """
 
+# Disable all console logging immediately for CLI usage
+import logging
 import os
 import sys
 
-# Disable all console logging immediately for CLI usage
-import logging
 logging.disable(logging.CRITICAL)
 
 # Suppress observability initialization logging for CLI usage
@@ -47,8 +47,9 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
 
 import asyncio
 import warnings
+from collections.abc import Coroutine
 from pathlib import Path
-from typing import Any, Coroutine, Optional
+from typing import Any
 
 # Handle version flag early to avoid heavy imports
 if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
@@ -84,12 +85,16 @@ if len(sys.argv) >= 2 and (sys.argv[1] == "--version" or sys.argv[1] == "-v"):
 
 # Import heavy modules only after version check passes
 import typer
-
 from common.logging.loguru_config import setup_logging
 from loguru import logger
+
+from .advanced_features import advanced_features_app
 from .commands.admin import admin_app
 from .commands.backup import backup_app
+from .commands.branch import branch_app
 from .commands.collection_types import collection_types_app
+from .commands.error_reporting import errors_app
+from .commands.grammar import grammar_app
 from .commands.ingest import ingest_app
 from .commands.init import init_app
 from .commands.library import library_app
@@ -99,24 +104,21 @@ from .commands.lsp_management import lsp_app
 from .commands.memory import memory_app
 from .commands.messages import messages_app
 from .commands.migrate import migrate_app
+from .commands.project import project_app
 from .commands.queue import queue_app
 from .commands.search import search_app
 from .commands.service import service_app
 from .commands.tools import tools_app
 from .commands.watch import watch_app
-from .commands.error_reporting import errors_app
-from .commands.project import project_app
-from .commands.branch import branch_app
-from .commands.grammar import grammar_app
+from .error_handling import setup_exception_hook
+
+# Import enhanced CLI features
+from .help_system import help_app
+
 # SECURITY: Web UI temporarily disabled due to critical vulnerabilities
 # from .commands.web import web_app
 from .observability import observability_app
 from .status import status_app
-
-# Import enhanced CLI features
-from .help_system import help_app
-from .advanced_features import advanced_features_app
-from .error_handling import error_handler, setup_exception_hook
 
 # Initialize main app and logger
 app = typer.Typer(

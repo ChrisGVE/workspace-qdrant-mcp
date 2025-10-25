@@ -14,11 +14,9 @@ File Types:
 """
 
 from pathlib import Path
-from typing import Set
-
 
 # File extension sets for classification
-CODE_EXTENSIONS: Set[str] = {
+CODE_EXTENSIONS: set[str] = {
     '.py', '.pyx', '.pyi',  # Python
     '.rs',  # Rust
     '.js', '.jsx', '.mjs', '.cjs',  # JavaScript
@@ -44,7 +42,7 @@ CODE_EXTENSIONS: Set[str] = {
     '.el',  # Emacs Lisp
 }
 
-DOCS_EXTENSIONS: Set[str] = {
+DOCS_EXTENSIONS: set[str] = {
     '.md', '.markdown',  # Markdown
     '.rst', '.rest',  # reStructuredText
     '.txt', '.text',  # Plain text
@@ -58,7 +56,7 @@ DOCS_EXTENSIONS: Set[str] = {
     '.rtf',  # Rich Text Format
 }
 
-CONFIG_EXTENSIONS: Set[str] = {
+CONFIG_EXTENSIONS: set[str] = {
     '.yaml', '.yml',  # YAML
     '.json', '.jsonc', '.json5',  # JSON
     '.toml',  # TOML
@@ -72,7 +70,7 @@ CONFIG_EXTENSIONS: Set[str] = {
     '.gitconfig', '.gitignore', '.gitattributes',  # Git config
 }
 
-DATA_EXTENSIONS: Set[str] = {
+DATA_EXTENSIONS: set[str] = {
     '.csv', '.tsv',  # CSV/TSV
     '.parquet',  # Parquet
     '.json', '.jsonl', '.ndjson',  # JSON data (overlaps with config, intent-based)
@@ -87,7 +85,7 @@ DATA_EXTENSIONS: Set[str] = {
     '.rds', '.rdata',  # R data
 }
 
-BUILD_EXTENSIONS: Set[str] = {
+BUILD_EXTENSIONS: set[str] = {
     '.whl',  # Python wheel
     '.tar.gz', '.tgz', '.tar.bz2', '.tbz2', '.tar.xz', '.txz',  # Tarballs
     '.zip',  # ZIP

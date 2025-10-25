@@ -12,8 +12,7 @@ Performance features:
 """
 
 import time
-from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from dataclasses import dataclass
 
 from loguru import logger
 
@@ -41,11 +40,11 @@ class RuleFilter:
         offset: Offset for pagination support
     """
 
-    scope: Optional[List[str]] = None
-    project_id: Optional[str] = None
-    category: Optional[MemoryCategory] = None
-    authority: Optional[AuthorityLevel] = None
-    tags: Optional[List[str]] = None
+    scope: list[str] | None = None
+    project_id: str | None = None
+    category: MemoryCategory | None = None
+    authority: AuthorityLevel | None = None
+    tags: list[str] | None = None
     limit: int = 100
     offset: int = 0
 
@@ -63,11 +62,11 @@ class RuleRetrievalResult:
         metrics: Performance metrics for this retrieval
     """
 
-    rules: List[MemoryRule]
+    rules: list[MemoryRule]
     total_count: int
     filtered_count: int
     cache_hit: bool = False
-    metrics: Optional[PerformanceMetrics] = None
+    metrics: PerformanceMetrics | None = None
 
 
 class RuleRetrieval:
@@ -107,7 +106,7 @@ class RuleRetrieval:
         self.enable_indexing = enable_indexing
 
         # Initialize cache if enabled
-        self._cache: Optional[RuleCache] = None
+        self._cache: RuleCache | None = None
         if enable_cache:
             self._cache = RuleCache(maxsize=cache_maxsize, ttl=cache_ttl)
             logger.debug(
@@ -115,7 +114,7 @@ class RuleRetrieval:
             )
 
         # Initialize index if enabled
-        self._index: Optional[RuleIndex] = None
+        self._index: RuleIndex | None = None
         if enable_indexing:
             self._index = RuleIndex()
             logger.debug("Rule indexing enabled")
@@ -227,8 +226,8 @@ class RuleRetrieval:
             )
 
     async def get_rules_by_scope(
-        self, scope: List[str], project_id: Optional[str] = None
-    ) -> List[MemoryRule]:
+        self, scope: list[str], project_id: str | None = None
+    ) -> list[MemoryRule]:
         """
         Retrieve rules by scope and optional project.
 
@@ -243,7 +242,7 @@ class RuleRetrieval:
         result = await self.get_rules(filter)
         return result.rules
 
-    async def get_absolute_rules(self, scope: List[str]) -> List[MemoryRule]:
+    async def get_absolute_rules(self, scope: list[str]) -> list[MemoryRule]:
         """
         Retrieve absolute authority rules for given scope.
 
@@ -259,7 +258,7 @@ class RuleRetrieval:
 
     async def get_rules_by_category(
         self, category: MemoryCategory
-    ) -> List[MemoryRule]:
+    ) -> list[MemoryRule]:
         """
         Retrieve rules by category.
 
@@ -274,8 +273,8 @@ class RuleRetrieval:
         return result.rules
 
     async def search_rules(
-        self, query: str, limit: int = 10, filter: Optional[RuleFilter] = None
-    ) -> List[Tuple[MemoryRule, float]]:
+        self, query: str, limit: int = 10, filter: RuleFilter | None = None
+    ) -> list[tuple[MemoryRule, float]]:
         """
         Search rules by semantic similarity.
 
@@ -315,8 +314,8 @@ class RuleRetrieval:
             return []
 
     def _apply_filters(
-        self, rules: List[MemoryRule], filter: RuleFilter
-    ) -> List[MemoryRule]:
+        self, rules: list[MemoryRule], filter: RuleFilter
+    ) -> list[MemoryRule]:
         """
         Apply filter criteria to rules.
 
@@ -371,7 +370,7 @@ class RuleRetrieval:
 
         return True
 
-    def _sort_by_priority(self, rules: List[MemoryRule]) -> List[MemoryRule]:
+    def _sort_by_priority(self, rules: list[MemoryRule]) -> list[MemoryRule]:
         """
         Sort rules by authority and priority.
 
@@ -390,7 +389,7 @@ class RuleRetrieval:
             ),
         )
 
-    def _make_cache_key(self, filter: RuleFilter) -> Tuple:
+    def _make_cache_key(self, filter: RuleFilter) -> tuple:
         """
         Generate cache key from filter parameters.
 
@@ -410,7 +409,7 @@ class RuleRetrieval:
             filter.offset,
         )
 
-    async def _get_rules_with_index(self, filter: RuleFilter) -> List[MemoryRule]:
+    async def _get_rules_with_index(self, filter: RuleFilter) -> list[MemoryRule]:
         """
         Get rules using index for fast lookup.
 
@@ -465,7 +464,7 @@ class RuleRetrieval:
             self._cache.clear()
             logger.debug("Cache cleared")
 
-    def get_cache_stats(self) -> Optional[dict]:
+    def get_cache_stats(self) -> dict | None:
         """
         Get cache statistics.
 

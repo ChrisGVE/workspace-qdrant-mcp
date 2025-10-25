@@ -12,11 +12,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 import asyncio
-from unittest.mock import AsyncMock, Mock, patch
 from datetime import datetime
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
 from workspace_qdrant_mcp.memory.conflict_detector import ConflictDetector
 from workspace_qdrant_mcp.memory.types import (
     AuthorityLevel,
@@ -32,7 +31,7 @@ class TestConflictDetectorInit:
     def test_init_without_ai(self):
         """Test initializing conflict detector without AI analysis."""
         detector = ConflictDetector(enable_ai_analysis=False)
-        
+
         assert detector.enable_ai_analysis is False
         assert detector.anthropic_client is None
         assert detector.model == "claude-3-sonnet-20240229"
@@ -41,7 +40,7 @@ class TestConflictDetectorInit:
         """Test initializing with AI but no API key."""
         with patch.dict('os.environ', {}, clear=True):
             detector = ConflictDetector(enable_ai_analysis=True)
-            
+
             # Should disable AI analysis when no key available
             assert detector.enable_ai_analysis is False
             assert detector.anthropic_client is None
@@ -52,7 +51,7 @@ class TestConflictDetectorInit:
             enable_ai_analysis=False,
             model="claude-3-opus-20240229"
         )
-        
+
         assert detector.model == "claude-3-opus-20240229"
         assert detector.enable_ai_analysis is False
 
@@ -61,12 +60,12 @@ class TestConflictDetectorInit:
         """Test initializing with AI analysis and API key."""
         mock_client = Mock()
         mock_anthropic.return_value = mock_client
-        
+
         detector = ConflictDetector(
             anthropic_api_key="test-key",
             enable_ai_analysis=True
         )
-        
+
         assert detector.enable_ai_analysis is True
         assert detector.anthropic_client is mock_client
         mock_anthropic.assert_called_once_with(api_key="test-key")
@@ -89,16 +88,16 @@ class TestRuleBasedConflicts:
             authority=AuthorityLevel.ABSOLUTE,
             scope=["javascript", "frontend"]
         )
-        
+
         rule2 = MemoryRule(
             rule="Never use TypeScript, stick to vanilla JavaScript",
             category=MemoryCategory.BEHAVIOR,
             authority=AuthorityLevel.ABSOLUTE,
             scope=["javascript", "frontend"]
         )
-        
+
         conflicts = await detector.detect_conflicts(rule1, [rule2])
-        
+
         assert len(conflicts) > 0
         conflict = conflicts[0]
         assert conflict.conflict_type in ["authority", "direct"]
@@ -115,16 +114,16 @@ class TestRuleBasedConflicts:
             authority=AuthorityLevel.ABSOLUTE,
             scope=["frontend", "react"]
         )
-        
+
         rule2 = MemoryRule(
             rule="Use Vue.js for all frontend work",
             category=MemoryCategory.BEHAVIOR,
             authority=AuthorityLevel.ABSOLUTE,
             scope=["frontend", "vue"]
         )
-        
+
         conflicts = await detector.detect_conflicts(rule1, [rule2])
-        
+
         # Should detect authority conflict since both are absolute in overlapping domains
         assert len(conflicts) > 0
         conflict = conflicts[0]
@@ -140,16 +139,16 @@ class TestRuleBasedConflicts:
             authority=AuthorityLevel.ABSOLUTE,
             scope=["python", "backend"]
         )
-        
+
         rule2 = MemoryRule(
             rule="Use JavaScript for frontend development",
             category=MemoryCategory.BEHAVIOR,
             authority=AuthorityLevel.ABSOLUTE,
             scope=["javascript", "frontend"]
         )
-        
+
         conflicts = await detector.detect_conflicts(rule1, [rule2])
-        
+
         # Should not conflict - different domains
         assert len(conflicts) == 0
 
@@ -162,16 +161,16 @@ class TestRuleBasedConflicts:
             authority=AuthorityLevel.DEFAULT,
             scope=["frontend"]
         )
-        
+
         rule2 = MemoryRule(
             rule="Use Vue for simple components",
             category=MemoryCategory.PREFERENCE,
             authority=AuthorityLevel.DEFAULT,
             scope=["frontend"]
         )
-        
+
         conflicts = await detector.detect_conflicts(rule1, [rule2])
-        
+
         # Both are preferences, should not conflict strongly
         assert all(c.severity != "critical" for c in conflicts)
 
@@ -184,16 +183,16 @@ class TestRuleBasedConflicts:
             authority=AuthorityLevel.ABSOLUTE,
             scope=["api", "validation"]
         )
-        
+
         rule2 = MemoryRule(
             rule="Skip validation for internal APIs",
             category=MemoryCategory.BEHAVIOR,
             authority=AuthorityLevel.DEFAULT,
             scope=["api", "internal"]
         )
-        
+
         conflicts = await detector.detect_conflicts(rule1, [rule2])
-        
+
         # Should detect potential conflict in API handling
         assert len(conflicts) > 0
 
@@ -207,7 +206,7 @@ class TestSemanticConflicts:
         with patch('anthropic.Anthropic') as mock_anthropic:
             mock_client = Mock()
             mock_anthropic.return_value = mock_client
-            
+
             detector = ConflictDetector(
                 anthropic_api_key="test-key",
                 enable_ai_analysis=True
@@ -222,13 +221,13 @@ class TestSemanticConflicts:
             category=MemoryCategory.BEHAVIOR,
             authority=AuthorityLevel.DEFAULT
         )
-        
+
         rule2 = MemoryRule(
             rule="Short variable names are fine for loops",
             category=MemoryCategory.BEHAVIOR,
             authority=AuthorityLevel.DEFAULT
         )
-        
+
         # Mock the AI response
         mock_response = Mock()
         mock_response.content = [Mock()]
@@ -244,14 +243,14 @@ class TestSemanticConflicts:
                 }
             ]
         })
-        
+
         detector_with_ai.anthropic_client.messages.create = AsyncMock(return_value=mock_response)
-        
+
         conflicts = await detector_with_ai.detect_conflicts(rule1, [rule2])
-        
+
         # Should have called anthropic client
         detector_with_ai.anthropic_client.messages.create.assert_called_once()
-        
+
         # Should return the semantic conflict
         assert len(conflicts) >= 1
         semantic_conflicts = [c for c in conflicts if c.conflict_type == "semantic"]
@@ -265,21 +264,21 @@ class TestSemanticConflicts:
             category=MemoryCategory.PREFERENCE,
             authority=AuthorityLevel.DEFAULT
         )
-        
+
         rule2 = MemoryRule(
             rule="Use spaces for indentation",
             category=MemoryCategory.PREFERENCE,
             authority=AuthorityLevel.DEFAULT
         )
-        
+
         # Mock AI failure
         detector_with_ai.anthropic_client.messages.create = AsyncMock(
             side_effect=Exception("API Error")
         )
-        
+
         # Should not raise exception, should fall back to rule-based detection
         conflicts = await detector_with_ai.detect_conflicts(rule1, [rule2])
-        
+
         # Should still detect some conflicts from rule-based analysis
         assert isinstance(conflicts, list)
 
@@ -291,20 +290,20 @@ class TestSemanticConflicts:
             category=MemoryCategory.BEHAVIOR,
             authority=AuthorityLevel.DEFAULT
         )
-        
+
         rule2 = MemoryRule(
             rule="Test rule 2",
             category=MemoryCategory.BEHAVIOR,
             authority=AuthorityLevel.DEFAULT
         )
-        
+
         # Mock malformed response
         mock_response = Mock()
         mock_response.content = [Mock()]
         mock_response.content[0].text = "Invalid JSON response"
-        
+
         detector_with_ai.anthropic_client.messages.create = AsyncMock(return_value=mock_response)
-        
+
         # Should handle gracefully
         conflicts = await detector_with_ai.detect_conflicts(rule1, [rule2])
         assert isinstance(conflicts, list)
@@ -326,16 +325,16 @@ class TestConflictResolution:
             authority=AuthorityLevel.ABSOLUTE,
             scope=["python"]
         )
-        
+
         rule2 = MemoryRule(
             rule="Always use double quotes for strings",
             category=MemoryCategory.PREFERENCE,
             authority=AuthorityLevel.ABSOLUTE,
             scope=["python"]
         )
-        
+
         conflicts = await detector.detect_conflicts(rule1, [rule2])
-        
+
         assert len(conflicts) > 0
         for conflict in conflicts:
             assert conflict.resolution_suggestion is not None
@@ -361,9 +360,9 @@ class TestConflictResolution:
             severity="critical",
             description="Direct contradiction on security-critical behavior"
         )
-        
+
         assert conflict_critical.severity == "critical"
-        
+
         # Medium: Different authorities
         conflict_medium = MemoryRuleConflict(
             rule1=MemoryRule(
@@ -380,7 +379,7 @@ class TestConflictResolution:
             severity="medium",
             description="Formatting preference conflict"
         )
-        
+
         assert conflict_medium.severity == "medium"
 
 
@@ -400,7 +399,7 @@ class TestBatchConflictDetection:
             authority=AuthorityLevel.ABSOLUTE,
             scope=["javascript", "async"]
         )
-        
+
         existing_rules = [
             MemoryRule(
                 rule="Use callbacks for simple async operations",
@@ -421,12 +420,12 @@ class TestBatchConflictDetection:
                 scope=["node", "filesystem"]
             )
         ]
-        
+
         conflicts = await detector.detect_conflicts(new_rule, existing_rules)
-        
+
         # Should detect conflicts with first two rules but not the third
         assert len(conflicts) >= 1
-        
+
         # Verify conflicts are with appropriate rules
         conflicting_rule_ids = {c.rule2.id for c in conflicts}
         assert existing_rules[0].id in conflicting_rule_ids or existing_rules[1].id in conflicting_rule_ids
@@ -440,7 +439,7 @@ class TestBatchConflictDetection:
             authority=AuthorityLevel.DEFAULT,
             scope=["git", "version_control"]
         )
-        
+
         unrelated_rules = [
             MemoryRule(
                 rule="Use React for frontend development",
@@ -461,9 +460,9 @@ class TestBatchConflictDetection:
                 scope=["docker", "containers"]
             )
         ]
-        
+
         conflicts = await detector.detect_conflicts(new_rule, unrelated_rules)
-        
+
         # Should not generate false positive conflicts
         assert len(conflicts) == 0
 
@@ -479,14 +478,14 @@ class TestPerformance:
     async def test_large_rule_set_performance(self, detector):
         """Test performance with large number of existing rules."""
         import time
-        
+
         new_rule = MemoryRule(
             rule="New test rule",
             category=MemoryCategory.BEHAVIOR,
             authority=AuthorityLevel.DEFAULT,
             scope=["testing"]
         )
-        
+
         # Create large set of existing rules
         existing_rules = []
         for i in range(100):
@@ -496,16 +495,16 @@ class TestPerformance:
                 authority=AuthorityLevel.DEFAULT,
                 scope=[f"scope_{i % 10}"]  # Some scope overlap
             ))
-        
+
         start_time = time.time()
         conflicts = await detector.detect_conflicts(new_rule, existing_rules)
         end_time = time.time()
-        
+
         # Should complete in reasonable time (< 1 second for 100 rules)
         assert end_time - start_time < 1.0
         assert isinstance(conflicts, list)
 
-    @pytest.mark.asyncio 
+    @pytest.mark.asyncio
     async def test_concurrent_conflict_detection(self, detector):
         """Test concurrent conflict detection operations."""
         rules = [
@@ -516,7 +515,7 @@ class TestPerformance:
                 scope=["concurrent_test"]
             ) for i in range(5)
         ]
-        
+
         existing_rules = [
             MemoryRule(
                 rule="Existing rule for concurrency test",
@@ -525,15 +524,15 @@ class TestPerformance:
                 scope=["concurrent_test"]
             )
         ]
-        
+
         # Run multiple conflict detections concurrently
         tasks = [
             detector.detect_conflicts(rule, existing_rules)
             for rule in rules
         ]
-        
+
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # All should succeed
         assert len(results) == 5
         for result in results:

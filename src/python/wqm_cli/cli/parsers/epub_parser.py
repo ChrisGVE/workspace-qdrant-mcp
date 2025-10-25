@@ -9,12 +9,9 @@ author, and publication information. Enhanced with comprehensive DRM detection,
 error handling, and rich metadata extraction.
 """
 
-import logging
-import re
 import zipfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-from xml.etree import ElementTree as ET
+from typing import Any
 
 try:
     import ebooklib
@@ -148,7 +145,7 @@ class EpubParser(DocumentParser):
             error_details = await self._diagnose_parsing_error(file_path, e)
             raise RuntimeError(f"EPUB parsing failed: {error_details}") from e
 
-    async def _check_drm_protection(self, file_path: Path) -> Dict[str, Any]:
+    async def _check_drm_protection(self, file_path: Path) -> dict[str, Any]:
         """Check if EPUB file is DRM-protected."""
         drm_info = {"has_drm": False, "scheme": "none", "details": []}
 
@@ -217,7 +214,7 @@ class EpubParser(DocumentParser):
                 with zipfile.ZipFile(file_path, 'r') as zf:
                     # Try to read container.xml
                     try:
-                        container_data = zf.read('META-INF/container.xml')
+                        zf.read('META-INF/container.xml')
                         # Parse to find OPF file location
                         # This is a simplified recovery approach
                         logger.info("Attempting manual EPUB structure recovery")
@@ -231,7 +228,7 @@ class EpubParser(DocumentParser):
                 raise RuntimeError(f"EPUB file is severely corrupted or encrypted: {recovery_error}") from e
 
     async def _extract_enhanced_metadata(
-        self, book: epub.EpubBook, drm_info: Dict[str, Any]
+        self, book: epub.EpubBook, drm_info: dict[str, Any]
     ) -> dict[str, str | int | float | bool]:
         """Extract comprehensive metadata from EPUB book."""
         metadata = {}
@@ -348,7 +345,7 @@ class EpubParser(DocumentParser):
 
         return metadata
 
-    async def _extract_table_of_contents(self, book: epub.EpubBook) -> Dict[str, Any]:
+    async def _extract_table_of_contents(self, book: epub.EpubBook) -> dict[str, Any]:
         """Extract Table of Contents information."""
         toc_info = {
             "toc_entries": [],
@@ -385,7 +382,7 @@ class EpubParser(DocumentParser):
 
         return toc_info
 
-    def _parse_toc_recursive(self, toc_items: List[Any], entries: List[Dict[str, Any]], level: int = 0) -> None:
+    def _parse_toc_recursive(self, toc_items: list[Any], entries: list[dict[str, Any]], level: int = 0) -> None:
         """Recursively parse TOC structure."""
         for item in toc_items:
             if hasattr(item, 'title') and hasattr(item, 'href'):
@@ -405,7 +402,7 @@ class EpubParser(DocumentParser):
                 if len(item) > 1 and isinstance(item[1], list):
                     self._parse_toc_recursive(item[1], entries, level + 1)
 
-    async def _parse_navigation_document(self, nav_doc) -> List[Dict[str, Any]]:
+    async def _parse_navigation_document(self, nav_doc) -> list[dict[str, Any]]:
         """Parse EPUB 3 navigation document."""
         entries = []
         try:
@@ -426,7 +423,7 @@ class EpubParser(DocumentParser):
 
         return entries
 
-    def _parse_nav_list(self, ol_element, entries: List[Dict[str, Any]], level: int) -> None:
+    def _parse_nav_list(self, ol_element, entries: list[dict[str, Any]], level: int) -> None:
         """Parse navigation list elements."""
         for li in ol_element.find_all('li', recursive=False):
             a_tag = li.find('a')

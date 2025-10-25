@@ -5,18 +5,25 @@ error handling system, including recovery mechanisms, user interactions,
 and complex error scenarios.
 """
 
-import pytest
-import tempfile
 import os
 import subprocess
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 from typer.testing import CliRunner
 
 # Import error handling components
 from wqm_cli.cli.error_handling import (
-    ErrorHandler, WqmError, ErrorCategory, ErrorSeverity, ErrorContext,
-    RecoveryAction, handle_cli_error, setup_exception_hook
+    ErrorCategory,
+    ErrorContext,
+    ErrorHandler,
+    ErrorSeverity,
+    RecoveryAction,
+    WqmError,
+    handle_cli_error,
+    setup_exception_hook,
 )
 from wqm_cli.cli.main import app
 
@@ -455,7 +462,7 @@ class TestCLIErrorIntegration:
         with patch('sys.excepthook') as mock_hook:
             setup_exception_hook()
             # Should have modified the exception hook
-            assert mock_hook != None  # Just checking it was accessed
+            assert mock_hook is not None  # Just checking it was accessed
 
     def test_keyboard_interrupt_handling(self):
         """Test that KeyboardInterrupt is handled gracefully."""
@@ -470,7 +477,6 @@ class TestCLIErrorIntegration:
 
     def test_error_context_creation_from_cli_args(self):
         """Test error context creation from CLI arguments."""
-        args = ["config", "set", "qdrant.url", "http://localhost:6333"]
 
         context = ErrorContext(
             command="config",

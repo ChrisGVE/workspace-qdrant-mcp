@@ -19,37 +19,38 @@ Features:
 """
 
 import asyncio
+import json
 import logging
-import time
 import signal
-import psutil
+import sqlite3
+import statistics
+import time
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Tuple
-from collections import defaultdict, deque
-import sqlite3
-import json
-import statistics
+from typing import Any, Optional
 
+import psutil
+
+from .integration import (
+    ComponentConfig,
+    ComponentController,
+    ComponentInstance,
+    ComponentState,
+    DockerController,
+    IntegrationTestCoordinator,
+    ProcessController,
+)
 from .orchestration import (
-    TestOrchestrator,
     OrchestrationConfig,
     OrchestrationResult,
     PipelineStage,
-)
-from .integration import (
-    IntegrationTestCoordinator,
-    ComponentConfig,
-    ComponentInstance,
-    ComponentState,
-    ComponentController,
-    ProcessController,
-    DockerController,
+    TestOrchestrator,
 )
 from .resource_exhaustion import (
-    ResourceExhaustionSimulator,
     ResourceExhaustionScenario,
+    ResourceExhaustionSimulator,
 )
 
 
@@ -86,14 +87,14 @@ class StressTestConfig(OrchestrationConfig):
     """Configuration for stress testing orchestration."""
     load_pattern: LoadPattern = LoadPattern.CONSTANT
     duration_hours: float = 24.0
-    resource_constraints: Dict[str, Any] = field(default_factory=lambda: {
+    resource_constraints: dict[str, Any] = field(default_factory=lambda: {
         "memory_mb": 1024,
         "cpu_percent": 80,
         "disk_io_mb_s": 100
     })
     failure_injection_enabled: bool = False
-    resource_exhaustion_scenario: Optional[ResourceExhaustionScenario] = None
-    performance_thresholds: Dict[str, float] = field(default_factory=lambda: {
+    resource_exhaustion_scenario: ResourceExhaustionScenario | None = None
+    performance_thresholds: dict[str, float] = field(default_factory=lambda: {
         "p50_ms": 100.0,
         "p95_ms": 500.0,
         "p99_ms": 1000.0,
@@ -109,7 +110,7 @@ class StabilityTestConfig:
     checkpoint_interval_minutes: int = 30
     resource_monitoring_interval_seconds: int = 60
     memory_leak_detection_enabled: bool = True
-    performance_thresholds: Dict[str, float] = field(default_factory=lambda: {
+    performance_thresholds: dict[str, float] = field(default_factory=lambda: {
         "p50_ms": 100.0,
         "p95_ms": 500.0,
         "p99_ms": 1000.0,
@@ -123,12 +124,12 @@ class StabilityTestConfig:
 class ComponentStressConfig:
     """Stress testing configuration for a system component."""
     component_name: str
-    resource_limits: Dict[str, Any] = field(default_factory=lambda: {
+    resource_limits: dict[str, Any] = field(default_factory=lambda: {
         "memory_mb": 512,
         "cpu_percent": 50
     })
-    failure_modes: List[str] = field(default_factory=lambda: ["crash"])
-    health_check_endpoint: Optional[str] = None
+    failure_modes: list[str] = field(default_factory=lambda: ["crash"])
+    health_check_endpoint: str | None = None
     recovery_timeout_seconds: float = 30.0
 
 
@@ -145,7 +146,7 @@ class ResourceMetrics:
     net_sent_mb: float
     net_recv_mb: float
     open_fds: int
-    component_name: Optional[str] = None
+    component_name: str | None = None
 
 
 @dataclass
@@ -154,7 +155,7 @@ class MemoryLeakReport:
     detected: bool
     growth_rate_mb_per_hour: float
     confidence: float  # 0-1
-    affected_component: Optional[str]
+    affected_component: str | None
     samples_analyzed: int
     start_memory_mb: float
     end_memory_mb: float
@@ -173,21 +174,21 @@ class StabilityTestReport:
     memory_leak_detected: bool
     memory_growth_rate_mb_per_hour: float
     performance_degradation_percent: float
-    recovery_incidents: List[Dict[str, Any]]
-    resource_usage_summary: Dict[str, Dict[str, float]]  # metric -> {avg, min, max, p95}
+    recovery_incidents: list[dict[str, Any]]
+    resource_usage_summary: dict[str, dict[str, float]]  # metric -> {avg, min, max, p95}
     checkpoints_completed: int
-    test_stopped_reason: Optional[str] = None
+    test_stopped_reason: str | None = None
 
 
 @dataclass
 class StressTestResult(OrchestrationResult):
     """Results from stress testing orchestration."""
-    baseline_metrics: Dict[str, Any] = field(default_factory=dict)
-    recovery_times: Dict[str, float] = field(default_factory=dict)  # component -> seconds
-    performance_samples: Dict[str, List[float]] = field(default_factory=lambda: defaultdict(list))
-    failure_injections: List[Dict[str, Any]] = field(default_factory=list)
-    stability_violations: List[str] = field(default_factory=list)
-    resource_exhaustion_results: Dict[str, Any] = field(default_factory=dict)
+    baseline_metrics: dict[str, Any] = field(default_factory=dict)
+    recovery_times: dict[str, float] = field(default_factory=dict)  # component -> seconds
+    performance_samples: dict[str, list[float]] = field(default_factory=lambda: defaultdict(list))
+    failure_injections: list[dict[str, Any]] = field(default_factory=list)
+    stability_violations: list[str] = field(default_factory=list)
+    resource_exhaustion_results: dict[str, Any] = field(default_factory=dict)
 
     @property
     def avg_recovery_time(self) -> float:
@@ -212,21 +213,21 @@ class ResourceMonitor:
     over time using psutil for system metrics.
     """
 
-    def __init__(self, component_name: Optional[str] = None):
+    def __init__(self, component_name: str | None = None):
         """Initialize resource monitor.
 
         Args:
             component_name: Optional component name for tagging metrics
         """
         self.component_name = component_name
-        self.metrics_history: List[ResourceMetrics] = []
-        self._monitoring_task: Optional[asyncio.Task] = None
+        self.metrics_history: list[ResourceMetrics] = []
+        self._monitoring_task: asyncio.Task | None = None
         self._stop_event = asyncio.Event()
         self.logger = logging.getLogger(__name__)
 
         # Track initial resource values for delta calculations
-        self._initial_disk_io: Optional[Tuple[int, int]] = None
-        self._initial_net_io: Optional[Tuple[int, int]] = None
+        self._initial_disk_io: tuple[int, int] | None = None
+        self._initial_net_io: tuple[int, int] | None = None
 
     async def start_monitoring(self, interval_seconds: int = 60) -> None:
         """Start continuous resource monitoring.
@@ -318,7 +319,7 @@ class ResourceMonitor:
             component_name=self.component_name
         )
 
-    def get_metrics(self) -> List[ResourceMetrics]:
+    def get_metrics(self) -> list[ResourceMetrics]:
         """Get all collected metrics.
 
         Returns:
@@ -329,7 +330,7 @@ class ResourceMonitor:
     def detect_memory_leak(
         self,
         threshold_mb_per_hour: float = 5.0
-    ) -> Optional[MemoryLeakReport]:
+    ) -> MemoryLeakReport | None:
         """Detect memory leaks from collected metrics.
 
         Args:
@@ -361,9 +362,9 @@ class MemoryLeakDetector:
 
     def analyze_memory_trend(
         self,
-        metrics: List[ResourceMetrics],
+        metrics: list[ResourceMetrics],
         threshold_mb_per_hour: float,
-        component_name: Optional[str] = None
+        component_name: str | None = None
     ) -> MemoryLeakReport:
         """Analyze memory usage trend to detect leaks.
 
@@ -416,8 +417,8 @@ class MemoryLeakDetector:
 
     def calculate_growth_rate(
         self,
-        values: List[float],
-        timestamps: List[float]
+        values: list[float],
+        timestamps: list[float]
     ) -> float:
         """Calculate memory growth rate using linear regression.
 
@@ -438,7 +439,7 @@ class MemoryLeakDetector:
         n = len(values)
         sum_x = sum(hours)
         sum_y = sum(values)
-        sum_xy = sum(x * y for x, y in zip(hours, values))
+        sum_xy = sum(x * y for x, y in zip(hours, values, strict=False))
         sum_x2 = sum(x * x for x in hours)
 
         # Calculate slope (growth rate per hour)
@@ -468,7 +469,7 @@ class MemoryLeakDetector:
 
     def _calculate_confidence(
         self,
-        values: List[float],
+        values: list[float],
         growth_rate: float
     ) -> float:
         """Calculate confidence in leak detection.
@@ -521,7 +522,7 @@ class StabilityMetricsCollector:
         self,
         run_id: str,
         elapsed_hours: float,
-        metrics: Dict[str, Any]
+        metrics: dict[str, Any]
     ) -> None:
         """Record stability checkpoint.
 
@@ -584,8 +585,8 @@ class StabilityMetricsCollector:
     def generate_stability_report(
         self,
         run_id: str,
-        resource_metrics: List[ResourceMetrics],
-        recovery_incidents: List[Dict[str, Any]]
+        resource_metrics: list[ResourceMetrics],
+        recovery_incidents: list[dict[str, Any]]
     ) -> StabilityTestReport:
         """Generate comprehensive stability report.
 
@@ -640,8 +641,8 @@ class StabilityMetricsCollector:
 
     def _summarize_resources(
         self,
-        metrics: List[ResourceMetrics]
-    ) -> Dict[str, Dict[str, float]]:
+        metrics: list[ResourceMetrics]
+    ) -> dict[str, dict[str, float]]:
         """Summarize resource usage statistics.
 
         Args:
@@ -679,7 +680,7 @@ class StabilityMetricsCollector:
         return summary
 
     @staticmethod
-    def _percentile(values: List[float], p: int) -> float:
+    def _percentile(values: list[float], p: int) -> float:
         """Calculate percentile value.
 
         Args:
@@ -711,8 +712,8 @@ class StabilityTestManager:
             database_path: Path to SQLite database
         """
         self.database_path = database_path
-        self.active_runs: Dict[str, Dict[str, Any]] = {}
-        self.resource_monitors: Dict[str, ResourceMonitor] = {}
+        self.active_runs: dict[str, dict[str, Any]] = {}
+        self.resource_monitors: dict[str, ResourceMonitor] = {}
         self.logger = logging.getLogger(__name__)
         self.metrics_collector = StabilityMetricsCollector(database_path)
 
@@ -1051,7 +1052,7 @@ class StabilityTestManager:
     async def _save_resource_samples(
         self,
         run_id: str,
-        metrics: List[ResourceMetrics]
+        metrics: list[ResourceMetrics]
     ) -> None:
         """Save resource samples to database.
 
@@ -1122,15 +1123,15 @@ class MultiComponentCoordinator:
             integration_coordinator: Integration test coordinator for component management
         """
         self.integration = integration_coordinator
-        self.components: Dict[str, ComponentInstance] = {}
-        self.failure_timestamps: Dict[str, float] = {}
-        self.recovery_timestamps: Dict[str, float] = {}
+        self.components: dict[str, ComponentInstance] = {}
+        self.failure_timestamps: dict[str, float] = {}
+        self.recovery_timestamps: dict[str, float] = {}
         self.logger = logging.getLogger(__name__)
 
     async def start_all_components(
         self,
-        configs: List[ComponentStressConfig]
-    ) -> Dict[str, bool]:
+        configs: list[ComponentStressConfig]
+    ) -> dict[str, bool]:
         """Start all components for stress testing.
 
         Args:
@@ -1186,7 +1187,7 @@ class MultiComponentCoordinator:
             raise ValueError(f"Component {component_name} not found")
 
         instance = self.components[component_name]
-        controller = self.integration._get_controller(instance.config.component_type)
+        self.integration._get_controller(instance.config.component_type)
 
         failure_timestamp = time.time()
         self.failure_timestamps[component_name] = failure_timestamp
@@ -1234,7 +1235,7 @@ class MultiComponentCoordinator:
         if component_name not in self.components:
             raise ValueError(f"Component {component_name} not found")
 
-        restart_start = time.time()
+        time.time()
 
         try:
             # Restart component
@@ -1309,7 +1310,7 @@ class MultiComponentCoordinator:
             self.logger.error(f"Error checking health for {component_name}: {e}")
             return False
 
-    def get_all_component_statuses(self) -> Dict[str, str]:
+    def get_all_component_statuses(self) -> dict[str, str]:
         """Get current status of all components.
 
         Returns:
@@ -1336,8 +1337,8 @@ class StressTestOrchestrator(TestOrchestrator):
         self,
         project_root: Path,
         test_directory: Path,
-        config: Optional[StressTestConfig] = None,
-        database_path: Optional[Path] = None
+        config: StressTestConfig | None = None,
+        database_path: Path | None = None
     ):
         """Initialize stress test orchestrator.
 
@@ -1353,9 +1354,9 @@ class StressTestOrchestrator(TestOrchestrator):
 
         # Stress-specific state
         self.stress_config = stress_config
-        self.multi_coordinator: Optional[MultiComponentCoordinator] = None
-        self.baseline_metrics: Dict[str, Any] = {}
-        self.performance_samples: Dict[str, List[float]] = defaultdict(list)
+        self.multi_coordinator: MultiComponentCoordinator | None = None
+        self.baseline_metrics: dict[str, Any] = {}
+        self.performance_samples: dict[str, list[float]] = defaultdict(list)
 
         # Initialize resource exhaustion simulator
         self.resource_simulator = ResourceExhaustionSimulator()
@@ -1411,7 +1412,7 @@ class StressTestOrchestrator(TestOrchestrator):
 
     async def orchestrate_stress_test(
         self,
-        components: List[ComponentStressConfig]
+        components: list[ComponentStressConfig]
     ) -> StressTestResult:
         """Execute stress testing orchestration for multiple components.
 
@@ -1469,7 +1470,7 @@ class StressTestOrchestrator(TestOrchestrator):
     async def _execute_stress_pipeline(
         self,
         result: StressTestResult,
-        components: List[ComponentStressConfig]
+        components: list[ComponentStressConfig]
     ):
         """Execute stress testing pipeline stages.
 
@@ -1507,7 +1508,7 @@ class StressTestOrchestrator(TestOrchestrator):
     async def _stage_resource_baseline(
         self,
         result: StressTestResult,
-        components: List[ComponentStressConfig]
+        components: list[ComponentStressConfig]
     ):
         """Capture baseline resource metrics before stress test.
 
@@ -1535,7 +1536,7 @@ class StressTestOrchestrator(TestOrchestrator):
     async def _stage_load_ramp(
         self,
         result: StressTestResult,
-        components: List[ComponentStressConfig]
+        components: list[ComponentStressConfig]
     ):
         """Gradually increase load during ramp-up period.
 
@@ -1560,7 +1561,7 @@ class StressTestOrchestrator(TestOrchestrator):
     async def _stage_stress_execution(
         self,
         result: StressTestResult,
-        components: List[ComponentStressConfig]
+        components: list[ComponentStressConfig]
     ):
         """Execute full stress load for configured duration.
 
@@ -1599,7 +1600,7 @@ class StressTestOrchestrator(TestOrchestrator):
     async def _stage_resource_exhaustion(
         self,
         result: StressTestResult,
-        components: List[ComponentStressConfig]
+        components: list[ComponentStressConfig]
     ):
         """Simulate resource exhaustion during stress test.
 
@@ -1670,8 +1671,8 @@ class StressTestOrchestrator(TestOrchestrator):
 
     async def _check_stability_checkpoint(
         self,
-        components: List[ComponentStressConfig]
-    ) -> List[str]:
+        components: list[ComponentStressConfig]
+    ) -> list[str]:
         """Check stability thresholds at checkpoint.
 
         Args:
@@ -1697,7 +1698,7 @@ class StressTestOrchestrator(TestOrchestrator):
     async def _stage_failure_injection(
         self,
         result: StressTestResult,
-        components: List[ComponentStressConfig]
+        components: list[ComponentStressConfig]
     ):
         """Inject component failures during stress test.
 
@@ -1729,7 +1730,7 @@ class StressTestOrchestrator(TestOrchestrator):
     async def _stage_recovery_validation(
         self,
         result: StressTestResult,
-        components: List[ComponentStressConfig]
+        components: list[ComponentStressConfig]
     ):
         """Validate component recovery after failures.
 
@@ -1761,7 +1762,7 @@ class StressTestOrchestrator(TestOrchestrator):
     async def _stage_degradation_analysis(
         self,
         result: StressTestResult,
-        components: List[ComponentStressConfig]
+        components: list[ComponentStressConfig]
     ):
         """Analyze performance degradation during stress test.
 
@@ -1826,7 +1827,7 @@ class StressTestOrchestrator(TestOrchestrator):
 
         return recovery_time
 
-    def track_performance_degradation(self) -> Dict[str, List[float]]:
+    def track_performance_degradation(self) -> dict[str, list[float]]:
         """Track performance degradation across components.
 
         Returns:

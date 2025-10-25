@@ -25,10 +25,11 @@ Parent: #312 - Create recovery testing scenarios
 """
 
 import asyncio
-import pytest
-from pathlib import Path
-from typing import Dict, Any, List, Optional
 from enum import Enum
+from pathlib import Path
+from typing import Any, Optional
+
+import pytest
 
 
 class ServiceLevel(Enum):

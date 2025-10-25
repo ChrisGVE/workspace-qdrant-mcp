@@ -14,20 +14,21 @@ Tests use temporary database files with WAL mode for realistic consistency testi
 
 import asyncio
 import json
-import pytest
 import sqlite3
 import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+import pytest
+
 from src.python.common.core.sqlite_state_manager import (
-    SQLiteStateManager,
-    FileProcessingStatus,
-    ProcessingPriority,
     FileProcessingRecord,
-    WatchFolderConfig,
+    FileProcessingStatus,
     LSPServerStatus,
+    ProcessingPriority,
+    SQLiteStateManager,
+    WatchFolderConfig,
 )
 
 

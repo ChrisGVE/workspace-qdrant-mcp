@@ -8,8 +8,7 @@ Security Note: This addresses SECURITY_AUDIT.md finding S4.
 """
 
 import re
-from typing import Any, Dict, List, Optional, Set, Union
-
+from typing import Any
 
 # Patterns for sensitive data detection
 SENSITIVE_PATTERNS = {
@@ -36,7 +35,7 @@ SENSITIVE_PATTERNS = {
 }
 
 # Field names that commonly contain sensitive data
-SENSITIVE_FIELD_NAMES: Set[str] = {
+SENSITIVE_FIELD_NAMES: set[str] = {
     "api_key",
     "apikey",
     "api-key",
@@ -76,8 +75,8 @@ class LogSanitizer:
     def __init__(
         self,
         level: str = SanitizationLevel.STANDARD,
-        custom_patterns: Optional[Dict[str, re.Pattern]] = None,
-        custom_field_names: Optional[Set[str]] = None,
+        custom_patterns: dict[str, re.Pattern] | None = None,
+        custom_field_names: set[str] | None = None,
         mask_paths: bool = False,
         mask_ips: bool = False,
     ):
@@ -100,7 +99,7 @@ class LogSanitizer:
         if custom_field_names:
             self.sensitive_fields.update(custom_field_names)
 
-    def _build_patterns(self, custom: Optional[Dict[str, re.Pattern]] = None) -> Dict[str, re.Pattern]:
+    def _build_patterns(self, custom: dict[str, re.Pattern] | None = None) -> dict[str, re.Pattern]:
         """Build sanitization patterns based on level."""
         patterns = {}
 
@@ -175,10 +174,10 @@ class LogSanitizer:
 
     def sanitize_dict(
         self,
-        data: Dict[str, Any],
+        data: dict[str, Any],
         mask: str = "***REDACTED***",
         recursive: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Sanitize dictionary by masking sensitive fields.
 
         Args:
@@ -211,10 +210,10 @@ class LogSanitizer:
 
     def sanitize_list(
         self,
-        data: List[Any],
+        data: list[Any],
         mask: str = "***REDACTED***",
         recursive: bool = True,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """Sanitize list by masking sensitive items.
 
         Args:
@@ -243,9 +242,9 @@ class LogSanitizer:
 
     def sanitize(
         self,
-        data: Union[str, Dict, List, Any],
+        data: str | dict | list | Any,
         mask: str = "***REDACTED***",
-    ) -> Union[str, Dict, List, Any]:
+    ) -> str | dict | list | Any:
         """Sanitize any data type (auto-detects type).
 
         Args:
@@ -271,10 +270,10 @@ _default_sanitizer = LogSanitizer(level=SanitizationLevel.STANDARD)
 
 
 def sanitize(
-    data: Union[str, Dict, List, Any],
+    data: str | dict | list | Any,
     mask: str = "***REDACTED***",
-    level: Optional[str] = None,
-) -> Union[str, Dict, List, Any]:
+    level: str | None = None,
+) -> str | dict | list | Any:
     """Convenience function to sanitize data using default sanitizer.
 
     Args:

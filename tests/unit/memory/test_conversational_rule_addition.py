@@ -13,13 +13,16 @@ This test suite validates the complete flow from conversational text to
 stored memory rules without requiring real LLM API calls.
 """
 
-import pytest
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import pytest
+from common.core.client import QdrantWorkspaceClient
+from common.core.embeddings import EmbeddingService
 from common.memory.claude_integration import ClaudeCodeIntegration
 from common.memory.manager import MemoryManager
+from common.memory.token_counter import TokenCounter
 from common.memory.types import (
     AuthorityLevel,
     ClaudeCodeSession,
@@ -28,9 +31,6 @@ from common.memory.types import (
     MemoryContext,
     MemoryRule,
 )
-from common.memory.token_counter import TokenCounter
-from common.core.client import QdrantWorkspaceClient
-from common.core.embeddings import EmbeddingService
 
 
 @pytest.fixture

@@ -7,7 +7,7 @@ for the protobuf-generated classes.
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional, Union
+from typing import Any
 
 from .ingestion_pb2 import (  # type: ignore[attr-defined]
     ExecuteQueryRequest as PbExecuteQueryRequest,
@@ -21,8 +21,6 @@ from .ingestion_pb2 import (  # type: ignore[attr-defined]
 from .ingestion_pb2 import (  # type: ignore[attr-defined]
     HealthStatus,
     SearchMode,
-    WatchEventType,
-    WatchStatus,
 )
 from .ingestion_pb2 import (  # type: ignore[attr-defined]
     ProcessDocumentRequest as PbProcessDocumentRequest,
@@ -38,8 +36,8 @@ class ProcessDocumentRequest:
 
     file_path: str
     collection: str
-    metadata: Optional[dict[str, str]] = None
-    document_id: Optional[str] = None
+    metadata: dict[str, str] | None = None
+    document_id: str | None = None
     chunk_text: bool = True
 
     def to_pb(self) -> PbProcessDocumentRequest:
@@ -65,9 +63,9 @@ class ProcessDocumentResponse:
 
     success: bool
     message: str
-    document_id: Optional[str] = None
+    document_id: str | None = None
     chunks_added: int = 0
-    applied_metadata: Optional[dict[str, str]] = None
+    applied_metadata: dict[str, str] | None = None
 
     @classmethod
     def from_pb(
@@ -92,7 +90,7 @@ class ExecuteQueryRequest:
     """Request to execute a search query."""
 
     query: str
-    collections: Optional[list[str]] = None
+    collections: list[str] | None = None
     mode: str = "hybrid"  # "hybrid", "dense", "sparse"
     limit: int = 10
     score_threshold: float = 0.7
@@ -231,7 +229,7 @@ class HealthCheckResponse:
 
 
 # Utility functions for type conversions
-def dict_to_metadata_map(metadata: Optional[dict[str, str]]) -> dict[str, str]:
+def dict_to_metadata_map(metadata: dict[str, str] | None) -> dict[str, str]:
     """Convert dict to protobuf string map."""
     return metadata or {}
 

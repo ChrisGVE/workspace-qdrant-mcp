@@ -6,7 +6,6 @@ and routing of formatting requests to appropriate LLM tool adapters with
 integrated token limit validation.
 """
 
-from typing import Dict, List, Optional
 
 from loguru import logger
 
@@ -25,7 +24,7 @@ class FormatManager:
 
     def __init__(self):
         """Initialize the format manager with built-in adapters."""
-        self._adapters: Dict[str, LLMToolAdapter] = {}
+        self._adapters: dict[str, LLMToolAdapter] = {}
         self._register_builtin_adapters()
 
     def _register_builtin_adapters(self):
@@ -63,7 +62,7 @@ class FormatManager:
         self._adapters[tool_name] = adapter
         logger.info(f"Registered adapter for tool: {tool_name}")
 
-    def get_adapter(self, tool_name: str) -> Optional[LLMToolAdapter]:
+    def get_adapter(self, tool_name: str) -> LLMToolAdapter | None:
         """
         Get adapter for a specific tool.
 
@@ -78,9 +77,9 @@ class FormatManager:
     def format_for_tool(
         self,
         tool_name: str,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         token_budget: int,
-        options: Optional[Dict[str, any]] = None,
+        options: dict[str, any] | None = None,
     ) -> FormattedContext:
         """
         Format rules for a specific LLM tool with token limit validation.
@@ -116,8 +115,8 @@ class FormatManager:
 
         # Validate token budget against tool limits
         # Import here to avoid circular dependency
-        from ..tool_token_manager import ToolTokenManager
         from ..llm_tool_detector import LLMToolType
+        from ..tool_token_manager import ToolTokenManager
 
         # Map tool name to LLMToolType
         tool_type_mapping = {
@@ -169,7 +168,7 @@ class FormatManager:
 
         return formatted
 
-    def list_supported_tools(self) -> List[str]:
+    def list_supported_tools(self) -> list[str]:
         """
         Get list of supported tools.
 

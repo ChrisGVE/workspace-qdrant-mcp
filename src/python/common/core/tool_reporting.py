@@ -33,7 +33,6 @@ Example:
 
 import platform
 from dataclasses import dataclass
-from typing import Dict, List, Optional
 
 from loguru import logger
 
@@ -56,10 +55,10 @@ class MissingTool:
 
     name: str
     tool_type: str  # 'lsp_server', 'tree_sitter', 'compiler', 'build_tool'
-    language: Optional[str] = None  # For LSP servers
+    language: str | None = None  # For LSP servers
     severity: str = "recommended"  # 'critical', 'recommended', 'optional'
-    install_command: Optional[str] = None
-    install_url: Optional[str] = None
+    install_command: str | None = None
+    install_url: str | None = None
 
 
 class ToolReporter:
@@ -75,7 +74,7 @@ class ToolReporter:
     """
 
     # Installation commands by tool name and platform
-    INSTALL_COMMANDS: Dict[str, Dict[str, str]] = {
+    INSTALL_COMMANDS: dict[str, dict[str, str]] = {
         # LSP Servers
         "pyright": {
             "darwin": "npm install -g pyright",
@@ -148,7 +147,7 @@ class ToolReporter:
     }
 
     # Official documentation URLs
-    DOCUMENTATION_URLS: Dict[str, str] = {
+    DOCUMENTATION_URLS: dict[str, str] = {
         # LSP Servers
         "pyright": "https://github.com/microsoft/pyright",
         "pyright-langserver": "https://github.com/microsoft/pyright",
@@ -170,7 +169,7 @@ class ToolReporter:
 
     # Language popularity for severity classification
     # Higher values indicate more critical languages
-    LANGUAGE_POPULARITY: Dict[str, int] = {
+    LANGUAGE_POPULARITY: dict[str, int] = {
         "python": 10,
         "javascript": 10,
         "typescript": 9,
@@ -201,7 +200,7 @@ class ToolReporter:
         self._current_platform = platform.system().lower()
         logger.debug(f"ToolReporter initialized for platform: {self._current_platform}")
 
-    async def get_missing_tools(self) -> List[MissingTool]:
+    async def get_missing_tools(self) -> list[MissingTool]:
         """Get list of missing development tools.
 
         Queries the database for languages with missing LSP servers or
@@ -211,7 +210,7 @@ class ToolReporter:
         Returns:
             List of MissingTool objects for missing tools
         """
-        missing_tools: List[MissingTool] = []
+        missing_tools: list[MissingTool] = []
 
         try:
             # Query database for missing LSP servers
@@ -304,7 +303,7 @@ class ToolReporter:
         else:
             return "optional"
 
-    def get_install_command(self, tool_name: str, tool_type: str) -> Optional[str]:
+    def get_install_command(self, tool_name: str, tool_type: str) -> str | None:
         """Get platform-specific installation command for a tool.
 
         Args:
@@ -332,7 +331,7 @@ class ToolReporter:
 
         return command
 
-    def get_install_url(self, tool_name: str) -> Optional[str]:
+    def get_install_url(self, tool_name: str) -> str | None:
         """Get official documentation URL for a tool.
 
         Args:
@@ -349,7 +348,7 @@ class ToolReporter:
         return url
 
     def generate_installation_guide(
-        self, missing_tools: List[MissingTool]
+        self, missing_tools: list[MissingTool]
     ) -> str:
         """Generate formatted installation guide for missing tools.
 
@@ -366,9 +365,9 @@ class ToolReporter:
             return "All development tools are installed and available."
 
         # Group tools by severity
-        critical_tools: List[MissingTool] = []
-        recommended_tools: List[MissingTool] = []
-        optional_tools: List[MissingTool] = []
+        critical_tools: list[MissingTool] = []
+        recommended_tools: list[MissingTool] = []
+        optional_tools: list[MissingTool] = []
 
         for tool in missing_tools:
             if tool.severity == "critical":
@@ -423,7 +422,7 @@ class ToolReporter:
 
         return "\n".join(lines)
 
-    def _format_tool_entry(self, tool: MissingTool) -> List[str]:
+    def _format_tool_entry(self, tool: MissingTool) -> list[str]:
         """Format a single tool entry for the installation guide.
 
         Args:

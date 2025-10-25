@@ -13,12 +13,12 @@ Components:
 - coverage_validator: 100% coverage validation system
 """
 
-from .discovery import TestDiscovery, TestCategory, TestComplexity
-from .execution import ParallelTestExecutor, ExecutionStrategy
 from .analytics import TestAnalytics, TestMetrics
+from .coverage_validator import CoverageLevel, CoverageReport, CoverageValidator
+from .discovery import TestCategory, TestComplexity, TestDiscovery
+from .execution import ExecutionStrategy, ParallelTestExecutor
 from .integration import IntegrationTestCoordinator
-from .orchestration import TestOrchestrator, OrchestrationConfig, OrchestrationMode
-from .coverage_validator import CoverageValidator, CoverageReport, CoverageLevel
+from .orchestration import OrchestrationConfig, OrchestrationMode, TestOrchestrator
 
 __all__ = [
     "TestDiscovery",

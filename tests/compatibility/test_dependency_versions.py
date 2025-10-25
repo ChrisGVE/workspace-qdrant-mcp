@@ -6,7 +6,6 @@ functionality works across different Python versions and dependency versions.
 """
 
 import sys
-from typing import Tuple
 
 import pytest
 
@@ -87,12 +86,12 @@ class TestQdrantClientCompatibility:
         """Test Qdrant models can be imported."""
         from qdrant_client.models import (
             Distance,
-            VectorParams,
+            FieldCondition,
+            Filter,
+            MatchValue,
             PointStruct,
             ScoredPoint,
-            Filter,
-            FieldCondition,
-            MatchValue,
+            VectorParams,
         )
 
         assert Distance is not None
@@ -195,7 +194,7 @@ class TestFastAPICompatibility:
 
     def test_fastapi_basic_app(self):
         """Test FastAPI app can be created."""
-        from fastapi import FastAPI, APIRouter
+        from fastapi import APIRouter, FastAPI
 
         app = FastAPI(title="Test App")
         assert app is not None

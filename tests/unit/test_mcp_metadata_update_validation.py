@@ -22,8 +22,8 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List
-from unittest.mock import Mock, patch, AsyncMock, MagicMock, call
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
@@ -33,8 +33,8 @@ sys.path.insert(0, str(src_path))
 
 # Test imports
 try:
+    from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
     from workspace_qdrant_mcp import server
-    from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
     SERVER_AVAILABLE = True
 except ImportError as e:
     SERVER_AVAILABLE = False

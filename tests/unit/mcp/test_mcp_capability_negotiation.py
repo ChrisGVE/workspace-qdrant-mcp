@@ -13,12 +13,12 @@ This verifies MCP protocol compliance for capability exchange, not business logi
 All external dependencies (Qdrant, daemon) are mocked via conftest fixtures.
 """
 
-import json
-import pytest
 import inspect
-from typing import Dict, Any, List
+import json
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from fastmcp.client.client import CallToolResult
 from fastmcp.exceptions import ToolError
 from mcp.types import TextContent
@@ -264,7 +264,7 @@ class TestFailedNegotiation:
             )
             # If we get a result, it should indicate error
             assert result.isError, "Nonexistent tool call should fail"
-        except ToolError as e:
+        except ToolError:
             # ToolError is acceptable for nonexistent tools
             pass
 
@@ -331,7 +331,7 @@ class TestFailedNegotiation:
         """Verify server continues functioning after failed tool call."""
         # Make a failing call
         try:
-            result1 = await mcp_client.call_tool(
+            await mcp_client.call_tool(
                 "nonexistent_tool_that_does_not_exist", {}
             )
         except (ToolError, Exception):
@@ -428,7 +428,7 @@ class TestCrossCapabilityCompliance:
     async def test_no_undocumented_tools(self, mcp_client):
         """Verify there are no undocumented/hidden tools."""
         tools = await mcp_client.list_tools()
-        available_tools = set([tool.name for tool in tools])
+        available_tools = {tool.name for tool in tools}
 
         # Expected tools
         expected_tools = {"store", "search", "manage", "retrieve"}

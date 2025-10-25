@@ -21,8 +21,8 @@ Test Coverage:
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 from qdrant_client.http import models
@@ -35,11 +35,10 @@ from common.core.hybrid_search import (
     RRFFusionRanker,
 )
 from common.core.multitenant_collections import (
-    ProjectMetadata,
     ProjectIsolationManager,
+    ProjectMetadata,
     WorkspaceCollectionRegistry,
 )
-
 
 # ============================================================================
 # Test Fixtures
@@ -239,7 +238,8 @@ def mock_search_results_mixed_projects():
 
 @pytest.fixture
 def sample_query_embeddings():
-    }
+    """Sample query embedding vector for testing."""
+    return [0.1] * 384  # Standard embedding dimension for all-MiniLM-L6-v2
 
 
 # ============================================================================

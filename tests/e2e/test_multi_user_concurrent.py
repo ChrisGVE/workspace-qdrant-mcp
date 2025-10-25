@@ -6,16 +6,16 @@ ingestion, concurrent searches, shared daemon access, thread safety, data
 consistency, and performance under load.
 """
 
-import pytest
 import asyncio
 import time
-from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Tuple
+from pathlib import Path
+
+import pytest
 
 from tests.e2e.fixtures import (
-    SystemComponents,
     CLIHelper,
+    SystemComponents,
 )
 
 
@@ -29,7 +29,7 @@ class TestConcurrentCLIOperations:
     ):
         """Test multiple concurrent status queries."""
 
-        def query_status(user_id: int) -> Tuple[int, int]:
+        def query_status(user_id: int) -> tuple[int, int]:
             """Query status for a user."""
             result = cli_helper.run_command(["status", "--quiet"])
             return user_id, result.returncode
@@ -53,7 +53,7 @@ class TestConcurrentCLIOperations:
     ):
         """Test multiple users listing collections concurrently."""
 
-        def list_collections(user_id: int) -> Tuple[int, int]:
+        def list_collections(user_id: int) -> tuple[int, int]:
             """List collections for a user."""
             result = cli_helper.run_command(["admin", "collections"])
             return user_id, result.returncode
@@ -86,7 +86,7 @@ class TestParallelFileIngestion:
             user_file.write_text(f"Content from user {user_id}")
             user_files.append((user_id, user_file))
 
-        def ingest_file(user_data: Tuple[int, Path]) -> Tuple[int, int]:
+        def ingest_file(user_data: tuple[int, Path]) -> tuple[int, int]:
             """Ingest file for a user."""
             user_id, file_path = user_data
             collection = f"test-parallel-user{user_id}-{int(time.time())}"
@@ -129,7 +129,7 @@ class TestParallelFileIngestion:
 
             user_folders.append((user_id, user_folder))
 
-        def ingest_folder(user_data: Tuple[int, Path]) -> Tuple[int, int]:
+        def ingest_folder(user_data: tuple[int, Path]) -> tuple[int, int]:
             """Ingest folder for a user."""
             user_id, folder_path = user_data
             collection = f"test-folder-user{user_id}-{int(time.time())}"
@@ -173,10 +173,10 @@ class TestConcurrentSearches:
         )
         await asyncio.sleep(5)
 
-        def search_content(user_id: int) -> Tuple[int, int]:
+        def search_content(user_id: int) -> tuple[int, int]:
             """Search for content as a user."""
             result = cli_helper.run_command(
-                ["search", f"Document searchable", "--collection", collection_name],
+                ["search", "Document searchable", "--collection", collection_name],
                 timeout=15,
             )
             return user_id, result.returncode
@@ -206,7 +206,7 @@ class TestSharedDaemonAccess:
     ):
         """Test that daemon handles multiple concurrent connections."""
 
-        def access_daemon(user_id: int) -> Tuple[int, int]:
+        def access_daemon(user_id: int) -> tuple[int, int]:
             """Access daemon as a user."""
             result = cli_helper.run_command(["service", "status"])
             return user_id, result.returncode
@@ -271,7 +271,7 @@ class TestThreadSafety:
         """Test concurrent writes to different collections are safe."""
         workspace = system_components.workspace_path
 
-        def write_to_collection(coll_id: int) -> Tuple[int, int]:
+        def write_to_collection(coll_id: int) -> tuple[int, int]:
             """Write to a specific collection."""
             test_file = workspace / f"thread_safe_{coll_id}.txt"
             test_file.write_text(f"Thread safe content {coll_id}")
@@ -451,7 +451,7 @@ class TestConcurrentOperationIsolation:
         """Test that concurrent user operations don't interfere."""
         workspace = system_components.workspace_path
 
-        def user_isolated_workflow(user_id: int) -> Tuple[int, bool]:
+        def user_isolated_workflow(user_id: int) -> tuple[int, bool]:
             """Execute isolated user workflow."""
             user_file = workspace / f"isolated_{user_id}.txt"
             user_file.write_text(f"Isolated user {user_id} data")

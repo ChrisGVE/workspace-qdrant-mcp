@@ -25,18 +25,15 @@ import asyncio
 import hashlib
 import json as json_module
 import subprocess
-import sys
 from pathlib import Path
-from typing import Optional
 
 import typer
-from loguru import logger
-from tabulate import tabulate
-
 from common.core.client import QdrantWorkspaceClient
 from common.core.collection_aliases import AliasManager
 from common.core.collection_naming import build_project_collection_name
 from common.core.config import get_config
+from loguru import logger
+from tabulate import tabulate
 
 # Create Typer app for project commands
 project_app = typer.Typer(
@@ -60,7 +57,7 @@ def generate_project_id(project_path: Path) -> str:
     return hashlib.sha256(path_str.encode('utf-8')).hexdigest()[:12]
 
 
-def get_git_remote_url(project_path: Path) -> Optional[str]:
+def get_git_remote_url(project_path: Path) -> str | None:
     """
     Get the git remote URL for a project.
 
@@ -170,7 +167,7 @@ async def _update_remote(project_path: Path, force: bool):
         else:
             # Force mode without remote - use a different hash to simulate change
             new_project_id = hashlib.sha256(
-                f"forced_{project_path}".encode('utf-8')
+                f"forced_{project_path}".encode()
             ).hexdigest()[:12]
             typer.echo("Force mode: Using alternative hash as new project ID")
 
@@ -183,7 +180,7 @@ async def _update_remote(project_path: Path, force: bool):
             raise typer.Exit(0)
 
         # Initialize client and alias manager
-        config = get_config()
+        get_config()
         client = QdrantWorkspaceClient()
         await client.initialize()
 
@@ -281,7 +278,7 @@ async def _list_aliases(format: str):
     """
     try:
         # Initialize client and alias manager
-        config = get_config()
+        get_config()
         client = QdrantWorkspaceClient()
         await client.initialize()
 
@@ -380,7 +377,7 @@ async def _remove_alias(old_collection: str, force: bool):
     """
     try:
         # Initialize client and alias manager
-        config = get_config()
+        get_config()
         client = QdrantWorkspaceClient()
         await client.initialize()
 

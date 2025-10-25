@@ -8,19 +8,19 @@ Run with: uv run pytest tests/benchmarks/benchmark_database_queries.py --benchma
 """
 
 import asyncio
-import pytest
 import tempfile
-from pathlib import Path
 from datetime import datetime, timezone
-from typing import List, Dict, Any
+from pathlib import Path
+from typing import Any
+
+import pytest
 
 from src.python.common.core.sqlite_state_manager import (
-    SQLiteStateManager,
-    WatchFolderConfig,
     FileProcessingStatus,
     ProcessingPriority,
+    SQLiteStateManager,
+    WatchFolderConfig,
 )
-
 
 # Test data volume configurations
 SMALL_DATASET = 10
@@ -55,7 +55,7 @@ def cleanup_sqlite_manager(manager, db_path):
 
 
 @pytest.fixture
-def watch_folder_configs_small() -> List[WatchFolderConfig]:
+def watch_folder_configs_small() -> list[WatchFolderConfig]:
     """Generate small dataset of watch folder configs."""
     return [
         WatchFolderConfig(
@@ -72,7 +72,7 @@ def watch_folder_configs_small() -> List[WatchFolderConfig]:
 
 
 @pytest.fixture
-def watch_folder_configs_medium() -> List[WatchFolderConfig]:
+def watch_folder_configs_medium() -> list[WatchFolderConfig]:
     """Generate medium dataset of watch folder configs."""
     return [
         WatchFolderConfig(
@@ -89,7 +89,7 @@ def watch_folder_configs_medium() -> List[WatchFolderConfig]:
 
 
 @pytest.fixture
-def watch_folder_configs_large() -> List[WatchFolderConfig]:
+def watch_folder_configs_large() -> list[WatchFolderConfig]:
     """Generate large dataset of watch folder configs."""
     return [
         WatchFolderConfig(
@@ -960,8 +960,8 @@ def test_qdrant_point_insert_batch_large(benchmark, qdrant_client, vector_dimens
 @pytest.mark.requires_qdrant
 def test_qdrant_search_dense_only_small(benchmark, qdrant_client, vector_dimensions, generate_test_vectors):
     """Benchmark dense vector search (small dataset)."""
-    from qdrant_client.http import models
     import numpy as np
+    from qdrant_client.http import models
 
     # Create and populate collection
     collection_name = "benchmark-search-small"
@@ -998,8 +998,8 @@ def test_qdrant_search_dense_only_small(benchmark, qdrant_client, vector_dimensi
 @pytest.mark.requires_qdrant
 def test_qdrant_search_dense_only_medium(benchmark, qdrant_client, vector_dimensions, generate_test_vectors):
     """Benchmark dense vector search (medium dataset)."""
-    from qdrant_client.http import models
     import numpy as np
+    from qdrant_client.http import models
 
     # Create and populate collection
     collection_name = "benchmark-search-medium"
@@ -1036,8 +1036,8 @@ def test_qdrant_search_dense_only_medium(benchmark, qdrant_client, vector_dimens
 @pytest.mark.requires_qdrant
 def test_qdrant_search_with_filter(benchmark, qdrant_client, vector_dimensions, generate_test_vectors):
     """Benchmark search with metadata filtering."""
-    from qdrant_client.http import models
     import numpy as np
+    from qdrant_client.http import models
 
     # Create and populate collection
     collection_name = "benchmark-search-filter"
@@ -1086,8 +1086,8 @@ def test_qdrant_search_with_filter(benchmark, qdrant_client, vector_dimensions, 
 @pytest.mark.requires_qdrant
 def test_qdrant_search_large_limit(benchmark, qdrant_client, vector_dimensions, generate_test_vectors):
     """Benchmark search with large result limit."""
-    from qdrant_client.http import models
     import numpy as np
+    from qdrant_client.http import models
 
     # Create and populate collection
     collection_name = "benchmark-search-large-limit"

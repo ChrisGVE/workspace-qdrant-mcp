@@ -14,7 +14,7 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import typer
 from loguru import logger
@@ -66,7 +66,7 @@ def get_daemon_db_path() -> Path:
     return db_path
 
 
-def format_timestamp(timestamp: Optional[int]) -> str:
+def format_timestamp(timestamp: int | None) -> str:
     """Format Unix timestamp for display.
 
     Args:
@@ -97,7 +97,7 @@ def format_timestamp(timestamp: Optional[int]) -> str:
         return "Unknown"
 
 
-def truncate_path(path: Optional[str], max_length: int = 50) -> str:
+def truncate_path(path: str | None, max_length: int = 50) -> str:
     """Truncate long paths with ellipsis in the middle.
 
     Args:
@@ -123,7 +123,7 @@ def truncate_path(path: Optional[str], max_length: int = 50) -> str:
 
 @tools_app.command("status")
 def tool_status(
-    language: Optional[str] = typer.Option(
+    language: str | None = typer.Option(
         None,
         "--language",
         help="Filter by programming language",
@@ -138,7 +138,7 @@ def tool_status(
         "--unavailable",
         help="Show only unavailable tools",
     ),
-    tool_type: Optional[str] = typer.Option(
+    tool_type: str | None = typer.Option(
         None,
         "--type",
         help="Filter by tool type (tree-sitter, lsp)",
@@ -159,10 +159,10 @@ def tool_status(
 
 
 async def _tool_status(
-    language: Optional[str],
+    language: str | None,
     available: bool,
     unavailable: bool,
-    tool_type: Optional[str],
+    tool_type: str | None,
     format: str,
 ) -> None:
     """Implementation of tool_status command."""
@@ -189,7 +189,7 @@ async def _tool_status(
 
         # Build query with filters
         where_clauses = []
-        params: List[Any] = []
+        params: list[Any] = []
 
         if language:
             where_clauses.append("language = ?")

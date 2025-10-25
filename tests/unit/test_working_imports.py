@@ -1,8 +1,9 @@
 """Working import coverage tests - only tests that pass."""
 
 import sys
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 
 
 class TestWorkingImports:

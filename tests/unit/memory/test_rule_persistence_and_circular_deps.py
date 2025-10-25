@@ -16,21 +16,20 @@ Test Coverage:
 - Integration scenarios
 """
 
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Set, Tuple, Optional
-from unittest.mock import AsyncMock, Mock, MagicMock, patch
-from qdrant_client.models import PointStruct, ScoredPoint
-
-from common.core.memory import (
-    MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
-    MemoryManager,
-    MemoryConflict,
-)
 from common.core.collection_naming import CollectionNamingManager, CollectionType
-
+from common.core.memory import (
+    AuthorityLevel,
+    MemoryCategory,
+    MemoryConflict,
+    MemoryManager,
+    MemoryRule,
+)
+from qdrant_client.models import PointStruct, ScoredPoint
 
 # ============================================================================
 # HELPER CLASSES AND FIXTURES
@@ -40,7 +39,7 @@ class DependencyGraph:
     """Helper class for building and analyzing dependency graphs."""
 
     def __init__(self):
-        self.dependencies: Dict[str, List[str]] = {}
+        self.dependencies: dict[str, list[str]] = {}
 
     def add_dependency(self, rule_id: str, depends_on: str):
         """Add a dependency: rule_id depends on depends_on."""
@@ -48,7 +47,7 @@ class DependencyGraph:
             self.dependencies[rule_id] = []
         self.dependencies[rule_id].append(depends_on)
 
-    def add_rule_dependencies(self, rule_id: str, replaces: List[str]):
+    def add_rule_dependencies(self, rule_id: str, replaces: list[str]):
         """Add dependencies from a rule's replaces field."""
         if replaces:
             for replaced_id in replaces:
@@ -97,7 +96,7 @@ class DependencyGraph:
 
         return False
 
-    def find_cycles(self) -> List[List[str]]:
+    def find_cycles(self) -> list[list[str]]:
         """Find all cycles in the dependency graph (iterative version)."""
         cycles = []
         visited = set()
@@ -356,7 +355,7 @@ class TestBasicPersistence:
     @pytest.mark.asyncio
     async def test_rule_metadata_persists(self, memory_manager):
         """Test that all metadata fields persist correctly."""
-        now = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
 
         rule_id = await memory_manager.add_memory_rule(
             category=MemoryCategory.BEHAVIOR,
@@ -535,7 +534,7 @@ class TestComplexPersistenceScenarios:
     async def test_rule_with_dependencies_persists(self, memory_manager):
         """Test that rules with replaces field persist correctly."""
         # Add base rule
-        base_rule_id = await memory_manager.add_memory_rule(
+        await memory_manager.add_memory_rule(
             category=MemoryCategory.BEHAVIOR,
             name="Base Rule",
             rule="Original rule",
@@ -947,7 +946,7 @@ class TestPreventionOnRuleCreation:
         )
 
         # Create another base to avoid deletion
-        base_rule_id_2 = await memory_manager.add_memory_rule(
+        await memory_manager.add_memory_rule(
             category=MemoryCategory.BEHAVIOR,
             name="Base 2",
             rule="Base rule 2",

@@ -5,10 +5,11 @@ Tests compatibility with supported Qdrant versions (1.7+).
 Validates API compatibility, collection operations, and vector search functionality.
 """
 
+import asyncio
+from typing import Optional
+
 import pytest
 from packaging import version
-from typing import Optional
-import asyncio
 
 # Test if qdrant-client can be imported
 try:
@@ -16,12 +17,12 @@ try:
     from qdrant_client import QdrantClient
     from qdrant_client.models import (
         Distance,
-        VectorParams,
-        PointStruct,
-        Filter,
         FieldCondition,
+        Filter,
         MatchValue,
+        PointStruct,
         SearchRequest,
+        VectorParams,
     )
 
     QDRANT_AVAILABLE = True
@@ -343,7 +344,7 @@ class TestQdrantFeatureAvailability:
     def test_hybrid_search_models_available(self):
         """Test hybrid search model classes are available."""
         # These should be available in qdrant-client 1.7+
-        from qdrant_client.models import SparseVector, NamedSparseVector
+        from qdrant_client.models import NamedSparseVector, SparseVector
 
         # Test instantiation
         sparse = SparseVector(indices=[1, 2, 3], values=[0.1, 0.2, 0.3])

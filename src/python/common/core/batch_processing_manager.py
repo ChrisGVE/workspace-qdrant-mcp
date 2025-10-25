@@ -40,25 +40,22 @@ Example:
 """
 
 import asyncio
-import gc
+import hashlib
 import heapq
-import psutil
 import time
 from collections import defaultdict, deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
 from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union, Callable, Tuple, NamedTuple
-import hashlib
-import weakref
+from typing import Any, NamedTuple
 
+import psutil
 from loguru import logger
 
 # Performance monitoring imports
 try:
+    from .performance_metrics import MetricType, PerformanceMetricsCollector
     from .performance_monitor import PerformanceMonitor
-    from .performance_metrics import PerformanceMetricsCollector, MetricType
     MONITORING_AVAILABLE = True
 except ImportError:
     MONITORING_AVAILABLE = False
@@ -95,7 +92,7 @@ class FileOperation(NamedTuple):
     operation_type: str  # "add", "modify", "delete"
     priority: BatchPriority = BatchPriority.NORMAL
     timestamp: float = field(default_factory=time.time)
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -103,7 +100,7 @@ class BatchItem:
     """Individual item in a processing batch."""
     file_operation: FileOperation
     retry_count: int = 0
-    last_error: Optional[str] = None
+    last_error: str | None = None
     added_at: float = field(default_factory=time.time)
     processing_duration: float = 0.0
 
@@ -124,7 +121,7 @@ class BatchItem:
 @dataclass
 class ProcessingBatch:
     """A batch of items for processing."""
-    items: List[BatchItem] = field(default_factory=list)
+    items: list[BatchItem] = field(default_factory=list)
     batch_id: str = field(default_factory=lambda: hashlib.md5(str(time.time()).encode()).hexdigest()[:8])
     created_at: float = field(default_factory=time.time)
     priority: BatchPriority = BatchPriority.NORMAL
@@ -161,7 +158,7 @@ class ProcessingBatch:
         """Check if batch is empty."""
         return len(self.items) == 0
 
-    def get_file_paths(self) -> List[str]:
+    def get_file_paths(self) -> list[str]:
         """Get list of file paths in batch."""
         return [item.file_operation.file_path for item in self.items]
 
@@ -235,7 +232,7 @@ class BatchProcessingStatistics:
         if current_mb > self.peak_memory_usage_mb:
             self.peak_memory_usage_mb = current_mb
 
-    def get_efficiency_metrics(self) -> Dict[str, float]:
+    def get_efficiency_metrics(self) -> dict[str, float]:
         """Get efficiency and performance metrics."""
         success_rate = (
             (self.total_files_processed / max(1, self.total_files_processed + self.total_files_failed)) * 100
@@ -254,7 +251,7 @@ class BatchProcessingStatistics:
             "queue_efficiency": max(0, 100 - (self.avg_queue_wait_time / max(1, self.avg_batch_processing_time)) * 100)
         }
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert statistics to dictionary."""
         base_stats = {
             "total_files_processed": self.total_files_processed,
@@ -356,7 +353,7 @@ class BatchProcessingManager:
     priority handling, and performance optimization for high-throughput scenarios.
     """
 
-    def __init__(self, config: Union[BatchProcessingConfig, Dict[str, Any]]):
+    def __init__(self, config: BatchProcessingConfig | dict[str, Any]):
         """Initialize batch processing manager.
 
         Args:
@@ -370,18 +367,18 @@ class BatchProcessingManager:
         self.config.validate()
 
         self.statistics = BatchProcessingStatistics()
-        self.processing_callback: Optional[Callable[[List[BatchItem]], Any]] = None
+        self.processing_callback: Callable[[list[BatchItem]], Any] | None = None
 
         # Queue management
-        self._processing_queue: List[ProcessingBatch] = []  # Priority queue (heapq)
-        self._current_batches: Dict[str, ProcessingBatch] = {}  # Collection -> current batch
-        self._pending_items: Dict[str, Set[str]] = defaultdict(set)  # Track pending file paths per collection
+        self._processing_queue: list[ProcessingBatch] = []  # Priority queue (heapq)
+        self._current_batches: dict[str, ProcessingBatch] = {}  # Collection -> current batch
+        self._pending_items: dict[str, set[str]] = defaultdict(set)  # Track pending file paths per collection
 
         # Processing control
         self._running = False
-        self._processing_task: Optional[asyncio.Task] = None
-        self._batch_flush_task: Optional[asyncio.Task] = None
-        self._concurrent_processors: Set[asyncio.Task] = set()
+        self._processing_task: asyncio.Task | None = None
+        self._batch_flush_task: asyncio.Task | None = None
+        self._concurrent_processors: set[asyncio.Task] = set()
 
         # Performance monitoring
         self.performance_monitor = None
@@ -416,7 +413,7 @@ class BatchProcessingManager:
 
         logger.info(f"BatchProcessingManager initialized with strategy: {self.config.processing_strategy.value}")
 
-    def set_processing_callback(self, callback: Callable[[List[BatchItem]], Any]) -> None:
+    def set_processing_callback(self, callback: Callable[[list[BatchItem]], Any]) -> None:
         """Set the callback function for processing batches.
 
         Args:
@@ -469,7 +466,7 @@ class BatchProcessingManager:
         collection: str,
         operation_type: str = "add",
         priority: BatchPriority = BatchPriority.NORMAL,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ) -> bool:
         """Add a file to the processing queue.
 
@@ -664,11 +661,11 @@ class BatchProcessingManager:
 
         while self._running:
             try:
-                current_time = time.time()
+                time.time()
 
                 # Check all current batches for age-based flushing
                 batches_to_flush = []
-                for collection, batch in self._current_batches.items():
+                for _collection, batch in self._current_batches.items():
                     if (
                         batch.age_seconds() >= self.config.max_batch_age_seconds or
                         (batch.priority == BatchPriority.CRITICAL and batch.age_seconds() >= 0.1)
@@ -946,7 +943,7 @@ class BatchProcessingManager:
         """Get current batch processing statistics."""
         return self.statistics
 
-    def get_queue_status(self) -> Dict[str, Any]:
+    def get_queue_status(self) -> dict[str, Any]:
         """Get detailed queue status information."""
         return {
             "running": self._running,
@@ -960,7 +957,7 @@ class BatchProcessingManager:
             "system_load": self._system_load_history[-1] if self._system_load_history else 0.0
         }
 
-    def get_performance_report(self) -> Dict[str, Any]:
+    def get_performance_report(self) -> dict[str, Any]:
         """Get comprehensive performance report."""
         stats_dict = self.statistics.to_dict()
         queue_status = self.get_queue_status()

@@ -8,12 +8,10 @@ the system works correctly with minimum and maximum supported versions.
 import importlib.metadata
 import subprocess
 import sys
-from typing import Dict, List, Tuple
 
 import pytest
 from packaging.specifiers import SpecifierSet
 from packaging.version import Version, parse
-
 
 # Critical dependency version requirements from pyproject.toml
 CRITICAL_DEPENDENCIES = {
@@ -212,7 +210,7 @@ class TestPydanticV2Compatibility:
 
     def test_pydantic_v2_features(self):
         """Test Pydantic v2 specific features."""
-        from pydantic import BaseModel, Field, ConfigDict
+        from pydantic import BaseModel, ConfigDict, Field
 
         class TestModel(BaseModel):
             model_config = ConfigDict(strict=True)
@@ -285,7 +283,7 @@ class TestFastAPICompatibility:
     def test_fastapi_imports(self):
         """Test FastAPI imports."""
         try:
-            from fastapi import FastAPI, APIRouter, HTTPException, status
+            from fastapi import APIRouter, FastAPI, HTTPException, status
             assert FastAPI is not None
             assert APIRouter is not None
             assert HTTPException is not None
@@ -549,7 +547,7 @@ class TestDependencySecurityValidation:
             "imp": "Use importlib instead"
         }
 
-        for pkg, message in deprecated_packages.items():
+        for pkg, _message in deprecated_packages.items():
             try:
                 __import__(pkg)
                 # If import succeeds, check if we're actually using it in our code

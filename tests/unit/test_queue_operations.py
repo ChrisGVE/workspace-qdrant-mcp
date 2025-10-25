@@ -18,17 +18,18 @@ Tests cover all queue operations with edge cases and error conditions:
 
 import asyncio
 import json
-import pytest
 import sqlite3
 import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
+
+import pytest
 
 from src.python.common.core.queue_client import (
-    SQLiteQueueClient,
-    QueueOperation,
     QueueItem,
+    QueueOperation,
+    SQLiteQueueClient,
 )
 from src.python.common.core.queue_connection import ConnectionConfig
 
@@ -118,22 +119,22 @@ class TestSQLiteQueueClient:
             db_path = Path(tmpdir) / "test_queue.db"
             client = SQLiteQueueClient(str(db_path))
             await client.initialize()
-            
+
             # Create database schema
             schema_path = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "queue_schema.sql"
             with open(schema_path) as f:
                 schema_sql = f.read()
-            
+
             async with client.connection_pool.get_connection_async() as conn:
                 conn.executescript(schema_sql)
                 conn.commit()
-            
+
             # Create error messages schema
             error_schema_path = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
             with open(error_schema_path) as f:
                 error_schema_sql = f.read()
             conn.executescript(error_schema_sql)
-            
+
             # Rename messages_enhanced to messages for compatibility
             # Drop views that reference the messages table
             conn.execute("DROP VIEW IF EXISTS error_summary")
@@ -177,7 +178,7 @@ class TestSQLiteQueueClient:
     @pytest.mark.asyncio
     async def test_enqueue_file_with_all_params(self, queue_client):
         """Test enqueue with all parameters."""
-        file_path = await queue_client.enqueue_file(
+        await queue_client.enqueue_file(
             file_path="/test/file.py",
             collection="test-collection",
             tenant_id="tenant1",
@@ -429,9 +430,9 @@ class TestSQLiteQueueClient:
 
         should_retry, error_id = await queue_client.mark_error(
             file_path="/test/file.py",
-            
+
             error_message="Test error",
-            
+
             max_retries=3,
         )
 
@@ -455,7 +456,7 @@ class TestSQLiteQueueClient:
         for i in range(3):
             should_retry, _ = await queue_client.mark_error(
                 file_path="/test/file.py",
-                
+
                 error_message=f"Error {i}",
                 max_retries=3,
             )
@@ -472,7 +473,7 @@ class TestSQLiteQueueClient:
         """Test mark error returns False for non-existent file."""
         should_retry, error_id = await queue_client.mark_error(
             file_path="/test/nonexistent.py",
-            
+
             error_message="Test error",
         )
 
@@ -530,7 +531,7 @@ class TestSQLiteQueueClient:
         # Mark one with error
         await queue_client.mark_error(
             file_path="/test/file1.py",
-            
+
             error_message="Test",
         )
 
@@ -683,7 +684,7 @@ class TestSQLiteQueueClient:
 
         await queue_client.mark_error(
             file_path="/test/file1.py",
-            
+
             error_message="Test error",
         )
 

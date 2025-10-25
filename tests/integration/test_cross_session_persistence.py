@@ -15,12 +15,13 @@ Test Scenarios:
 """
 
 import asyncio
-import pytest
 import time
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from src.python.common.memory.types import (
     AuthorityLevel,
@@ -30,11 +31,11 @@ from src.python.common.memory.types import (
 
 # Import test harness from Task 337.1
 from tests.integration.test_llm_behavioral_harness import (
-    LLMBehavioralHarness,
-    MockLLMProvider,
-    ExecutionMode,
     BehavioralMetrics,
+    ExecutionMode,
+    LLMBehavioralHarness,
     LLMResponse,
+    MockLLMProvider,
 )
 
 # Try to import real memory manager

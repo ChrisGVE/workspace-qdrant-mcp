@@ -1,23 +1,23 @@
 """Unit tests for analytics privacy manager."""
 
-import pytest
-import tempfile
 import json
+import os
+import sys
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
-import sys
-import os
+import pytest
 
 # Add docs framework to path for testing
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../docs/framework'))
 
 from analytics.privacy import (
+    ConsentLevel,
+    DataRetentionPolicy,
     PrivacyManager,
     PrivacySettings,
-    ConsentLevel,
-    DataRetentionPolicy
 )
 
 
@@ -147,7 +147,7 @@ class TestPrivacyManager:
         assert self.settings_path.exists()
 
         # Verify settings were saved
-        with open(self.settings_path, 'r', encoding='utf-8') as f:
+        with open(self.settings_path, encoding='utf-8') as f:
             saved_data = json.load(f)
         assert saved_data["consent_level"] == "all"
 
@@ -444,7 +444,7 @@ class TestPrivacyManager:
         assert export_path.exists()
 
         # Verify exported data
-        with open(export_path, 'r', encoding='utf-8') as f:
+        with open(export_path, encoding='utf-8') as f:
             export_data = json.load(f)
 
         assert "export_timestamp" in export_data

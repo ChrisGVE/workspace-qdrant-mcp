@@ -7,9 +7,8 @@ context window and instruction following capabilities.
 
 from collections import defaultdict
 from datetime import datetime, timezone
-from typing import Dict, List, Optional
 
-from ...memory import MemoryCategory, MemoryRule
+from ...memory import MemoryRule
 from .base import FormattedContext, FormatType, LLMToolAdapter, ToolCapabilities
 
 
@@ -36,9 +35,9 @@ class ClaudeCodeAdapter(LLMToolAdapter):
 
     def format_rules(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         token_budget: int,
-        options: Optional[Dict[str, any]] = None,
+        options: dict[str, any] | None = None,
     ) -> FormattedContext:
         """
         Format rules as markdown for Claude Code.
@@ -146,10 +145,10 @@ class ClaudeCodeAdapter(LLMToolAdapter):
         self,
         title: str,
         description: str,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         remaining_budget: int,
         include_all: bool = False,
-    ) -> tuple[str, Dict[str, int]]:
+    ) -> tuple[str, dict[str, int]]:
         """
         Format a section of rules grouped by category.
 

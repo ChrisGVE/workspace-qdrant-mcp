@@ -4,11 +4,12 @@ Framework validation tests to ensure all testing frameworks are working correctl
 These tests validate that each framework can be imported and basic functionality works.
 """
 
-import pytest
 import asyncio
-import numpy as np
 import time
 from pathlib import Path
+
+import numpy as np
+import pytest
 
 
 class TestFrameworkValidation:
@@ -87,7 +88,7 @@ class TestImportValidation:
     def test_playwright_import(self):
         """Test that playwright can be imported."""
         try:
-            from playwright.async_api import Page, Browser
+            from playwright.async_api import Browser, Page
             from playwright.sync_api import sync_playwright
             assert Page is not None
             assert Browser is not None
@@ -126,9 +127,10 @@ class TestImportValidation:
 
     def test_performance_libraries_import(self):
         """Test that performance testing libraries are available."""
-        import time
-        import psutil
         import json
+        import time
+
+        import psutil
 
         # Test basic functionality
         process = psutil.Process()

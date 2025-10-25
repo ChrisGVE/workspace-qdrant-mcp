@@ -16,27 +16,31 @@ Features:
 
 import asyncio
 import concurrent.futures
+import json
+import logging
 import multiprocessing
 import os
-import psutil
 import queue
 import signal
 import subprocess
+import tempfile
 import threading
 import time
 from collections import defaultdict, deque
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 from typing import (
-    Dict, List, Set, Optional, Tuple, Any, Callable,
-    NamedTuple, Union, Coroutine
+    Any,
+    NamedTuple,
+    Optional,
+    Union,
 )
-import json
-import tempfile
-import logging
 
-from .discovery import TestMetadata, TestCategory, TestComplexity, ResourceRequirement
+import psutil
+
+from .discovery import ResourceRequirement, TestCategory, TestComplexity, TestMetadata
 
 
 class ExecutionStrategy(Enum):
@@ -80,20 +84,20 @@ class ExecutionResult:
     stdout: str = ""
     stderr: str = ""
     return_code: int = 0
-    error_message: Optional[str] = None
-    resource_usage: Dict[str, float] = field(default_factory=dict)
+    error_message: str | None = None
+    resource_usage: dict[str, float] = field(default_factory=dict)
     retry_count: int = 0
-    worker_id: Optional[str] = None
+    worker_id: str | None = None
 
 
 @dataclass
 class ExecutionPlan:
     """Test execution plan with dependencies and resource allocation."""
-    test_batches: List[List[str]] = field(default_factory=list)
-    resource_allocation: Dict[str, ResourcePool] = field(default_factory=dict)
+    test_batches: list[list[str]] = field(default_factory=list)
+    resource_allocation: dict[str, ResourcePool] = field(default_factory=dict)
     estimated_duration: float = 0.0
     max_parallelism: int = 1
-    dependency_graph: Dict[str, Set[str]] = field(default_factory=dict)
+    dependency_graph: dict[str, set[str]] = field(default_factory=dict)
 
 
 class ResourceManager:
@@ -113,7 +117,7 @@ class ResourceManager:
         self._allocated_resources = defaultdict(int)
         self._resource_lock = threading.RLock()
 
-    def acquire_resources(self, test_name: str, requirements: Set[ResourceRequirement]) -> List[ResourcePool]:
+    def acquire_resources(self, test_name: str, requirements: set[ResourceRequirement]) -> list[ResourcePool]:
         """Acquire required resources for test execution."""
         pools_needed = self._map_requirements_to_pools(requirements)
         acquired_pools = []
@@ -137,7 +141,7 @@ class ResourceManager:
                     self._allocated_resources[pool] -= 1
             raise
 
-    def release_resources(self, test_name: str, pools: List[ResourcePool]):
+    def release_resources(self, test_name: str, pools: list[ResourcePool]):
         """Release resources after test completion."""
         with self._resource_lock:
             for pool in reversed(pools):
@@ -145,7 +149,7 @@ class ResourceManager:
                     self._resource_locks[pool].release()
                     self._allocated_resources[pool] = max(0, self._allocated_resources[pool] - 1)
 
-    def get_resource_usage(self) -> Dict[ResourcePool, float]:
+    def get_resource_usage(self) -> dict[ResourcePool, float]:
         """Get current resource usage percentages."""
         with self._resource_lock:
             usage = {}
@@ -156,7 +160,7 @@ class ResourceManager:
                 usage[pool] = (allocated / initial_value) * 100 if initial_value > 0 else 0
             return usage
 
-    def _map_requirements_to_pools(self, requirements: Set[ResourceRequirement]) -> List[ResourcePool]:
+    def _map_requirements_to_pools(self, requirements: set[ResourceRequirement]) -> list[ResourcePool]:
         """Map resource requirements to resource pools."""
         pool_mapping = {
             ResourceRequirement.DATABASE: [ResourcePool.DATABASE, ResourcePool.IO_INTENSIVE],
@@ -187,8 +191,8 @@ class DependencyResolver:
     """Resolves test dependencies for execution ordering."""
 
     def __init__(self):
-        self._dependency_graph: Dict[str, Set[str]] = {}
-        self._reverse_graph: Dict[str, Set[str]] = {}
+        self._dependency_graph: dict[str, set[str]] = {}
+        self._reverse_graph: dict[str, set[str]] = {}
 
     def add_dependency(self, test: str, depends_on: str):
         """Add a dependency relationship."""
@@ -200,7 +204,7 @@ class DependencyResolver:
             self._reverse_graph[depends_on] = set()
         self._reverse_graph[depends_on].add(test)
 
-    def resolve_execution_order(self, tests: List[str]) -> List[List[str]]:
+    def resolve_execution_order(self, tests: list[str]) -> list[list[str]]:
         """
         Resolve execution order using topological sorting.
 
@@ -248,13 +252,13 @@ class DependencyResolver:
 
         return batches
 
-    def detect_cycles(self, tests: List[str]) -> List[List[str]]:
+    def detect_cycles(self, tests: list[str]) -> list[list[str]]:
         """Detect circular dependencies."""
         visited = set()
         rec_stack = set()
         cycles = []
 
-        def dfs(test: str, path: List[str]):
+        def dfs(test: str, path: list[str]):
             if test in rec_stack:
                 # Found cycle
                 cycle_start = path.index(test)
@@ -286,14 +290,14 @@ class TestWorker:
     def __init__(self, worker_id: str, resource_manager: ResourceManager):
         self.worker_id = worker_id
         self.resource_manager = resource_manager
-        self.current_test: Optional[str] = None
-        self.start_time: Optional[float] = None
+        self.current_test: str | None = None
+        self.start_time: float | None = None
 
     async def execute_test(self,
                           test_name: str,
                           metadata: TestMetadata,
-                          test_command: List[str],
-                          timeout: Optional[float] = None) -> ExecutionResult:
+                          test_command: list[str],
+                          timeout: float | None = None) -> ExecutionResult:
         """Execute a single test with resource management."""
         self.current_test = test_name
         self.start_time = time.time()
@@ -322,7 +326,7 @@ class TestWorker:
 
     async def _run_test_subprocess(self,
                                   test_name: str,
-                                  command: List[str],
+                                  command: list[str],
                                   timeout: float) -> ExecutionResult:
         """Run test in subprocess with monitoring."""
         start_time = time.time()
@@ -388,7 +392,7 @@ class ParallelTestExecutor:
     """Advanced parallel test execution engine."""
 
     def __init__(self,
-                 max_workers: Optional[int] = None,
+                 max_workers: int | None = None,
                  strategy: ExecutionStrategy = ExecutionStrategy.PARALLEL_SMART,
                  retry_failed: bool = True,
                  max_retries: int = 2):
@@ -409,16 +413,16 @@ class ParallelTestExecutor:
         self.resource_manager = ResourceManager()
         self.dependency_resolver = DependencyResolver()
 
-        self._results: Dict[str, ExecutionResult] = {}
-        self._running_tests: Dict[str, TestWorker] = {}
-        self._failed_tests: Set[str] = set()
+        self._results: dict[str, ExecutionResult] = {}
+        self._running_tests: dict[str, TestWorker] = {}
+        self._failed_tests: set[str] = set()
         self._execution_lock = asyncio.Lock()
 
         # Performance tracking
-        self._execution_start_time: Optional[float] = None
-        self._batch_times: List[float] = []
+        self._execution_start_time: float | None = None
+        self._batch_times: list[float] = []
 
-    def create_execution_plan(self, tests: Dict[str, TestMetadata]) -> ExecutionPlan:
+    def create_execution_plan(self, tests: dict[str, TestMetadata]) -> ExecutionPlan:
         """Create optimized execution plan for tests."""
         # Build dependency graph
         for test_name, metadata in tests.items():
@@ -456,9 +460,9 @@ class ParallelTestExecutor:
         )
 
     async def execute_tests(self,
-                           tests: Dict[str, TestMetadata],
-                           pytest_args: List[str] = None,
-                           progress_callback: Optional[Callable] = None) -> Dict[str, ExecutionResult]:
+                           tests: dict[str, TestMetadata],
+                           pytest_args: list[str] = None,
+                           progress_callback: Callable | None = None) -> dict[str, ExecutionResult]:
         """
         Execute tests according to the execution plan.
 
@@ -480,7 +484,7 @@ class ParallelTestExecutor:
         total_tests = len(tests)
         completed_tests = 0
 
-        for batch_idx, batch in enumerate(plan.test_batches):
+        for _batch_idx, batch in enumerate(plan.test_batches):
             batch_start_time = time.time()
 
             if self.strategy == ExecutionStrategy.SEQUENTIAL:
@@ -518,10 +522,10 @@ class ParallelTestExecutor:
         return self._results.copy()
 
     async def _execute_batch_parallel(self,
-                                     batch: List[str],
-                                     tests: Dict[str, TestMetadata],
-                                     pytest_args: List[str],
-                                     progress_callback: Optional[Callable]) -> Dict[str, ExecutionResult]:
+                                     batch: list[str],
+                                     tests: dict[str, TestMetadata],
+                                     pytest_args: list[str],
+                                     progress_callback: Callable | None) -> dict[str, ExecutionResult]:
         """Execute a batch of tests in parallel."""
         # Create workers
         workers = [
@@ -563,7 +567,7 @@ class ParallelTestExecutor:
     async def _execute_single_test(self,
                                   test_name: str,
                                   metadata: TestMetadata,
-                                  pytest_args: List[str]) -> ExecutionResult:
+                                  pytest_args: list[str]) -> ExecutionResult:
         """Execute a single test."""
         worker = TestWorker("single", self.resource_manager)
         command = self._build_test_command(test_name, pytest_args)
@@ -572,7 +576,7 @@ class ParallelTestExecutor:
             test_name, metadata, command, metadata.estimated_duration * 3
         )
 
-    def _build_test_command(self, test_name: str, pytest_args: List[str]) -> List[str]:
+    def _build_test_command(self, test_name: str, pytest_args: list[str]) -> list[str]:
         """Build pytest command for test execution."""
         base_command = ["python", "-m", "pytest"]
         base_command.extend(pytest_args)
@@ -587,8 +591,8 @@ class ParallelTestExecutor:
         return base_command
 
     def _optimize_batches(self,
-                         batches: List[List[str]],
-                         tests: Dict[str, TestMetadata]) -> List[List[str]]:
+                         batches: list[list[str]],
+                         tests: dict[str, TestMetadata]) -> list[list[str]]:
         """Optimize test batches for better resource utilization."""
         optimized_batches = []
 
@@ -629,8 +633,8 @@ class ParallelTestExecutor:
             return self.max_workers
 
     def _estimate_execution_duration(self,
-                                   batches: List[List[str]],
-                                   tests: Dict[str, TestMetadata]) -> float:
+                                   batches: list[list[str]],
+                                   tests: dict[str, TestMetadata]) -> float:
         """Estimate total execution duration."""
         total_duration = 0.0
 
@@ -669,9 +673,9 @@ class ParallelTestExecutor:
             self.max_workers = min(multiprocessing.cpu_count(), int(self.max_workers * 1.2))
 
     async def _retry_failed_tests(self,
-                                 tests: Dict[str, TestMetadata],
-                                 pytest_args: List[str],
-                                 progress_callback: Optional[Callable]):
+                                 tests: dict[str, TestMetadata],
+                                 pytest_args: list[str],
+                                 progress_callback: Callable | None):
         """Retry failed tests up to max_retries."""
         for retry_count in range(1, self.max_retries + 1):
             failed_tests = [
@@ -698,7 +702,7 @@ class ParallelTestExecutor:
             # Update results with retry results
             self._results.update(retry_results)
 
-    def get_execution_statistics(self) -> Dict[str, Any]:
+    def get_execution_statistics(self) -> dict[str, Any]:
         """Get comprehensive execution statistics."""
         if not self._results:
             return {}

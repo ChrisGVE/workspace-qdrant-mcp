@@ -6,16 +6,16 @@ vector storage in Qdrant, including queue processing, content extraction,
 embedding generation, metadata computation, and status updates.
 """
 
-import pytest
 import asyncio
 import time
-import httpx
 from pathlib import Path
-from typing import List
+
+import httpx
+import pytest
 
 from tests.e2e.fixtures import (
-    SystemComponents,
     CLIHelper,
+    SystemComponents,
 )
 
 
@@ -225,7 +225,7 @@ class TestEmbeddingGeneration:
         )
 
         # Ingest file
-        result = cli_helper.run_command(
+        cli_helper.run_command(
             [
                 "ingest",
                 "file",
@@ -310,7 +310,7 @@ class TestQdrantStorage:
         test_file = workspace / "qdrant_storage.txt"
         test_file.write_text("Content to store in Qdrant vector database")
 
-        result = cli_helper.run_command(
+        cli_helper.run_command(
             ["ingest", "file", str(test_file), "--collection", "test-e2e-storage"]
         )
 
@@ -347,7 +347,7 @@ class TestQdrantStorage:
         test_file.write_text("Test content for collection creation")
 
         # Ingest to new collection
-        result = cli_helper.run_command(
+        cli_helper.run_command(
             ["ingest", "file", str(test_file), "--collection", collection_name]
         )
 

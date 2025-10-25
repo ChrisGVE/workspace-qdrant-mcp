@@ -11,11 +11,9 @@ Detection targets:
 """
 
 import os
-import socket
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, List
 
 from loguru import logger
 
@@ -46,11 +44,11 @@ class CopilotSession:
     """
 
     is_active: bool
-    session_type: Optional[CopilotSessionType] = None
-    ide_name: Optional[str] = None
-    ide_version: Optional[str] = None
-    detection_method: Optional[str] = None
-    workspace_path: Optional[Path] = None
+    session_type: CopilotSessionType | None = None
+    ide_name: str | None = None
+    ide_version: str | None = None
+    detection_method: str | None = None
+    workspace_path: Path | None = None
 
 
 class CopilotDetector:
@@ -342,7 +340,7 @@ class CopilotDetector:
         return CopilotSession(is_active=False)
 
     @classmethod
-    def _get_workspace_from_env(cls) -> Optional[Path]:
+    def _get_workspace_from_env(cls) -> Path | None:
         """
         Get workspace/project path from environment variables.
 

@@ -10,10 +10,8 @@ Run with: uv run pytest tests/benchmarks/benchmark_file_ingestion.py --benchmark
 import asyncio
 import tempfile
 from pathlib import Path
-from typing import List, Tuple
 
 import pytest
-
 from wqm_cli.cli.parsers import CodeParser, MarkdownParser, TextParser
 
 
@@ -140,7 +138,7 @@ class TestDataGenerator:
     @staticmethod
     def create_test_files_batch(
         num_files: int, size_kb: int, extension: str, tmp_dir: Path
-    ) -> List[Path]:
+    ) -> list[Path]:
         """Create a batch of test files."""
         generator_map = {
             ".txt": TestDataGenerator.generate_text_content,

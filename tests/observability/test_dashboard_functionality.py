@@ -66,35 +66,11 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
-# Dashboard modules - commented out due to optional dependencies
-# from src.python.common.observability.health_dashboard import HealthDashboard
-# from src.python.common.dashboard.performance_dashboard import PerformanceDashboardServer
-
-# Metrics collection (313.1)
-from src.python.common.core.queue_performance_metrics import (
-    LatencyMetrics,
-    MetricsAggregator,
-    QueuePerformanceCollector,
-    ThroughputMetrics,
-)
-from src.python.common.core.queue_statistics import QueueStatistics, QueueStatisticsCollector
-
-# Health checks (313.3)
-from src.python.common.observability.health import (
-    ComponentHealth,
-    HealthChecker,
-    HealthStatus,
-)
-from src.python.common.observability.health_coordinator import (
-    ComponentType,
-    HealthCoordinator,
-    ComponentHealthMetrics,
-)
+from loguru import logger
 
 # Alert thresholds (313.4)
 from src.python.common.core.queue_alerting import (
@@ -105,10 +81,35 @@ from src.python.common.core.queue_alerting import (
     QueueAlertingSystem,
 )
 
+# Dashboard modules - commented out due to optional dependencies
+# from src.python.common.observability.health_dashboard import HealthDashboard
+# from src.python.common.dashboard.performance_dashboard import PerformanceDashboardServer
+# Metrics collection (313.1)
+from src.python.common.core.queue_performance_metrics import (
+    LatencyMetrics,
+    MetricsAggregator,
+    QueuePerformanceCollector,
+    ThroughputMetrics,
+)
+from src.python.common.core.queue_statistics import (
+    QueueStatistics,
+    QueueStatisticsCollector,
+)
+
 # Logging (313.2)
 from src.python.common.logging import LogContext
-from loguru import logger
 
+# Health checks (313.3)
+from src.python.common.observability.health import (
+    ComponentHealth,
+    HealthChecker,
+    HealthStatus,
+)
+from src.python.common.observability.health_coordinator import (
+    ComponentHealthMetrics,
+    ComponentType,
+    HealthCoordinator,
+)
 
 # =============================================================================
 # FIXTURES
@@ -234,7 +235,7 @@ async def mock_alert_system(temp_db):
     )
 
     if schema_path.exists():
-        with open(schema_path, "r") as f:
+        with open(schema_path) as f:
             conn.executescript(f.read())
         conn.commit()
     conn.close()
@@ -291,8 +292,8 @@ async def dashboard_data_aggregator(
             self,
             time_range: str = "1h",
             aggregation_interval: str = "5m",
-            filter_components: List[str] = None,
-        ) -> Dict[str, Any]:
+            filter_components: list[str] = None,
+        ) -> dict[str, Any]:
             """Get aggregated dashboard data from all sources."""
             # Get metrics
             throughput = await self.performance_collector.get_throughput_metrics()
@@ -366,7 +367,7 @@ async def dashboard_data_aggregator(
             start_time: datetime,
             end_time: datetime,
             interval: str = "5m",
-        ) -> List[Dict[str, Any]]:
+        ) -> list[dict[str, Any]]:
             """Get time-series data for a specific metric."""
             # Simulate time-series data points
             data_points = []

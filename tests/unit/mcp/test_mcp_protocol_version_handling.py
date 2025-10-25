@@ -23,15 +23,14 @@ All external dependencies (Qdrant, daemon) are mocked via conftest fixtures.
 """
 
 import json
-import pytest
-from typing import Dict, Any
-from unittest.mock import AsyncMock, Mock, patch
 from importlib.metadata import version as get_version
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
 from fastmcp.client.client import CallToolResult
 from fastmcp.exceptions import ToolError
 from mcp.types import TextContent
-
 
 # MCP Protocol versions for testing
 CURRENT_PROTOCOL_VERSION = "2024-11-05"
@@ -303,7 +302,7 @@ class TestVersionMismatchHandling:
             assert len(parts) == 3
 
             # But date values are invalid
-            year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
+            _year, month, day = int(parts[0]), int(parts[1]), int(parts[2])
 
             is_valid_date = (
                 1 <= month <= 12 and

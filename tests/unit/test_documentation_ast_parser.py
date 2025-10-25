@@ -1,25 +1,25 @@
 """Unit tests for the AST-based documentation parser."""
 
 import ast
-import tempfile
-import pytest
-from pathlib import Path
-from typing import Any, Dict
-
-import sys
 import os
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+
+import pytest
 
 # Add the docs framework to the path for testing
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../docs/framework'))
 
 from generators.ast_parser import (
-    PythonASTParser,
+    DocstringParser,
     DocumentationNode,
     MemberType,
     Parameter,
-    DocstringParser,
+    PythonASTParser,
     extract_module_info,
-    extract_package_info
+    extract_package_info,
 )
 
 
@@ -288,7 +288,7 @@ class _PrivateClass:
     def test_parse_complex_annotations(self):
         """Test parsing complex type annotations."""
         code = '''
-from typing import List, Dict, Optional, Union, Tuple
+from typing import Optional, Union
 
 def complex_function(
     items: List[Dict[str, Union[int, str]]],

@@ -9,8 +9,8 @@ operations, multi-tenant support, and performance monitoring.
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 from qdrant_client.http import models
@@ -21,13 +21,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 from common.core.hybrid_search import (
     HybridSearchEngine,
-    RRFFusionRanker,
-    WeightedSumFusionRanker,
     MaxScoreFusionRanker,
+    MultiTenantResultAggregator,
+    RRFFusionRanker,
     TenantAwareResult,
     TenantAwareResultDeduplicator,
-    MultiTenantResultAggregator,
-    create_fusion_ranker
+    WeightedSumFusionRanker,
+    create_fusion_ranker,
 )
 
 
@@ -569,7 +569,7 @@ class TestHybridSearchEngine:
 
         query_embeddings = {"dense": [0.1] * 384}
 
-        results = await engine.hybrid_search(
+        await engine.hybrid_search(
             collection_name="test-collection",
             query_embeddings=query_embeddings
         )
@@ -655,7 +655,7 @@ class TestHybridSearchEngineOptimizations:
 
     def test_memory_efficient_processing(self, mock_qdrant_client):
         """Test memory efficiency with large result sets."""
-        engine = HybridSearchEngine(mock_qdrant_client)
+        HybridSearchEngine(mock_qdrant_client)
 
         # Create large mock result sets
         large_dense_results = [

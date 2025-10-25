@@ -21,26 +21,27 @@ running in normal CI/CD. Run explicitly with: pytest -m stability
 import asyncio
 import json
 import os
-import pytest
-import psutil
-import time
-from pathlib import Path
-from typing import Dict, Any, List, Optional
-from datetime import datetime, timedelta
 
 # Import E2E test utilities
 import sys
+import time
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any, Optional
+
+import psutil
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent))
 from conftest import E2E_TEST_CONFIG
 from utils import (
-    HealthChecker,
-    WorkflowTimer,
-    TestDataGenerator,
     ComponentController,
+    HealthChecker,
     QdrantTestHelper,
-    assert_within_threshold
+    TestDataGenerator,
+    WorkflowTimer,
+    assert_within_threshold,
 )
-
 
 # 24-Hour Stability Test Configuration
 STABILITY_TEST_CONFIG = {
@@ -104,13 +105,13 @@ class StabilityTestMonitor:
         self.failures = []
         self.health_check_results = []
 
-    def record_metrics(self, metrics: Dict[str, Any]):
+    def record_metrics(self, metrics: dict[str, Any]):
         """Record current metrics snapshot."""
         metrics["timestamp"] = time.time()
         metrics["elapsed_seconds"] = time.time() - self.start_time
         self.metrics_history.append(metrics)
 
-    def record_checkpoint(self, name: str, data: Optional[Dict[str, Any]] = None):
+    def record_checkpoint(self, name: str, data: dict[str, Any] | None = None):
         """Record a stability checkpoint."""
         checkpoint = {
             "name": name,
@@ -130,13 +131,13 @@ class StabilityTestMonitor:
         }
         self.failures.append(failure)
 
-    def record_health_check(self, result: Dict[str, Any]):
+    def record_health_check(self, result: dict[str, Any]):
         """Record health check result."""
         result["timestamp"] = time.time()
         result["elapsed_seconds"] = time.time() - self.start_time
         self.health_check_results.append(result)
 
-    def detect_memory_leak(self) -> Dict[str, Any]:
+    def detect_memory_leak(self) -> dict[str, Any]:
         """Analyze metrics for memory leak patterns."""
         if len(self.metrics_history) < 10:
             return {"detected": False, "reason": "Insufficient data"}
@@ -168,7 +169,7 @@ class StabilityTestMonitor:
 
         return {"detected": False, "growth_rate_mb_per_hour": 0}
 
-    def detect_performance_degradation(self) -> Dict[str, Any]:
+    def detect_performance_degradation(self) -> dict[str, Any]:
         """Analyze metrics for performance degradation."""
         if len(self.metrics_history) < 10:
             return {"detected": False, "reason": "Insufficient data"}
@@ -196,7 +197,7 @@ class StabilityTestMonitor:
 
         return {"detected": False}
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get comprehensive stability test summary."""
         duration = time.time() - self.start_time if self.start_time else 0
 
@@ -275,7 +276,7 @@ class Test24HourStability:
         await component_lifecycle_manager.start_all()
         stability_monitor.record_checkpoint("components_started")
 
-        workspace = temp_project_workspace["path"]
+        temp_project_workspace["path"]
         duration = STABILITY_TEST_CONFIG["test_duration"]["full_24hour"]
         health_check_interval = STABILITY_TEST_CONFIG["health_check_intervals"]["normal"]
         metrics_interval = STABILITY_TEST_CONFIG["resource_monitoring"]["sample_interval"]
@@ -339,7 +340,7 @@ class Test24HourStability:
         finally:
             # Final summary
             summary = stability_monitor.get_summary()
-            print(f"\n24-hour test completed:")
+            print("\n24-hour test completed:")
             print(f"  Duration: {summary['test_duration_hours']:.2f} hours")
             print(f"  Operations: {operation_count}")
             print(f"  Health checks: {summary['successful_health_checks']}/{summary['total_health_checks']}")
@@ -392,7 +393,7 @@ class Test24HourStability:
         summary = stability_monitor.get_summary()
         memory_analysis = summary['memory_leak_analysis']
 
-        print(f"\nMemory analysis:")
+        print("\nMemory analysis:")
         print(f"  Growth rate: {memory_analysis.get('growth_rate_mb_per_hour', 0):.2f} MB/hour")
         print(f"  Threshold: {STABILITY_TEST_CONFIG['resource_monitoring']['memory_leak_threshold_mb_per_hour']} MB/hour")
 
@@ -446,7 +447,7 @@ class Test24HourStability:
         summary = stability_monitor.get_summary()
         perf_analysis = summary['performance_degradation_analysis']
 
-        print(f"\nPerformance analysis:")
+        print("\nPerformance analysis:")
         print(f"  Total operations: {operation_count}")
         if perf_analysis.get('detected'):
             print(f"  Latency increase: {perf_analysis['latency_increase_percent']:.1f}%")
@@ -510,7 +511,7 @@ class Test24HourStability:
             await asyncio.sleep(10)
 
         summary = stability_monitor.get_summary()
-        print(f"\nCrash recovery summary:")
+        print("\nCrash recovery summary:")
         print(f"  Crashes injected: {crash_count}")
         print(f"  Total checkpoints: {summary['total_checkpoints']}")
 
@@ -542,8 +543,8 @@ class TestExtendedStability:
 
         await component_lifecycle_manager.start_all()
 
-        workspace = temp_project_workspace["path"]
-        duration = STABILITY_TEST_CONFIG["test_duration"]["extended_stability"]
+        temp_project_workspace["path"]
+        STABILITY_TEST_CONFIG["test_duration"]["extended_stability"]
 
         # Define workload patterns
         patterns = [
@@ -553,7 +554,7 @@ class TestExtendedStability:
             {"name": "sine_wave", "ops_per_min": lambda t: 30 + 20 * (time.time() % 3600) / 3600, "duration_hours": 4}
         ]
 
-        print(f"\n12-hour workload pattern test")
+        print("\n12-hour workload pattern test")
 
         for pattern in patterns:
             pattern_start = time.time()
@@ -585,7 +586,7 @@ class TestExtendedStability:
             stability_monitor.record_checkpoint(f"pattern_end_{pattern['name']}")
 
         summary = stability_monitor.get_summary()
-        print(f"\n12-hour test completed:")
+        print("\n12-hour test completed:")
         print(f"  Duration: {summary['test_duration_hours']:.2f} hours")
         print(f"  Checkpoints: {summary['total_checkpoints']}")
 

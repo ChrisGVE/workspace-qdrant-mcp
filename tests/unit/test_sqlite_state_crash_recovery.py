@@ -17,14 +17,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-
 from common.core.sqlite_state_manager import (
     FileProcessingStatus,
     ProcessingPriority,
     SQLiteStateManager,
     WatchFolderConfig,
 )
-
 
 # Crash simulation subprocess script
 CRASH_PROCESS_SCRIPT = """
@@ -405,7 +403,7 @@ class TestWALFileRecovery:
 
         # WAL file should exist
         wal_file = Path(temp_db + "-wal")
-        wal_exists_before = wal_file.exists()
+        wal_file.exists()
 
         # Re-initialize (triggers checkpoint)
         state_manager2 = SQLiteStateManager(db_path=temp_db)

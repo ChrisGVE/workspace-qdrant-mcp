@@ -8,7 +8,6 @@ tracking, model-specific limits, and usage monitoring for Claude Code integratio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional
 
 from loguru import logger
 
@@ -114,7 +113,7 @@ class SessionUsageStats:
         default_factory=lambda: datetime.now(timezone.utc)
     )
     budget_limit: int = 200000
-    warnings_triggered: List[int] = field(default_factory=list)
+    warnings_triggered: list[int] = field(default_factory=list)
 
     def utilization_percentage(self) -> float:
         """
@@ -166,7 +165,7 @@ class ClaudeBudgetAllocation:
     session_stats: SessionUsageStats
     context_overhead_tokens: int
     model: ClaudeModel
-    warning_level: Optional[int] = None
+    warning_level: int | None = None
 
     @property
     def total_budget(self) -> int:
@@ -174,12 +173,12 @@ class ClaudeBudgetAllocation:
         return self.base_allocation.total_budget
 
     @property
-    def rules_included(self) -> List[MemoryRule]:
+    def rules_included(self) -> list[MemoryRule]:
         """Rules included in allocation."""
         return self.base_allocation.rules_included
 
     @property
-    def rules_skipped(self) -> List[MemoryRule]:
+    def rules_skipped(self) -> list[MemoryRule]:
         """Rules skipped due to budget constraints."""
         return self.base_allocation.rules_skipped
 
@@ -202,12 +201,12 @@ class ClaudeBudgetManager:
     def __init__(
         self,
         model: ClaudeModel = ClaudeModel.DEFAULT,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         allocation_strategy: AllocationStrategy = AllocationStrategy.PRIORITY_BASED,
         compression_strategy: CompressionStrategy = CompressionStrategy.NONE,
         absolute_rules_protected: bool = True,
         overhead_percentage: float = 0.05,
-        custom_budget_limit: Optional[int] = None,
+        custom_budget_limit: int | None = None,
     ):
         """
         Initialize Claude budget manager.
@@ -247,9 +246,9 @@ class ClaudeBudgetManager:
 
     def allocate_budget(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         user_query_tokens: int = 0,
-        user_query: Optional[str] = None,
+        user_query: str | None = None,
     ) -> ClaudeBudgetAllocation:
         """
         Allocate token budget for memory rules with session tracking.
@@ -334,7 +333,7 @@ class ClaudeBudgetManager:
 
         return claude_allocation
 
-    def reset_session(self, new_session_id: Optional[str] = None) -> None:
+    def reset_session(self, new_session_id: str | None = None) -> None:
         """
         Reset session tracking for a new Claude Code session.
 
@@ -355,7 +354,7 @@ class ClaudeBudgetManager:
             f"Reset session tracking: {old_session_id} -> {self.session_id}"
         )
 
-    def get_session_report(self) -> Dict[str, any]:
+    def get_session_report(self) -> dict[str, any]:
         """
         Generate comprehensive session usage report.
 
@@ -387,7 +386,7 @@ class ClaudeBudgetManager:
             ),
         }
 
-    def _check_warning_thresholds(self) -> Optional[int]:
+    def _check_warning_thresholds(self) -> int | None:
         """
         Check if budget utilization crosses warning thresholds.
 

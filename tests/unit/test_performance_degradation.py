@@ -5,16 +5,18 @@ Comprehensive tests for performance degradation monitoring including baseline
 establishment, degradation detection, trend analysis, and alerting.
 """
 
-import pytest
 import time
+
+import pytest
+
 from tests.framework.performance_degradation import (
-    PerformanceDegradationTracker,
-    PerformanceMetricType,
-    PerformanceTrend,
     AlertSeverity,
     PerformanceBaseline,
-    PerformanceSnapshot,
     PerformanceDegradation,
+    PerformanceDegradationTracker,
+    PerformanceMetricType,
+    PerformanceSnapshot,
+    PerformanceTrend,
     PerformanceTrendAnalysis,
 )
 

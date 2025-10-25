@@ -41,15 +41,14 @@ Example:
 """
 
 import asyncio
-import json
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from enum import Enum
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 from weakref import WeakSet
 
 from loguru import logger
@@ -57,12 +56,16 @@ from loguru import logger
 from .component_coordination import (
     ComponentCoordinator,
     ComponentType,
-    ComponentStatus,
-    ComponentHealth,
     ProcessingQueueType,
 )
-from .component_lifecycle import ComponentLifecycleManager, ComponentState, LifecyclePhase
-from .lsp_health_monitor import LspHealthMonitor, HealthStatus, NotificationLevel, UserNotification
+from .component_lifecycle import (
+    ComponentLifecycleManager,
+)
+from .lsp_health_monitor import (
+    LspHealthMonitor,
+    NotificationLevel,
+    UserNotification,
+)
 
 
 class DegradationMode(Enum):
@@ -148,8 +151,8 @@ class FeatureConfig:
     """Configuration for individual feature degradation."""
 
     feature_type: FeatureType
-    required_components: Set[ComponentType]
-    fallback_components: Set[ComponentType] = field(default_factory=set)
+    required_components: set[ComponentType]
+    fallback_components: set[ComponentType] = field(default_factory=set)
     degradation_threshold: float = 0.8  # Health threshold for degradation
     recovery_threshold: float = 0.9     # Health threshold for recovery
     cache_duration_seconds: int = 300   # Cache duration for fallback responses
@@ -223,12 +226,12 @@ class DegradationEvent:
     degradation_mode: DegradationMode
     previous_mode: DegradationMode
     trigger_reason: str
-    affected_features: List[FeatureType]
-    affected_components: List[ComponentType]
+    affected_features: list[FeatureType]
+    affected_components: list[ComponentType]
     automatic_recovery: bool
-    user_guidance: List[str]
+    user_guidance: list[str]
     timestamp: datetime = None
-    metadata: Dict[str, Any] = None
+    metadata: dict[str, Any] = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -338,10 +341,10 @@ class DegradationManager:
 
     def __init__(
         self,
-        lifecycle_manager: Optional[ComponentLifecycleManager] = None,
-        health_monitor: Optional[LspHealthMonitor] = None,
-        coordinator: Optional[ComponentCoordinator] = None,
-        config: Optional[Dict[str, Any]] = None
+        lifecycle_manager: ComponentLifecycleManager | None = None,
+        health_monitor: LspHealthMonitor | None = None,
+        coordinator: ComponentCoordinator | None = None,
+        config: dict[str, Any] | None = None
     ):
         """
         Initialize degradation manager.
@@ -362,24 +365,24 @@ class DegradationManager:
         self.previous_mode = DegradationMode.NORMAL
 
         # Feature management
-        self.feature_configs: Dict[FeatureType, FeatureConfig] = {}
-        self.disabled_features: Set[FeatureType] = set()
-        self.cached_responses: Dict[str, Any] = {}
+        self.feature_configs: dict[FeatureType, FeatureConfig] = {}
+        self.disabled_features: set[FeatureType] = set()
+        self.cached_responses: dict[str, Any] = {}
 
         # Circuit breakers for each component
-        self.circuit_breakers: Dict[str, CircuitBreaker] = {}
+        self.circuit_breakers: dict[str, CircuitBreaker] = {}
 
         # Resource throttling
         self.resource_throttle = ResourceThrottle(ThrottleStrategy.NONE)
 
         # Event tracking
-        self.degradation_events: List[DegradationEvent] = []
+        self.degradation_events: list[DegradationEvent] = []
 
         # Notification handlers
         self.notification_handlers: WeakSet[Callable[[UserNotification], None]] = WeakSet()
 
         # Background tasks
-        self.monitoring_tasks: List[asyncio.Task] = []
+        self.monitoring_tasks: list[asyncio.Task] = []
         self.shutdown_event = asyncio.Event()
 
         # Statistics
@@ -547,15 +550,15 @@ class DegradationManager:
 
     def _calculate_degradation_mode(
         self,
-        healthy_components: Set[ComponentType],
-        degraded_components: Set[ComponentType],
-        failed_components: Set[ComponentType]
+        healthy_components: set[ComponentType],
+        degraded_components: set[ComponentType],
+        failed_components: set[ComponentType]
     ) -> DegradationMode:
         """Calculate appropriate degradation mode based on component states."""
         total_components = len(ComponentType)
         healthy_count = len(healthy_components)
         degraded_count = len(degraded_components)
-        failed_count = len(failed_components)
+        len(failed_components)
 
         # Check for critical component failures
         if ComponentType.PYTHON_MCP_SERVER in failed_components:
@@ -640,7 +643,7 @@ class DegradationManager:
         all_features = set(FeatureType)
         self.disabled_features = all_features - available_features
 
-    def _generate_user_guidance(self, mode: DegradationMode, reason: str) -> List[str]:
+    def _generate_user_guidance(self, mode: DegradationMode, reason: str) -> list[str]:
         """Generate user guidance for degradation mode."""
         guidance = []
 
@@ -795,7 +798,7 @@ class DegradationManager:
         """
         return feature_type not in self.disabled_features
 
-    def get_available_features(self) -> Set[FeatureType]:
+    def get_available_features(self) -> set[FeatureType]:
         """
         Get all currently available features.
 
@@ -805,7 +808,7 @@ class DegradationManager:
         all_features = set(FeatureType)
         return all_features - self.disabled_features
 
-    def get_unavailable_features(self) -> Set[FeatureType]:
+    def get_unavailable_features(self) -> set[FeatureType]:
         """
         Get all currently unavailable features.
 
@@ -817,9 +820,9 @@ class DegradationManager:
     async def get_fallback_response(
         self,
         request_type: str,
-        request_data: Dict[str, Any],
-        cache_key: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        request_data: dict[str, Any],
+        cache_key: str | None = None
+    ) -> dict[str, Any] | None:
         """
         Get a fallback response for a degraded feature.
 
@@ -873,8 +876,8 @@ class DegradationManager:
     async def _generate_fallback_response(
         self,
         request_type: str,
-        request_data: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        request_data: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Generate a fallback response for a specific request type."""
         if request_type == "search":
             return {
@@ -919,7 +922,7 @@ class DegradationManager:
 
         return throttle_probability > 0.5
 
-    def get_circuit_breaker_state(self, component_id: str) -> Optional[CircuitBreakerState]:
+    def get_circuit_breaker_state(self, component_id: str) -> CircuitBreakerState | None:
         """
         Get circuit breaker state for a component.
 
@@ -1027,7 +1030,7 @@ class DegradationManager:
         except Exception as e:
             logger.error(f"Failed to store degradation event: {e}")
 
-    def get_degradation_status(self) -> Dict[str, Any]:
+    def get_degradation_status(self) -> dict[str, Any]:
         """
         Get comprehensive degradation status.
 
@@ -1124,14 +1127,14 @@ class DegradationManager:
 
 
 # Global degradation manager instance
-_degradation_manager: Optional[DegradationManager] = None
+_degradation_manager: DegradationManager | None = None
 
 
 async def get_degradation_manager(
-    lifecycle_manager: Optional[ComponentLifecycleManager] = None,
-    health_monitor: Optional[LspHealthMonitor] = None,
-    coordinator: Optional[ComponentCoordinator] = None,
-    config: Optional[Dict[str, Any]] = None
+    lifecycle_manager: ComponentLifecycleManager | None = None,
+    health_monitor: LspHealthMonitor | None = None,
+    coordinator: ComponentCoordinator | None = None,
+    config: dict[str, Any] | None = None
 ) -> DegradationManager:
     """Get or create global degradation manager instance."""
     global _degradation_manager

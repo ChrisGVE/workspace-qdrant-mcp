@@ -15,7 +15,6 @@ import asyncio
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
 from workspace_qdrant_mcp.web.integration import (
     CrawlResult,
     CrawlSummary,
@@ -638,7 +637,7 @@ class TestIntegratedWebCrawler:
     @pytest.mark.asyncio
     async def test_batch_crawl_concurrency_limit(self, crawler):
         """Test batch crawling respects concurrency limit."""
-        urls = ["http://example.com/page{}".format(i) for i in range(10)]
+        urls = [f"http://example.com/page{i}" for i in range(10)]
 
         # Track concurrent calls
         concurrent_calls = 0

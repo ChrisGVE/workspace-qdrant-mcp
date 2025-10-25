@@ -5,12 +5,12 @@ This configuration sets up web UI testing for MCP server interfaces,
 admin dashboards, and any web-based components.
 """
 
-from pathlib import Path
-from typing import Dict, Any
 import os
+from pathlib import Path
+from typing import Any
 
 # Base configuration
-CONFIG: Dict[str, Any] = {
+CONFIG: dict[str, Any] = {
     # Test directory configuration
     "testDir": Path(__file__).parent,
     "outputDir": Path(__file__).parent / "test-results",

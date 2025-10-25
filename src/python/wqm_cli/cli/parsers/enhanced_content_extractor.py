@@ -7,7 +7,7 @@ including boilerplate removal, structured data extraction, and media cataloging.
 
 import json
 import re
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 try:
@@ -36,21 +36,21 @@ class StructuredData:
     """Container for structured data extracted from web pages."""
 
     def __init__(self):
-        self.json_ld: List[Dict[str, Any]] = []
-        self.microdata: Dict[str, Any] = {}
-        self.open_graph: Dict[str, str] = {}
-        self.twitter_cards: Dict[str, str] = {}
-        self.schema_org: Dict[str, Any] = {}
+        self.json_ld: list[dict[str, Any]] = []
+        self.microdata: dict[str, Any] = {}
+        self.open_graph: dict[str, str] = {}
+        self.twitter_cards: dict[str, str] = {}
+        self.schema_org: dict[str, Any] = {}
 
 
 class MediaLinks:
     """Container for media links found in web pages."""
 
     def __init__(self):
-        self.images: List[Dict[str, str]] = []
-        self.videos: List[Dict[str, str]] = []
-        self.audio: List[Dict[str, str]] = []
-        self.documents: List[Dict[str, str]] = []
+        self.images: list[dict[str, str]] = []
+        self.videos: list[dict[str, str]] = []
+        self.audio: list[dict[str, str]] = []
+        self.documents: list[dict[str, str]] = []
 
 
 class EnhancedContentExtractor:
@@ -82,7 +82,7 @@ class EnhancedContentExtractor:
         self.max_link_density = 0.3
         self.min_text_content_ratio = 0.1
 
-    def extract_content(self, html: str, base_url: str = "") -> Dict[str, Any]:
+    def extract_content(self, html: str, base_url: str = "") -> dict[str, Any]:
         """
         Extract enhanced content from HTML.
 
@@ -137,7 +137,7 @@ class EnhancedContentExtractor:
                 'error': str(e)
             }
 
-    def _extract_metadata(self, soup: BeautifulSoup) -> Dict[str, str]:
+    def _extract_metadata(self, soup: BeautifulSoup) -> dict[str, str]:
         """Extract basic page metadata."""
         metadata = {}
 
@@ -293,7 +293,7 @@ class EnhancedContentExtractor:
 
         return media
 
-    def _extract_text_links(self, soup: BeautifulSoup, base_url: str) -> List[Dict[str, str]]:
+    def _extract_text_links(self, soup: BeautifulSoup, base_url: str) -> list[dict[str, str]]:
         """Extract all text links from the page."""
         links = []
         link_tags = soup.find_all('a', href=True)

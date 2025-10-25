@@ -5,10 +5,11 @@ Focused testing for memory tools MCP functionality to achieve 90%+ coverage.
 """
 
 import sys
-from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
 
 # Add src/python to path for imports
@@ -16,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 # Import the actual module
 from python.workspace_qdrant_mcp.tools.memory import register_memory_tools
+
 
 # Mock FastMCP server for testing
 class MockFastMCP:
@@ -44,7 +46,7 @@ def mock_server():
 @pytest.fixture
 def mock_memory_rule():
     """Create a mock memory rule."""
-    from python.common.core.memory import MemoryRule, MemoryCategory, AuthorityLevel
+    from python.common.core.memory import AuthorityLevel, MemoryCategory, MemoryRule
     return MemoryRule(
         id="test-rule-1",
         category=MemoryCategory.PREFERENCE,
@@ -219,7 +221,7 @@ class TestMemoryToolsComprehensive:
         mock_qdrant_client, mock_config_class, mock_server, mock_memory_rule
     ):
         """Test successful memory session initialization."""
-        from python.common.core.memory import MemoryCategory, AuthorityLevel
+        from python.common.core.memory import AuthorityLevel, MemoryCategory
 
         # Setup mocks
         mock_config = Mock()
@@ -275,7 +277,7 @@ class TestMemoryToolsComprehensive:
         mock_naming_manager, mock_qdrant_client, mock_config_class, mock_server
     ):
         """Test successful conversational memory update."""
-        from python.common.core.memory import MemoryCategory, AuthorityLevel
+        from python.common.core.memory import AuthorityLevel, MemoryCategory
 
         # Setup mocks
         mock_config = Mock()
@@ -314,7 +316,7 @@ class TestMemoryToolsComprehensive:
         mock_qdrant_client, mock_config_class, mock_server, mock_memory_rule
     ):
         """Test various memory operations to improve coverage."""
-        from python.common.core.memory import MemoryCategory, AuthorityLevel
+        from python.common.core.memory import AuthorityLevel, MemoryCategory
 
         # Setup mocks
         mock_config = Mock()
@@ -416,7 +418,7 @@ class TestMemoryToolsComprehensive:
         mock_qdrant_client, mock_config_class, mock_server
     ):
         """Test apply memory context to hit different rule paths."""
-        from python.common.core.memory import MemoryCategory, AuthorityLevel
+        from python.common.core.memory import AuthorityLevel, MemoryCategory
 
         # Setup mocks
         mock_config = Mock()

@@ -7,13 +7,15 @@ comprehensive integration tests with isolated test environments.
 
 import asyncio
 import os
-import pytest
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
-import docker
+from typing import Any, Optional
+
+import pytest
 from testcontainers.compose import DockerCompose
+
+import docker
 
 # Test environment configuration
 TEST_ENVIRONMENT_CONFIG = {
@@ -47,13 +49,13 @@ def docker_client():
         pytest.skip("Docker not available for integration tests")
 
 
-@pytest.fixture(scope="session") 
+@pytest.fixture(scope="session")
 def integration_test_markers():
     """Define test markers for integration test categorization."""
     return {
         "smoke": "Basic functionality smoke tests",
         "integration": "Full integration tests",
-        "performance": "Performance and benchmark tests", 
+        "performance": "Performance and benchmark tests",
         "slow": "Long-running tests",
         "regression": "Regression tests for bug fixes",
         "requires_docker": "Tests requiring Docker containers",
@@ -64,7 +66,7 @@ def integration_test_markers():
 @pytest.fixture(scope="session")
 def test_data_factory():
     """Factory for generating test data of various sizes and types."""
-    
+
     class TestDataFactory:
         @staticmethod
         def create_text_document(size: str = "small", topic: str = "general") -> str:
@@ -74,22 +76,22 @@ def test_data_factory():
                 "technical": "Technical documentation content with API references. ",
                 "narrative": "A story about software development and testing processes. "
             }
-            
+
             content = base_content.get(topic, base_content["general"])
-            
+
             multipliers = {
                 "tiny": 5,      # ~100 characters
-                "small": 50,    # ~1KB  
+                "small": 50,    # ~1KB
                 "medium": 500,  # ~10KB
                 "large": 5000,  # ~100KB
                 "huge": 50000   # ~1MB
             }
-            
+
             multiplier = multipliers.get(size, multipliers["small"])
             return content * multiplier
-        
+
         @staticmethod
-        def create_structured_data(complexity: str = "simple") -> Dict[str, Any]:
+        def create_structured_data(complexity: str = "simple") -> dict[str, Any]:
             """Create structured data with specified complexity."""
             if complexity == "simple":
                 return {
@@ -119,7 +121,7 @@ def test_data_factory():
                 }
             else:
                 return {"simple": "data"}
-        
+
         @staticmethod
         def create_binary_file(file_type: str = "pdf") -> bytes:
             """Create mock binary file content."""
@@ -128,11 +130,11 @@ def test_data_factory():
                 "docx": b"PK\x03\x04\x14\x00\x06\x00\x08\x00\x00\x00",
                 "image": b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01"
             }
-            
+
             header = headers.get(file_type, b"BINARY_FILE_HEADER")
             content = b"Mock binary content for testing " * 100
             return header + content
-    
+
     yield TestDataFactory()
 
 
@@ -141,12 +143,12 @@ def temp_workspace():
     """Create temporary workspace with realistic project structure."""
     with tempfile.TemporaryDirectory() as temp_dir:
         workspace = Path(temp_dir)
-        
+
         # Create realistic project structure
         dirs = ["src", "docs", "tests", "config", "data", ".git"]
         for dir_name in dirs:
             (workspace / dir_name).mkdir()
-        
+
         # Add common files
         files = {
             "README.md": "# Test Project\n\nIntegration testing workspace.",
@@ -157,11 +159,11 @@ def temp_workspace():
             "tests/test_example.py": "def test_example():\n    assert True",
             "config/settings.yaml": "debug: false\nlog_level: info"
         }
-        
+
         for file_path, content in files.items():
             full_path = workspace / file_path
             full_path.write_text(content)
-        
+
         yield {
             "path": workspace,
             "files": list(files.keys()),
@@ -175,7 +177,7 @@ def performance_thresholds():
     return {
         "ingestion": {
             "small_doc_max_time_ms": 1000,
-            "medium_doc_max_time_ms": 3000, 
+            "medium_doc_max_time_ms": 3000,
             "large_doc_max_time_ms": 10000,
             "min_throughput_docs_per_sec": 0.5
         },
@@ -220,27 +222,27 @@ def integration_config():
 @pytest.fixture
 def mock_external_services():
     """Provide mocks for external service dependencies."""
-    
+
     class MockServices:
         def __init__(self):
             self.qdrant_available = True
             self.grpc_available = True
             self.embedding_service_available = True
-        
+
         def set_qdrant_available(self, available: bool):
             self.qdrant_available = available
-        
+
         def set_grpc_available(self, available: bool):
             self.grpc_available = available
-        
+
         def set_embedding_service_available(self, available: bool):
             self.embedding_service_available = available
-        
+
         def reset_all(self):
             self.qdrant_available = True
             self.grpc_available = True
             self.embedding_service_available = True
-    
+
     yield MockServices()
 
 
@@ -248,16 +250,16 @@ def mock_external_services():
 def cleanup_tracker():
     """Track resources that need cleanup after tests."""
     resources_to_cleanup = []
-    
+
     def register_cleanup(resource_type: str, resource_id: str, cleanup_func):
         resources_to_cleanup.append({
             "type": resource_type,
             "id": resource_id,
             "cleanup": cleanup_func
         })
-    
+
     yield register_cleanup
-    
+
     # Cleanup registered resources
     for resource in resources_to_cleanup:
         try:
@@ -272,7 +274,7 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "smoke: Basic functionality tests")
     config.addinivalue_line("markers", "regression: Regression tests")
     config.addinivalue_line("markers", "requires_docker: Tests requiring Docker")
-    
+
     # Set up test environment
     os.environ.setdefault("PYTHONPATH", str(Path(__file__).parent.parent.parent))
     os.environ.setdefault("TEST_ENV", "integration")
@@ -285,13 +287,13 @@ def pytest_collection_modifyitems(config, items):
         # Add integration marker to all tests in integration directory
         if "integration" in str(item.fspath):
             item.add_marker(pytest.mark.integration)
-        
+
         # Add slow marker to tests with "slow" in name or that are performance tests
-        if ("slow" in item.name.lower() or 
+        if ("slow" in item.name.lower() or
             "performance" in item.name.lower() or
             item.get_closest_marker("performance")):
             item.add_marker(pytest.mark.slow)
-        
+
         # Add requires_docker marker to tests using containers
         if ("container" in item.name.lower() or
             "docker" in item.name.lower() or
@@ -335,20 +337,20 @@ def integration_test_setup():
 @pytest.fixture
 async def async_test_timeout():
     """Provide timeout context for async tests."""
-    
+
     class AsyncTimeout:
         def __init__(self, timeout_seconds: int = 30):
             self.timeout = timeout_seconds
-        
+
         async def __aenter__(self):
             return self
-        
+
         async def __aexit__(self, exc_type, exc_val, exc_tb):
             pass
-        
-        async def wait_for(self, coro, timeout: Optional[int] = None):
+
+        async def wait_for(self, coro, timeout: int | None = None):
             """Wait for coroutine with timeout."""
             actual_timeout = timeout or self.timeout
             return await asyncio.wait_for(coro, timeout=actual_timeout)
-    
+
     yield AsyncTimeout

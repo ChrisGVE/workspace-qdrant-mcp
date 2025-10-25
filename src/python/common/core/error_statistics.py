@@ -36,7 +36,7 @@ Example:
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Literal
+from typing import Any, Literal
 
 from loguru import logger
 
@@ -56,8 +56,8 @@ class TimePeriodData:
     """
     period: str
     count: int
-    by_severity: Dict[str, int] = field(default_factory=dict)
-    by_category: Dict[str, int] = field(default_factory=dict)
+    by_severity: dict[str, int] = field(default_factory=dict)
+    by_category: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -80,7 +80,7 @@ class TopError:
     severity: str
     first_seen: datetime
     last_seen: datetime
-    sample_context: Optional[Dict[str, Any]] = None
+    sample_context: dict[str, Any] | None = None
 
 
 @dataclass
@@ -98,7 +98,7 @@ class ResolutionMetrics:
     total_errors: int
     acknowledged_count: int
     acknowledgment_rate: float
-    avg_time_to_acknowledge: Optional[float] = None
+    avg_time_to_acknowledge: float | None = None
     unacknowledged_count: int = 0
 
 
@@ -114,13 +114,13 @@ class DetailedErrorStatistics(ErrorStatistics):
         error_rate_per_day: Average errors per day
         top_errors: Most frequent error messages
     """
-    time_range_start: Optional[datetime] = None
-    time_range_end: Optional[datetime] = None
+    time_range_start: datetime | None = None
+    time_range_end: datetime | None = None
     error_rate_per_hour: float = 0.0
     error_rate_per_day: float = 0.0
-    top_errors: List[TopError] = field(default_factory=list)
+    top_errors: list[TopError] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert to dictionary representation.
 
@@ -175,7 +175,7 @@ class TrendReport:
         time_range_days: Number of days in analysis period
         generated_at: When report was generated
     """
-    time_series: List[TimePeriodData]
+    time_series: list[TimePeriodData]
     granularity: Literal['hourly', 'daily', 'weekly']
     time_range_days: int
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -191,7 +191,7 @@ class TopErrorsReport:
         limit: Maximum number of errors in report
         generated_at: When report was generated
     """
-    top_errors: List[TopError]
+    top_errors: list[TopError]
     limit: int
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -207,7 +207,7 @@ class ResolutionReport:
         generated_at: When report was generated
     """
     metrics: ResolutionMetrics
-    time_range_days: Optional[int] = None
+    time_range_days: int | None = None
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
 
@@ -221,8 +221,8 @@ class ErrorReportGenerator:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        error_manager: Optional[ErrorMessageManager] = None
+        db_path: str | None = None,
+        error_manager: ErrorMessageManager | None = None
     ):
         """
         Initialize error report generator.
@@ -337,7 +337,7 @@ class ErrorReportGenerator:
             raise ValueError(f"Invalid granularity: {granularity}")
 
         # Generate time series data
-        time_series: List[TimePeriodData] = []
+        time_series: list[TimePeriodData] = []
         current_start = start_date
 
         for _ in range(periods):
@@ -378,7 +378,7 @@ class ErrorReportGenerator:
     async def generate_top_errors_report(
         self,
         limit: int = 10,
-        days: Optional[int] = None
+        days: int | None = None
     ) -> TopErrorsReport:
         """
         Generate report of most frequent errors.
@@ -406,7 +406,7 @@ class ErrorReportGenerator:
 
     async def generate_resolution_report(
         self,
-        days: Optional[int] = None
+        days: int | None = None
     ) -> ResolutionReport:
         """
         Generate report on error acknowledgment and resolution.
@@ -573,28 +573,28 @@ class ErrorReportGenerator:
     def _format_summary_markdown(self, report: SummaryReport) -> str:
         """Format summary report as Markdown."""
         lines = [
-            f"# Error Summary Report",
-            f"",
+            "# Error Summary Report",
+            "",
             f"**Generated:** {report.generated_at.strftime('%Y-%m-%d %H:%M:%S')} UTC",
             f"**Time Range:** Last {report.time_range_days} days",
-            f"",
-            f"## Overview",
-            f"",
+            "",
+            "## Overview",
+            "",
             f"- **Total Errors:** {report.statistics.total_count}",
             f"- **Unacknowledged:** {report.statistics.unacknowledged_count}",
             f"- **Error Rate:** {report.statistics.error_rate_per_day:.2f} per day ({report.statistics.error_rate_per_hour:.2f} per hour)",
-            f"",
-            f"## By Severity",
-            f""
+            "",
+            "## By Severity",
+            ""
         ]
 
         for severity, count in sorted(report.statistics.by_severity.items()):
             lines.append(f"- **{severity}:** {count}")
 
         lines.extend([
-            f"",
-            f"## By Category",
-            f""
+            "",
+            "## By Category",
+            ""
         ])
 
         for category, count in sorted(report.statistics.by_category.items(), key=lambda x: x[1], reverse=True):
@@ -602,20 +602,20 @@ class ErrorReportGenerator:
 
         if report.statistics.top_errors:
             lines.extend([
-                f"",
-                f"## Top Errors",
-                f""
+                "",
+                "## Top Errors",
+                ""
             ])
             for i, error in enumerate(report.statistics.top_errors, 1):
                 lines.extend([
                     f"### {i}. {error.message[:80]}",
-                    f"",
+                    "",
                     f"- **Count:** {error.count}",
                     f"- **Severity:** {error.severity}",
                     f"- **Category:** {error.category}",
                     f"- **First Seen:** {error.first_seen.strftime('%Y-%m-%d %H:%M:%S')}",
                     f"- **Last Seen:** {error.last_seen.strftime('%Y-%m-%d %H:%M:%S')}",
-                    f""
+                    ""
                 ])
 
         return "\n".join(lines)
@@ -623,16 +623,16 @@ class ErrorReportGenerator:
     def _format_trend_markdown(self, report: TrendReport) -> str:
         """Format trend report as Markdown."""
         lines = [
-            f"# Error Trend Report",
-            f"",
+            "# Error Trend Report",
+            "",
             f"**Generated:** {report.generated_at.strftime('%Y-%m-%d %H:%M:%S')} UTC",
             f"**Time Range:** Last {report.time_range_days} days",
             f"**Granularity:** {report.granularity}",
-            f"",
-            f"## Time Series",
-            f"",
-            f"| Period | Total | Error | Warning | Info |",
-            f"|--------|-------|-------|---------|------|"
+            "",
+            "## Time Series",
+            "",
+            "| Period | Total | Error | Warning | Info |",
+            "|--------|-------|-------|---------|------|"
         ]
 
         for tp in report.time_series:
@@ -647,21 +647,21 @@ class ErrorReportGenerator:
         """Format top errors report as Markdown."""
         lines = [
             f"# Top {report.limit} Errors Report",
-            f"",
+            "",
             f"**Generated:** {report.generated_at.strftime('%Y-%m-%d %H:%M:%S')} UTC",
-            f""
+            ""
         ]
 
         for i, error in enumerate(report.top_errors, 1):
             lines.extend([
                 f"## {i}. {error.message[:80]}",
-                f"",
+                "",
                 f"- **Count:** {error.count}",
                 f"- **Severity:** {error.severity}",
                 f"- **Category:** {error.category}",
                 f"- **First Seen:** {error.first_seen.strftime('%Y-%m-%d %H:%M:%S')}",
                 f"- **Last Seen:** {error.last_seen.strftime('%Y-%m-%d %H:%M:%S')}",
-                f""
+                ""
             ])
 
         return "\n".join(lines)
@@ -669,8 +669,8 @@ class ErrorReportGenerator:
     def _format_resolution_markdown(self, report: ResolutionReport) -> str:
         """Format resolution report as Markdown."""
         lines = [
-            f"# Error Resolution Report",
-            f"",
+            "# Error Resolution Report",
+            "",
             f"**Generated:** {report.generated_at.strftime('%Y-%m-%d %H:%M:%S')} UTC"
         ]
 
@@ -678,9 +678,9 @@ class ErrorReportGenerator:
             lines.append(f"**Time Range:** Last {report.time_range_days} days")
 
         lines.extend([
-            f"",
-            f"## Resolution Metrics",
-            f"",
+            "",
+            "## Resolution Metrics",
+            "",
             f"- **Total Errors:** {report.metrics.total_errors}",
             f"- **Acknowledged:** {report.metrics.acknowledged_count}",
             f"- **Unacknowledged:** {report.metrics.unacknowledged_count}",
@@ -695,10 +695,10 @@ class ErrorReportGenerator:
 
     async def _get_top_errors(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 10
-    ) -> List[TopError]:
+    ) -> list[TopError]:
         """
         Get top N most frequent errors.
 
@@ -768,9 +768,9 @@ class ErrorReportGenerator:
 
     async def _calculate_avg_acknowledgment_time(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
-    ) -> Optional[float]:
+        start_date: datetime | None = None,
+        end_date: datetime | None = None
+    ) -> float | None:
         """
         Calculate average time to acknowledgment in seconds.
 

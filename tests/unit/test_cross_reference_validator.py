@@ -1,16 +1,16 @@
 """Comprehensive unit tests for cross-reference validator with edge cases."""
 
-import pytest
+import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import json
+from unittest.mock import MagicMock, Mock, patch
 
+import pytest
 from docs.framework.validation.cross_reference import (
     CrossReferenceValidator,
-    ReferenceType,
     ReferenceLink,
-    ValidationResult
+    ReferenceType,
+    ValidationResult,
 )
 
 
@@ -396,7 +396,7 @@ a, b, c = 1, 2, 3
             target="mymodule.function_one"
         )
 
-        is_valid = validator._validate_code_reference(reference)
+        validator._validate_code_reference(reference)
         # May be valid depending on symbol extraction
 
     def test_validate_file_reference_valid(self, temp_docs_dir):
@@ -672,7 +672,7 @@ a, b, c = 1, 2, 3
         assert output_path.exists()
 
         # Verify exported data
-        with open(output_path, 'r') as f:
+        with open(output_path) as f:
             data = json.load(f)
 
         assert data['summary']['total_references'] == 10
@@ -713,7 +713,7 @@ a, b, c = 1, 2, 3
         binary_file.write_bytes(b'\x00\x01\x02\x03\xFF')
 
         # Should handle gracefully
-        result = validator.validate_references(['*.pdf'])
+        validator.validate_references(['*.pdf'])
         # Result depends on how binary files are handled
 
     def test_edge_case_empty_patterns(self, temp_docs_dir):

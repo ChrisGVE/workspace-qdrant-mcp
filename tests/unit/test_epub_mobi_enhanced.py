@@ -6,16 +6,16 @@ and all new functionality added for task 258.3.
 """
 
 import asyncio
+import struct
 import tempfile
 import zipfile
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
-import struct
-import pytest
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import pytest
+from wqm_cli.cli.parsers.base import ParsedDocument
 from wqm_cli.cli.parsers.epub_parser import EpubParser
 from wqm_cli.cli.parsers.mobi_parser import MobiParser
-from wqm_cli.cli.parsers.base import ParsedDocument
 
 
 class TestEnhancedEpubParser:

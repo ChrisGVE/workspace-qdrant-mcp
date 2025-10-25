@@ -11,7 +11,7 @@ Creates comprehensive executive dashboards with:
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 from .models import TestRun
 from .storage import TestResultStorage
@@ -28,8 +28,8 @@ class PerformanceDashboard:
 
     def __init__(
         self,
-        storage: Optional[TestResultStorage] = None,
-        trend_analyzer: Optional[TrendAnalyzer] = None,
+        storage: TestResultStorage | None = None,
+        trend_analyzer: TrendAnalyzer | None = None,
     ):
         """
         Initialize performance dashboard.
@@ -43,7 +43,7 @@ class PerformanceDashboard:
 
     def generate_executive_summary(
         self, test_run: TestRun, include_trends: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Generate executive summary for a test run.
 
@@ -105,8 +105,8 @@ class PerformanceDashboard:
         return summary
 
     def generate_dashboard_charts(
-        self, test_run: TestRun, time_windows: Optional[List[int]] = None
-    ) -> Dict[str, Any]:
+        self, test_run: TestRun, time_windows: list[int] | None = None
+    ) -> dict[str, Any]:
         """
         Generate all dashboard charts.
 
@@ -164,7 +164,7 @@ class PerformanceDashboard:
 
     def generate_health_indicators(
         self, test_run: TestRun
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> dict[str, dict[str, Any]]:
         """
         Generate health indicators for dashboard.
 
@@ -222,7 +222,7 @@ class PerformanceDashboard:
 
         return indicators
 
-    def _analyze_all_trends(self) -> Dict[str, Any]:
+    def _analyze_all_trends(self) -> dict[str, Any]:
         """Analyze all trends (7, 30, 90 days)."""
         trends = {}
 
@@ -254,7 +254,7 @@ class PerformanceDashboard:
 
         return trends
 
-    def _generate_trend_indicators(self, trends: Dict[str, Any]) -> Dict[str, str]:
+    def _generate_trend_indicators(self, trends: dict[str, Any]) -> dict[str, str]:
         """
         Generate simple trend indicators for key metrics.
 
@@ -292,7 +292,7 @@ class PerformanceDashboard:
 
         return indicators
 
-    def _generate_health_gauge(self, test_run: TestRun) -> Dict[str, Any]:
+    def _generate_health_gauge(self, test_run: TestRun) -> dict[str, Any]:
         """Generate health status gauge chart."""
         health_status = self.trend_analyzer.calculate_health_status(test_run)
 
@@ -336,8 +336,8 @@ class PerformanceDashboard:
         }
 
     def _generate_success_rate_trend_chart(
-        self, trend_data: Dict[str, Any], days: int
-    ) -> Dict[str, Any]:
+        self, trend_data: dict[str, Any], days: int
+    ) -> dict[str, Any]:
         """Generate success rate trend line chart."""
         data_points = trend_data.get("data_points", [])
 
@@ -378,8 +378,8 @@ class PerformanceDashboard:
         }
 
     def _generate_execution_time_trend_chart(
-        self, trend_data: Dict[str, Any], days: int
-    ) -> Dict[str, Any]:
+        self, trend_data: dict[str, Any], days: int
+    ) -> dict[str, Any]:
         """Generate execution time trend area chart."""
         data_points = trend_data.get("data_points", [])
 
@@ -419,8 +419,8 @@ class PerformanceDashboard:
         }
 
     def _generate_coverage_trend_chart(
-        self, trend_data: Dict[str, Any], days: int
-    ) -> Dict[str, Any]:
+        self, trend_data: dict[str, Any], days: int
+    ) -> dict[str, Any]:
         """Generate coverage trend chart."""
         data_points = trend_data.get("data_points", [])
 
@@ -495,8 +495,8 @@ class PerformanceDashboard:
         }
 
     def _generate_flakiness_trend_chart(
-        self, trend_data: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, trend_data: dict[str, Any]
+    ) -> dict[str, Any]:
         """Generate flakiness trend chart."""
         data_points = trend_data.get("data_points", [])
 
@@ -540,7 +540,7 @@ class PerformanceDashboard:
 
     def _generate_benchmark_trend_charts(
         self, test_run: TestRun, days: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Generate benchmark performance trend charts.
 

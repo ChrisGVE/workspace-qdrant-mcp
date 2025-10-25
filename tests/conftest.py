@@ -8,8 +8,8 @@ This conftest provides:
 - Test categorization and marker management
 """
 
-import sys
 import os
+import sys
 from pathlib import Path
 
 import pytest

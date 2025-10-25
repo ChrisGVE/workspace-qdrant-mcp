@@ -23,7 +23,6 @@ import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Optional
 
 
 class MigrationError(Exception):
@@ -60,8 +59,8 @@ class ErrorMessageMigrator:
         self.db_path = Path(db_path)
         self.dry_run = dry_run
         self.create_backup = create_backup
-        self.conn: Optional[sqlite3.Connection] = None
-        self.backup_path: Optional[Path] = None
+        self.conn: sqlite3.Connection | None = None
+        self.backup_path: Path | None = None
 
         # Migration statistics
         self.stats = {
@@ -212,7 +211,7 @@ class ErrorMessageMigrator:
         if not schema_file.exists():
             raise MigrationError(f"Schema file not found: {schema_file}")
 
-        with open(schema_file, 'r') as f:
+        with open(schema_file) as f:
             schema_sql = f.read()
 
         # Temporarily switch to script mode for schema creation

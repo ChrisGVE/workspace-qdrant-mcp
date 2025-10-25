@@ -7,7 +7,7 @@ all features work consistently across supported Python versions.
 
 import sys
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 import pytest
 
@@ -53,9 +53,9 @@ class TestStdlibCompatibility:
 
     def test_type_hints_available(self):
         """Test that type hints work correctly."""
-        from typing import Optional, Union, List, Dict
+        from typing import Optional, Union
 
-        def test_func(x: Optional[int] = None) -> Union[str, None]:
+        def test_func(x: int | None = None) -> str | None:
             return str(x) if x is not None else None
 
         assert test_func(42) == "42"
@@ -175,10 +175,10 @@ class TestCoreModuleCompatibility:
     def test_memory_manager_imports(self):
         """Test memory manager module imports."""
         from src.python.common.core.memory import (
-            MemoryCategory,
-            MemoryRule,
-            MemoryManager,
             AuthorityLevel,
+            MemoryCategory,
+            MemoryManager,
+            MemoryRule,
         )
 
         assert MemoryCategory is not None
@@ -207,7 +207,7 @@ class TestDependencyVersions:
 
     def test_fastapi_imports(self):
         """Test FastAPI imports work."""
-        from fastapi import FastAPI, APIRouter
+        from fastapi import APIRouter, FastAPI
         from pydantic import BaseModel
 
         app = FastAPI()
@@ -219,7 +219,7 @@ class TestDependencyVersions:
     def test_qdrant_client_imports(self):
         """Test Qdrant client imports."""
         from qdrant_client import QdrantClient
-        from qdrant_client.models import Distance, VectorParams, PointStruct
+        from qdrant_client.models import Distance, PointStruct, VectorParams
 
         assert QdrantClient is not None
         assert Distance is not None

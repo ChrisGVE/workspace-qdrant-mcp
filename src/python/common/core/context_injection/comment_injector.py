@@ -15,10 +15,10 @@ Key features:
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple
+
 from loguru import logger
 
-from ...memory import AuthorityLevel, MemoryRule, MemoryCategory
+from ...memory import AuthorityLevel, MemoryRule
 from .copilot_detector import CopilotDetector
 
 
@@ -64,7 +64,7 @@ class RuleConflict:
     rule2: MemoryRule
     conflict_type: ConflictType
     description: str
-    suggested_resolution: Optional[str] = None
+    suggested_resolution: str | None = None
 
 
 @dataclass
@@ -85,8 +85,8 @@ class InjectedComment:
     language: str
     placement: PlacementStrategy
     rules_included: int
-    conflicts_detected: List[RuleConflict]
-    metadata: Dict[str, any]
+    conflicts_detected: list[RuleConflict]
+    metadata: dict[str, any]
 
 
 class CommentInjector:
@@ -108,7 +108,7 @@ class CommentInjector:
         >>> print(result.content)
     """
 
-    def __init__(self, detector: Optional[CopilotDetector] = None):
+    def __init__(self, detector: CopilotDetector | None = None):
         """
         Initialize the comment injector.
 
@@ -119,10 +119,10 @@ class CommentInjector:
 
     def format_as_comment(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         language: str,
         placement: PlacementStrategy,
-        priority_filter: Optional[str] = None,
+        priority_filter: str | None = None,
         detect_conflicts: bool = True,
     ) -> InjectedComment:
         """
@@ -172,7 +172,7 @@ class CommentInjector:
             },
         )
 
-    def detect_conflicts(self, rules: List[MemoryRule]) -> List[RuleConflict]:
+    def detect_conflicts(self, rules: list[MemoryRule]) -> list[RuleConflict]:
         """
         Detect conflicts between rules.
 
@@ -200,9 +200,9 @@ class CommentInjector:
 
     def resolve_conflicts(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         strategy: ConflictResolution = ConflictResolution.HIGHEST_PRIORITY,
-    ) -> List[MemoryRule]:
+    ) -> list[MemoryRule]:
         """
         Resolve conflicting rules using specified strategy.
 
@@ -219,7 +219,7 @@ class CommentInjector:
             return rules
 
         # Track rules to remove
-        rules_to_remove: Set[str] = set()
+        rules_to_remove: set[str] = set()
 
         for conflict in conflicts:
             if strategy == ConflictResolution.HIGHEST_PRIORITY:
@@ -254,7 +254,7 @@ class CommentInjector:
         # Filter out removed rules
         return [r for r in rules if r.name not in rules_to_remove]
 
-    def _format_file_header(self, rules: List[MemoryRule], language: str) -> str:
+    def _format_file_header(self, rules: list[MemoryRule], language: str) -> str:
         """
         Format rules as file header comments.
 
@@ -317,7 +317,7 @@ class CommentInjector:
         return "\n".join(lines)
 
     def _format_docstring_section(
-        self, rules: List[MemoryRule], language: str
+        self, rules: list[MemoryRule], language: str
     ) -> str:
         """
         Format rules as docstring section.
@@ -341,7 +341,7 @@ class CommentInjector:
             # Fallback to inline format
             return self._format_inline_directives(rules, language)
 
-    def _format_python_docstring_section(self, rules: List[MemoryRule]) -> str:
+    def _format_python_docstring_section(self, rules: list[MemoryRule]) -> str:
         """Format rules for Python docstrings."""
         lines = ["", "Coding Rules:"]
 
@@ -351,7 +351,7 @@ class CommentInjector:
 
         return "\n".join(lines)
 
-    def _format_jsdoc_section(self, rules: List[MemoryRule]) -> str:
+    def _format_jsdoc_section(self, rules: list[MemoryRule]) -> str:
         """Format rules for JSDoc comments."""
         lines = []
 
@@ -365,7 +365,7 @@ class CommentInjector:
 
         return "\n".join(lines)
 
-    def _format_rust_doc_section(self, rules: List[MemoryRule]) -> str:
+    def _format_rust_doc_section(self, rules: list[MemoryRule]) -> str:
         """Format rules for Rust doc comments."""
         lines = []
 
@@ -379,7 +379,7 @@ class CommentInjector:
         return "\n".join(lines)
 
     def _format_inline_directives(
-        self, rules: List[MemoryRule], language: str
+        self, rules: list[MemoryRule], language: str
     ) -> str:
         """
         Format rules as inline comment directives.
@@ -404,7 +404,7 @@ class CommentInjector:
 
     def _check_rule_pair(
         self, rule1: MemoryRule, rule2: MemoryRule
-    ) -> Optional[RuleConflict]:
+    ) -> RuleConflict | None:
         """
         Check if two rules conflict.
 
@@ -446,7 +446,7 @@ class CommentInjector:
                     rule2=rule2,
                     conflict_type=ConflictType.OVERLAPPING,
                     description=f"Rules '{rule1.name}' and '{rule2.name}' overlap in scope with different priorities",
-                    suggested_resolution=f"Consider aligning priorities or narrowing scope",
+                    suggested_resolution="Consider aligning priorities or narrowing scope",
                 )
 
         return None
@@ -526,7 +526,7 @@ class CommentInjector:
         else:
             return 2  # P2 - Important
 
-    def _sort_by_priority(self, rules: List[MemoryRule]) -> List[MemoryRule]:
+    def _sort_by_priority(self, rules: list[MemoryRule]) -> list[MemoryRule]:
         """
         Sort rules by priority (highest first).
 
@@ -546,8 +546,8 @@ class CommentInjector:
         )
 
     def _filter_by_priority(
-        self, rules: List[MemoryRule], priority_filter: str
-    ) -> List[MemoryRule]:
+        self, rules: list[MemoryRule], priority_filter: str
+    ) -> list[MemoryRule]:
         """
         Filter rules by priority level.
 

@@ -15,6 +15,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from src.python.common.core.llm_access_control import (
+    AccessViolationType,
+    LLMAccessControlError,
+    LLMAccessController,
+)
 from src.python.common.security.access_control import (
     AccessResult,
     Permission,
@@ -27,11 +32,6 @@ from src.python.common.security.auth_token_manager import (
     AuthToken,
     SecureTokenStorage,
     TokenValidationError,
-)
-from src.python.common.core.llm_access_control import (
-    AccessViolationType,
-    LLMAccessController,
-    LLMAccessControlError,
 )
 
 
@@ -152,7 +152,7 @@ class TestRBACSystem:
         assert session2 is not None
 
         # Third session should either fail or remove oldest
-        session3 = rbac.create_session(user_id="user1")
+        rbac.create_session(user_id="user1")
 
         # Check that total sessions doesn't exceed limit
         user = rbac.get_user("user1")
@@ -248,7 +248,7 @@ class TestRBACSystem:
 
         # Simulate failed attempts
         max_attempts = 5
-        for i in range(max_attempts):
+        for _i in range(max_attempts):
             rbac.record_failed_attempt("user1")
 
         user = rbac.get_user("user1")
@@ -443,13 +443,13 @@ class TestSessionSecurity:
         rbac.create_user(user)
 
         # Create sessions from different devices
-        desktop = rbac.create_session(
+        rbac.create_session(
             user_id="user1", user_agent="Desktop/1.0", ip_address="192.168.1.1"
         )
-        mobile = rbac.create_session(
+        rbac.create_session(
             user_id="user1", user_agent="Mobile/1.0", ip_address="10.0.0.1"
         )
-        tablet = rbac.create_session(
+        rbac.create_session(
             user_id="user1", user_agent="Tablet/1.0", ip_address="172.16.0.1"
         )
 

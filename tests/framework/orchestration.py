@@ -7,22 +7,28 @@ workflow with intelligent scheduling and resource optimization.
 """
 
 import asyncio
+import json
 import logging
+import sqlite3
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Any, Callable
-from threading import Lock, Event
-import json
-import sqlite3
-from datetime import datetime, timedelta
+from threading import Event, Lock
+from typing import Any, Optional
 
-from .discovery import TestDiscovery, TestCategory, TestComplexity, TestMetadata
-from .execution import ParallelTestExecutor, ExecutionStrategy, ExecutionResult, ExecutionStatus
-from .analytics import TestAnalytics, TestMetrics, SuiteMetrics, HealthStatus
-from .integration import IntegrationTestCoordinator, ComponentConfig, IsolationLevel
+from .analytics import HealthStatus, SuiteMetrics, TestAnalytics, TestMetrics
+from .discovery import TestCategory, TestComplexity, TestDiscovery, TestMetadata
+from .execution import (
+    ExecutionResult,
+    ExecutionStatus,
+    ExecutionStrategy,
+    ParallelTestExecutor,
+)
+from .integration import ComponentConfig, IntegrationTestCoordinator, IsolationLevel
 
 
 class OrchestrationMode(Enum):
@@ -75,8 +81,8 @@ class OrchestrationConfig:
     retry_failed_tests: bool = True
     generate_reports: bool = True
     cleanup_on_completion: bool = True
-    custom_stages: List[str] = field(default_factory=list)
-    stage_callbacks: Dict[str, List[Callable]] = field(default_factory=dict)
+    custom_stages: list[str] = field(default_factory=list)
+    stage_callbacks: dict[str, list[Callable]] = field(default_factory=dict)
 
 
 @dataclass
@@ -84,18 +90,18 @@ class OrchestrationResult:
     """Results from test orchestration execution."""
     orchestration_id: str
     start_time: float
-    end_time: Optional[float] = None
+    end_time: float | None = None
     status: PipelineStage = PipelineStage.INITIALIZATION
-    discovered_tests: Dict[str, TestMetadata] = field(default_factory=dict)
-    execution_results: Dict[str, ExecutionResult] = field(default_factory=dict)
-    suite_metrics: Optional[SuiteMetrics] = None
-    integration_results: Dict[str, Any] = field(default_factory=dict)
-    stage_timings: Dict[str, float] = field(default_factory=dict)
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    discovered_tests: dict[str, TestMetadata] = field(default_factory=dict)
+    execution_results: dict[str, ExecutionResult] = field(default_factory=dict)
+    suite_metrics: SuiteMetrics | None = None
+    integration_results: dict[str, Any] = field(default_factory=dict)
+    stage_timings: dict[str, float] = field(default_factory=dict)
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     @property
-    def duration(self) -> Optional[float]:
+    def duration(self) -> float | None:
         """Get total orchestration duration."""
         if self.end_time:
             return self.end_time - self.start_time
@@ -123,8 +129,8 @@ class TestOrchestrator:
     def __init__(self,
                  project_root: Path,
                  test_directory: Path,
-                 config: Optional[OrchestrationConfig] = None,
-                 database_path: Optional[Path] = None):
+                 config: OrchestrationConfig | None = None,
+                 database_path: Path | None = None):
         """Initialize the test orchestrator.
 
         Args:
@@ -139,16 +145,16 @@ class TestOrchestrator:
         self.database_path = database_path or self.project_root / ".test_orchestration.db"
 
         # Core components
-        self._discovery: Optional[TestDiscovery] = None
-        self._executor: Optional[ParallelTestExecutor] = None
-        self._analytics: Optional[TestAnalytics] = None
-        self._integration: Optional[IntegrationTestCoordinator] = None
+        self._discovery: TestDiscovery | None = None
+        self._executor: ParallelTestExecutor | None = None
+        self._analytics: TestAnalytics | None = None
+        self._integration: IntegrationTestCoordinator | None = None
 
         # Orchestration state
-        self._current_orchestration: Optional[str] = None
+        self._current_orchestration: str | None = None
         self._pipeline_lock = Lock()
         self._stop_event = Event()
-        self._stage_callbacks: Dict[str, List[Callable]] = {}
+        self._stage_callbacks: dict[str, list[Callable]] = {}
 
         # Initialize database
         self._init_database()
@@ -189,7 +195,7 @@ class TestOrchestrator:
             self._stage_callbacks[stage] = []
         self._stage_callbacks[stage].append(callback)
 
-    def _execute_stage_callbacks(self, stage: str, context: Dict[str, Any]):
+    def _execute_stage_callbacks(self, stage: str, context: dict[str, Any]):
         """Execute callbacks for pipeline stage."""
         if stage in self._stage_callbacks:
             for callback in self._stage_callbacks[stage]:
@@ -233,8 +239,8 @@ class TestOrchestrator:
         return self._integration
 
     async def orchestrate_tests(self,
-                               components: Optional[List[ComponentConfig]] = None,
-                               filters: Optional[Dict[str, Any]] = None) -> OrchestrationResult:
+                               components: list[ComponentConfig] | None = None,
+                               filters: dict[str, Any] | None = None) -> OrchestrationResult:
         """
         Execute comprehensive test orchestration pipeline.
 
@@ -272,8 +278,8 @@ class TestOrchestrator:
 
     async def _execute_pipeline(self,
                                result: OrchestrationResult,
-                               components: Optional[List[ComponentConfig]],
-                               filters: Optional[Dict[str, Any]]):
+                               components: list[ComponentConfig] | None,
+                               filters: dict[str, Any] | None):
         """Execute the complete orchestration pipeline."""
 
         stages = self._get_pipeline_stages()
@@ -299,7 +305,7 @@ class TestOrchestrator:
 
         result.status = PipelineStage.COMPLETED
 
-    def _get_pipeline_stages(self) -> List[PipelineStage]:
+    def _get_pipeline_stages(self) -> list[PipelineStage]:
         """Get pipeline stages based on configuration."""
         if self.config.mode == OrchestrationMode.DISCOVERY_ONLY:
             return [
@@ -345,8 +351,8 @@ class TestOrchestrator:
     async def _execute_pipeline_stage(self,
                                      stage: PipelineStage,
                                      result: OrchestrationResult,
-                                     components: Optional[List[ComponentConfig]],
-                                     filters: Optional[Dict[str, Any]]):
+                                     components: list[ComponentConfig] | None,
+                                     filters: dict[str, Any] | None):
         """Execute specific pipeline stage."""
 
         context = {
@@ -408,7 +414,7 @@ class TestOrchestrator:
         if self.config.enable_integration:
             self._get_component_integration()
 
-    async def _stage_discovery(self, result: OrchestrationResult, filters: Optional[Dict[str, Any]]):
+    async def _stage_discovery(self, result: OrchestrationResult, filters: dict[str, Any] | None):
         """Execute test discovery stage."""
         discovery = self._get_component_discovery()
 
@@ -432,7 +438,7 @@ class TestOrchestrator:
         categories = {}
         complexities = {}
 
-        for test_name, metadata in result.discovered_tests.items():
+        for _test_name, metadata in result.discovered_tests.items():
             categories[metadata.category] = categories.get(metadata.category, 0) + 1
             complexities[metadata.complexity] = complexities.get(metadata.complexity, 0) + 1
 
@@ -447,7 +453,6 @@ class TestOrchestrator:
         self.logger.info("Analyzing test dependencies...")
 
         # Analyze resource requirements and potential conflicts
-        resource_conflicts = set()
         database_tests = []
         network_tests = []
 
@@ -479,7 +484,7 @@ class TestOrchestrator:
 
     async def _stage_integration_setup(self,
                                       result: OrchestrationResult,
-                                      components: Optional[List[ComponentConfig]]):
+                                      components: list[ComponentConfig] | None):
         """Setup integration test environment."""
         if not self.config.enable_integration or not components:
             return
@@ -631,7 +636,7 @@ class TestOrchestrator:
         self._stop_event.set()
         self.logger.info("Orchestration stop requested")
 
-    def get_orchestration_history(self, limit: int = 10) -> List[Dict[str, Any]]:
+    def get_orchestration_history(self, limit: int = 10) -> list[dict[str, Any]]:
         """Get orchestration execution history."""
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.execute("""
@@ -653,7 +658,7 @@ class TestOrchestrator:
 
             return history
 
-    def get_stage_performance_stats(self) -> Dict[str, Dict[str, float]]:
+    def get_stage_performance_stats(self) -> dict[str, dict[str, float]]:
         """Get performance statistics by pipeline stage."""
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.execute("""
@@ -704,8 +709,8 @@ class OrchestrationScheduler:
             orchestrator: Test orchestrator instance
         """
         self.orchestrator = orchestrator
-        self.scheduled_runs: Dict[str, Dict[str, Any]] = {}
-        self.running_orchestrations: Set[str] = set()
+        self.scheduled_runs: dict[str, dict[str, Any]] = {}
+        self.running_orchestrations: set[str] = set()
         self.scheduler_executor = ThreadPoolExecutor(max_workers=2)
         self.logger = logging.getLogger(__name__)
 
@@ -713,8 +718,8 @@ class OrchestrationScheduler:
                               schedule_id: str,
                               cron_expression: str,
                               config: OrchestrationConfig,
-                              components: Optional[List[ComponentConfig]] = None,
-                              filters: Optional[Dict[str, Any]] = None):
+                              components: list[ComponentConfig] | None = None,
+                              filters: dict[str, Any] | None = None):
         """Schedule recurring test orchestration.
 
         Args:
@@ -778,7 +783,7 @@ class OrchestrationScheduler:
             del self.scheduled_runs[schedule_id]
             self.logger.info(f"Cancelled scheduled orchestration '{schedule_id}'")
 
-    def get_schedule_status(self) -> Dict[str, Dict[str, Any]]:
+    def get_schedule_status(self) -> dict[str, dict[str, Any]]:
         """Get status of all scheduled orchestrations."""
         status = {}
         for schedule_id, schedule_info in self.scheduled_runs.items():

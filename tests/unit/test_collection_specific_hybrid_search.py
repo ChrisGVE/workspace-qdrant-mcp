@@ -25,8 +25,8 @@ Test Coverage:
 import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 from qdrant_client.http import models
@@ -34,14 +34,13 @@ from qdrant_client.http import models
 # Add src/python to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
+from common.core.collection_naming import CollectionNameInfo, CollectionType
 from common.core.hybrid_search import (
     HybridSearchEngine,
     RRFFusionRanker,
     WeightedSumFusionRanker,
 )
-from common.core.collection_naming import CollectionType, CollectionNameInfo
 from common.core.multitenant_collections import ProjectMetadata
-
 
 # ============================================================================
 # Test Fixtures
@@ -1037,7 +1036,7 @@ class TestCollectionNameFiltering:
         """Test search correctly routes to USER collection by name."""
         mock_qdrant_client.search.return_value = user_collection_results
 
-        results = await hybrid_search_engine.hybrid_search(
+        await hybrid_search_engine.hybrid_search(
             collection_name="myapp-notes",  # USER collection pattern
             query_embeddings=sample_query_embeddings,
             limit=10
@@ -1061,7 +1060,7 @@ class TestCollectionNameFiltering:
         """Test search correctly routes to PROJECT collection by name."""
         mock_qdrant_client.search.return_value = project_collection_results
 
-        results = await hybrid_search_engine.hybrid_search(
+        await hybrid_search_engine.hybrid_search(
             collection_name="_a1b2c3d4e5f6",  # PROJECT collection pattern
             query_embeddings=sample_query_embeddings,
             limit=10
@@ -1085,7 +1084,7 @@ class TestCollectionNameFiltering:
         """Test search correctly routes to LIBRARY collection by name."""
         mock_qdrant_client.search.return_value = library_collection_results
 
-        results = await hybrid_search_engine.hybrid_search(
+        await hybrid_search_engine.hybrid_search(
             collection_name="_httpx",  # LIBRARY collection pattern
             query_embeddings=sample_query_embeddings,
             limit=10

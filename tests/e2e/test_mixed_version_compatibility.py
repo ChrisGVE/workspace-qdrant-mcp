@@ -26,18 +26,14 @@ Features Validated:
 
 import asyncio
 import json
-import pytest
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Any
 
-from tests.e2e.utils import (
-    HealthChecker,
-    WorkflowTimer,
-    assert_within_threshold
-)
+import pytest
 
+from tests.e2e.utils import HealthChecker, WorkflowTimer, assert_within_threshold
 
 # Version compatibility test configuration
 VERSION_COMPATIBILITY_CONFIG = {
@@ -81,8 +77,6 @@ class TestDaemonMCPVersionMismatches:
         timer.start()
 
         # Simulate starting components with compatible versions
-        daemon_version = "0.3.0"
-        mcp_version = "0.3.0"
 
         await component_lifecycle_manager.start_component("daemon")
         await component_lifecycle_manager.start_component("mcp_server")
@@ -119,8 +113,6 @@ class TestDaemonMCPVersionMismatches:
         timer.start()
 
         # Daemon on 0.3.0, MCP on 0.2.0
-        daemon_version = "0.3.0"
-        mcp_version = "0.2.0"
 
         await component_lifecycle_manager.start_component("daemon")
         await component_lifecycle_manager.start_component("mcp_server")
@@ -154,8 +146,6 @@ class TestDaemonMCPVersionMismatches:
         timer.start()
 
         # Daemon on 1.0.0, MCP on 0.3.0
-        daemon_version = "1.0.0"
-        mcp_version = "0.3.0"
 
         await component_lifecycle_manager.start_component("daemon")
         await component_lifecycle_manager.start_component("mcp_server")
@@ -220,7 +210,7 @@ class TestSQLiteSchemaVersioning:
         timer = WorkflowTimer()
         timer.start()
 
-        workspace = temp_project_workspace["path"]
+        temp_project_workspace["path"]
 
         # Simulate SQLite database with schema version
         # In real implementation, would query:
@@ -247,12 +237,10 @@ class TestSQLiteSchemaVersioning:
         timer = WorkflowTimer()
         timer.start()
 
-        workspace = temp_project_workspace["path"]
+        temp_project_workspace["path"]
 
         # Application version: 0.2.0
         # Schema version: 0.2.1
-        app_version = "0.2.0"
-        schema_version = "0.2.1"
 
         # Simulate version check
         await asyncio.sleep(0.5)
@@ -279,12 +267,10 @@ class TestSQLiteSchemaVersioning:
         timer = WorkflowTimer()
         timer.start()
 
-        workspace = temp_project_workspace["path"]
+        temp_project_workspace["path"]
 
         # Application version: 0.2.1
         # Schema version: 0.2.0
-        app_version = "0.2.1"
-        schema_version = "0.2.0"
 
         # Simulate migration
         await asyncio.sleep(5)  # Migration process
@@ -316,7 +302,7 @@ class TestSQLiteSchemaVersioning:
         timer = WorkflowTimer()
         timer.start()
 
-        workspace = temp_project_workspace["path"]
+        temp_project_workspace["path"]
 
         # Simulate migration with error
         await asyncio.sleep(2)
@@ -360,8 +346,6 @@ class TestQdrantAPICompatibility:
         # GET http://localhost:6333/
         # Response: {"version": "1.7.4", ...}
 
-        qdrant_version = "1.7.4"
-        app_qdrant_compatibility = ">=1.6.0,<2.0.0"
 
         # Would validate version against compatibility range
         timer.checkpoint("version_validated")
@@ -389,12 +373,6 @@ class TestQdrantAPICompatibility:
         # - Hybrid search (v1.7+)
         # - Collection aliases (v1.0+)
 
-        available_features = {
-            "sparse_vectors": True,
-            "multi_vectors": True,
-            "hybrid_search": True,
-            "collection_aliases": True
-        }
 
         timer.checkpoint("features_detected")
 
@@ -415,8 +393,6 @@ class TestQdrantAPICompatibility:
 
         # Qdrant version: 0.9.0 (too old)
         # Application requires: >=1.6.0
-        qdrant_version = "0.9.0"
-        required_version = ">=1.6.0"
 
         await component_lifecycle_manager.start_component("qdrant")
         await asyncio.sleep(2)
@@ -486,7 +462,7 @@ class TestConfigurationFormatMigrations:
         timer.checkpoint("migration_complete")
 
         # Verify backup created
-        backup_file = workspace / "config.yaml.v1.backup"
+        workspace / "config.yaml.v1.backup"
         # In real implementation, backup would exist
 
         migration_time = timer.get_duration("migration_complete") - timer.get_duration("old_config_created")
@@ -598,7 +574,7 @@ class TestRollingUpgradeScenarios:
 
         # Simulate ongoing operations
         operations_before_upgrade = 5
-        for i in range(operations_before_upgrade):
+        for _i in range(operations_before_upgrade):
             await asyncio.sleep(0.2)
 
         timer.checkpoint("operations_baseline")
@@ -617,7 +593,7 @@ class TestRollingUpgradeScenarios:
 
         # Verify operations resume
         operations_after_upgrade = 5
-        for i in range(operations_after_upgrade):
+        for _i in range(operations_after_upgrade):
             await asyncio.sleep(0.2)
 
         timer.checkpoint("operations_resumed")
@@ -740,11 +716,6 @@ class TestBackwardCompatibilityGuarantees:
         await asyncio.sleep(5)
 
         # Old API call format (v1)
-        old_api_request = {
-            "action": "add_document",
-            "path": "/path/to/file.py",
-            "content": "def foo(): pass"
-        }
 
         # Simulate API call
         await asyncio.sleep(0.5)
@@ -757,14 +728,6 @@ class TestBackwardCompatibilityGuarantees:
         # - Logs deprecation warning
 
         # New API call format (v2)
-        new_api_request = {
-            "action": "store",
-            "document": {
-                "path": "/path/to/file.py",
-                "content": "def foo(): pass",
-                "metadata": {"type": "code"}
-            }
-        }
 
         await asyncio.sleep(0.5)
         timer.checkpoint("new_api_call_completed")
@@ -785,7 +748,7 @@ class TestBackwardCompatibilityGuarantees:
         timer = WorkflowTimer()
         timer.start()
 
-        workspace = temp_project_workspace["path"]
+        temp_project_workspace["path"]
 
         # Old data format in SQLite
         # In real implementation, would have:

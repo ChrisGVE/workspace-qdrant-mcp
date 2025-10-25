@@ -6,22 +6,23 @@ with 100% coverage including async patterns, streaming, and error handling.
 """
 
 import asyncio
-import pytest
+from collections.abc import AsyncIterator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from typing import Dict, Any, AsyncIterator
 
 import grpc
+import pytest
 from google.protobuf.empty_pb2 import Empty
 
 # Import modules under test
 from src.python.common.grpc.client import AsyncIngestClient
 from src.python.common.grpc.connection_manager import ConnectionConfig
 from src.python.common.grpc.types import (
-    ProcessDocumentRequest,
-    ProcessDocumentResponse,
     ExecuteQueryRequest,
     ExecuteQueryResponse,
     HealthCheckResponse,
+    ProcessDocumentRequest,
+    ProcessDocumentResponse,
 )
 
 
@@ -61,7 +62,7 @@ class TestAsyncIngestClient:
 
             assert client.connection_config.host == "127.0.0.1"
             assert client.connection_config.port == 50051
-            assert client._started == False
+            assert not client._started
 
     def test_init_with_custom_params(self, mock_connection_manager):
         """Test client initialization with custom parameters."""
@@ -86,7 +87,7 @@ class TestAsyncIngestClient:
         """Test starting the client."""
         await client.start()
 
-        assert client._started == True
+        assert client._started
         mock_connection_manager.start.assert_called_once()
 
     async def test_start_idempotent(self, client, mock_connection_manager):
@@ -102,7 +103,7 @@ class TestAsyncIngestClient:
         await client.start()
         await client.stop()
 
-        assert client._started == False
+        assert not client._started
         mock_connection_manager.stop.assert_called_once()
 
     async def test_stop_not_started(self, client, mock_connection_manager):
@@ -116,9 +117,9 @@ class TestAsyncIngestClient:
         """Test using client as async context manager."""
         async with client as ctx_client:
             assert ctx_client == client
-            assert client._started == True
+            assert client._started
 
-        assert client._started == False
+        assert not client._started
         mock_connection_manager.start.assert_called_once()
         mock_connection_manager.stop.assert_called_once()
 
@@ -519,7 +520,7 @@ class TestAsyncIngestClient:
 
         result = await client.test_connection()
 
-        assert result == True
+        assert result
         client.health_check.assert_called_once_with(timeout=5.0)
 
     async def test_test_connection_failure(self, client):
@@ -528,7 +529,7 @@ class TestAsyncIngestClient:
 
         result = await client.test_connection()
 
-        assert result == False
+        assert not result
 
     async def test_stream_processing_status(self, client, mock_connection_manager):
         """Test streaming processing status."""

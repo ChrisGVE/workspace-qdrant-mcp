@@ -7,20 +7,22 @@ and memory-efficient event tracking.
 
 import asyncio
 import sqlite3
-import time
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from typing import List
 import tempfile
+import time
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pytest
 
-from src.python.common.core.queue_statistics import (
-    QueueStatistics,
-    ProcessingEvent,
-    QueueStatisticsCollector
+from src.python.common.core.queue_connection import (
+    ConnectionConfig,
+    QueueConnectionPool,
 )
-from src.python.common.core.queue_connection import QueueConnectionPool, ConnectionConfig
+from src.python.common.core.queue_statistics import (
+    ProcessingEvent,
+    QueueStatistics,
+    QueueStatisticsCollector,
+)
 
 
 @pytest.fixture
@@ -637,7 +639,7 @@ class TestQueueStatisticsCollector:
         # Collector has max_events=1000 from fixture
 
         # Record more than max events
-        for i in range(1500):
+        for _i in range(1500):
             await collector.record_event(event_type="success")
 
         async with collector._lock:

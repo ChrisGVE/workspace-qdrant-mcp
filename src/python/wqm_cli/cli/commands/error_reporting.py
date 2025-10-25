@@ -18,32 +18,27 @@ Usage:
     wqm errors monitor --webhook=URL        # Start monitoring
 """
 
-import asyncio
 import json
-from typing import Optional, Literal
 
 import typer
-from loguru import logger
-from rich.console import Console
-from rich.table import Table
-from rich.bar import Bar
-from rich.panel import Panel
-from rich.text import Text
-
 from common.core.error_statistics import (
     ErrorReportGenerator,
+    ResolutionReport,
     SummaryReport,
-    TrendReport,
     TopErrorsReport,
-    ResolutionReport
+    TrendReport,
 )
+from loguru import logger
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 from ..utils import (
     create_command_app,
     error_message,
     handle_async,
     success_message,
-    warning_message,
 )
 
 # Create the errors app
@@ -144,15 +139,15 @@ def _display_summary_table(report: SummaryReport) -> None:
 
     # Overview panel
     overview_text = Text()
-    overview_text.append(f"Total Errors: ", style="bold")
+    overview_text.append("Total Errors: ", style="bold")
     overview_text.append(f"{stats.total_count}\n")
-    overview_text.append(f"Unacknowledged: ", style="bold")
+    overview_text.append("Unacknowledged: ", style="bold")
     overview_text.append(f"{stats.unacknowledged_count}\n", style="red")
-    overview_text.append(f"Error Rate: ", style="bold")
+    overview_text.append("Error Rate: ", style="bold")
     overview_text.append(f"{stats.error_rate_per_day:.2f} per day ({stats.error_rate_per_hour:.2f} per hour)\n")
 
     if stats.last_error_at:
-        overview_text.append(f"Last Error: ", style="bold")
+        overview_text.append("Last Error: ", style="bold")
         overview_text.append(f"{stats.last_error_at.strftime('%Y-%m-%d %H:%M:%S')} UTC\n")
 
     console.print(Panel(
@@ -342,7 +337,7 @@ def show_top_errors(
         "--limit",
         help="Number of top errors to show",
     ),
-    days: Optional[int] = typer.Option(
+    days: int | None = typer.Option(
         None,
         "--days",
         help="Number of days to analyze (default: all time)",
@@ -360,7 +355,7 @@ def show_top_errors(
     handle_async(_show_top_errors(limit, days, format))
 
 
-async def _show_top_errors(limit: int, days: Optional[int], format: str) -> None:
+async def _show_top_errors(limit: int, days: int | None, format: str) -> None:
     """Implementation of show_top_errors command."""
     try:
         generator = ErrorReportGenerator()
@@ -434,7 +429,7 @@ def _display_top_errors_table(report: TopErrorsReport) -> None:
 
 @errors_app.command("resolution")
 def show_resolution_metrics(
-    days: Optional[int] = typer.Option(
+    days: int | None = typer.Option(
         None,
         "--days",
         help="Number of days to analyze (default: all time)",
@@ -452,7 +447,7 @@ def show_resolution_metrics(
     handle_async(_show_resolution_metrics(days, format))
 
 
-async def _show_resolution_metrics(days: Optional[int], format: str) -> None:
+async def _show_resolution_metrics(days: int | None, format: str) -> None:
     """Implementation of show_resolution_metrics command."""
     try:
         generator = ErrorReportGenerator()
@@ -546,7 +541,7 @@ def generate_full_report(
         "--format",
         help="Output format: json or markdown",
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None,
         "--output",
         "-o",
@@ -567,7 +562,7 @@ def generate_full_report(
     handle_async(_generate_full_report(days, format.lower(), output))
 
 
-async def _generate_full_report(days: int, format: str, output: Optional[str]) -> None:
+async def _generate_full_report(days: int, format: str, output: str | None) -> None:
     """Implementation of generate_full_report command."""
     try:
         generator = ErrorReportGenerator()
@@ -619,7 +614,7 @@ async def _generate_full_report(days: int, format: str, output: Optional[str]) -
 
 
 # Import and register export commands
-from .error_export_cli import export_errors, create_debug_bundle
+from .error_export_cli import create_debug_bundle, export_errors
 
 # Register export commands
 errors_app.command("export")(export_errors)

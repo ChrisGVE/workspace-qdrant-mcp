@@ -7,11 +7,12 @@ Includes path handling, permissions, and OS-specific operations.
 
 import os
 import platform
-import pytest
 import sys
 import tempfile
 from pathlib import Path
 from typing import Optional
+
+import pytest
 
 
 class TestPlatformDetection:
@@ -70,8 +71,8 @@ class TestPlatformDetection:
         elif system in ("Linux", "Darwin"):
             # Unix-specific
             try:
-                import pwd
                 import grp
+                import pwd
 
                 assert pwd is not None
                 assert grp is not None

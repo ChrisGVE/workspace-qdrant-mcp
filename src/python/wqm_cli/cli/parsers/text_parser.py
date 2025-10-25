@@ -10,10 +10,9 @@ for the workspace-qdrant-mcp ingestion system.
 
 import csv
 import json
-import logging
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import chardet
 
@@ -87,13 +86,13 @@ class TextParser(DocumentParser):
     async def parse(
         self,
         file_path: str | Path,
-        progress_tracker: Optional[ProgressTracker] = None,
+        progress_tracker: ProgressTracker | None = None,
         encoding: str | None = None,
         detect_encoding: bool = True,
         clean_content: bool = True,
         preserve_whitespace: bool = False,
         enable_structured_parsing: bool = True,
-        csv_delimiter: Optional[str] = None,
+        csv_delimiter: str | None = None,
         csv_has_header: bool = True,
         max_file_size: int = 100 * 1024 * 1024,  # 100MB default limit
         **options,
@@ -292,7 +291,7 @@ class TextParser(DocumentParser):
         self,
         file_path: Path,
         encoding: str,
-        progress_tracker: Optional[ProgressTracker] = None,
+        progress_tracker: ProgressTracker | None = None,
     ) -> tuple[str, str]:
         """
         Robustly read file content with encoding fallback chain.
@@ -485,7 +484,7 @@ class TextParser(DocumentParser):
     def _select_best_encoding(
         self,
         chardet_result: tuple[str, float],
-        charset_normalizer_result: tuple[Optional[str], float],
+        charset_normalizer_result: tuple[str | None, float],
         raw_data: bytes,
     ) -> tuple[str, float]:
         """
@@ -560,9 +559,9 @@ class TextParser(DocumentParser):
         self,
         content: str,
         file_extension: str,
-        csv_delimiter: Optional[str] = None,
+        csv_delimiter: str | None = None,
         csv_has_header: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Parse structured text formats and extract metadata."""
         metadata = {}
         try:
@@ -582,8 +581,8 @@ class TextParser(DocumentParser):
         return metadata
 
     def _parse_csv_metadata(
-        self, content: str, delimiter: Optional[str] = None, has_header: bool = True
-    ) -> Dict[str, Any]:
+        self, content: str, delimiter: str | None = None, has_header: bool = True
+    ) -> dict[str, Any]:
         """Parse CSV/TSV content and extract metadata."""
         metadata = {"format_type": "csv"}
         try:
@@ -619,7 +618,7 @@ class TextParser(DocumentParser):
             metadata["csv_parsing_error"] = str(e)
         return metadata
 
-    def _parse_log_metadata(self, content: str) -> Dict[str, Any]:
+    def _parse_log_metadata(self, content: str) -> dict[str, Any]:
         """Parse log content and extract metadata."""
         metadata = {"format_type": "log"}
         lines = content.split("\n")
@@ -631,7 +630,7 @@ class TextParser(DocumentParser):
         ]
         log_levels = ['DEBUG', 'INFO', 'WARN', 'ERROR', 'FATAL', 'TRACE']
         timestamp_matches = 0
-        level_counts = {level: 0 for level in log_levels}
+        level_counts = dict.fromkeys(log_levels, 0)
         for line in lines[:100]:
             for pattern in timestamp_patterns:
                 if re.search(pattern, line):
@@ -649,7 +648,7 @@ class TextParser(DocumentParser):
         )
         return metadata
 
-    def _parse_jsonl_metadata(self, content: str) -> Dict[str, Any]:
+    def _parse_jsonl_metadata(self, content: str) -> dict[str, Any]:
         """Parse JSON Lines content and extract metadata."""
         metadata = {"format_type": "jsonl"}
         lines = [line.strip() for line in content.split("\n") if line.strip()]
@@ -668,7 +667,7 @@ class TextParser(DocumentParser):
         metadata["sample_keys"] = list(sample_keys)[:20]
         return metadata
 
-    def _parse_config_metadata(self, content: str, file_extension: str) -> Dict[str, Any]:
+    def _parse_config_metadata(self, content: str, file_extension: str) -> dict[str, Any]:
         """Parse configuration file content and extract metadata."""
         metadata = {"format_type": "config", "config_type": file_extension[1:]}
         lines = content.split("\n")
@@ -692,7 +691,7 @@ class TextParser(DocumentParser):
         metadata["comment_lines"] = comment_count
         return metadata
 
-    def _parse_rtf_metadata(self, content: str) -> Dict[str, Any]:
+    def _parse_rtf_metadata(self, content: str) -> dict[str, Any]:
         """Parse RTF content and extract basic metadata."""
         metadata = {"format_type": "rtf"}
         if content.startswith('{\\rtf'):
@@ -707,7 +706,7 @@ class TextParser(DocumentParser):
             metadata["valid_rtf_header"] = False
         return metadata
 
-    def _analyze_csv_data_types(self, data_rows: List[List[str]]) -> List[str]:
+    def _analyze_csv_data_types(self, data_rows: list[list[str]]) -> list[str]:
         """Analyze data types in CSV rows."""
         if not data_rows or not data_rows[0]:
             return []
@@ -825,7 +824,7 @@ class TextParser(DocumentParser):
         self,
         file_path: Path,
         encoding: str,
-        progress_tracker: Optional[ProgressTracker] = None,
+        progress_tracker: ProgressTracker | None = None,
     ) -> str:
         """Legacy method - keeping for compatibility."""
         result = await self._read_with_encoding_robust(file_path, encoding, progress_tracker)
@@ -839,7 +838,7 @@ class TextParser(DocumentParser):
         self,
         file_path: Path,
         encoding: str,
-        progress_tracker: Optional[ProgressTracker] = None,
+        progress_tracker: ProgressTracker | None = None,
     ) -> str:
         """Legacy compatibility method."""
         result = await self._read_with_encoding_robust(file_path, encoding, progress_tracker)

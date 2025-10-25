@@ -9,8 +9,8 @@ import asyncio
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from unittest.mock import Mock, patch, AsyncMock, MagicMock, call, mock_open
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, mock_open, patch
 
 import pytest
 
@@ -149,7 +149,11 @@ class TestTargeted25PercentCoverage:
     def test_os_directories_deep_methods(self):
         """Test deep method execution in OS directories."""
         try:
-            from common.utils.os_directories import get_user_home, get_config_dir, get_data_dir
+            from common.utils.os_directories import (
+                get_config_dir,
+                get_data_dir,
+                get_user_home,
+            )
 
             # Test user home with verification
             home = get_user_home()
@@ -177,7 +181,10 @@ class TestTargeted25PercentCoverage:
     def test_sparse_vectors_deep_methods(self):
         """Test deep method execution in sparse vectors."""
         try:
-            from common.core.sparse_vectors import create_named_sparse_vector, SparseVectorConfig
+            from common.core.sparse_vectors import (
+                SparseVectorConfig,
+                create_named_sparse_vector,
+            )
 
             # Test vector creation with different inputs
             vector1 = create_named_sparse_vector("hello world test", "test1")
@@ -209,14 +216,16 @@ class TestTargeted25PercentCoverage:
         """Test error handling module methods."""
         try:
             from common.core.error_handling import (
-                QdrantWorkspaceError, ConfigurationError, ValidationError
+                ConfigurationError,
+                QdrantWorkspaceError,
+                ValidationError,
             )
 
             # Test base error with different messages
             error1 = QdrantWorkspaceError("Simple error")
             assert str(error1) == "Simple error"
 
-            error2 = QdrantWorkspaceError("Error with details", details={"key": "value"})
+            QdrantWorkspaceError("Error with details", details={"key": "value"})
             assert "Simple error" in str(error1)
 
             # Test configuration error
@@ -352,7 +361,10 @@ class TestTargeted25PercentCoverage:
     def test_multitenant_methods(self):
         """Test multitenant collections methods."""
         try:
-            from common.core.multitenant_collections import ProjectIsolationManager, WorkspaceCollectionRegistry
+            from common.core.multitenant_collections import (
+                ProjectIsolationManager,
+                WorkspaceCollectionRegistry,
+            )
 
             # Test isolation manager
             isolation_manager = ProjectIsolationManager()
@@ -373,7 +385,10 @@ class TestTargeted25PercentCoverage:
     def test_performance_monitoring_methods(self):
         """Test performance monitoring methods."""
         try:
-            from common.core.performance_monitoring import PerformanceMonitor, MetricsCollector
+            from common.core.performance_monitoring import (
+                MetricsCollector,
+                PerformanceMonitor,
+            )
 
             # Test monitor creation and basic methods
             monitor = PerformanceMonitor()
@@ -398,7 +413,11 @@ class TestTargeted25PercentCoverage:
     def test_grpc_types_methods(self):
         """Test gRPC types methods."""
         try:
-            from common.grpc.types import DocumentRequest, SearchRequest, EmbeddingRequest
+            from common.grpc.types import (
+                DocumentRequest,
+                EmbeddingRequest,
+                SearchRequest,
+            )
 
             # Test document request
             doc_req = DocumentRequest()

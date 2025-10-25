@@ -9,7 +9,7 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from .models import (
     CoverageMetrics,
@@ -29,7 +29,7 @@ from .models import (
 class TestResultStorage:
     """SQLite storage backend for test results."""
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Path | None = None):
         """
         Initialize storage backend.
 
@@ -397,7 +397,7 @@ class TestResultStorage:
                 ),
             )
 
-    def get_test_run(self, run_id: str) -> Optional[TestRun]:
+    def get_test_run(self, run_id: str) -> TestRun | None:
         """
         Retrieve a complete test run by ID.
 
@@ -437,7 +437,7 @@ class TestResultStorage:
 
     def _load_suites(
         self, conn: sqlite3.Connection, run_id: str
-    ) -> List[TestSuite]:
+    ) -> list[TestSuite]:
         """Load all suites for a test run."""
         rows = conn.execute(
             "SELECT * FROM test_suites WHERE run_id = ?", (run_id,)
@@ -456,7 +456,7 @@ class TestResultStorage:
 
         return suites
 
-    def _load_cases(self, conn: sqlite3.Connection, suite_id: str) -> List[TestCase]:
+    def _load_cases(self, conn: sqlite3.Connection, suite_id: str) -> list[TestCase]:
         """Load all test cases for a suite."""
         rows = conn.execute(
             "SELECT * FROM test_cases WHERE suite_id = ?", (suite_id,)
@@ -480,7 +480,7 @@ class TestResultStorage:
 
     def _load_results(
         self, conn: sqlite3.Connection, case_id: str
-    ) -> List[TestResult]:
+    ) -> list[TestResult]:
         """Load all results for a test case."""
         rows = conn.execute(
             "SELECT * FROM test_results WHERE case_id = ? ORDER BY timestamp",
@@ -510,7 +510,7 @@ class TestResultStorage:
 
     def _load_coverage(
         self, conn: sqlite3.Connection, run_id: str
-    ) -> Optional[CoverageMetrics]:
+    ) -> CoverageMetrics | None:
         """Load coverage metrics for a test run."""
         row = conn.execute(
             "SELECT * FROM coverage_metrics WHERE run_id = ?", (run_id,)
@@ -564,10 +564,10 @@ class TestResultStorage:
         self,
         limit: int = 100,
         offset: int = 0,
-        source: Optional[TestSource] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-    ) -> List[Dict[str, Any]]:
+        source: TestSource | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+    ) -> list[dict[str, Any]]:
         """
         List test runs with optional filtering.
 
@@ -621,7 +621,7 @@ class TestResultStorage:
             conn.commit()
             return cursor.rowcount > 0
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """
         Get overall statistics from the database.
 
@@ -708,7 +708,7 @@ class TestResultStorage:
             )
             conn.commit()
 
-    def get_failure_analysis_report(self, report_id: str) -> Optional[FailureAnalysisReport]:
+    def get_failure_analysis_report(self, report_id: str) -> FailureAnalysisReport | None:
         """
         Retrieve a failure analysis report by ID.
 
@@ -748,7 +748,7 @@ class TestResultStorage:
         self,
         limit: int = 100,
         offset: int = 0,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         List failure analysis reports.
 

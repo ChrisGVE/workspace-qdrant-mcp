@@ -24,10 +24,11 @@ Test Coverage:
 import asyncio
 import json
 import os
-import pytest
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
+import pytest
 from testcontainers.compose import DockerCompose
 
 
@@ -106,14 +107,6 @@ class TestMCPDaemonCommunication:
         print("   Testing MCP server to daemon gRPC calls...")
 
         # Test data
-        test_document = {
-            "content": "Integration test document for MCP-daemon communication",
-            "metadata": {
-                "file_path": "/test/integration.txt",
-                "file_type": "text",
-                "test_id": "grpc_comm_001"
-            }
-        }
 
         # Send document via MCP server (which communicates with daemon via gRPC)
         # In actual implementation, this would call the MCP server's HTTP endpoint
@@ -475,7 +468,7 @@ class TestMCPDaemonErrorRecovery:
         assert "DAEMON_UNAVAILABLE" == error_response["error_code"], "Should use proper error code"
         assert error_response["recovery_instructions"] is not None, "Should provide recovery guidance"
         print(f"   ✅ Error response generated: {error_response['error_code']}")
-        print(f"   ✅ Recovery guidance provided")
+        print("   ✅ Recovery guidance provided")
 
 
 @pytest.mark.integration

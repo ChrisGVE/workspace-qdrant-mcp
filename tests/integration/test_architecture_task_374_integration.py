@@ -15,13 +15,12 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-from qdrant_client.models import Distance, PointStruct, VectorParams
-
 from common.core.client import QdrantWorkspaceClient
 from common.core.collection_aliases import AliasManager
 from common.core.collection_naming import build_project_collection_name
-from common.utils.project_detection import calculate_tenant_id
 from common.utils.git_utils import get_current_branch
+from common.utils.project_detection import calculate_tenant_id
+from qdrant_client.models import Distance, PointStruct, VectorParams
 
 
 class TestTenantIDWorkflow:
@@ -98,7 +97,7 @@ class TestSingleCollectionPerProject:
             ]
 
             # All should use same collection
-            for file in files_to_ingest:
+            for _file in files_to_ingest:
                 # Verify they all route to same collection
                 assert build_project_collection_name(tenant_id) == collection_name
 
@@ -116,10 +115,10 @@ class TestBranchSupport:
     async def test_branch_filtering_in_queries(self):
         """Test querying with branch filters."""
         tenant_id = "github_com_test_project"
-        collection_name = build_project_collection_name(tenant_id)
+        build_project_collection_name(tenant_id)
 
         # Mock client with documents from different branches
-        mock_client = AsyncMock()
+        AsyncMock()
 
         # Simulate scroll results with different branches
         mock_points = [

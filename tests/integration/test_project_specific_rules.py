@@ -15,11 +15,12 @@ Test Scenarios:
 """
 
 import asyncio
-import pytest
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Dict, Any
+from typing import Any, Optional
 from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from src.python.common.memory.types import (
     AuthorityLevel,
@@ -29,11 +30,11 @@ from src.python.common.memory.types import (
 
 # Import test harness from Task 337.1
 from tests.integration.test_llm_behavioral_harness import (
-    LLMBehavioralHarness,
-    MockLLMProvider,
-    ExecutionMode,
     BehavioralMetrics,
+    ExecutionMode,
+    LLMBehavioralHarness,
     LLMResponse,
+    MockLLMProvider,
 )
 
 # Try to import real memory manager
@@ -70,7 +71,7 @@ async def project_aware_memory_manager(mock_project_detector):
     manager._global_rules = []
     manager._project_detector = mock_project_detector
 
-    async def add_rule(rule: MemoryRule, project: Optional[str] = None):
+    async def add_rule(rule: MemoryRule, project: str | None = None):
         """Add rule to specific project or global."""
         target_project = project or mock_project_detector.current_project
 
@@ -81,7 +82,7 @@ async def project_aware_memory_manager(mock_project_detector):
         else:
             manager._global_rules.append(rule)
 
-    async def get_rules(project: Optional[str] = None) -> List[MemoryRule]:
+    async def get_rules(project: str | None = None) -> list[MemoryRule]:
         """Get rules for specific project plus global rules."""
         target_project = project or mock_project_detector.current_project
 
@@ -94,7 +95,7 @@ async def project_aware_memory_manager(mock_project_detector):
 
         return rules
 
-    async def get_all_rules() -> Dict[str, List[MemoryRule]]:
+    async def get_all_rules() -> dict[str, list[MemoryRule]]:
         """Get all rules grouped by project."""
         return {
             "global": manager._global_rules.copy(),

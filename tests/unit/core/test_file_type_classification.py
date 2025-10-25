@@ -15,15 +15,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src" / "pyt
 from pathlib import Path
 
 import pytest
-
 from common.utils.file_type_classifier import (
-    determine_file_type,
-    is_test_directory,
+    BUILD_EXTENSIONS,
     CODE_EXTENSIONS,
-    DOCS_EXTENSIONS,
     CONFIG_EXTENSIONS,
     DATA_EXTENSIONS,
-    BUILD_EXTENSIONS,
+    DOCS_EXTENSIONS,
+    determine_file_type,
+    is_test_directory,
 )
 
 

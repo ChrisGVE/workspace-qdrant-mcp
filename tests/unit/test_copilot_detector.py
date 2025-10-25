@@ -6,17 +6,18 @@ sessions through environment variables, process inspection, and LSP detection.
 """
 
 import os
-import pytest
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from src.python.common.core.context_injection.copilot_detector import (
     CopilotDetector,
     CopilotSession,
     CopilotSessionType,
-    is_copilot_session,
-    get_copilot_session,
     get_code_comment_prefix,
+    get_copilot_session,
+    is_copilot_session,
 )
 
 

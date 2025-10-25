@@ -5,21 +5,21 @@ Tests all ML configuration classes with edge cases, validation,
 and error conditions to ensure robust configuration management.
 """
 
-import pytest
-import tempfile
 import os
+import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import yaml
+from unittest.mock import MagicMock, patch
 
+import pytest
+import yaml
 from common.ml.config.ml_config import (
+    FeatureSelectionMethod,
     MLConfig,
     MLExperimentConfig,
     MLModelConfig,
     MLPerformanceMetrics,
     MLTaskType,
     ModelType,
-    FeatureSelectionMethod,
     create_default_config,
 )
 

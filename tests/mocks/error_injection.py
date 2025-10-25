@@ -9,7 +9,7 @@ import random
 import time
 from abc import ABC, abstractmethod
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Optional
 
 
 class FailureMode(Enum):
@@ -55,8 +55,8 @@ class ErrorInjector(ABC):
     """Base class for error injection in external dependencies."""
 
     def __init__(self):
-        self.failure_modes: Dict[str, Dict[str, Any]] = {}
-        self.active_scenarios: Set[str] = set()
+        self.failure_modes: dict[str, dict[str, Any]] = {}
+        self.active_scenarios: set[str] = set()
         self.error_count = 0
         self.total_operations = 0
         self.enabled = True
@@ -138,7 +138,7 @@ class ErrorInjector(ABC):
 
         return random.choice(weighted_modes) if weighted_modes else "generic_error"
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get error injection statistics."""
         return {
             "total_operations": self.total_operations,
@@ -153,7 +153,7 @@ class FailureScenarios:
     """Pre-defined failure scenarios for common testing situations."""
 
     @staticmethod
-    def connection_issues() -> Dict[str, Dict[str, Any]]:
+    def connection_issues() -> dict[str, dict[str, Any]]:
         """Network connection related failures."""
         return {
             "connection_timeout": {"probability": 0.1, "delay": 30.0},
@@ -162,7 +162,7 @@ class FailureScenarios:
         }
 
     @staticmethod
-    def service_degradation() -> Dict[str, Dict[str, Any]]:
+    def service_degradation() -> dict[str, dict[str, Any]]:
         """Service degradation and overload scenarios."""
         return {
             "service_unavailable": {"probability": 0.1, "status_code": 503},
@@ -171,7 +171,7 @@ class FailureScenarios:
         }
 
     @staticmethod
-    def authentication_problems() -> Dict[str, Dict[str, Any]]:
+    def authentication_problems() -> dict[str, dict[str, Any]]:
         """Authentication and authorization failures."""
         return {
             "authentication_failed": {"probability": 0.05, "status_code": 401},
@@ -180,7 +180,7 @@ class FailureScenarios:
         }
 
     @staticmethod
-    def data_corruption() -> Dict[str, Dict[str, Any]]:
+    def data_corruption() -> dict[str, dict[str, Any]]:
         """Data integrity and protocol errors."""
         return {
             "malformed_response": {"probability": 0.02, "corruption_type": "json"},
@@ -189,7 +189,7 @@ class FailureScenarios:
         }
 
     @staticmethod
-    def resource_exhaustion() -> Dict[str, Dict[str, Any]]:
+    def resource_exhaustion() -> dict[str, dict[str, Any]]:
         """Resource exhaustion scenarios."""
         return {
             "memory_exhausted": {"probability": 0.02, "available_memory": 0},
@@ -198,7 +198,7 @@ class FailureScenarios:
         }
 
     @staticmethod
-    def intermittent_failures() -> Dict[str, Dict[str, Any]]:
+    def intermittent_failures() -> dict[str, dict[str, Any]]:
         """Flaky and intermittent behavior."""
         return {
             "temporary_failure": {"probability": 0.1, "duration": 5.0},
@@ -207,7 +207,7 @@ class FailureScenarios:
         }
 
     @staticmethod
-    def realistic_production() -> Dict[str, Dict[str, Any]]:
+    def realistic_production() -> dict[str, dict[str, Any]]:
         """Realistic production-like error rates."""
         scenarios = {}
         scenarios.update(FailureScenarios.connection_issues())
@@ -221,7 +221,7 @@ class FailureScenarios:
         return scenarios
 
     @staticmethod
-    def stress_testing() -> Dict[str, Dict[str, Any]]:
+    def stress_testing() -> dict[str, dict[str, Any]]:
         """High failure rates for stress testing."""
         scenarios = {}
         scenarios.update(FailureScenarios.connection_issues())
@@ -239,7 +239,7 @@ class ErrorModeManager:
     """Manager for coordinating error injection across multiple components."""
 
     def __init__(self):
-        self.injectors: Dict[str, ErrorInjector] = {}
+        self.injectors: dict[str, ErrorInjector] = {}
         self.global_enabled = True
         self.scenario_active = False
 
@@ -265,7 +265,7 @@ class ErrorModeManager:
             injector.reset()
         self.scenario_active = False
 
-    def apply_scenario(self, scenario_name: str, components: Optional[List[str]] = None) -> None:
+    def apply_scenario(self, scenario_name: str, components: list[str] | None = None) -> None:
         """
         Apply a predefined failure scenario to specified components.
 
@@ -298,7 +298,7 @@ class ErrorModeManager:
 
         self.scenario_active = True
 
-    def get_global_statistics(self) -> Dict[str, Any]:
+    def get_global_statistics(self) -> dict[str, Any]:
         """Get aggregated statistics from all injectors."""
         stats = {
             "global_enabled": self.global_enabled,

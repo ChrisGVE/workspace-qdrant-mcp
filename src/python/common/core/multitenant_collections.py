@@ -21,10 +21,10 @@ Collection Types Supported:
     - memory: Persistent memory and learned patterns
 """
 
+import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Set, Union, TYPE_CHECKING
-import hashlib
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from ..utils.project_detection import ProjectDetector
@@ -33,8 +33,8 @@ from loguru import logger
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from .collections import WorkspaceCollectionManager, CollectionConfig
-from .config import get_config, ConfigManager
+from .collections import CollectionConfig, WorkspaceCollectionManager
+from .config import ConfigManager
 
 
 @dataclass
@@ -53,7 +53,7 @@ class ProjectMetadata:
     # Access control metadata
     created_by: str = "system"
     access_level: str = "private"  # public, private, shared
-    team_access: List[str] = field(default_factory=list)
+    team_access: list[str] = field(default_factory=list)
 
     # Temporal metadata
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -61,11 +61,11 @@ class ProjectMetadata:
     version: int = 1
 
     # Organizational metadata
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     category: str = "general"
     priority: int = 3
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for Qdrant metadata storage."""
         return {
             "project_id": self.project_id,
@@ -122,11 +122,11 @@ class MultiTenantCollectionConfig:
     # Multi-tenancy settings
     isolation_strategy: str = "metadata"  # metadata, collection, hybrid
     enable_cross_tenant_search: bool = False
-    default_project_metadata: Optional[ProjectMetadata] = None
+    default_project_metadata: ProjectMetadata | None = None
 
     # Performance settings
     enable_metadata_indexing: bool = True
-    indexed_metadata_fields: List[str] = field(default_factory=lambda: [
+    indexed_metadata_fields: list[str] = field(default_factory=lambda: [
         "project_name", "tenant_namespace", "collection_type",
         "workspace_scope", "created_by", "access_level"
     ])
@@ -180,7 +180,7 @@ class WorkspaceCollectionRegistry:
             }
         }
 
-    def get_workspace_types(self) -> Set[str]:
+    def get_workspace_types(self) -> set[str]:
         """Get all supported workspace collection types."""
         return set(self.collection_schemas.keys())
 
@@ -188,7 +188,7 @@ class WorkspaceCollectionRegistry:
         """Check if collection type supports multi-tenancy."""
         return collection_type in self.collection_schemas
 
-    def get_default_metadata(self, collection_type: str, project_name: str) -> Dict:
+    def get_default_metadata(self, collection_type: str, project_name: str) -> dict:
         """Get default metadata for a workspace collection type."""
         if collection_type not in self.collection_schemas:
             return {}
@@ -232,7 +232,7 @@ class ProjectIsolationManager:
     def create_workspace_filter(
         self,
         project_name: str,
-        collection_type: Optional[str] = None,
+        collection_type: str | None = None,
         include_shared: bool = True
     ) -> models.Filter:
         """Create filter for specific workspace type within project."""
@@ -302,10 +302,10 @@ class ProjectIsolationManager:
 
     def enrich_document_metadata(
         self,
-        base_metadata: Dict,
+        base_metadata: dict,
         project_name: str,
         collection_type: str
-    ) -> Dict:
+    ) -> dict:
         """Enrich document metadata with project isolation fields."""
         enriched_metadata = base_metadata.copy()
 
@@ -343,7 +343,7 @@ class MultiTenantWorkspaceCollectionManager(WorkspaceCollectionManager):
         project_name: str,
         collection_type: str,
         enable_metadata_indexing: bool = True
-    ) -> Dict:
+    ) -> dict:
         """
         Create a workspace collection with multi-tenant metadata support.
 
@@ -367,7 +367,7 @@ class MultiTenantWorkspaceCollectionManager(WorkspaceCollectionManager):
 
             # Check if collection already exists
             try:
-                existing_info = self.client.get_collection(collection_name)
+                self.client.get_collection(collection_name)
                 logger.info(f"Workspace collection already exists: {collection_name}")
                 return {
                     "success": True,
@@ -457,9 +457,9 @@ class MultiTenantWorkspaceCollectionManager(WorkspaceCollectionManager):
     async def initialize_workspace_collections(
         self,
         project_name: str,
-        subprojects: Optional[List[str]] = None,
-        workspace_types: Optional[List[str]] = None
-    ) -> Dict:
+        subprojects: list[str] | None = None,
+        workspace_types: list[str] | None = None
+    ) -> dict:
         """
         Initialize workspace collections for a project with multi-tenant support.
 
@@ -539,7 +539,7 @@ class MultiTenantWorkspaceCollectionManager(WorkspaceCollectionManager):
 
         return results
 
-    def get_workspace_collection_types(self) -> Set[str]:
+    def get_workspace_collection_types(self) -> set[str]:
         """Get all supported workspace collection types."""
         return self.registry.get_workspace_types()
 
@@ -547,7 +547,7 @@ class MultiTenantWorkspaceCollectionManager(WorkspaceCollectionManager):
         """Check if a collection type is a supported workspace type."""
         return self.registry.is_multi_tenant_type(collection_type)
 
-    def get_project_isolation_filter(self, project_name: str, collection_type: Optional[str] = None) -> models.Filter:
+    def get_project_isolation_filter(self, project_name: str, collection_type: str | None = None) -> models.Filter:
         """Get Qdrant filter for project isolation."""
         return self.isolation_manager.create_workspace_filter(
             project_name=project_name,
@@ -557,10 +557,10 @@ class MultiTenantWorkspaceCollectionManager(WorkspaceCollectionManager):
 
     def enrich_document_metadata(
         self,
-        base_metadata: Dict,
+        base_metadata: dict,
         project_name: str,
         collection_type: str
-    ) -> Dict:
+    ) -> dict:
         """Enrich document metadata with project isolation fields."""
         return self.isolation_manager.enrich_document_metadata(
             base_metadata, project_name, collection_type

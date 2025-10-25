@@ -12,14 +12,14 @@ from pathlib import Path
 
 import pytest
 
+from src.python.common.core.error_categorization import ErrorSeverity
+from src.python.common.core.error_message_manager import ErrorMessageManager
 from src.python.common.core.error_retention import (
-    ErrorRetentionManager,
-    RetentionPolicy,
     CleanupResult,
     CleanupStatistics,
+    ErrorRetentionManager,
+    RetentionPolicy,
 )
-from src.python.common.core.error_message_manager import ErrorMessageManager
-from src.python.common.core.error_categorization import ErrorSeverity
 
 
 @pytest.fixture

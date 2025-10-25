@@ -6,34 +6,35 @@ and performance degradation tracking.
 """
 
 import asyncio
-import pytest
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from tests.framework.stress_orchestration import (
-    LoadPattern,
-    FailureMode,
-    StressPipelineStage,
-    StressTestConfig,
-    ComponentStressConfig,
-    StressTestResult,
-    MultiComponentCoordinator,
-    StressTestOrchestrator,
+import pytest
+
+from tests.framework.integration import (
+    ComponentConfig,
+    ComponentInstance,
+    ComponentState,
+    ComponentType,
+    IntegrationTestCoordinator,
+    IsolationLevel,
 )
 from tests.framework.orchestration import (
     OrchestrationMode,
     OrchestrationPriority,
     PipelineStage,
 )
-from tests.framework.integration import (
-    IntegrationTestCoordinator,
-    ComponentConfig,
-    ComponentType,
-    ComponentInstance,
-    ComponentState,
-    IsolationLevel,
+from tests.framework.stress_orchestration import (
+    ComponentStressConfig,
+    FailureMode,
+    LoadPattern,
+    MultiComponentCoordinator,
+    StressPipelineStage,
+    StressTestConfig,
+    StressTestOrchestrator,
+    StressTestResult,
 )
 
 

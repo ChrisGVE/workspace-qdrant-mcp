@@ -6,15 +6,16 @@ and graceful degradation components used in stress testing scenarios.
 """
 
 import asyncio
+
 import pytest
 
 from tests.framework.cascading_failures import (
-    CascadingFailureSimulator,
     CascadeScenario,
-    FailureNode,
-    FailureChainSimulator,
+    CascadingFailureSimulator,
     CircuitBreaker,
     CircuitState,
+    FailureChainSimulator,
+    FailureNode,
     FailureType,
 )
 
@@ -477,5 +478,5 @@ class TestIntegrationScenarios:
 
         # Should have recovery times for all failed nodes
         assert len(results["recovery_times"]) == results["failed_node_count"]
-        for node_id, recovery_time in results["recovery_times"].items():
+        for _node_id, recovery_time in results["recovery_times"].items():
             assert recovery_time > 0

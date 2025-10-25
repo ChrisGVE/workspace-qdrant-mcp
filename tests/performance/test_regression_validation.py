@@ -26,7 +26,7 @@ import statistics
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Any, Optional
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -46,7 +46,7 @@ class PerformanceBaseline:
         self.baseline_dir = baseline_dir
         self.baseline_dir.mkdir(exist_ok=True)
 
-    def save_baseline(self, test_name: str, metrics: Dict[str, Any], metadata: Dict[str, Any] = None):
+    def save_baseline(self, test_name: str, metrics: dict[str, Any], metadata: dict[str, Any] = None):
         """Save performance baseline with metadata."""
         baseline_data = {
             'test_name': test_name,
@@ -61,7 +61,7 @@ class PerformanceBaseline:
         with open(baseline_file, 'w') as f:
             json.dump(baseline_data, f, indent=2)
 
-    def load_baseline(self, test_name: str) -> Optional[Dict[str, Any]]:
+    def load_baseline(self, test_name: str) -> dict[str, Any] | None:
         """Load performance baseline."""
         baseline_file = self.baseline_dir / f"{test_name}_baseline.json"
 
@@ -71,10 +71,10 @@ class PerformanceBaseline:
         try:
             with open(baseline_file) as f:
                 return json.load(f)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             return None
 
-    def save_performance_history(self, test_name: str, metrics: Dict[str, Any]):
+    def save_performance_history(self, test_name: str, metrics: dict[str, Any]):
         """Save performance measurement to history."""
         history_file = self.baseline_dir / f"{test_name}_history.jsonl"
 
@@ -88,7 +88,7 @@ class PerformanceBaseline:
         with open(history_file, 'a') as f:
             f.write(json.dumps(history_entry) + '\n')
 
-    def load_performance_history(self, test_name: str, days: int = 30) -> List[Dict[str, Any]]:
+    def load_performance_history(self, test_name: str, days: int = 30) -> list[dict[str, Any]]:
         """Load performance history for trend analysis."""
         history_file = self.baseline_dir / f"{test_name}_history.jsonl"
 
@@ -105,7 +105,7 @@ class PerformanceBaseline:
                         entry = json.loads(line)
                         if entry.get('timestamp', 0) > cutoff_time:
                             history.append(entry)
-        except (json.JSONDecodeError, IOError):
+        except (OSError, json.JSONDecodeError):
             return []
 
         return sorted(history, key=lambda x: x['timestamp'])
@@ -114,10 +114,10 @@ class PerformanceBaseline:
 class RegressionDetector:
     """Advanced regression detection with statistical analysis."""
 
-    def __init__(self, thresholds: Dict[str, float]):
+    def __init__(self, thresholds: dict[str, float]):
         self.thresholds = thresholds
 
-    def detect_regressions(self, baseline_metrics: Dict[str, Any], current_metrics: Dict[str, Any]) -> Dict[str, Any]:
+    def detect_regressions(self, baseline_metrics: dict[str, Any], current_metrics: dict[str, Any]) -> dict[str, Any]:
         """Detect performance regressions using multiple methods."""
 
         regressions = []
@@ -145,7 +145,7 @@ class RegressionDetector:
             'severity': self._calculate_regression_severity(regressions)
         }
 
-    def _analyze_metric_regression(self, metric_name: str, baseline: float, current: float) -> Dict[str, Any]:
+    def _analyze_metric_regression(self, metric_name: str, baseline: float, current: float) -> dict[str, Any]:
         """Analyze individual metric for regression."""
 
         if baseline == 0:
@@ -231,7 +231,7 @@ class RegressionDetector:
         else:
             return 'critical'
 
-    def _calculate_regression_severity(self, regressions: List[Dict[str, Any]]) -> str:
+    def _calculate_regression_severity(self, regressions: list[dict[str, Any]]) -> str:
         """Calculate overall regression severity."""
 
         if not regressions:
@@ -248,7 +248,7 @@ class RegressionDetector:
         else:
             return 'low'
 
-    def analyze_performance_trend(self, history: List[Dict[str, Any]], metric_name: str) -> Dict[str, Any]:
+    def analyze_performance_trend(self, history: list[dict[str, Any]], metric_name: str) -> dict[str, Any]:
         """Analyze performance trend over time."""
 
         if len(history) < 3:
@@ -322,7 +322,7 @@ class RegressionDetector:
 
         return trend_analysis
 
-    def _calculate_trend_slope(self, x_values: List[float], y_values: List[float]) -> float:
+    def _calculate_trend_slope(self, x_values: list[float], y_values: list[float]) -> float:
         """Calculate linear trend slope using least squares regression."""
 
         n = len(x_values)
@@ -331,7 +331,7 @@ class RegressionDetector:
 
         sum_x = sum(x_values)
         sum_y = sum(y_values)
-        sum_xy = sum(x * y for x, y in zip(x_values, y_values))
+        sum_xy = sum(x * y for x, y in zip(x_values, y_values, strict=False))
         sum_x2 = sum(x * x for x in x_values)
 
         denominator = n * sum_x2 - sum_x * sum_x
@@ -424,7 +424,7 @@ class TestPerformanceRegression:
                 }
             )
 
-        print(f"\n📊 Performance Baselines Established:")
+        print("\n📊 Performance Baselines Established:")
         for operation, metrics in baselines.items():
             print(f"   {operation}: mean={metrics['mean_time_ms']:.2f}ms, p95={metrics['p95_time_ms']:.2f}ms")
 
@@ -462,7 +462,7 @@ class TestPerformanceRegression:
         assert mean_time_regression is not None, "Should detect mean_time_ms regression"
         assert mean_time_regression['severity'] in ['medium', 'high'], f"Unexpected severity: {mean_time_regression['severity']}"
 
-        print(f"\n🚨 Response Time Regression Analysis:")
+        print("\n🚨 Response Time Regression Analysis:")
         print(f"   Regressions detected: {analysis['regression_count']}")
         print(f"   Overall severity: {analysis['severity']}")
 
@@ -499,7 +499,7 @@ class TestPerformanceRegression:
         assert growth_regression is not None, "Should detect memory growth regression"
         assert growth_regression['severity'] in ['high', 'critical'], f"Memory growth regression should be severe: {growth_regression['severity']}"
 
-        print(f"\n💾 Memory Usage Regression Analysis:")
+        print("\n💾 Memory Usage Regression Analysis:")
         print(f"   Regressions detected: {analysis['regression_count']}")
         for regression in analysis['regressions']:
             print(f"   - {regression['metric_name']}: {regression['change_percent']:.1f}% change ({regression['severity']})")
@@ -534,7 +534,7 @@ class TestPerformanceRegression:
         assert rps_regression is not None, "Should detect RPS regression"
         assert rps_regression['metric_type'] == 'throughput', "Should classify as throughput metric"
 
-        print(f"\n⚡ Throughput Regression Analysis:")
+        print("\n⚡ Throughput Regression Analysis:")
         print(f"   Regressions detected: {analysis['regression_count']}")
         for regression in analysis['regressions']:
             print(f"   - {regression['metric_name']}: {regression['change_percent']:.1f}% change ({regression['severity']})")
@@ -588,17 +588,17 @@ class TestPerformanceTrendAnalysis:
         assert response_time_trend['stability_assessment'] in ['good', 'fair'], \
             f"Response time stability unexpected: {response_time_trend['stability_assessment']}"
 
-        print(f"\n📈 Performance Trend Analysis:")
-        print(f"   Response Time:")
+        print("\n📈 Performance Trend Analysis:")
+        print("   Response Time:")
         print(f"     Direction: {response_time_trend['trend_direction']}")
         print(f"     Stability: {response_time_trend['stability_assessment']}")
         print(f"     Anomalies: {response_time_trend['anomaly_count']}")
 
-        print(f"   Throughput:")
+        print("   Throughput:")
         print(f"     Direction: {throughput_trend['trend_direction']}")
         print(f"     Stability: {throughput_trend['stability_assessment']}")
 
-        print(f"   Memory Usage:")
+        print("   Memory Usage:")
         print(f"     Direction: {memory_trend['trend_direction']}")
         print(f"     Stability: {memory_trend['stability_assessment']}")
 
@@ -642,7 +642,7 @@ class TestPerformanceTrendAnalysis:
         high_anomalies = [a for a in anomalies if a['z_score'] > 3.0]
         assert len(high_anomalies) >= 2, f"Should detect high-severity anomalies, found {len(high_anomalies)}"
 
-        print(f"\n🔍 Anomaly Detection Analysis:")
+        print("\n🔍 Anomaly Detection Analysis:")
         print(f"   Total data points: {trend_analysis['data_points']}")
         print(f"   Anomalies detected: {trend_analysis['anomaly_count']}")
         print(f"   High-severity anomalies: {len(high_anomalies)}")
@@ -708,7 +708,7 @@ class TestPerformanceBudgets:
         violation = budget_violations[0]
         assert violation['metric'] == 'p95_response_time_ms', f"Unexpected violation: {violation['metric']}"
 
-        print(f"\n💰 Performance Budget Analysis:")
+        print("\n💰 Performance Budget Analysis:")
         print(f"   Total budgets: {len(performance_budgets)}")
         print(f"   Budget violations: {len(budget_violations)}")
 
@@ -717,7 +717,7 @@ class TestPerformanceBudgets:
             print(f"   {metric}: {compliance['current']}/{compliance['budget']} ({compliance['usage_percent']:.1f}%) {status}")
 
         if budget_violations:
-            print(f"\n   Budget Violations:")
+            print("\n   Budget Violations:")
             for violation in budget_violations:
                 print(f"     - {violation['metric']}: {violation['overage_percent']:.1f}% over budget")
 
@@ -788,7 +788,7 @@ class TestPerformanceBudgets:
         for expected_metric in expected_violations:
             assert expected_metric in actual_violation_metrics, f"Should detect SLA violation for {expected_metric}"
 
-        print(f"\n📋 SLA Compliance Analysis:")
+        print("\n📋 SLA Compliance Analysis:")
         print(f"   Total SLAs monitored: {len(slas)}")
         print(f"   SLA violations: {len(sla_violations)}")
 
@@ -797,7 +797,7 @@ class TestPerformanceBudgets:
             print(f"   {metric}: {compliance['compliance_rate']:.1f}% compliance {status}")
 
         if sla_violations:
-            print(f"\n   SLA Violations Details:")
+            print("\n   SLA Violations Details:")
             for violation in sla_violations:
                 print(f"     - {violation['metric']}: {violation['compliance_rate']:.1f}% compliance")
 
@@ -806,9 +806,9 @@ class TestPerformanceBudgets:
 async def test_comprehensive_regression_report():
     """Generate comprehensive regression analysis report."""
 
-    print(f"\n" + "="*60)
-    print(f"📊 COMPREHENSIVE REGRESSION ANALYSIS REPORT")
-    print(f"="*60)
+    print("\n" + "="*60)
+    print("📊 COMPREHENSIVE REGRESSION ANALYSIS REPORT")
+    print("="*60)
 
     # Mock comprehensive regression analysis results
     regression_summary = {
@@ -858,12 +858,12 @@ async def test_comprehensive_regression_report():
         }
     }
 
-    print(f"\n🎯 Regression Detection Summary:")
+    print("\n🎯 Regression Detection Summary:")
     print(f"   Baseline age: {regression_summary['baseline_age_days']} days")
     print(f"   Metrics analyzed: {regression_summary['total_metrics_analyzed']}")
     print(f"   Regressions detected: {regression_summary['regressions_detected']}")
 
-    print(f"\n📉 Detected Regressions:")
+    print("\n📉 Detected Regressions:")
     for regression in regression_summary['regression_details']:
         direction = "↑" if regression['change_percent'] > 0 else "↓"
         print(f"   {direction} {regression['metric']}:")
@@ -871,34 +871,34 @@ async def test_comprehensive_regression_report():
         print(f"     Current: {regression['current']}")
         print(f"     Change: {regression['change_percent']:+.1f}% ({regression['severity']})")
 
-    print(f"\n📈 Trend Analysis:")
+    print("\n📈 Trend Analysis:")
     trend = regression_summary['trend_analysis']
     print(f"   Performance degradation rate: {trend['performance_degradation_rate']:.1f}% per day")
     print(f"   Anomalies detected: {trend['anomalies_detected']}")
     print(f"   Overall stability: {trend['stability_assessment']}")
 
-    print(f"\n💰 Budget Compliance:")
+    print("\n💰 Budget Compliance:")
     budget = regression_summary['budget_compliance']
     print(f"   Budgets monitored: {budget['total_budgets']}")
     print(f"   Budget violations: {budget['budget_violations']}")
     print(f"   Compliance rate: {budget['compliance_rate']:.1f}%")
 
-    print(f"\n📋 SLA Compliance:")
+    print("\n📋 SLA Compliance:")
     sla = regression_summary['sla_compliance']
     print(f"   SLAs monitored: {sla['total_slas']}")
     print(f"   SLA violations: {sla['sla_violations']}")
     print(f"   Overall compliance: {sla['overall_compliance']:.1f}%")
 
-    print(f"\n🚨 Recommendations:")
+    print("\n🚨 Recommendations:")
     if regression_summary['regressions_detected'] > 0:
         print(f"   - Investigate and address {regression_summary['regressions_detected']} performance regressions")
-        print(f"   - Focus on high-severity regressions first")
+        print("   - Focus on high-severity regressions first")
     if regression_summary['trend_analysis']['performance_degradation_rate'] > 1.0:
-        print(f"   - Performance degradation trend requires attention")
+        print("   - Performance degradation trend requires attention")
     if regression_summary['budget_compliance']['budget_violations'] > 0:
-        print(f"   - Review and potentially adjust performance budgets")
+        print("   - Review and potentially adjust performance budgets")
     if regression_summary['sla_compliance']['sla_violations'] > 0:
-        print(f"   - Address SLA violations to maintain service quality")
+        print("   - Address SLA violations to maintain service quality")
 
     # Overall assessment
     total_issues = (
@@ -917,6 +917,6 @@ async def test_comprehensive_regression_report():
     print(f"\n🎯 Overall Performance Assessment: {assessment}")
     print(f"   Total performance issues: {total_issues}")
 
-    print(f"\n" + "="*60)
+    print("\n" + "="*60)
 
     return regression_summary

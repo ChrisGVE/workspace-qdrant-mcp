@@ -18,13 +18,14 @@ Performance Metrics:
 """
 
 import asyncio
-import pytest
-import time
-import sys
-from datetime import datetime, timezone
-from typing import List, Optional, Dict, Any, Tuple
-from unittest.mock import AsyncMock, Mock, patch
 import statistics
+import sys
+import time
+from datetime import datetime, timezone
+from typing import Any, Optional
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from src.python.common.memory.types import (
     AuthorityLevel,
@@ -34,11 +35,11 @@ from src.python.common.memory.types import (
 
 # Import test harness from Task 337.1
 from tests.integration.test_llm_behavioral_harness import (
-    LLMBehavioralHarness,
-    MockLLMProvider,
-    ExecutionMode,
     BehavioralMetrics,
+    ExecutionMode,
+    LLMBehavioralHarness,
     LLMResponse,
+    MockLLMProvider,
 )
 
 # Try to import real components
@@ -54,8 +55,8 @@ class PerformanceMonitor:
 
     def __init__(self):
         """Initialize performance monitor."""
-        self.metrics: Dict[str, List[float]] = {}
-        self.start_times: Dict[str, float] = {}
+        self.metrics: dict[str, list[float]] = {}
+        self.start_times: dict[str, float] = {}
 
     def start_timer(self, operation: str):
         """Start timing an operation.
@@ -85,7 +86,7 @@ class PerformanceMonitor:
         self.metrics[operation].append(duration)
         return duration
 
-    def get_statistics(self, operation: str) -> Dict[str, float]:
+    def get_statistics(self, operation: str) -> dict[str, float]:
         """Get statistics for an operation.
 
         Args:
@@ -126,7 +127,7 @@ class MemoryProfiler:
 
     def __init__(self):
         """Initialize memory profiler."""
-        self.snapshots: List[Dict[str, int]] = []
+        self.snapshots: list[dict[str, int]] = []
 
     def take_snapshot(self, label: str = ""):
         """Take a memory snapshot.

@@ -15,12 +15,13 @@ Test Coverage (Task 329.3):
 """
 
 import asyncio
-import httpx
 import json
-import pytest
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
+import httpx
+import pytest
 from qdrant_client import QdrantClient
 
 
@@ -227,7 +228,7 @@ class TestMCPSearchResults:
 
             assert len(hybrid_search_results) > 0, "No hybrid search results"
             print(f"   ✅ Found {len(hybrid_search_results)} results for hybrid search")
-            print(f"   ✅ Hybrid search combines semantic + keyword with RRF fusion")
+            print("   ✅ Hybrid search combines semantic + keyword with RRF fusion")
 
     async def test_result_ranking_and_relevance(
         self, mcp_server_url, qdrant_client, setup_test_content
@@ -392,7 +393,7 @@ class TestMCPSearchResults:
             print(f"   ✅ Total results across all collections: {len(all_results)}")
 
             # Verify results from multiple collections
-            unique_collections = set(r["_collection"] for r in all_results)
+            unique_collections = {r["_collection"] for r in all_results}
             print(f"   ✅ Results from {len(unique_collections)} different collections")
 
     async def test_project_scoped_filtering(

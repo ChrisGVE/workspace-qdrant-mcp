@@ -3,14 +3,15 @@ Comprehensive test suite for the simplified 4-tool MCP server.
 Tests all functionality with proper mocking and edge cases.
 """
 
-import pytest
 import asyncio
-import uuid
 import os
-import tempfile
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
-from pathlib import Path
 import sys
+import tempfile
+import uuid
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 # Add source path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "python"))
@@ -72,9 +73,9 @@ class TestServerInitialization:
         """Test all required imports work."""
         from workspace_qdrant_mcp.simple_server import (
             create_simple_server,
-            initialize_components,
+            ensure_collection_exists,
             get_project_name,
-            ensure_collection_exists
+            initialize_components,
         )
         assert all([create_simple_server, initialize_components, get_project_name, ensure_collection_exists])
 
@@ -101,13 +102,13 @@ class TestServerInitialization:
 
     def test_tool_functions_exist(self):
         """Test all 4 tool functions exist."""
-        from workspace_qdrant_mcp.simple_server import store, search, manage, retrieve
+        from workspace_qdrant_mcp.simple_server import manage, retrieve, search, store
 
         tools = [store, search, manage, retrieve]
         for tool in tools:
             assert tool is not None
             # FastMCP decorates functions, creating FunctionTool objects
-            assert hasattr(tool, '__call__') or hasattr(tool, 'name') or hasattr(tool, '__name__')
+            assert callable(tool) or hasattr(tool, 'name') or hasattr(tool, '__name__')
 
 
 class TestProjectNameDetection:
@@ -263,7 +264,6 @@ class TestStoreToolLogic:
                             # Test the logic without calling the decorated function directly
                             # Instead, test the components
                             content = "Test content"
-                            title = "Test Title"
 
                             # Verify embedding generation
                             embeddings = mock_embedding_model.embed([content])
@@ -360,7 +360,7 @@ class TestSearchToolLogic:
     @pytest.mark.asyncio
     async def test_search_filter_building(self):
         """Test search filter construction."""
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
 
         # Simulate filter building logic
         filters = {"document_type": "code", "source": "file"}
@@ -506,7 +506,6 @@ class TestManageToolLogic:
         assert result["success"] is True
 
         # Test collection deletion without force (should fail)
-        collection_only = "test-collection"
         document_id_none = None
         force = False
 
@@ -666,7 +665,7 @@ class TestErrorHandlingAndEdgeCases:
             # This would be handled in initialize_components
             try:
                 from qdrant_client import QdrantClient
-                client = QdrantClient(url="invalid://url")
+                QdrantClient(url="invalid://url")
             except Exception as e:
                 error_msg = str(e)
 
@@ -692,8 +691,8 @@ class TestErrorHandlingAndEdgeCases:
         non_existent_file = "/non/existent/file.txt"
 
         try:
-            with open(non_existent_file, 'r', encoding='utf-8') as f:
-                content = f.read()
+            with open(non_existent_file, encoding='utf-8') as f:
+                f.read()
         except Exception as e:
             error_result = {
                 "success": False,

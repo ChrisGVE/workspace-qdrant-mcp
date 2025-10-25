@@ -19,8 +19,8 @@ from pathlib import Path
 import pytest
 
 from src.python.common.core.migrate_error_messages import (
-    ErrorMessageMigrator,
     ERROR_TYPE_MAPPING,
+    ErrorMessageMigrator,
 )
 
 
@@ -120,7 +120,7 @@ class TestErrorMessagesSchema:
 
         # Read and execute schema
         schema_file = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
-        with open(schema_file, 'r') as f:
+        with open(schema_file) as f:
             schema_sql = f.read()
 
         # Execute schema
@@ -144,7 +144,7 @@ class TestErrorMessagesSchema:
 
         # Create table
         schema_file = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
-        with open(schema_file, 'r') as f:
+        with open(schema_file) as f:
             conn.executescript(f.read())
 
         # Test valid severities
@@ -169,7 +169,7 @@ class TestErrorMessagesSchema:
 
         # Create table
         schema_file = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
-        with open(schema_file, 'r') as f:
+        with open(schema_file) as f:
             conn.executescript(f.read())
 
         # Test valid categories
@@ -195,7 +195,7 @@ class TestErrorMessagesSchema:
 
         # Create table
         schema_file = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
-        with open(schema_file, 'r') as f:
+        with open(schema_file) as f:
             conn.executescript(f.read())
 
         # Test valid values (0 and 1)
@@ -224,7 +224,7 @@ class TestErrorMessagesSchema:
 
         # Create table
         schema_file = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
-        with open(schema_file, 'r') as f:
+        with open(schema_file) as f:
             conn.executescript(f.read())
 
         # Insert message
@@ -253,7 +253,7 @@ class TestErrorMessagesSchema:
 
         # Create table
         schema_file = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
-        with open(schema_file, 'r') as f:
+        with open(schema_file) as f:
             conn.executescript(f.read())
 
         # Insert message
@@ -278,7 +278,7 @@ class TestErrorMessagesSchema:
 
         # Create table
         schema_file = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
-        with open(schema_file, 'r') as f:
+        with open(schema_file) as f:
             conn.executescript(f.read())
 
         # Check indexes
@@ -304,7 +304,7 @@ class TestErrorMessagesSchema:
 
         # Create table
         schema_file = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
-        with open(schema_file, 'r') as f:
+        with open(schema_file) as f:
             conn.executescript(f.read())
 
         # Check views

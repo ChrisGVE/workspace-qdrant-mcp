@@ -53,13 +53,14 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Dict, List, Optional, Set, Union, Any
+from typing import Any
+
 from loguru import logger
 
 # Import existing collection types for integration
 try:
-    from .collection_types import CollectionType, CollectionTypeClassifier
     from .collection_naming import CollectionNamingManager
+    from .collection_types import CollectionType, CollectionTypeClassifier
 except ImportError:
     # Fallback for development/testing
     logger.warning("Collection types not available, using fallback definitions")
@@ -178,15 +179,15 @@ class MultiTenantMetadataSchema:
     branch: str = "main"                         # Git branch name, defaults to "main"
 
     # === Code Analysis Metadata (Optional) ===
-    symbols_defined: List[str] = field(default_factory=list)  # Symbols defined in file
-    symbols_used: List[str] = field(default_factory=list)     # Symbols imported/used
-    imports: List[str] = field(default_factory=list)          # Import statements
-    exports: List[str] = field(default_factory=list)          # Export statements
+    symbols_defined: list[str] = field(default_factory=list)  # Symbols defined in file
+    symbols_used: list[str] = field(default_factory=list)     # Symbols imported/used
+    imports: list[str] = field(default_factory=list)          # Import statements
+    exports: list[str] = field(default_factory=list)          # Export statements
 
     # === Reserved Naming and Compatibility ===
     naming_pattern: str = "metadata_based"      # metadata_based, system_prefix, library_prefix, project_pattern
     is_reserved_name: bool = False               # True for system/library collections
-    original_name_pattern: Optional[str] = None # Original naming convention
+    original_name_pattern: str | None = None # Original naming convention
 
     # === Access Control and Permissions ===
     access_level: AccessLevel = AccessLevel.PRIVATE
@@ -196,14 +197,14 @@ class MultiTenantMetadataSchema:
 
     # === Migration Tracking Fields ===
     migration_source: str = "metadata_based"    # metadata_based, suffix_based, manual, auto_create
-    legacy_collection_name: Optional[str] = None # Original collection name
+    legacy_collection_name: str | None = None # Original collection name
     compatibility_version: str = METADATA_SCHEMA_VERSION
 
     # === Temporal and Organizational Metadata ===
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     updated_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     version: int = 1
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
     category: str = "general"
     priority: int = 3                            # 1=lowest, 5=highest
 
@@ -289,7 +290,7 @@ class MultiTenantMetadataSchema:
             if any(not isinstance(item, str) for item in value):
                 raise ValueError(f"All items in {field_name} must be strings")
 
-    def to_qdrant_payload(self) -> Dict[str, Any]:
+    def to_qdrant_payload(self) -> dict[str, Any]:
         """
         Convert metadata schema to Qdrant payload format.
 
@@ -340,7 +341,7 @@ class MultiTenantMetadataSchema:
         }
 
     @classmethod
-    def from_qdrant_payload(cls, payload: Dict[str, Any]) -> "MultiTenantMetadataSchema":
+    def from_qdrant_payload(cls, payload: dict[str, Any]) -> "MultiTenantMetadataSchema":
         """
         Create metadata schema from Qdrant payload.
 
@@ -406,13 +407,13 @@ class MultiTenantMetadataSchema:
         branch: str = "main",
         created_by: str = "user",
         access_level: AccessLevel = AccessLevel.PRIVATE,
-        tags: Optional[List[str]] = None,
+        tags: list[str] | None = None,
         category: str = "general",
         priority: int = 3,
-        symbols_defined: Optional[List[str]] = None,
-        symbols_used: Optional[List[str]] = None,
-        imports: Optional[List[str]] = None,
-        exports: Optional[List[str]] = None
+        symbols_defined: list[str] | None = None,
+        symbols_used: list[str] | None = None,
+        imports: list[str] | None = None,
+        exports: list[str] | None = None
     ) -> "MultiTenantMetadataSchema":
         """
         Factory method for creating project collection metadata.
@@ -498,7 +499,7 @@ class MultiTenantMetadataSchema:
             raise ValueError("System collection names must start with '__'")
 
         # Extract base name for project context
-        base_name = collection_name[2:]  # Remove __ prefix
+        collection_name[2:]  # Remove __ prefix
         project_id = cls._generate_project_id("system")
 
         return cls(
@@ -557,7 +558,7 @@ class MultiTenantMetadataSchema:
             raise ValueError("Library collection names must start with '_' but not '__'")
 
         # Extract base name for context
-        base_name = collection_name[1:]  # Remove _ prefix
+        collection_name[1:]  # Remove _ prefix
         project_id = cls._generate_project_id("library")
 
         return cls(
@@ -666,7 +667,7 @@ class MultiTenantMetadataSchema:
         """
         return hashlib.sha256(project_name.encode()).hexdigest()[:12]
 
-    def get_indexed_fields(self) -> List[str]:
+    def get_indexed_fields(self) -> list[str]:
         """
         Get list of metadata fields that should be indexed for performance.
 
@@ -701,7 +702,7 @@ class MultiTenantMetadataSchema:
         """
         return self.project_id == target_project_id
 
-    def matches_collection_type_filter(self, target_types: List[str]) -> bool:
+    def matches_collection_type_filter(self, target_types: list[str]) -> bool:
         """
         Check if this metadata matches collection type filters.
 

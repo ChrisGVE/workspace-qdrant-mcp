@@ -12,7 +12,6 @@ import tempfile
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
 
 import pytest
 
@@ -269,10 +268,10 @@ class TestIngestionQueuePersistence:
         file_path = "/path/duplicate.py"
 
         # First enqueue
-        queue_id1 = await temp_db.enqueue(file_path, "col1", 5, "tenant1", "main", {"version": 1})
+        await temp_db.enqueue(file_path, "col1", 5, "tenant1", "main", {"version": 1})
 
         # Second enqueue with same path should update priority
-        queue_id2 = await temp_db.enqueue(file_path, "col2", 8, "tenant2", "dev", {"version": 2})
+        await temp_db.enqueue(file_path, "col2", 8, "tenant2", "dev", {"version": 2})
 
         # Should still have only one item
         depth = await temp_db.get_queue_depth()
@@ -370,7 +369,7 @@ class TestIngestionQueuePersistence:
                 "main"
             )
 
-        dequeued_items: List[ProcessingQueueItem] = []
+        dequeued_items: list[ProcessingQueueItem] = []
         errors = []
 
         async def dequeue_task():

@@ -29,8 +29,8 @@ import asyncio
 import sys
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 from qdrant_client.http import models
@@ -44,15 +44,14 @@ from common.core.hybrid_search import (
     WeightedSumFusionRanker,
 )
 from common.core.metadata_filtering import (
-    MetadataFilterManager,
     FilterCriteria,
-    FilterStrategy,
     FilterPerformanceLevel,
+    FilterStrategy,
+    MetadataFilterManager,
 )
 from common.core.multitenant_collections import (
     ProjectMetadata,
 )
-
 
 # ============================================================================
 # Test Fixtures - Mock Qdrant Client
@@ -368,7 +367,7 @@ class TestFileTypeFiltering:
         )
 
         # Execute hybrid search with file type filter
-        results = await hybrid_search_engine.hybrid_search(
+        await hybrid_search_engine.hybrid_search(
             collection_name="test-collection",
             query_embeddings={
                 "dense": [0.1] * 384,
@@ -412,7 +411,7 @@ class TestFileTypeFiltering:
             ]
         )
 
-        results = await hybrid_search_engine.hybrid_search(
+        await hybrid_search_engine.hybrid_search(
             collection_name="test-collection",
             query_embeddings={
                 "dense": [0.1] * 384,

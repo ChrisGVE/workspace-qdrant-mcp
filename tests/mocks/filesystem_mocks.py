@@ -9,7 +9,7 @@ import asyncio
 import os
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Optional, Union
 from unittest.mock import AsyncMock, Mock, mock_open
 
 from .error_injection import ErrorInjector, FailureScenarios
@@ -52,11 +52,11 @@ class FileSystemErrorInjector(ErrorInjector):
 class FileSystemMock:
     """Comprehensive file system operations mock."""
 
-    def __init__(self, error_injector: Optional[FileSystemErrorInjector] = None):
+    def __init__(self, error_injector: FileSystemErrorInjector | None = None):
         self.error_injector = error_injector or FileSystemErrorInjector()
-        self.virtual_filesystem: Dict[str, Any] = {}
-        self.operation_history: List[Dict[str, Any]] = []
-        self.open_files: Set[str] = set()
+        self.virtual_filesystem: dict[str, Any] = {}
+        self.operation_history: list[dict[str, Any]] = []
+        self.open_files: set[str] = set()
 
         # Setup method mocks
         self._setup_file_operations()
@@ -116,7 +116,7 @@ class FileSystemMock:
         elif error_type == "interrupted_system_call":
             raise OSError(errno, f"Interrupted system call: '{path}'")
 
-    def _mock_read_text(self, path: Union[str, Path], encoding: str = "utf-8") -> str:
+    def _mock_read_text(self, path: str | Path, encoding: str = "utf-8") -> str:
         """Mock text file reading."""
         path_str = str(path)
         self._inject_filesystem_error("read", path_str)
@@ -136,7 +136,7 @@ class FileSystemMock:
         else:
             raise FileNotFoundError(f"No such file: '{path_str}'")
 
-    def _mock_write_text(self, path: Union[str, Path], content: str, encoding: str = "utf-8") -> None:
+    def _mock_write_text(self, path: str | Path, content: str, encoding: str = "utf-8") -> None:
         """Mock text file writing."""
         path_str = str(path)
         self._inject_filesystem_error("write", path_str)
@@ -155,7 +155,7 @@ class FileSystemMock:
             "size": len(content.encode(encoding))
         }
 
-    def _mock_read_bytes(self, path: Union[str, Path]) -> bytes:
+    def _mock_read_bytes(self, path: str | Path) -> bytes:
         """Mock binary file reading."""
         path_str = str(path)
         self._inject_filesystem_error("read", path_str)
@@ -176,7 +176,7 @@ class FileSystemMock:
         else:
             raise FileNotFoundError(f"No such file: '{path_str}'")
 
-    def _mock_write_bytes(self, path: Union[str, Path], content: bytes) -> None:
+    def _mock_write_bytes(self, path: str | Path, content: bytes) -> None:
         """Mock binary file writing."""
         path_str = str(path)
         self._inject_filesystem_error("write", path_str)
@@ -193,7 +193,7 @@ class FileSystemMock:
             "size": len(content)
         }
 
-    def _mock_mkdir(self, path: Union[str, Path], mode: int = 0o777, parents: bool = False, exist_ok: bool = False) -> None:
+    def _mock_mkdir(self, path: str | Path, mode: int = 0o777, parents: bool = False, exist_ok: bool = False) -> None:
         """Mock directory creation."""
         path_str = str(path)
         self._inject_filesystem_error("mkdir", path_str)
@@ -215,7 +215,7 @@ class FileSystemMock:
             "contents": []
         }
 
-    def _mock_rmdir(self, path: Union[str, Path]) -> None:
+    def _mock_rmdir(self, path: str | Path) -> None:
         """Mock directory removal."""
         path_str = str(path)
         self._inject_filesystem_error("rmdir", path_str)
@@ -233,7 +233,7 @@ class FileSystemMock:
 
         del self.virtual_filesystem[path_str]
 
-    def _mock_listdir(self, path: Union[str, Path]) -> List[str]:
+    def _mock_listdir(self, path: str | Path) -> list[str]:
         """Mock directory listing."""
         path_str = str(path)
         self._inject_filesystem_error("listdir", path_str)
@@ -257,7 +257,7 @@ class FileSystemMock:
             ".hidden_file"
         ]
 
-    def _mock_walk(self, path: Union[str, Path]):
+    def _mock_walk(self, path: str | Path):
         """Mock directory tree walking."""
         path_str = str(path)
         self._inject_filesystem_error("walk", path_str)
@@ -272,7 +272,7 @@ class FileSystemMock:
         yield (f"{path_str}/subdir1", [], ["nested_file.md"])
         yield (f"{path_str}/subdir2", ["deeper"], ["config.json"])
 
-    def _mock_exists(self, path: Union[str, Path]) -> bool:
+    def _mock_exists(self, path: str | Path) -> bool:
         """Mock path existence check."""
         path_str = str(path)
 
@@ -283,7 +283,7 @@ class FileSystemMock:
 
         return path_str in self.virtual_filesystem
 
-    def _mock_is_file(self, path: Union[str, Path]) -> bool:
+    def _mock_is_file(self, path: str | Path) -> bool:
         """Mock file type check."""
         path_str = str(path)
 
@@ -296,7 +296,7 @@ class FileSystemMock:
             return self.virtual_filesystem[path_str].get("type") == "file"
         return False
 
-    def _mock_is_dir(self, path: Union[str, Path]) -> bool:
+    def _mock_is_dir(self, path: str | Path) -> bool:
         """Mock directory type check."""
         path_str = str(path)
 
@@ -309,7 +309,7 @@ class FileSystemMock:
             return self.virtual_filesystem[path_str].get("type") == "directory"
         return False
 
-    def _mock_stat(self, path: Union[str, Path]):
+    def _mock_stat(self, path: str | Path):
         """Mock file status."""
         path_str = str(path)
         self._inject_filesystem_error("stat", path_str)
@@ -331,7 +331,7 @@ class FileSystemMock:
             st_ctime=1640995200
         )
 
-    def _mock_chmod(self, path: Union[str, Path], mode: int) -> None:
+    def _mock_chmod(self, path: str | Path, mode: int) -> None:
         """Mock file permission change."""
         path_str = str(path)
         self._inject_filesystem_error("chmod", path_str)
@@ -347,7 +347,7 @@ class FileSystemMock:
 
         self.virtual_filesystem[path_str]["mode"] = mode
 
-    def add_file(self, path: str, content: Union[str, bytes], file_type: str = "file") -> None:
+    def add_file(self, path: str, content: str | bytes, file_type: str = "file") -> None:
         """Add a file to the virtual filesystem."""
         self.virtual_filesystem[path] = {
             "content": content,
@@ -362,7 +362,7 @@ class FileSystemMock:
             "contents": []
         }
 
-    def get_operation_history(self) -> List[Dict[str, Any]]:
+    def get_operation_history(self) -> list[dict[str, Any]]:
         """Get history of file operations."""
         return self.operation_history.copy()
 
@@ -377,9 +377,9 @@ class FileSystemMock:
 class DirectoryOperationMock:
     """Mock for directory-specific operations."""
 
-    def __init__(self, error_injector: Optional[FileSystemErrorInjector] = None):
+    def __init__(self, error_injector: FileSystemErrorInjector | None = None):
         self.error_injector = error_injector or FileSystemErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
 
         # Setup method mocks
         self.create_directory_tree = Mock(side_effect=self._mock_create_directory_tree)
@@ -387,7 +387,7 @@ class DirectoryOperationMock:
         self.move_directory = AsyncMock(side_effect=self._mock_move_directory)
         self.delete_directory_tree = AsyncMock(side_effect=self._mock_delete_directory_tree)
 
-    def _mock_create_directory_tree(self, base_path: str, structure: Dict[str, Any]) -> None:
+    def _mock_create_directory_tree(self, base_path: str, structure: dict[str, Any]) -> None:
         """Mock creating a directory tree from structure."""
         if self.error_injector.should_inject_error():
             raise OSError(f"Failed to create directory tree at: {base_path}")

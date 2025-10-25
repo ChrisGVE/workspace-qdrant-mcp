@@ -4,28 +4,28 @@ Unit tests for DaemonClient with DocumentService and CollectionService support.
 Tests the new gRPC service methods added in Task 375.1.
 """
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-import grpc
 
+import grpc
+import pytest
 from common.grpc.daemon_client import (
     DaemonClient,
     DaemonClientError,
     DaemonUnavailableError,
 )
 from common.grpc.generated.workspace_daemon_pb2 import (
-    IngestTextRequest,
-    IngestTextResponse,
-    UpdateTextRequest,
-    UpdateTextResponse,
-    DeleteTextRequest,
+    CollectionConfig,
+    CreateAliasRequest,
     CreateCollectionRequest,
     CreateCollectionResponse,
-    DeleteCollectionRequest,
-    CreateAliasRequest,
     DeleteAliasRequest,
+    DeleteCollectionRequest,
+    DeleteTextRequest,
+    IngestTextRequest,
+    IngestTextResponse,
     RenameAliasRequest,
-    CollectionConfig,
+    UpdateTextRequest,
+    UpdateTextResponse,
 )
 
 
@@ -277,8 +277,8 @@ class TestCollectionServiceMethods:
     async def test_collection_exists_true(self, connected_client):
         """Test collection_exists returns True when collection exists."""
         from common.grpc.ingestion_pb2 import (
-            ListCollectionsResponse,
             CollectionInfo,
+            ListCollectionsResponse,
         )
 
         mock_collection = CollectionInfo(name="test_collection")
@@ -293,8 +293,8 @@ class TestCollectionServiceMethods:
     async def test_collection_exists_false(self, connected_client):
         """Test collection_exists returns False when collection doesn't exist."""
         from common.grpc.ingestion_pb2 import (
-            ListCollectionsResponse,
             CollectionInfo,
+            ListCollectionsResponse,
         )
 
         mock_collection = CollectionInfo(name="other_collection")

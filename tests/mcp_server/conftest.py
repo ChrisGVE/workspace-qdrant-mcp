@@ -5,15 +5,16 @@ Provides fixtures specific to MCP server testing including
 FastMCP server instances, tool mocking, and protocol testing utilities.
 """
 
-import pytest
 import asyncio
-from typing import Dict, List, Any, Optional
-from unittest.mock import AsyncMock, MagicMock
 from pathlib import Path
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
 
 
 @pytest.fixture
-def mcp_server_config() -> Dict[str, Any]:
+def mcp_server_config() -> dict[str, Any]:
     """Provide test configuration for MCP server."""
     return {
         "server_name": "workspace-qdrant-mcp-test",
@@ -48,8 +49,8 @@ async def mock_qdrant_client():
             return True
 
         async def upsert(
-            self, collection_name: str, points: List[Any]
-        ) -> Dict[str, Any]:
+            self, collection_name: str, points: list[Any]
+        ) -> dict[str, Any]:
             """Mock document upsert."""
             if collection_name not in self.documents:
                 self.documents[collection_name] = []
@@ -57,19 +58,19 @@ async def mock_qdrant_client():
             return {"status": "completed", "points_count": len(points)}
 
         async def search(
-            self, collection_name: str, query_vector: List[float], limit: int = 10
-        ) -> List[Dict[str, Any]]:
+            self, collection_name: str, query_vector: list[float], limit: int = 10
+        ) -> list[dict[str, Any]]:
             """Mock search."""
             docs = self.documents.get(collection_name, [])
             return docs[:limit]
 
         async def delete(
             self, collection_name: str, points_selector: Any
-        ) -> Dict[str, Any]:
+        ) -> dict[str, Any]:
             """Mock document deletion."""
             return {"status": "completed"}
 
-        async def get_collections(self) -> List[str]:
+        async def get_collections(self) -> list[str]:
             """Mock collection listing."""
             return list(self.collections.keys())
 
@@ -128,7 +129,7 @@ async def mock_fastmcp_server():
 
             return decorator
 
-        async def call_tool(self, name: str, arguments: Dict[str, Any]) -> Any:
+        async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
             """Mock tool call."""
             if name not in self.tools:
                 raise ValueError(f"Tool '{name}' not found")
@@ -150,7 +151,7 @@ async def mock_fastmcp_server():
 
 
 @pytest.fixture
-def sample_mcp_tools() -> List[Dict[str, Any]]:
+def sample_mcp_tools() -> list[dict[str, Any]]:
     """Provide sample MCP tool definitions."""
     return [
         {
@@ -188,7 +189,7 @@ def sample_mcp_tools() -> List[Dict[str, Any]]:
 
 
 @pytest.fixture
-def sample_mcp_requests() -> List[Dict[str, Any]]:
+def sample_mcp_requests() -> list[dict[str, Any]]:
     """Provide sample MCP protocol requests."""
     return [
         {
@@ -229,13 +230,13 @@ def mcp_protocol_validator():
         """Validates MCP protocol compliance."""
 
         @staticmethod
-        def validate_request(request: Dict[str, Any]) -> bool:
+        def validate_request(request: dict[str, Any]) -> bool:
             """Validate MCP request format."""
             required_fields = ["jsonrpc", "id", "method"]
             return all(field in request for field in required_fields)
 
         @staticmethod
-        def validate_response(response: Dict[str, Any]) -> bool:
+        def validate_response(response: dict[str, Any]) -> bool:
             """Validate MCP response format."""
             required_fields = ["jsonrpc", "id"]
             has_result_or_error = "result" in response or "error" in response
@@ -245,7 +246,7 @@ def mcp_protocol_validator():
             )
 
         @staticmethod
-        def validate_tool_definition(tool: Dict[str, Any]) -> bool:
+        def validate_tool_definition(tool: dict[str, Any]) -> bool:
             """Validate tool definition format."""
             required_fields = ["name", "description", "inputSchema"]
             return all(field in tool for field in required_fields)
@@ -294,7 +295,7 @@ def performance_metrics():
                 self.tool_call_counts.get(tool_name, 0) + 1
             )
 
-        def get_average_time(self, method: Optional[str] = None) -> float:
+        def get_average_time(self, method: str | None = None) -> float:
             """Get average request time."""
             times = self.request_times
             if method:
@@ -303,7 +304,7 @@ def performance_metrics():
                 return 0.0
             return sum(t["duration_ms"] for t in times) / len(times)
 
-        def get_p95_time(self, method: Optional[str] = None) -> float:
+        def get_p95_time(self, method: str | None = None) -> float:
             """Get 95th percentile request time."""
             times = self.request_times
             if method:

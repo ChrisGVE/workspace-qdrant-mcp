@@ -22,32 +22,26 @@ Key Features:
 - Session initialization with memory rule loading
 """
 
-import asyncio
-import json
 import re
-import statistics
-from collections import defaultdict, Counter
+import time
+from collections import defaultdict
+from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any
 
 from loguru import logger
-import time
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone, timedelta
-from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
-
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
-    CollectionInfo,
     Distance,
     FieldCondition,
     Filter,
     MatchValue,
     PointStruct,
-    SearchRequest,
     VectorParams,
 )
 
-from .collection_naming import CollectionNamingManager, CollectionType
+from .collection_naming import CollectionNamingManager
 from .sparse_vectors import BM25SparseEncoder
 
 # logger imported from loguru
@@ -1808,7 +1802,7 @@ class BehavioralController:
                 )
 
         if conflicts and resolved_conflicts:
-            reasoning_parts.append(f"\nConflict resolution applied:")
+            reasoning_parts.append("\nConflict resolution applied:")
             for resolution in resolved_conflicts:
                 reasoning_parts.append(f"- {resolution}")
 
@@ -2091,7 +2085,7 @@ class MemoryLifecycleManager:
         for rule in rules:
             by_category[rule.category].append(rule)
 
-        for category, category_rules in by_category.items():
+        for _category, category_rules in by_category.items():
             if len(category_rules) < self.cleanup_policies["consolidation_threshold"]:
                 continue
 
@@ -2119,7 +2113,7 @@ class MemoryLifecycleManager:
             similar_group = [rule1]
             processed_rules.add(rule1.id)
 
-            for j, rule2 in enumerate(rules[i+1:], i+1):
+            for _j, rule2 in enumerate(rules[i+1:], i+1):
                 if rule2.id in processed_rules:
                     continue
 

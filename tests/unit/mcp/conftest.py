@@ -7,10 +7,10 @@ parameter validation, and MCP protocol compliance.
 Migration from custom FastMCPTestServer to official SDK (Task 325.4).
 """
 
-import pytest
-from unittest.mock import AsyncMock, Mock, patch
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
 from fastmcp import Client
 from fastmcp.client.client import CallToolResult
 

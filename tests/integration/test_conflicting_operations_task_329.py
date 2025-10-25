@@ -25,7 +25,7 @@ import sqlite3
 import statistics
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import httpx
 import pytest
@@ -651,7 +651,7 @@ class TestCollectionLifecycleDuringIngestion:
 
 # Test report generation
 def generate_conflicting_operations_test_report(
-    test_results: Dict[str, Any], output_path: Path = None
+    test_results: dict[str, Any], output_path: Path = None
 ) -> str:
     """Generate comprehensive conflicting operations test report."""
     if output_path is None:

@@ -5,23 +5,30 @@ command discovery, auto-completion, configuration management, and
 error handling systems.
 """
 
-import pytest
-import tempfile
 import json
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from typer.testing import CliRunner
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 from rich.console import Console
+from typer.testing import CliRunner
+from wqm_cli.cli.advanced_features import (
+    CommandSuggestionSystem,
+    ConfigurationWizard,
+    SmartDefaults,
+)
+from wqm_cli.cli.error_handling import (
+    ErrorCategory,
+    ErrorContext,
+    ErrorHandler,
+    ErrorSeverity,
+    WqmError,
+)
+from wqm_cli.cli.help_system import InteractiveHelpSystem, help_system
 
 # Import CLI components to test
 from wqm_cli.cli.main import app
-from wqm_cli.cli.help_system import help_system, InteractiveHelpSystem
-from wqm_cli.cli.advanced_features import (
-    ConfigurationWizard, SmartDefaults, CommandSuggestionSystem
-)
-from wqm_cli.cli.error_handling import (
-    ErrorHandler, WqmError, ErrorCategory, ErrorSeverity, ErrorContext
-)
 
 
 class TestUnifiedCLIInterface:
@@ -71,14 +78,14 @@ class TestUnifiedCLIInterface:
     def test_debug_mode_enables_logging(self):
         """Test that debug flag enables verbose logging."""
         with patch('wqm_cli.cli.main.setup_logging') as mock_setup:
-            result = self.runner.invoke(app, ["--debug", "admin", "status"])
+            self.runner.invoke(app, ["--debug", "admin", "status"])
             # setup_logging should be called with verbose=True in debug mode
             mock_setup.assert_called_with(log_file=None, verbose=True)
 
     def test_custom_config_path(self):
         """Test custom configuration file path."""
         config_path = "/tmp/custom_config.yaml"
-        result = self.runner.invoke(app, ["--config", config_path, "config", "show"])
+        self.runner.invoke(app, ["--config", config_path, "config", "show"])
         # Should accept config path without error
         # Note: actual config loading is tested in config command tests
 
@@ -369,15 +376,16 @@ class TestCLIIntegrationAndEdgeCases:
     def test_empty_command_args(self):
         """Test commands with empty or missing required arguments."""
         # Test memory command without required argument
-        result = self.runner.invoke(app, ["memory", "add"])
+        self.runner.invoke(app, ["memory", "add"])
         # Should show error or help, not crash
 
     def test_keyboard_interrupt_handling(self):
         """Test that keyboard interrupts are handled gracefully."""
         # This is hard to test directly, but we can check the handler exists
-        from wqm_cli.cli.main import handle_async_command
         import asyncio
+
         import typer
+        from wqm_cli.cli.main import handle_async_command
 
         async def mock_interrupted_coroutine():
             raise KeyboardInterrupt("User interrupted")
@@ -432,18 +440,18 @@ class TestCLIIntegrationAndEdgeCases:
     def test_unicode_and_special_characters(self):
         """Test handling of Unicode and special characters in input."""
         # Test with Unicode in memory rule
-        result = self.runner.invoke(app, ["memory", "add", "测试规则"])
+        self.runner.invoke(app, ["memory", "add", "测试规则"])
         # Should handle Unicode gracefully (may not work without Qdrant, but shouldn't crash)
 
     def test_path_with_spaces_handling(self):
         """Test handling of file paths with spaces."""
-        result = self.runner.invoke(app, ["ingest", "file", "/path/with spaces/file.pdf"])
+        self.runner.invoke(app, ["ingest", "file", "/path/with spaces/file.pdf"])
         # Should handle paths with spaces (may fail due to missing file, but shouldn't crash parsing)
 
     def test_very_long_command_lines(self):
         """Test handling of very long command lines."""
         long_text = "a" * 1000
-        result = self.runner.invoke(app, ["memory", "add", long_text])
+        self.runner.invoke(app, ["memory", "add", long_text])
         # Should handle long text gracefully
 
 
@@ -466,7 +474,7 @@ class TestCLIConfigurationManagement:
             f.write("invalid: yaml: content:")
             f.flush()
 
-            result = self.runner.invoke(app, ["--config", f.name, "config", "validate"])
+            self.runner.invoke(app, ["--config", f.name, "config", "validate"])
             # Should handle invalid config gracefully
 
     def test_configuration_auto_completion_setup(self):

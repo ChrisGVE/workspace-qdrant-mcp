@@ -14,12 +14,13 @@ Tests all CLI command modules for 100% coverage, including:
 
 import asyncio
 import os
-import pytest
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 import typer
 from typer.testing import CliRunner
 
@@ -31,15 +32,15 @@ os.environ["WQM_CLI_MODE"] = "true"
 os.environ["WQM_LOG_INIT"] = "false"
 
 try:
-    from wqm_cli.cli.commands.search import search_app
+    from wqm_cli.cli.commands.config import config_app
     from wqm_cli.cli.commands.ingest import ingest_app
-    from wqm_cli.cli.commands.memory import memory_app
+    from wqm_cli.cli.commands.init import init_app
     from wqm_cli.cli.commands.library import library_app
+    from wqm_cli.cli.commands.lsp_management import lsp_app
+    from wqm_cli.cli.commands.memory import memory_app
+    from wqm_cli.cli.commands.search import search_app
     from wqm_cli.cli.commands.service import service_app
     from wqm_cli.cli.commands.watch import watch_app
-    from wqm_cli.cli.commands.config import config_app
-    from wqm_cli.cli.commands.lsp_management import lsp_app
-    from wqm_cli.cli.commands.init import init_app
     CLI_COMMANDS_AVAILABLE = True
 except ImportError as e:
     CLI_COMMANDS_AVAILABLE = False
@@ -708,7 +709,7 @@ class TestInitCommands:
         try:
             from wqm_cli.cli.commands.init import _init_bash_completion
 
-            with patch('pathlib.Path.write_text') as mock_write:
+            with patch('pathlib.Path.write_text'):
                 with patch('builtins.print') as mock_print:
                     await _init_bash_completion()
 
@@ -724,7 +725,7 @@ class TestInitCommands:
         try:
             from wqm_cli.cli.commands.init import _init_zsh_completion
 
-            with patch('pathlib.Path.write_text') as mock_write:
+            with patch('pathlib.Path.write_text'):
                 with patch('builtins.print') as mock_print:
                     await _init_zsh_completion()
 

@@ -6,10 +6,11 @@ Helper functions and utilities for E2E testing.
 
 import asyncio
 import json
-import time
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Callable
 import subprocess
+import time
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any, Optional
 
 
 class HealthChecker:
@@ -104,7 +105,7 @@ class WorkflowTimer:
             "timestamp": time.time()
         })
 
-    def get_duration(self, checkpoint_name: Optional[str] = None) -> float:
+    def get_duration(self, checkpoint_name: str | None = None) -> float:
         """Get duration to specific checkpoint or total."""
         if checkpoint_name:
             for cp in self.checkpoints:
@@ -117,7 +118,7 @@ class WorkflowTimer:
 
         return self.checkpoints[-1]["elapsed_seconds"]
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get timing summary."""
         if not self.checkpoints:
             return {"total_duration": 0.0, "checkpoints": []}
@@ -312,7 +313,7 @@ class ComponentController:
         check_process: bool = True,
         check_network: bool = True,
         check_files: bool = True
-    ) -> Dict[str, bool]:
+    ) -> dict[str, bool]:
         """
         Verify component isolation and resource usage.
 
@@ -373,7 +374,7 @@ class QdrantTestHelper:
         collection_name: str,
         query: str,
         min_results: int = 1
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Execute test search query."""
         # Placeholder - would perform actual search
         await asyncio.sleep(0.5)
@@ -457,7 +458,7 @@ def assert_no_performance_regression(
 
 
 def run_git_command(
-    command: List[str],
+    command: list[str],
     cwd: Path,
     check: bool = True
 ) -> subprocess.CompletedProcess:

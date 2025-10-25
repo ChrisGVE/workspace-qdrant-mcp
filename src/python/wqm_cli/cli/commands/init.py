@@ -10,7 +10,6 @@ Usage:
     wqm init help               # Show detailed setup instructions
 """
 
-import sys
 from enum import Enum
 
 import typer
@@ -109,10 +108,10 @@ Quick Setup (temporary for current shell session):
 
   Bash:
     eval "$(wqm init bash)"
-  
+
   Zsh:
     eval "$(wqm init zsh)"
-  
+
   Fish:
     wqm init fish | source
 
@@ -121,18 +120,18 @@ Permanent installation:
   Bash - Add to ~/.bashrc or ~/.bash_profile:
     echo 'eval "$(wqm init bash)"' >> ~/.bashrc
     source ~/.bashrc
-  
+
   Zsh - Add to ~/.zshrc:
     echo 'eval "$(wqm init zsh)"' >> ~/.zshrc
     source ~/.zshrc
-  
+
   Fish - Add to ~/.config/fish/config.fish:
     echo 'wqm init fish | source' >> ~/.config/fish/config.fish
     source ~/.config/fish/config.fish
 
 Verification:
   After setup, type 'wqm ' and press TAB to see available commands.
-  
+
 TROUBLESHOOTING:
   - Make sure wqm is in your PATH
   - Restart your shell after permanent installation

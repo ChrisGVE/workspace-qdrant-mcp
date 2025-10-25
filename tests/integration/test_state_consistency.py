@@ -27,14 +27,15 @@ Parent: #290 - Build MCP-daemon integration test framework
 """
 
 import asyncio
-import pytest
-import time
-import sqlite3
-from pathlib import Path
-from typing import Dict, Any, List
 import json
+import sqlite3
 import tempfile
-from unittest.mock import Mock, patch, AsyncMock
+import time
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 
 @pytest.fixture(scope="module")
@@ -288,7 +289,7 @@ class TestSQLiteTransactionIntegrity:
             read_successful = False
             try:
                 cursor = reader_conn.execute("SELECT COUNT(*) FROM wal_test")
-                count = cursor.fetchone()[0]
+                cursor.fetchone()[0]
                 read_successful = True
             except sqlite3.OperationalError:
                 pass

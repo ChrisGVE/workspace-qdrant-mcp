@@ -28,13 +28,11 @@ Usage:
     )
 """
 
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Tuple
-from pathlib import Path
 import logging
-
-from .error_handling import IncompatibleVersionError
+from abc import ABC, abstractmethod
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +53,10 @@ class BackupData:
     """
 
     version: str
-    manifest: Dict[str, Any]
-    collections: Dict[str, Any] = field(default_factory=dict)
-    state_db: Optional[Dict[str, Any]] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    manifest: dict[str, Any]
+    collections: dict[str, Any] = field(default_factory=dict)
+    state_db: dict[str, Any] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -74,10 +72,10 @@ class MigrationResult:
     """
 
     success: bool
-    backup_data: Optional[BackupData] = None
-    applied_migrations: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    backup_data: BackupData | None = None
+    applied_migrations: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
 
 class BaseMigration(ABC):
@@ -143,7 +141,7 @@ class BaseMigration(ABC):
         # Default implementation - can be overridden by subclasses
         return backup_data.version == self.from_version
 
-    def get_warnings(self, backup_data: BackupData) -> List[str]:
+    def get_warnings(self, backup_data: BackupData) -> list[str]:
         """Get any warnings about applying this migration.
 
         Args:
@@ -166,7 +164,7 @@ class MigrationRegistry:
 
     def __init__(self):
         """Initialize empty migration registry."""
-        self._migrations: Dict[Tuple[str, str], type[BaseMigration]] = {}
+        self._migrations: dict[tuple[str, str], type[BaseMigration]] = {}
 
     def register(
         self,
@@ -199,7 +197,7 @@ class MigrationRegistry:
 
     def get_migration(
         self, from_version: str, to_version: str
-    ) -> Optional[type[BaseMigration]]:
+    ) -> type[BaseMigration] | None:
         """Get migration class for a specific version transition.
 
         Args:
@@ -211,7 +209,7 @@ class MigrationRegistry:
         """
         return self._migrations.get((from_version, to_version))
 
-    def list_migrations(self) -> List[Tuple[str, str, str]]:
+    def list_migrations(self) -> list[tuple[str, str, str]]:
         """List all registered migrations.
 
         Returns:
@@ -286,7 +284,7 @@ class MigrationManager:
     backups from different versions.
     """
 
-    def __init__(self, registry: Optional[MigrationRegistry] = None):
+    def __init__(self, registry: MigrationRegistry | None = None):
         """Initialize migration manager.
 
         Args:
@@ -389,7 +387,7 @@ class MigrationManager:
 
     def get_migration_path(
         self, from_version: str, to_version: str
-    ) -> Optional[List[Tuple[str, str]]]:
+    ) -> list[tuple[str, str]] | None:
         """Find path of migrations between versions.
 
         Args:
@@ -414,8 +412,8 @@ class MigrationManager:
         return None
 
     def list_available_migrations(
-        self, from_version: Optional[str] = None
-    ) -> List[Tuple[str, str, str]]:
+        self, from_version: str | None = None
+    ) -> list[tuple[str, str, str]]:
         """List available migrations.
 
         Args:

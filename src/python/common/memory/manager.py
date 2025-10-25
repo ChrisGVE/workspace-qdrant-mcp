@@ -7,10 +7,10 @@ coordinating all memory operations including storage, conflict detection, and in
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from ..core.client import QdrantWorkspaceClient
-from ..core.config import get_config, ConfigManager
+from ..core.config import ConfigManager, get_config
 from ..core.embeddings import EmbeddingService
 from .claude_integration import ClaudeCodeIntegration
 from .conflict_detector import ConflictDetector
@@ -19,7 +19,6 @@ from .token_counter import TokenCounter, TokenUsage
 from .types import (
     AuthorityLevel,
     ClaudeCodeSession,
-    ConversationalUpdate,
     MemoryCategory,
     MemoryContext,
     MemoryInjectionResult,

@@ -1,26 +1,26 @@
 """Unit tests for analytics dashboard system."""
 
-import pytest
-import tempfile
 import json
+import os
+import sys
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
-import sys
-import os
+import pytest
 
 # Add docs framework to path for testing
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../docs/framework'))
 
 from analytics.dashboard import (
     AnalyticsDashboard,
-    DashboardMetric,
     ChartData,
-    DashboardData
+    DashboardData,
+    DashboardMetric,
 )
-from analytics.storage import AnalyticsStorage, AnalyticsStats, AnalyticsEvent
-from analytics.privacy import PrivacyManager, ConsentLevel
+from analytics.privacy import ConsentLevel, PrivacyManager
+from analytics.storage import AnalyticsEvent, AnalyticsStats, AnalyticsStorage
 
 
 class TestDashboardMetric:
@@ -239,7 +239,7 @@ class TestAnalyticsDashboard:
 
         # Test with FUNCTIONAL consent
         charts = self.dashboard._generate_charts(start_date, end_date, ConsentLevel.FUNCTIONAL)
-        chart_types = [chart.chart_type for chart in charts]
+        [chart.chart_type for chart in charts]
 
         # Should include page views and top pages, but not search queries
         assert any("page" in chart.title.lower() for chart in charts)
@@ -248,7 +248,7 @@ class TestAnalyticsDashboard:
         charts = self.dashboard._generate_charts(start_date, end_date, ConsentLevel.ANALYTICS)
 
         # Should include search charts
-        chart_titles = [chart.title.lower() for chart in charts]
+        [chart.title.lower() for chart in charts]
         # Note: search charts might not appear if no search data exists
 
     def test_generate_page_views_chart(self):
@@ -574,7 +574,7 @@ class TestAnalyticsDashboard:
         assert export_path.exists()
 
         # Verify exported data structure
-        with open(export_path, 'r', encoding='utf-8') as f:
+        with open(export_path, encoding='utf-8') as f:
             data = json.load(f)
 
         assert "generated_at" in data
@@ -594,7 +594,7 @@ class TestAnalyticsDashboard:
 
         assert result is True
 
-        with open(export_path, 'r', encoding='utf-8') as f:
+        with open(export_path, encoding='utf-8') as f:
             data = json.load(f)
 
         assert data["date_range"]["start"] == start_date.isoformat()
@@ -672,7 +672,7 @@ class TestAnalyticsDashboard:
         assert dashboard_data is not None
 
         # With ESSENTIAL consent, should have limited charts
-        chart_titles = [chart.title.lower() for chart in dashboard_data.charts]
+        [chart.title.lower() for chart in dashboard_data.charts]
         # Should include error charts (allowed at ESSENTIAL level)
         # Should NOT include page view charts (not allowed at ESSENTIAL level)
 
@@ -722,6 +722,6 @@ class TestAnalyticsDashboard:
         assert result is True
 
         # Verify unicode is preserved
-        with open(export_path, 'r', encoding='utf-8') as f:
+        with open(export_path, encoding='utf-8') as f:
             content = f.read()
             assert "测试" in content or "тест" in content  # Unicode characters should be preserved

@@ -12,11 +12,9 @@ advanced metadata extraction. Supports MOBI, AZW, AZW3, and KFX formats
 with fallback mechanisms for encrypted content.
 """
 
-import logging
 import struct
-import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 # Optional dependencies for enhanced MOBI parsing
 try:
@@ -133,7 +131,7 @@ class MobiParser(DocumentParser):
             error_details = await self._diagnose_parsing_error(file_path, e)
             raise RuntimeError(f"MOBI parsing failed: {error_details}") from e
 
-    async def _analyze_file_format(self, file_path: Path) -> Dict[str, Any]:
+    async def _analyze_file_format(self, file_path: Path) -> dict[str, Any]:
         """Analyze MOBI/Kindle file format and version."""
         format_info = {
             "format": "unknown",
@@ -150,7 +148,7 @@ class MobiParser(DocumentParser):
                 # Check for different Kindle formats
                 if len(header) >= 78:
                     # Check for PDB header (Palm Database)
-                    pdb_header = header[:78]
+                    header[:78]
 
                     # Look for MOBI identifier
                     if b'MOBI' in header:
@@ -206,7 +204,7 @@ class MobiParser(DocumentParser):
 
         return format_info
 
-    async def _check_drm_protection(self, file_path: Path, format_info: Dict[str, Any]) -> Dict[str, Any]:
+    async def _check_drm_protection(self, file_path: Path, format_info: dict[str, Any]) -> dict[str, Any]:
         """Check for DRM protection in Kindle files."""
         drm_info = {"has_drm": False, "scheme": "none", "details": []}
 
@@ -242,7 +240,6 @@ class MobiParser(DocumentParser):
                     exth_pos = data.find(b'EXTH')
                     if exth_pos != -1:
                         # Check for DRM record types
-                        drm_record_types = [208, 209, 300, 401, 402, 403, 404]
                         # This is a simplified check - full EXTH parsing is complex
                         drm_info["details"].append("EXTH header found - may contain DRM metadata")
 
@@ -259,7 +256,7 @@ class MobiParser(DocumentParser):
     async def _extract_enhanced_content(
         self, file_path: Path, encoding: str, max_content_size: int,
         attempt_drm_removal: bool, extract_images: bool, preserve_formatting: bool,
-        format_info: Dict[str, Any], drm_info: Dict[str, Any]
+        format_info: dict[str, Any], drm_info: dict[str, Any]
     ) -> tuple[dict[str, str | int | float | bool], str]:
         """Extract content and metadata from MOBI file with enhanced parsing."""
         metadata = {}
@@ -334,10 +331,8 @@ class MobiParser(DocumentParser):
 
         return metadata, text_content
 
-    async def _parse_with_kindleunpack(self, file_path: Path, preserve_formatting: bool) -> Tuple[Dict[str, Any], str]:
+    async def _parse_with_kindleunpack(self, file_path: Path, preserve_formatting: bool) -> tuple[dict[str, Any], str]:
         """Parse MOBI using kindleunpack library for high-quality extraction."""
-        metadata = {}
-        text_content = ""
 
         if not KINDLE_UNPACK_AVAILABLE:
             raise RuntimeError("kindleunpack library not available")
@@ -347,10 +342,8 @@ class MobiParser(DocumentParser):
         logger.info("KindleUnpack parsing not yet implemented")
         raise RuntimeError("KindleUnpack integration not yet implemented")
 
-    async def _parse_with_drm_removal(self, file_path: Path, encoding: str, preserve_formatting: bool) -> Tuple[Dict[str, Any], str]:
+    async def _parse_with_drm_removal(self, file_path: Path, encoding: str, preserve_formatting: bool) -> tuple[dict[str, Any], str]:
         """Attempt to parse MOBI with DRM removal."""
-        metadata = {}
-        text_content = ""
 
         if not MOBI_DEDRM_AVAILABLE:
             raise RuntimeError("mobidedrm library not available")
@@ -360,7 +353,7 @@ class MobiParser(DocumentParser):
         logger.info("DRM removal parsing not yet implemented")
         raise RuntimeError("DRM removal integration not yet implemented")
 
-    async def _extract_enhanced_text_content(self, f, encoding: str, max_size: int, preserve_formatting: bool, format_info: Dict[str, Any]) -> str:
+    async def _extract_enhanced_text_content(self, f, encoding: str, max_size: int, preserve_formatting: bool, format_info: dict[str, Any]) -> str:
         """Extract text content with enhanced formatting preservation."""
         try:
             # Advanced text extraction based on MOBI structure
@@ -414,7 +407,7 @@ class MobiParser(DocumentParser):
                 "[MOBI content extraction failed - file may be encrypted or corrupted]"
             )
 
-    async def _extract_formatted_text(self, content_bytes: bytes, encoding: str, format_info: Dict[str, Any]) -> str:
+    async def _extract_formatted_text(self, content_bytes: bytes, encoding: str, format_info: dict[str, Any]) -> str:
         """Extract text while attempting to preserve formatting."""
         try:
             # Try to decode with detected encoding first

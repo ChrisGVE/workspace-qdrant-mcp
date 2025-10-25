@@ -41,31 +41,26 @@ Example:
 """
 
 import asyncio
-import json
-from loguru import logger
-import os
-import psutil
 import time
+from collections.abc import Callable
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, Callable
-from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
+from typing import Any
 
-from .sqlite_state_manager import (
-    SQLiteStateManager,
-    ProcessingPriority,
-    FileProcessingStatus,
-    ProcessingQueueItem
-)
-from .incremental_processor import (
-    IncrementalProcessor,
-    FileChangeInfo,
-    ChangeType
-)
+import psutil
+from loguru import logger
+
+from .incremental_processor import IncrementalProcessor
 from .queue_client import SQLiteQueueClient
+from .sqlite_state_manager import (
+    FileProcessingStatus,
+    ProcessingPriority,
+    SQLiteStateManager,
+)
 
 # logger imported from loguru
 
@@ -104,10 +99,10 @@ class MCPActivityMetrics:
 
     requests_per_minute: float = 0.0
     active_sessions: int = 0
-    last_request_time: Optional[datetime] = None
+    last_request_time: datetime | None = None
     activity_level: MCPActivityLevel = MCPActivityLevel.INACTIVE
     burst_detected: bool = False
-    session_start_time: Optional[datetime] = None
+    session_start_time: datetime | None = None
     total_requests: int = 0
     average_request_duration: float = 0.0
 
@@ -153,15 +148,15 @@ class PriorityCalculationContext:
     file_path: str
     collection: str
     mcp_activity: MCPActivityMetrics
-    current_project_root: Optional[str] = None
-    file_modification_time: Optional[datetime] = None
+    current_project_root: str | None = None
+    file_modification_time: datetime | None = None
     file_size: int = 0
     is_user_triggered: bool = False
     is_current_project: bool = False
     is_recently_modified: bool = False
     has_dependencies: bool = False
-    processing_history: Dict[str, Any] = field(default_factory=dict)
-    branch: Optional[str] = None
+    processing_history: dict[str, Any] = field(default_factory=dict)
+    branch: str | None = None
 
 
 @dataclass
@@ -174,12 +169,12 @@ class ProcessingJob:
     priority: ProcessingPriority
     calculated_score: float = 0.0
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    scheduled_at: Optional[datetime] = None
+    scheduled_at: datetime | None = None
     attempts: int = 0
     max_attempts: int = 3
     timeout_seconds: int = 300
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    processing_context: Optional[PriorityCalculationContext] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+    processing_context: PriorityCalculationContext | None = None
 
 
 @dataclass
@@ -187,13 +182,13 @@ class QueueStatistics:
     """Comprehensive queue processing statistics."""
 
     total_items: int = 0
-    items_by_priority: Dict[str, int] = field(default_factory=dict)
-    items_by_status: Dict[str, int] = field(default_factory=dict)
+    items_by_priority: dict[str, int] = field(default_factory=dict)
+    items_by_status: dict[str, int] = field(default_factory=dict)
     processing_rate: float = 0.0  # items per minute
     average_processing_time: float = 0.0  # seconds
     success_rate: float = 1.0
     backpressure_events: int = 0
-    resource_utilization: Dict[str, float] = field(default_factory=dict)
+    resource_utilization: dict[str, float] = field(default_factory=dict)
     health_status: QueueHealthStatus = QueueHealthStatus.HEALTHY
     last_updated: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -229,8 +224,8 @@ class PriorityQueueManager:
     def __init__(
         self,
         state_manager: SQLiteStateManager,
-        incremental_processor: Optional[IncrementalProcessor] = None,
-        resource_config: Optional[ResourceConfiguration] = None,
+        incremental_processor: IncrementalProcessor | None = None,
+        resource_config: ResourceConfiguration | None = None,
         mcp_detection_interval: int = 30,
         statistics_retention_hours: int = 24
     ):
@@ -252,38 +247,38 @@ class PriorityQueueManager:
 
         # Activity tracking
         self.mcp_activity = MCPActivityMetrics()
-        self.current_project_root: Optional[str] = None
-        self.current_branch: Optional[str] = None
-        self.recent_files: Set[str] = set()
+        self.current_project_root: str | None = None
+        self.current_branch: str | None = None
+        self.recent_files: set[str] = set()
 
         # Processing control
         self.processing_mode = ProcessingMode.CONSERVATIVE
-        self.executor: Optional[Union[ThreadPoolExecutor, ProcessPoolExecutor]] = None
-        self.active_jobs: Dict[str, ProcessingJob] = {}
-        self.job_semaphore: Optional[asyncio.Semaphore] = None
+        self.executor: ThreadPoolExecutor | ProcessPoolExecutor | None = None
+        self.active_jobs: dict[str, ProcessingJob] = {}
+        self.job_semaphore: asyncio.Semaphore | None = None
 
         # Statistics and monitoring
         self.statistics = QueueStatistics()
-        self.processing_history: List[Dict[str, Any]] = []
-        self.health_metrics: Dict[str, Any] = {}
+        self.processing_history: list[dict[str, Any]] = []
+        self.health_metrics: dict[str, Any] = {}
 
         # Control flags
         self._initialized = False
         self._shutdown_event = asyncio.Event()
-        self._monitoring_task: Optional[asyncio.Task] = None
-        self._activity_detection_task: Optional[asyncio.Task] = None
+        self._monitoring_task: asyncio.Task | None = None
+        self._activity_detection_task: asyncio.Task | None = None
 
         # Callbacks and hooks
-        self.priority_calculation_hooks: List[Callable] = []
-        self.processing_hooks: List[Callable] = []
-        self.monitoring_hooks: List[Callable] = []
+        self.priority_calculation_hooks: list[Callable] = []
+        self.processing_hooks: list[Callable] = []
+        self.monitoring_hooks: list[Callable] = []
 
         # Queue client for priority updates
-        self.queue_client: Optional[SQLiteQueueClient] = None
+        self.queue_client: SQLiteQueueClient | None = None
 
         # Priority transition tracking
-        self._last_activity_level: Optional[MCPActivityLevel] = None
-        self._last_priority_adjustment: Optional[datetime] = None
+        self._last_activity_level: MCPActivityLevel | None = None
+        self._last_priority_adjustment: datetime | None = None
 
     async def initialize(self) -> bool:
         """
@@ -373,7 +368,7 @@ class PriorityQueueManager:
         file_path: str,
         collection: str,
         user_triggered: bool = False,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ) -> str:
         """
         Add file to processing queue with dynamic priority calculation.
@@ -444,8 +439,8 @@ class PriorityQueueManager:
 
     async def process_next_batch(
         self,
-        batch_size: Optional[int] = None
-    ) -> List[ProcessingJob]:
+        batch_size: int | None = None
+    ) -> list[ProcessingJob]:
         """
         Process the next batch of files from the queue.
 
@@ -533,8 +528,8 @@ class PriorityQueueManager:
         file_path: str,
         collection: str,
         user_triggered: bool,
-        metadata: Dict[str, Any],
-        branch: Optional[str]
+        metadata: dict[str, Any],
+        branch: str | None
     ) -> PriorityCalculationContext:
         """Create context for priority calculation."""
         file_path_obj = Path(file_path)
@@ -594,7 +589,7 @@ class PriorityQueueManager:
     async def _calculate_dynamic_priority(
         self,
         context: PriorityCalculationContext
-    ) -> Tuple[ProcessingPriority, float]:
+    ) -> tuple[ProcessingPriority, float]:
         """
         Calculate dynamic priority based on multiple factors.
 
@@ -949,7 +944,7 @@ class PriorityQueueManager:
 
     # --- Job Processing Methods ---
 
-    async def _process_single_job(self, job: ProcessingJob) -> Optional[ProcessingJob]:
+    async def _process_single_job(self, job: ProcessingJob) -> ProcessingJob | None:
         """
         Process a single job from the queue.
 
@@ -1230,7 +1225,7 @@ class PriorityQueueManager:
 
         self.statistics.last_updated = datetime.now(timezone.utc)
 
-    async def _update_processing_statistics(self, completed_jobs: List[ProcessingJob]):
+    async def _update_processing_statistics(self, completed_jobs: list[ProcessingJob]):
         """Update processing statistics with completed jobs."""
         for job in completed_jobs:
             entry = {
@@ -1308,7 +1303,7 @@ class PriorityQueueManager:
 
     # --- Public Interface Methods ---
 
-    async def get_queue_status(self) -> Dict[str, Any]:
+    async def get_queue_status(self) -> dict[str, Any]:
         """Get current queue status and statistics."""
         if not self._initialized:
             return {"error": "Priority Queue Manager not initialized"}
@@ -1362,14 +1357,14 @@ class PriorityQueueManager:
         self.current_branch = branch
         logger.info(f"Set current branch: {branch}")
 
-    async def clear_queue(self, collection: Optional[str] = None) -> int:
+    async def clear_queue(self, collection: str | None = None) -> int:
         """Clear processing queue items."""
         if not self._initialized:
             raise RuntimeError("Priority Queue Manager not initialized")
 
         return await self.state_manager.clear_queue(collection)
 
-    async def get_health_status(self) -> Dict[str, Any]:
+    async def get_health_status(self) -> dict[str, Any]:
         """Get detailed health status information."""
         if not self._initialized:
             return {"error": "Priority Queue Manager not initialized"}
@@ -1414,16 +1409,16 @@ class ProcessingContextManager:
         processing_time = time.time() - self.start_time
         logger.info(f"Processing context completed in {processing_time:.2f}s")
 
-    async def process_next_batch(self, batch_size: Optional[int] = None) -> List[ProcessingJob]:
+    async def process_next_batch(self, batch_size: int | None = None) -> list[ProcessingJob]:
         """Process next batch of jobs."""
         return await self.queue_manager.process_next_batch(batch_size)
 
     async def enqueue_multiple_files(
         self,
-        file_collection_pairs: List[Tuple[str, str]],
+        file_collection_pairs: list[tuple[str, str]],
         user_triggered: bool = False,
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> List[str]:
+        metadata: dict[str, Any] | None = None
+    ) -> list[str]:
         """Enqueue multiple files for processing."""
         queue_ids = []
         for file_path, collection in file_collection_pairs:

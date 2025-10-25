@@ -16,9 +16,9 @@ Migrated to official fastmcp.Client SDK (Task 325.4).
 """
 
 import json
-import pytest
-from typing import Dict, Any
+from typing import Any
 
+import pytest
 from fastmcp.client.client import CallToolResult
 from fastmcp.exceptions import ToolError
 from mcp.types import TextContent
@@ -401,7 +401,7 @@ class TestSearchParameterValidation:
             # Should have error indication
             if isinstance(result.content, dict):
                 # Should have either success=False or error field
-                has_error_indicator = (
+                (
                     result.content.get("success") is False or "error" in result.content
                 )
                 # Error response should be informative
@@ -917,7 +917,7 @@ class TestCrossToolErrorHandling:
             ("manage", {"action": "unknown_xyz"}, "action"),  # Unknown action
         ]
 
-        for tool_name, params, expected_keyword in test_cases:
+        for tool_name, params, _expected_keyword in test_cases:
             try:
                 result = await mcp_client.call_tool(tool_name, params)
                 # Check for informative error message

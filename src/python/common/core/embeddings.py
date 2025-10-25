@@ -44,14 +44,15 @@ import asyncio
 import hashlib
 import re
 
-from loguru import logger
-from typing import Optional, Union
-
 from fastembed import TextEmbedding
-from .config import get_config_string, get_config_bool, get_config_int
 from fastembed.sparse import SparseTextEmbedding
+from loguru import logger
 
-from .config import get_config, ConfigManager
+from .config import (
+    get_config_bool,
+    get_config_int,
+    get_config_string,
+)
 from .sparse_vectors import BM25SparseEncoder
 
 # logger imported from loguru

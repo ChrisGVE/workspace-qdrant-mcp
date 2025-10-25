@@ -13,7 +13,7 @@ import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import typer
 from loguru import logger
@@ -64,7 +64,7 @@ def get_daemon_db_path() -> Path:
     return db_path
 
 
-def format_timestamp(timestamp: Optional[str]) -> str:
+def format_timestamp(timestamp: str | None) -> str:
     """Format timestamp for display.
 
     Args:
@@ -83,7 +83,7 @@ def format_timestamp(timestamp: Optional[str]) -> str:
         return timestamp
 
 
-def calculate_wait_time(timestamp: Optional[str]) -> str:
+def calculate_wait_time(timestamp: str | None) -> str:
     """Calculate wait time from timestamp to now.
 
     Args:
@@ -116,12 +116,12 @@ def calculate_wait_time(timestamp: Optional[str]) -> str:
 
 @queue_app.command("status")
 def queue_status(
-    tenant_id: Optional[str] = typer.Option(
+    tenant_id: str | None = typer.Option(
         None,
         "--tenant-id",
         help="Filter by tenant ID",
     ),
-    priority: Optional[int] = typer.Option(
+    priority: int | None = typer.Option(
         None,
         "--priority",
         help="Filter by priority level (0-10)",
@@ -147,8 +147,8 @@ def queue_status(
 
 
 async def _queue_status(
-    tenant_id: Optional[str],
-    priority: Optional[int],
+    tenant_id: str | None,
+    priority: int | None,
     format: str,
     verbose: bool,
 ) -> None:
@@ -161,7 +161,7 @@ async def _queue_status(
 
         # Build base query with filters
         where_clauses = []
-        params: List[Any] = []
+        params: list[Any] = []
 
         if tenant_id:
             where_clauses.append("tenant_id = ?")

@@ -6,7 +6,7 @@ and reporting.
 """
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from .models import TestStatus, TestType
 from .storage import TestResultStorage
@@ -15,7 +15,7 @@ from .storage import TestResultStorage
 class TestResultQuery:
     """High-level query interface for test results."""
 
-    def __init__(self, storage: Optional[TestResultStorage] = None):
+    def __init__(self, storage: TestResultStorage | None = None):
         """
         Initialize query interface.
 
@@ -24,7 +24,7 @@ class TestResultQuery:
         """
         self.storage = storage or TestResultStorage()
 
-    def get_latest_run(self) -> Optional[Dict[str, Any]]:
+    def get_latest_run(self) -> dict[str, Any] | None:
         """
         Get the most recent test run.
 
@@ -34,7 +34,7 @@ class TestResultQuery:
         runs = self.storage.list_test_runs(limit=1, offset=0)
         return runs[0] if runs else None
 
-    def get_run_summary(self, run_id: str) -> Optional[Dict[str, Any]]:
+    def get_run_summary(self, run_id: str) -> dict[str, Any] | None:
         """
         Get summary of a specific test run.
 
@@ -79,7 +79,7 @@ class TestResultQuery:
             "metadata": test_run.metadata,
         }
 
-    def get_failed_tests(self, run_id: str) -> List[Dict[str, Any]]:
+    def get_failed_tests(self, run_id: str) -> list[dict[str, Any]]:
         """
         Get all failed tests from a run.
 
@@ -114,7 +114,7 @@ class TestResultQuery:
 
     def get_slow_tests(
         self, run_id: str, threshold_ms: float = 1000, limit: int = 10
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get slowest tests from a run.
 
@@ -149,7 +149,7 @@ class TestResultQuery:
         all_tests.sort(key=lambda x: x["duration_ms"], reverse=True)
         return all_tests[:limit]
 
-    def get_benchmark_results(self, run_id: str) -> List[Dict[str, Any]]:
+    def get_benchmark_results(self, run_id: str) -> list[dict[str, Any]]:
         """
         Get all benchmark/performance test results from a run.
 
@@ -188,7 +188,7 @@ class TestResultQuery:
 
         return benchmarks
 
-    def compare_runs(self, run_id_1: str, run_id_2: str) -> Dict[str, Any]:
+    def compare_runs(self, run_id_1: str, run_id_2: str) -> dict[str, Any]:
         """
         Compare two test runs.
 
@@ -232,7 +232,7 @@ class TestResultQuery:
 
     def get_test_history(
         self, test_name: str, days: int = 30, limit: int = 50
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get execution history for a specific test.
 
@@ -275,7 +275,7 @@ class TestResultQuery:
 
     def get_flaky_tests(
         self, days: int = 30, min_runs: int = 5, flaky_threshold: float = 0.2
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Identify potentially flaky tests (tests with inconsistent results).
 
@@ -291,7 +291,7 @@ class TestResultQuery:
         runs = self.storage.list_test_runs(limit=1000, start_date=start_date, offset=0)
 
         # Collect test statistics
-        test_stats: Dict[str, Dict[str, Any]] = {}
+        test_stats: dict[str, dict[str, Any]] = {}
 
         for run_summary in runs:
             run = self.storage.get_test_run(run_summary["run_id"])
@@ -347,7 +347,7 @@ class TestResultQuery:
         flaky_tests.sort(key=lambda x: x["failure_rate"], reverse=True)
         return flaky_tests
 
-    def get_statistics_summary(self) -> Dict[str, Any]:
+    def get_statistics_summary(self) -> dict[str, Any]:
         """
         Get overall statistics summary.
 
@@ -358,7 +358,7 @@ class TestResultQuery:
 
     def get_trend_data(
         self, days: int = 30, metric: str = "success_rate"
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get trend data for a specific metric over time.
 

@@ -22,16 +22,17 @@ Architecture:
 """
 
 import asyncio
-import pytest
+import json
 import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
-import json
+from typing import Optional
+
+import pytest
 
 
-def run_wqm_command(command: list, env: Optional[Dict] = None, timeout: int = 60) -> subprocess.CompletedProcess:
+def run_wqm_command(command: list, env: dict | None = None, timeout: int = 60) -> subprocess.CompletedProcess:
     """
     Run wqm CLI command via subprocess.
 
@@ -99,7 +100,7 @@ def wait_for_ingestion(collection: str, expected_docs: int, timeout: int = 30) -
     return False
 
 
-def get_ingestion_status() -> Dict:
+def get_ingestion_status() -> dict:
     """
     Get current ingestion status from daemon.
 
@@ -549,7 +550,7 @@ class TestDaemonCommunication:
     def test_cli_handles_daemon_unavailable(self, test_workspace, test_collection):
         """Test CLI gracefully handles daemon being unavailable."""
         # Stop daemon
-        stop_result = run_wqm_command(["service", "stop"])
+        run_wqm_command(["service", "stop"])
 
         # Try to ingest (should fail gracefully or queue for later)
         test_file = create_test_file(

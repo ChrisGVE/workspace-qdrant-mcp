@@ -22,24 +22,18 @@ Key Features:
 Task 233.6: Implementing performance monitoring and benchmarking for metadata filtering.
 """
 
-import asyncio
 import json
 import statistics
 import time
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Union, Any
-from pathlib import Path
-
-from loguru import logger
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
-
-from .metadata_optimization import PerformanceTracker, FilterOptimizer, QueryOptimizer
 
 # Use TYPE_CHECKING to avoid circular imports
 from typing import TYPE_CHECKING
+
+from loguru import logger
+
 if TYPE_CHECKING:
     from .hybrid_search import HybridSearchEngine
 
@@ -66,7 +60,7 @@ class PerformanceBaseline:
     # Multi-tenant isolation
     tenant_isolation_enforcement: float = 100.0
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert baseline to dictionary."""
         return {
             "response_time": {
@@ -111,7 +105,7 @@ class SearchAccuracyMeasurement:
 
     # Metadata filtering context
     filter_complexity: int = 0
-    tenant_context: Optional[str] = None
+    tenant_context: str | None = None
     has_multi_tenant_filters: bool = False
 
     def __post_init__(self):
@@ -141,7 +135,7 @@ class PerformanceBenchmarkResult:
     test_name: str
 
     # Performance metrics
-    response_times: List[float]
+    response_times: list[float]
     avg_response_time: float
     p50_response_time: float
     p95_response_time: float
@@ -153,13 +147,13 @@ class PerformanceBenchmarkResult:
     avg_f1_score: float
 
     # Baseline comparison
-    baseline_comparison: Dict[str, Dict]
+    baseline_comparison: dict[str, dict]
     performance_regression: bool
     accuracy_regression: bool
 
     # Test configuration
-    test_config: Dict
-    metadata: Dict = field(default_factory=dict)
+    test_config: dict
+    metadata: dict = field(default_factory=dict)
 
     def passes_baseline(self, baseline: PerformanceBaseline) -> bool:
         """Check if benchmark passes baseline requirements."""
@@ -181,8 +175,8 @@ class SearchAccuracyTracker:
     def __init__(self, baseline: PerformanceBaseline):
         """Initialize accuracy tracker."""
         self.baseline = baseline
-        self._measurements: List[SearchAccuracyMeasurement] = []
-        self._accuracy_alerts: List[Dict] = []
+        self._measurements: list[SearchAccuracyMeasurement] = []
+        self._accuracy_alerts: list[dict] = []
 
         logger.info("Search accuracy tracker initialized",
                    target_precision=baseline.target_precision,
@@ -193,9 +187,9 @@ class SearchAccuracyTracker:
         query_id: str,
         query_text: str,
         collection_name: str,
-        search_results: List,
-        expected_results: List,
-        tenant_context: Optional[str] = None,
+        search_results: list,
+        expected_results: list,
+        tenant_context: str | None = None,
         filter_complexity: int = 0
     ) -> SearchAccuracyMeasurement:
         """
@@ -292,7 +286,7 @@ class SearchAccuracyTracker:
                           measurement=alert["measurement"],
                           baseline=alert["baseline"])
 
-    def get_accuracy_summary(self, hours: int = 24) -> Dict:
+    def get_accuracy_summary(self, hours: int = 24) -> dict:
         """Get accuracy summary for recent measurements."""
         cutoff = datetime.now() - timedelta(hours=hours)
 
@@ -345,7 +339,7 @@ class SearchAccuracyTracker:
             "recent_alerts": len([a for a in self._accuracy_alerts if datetime.now() - datetime.fromisoformat(a["timestamp"]) < timedelta(hours=hours)])
         }
 
-    def get_recent_accuracy_alerts(self, hours: int = 24) -> List[Dict]:
+    def get_recent_accuracy_alerts(self, hours: int = 24) -> list[dict]:
         """Get recent accuracy alerts."""
         cutoff = datetime.now() - timedelta(hours=hours)
         return [
@@ -366,13 +360,13 @@ class PerformanceBenchmarkSuite:
         self,
         search_engine: "HybridSearchEngine",
         baseline: PerformanceBaseline,
-        test_data_path: Optional[str] = None
+        test_data_path: str | None = None
     ):
         """Initialize benchmark suite."""
         self.search_engine = search_engine
         self.baseline = baseline
         self.test_data_path = test_data_path
-        self._benchmark_history: List[PerformanceBenchmarkResult] = []
+        self._benchmark_history: list[PerformanceBenchmarkResult] = []
 
         logger.info("Performance benchmark suite initialized",
                    baseline_response_time=baseline.target_response_time,
@@ -381,7 +375,7 @@ class PerformanceBenchmarkSuite:
     async def run_metadata_filtering_benchmark(
         self,
         collection_name: str,
-        test_queries: List[Dict],
+        test_queries: list[dict],
         iterations: int = 100
     ) -> PerformanceBenchmarkResult:
         """
@@ -524,7 +518,7 @@ class PerformanceBenchmarkSuite:
         response_time: float,
         precision: float,
         recall: float
-    ) -> Dict[str, Dict]:
+    ) -> dict[str, dict]:
         """Compare results with baseline performance."""
         return {
             "response_time": {
@@ -556,7 +550,7 @@ class PerformanceBenchmarkSuite:
     async def run_multi_tenant_isolation_benchmark(
         self,
         collection_name: str,
-        tenant_test_data: Dict[str, List[Dict]]
+        tenant_test_data: dict[str, list[dict]]
     ) -> PerformanceBenchmarkResult:
         """
         Benchmark multi-tenant isolation performance and accuracy.
@@ -654,11 +648,11 @@ class PerformanceBenchmarkSuite:
 
         return result
 
-    def get_benchmark_history(self, limit: int = 10) -> List[PerformanceBenchmarkResult]:
+    def get_benchmark_history(self, limit: int = 10) -> list[PerformanceBenchmarkResult]:
         """Get recent benchmark history."""
         return self._benchmark_history[-limit:] if self._benchmark_history else []
 
-    def generate_performance_regression_report(self) -> Dict:
+    def generate_performance_regression_report(self) -> dict:
         """Generate comprehensive performance regression analysis."""
         if len(self._benchmark_history) < 2:
             return {"error": "Insufficient benchmark history for regression analysis"}
@@ -668,7 +662,7 @@ class PerformanceBenchmarkSuite:
         # Calculate trends
         response_time_trend = [r.avg_response_time for r in recent_results]
         precision_trend = [r.avg_precision for r in recent_results]
-        recall_trend = [r.avg_recall for r in recent_results]
+        [r.avg_recall for r in recent_results]
 
         # Identify regressions
         regressions = []
@@ -756,8 +750,8 @@ class PerformanceMonitoringDashboard:
         self,
         operation_type: str,
         response_time: float,
-        accuracy_metrics: Optional[Dict] = None,
-        metadata: Optional[Dict] = None
+        accuracy_metrics: dict | None = None,
+        metadata: dict | None = None
     ) -> None:
         """Record real-time performance metric."""
         metric = {
@@ -774,7 +768,7 @@ class PerformanceMonitoringDashboard:
         self._dashboard_cache.clear()
         self._cache_expiry = None
 
-    def get_real_time_dashboard(self) -> Dict:
+    def get_real_time_dashboard(self) -> dict:
         """Get real-time dashboard data with comprehensive metrics."""
         # Check cache
         if (self._cache_expiry and
@@ -879,7 +873,7 @@ class PerformanceMonitoringDashboard:
 
         return dashboard_data
 
-    def export_performance_report(self, filepath: Optional[str] = None) -> Dict:
+    def export_performance_report(self, filepath: str | None = None) -> dict:
         """Export comprehensive performance report."""
         if not filepath:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -929,7 +923,7 @@ class MetadataFilteringPerformanceMonitor:
     def __init__(
         self,
         search_engine: "HybridSearchEngine",
-        baseline_config: Optional[Dict] = None
+        baseline_config: dict | None = None
     ):
         """Initialize integrated performance monitor."""
         # Initialize baseline
@@ -954,9 +948,9 @@ class MetadataFilteringPerformanceMonitor:
     async def run_comprehensive_benchmark(
         self,
         collection_name: str,
-        test_queries: List[Dict],
-        tenant_test_data: Optional[Dict[str, List[Dict]]] = None
-    ) -> Dict:
+        test_queries: list[dict],
+        tenant_test_data: dict[str, list[dict]] | None = None
+    ) -> dict:
         """Run comprehensive performance and accuracy benchmarks."""
         results = {}
 
@@ -976,7 +970,7 @@ class MetadataFilteringPerformanceMonitor:
 
         return results
 
-    def get_performance_status(self) -> Dict:
+    def get_performance_status(self) -> dict:
         """Get comprehensive performance status."""
         return {
             "baseline_configuration": self.baseline.to_dict(),

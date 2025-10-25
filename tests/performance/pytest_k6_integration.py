@@ -9,12 +9,13 @@ import json
 import subprocess
 import tempfile
 import time
-from pathlib import Path
-from typing import Dict, Any, Optional, List
-import pytest
-import psutil
-import requests
 from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Optional
+
+import psutil
+import pytest
+import requests
 
 # Performance test configuration
 K6_SCRIPT_DIR = Path(__file__).parent / "k6"
@@ -42,7 +43,7 @@ class K6TestRunner:
         except (subprocess.TimeoutExpired, FileNotFoundError):
             return False
 
-    def run_quick_test(self) -> Dict[str, Any]:
+    def run_quick_test(self) -> dict[str, Any]:
         """Run quick performance test suitable for CI."""
         if not self.k6_available:
             pytest.skip("k6 not available")
@@ -79,7 +80,7 @@ class K6TestRunner:
             # Cleanup
             Path(output_file).unlink(missing_ok=True)
 
-    def run_load_test(self, duration: str = "30s", vus: int = 10) -> Dict[str, Any]:
+    def run_load_test(self, duration: str = "30s", vus: int = 10) -> dict[str, Any]:
         """Run load test with specified parameters."""
         if not self.k6_available:
             pytest.skip("k6 not available")
@@ -115,10 +116,10 @@ class K6TestRunner:
         finally:
             Path(output_file).unlink(missing_ok=True)
 
-    def _parse_k6_results(self, output_file: str) -> Dict[str, Any]:
+    def _parse_k6_results(self, output_file: str) -> dict[str, Any]:
         """Parse k6 JSON output file."""
         try:
-            with open(output_file, 'r') as f:
+            with open(output_file) as f:
                 # Read all lines and parse the last summary
                 lines = f.readlines()
                 for line in reversed(lines):
@@ -250,7 +251,7 @@ class TestK6Performance:
         )
 
         # Log performance summary
-        print(f"\n📊 Performance Summary:")
+        print("\n📊 Performance Summary:")
         print(f"   Response Time P95: {p95_duration:.2f}ms")
         print(f"   Error Rate: {error_rate:.3f}")
         print(f"   Total Requests: {metrics.get('http_reqs', {}).get('values', {}).get('count', 'N/A')}")
@@ -281,7 +282,7 @@ class TestK6Performance:
             f"Load test P99 ({p99_duration:.2f}ms) exceeds maximum ({max_ms}ms)"
         )
 
-        print(f"\n📊 Load Test Results:")
+        print("\n📊 Load Test Results:")
         print(f"   Response Time P95: {p95_duration:.2f}ms")
         print(f"   Response Time P99: {p99_duration:.2f}ms")
         print(f"   Throughput: {metrics.get('http_reqs', {}).get('values', {}).get('rate', 'N/A')} req/s")
@@ -301,7 +302,7 @@ class TestK6Performance:
 
 
 # Helper function for manual testing
-def run_performance_benchmark(server_url: str = "http://127.0.0.1:8000") -> Dict[str, Any]:
+def run_performance_benchmark(server_url: str = "http://127.0.0.1:8000") -> dict[str, Any]:
     """Run performance benchmark manually - useful for development."""
     runner = K6TestRunner(server_url)
     if not runner.k6_available:
@@ -313,7 +314,7 @@ def run_performance_benchmark(server_url: str = "http://127.0.0.1:8000") -> Dict
     if results["success"]:
         metrics = results["metrics"]
         http_req_duration = metrics.get("http_req_duration", {}).get("values", {})
-        print(f"✅ Performance benchmark completed:")
+        print("✅ Performance benchmark completed:")
         print(f"   P95 Response Time: {http_req_duration.get('p95', 'N/A'):.2f}ms")
         print(f"   P99 Response Time: {http_req_duration.get('p99', 'N/A'):.2f}ms")
         print(f"   Total Requests: {metrics.get('http_reqs', {}).get('values', {}).get('count', 'N/A')}")

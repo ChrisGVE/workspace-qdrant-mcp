@@ -20,15 +20,16 @@ Components:
 """
 
 import asyncio
-import os
 import json
+import os
 import re
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field, asdict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Callable
+from typing import Any, Optional
 from unittest.mock import AsyncMock
 
 import pytest
@@ -82,8 +83,8 @@ class PromptTemplate:
     """
     name: str
     prompt: str
-    placeholders: List[str] = field(default_factory=list)
-    expected_elements: List[str] = field(default_factory=list)
+    placeholders: list[str] = field(default_factory=list)
+    expected_elements: list[str] = field(default_factory=list)
     category: str = "general"
 
     def format(self, **kwargs) -> str:
@@ -117,7 +118,7 @@ class BehavioralMetrics:
     pattern_total: int
     token_difference: int
     response_time_ms: float
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -140,7 +141,7 @@ class LLMResponse:
     tokens_used: int
     latency_ms: float
     finish_reason: str = "stop"
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class BaseLLMProvider(ABC):
@@ -150,7 +151,7 @@ class BaseLLMProvider(ABC):
     async def generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2000
     ) -> LLMResponse:
@@ -174,7 +175,7 @@ class ClaudeProvider(BaseLLMProvider):
 
     def __init__(
         self,
-        api_key: Optional[str] = None,
+        api_key: str | None = None,
         model: str = "claude-3-5-sonnet-20241022"
     ):
         """
@@ -197,7 +198,7 @@ class ClaudeProvider(BaseLLMProvider):
     async def generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2000
     ) -> LLMResponse:
@@ -249,7 +250,7 @@ class ClaudeProvider(BaseLLMProvider):
 class MockLLMProvider(BaseLLMProvider):
     """Mock LLM provider for testing without API calls."""
 
-    def __init__(self, response_generator: Optional[Callable] = None):
+    def __init__(self, response_generator: Callable | None = None):
         """
         Initialize mock provider.
 
@@ -261,7 +262,7 @@ class MockLLMProvider(BaseLLMProvider):
     async def generate(
         self,
         prompt: str,
-        system_prompt: Optional[str] = None,
+        system_prompt: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 2000
     ) -> LLMResponse:
@@ -284,7 +285,7 @@ class MockLLMProvider(BaseLLMProvider):
     def _default_generator(
         self,
         prompt: str,
-        system_prompt: Optional[str]
+        system_prompt: str | None
     ) -> str:
         """Default mock response generator."""
         # Generate response based on system prompt rules
@@ -302,7 +303,6 @@ def process_data(data):
 
         if has_docstring_rule and has_type_hint_rule:
             return """
-from typing import List
 
 def process_data(data: List[float]) -> List[float]:
     \"\"\"
@@ -340,7 +340,6 @@ def process_data(data):
 """
         elif has_type_hint_rule:
             return """
-from typing import List
 
 def process_data(data: List[float]) -> List[float]:
     result: List[float] = []
@@ -360,8 +359,8 @@ class BehavioralAnalyzer:
         self,
         with_rules: LLMResponse,
         without_rules: LLMResponse,
-        expected_patterns: List[str] = None,
-        forbidden_patterns: List[str] = None
+        expected_patterns: list[str] = None,
+        forbidden_patterns: list[str] = None
     ) -> BehavioralMetrics:
         """
         Analyze behavioral differences between two responses.
@@ -493,7 +492,7 @@ class LLMBehavioralHarness:
     def __init__(
         self,
         provider: BaseLLMProvider,
-        memory_manager: Optional[MemoryManager] = None,
+        memory_manager: MemoryManager | None = None,
         mode: ExecutionMode = ExecutionMode.MOCK
     ):
         """
@@ -512,11 +511,11 @@ class LLMBehavioralHarness:
     async def run_behavioral_test(
         self,
         prompt: str,
-        rules: List[MemoryRule],
-        expected_patterns: List[str] = None,
-        forbidden_patterns: List[str] = None,
+        rules: list[MemoryRule],
+        expected_patterns: list[str] = None,
+        forbidden_patterns: list[str] = None,
         temperature: float = 0.7
-    ) -> Tuple[BehavioralMetrics, LLMResponse, LLMResponse]:
+    ) -> tuple[BehavioralMetrics, LLMResponse, LLMResponse]:
         """
         Run behavioral test with and without rules.
 
@@ -569,7 +568,7 @@ class LLMBehavioralHarness:
 
         return metrics, rules_response, baseline_response
 
-    def _create_system_prompt(self, rules: List[MemoryRule]) -> str:
+    def _create_system_prompt(self, rules: list[MemoryRule]) -> str:
         """
         Create system prompt from memory rules.
 

@@ -8,7 +8,6 @@ languages, extracting code content while preserving syntax highlighting informat
 function/class definitions, and language-specific metadata.
 """
 
-import logging
 import re
 from pathlib import Path
 from typing import Any, Optional
@@ -24,7 +23,7 @@ except ImportError:
     PYGMENTS_AVAILABLE = False
 
 try:
-    from common.core.lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
+    from common.core.lsp_metadata_extractor import FileMetadata, LspMetadataExtractor
     LSP_AVAILABLE = True
 except ImportError:
     LSP_AVAILABLE = False
@@ -169,7 +168,7 @@ class CodeParser(DocumentParser):
         elif self.lsp_extractor is None:
             logger.debug("No LSP extractor provided - enhanced analysis disabled")
 
-    async def parse(self, file_path: str | Path, progress_tracker: Optional[ProgressTracker] = None, **options: Any) -> ParsedDocument:
+    async def parse(self, file_path: str | Path, progress_tracker: ProgressTracker | None = None, **options: Any) -> ParsedDocument:
         """
         Parse source code file and extract content with enhanced LSP metadata.
 
@@ -221,13 +220,13 @@ class CodeParser(DocumentParser):
             if progress_tracker:
                 progress_tracker.update_phase("reading", "Reading source file")
             try:
-                with open(file_path, "r", encoding=encoding) as f:
+                with open(file_path, encoding=encoding) as f:
                     content = f.read()
             except UnicodeDecodeError:
                 # Try with different encodings
                 for fallback_encoding in ["latin1", "cp1252", "iso-8859-1"]:
                     try:
-                        with open(file_path, "r", encoding=fallback_encoding) as f:
+                        with open(file_path, encoding=fallback_encoding) as f:
                             content = f.read()
                         encoding = fallback_encoding
                         break
@@ -235,7 +234,7 @@ class CodeParser(DocumentParser):
                         continue
                 else:
                     raise RuntimeError(
-                        f"Could not decode file with any common encoding"
+                        "Could not decode file with any common encoding"
                     )
 
             # Check for extremely long lines that might indicate binary content
@@ -553,7 +552,7 @@ class CodeParser(DocumentParser):
         try:
             lexer = get_lexer_by_name(language)
             # Use NullFormatter to get tokens without formatting
-            tokens = list(lexer.get_tokens(content))
+            list(lexer.get_tokens(content))
 
             # For now, just return original content
             # Could add token type information as comments in the future

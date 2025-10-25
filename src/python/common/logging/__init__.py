@@ -10,9 +10,10 @@ Example:
 """
 
 # Re-export the main loguru config functions for convenience
-from .loguru_config import setup_logging
 from contextlib import asynccontextmanager
-from typing import Optional, Any, Dict
+from typing import Any, Optional
+
+from .loguru_config import setup_logging
 
 
 class LogContext:

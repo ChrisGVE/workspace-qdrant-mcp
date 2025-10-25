@@ -4,16 +4,14 @@ This module provides manual document processing capabilities for the
 unified wqm CLI, handling various file formats and ingestion workflows.
 """
 
-import asyncio
 from pathlib import Path
-from typing import List, Optional
 
 import typer
+from common.core.yaml_metadata import YamlMetadataWorkflow
+from common.grpc.daemon_client import with_daemon_client
+from loguru import logger
 
 from ..ingestion_engine import IngestionResult
-from common.grpc.daemon_client import get_daemon_client, with_daemon_client
-from common.core.yaml_metadata import YamlMetadataWorkflow
-from loguru import logger
 from ..utils import (
     create_command_app,
     dry_run_option,
@@ -62,7 +60,7 @@ def ingest_folder(
     collection: str = typer.Option(
         ..., "--collection", "-c", help="Target collection name"
     ),
-    formats: Optional[List[str]] = typer.Option(
+    formats: list[str] | None = typer.Option(
         None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"
     ),
     chunk_size: int = typer.Option(
@@ -74,7 +72,7 @@ def ingest_folder(
     recursive: bool = typer.Option(
         True, "--recursive/--no-recursive", help="Process subdirectories recursively"
     ),
-    exclude: Optional[List[str]] = typer.Option(
+    exclude: list[str] | None = typer.Option(
         None, "--exclude", help="Glob patterns to exclude"
     ),
     concurrency: int = typer.Option(
@@ -116,10 +114,10 @@ def generate_yaml_metadata(
     collection: str = typer.Option(
         ..., "--collection", "-c", help="Target library collection name"
     ),
-    output: Optional[str] = typer.Option(
+    output: str | None = typer.Option(
         None, "--output", "-o", help="Output YAML file path"
     ),
-    formats: Optional[List[str]] = typer.Option(
+    formats: list[str] | None = typer.Option(
         None, "--format", "-f", help="File formats to process (e.g. pdf,md,txt)"
     ),
     force: bool = force_option(),
@@ -140,10 +138,10 @@ def ingest_web_pages(
     max_pages: int = typer.Option(
         50, "--max-pages", help="Maximum number of pages to crawl"
     ),
-    include_patterns: Optional[List[str]] = typer.Option(
+    include_patterns: list[str] | None = typer.Option(
         None, "--include", help="URL patterns to include"
     ),
-    exclude_patterns: Optional[List[str]] = typer.Option(
+    exclude_patterns: list[str] | None = typer.Option(
         None, "--exclude", help="URL patterns to exclude"
     ),
     delay: float = typer.Option(
@@ -170,7 +168,7 @@ def ingest_web_pages(
 
 @ingest_app.command("status")
 def ingestion_status(
-    collection: Optional[str] = typer.Option(
+    collection: str | None = typer.Option(
         None, "--collection", "-c", help="Filter by collection"
     ),
     recent: bool = typer.Option(False, "--recent", help="Show only recent ingestions"),
@@ -182,7 +180,7 @@ def ingestion_status(
 @ingest_app.command("validate")
 def validate_files(
     path: str = typer.Argument(..., help="Path to file or folder to validate"),
-    formats: Optional[List[str]] = typer.Option(
+    formats: list[str] | None = typer.Option(
         None, "--format", "-f", help="File formats to validate (e.g. pdf,md,txt)"
     ),
     recursive: bool = typer.Option(
@@ -197,7 +195,7 @@ def validate_files(
 @ingest_app.command("smart")
 def smart_ingest(
     path: str = typer.Argument(..., help="Path to file or folder for smart ingestion"),
-    collection: Optional[str] = typer.Option(
+    collection: str | None = typer.Option(
         None, "--collection", "-c", help="Target collection (auto-detected if not specified)"
     ),
     auto_chunk: bool = typer.Option(
@@ -224,11 +222,11 @@ async def _ingest_file(
 ):
     """Ingest a single file using daemon client."""
     file_path = Path(path)
-    
+
     if not file_path.exists():
         error_message(f"File not found: {path}")
         raise typer.Exit(1)
-        
+
     if not file_path.is_file():
         error_message(f"Path is not a file: {path}")
         raise typer.Exit(1)
@@ -286,7 +284,7 @@ async def _ingest_file(
             )
 
             if response.success:
-                success_message(f"Document processed successfully")
+                success_message("Document processed successfully")
                 print(f"Document ID: {response.document_id}")
                 print(f"Chunks added: {response.chunks_added}")
                 print(f"Collection: {collection}")
@@ -312,29 +310,29 @@ async def _ingest_file(
 async def _ingest_folder(
     path: str,
     collection: str,
-    formats: Optional[List[str]],
+    formats: list[str] | None,
     chunk_size: int,
     chunk_overlap: int,
     recursive: bool,
-    exclude: Optional[List[str]],
+    exclude: list[str] | None,
     concurrency: int,
     dry_run: bool,
     force: bool,
 ):
     """Ingest all files in a folder using daemon client."""
     folder_path = Path(path)
-    
+
     if not folder_path.exists():
         error_message(f"Folder not found: {path}")
         raise typer.Exit(1)
-        
+
     if not folder_path.is_dir():
         error_message(f"Path is not a directory: {path}")
         raise typer.Exit(1)
-    
+
     async def folder_operation(daemon_client):
         print(f"Processing Folder: {folder_path.name}")
-        
+
         try:
             metadata = {
                 "source": "cli",
@@ -342,7 +340,7 @@ async def _ingest_folder(
                 "chunk_overlap": str(chunk_overlap),
                 "concurrency": str(concurrency),
             }
-            
+
             # Convert formats to include patterns if provided
             include_patterns = []
             if formats:
@@ -350,10 +348,10 @@ async def _ingest_folder(
                     if not fmt.startswith('.'):
                         fmt = f'.{fmt}'
                     include_patterns.append(f"*{fmt}")
-            
+
             files_processed = 0
             total_chunks = 0
-            
+
             async for progress in daemon_client.process_folder(
                 folder_path=str(folder_path),
                 collection=collection,
@@ -374,19 +372,19 @@ async def _ingest_folder(
                         print(f"  Processed: {progress.file_path} ({progress.chunks_added} chunks)")
                     elif hasattr(progress, 'error'):
                         warning_message(f"  Failed: {progress.file_path} - {progress.error}")
-            
+
             if not dry_run:
-                success_message(f"Folder processing completed!")
+                success_message("Folder processing completed!")
                 print(f"Files processed: {files_processed}")
                 print(f"Total chunks created: {total_chunks}")
                 print(f"Collection: {collection}")
             else:
                 print(f"\nDry run analysis completed for folder: {folder_path}")
-                
+
         except Exception as e:
             error_message(f"Folder processing failed: {e}")
             raise typer.Exit(1)
-    
+
     try:
         await with_daemon_client(folder_operation)
     except Exception as e:
@@ -398,8 +396,8 @@ async def _ingest_folder(
 async def _generate_yaml_metadata(
     library_path: str,
     collection: str,
-    output: Optional[str],
-    formats: Optional[List[str]],
+    output: str | None,
+    formats: list[str] | None,
     force: bool,
 ):
     """Generate YAML metadata file for library documents."""
@@ -553,8 +551,8 @@ async def _ingest_web_pages(
     collection: str,
     max_depth: int,
     max_pages: int,
-    include_patterns: Optional[List[str]],
-    exclude_patterns: Optional[List[str]],
+    include_patterns: list[str] | None,
+    exclude_patterns: list[str] | None,
     delay: float,
     dry_run: bool,
 ):
@@ -580,12 +578,12 @@ async def _ingest_web_pages(
         raise typer.Exit(1)
 
 
-async def _ingestion_status(collection: Optional[str], recent: bool):
+async def _ingestion_status(collection: str | None, recent: bool):
     """Show ingestion status and statistics using daemon client."""
     async def status_operation(daemon_client):
         try:
             print("\nIngestion Status")
-            
+
             if collection:
                 # Single collection info
                 try:
@@ -606,33 +604,33 @@ async def _ingestion_status(collection: Optional[str], recent: bool):
                 # All collections status
                 try:
                     response = await daemon_client.list_collections(include_stats=True)
-                    
+
                     if response.collections:
                         print(f"\nFound {len(response.collections)} collections:")
                         print(f"{'Collection':<30} {'Documents':<12} {'Vectors':<12} {'Type':<10}")
                         print("-" * 70)
-                        
+
                         for collection_info in response.collections:
                             col_type = "Library" if collection_info.name.startswith("_") else "Project"
                             print(f"{collection_info.name:<30} {collection_info.document_count:<12} {collection_info.vector_count:<12} {col_type:<10}")
                     else:
                         print("No collections found")
-                        
+
                     # Show system stats
                     stats = await daemon_client.get_stats(
                         include_collection_stats=True,
                         include_watch_stats=recent
                     )
-                    
-                    print(f"\nSystem Statistics:")
+
+                    print("\nSystem Statistics:")
                     print(f"  Total collections: {stats.total_collections}")
                     print(f"  Total documents: {stats.total_documents}")
                     print(f"  Total vectors: {stats.total_vectors}")
-                    
+
                 except Exception as e:
                     error_message(f"Error retrieving status: {e}")
                     raise typer.Exit(1)
-            
+
             # Show recent activity if requested
             if recent:
                 try:
@@ -640,21 +638,21 @@ async def _ingestion_status(collection: Optional[str], recent: bool):
                         include_history=True,
                         history_limit=10
                     )
-                    
+
                     if processing_status.recent_operations:
-                        print(f"\nRecent Processing Activity:")
+                        print("\nRecent Processing Activity:")
                         for op in processing_status.recent_operations[:5]:
                             print(f"  {op.timestamp}: {op.operation} - {op.status}")
                     else:
-                        print(f"\nNo recent processing activity")
-                        
+                        print("\nNo recent processing activity")
+
                 except Exception as e:
                     print(f"  Warning: Could not retrieve recent activity: {e}")
-                
+
         except Exception as e:
             error_message(f"Status check failed: {e}")
             raise typer.Exit(1)
-    
+
     try:
         await with_daemon_client(status_operation)
     except Exception as e:
@@ -663,20 +661,20 @@ async def _ingestion_status(collection: Optional[str], recent: bool):
 
 
 async def _validate_files(
-    path: str, 
-    formats: Optional[List[str]], 
-    recursive: bool, 
+    path: str,
+    formats: list[str] | None,
+    recursive: bool,
     verbose: bool
 ):
     """Validate files for ingestion compatibility."""
     target_path = Path(path)
-    
+
     if not target_path.exists():
         error_message(f"Path not found: {path}")
         raise typer.Exit(1)
-    
+
     print(f"Validating: {target_path}")
-    
+
     if target_path.is_file():
         # Single file validation
         file_info = {
@@ -685,13 +683,13 @@ async def _validate_files(
             "extension": target_path.suffix.lower(),
             "supported": target_path.suffix.lower() in [".pdf", ".txt", ".md", ".docx"],
         }
-        
-        print(f"\nFile Validation Result:")
+
+        print("\nFile Validation Result:")
         print(f"  Path: {target_path}")
         print(f"  Size: {file_info['size_mb']} MB")
         print(f"  Extension: {file_info['extension']}")
         print(f"  Valid: {'Yes' if file_info['supported'] else 'No'}")
-        
+
         if file_info['supported']:
             success_message("File is ready for ingestion")
         else:
@@ -700,7 +698,7 @@ async def _validate_files(
     else:
         # Folder validation
         supported_extensions = [".pdf", ".txt", ".md", ".docx"]
-        
+
         # Find files matching criteria
         files = []
         for file_path in target_path.rglob("*" if recursive else "*") if recursive else target_path.iterdir():
@@ -717,11 +715,11 @@ async def _validate_files(
                     # Check against supported extensions
                     if file_path.suffix.lower() in supported_extensions:
                         files.append(file_path)
-        
-        print(f"\nFolder Validation Result:")
+
+        print("\nFolder Validation Result:")
         print(f"  Path: {target_path}")
         print(f"  Files found: {len(files)}")
-        
+
         if not files:
             warning_message("No compatible files found")
             print("  Suggestions:")
@@ -729,33 +727,33 @@ async def _validate_files(
             print("    • Verify folder contains documents")
             print("    • Try different format filters")
             return
-        
+
         valid_files = 0
         invalid_files = 0
         total_size = 0
-        
+
         print("\nFile-by-file validation:")
         for file_path in files:
             size_mb = file_path.stat().st_size / (1024 * 1024)
             total_size += size_mb
             supported = file_path.suffix.lower() in supported_extensions
-            
+
             if supported:
                 valid_files += 1
                 status = "✓ Valid"
             else:
                 invalid_files += 1
                 status = "✗ Invalid"
-            
+
             if verbose:
                 print(f"    {file_path.name:<40} {status} ({size_mb:.2f} MB)")
-        
-        print(f"\nValidation Summary:")
+
+        print("\nValidation Summary:")
         print(f"  Valid files: {valid_files}")
         print(f"  Invalid files: {invalid_files}")
         print(f"  Total size: {total_size:.2f} MB")
         print(f"  Success rate: {(valid_files / len(files)) * 100:.1f}%")
-        
+
         if valid_files > 0:
             success_message(f"{valid_files} files ready for ingestion")
         else:
@@ -764,18 +762,18 @@ async def _validate_files(
 
 async def _smart_ingest(
     path: str,
-    collection: Optional[str],
+    collection: str | None,
     auto_chunk: bool,
-    concurrency: int, 
+    concurrency: int,
     dry_run: bool
 ):
     """Smart ingestion with auto-detection and optimization using daemon client."""
     target_path = Path(path)
-    
+
     if not target_path.exists():
         error_message(f"Path not found: {path}")
         raise typer.Exit(1)
-    
+
     # Auto-detect collection if not provided
     if not collection:
         if target_path.is_file():
@@ -785,7 +783,7 @@ async def _smart_ingest(
             # Use directory name for folders
             collection = target_path.name
         print(f"Auto-detected collection: {collection}")
-    
+
     # Auto-determine chunk parameters if enabled
     if auto_chunk:
         chunk_size = 1200  # Slightly larger for better semantic coherence
@@ -794,9 +792,9 @@ async def _smart_ingest(
     else:
         chunk_size = 1000
         chunk_overlap = 200
-    
+
     print(f"Smart ingestion: {target_path}")
-    
+
     if target_path.is_file():
         # Smart single file ingestion - reuse existing file ingestion logic
         await _ingest_file(

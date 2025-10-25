@@ -18,23 +18,23 @@ Test Categories (matching Task 316 subtasks):
 import asyncio
 import os
 import platform
-import pytest
+import sys
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
-import sys
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 from common.core.unified_document_pipeline import (
-    UnifiedDocumentPipeline,
-    ProcessingResult,
-    detect_file_type,
     ParsingError,
-    UnsupportedFileFormatError
+    ProcessingResult,
+    UnifiedDocumentPipeline,
+    UnsupportedFileFormatError,
+    detect_file_type,
 )
-
 
 # ============================================================================
 # FIXTURES
@@ -271,7 +271,7 @@ class TestLargeFileProcessing:
         # Create 50MB text file (smaller than previous test for faster execution)
         large_file = temp_test_dir / "memory_test.txt"
         with large_file.open('w') as f:
-            for i in range(50):
+            for _i in range(50):
                 f.write(("x" * 1024 * 1024) + "\n")
 
         # Track memory before processing
@@ -310,7 +310,7 @@ class TestLargeFileProcessing:
         for i in range(3):
             large_file = temp_test_dir / f"large_{i}.txt"
             with large_file.open('w') as f:
-                for j in range(10):
+                for _j in range(10):
                     f.write(("y" * 1024 * 1024) + "\n")
             large_files.append(str(large_file))
 
@@ -336,10 +336,10 @@ class TestLargeFileProcessing:
         test_file = temp_test_dir / "size_test.txt"
         expected_size_mb = 5
         with test_file.open('w') as f:
-            for i in range(expected_size_mb):
+            for _i in range(expected_size_mb):
                 f.write(("z" * 1024 * 1024) + "\n")
 
-        actual_size = test_file.stat().st_size
+        test_file.stat().st_size
 
         # Process file
         results = await pipeline.process_documents(
@@ -646,7 +646,7 @@ if __name__ == "__main__":
         )
 
         assert len(results) == 1, "Should return one result"
-        result = results[0]
+        results[0]
         # Should process successfully by detecting content type
 
     @pytest.mark.asyncio
@@ -666,7 +666,7 @@ if __name__ == "__main__":
         )
 
         assert len(results) == 1, "Should return one result"
-        result = results[0]
+        results[0]
         # Should process based on extension (.txt) or detect JSON content
 
 
@@ -699,7 +699,7 @@ class TestSymlinkHandling:
         )
 
         assert len(results) == 1, "Should return one result"
-        result = results[0]
+        results[0]
         # Should either resolve symlink or report it appropriately
 
     @pytest.mark.skipif(platform.system() == "Windows", reason="Symlinks require admin on Windows")
@@ -727,7 +727,7 @@ class TestSymlinkHandling:
         )
 
         assert len(results) == 1, "Should return one result"
-        result = results[0]
+        results[0]
         # Should fail gracefully with informative error
 
 
@@ -782,7 +782,7 @@ class TestConcurrentFileModification:
         )
 
         assert len(results) == 1, "Should return one result"
-        result = results[0]
+        results[0]
         # Should fail gracefully with file not found error
 
 
@@ -874,5 +874,5 @@ class TestUnicodeAndDeepDirectories:
         )
 
         assert len(results) == 1, "Should return one result"
-        result = results[0]
+        results[0]
         # Should handle long paths correctly

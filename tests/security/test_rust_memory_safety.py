@@ -7,13 +7,13 @@ memory safety guarantees when calling Rust code from Python.
 
 import gc
 import os
-import pytest
 import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import List
+
+import pytest
 
 # Import Rust daemon components if available
 try:
@@ -449,7 +449,7 @@ class TestRustResourceManagement:
             # Open and close files
             temp_files = []
             try:
-                for i in range(10):
+                for _i in range(10):
                     import tempfile
                     f = tempfile.NamedTemporaryFile(delete=False)
                     temp_files.append(f.name)
@@ -476,7 +476,7 @@ class TestRustResourceManagement:
         current_size = 0
 
         try:
-            for i in range(100):
+            for _i in range(100):
                 size = 1024 * 1024  # 1MB each
                 if current_size + size > max_size:
                     break
@@ -506,14 +506,11 @@ class TestRustResourceManagement:
                 drop_order.append(self.name)
 
         # Create resources
-        r1 = Resource("first")
-        r2 = Resource("second")
-        r3 = Resource("third")
+        Resource("first")
+        Resource("second")
+        Resource("third")
 
         # Clear references
-        r1 = None
-        r2 = None
-        r3 = None
 
         # Force cleanup
         gc.collect()

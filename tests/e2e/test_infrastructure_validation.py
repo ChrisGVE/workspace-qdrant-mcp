@@ -5,13 +5,14 @@ Verifies that the comprehensive test environment can be set up
 and all components work together correctly.
 """
 
-import pytest
 import asyncio
 
+import pytest
+
 from tests.e2e.fixtures import (
-    SystemComponents,
     CLIHelper,
     ResourceMonitor,
+    SystemComponents,
 )
 
 

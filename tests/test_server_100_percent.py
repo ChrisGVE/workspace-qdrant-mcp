@@ -3,27 +3,39 @@
 This test file will achieve 100% coverage of all 903 lines in server.py.
 """
 
-import pytest
 import asyncio
+import json
 import os
 import sys
 import tempfile
-import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock, call
-from typing import Any, Dict, List
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 
 # Add source path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "python"))
 
 # Import the server module
 from workspace_qdrant_mcp.server import (
-    _detect_stdio_mode, get_project_name, initialize_components,
-    ensure_collection_exists, determine_collection_name, generate_embeddings,
-    store, search, manage, retrieve, run_server, main, app
+    _detect_stdio_mode,
+    app,
+    determine_collection_name,
+    ensure_collection_exists,
+    generate_embeddings,
+    get_project_name,
+    initialize_components,
+    main,
+    manage,
+    retrieve,
+    run_server,
+    search,
+    store,
 )
+
 
 class TestStdioDetection:
     """Test stdio mode detection functionality."""
@@ -31,12 +43,12 @@ class TestStdioDetection:
     def test_detect_stdio_mode_explicit_true(self):
         """Test explicit WQM_STDIO_MODE=true."""
         with patch.dict(os.environ, {"WQM_STDIO_MODE": "true"}):
-            assert _detect_stdio_mode() == True
+            assert _detect_stdio_mode()
 
     def test_detect_stdio_mode_explicit_false(self):
         """Test explicit WQM_CLI_MODE=true."""
         with patch.dict(os.environ, {"WQM_CLI_MODE": "true", "WQM_STDIO_MODE": ""}):
-            assert _detect_stdio_mode() == False
+            assert not _detect_stdio_mode()
 
     def test_detect_stdio_mode_pipe(self):
         """Test pipe detection."""
@@ -46,7 +58,7 @@ class TestStdioDetection:
             mock_fstat.return_value = mock_stat
 
             with patch('stat.S_ISFIFO', return_value=True):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
     def test_detect_stdio_mode_regular_file(self):
         """Test regular file detection."""
@@ -56,7 +68,7 @@ class TestStdioDetection:
             mock_fstat.return_value = mock_stat
 
             with patch('stat.S_ISREG', return_value=True):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
     def test_detect_stdio_mode_os_error(self):
         """Test OSError handling in fstat."""
@@ -70,19 +82,19 @@ class TestStdioDetection:
     def test_detect_stdio_mode_argv_stdio(self):
         """Test argv detection with stdio."""
         with patch.dict(sys.modules, {"sys": Mock(argv=["script", "stdio"])}):
-            assert _detect_stdio_mode() == True
+            assert _detect_stdio_mode()
 
     def test_detect_stdio_mode_argv_mcp(self):
         """Test argv detection with mcp."""
         with patch.dict(sys.modules, {"sys": Mock(argv=["script", "mcp"])}):
-            assert _detect_stdio_mode() == True
+            assert _detect_stdio_mode()
 
     def test_detect_stdio_mode_default_false(self):
         """Test default case returns False."""
         with patch.dict(os.environ, {}, clear=True):
             with patch('os.fstat', side_effect=AttributeError):
                 with patch.dict(sys.modules, {"sys": Mock(argv=["script"])}):
-                    assert _detect_stdio_mode() == False
+                    assert not _detect_stdio_mode()
 
 
 class TestProjectNameDetection:
@@ -217,7 +229,7 @@ class TestCollectionManagement:
         with patch('workspace_qdrant_mcp.server.qdrant_client', mock_client):
             result = await ensure_collection_exists("test-collection")
 
-            assert result == True
+            assert result
             mock_client.get_collection.assert_called_once_with("test-collection")
 
     @pytest.mark.asyncio
@@ -230,7 +242,7 @@ class TestCollectionManagement:
         with patch('workspace_qdrant_mcp.server.qdrant_client', mock_client):
             result = await ensure_collection_exists("new-collection")
 
-            assert result == True
+            assert result
             mock_client.get_collection.assert_called_once_with("new-collection")
             mock_client.create_collection.assert_called_once()
 
@@ -248,7 +260,7 @@ class TestCollectionManagement:
 
                 result = await ensure_collection_exists("bad-collection")
 
-                assert result == False
+                assert not result
                 mock_log.error.assert_called_once()
 
 
@@ -355,7 +367,7 @@ class TestEmbeddingGeneration:
 
                     mock_init.side_effect = set_model
 
-                    result = await generate_embeddings("test text")
+                    await generate_embeddings("test text")
 
                     mock_init.assert_called_once()
                     mock_model.embed.assert_called_once_with(["test text"])
@@ -378,7 +390,7 @@ class TestStoreFunction:
 
                             result = await store("test content", title="Test Document")
 
-                            assert result["success"] == True
+                            assert result["success"]
                             assert "document_id" in result
                             assert result["collection"] == "test-project-documents"
                             assert result["title"] == "Test Document"
@@ -392,7 +404,7 @@ class TestStoreFunction:
 
                 result = await store("test content")
 
-                assert result["success"] == False
+                assert not result["success"]
                 assert "Failed to create/access collection" in result["error"]
 
     @pytest.mark.asyncio
@@ -408,7 +420,7 @@ class TestStoreFunction:
 
                         result = await store("print('hello')", file_path="/path/to/script.py")
 
-                        assert result["success"] == True
+                        assert result["success"]
                         assert result["metadata"]["file_path"] == "/path/to/script.py"
                         assert result["metadata"]["file_name"] == "script.py"
 
@@ -425,7 +437,7 @@ class TestStoreFunction:
 
                         result = await store("web content", url="https://example.com/page")
 
-                        assert result["success"] == True
+                        assert result["success"]
                         assert result["metadata"]["url"] == "https://example.com/page"
                         assert result["metadata"]["domain"] == "example.com"
 
@@ -443,7 +455,7 @@ class TestStoreFunction:
                         custom_metadata = {"author": "test", "tags": ["important"]}
                         result = await store("content", metadata=custom_metadata)
 
-                        assert result["success"] == True
+                        assert result["success"]
                         assert result["metadata"]["author"] == "test"
                         assert result["metadata"]["tags"] == ["important"]
 
@@ -460,7 +472,7 @@ class TestStoreFunction:
 
                         result = await store("test content")
 
-                        assert result["success"] == False
+                        assert not result["success"]
                         assert "Failed to store document" in result["error"]
 
     @pytest.mark.asyncio
@@ -478,7 +490,7 @@ class TestStoreFunction:
 
                         result = await store(long_content)
 
-                        assert result["success"] == True
+                        assert result["success"]
                         preview = result["metadata"]["content_preview"]
                         assert len(preview) == 203  # 200 chars + "..."
                         assert preview.endswith("...")
@@ -508,7 +520,7 @@ class TestSearchFunction:
 
                             result = await search("test query", mode="semantic")
 
-                            assert result["success"] == True
+                            assert result["success"]
                             assert len(result["results"]) == 1
                             assert result["results"][0]["id"] == "doc1"
                             assert result["results"][0]["score"] == 0.8
@@ -533,7 +545,7 @@ class TestSearchFunction:
 
                         result = await search("test", mode="exact")
 
-                        assert result["success"] == True
+                        assert result["success"]
                         assert len(result["results"]) == 1
                         assert result["results"][0]["id"] == "doc2"
                         assert result["mode"] == "exact"
@@ -567,7 +579,7 @@ class TestSearchFunction:
 
                             result = await search("test", mode="hybrid")
 
-                            assert result["success"] == True
+                            assert result["success"]
                             assert len(result["results"]) >= 1
                             assert result["mode"] == "hybrid"
 
@@ -588,7 +600,7 @@ class TestSearchFunction:
 
                         result = await search("test", collection="specific-collection")
 
-                        assert result["success"] == True
+                        assert result["success"]
                         assert result["collections_searched"] == ["specific-collection"]
 
     @pytest.mark.asyncio
@@ -613,7 +625,7 @@ class TestSearchFunction:
                             filters = {"type": "note", "author": "test"}
                             result = await search("test", filters=filters)
 
-                            assert result["success"] == True
+                            assert result["success"]
                             assert result["filters_applied"] == filters
 
     @pytest.mark.asyncio
@@ -637,7 +649,7 @@ class TestSearchFunction:
 
                         result = await search("test", project_name="myproject")
 
-                        assert result["success"] == True
+                        assert result["success"]
                         expected_collections = ["myproject-docs", "myproject-code"]
                         assert result["collections_searched"] == expected_collections
 
@@ -655,7 +667,7 @@ class TestSearchFunction:
 
                         result = await search("test", project_name="myproject", workspace_type="notes")
 
-                        assert result["success"] == True
+                        assert result["success"]
                         assert result["collections_searched"] == ["myproject-notes"]
 
     @pytest.mark.asyncio
@@ -668,7 +680,7 @@ class TestSearchFunction:
 
                     result = await search("test")
 
-                    assert result["success"] == False
+                    assert not result["success"]
                     assert "No collections found to search" in result["error"]
 
     @pytest.mark.asyncio
@@ -686,7 +698,7 @@ class TestSearchFunction:
 
                         result = await search("test")
 
-                        assert result["success"] == True  # Should continue with other collections
+                        assert result["success"]  # Should continue with other collections
                         assert result["results"] == []
 
     @pytest.mark.asyncio
@@ -723,7 +735,7 @@ class TestSearchFunction:
 
                             result = await search("test", mode="hybrid")
 
-                            assert result["success"] == True
+                            assert result["success"]
                             # Should only have one result due to deduplication
                             assert len(result["results"]) == 1
                             assert result["results"][0]["id"] == "doc1"
@@ -758,7 +770,7 @@ class TestManageFunction:
 
                 result = await manage("list_collections")
 
-                assert result["success"] == True
+                assert result["success"]
                 assert result["action"] == "list_collections"
                 assert len(result["collections"]) == 1
                 assert result["collections"][0]["name"] == "test-collection"
@@ -780,7 +792,7 @@ class TestManageFunction:
 
                 result = await manage("list_collections")
 
-                assert result["success"] == True
+                assert result["success"]
                 assert len(result["collections"]) == 1
                 assert result["collections"][0]["name"] == "error-collection"
                 assert result["collections"][0]["status"] == "error_getting_info"
@@ -796,7 +808,7 @@ class TestManageFunction:
 
                 result = await manage("create_collection", name="new-collection")
 
-                assert result["success"] == True
+                assert result["success"]
                 assert result["action"] == "create_collection"
                 assert result["collection_name"] == "new-collection"
                 assert "created successfully" in result["message"]
@@ -808,7 +820,7 @@ class TestManageFunction:
         with patch('workspace_qdrant_mcp.server.initialize_components'):
             result = await manage("create_collection")
 
-            assert result["success"] == False
+            assert not result["success"]
             assert "Collection name required" in result["error"]
 
     @pytest.mark.asyncio
@@ -823,7 +835,7 @@ class TestManageFunction:
                 custom_config = {"vector_size": 512, "distance": "cosine"}
                 result = await manage("create_collection", name="custom-collection", config=custom_config)
 
-                assert result["success"] == True
+                assert result["success"]
                 mock_client.create_collection.assert_called_once()
                 # Verify config was used
                 call_args = mock_client.create_collection.call_args
@@ -840,7 +852,7 @@ class TestManageFunction:
 
                 result = await manage("delete_collection", name="old-collection")
 
-                assert result["success"] == True
+                assert result["success"]
                 assert result["action"] == "delete_collection"
                 assert result["collection_name"] == "old-collection"
                 assert "deleted successfully" in result["message"]
@@ -857,7 +869,7 @@ class TestManageFunction:
 
                 result = await manage("delete_collection", collection="target-collection")
 
-                assert result["success"] == True
+                assert result["success"]
                 assert result["collection_name"] == "target-collection"
                 mock_client.delete_collection.assert_called_once_with("target-collection")
 
@@ -867,7 +879,7 @@ class TestManageFunction:
         with patch('workspace_qdrant_mcp.server.initialize_components'):
             result = await manage("delete_collection")
 
-            assert result["success"] == False
+            assert not result["success"]
             assert "Collection name required" in result["error"]
 
     @pytest.mark.asyncio
@@ -889,7 +901,7 @@ class TestManageFunction:
 
                 result = await manage("collection_info", name="info-collection")
 
-                assert result["success"] == True
+                assert result["success"]
                 assert result["action"] == "collection_info"
                 assert result["collection_name"] == "info-collection"
                 assert result["info"]["points_count"] == 50
@@ -902,7 +914,7 @@ class TestManageFunction:
         with patch('workspace_qdrant_mcp.server.initialize_components'):
             result = await manage("collection_info")
 
-            assert result["success"] == False
+            assert not result["success"]
             assert "Collection name required" in result["error"]
 
     @pytest.mark.asyncio
@@ -934,7 +946,7 @@ class TestManageFunction:
 
                     result = await manage("workspace_status")
 
-                    assert result["success"] == True
+                    assert result["success"]
                     assert result["action"] == "workspace_status"
                     assert result["current_project"] == "myproject"
                     assert result["qdrant_status"] == "connected"
@@ -955,7 +967,7 @@ class TestManageFunction:
 
                 result = await manage("workspace_status", project_name="custom-project")
 
-                assert result["success"] == True
+                assert result["success"]
                 assert result["current_project"] == "custom-project"
 
     @pytest.mark.asyncio
@@ -967,7 +979,7 @@ class TestManageFunction:
 
                     result = await manage("init_project")
 
-                    assert result["success"] == True
+                    assert result["success"]
                     assert result["action"] == "init_project"
                     assert result["project"] == "test-project"
                     assert len(result["collections_created"]) == 5
@@ -989,7 +1001,7 @@ class TestManageFunction:
 
                 result = await manage("init_project", project_name="custom-project")
 
-                assert result["success"] == True
+                assert result["success"]
                 assert result["project"] == "custom-project"
                 assert "custom-project-documents" in result["collections_created"]
 
@@ -1023,7 +1035,7 @@ class TestManageFunction:
 
                 result = await manage("cleanup")
 
-                assert result["success"] == True
+                assert result["success"]
                 assert result["action"] == "cleanup"
                 assert len(result["cleaned_collections"]) == 1
                 assert "empty-collection" in result["cleaned_collections"]
@@ -1044,7 +1056,7 @@ class TestManageFunction:
 
                 result = await manage("cleanup")
 
-                assert result["success"] == True
+                assert result["success"]
                 assert len(result["cleaned_collections"]) == 0
 
     @pytest.mark.asyncio
@@ -1053,7 +1065,7 @@ class TestManageFunction:
         with patch('workspace_qdrant_mcp.server.initialize_components'):
             result = await manage("unknown_action")
 
-            assert result["success"] == False
+            assert not result["success"]
             assert "Unknown action" in result["error"]
             assert "available_actions" in result
             assert "list_collections" in result["available_actions"]
@@ -1064,7 +1076,7 @@ class TestManageFunction:
         with patch('workspace_qdrant_mcp.server.initialize_components', side_effect=Exception("Init failed")):
             result = await manage("list_collections")
 
-            assert result["success"] == False
+            assert not result["success"]
             assert "Management action 'list_collections' failed" in result["error"]
 
 
@@ -1077,7 +1089,7 @@ class TestRetrieveFunction:
         with patch('workspace_qdrant_mcp.server.initialize_components'):
             result = await retrieve()
 
-            assert result["success"] == False
+            assert not result["success"]
             assert "Either document_id or metadata filters must be provided" in result["error"]
 
     @pytest.mark.asyncio
@@ -1103,7 +1115,7 @@ class TestRetrieveFunction:
 
                     result = await retrieve(document_id="doc123")
 
-                    assert result["success"] == True
+                    assert result["success"]
                     assert result["total_results"] == 1
                     assert result["results"][0]["id"] == "doc123"
                     assert result["results"][0]["content"] == "test content"
@@ -1125,7 +1137,7 @@ class TestRetrieveFunction:
 
                 result = await retrieve(document_id="doc456", collection="specific-collection")
 
-                assert result["success"] == True
+                assert result["success"]
                 assert result["results"][0]["collection"] == "specific-collection"
                 mock_client.retrieve.assert_called_once_with(
                     collection_name="specific-collection",
@@ -1147,7 +1159,7 @@ class TestRetrieveFunction:
 
                     result = await retrieve(document_id="nonexistent")
 
-                    assert result["success"] == True
+                    assert result["success"]
                     assert result["total_results"] == 0
                     assert len(result["results"]) == 0
 
@@ -1166,7 +1178,7 @@ class TestRetrieveFunction:
 
                     result = await retrieve(document_id="doc789")
 
-                    assert result["success"] == True
+                    assert result["success"]
                     assert result["total_results"] == 0
 
     @pytest.mark.asyncio
@@ -1194,7 +1206,7 @@ class TestRetrieveFunction:
                     metadata_filters = {"type": "note", "author": "user"}
                     result = await retrieve(metadata=metadata_filters)
 
-                    assert result["success"] == True
+                    assert result["success"]
                     assert result["total_results"] == 2
                     assert result["query_type"] == "metadata_filter"
                     assert result["filters_applied"] == metadata_filters
@@ -1224,7 +1236,7 @@ class TestRetrieveFunction:
 
                     result = await retrieve(metadata={"type": "note"}, limit=3)
 
-                    assert result["success"] == True
+                    assert result["success"]
                     assert result["total_results"] == 3  # Limited to 3
                     assert len(result["results"]) == 3
 
@@ -1246,7 +1258,7 @@ class TestRetrieveFunction:
 
                 result = await retrieve(metadata={"type": "note"}, project_name="myproject")
 
-                assert result["success"] == True
+                assert result["success"]
                 # Should have searched myproject collections only
                 assert mock_client.scroll.call_count == 2  # myproject-docs, myproject-notes
 
@@ -1265,7 +1277,7 @@ class TestRetrieveFunction:
 
                     result = await retrieve(metadata={"type": "note"})
 
-                    assert result["success"] == True
+                    assert result["success"]
                     assert result["total_results"] == 0
 
     @pytest.mark.asyncio
@@ -1274,7 +1286,7 @@ class TestRetrieveFunction:
         with patch('workspace_qdrant_mcp.server.initialize_components', side_effect=Exception("Init failed")):
             result = await retrieve(document_id="doc123")
 
-            assert result["success"] == False
+            assert not result["success"]
             assert "Retrieval failed" in result["error"]
             assert result["results"] == []
 
@@ -1342,7 +1354,10 @@ class TestGlobalStateManagement:
 
     def test_default_configuration(self):
         """Test default configuration values."""
-        from workspace_qdrant_mcp.server import DEFAULT_EMBEDDING_MODEL, DEFAULT_COLLECTION_CONFIG
+        from workspace_qdrant_mcp.server import (
+            DEFAULT_COLLECTION_CONFIG,
+            DEFAULT_EMBEDDING_MODEL,
+        )
 
         assert DEFAULT_EMBEDDING_MODEL == "sentence-transformers/all-MiniLM-L6-v2"
         assert DEFAULT_COLLECTION_CONFIG["vector_size"] == 384

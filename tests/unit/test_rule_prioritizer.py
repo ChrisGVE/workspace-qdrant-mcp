@@ -10,13 +10,14 @@ Tests cover:
 - Edge cases (no usage data, equal priorities, etc.)
 """
 
-import pytest
 from datetime import datetime, timedelta, timezone
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock, Mock
+
+import pytest
 
 from src.python.common.core.context_injection.rule_prioritizer import (
-    PrioritizationStrategy,
     PrioritizationResult,
+    PrioritizationStrategy,
     RulePrioritizer,
     RulePriorityScore,
 )
@@ -110,7 +111,7 @@ def usage_tracker():
     tracker = TokenUsageTracker(track_detailed_operations=True)
 
     # Simulate usage for rule1 (frequently used)
-    for i in range(10):
+    for _i in range(10):
         tracker.track_operation(
             tool_name="claude",
             operation_type=OperationType.CONTEXT_INJECTION,
@@ -119,7 +120,7 @@ def usage_tracker():
         )
 
     # Simulate usage for rule2 (moderately used)
-    for i in range(3):
+    for _i in range(3):
         tracker.track_operation(
             tool_name="claude",
             operation_type=OperationType.CONTEXT_INJECTION,

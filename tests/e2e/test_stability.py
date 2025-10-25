@@ -11,20 +11,21 @@ should be executed separately from the normal test suite. Use the stability
 test runner script (scripts/run_stability_test.py) to execute these tests.
 """
 
-import pytest
 import asyncio
-import time
 import random
-from pathlib import Path
-from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional
+
+import pytest
 
 from tests.e2e.fixtures import (
-    SystemComponents,
     CLIHelper,
-    ResourceMonitor,
     ResourceMetrics,
+    ResourceMonitor,
+    SystemComponents,
 )
 
 
@@ -276,7 +277,7 @@ class TestExtendedStability:
         metrics = await resource_monitor.stop_monitoring()
 
         # Report final statistics
-        print(f"\n24-hour Stability Test Results:")
+        print("\n24-hour Stability Test Results:")
         print(f"  Ingestions: {operations['ingestion']}")
         print(f"  Searches: {operations['search']}")
         print(f"  Status checks: {operations['status']}")
@@ -316,7 +317,7 @@ class TestConcurrentStabilityPatterns:
         # Start monitoring
         await resource_monitor.start_monitoring(system_components, interval=30)
 
-        start_time = time.time()
+        time.time()
 
         def user_workflow(user_id: int) -> int:
             """Simulate a user's workflow."""

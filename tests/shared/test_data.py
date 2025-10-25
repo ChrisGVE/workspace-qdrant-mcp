@@ -7,8 +7,8 @@ documents, embeddings, metadata, and search queries.
 
 import random
 import string
-from typing import List, Dict, Any, Optional
 from datetime import datetime, timedelta
+from typing import Any, Optional
 
 
 class TestDataGenerator:
@@ -75,7 +75,7 @@ class TestDataGenerator:
         size: str = "small",
         with_metadata: bool = True,
         topic: str = "general",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Generate a test document.
 
@@ -105,7 +105,7 @@ class TestDataGenerator:
         return doc
 
     @staticmethod
-    def generate_metadata(topic: str = "general") -> Dict[str, Any]:
+    def generate_metadata(topic: str = "general") -> dict[str, Any]:
         """
         Generate document metadata.
 
@@ -128,7 +128,7 @@ class TestDataGenerator:
         }
 
     @staticmethod
-    def generate_embedding(dimensions: int = 384) -> List[float]:
+    def generate_embedding(dimensions: int = 384) -> list[float]:
         """
         Generate a random embedding vector.
 
@@ -186,7 +186,7 @@ class TestDataGenerator:
         count: int = 10,
         size: str = "small",
         topic: str = "general",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Generate a batch of documents.
 
@@ -220,9 +220,9 @@ class TestDataGenerator:
     @staticmethod
     def generate_mcp_request(
         method: str = "tools/list",
-        request_id: Optional[int] = None,
-        params: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        request_id: int | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """
         Generate an MCP protocol request.
 
@@ -249,7 +249,7 @@ class TestDataGenerator:
     @staticmethod
     def generate_file_tree(
         base_path: str = "/test", depth: int = 2, files_per_dir: int = 3
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Generate a file tree structure.
 
@@ -262,7 +262,7 @@ class TestDataGenerator:
             List of file paths
         """
 
-        def _generate_level(path: str, current_depth: int) -> List[str]:
+        def _generate_level(path: str, current_depth: int) -> list[str]:
             if current_depth >= depth:
                 return []
 
@@ -288,7 +288,7 @@ class SampleData:
     """Pre-generated sample data for common test scenarios."""
 
     @staticmethod
-    def get_sample_documents() -> List[Dict[str, Any]]:
+    def get_sample_documents() -> list[dict[str, Any]]:
         """Get a set of sample documents for testing."""
         return [
             {
@@ -318,7 +318,7 @@ class SampleData:
         ]
 
     @staticmethod
-    def get_sample_queries() -> List[str]:
+    def get_sample_queries() -> list[str]:
         """Get sample search queries."""
         return [
             "artificial intelligence and machine learning",
@@ -329,7 +329,7 @@ class SampleData:
         ]
 
     @staticmethod
-    def get_edge_case_documents() -> List[Dict[str, Any]]:
+    def get_edge_case_documents() -> list[dict[str, Any]]:
         """Get documents with edge case content."""
         return [
             {"content": "", "metadata": {"title": "Empty"}},  # Empty content

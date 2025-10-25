@@ -12,17 +12,17 @@ Comprehensive integration tests for backup CLI commands including:
 
 import asyncio
 import json
-import pytest
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
-from typer.testing import CliRunner
 
-from wqm_cli.cli.main import app
+import pytest
 from common.core.backup import BackupManager, BackupMetadata
+from typer.testing import CliRunner
 from wqm_cli import __version__
+from wqm_cli.cli.main import app
 
 
 @pytest.fixture

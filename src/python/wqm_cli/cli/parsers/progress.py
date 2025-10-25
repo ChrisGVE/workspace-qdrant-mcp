@@ -14,7 +14,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any
 
 import psutil
 
@@ -68,7 +68,7 @@ class ProgressMetrics:
     # Memory metrics
     memory_usage_mb: float = 0.0
     peak_memory_mb: float = 0.0
-    memory_limit_mb: Optional[float] = None
+    memory_limit_mb: float | None = None
 
     # Error tracking
     warnings_count: int = 0
@@ -76,9 +76,9 @@ class ProgressMetrics:
     recoverable_errors: int = 0
 
     # Additional context
-    file_path: Optional[str] = None
-    file_size: Optional[int] = None
-    current_operation: Optional[str] = None
+    file_path: str | None = None
+    file_size: int | None = None
+    current_operation: str | None = None
 
     @property
     def progress_percent(self) -> float:
@@ -117,7 +117,7 @@ class ProgressMetrics:
         except Exception as e:
             logger.debug(f"Failed to update memory metrics: {e}")
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert metrics to dictionary for serialization."""
         return {
             "current": self.current,
@@ -232,7 +232,7 @@ class LoggingProgressCallback(ProgressCallback):
 
     def __init__(
         self,
-        logger_instance: Optional[logging.Logger] = None,
+        logger_instance: logging.Logger | None = None,
         log_interval: float = 5.0,
     ):
         """
@@ -280,8 +280,8 @@ class ProgressTracker:
         self,
         total: int,
         unit: ProgressUnit = ProgressUnit.BYTES,
-        callbacks: Optional[list[ProgressCallback]] = None,
-        memory_limit_mb: Optional[float] = None,
+        callbacks: list[ProgressCallback] | None = None,
+        memory_limit_mb: float | None = None,
         auto_update_memory: bool = True,
     ):
         """
@@ -302,7 +302,7 @@ class ProgressTracker:
         self.callbacks = callbacks or []
         self.auto_update_memory = auto_update_memory
         self._lock = threading.Lock()
-        self._memory_monitor_thread: Optional[threading.Thread] = None
+        self._memory_monitor_thread: threading.Thread | None = None
         self._stop_monitoring = threading.Event()
 
         if auto_update_memory:
@@ -326,7 +326,7 @@ class ProgressTracker:
         else:
             self.set_phase(ProgressPhase.COMPLETED)
 
-    def update(self, current: int, operation: Optional[str] = None) -> None:
+    def update(self, current: int, operation: str | None = None) -> None:
         """
         Update progress.
 
@@ -354,7 +354,7 @@ class ProgressTracker:
             if self.metrics.current != old_current:
                 self._notify_callbacks()
 
-    def increment(self, amount: int = 1, operation: Optional[str] = None) -> None:
+    def increment(self, amount: int = 1, operation: str | None = None) -> None:
         """
         Increment progress by specified amount.
 
@@ -383,7 +383,7 @@ class ProgressTracker:
                         logger.warning(f"Progress callback error: {e}")
 
     def set_file_info(
-        self, file_path: Union[str, Path], file_size: Optional[int] = None
+        self, file_path: str | Path, file_size: int | None = None
     ) -> None:
         """
         Set file information for context.
@@ -454,7 +454,7 @@ class BatchProgressTracker:
     def __init__(
         self,
         total_files: int,
-        callbacks: Optional[list[ProgressCallback]] = None,
+        callbacks: list[ProgressCallback] | None = None,
         show_individual_progress: bool = False,
     ):
         """
@@ -469,9 +469,9 @@ class BatchProgressTracker:
         self.completed_files = 0
         self.callbacks = callbacks or []
         self.show_individual_progress = show_individual_progress
-        self.current_file_tracker: Optional[ProgressTracker] = None
+        self.current_file_tracker: ProgressTracker | None = None
         self.batch_start_time = time.time()
-        self.file_results: list[Dict[str, Any]] = []
+        self.file_results: list[dict[str, Any]] = []
 
         # Create batch-level progress tracker
         self.batch_tracker = ProgressTracker(
@@ -483,8 +483,8 @@ class BatchProgressTracker:
 
     def start_file(
         self,
-        file_path: Union[str, Path],
-        file_size: Optional[int] = None,
+        file_path: str | Path,
+        file_size: int | None = None,
     ) -> ProgressTracker:
         """
         Start processing a new file.
@@ -521,7 +521,7 @@ class BatchProgressTracker:
         return self.current_file_tracker
 
     def complete_current_file(
-        self, success: bool = True, error: Optional[str] = None
+        self, success: bool = True, error: str | None = None
     ) -> None:
         """
         Complete processing of current file.
@@ -559,7 +559,7 @@ class BatchProgressTracker:
         # Update batch progress
         self.batch_tracker.update(self.completed_files)
 
-    def get_batch_summary(self) -> Dict[str, Any]:
+    def get_batch_summary(self) -> dict[str, Any]:
         """Get summary of batch processing results."""
         total_time = time.time() - self.batch_start_time
         successful_files = sum(1 for result in self.file_results if result["success"])
@@ -601,7 +601,7 @@ def create_progress_tracker(
     unit: ProgressUnit = ProgressUnit.BYTES,
     show_console: bool = True,
     show_memory: bool = True,
-    memory_limit_mb: Optional[float] = None,
+    memory_limit_mb: float | None = None,
 ) -> ProgressTracker:
     """
     Create a progress tracker with default console output.

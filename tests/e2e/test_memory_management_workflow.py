@@ -32,27 +32,26 @@ Performance Targets:
 import asyncio
 import json
 import os
-import pytest
 import shutil
 import subprocess
 import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from common.utils.project_detection import (
-    ProjectDetector,
-    DaemonIdentifier,
-    calculate_tenant_id,
-)
+import pytest
 from common.core.sqlite_state_manager import (
+    ProjectRecord,
     SQLiteStateManager,
     WatchFolderConfig,
-    ProjectRecord,
 )
-
+from common.utils.project_detection import (
+    DaemonIdentifier,
+    ProjectDetector,
+    calculate_tenant_id,
+)
 
 # ============================================================================
 # Fixtures
@@ -594,7 +593,7 @@ class TestMemoryManagementWorkflow:
         assert len(memory_db) == 0
 
         # Restore from persistence
-        with open(memory_file, "r") as f:
+        with open(memory_file) as f:
             restored_db = json.load(f)
 
         # Verify restoration

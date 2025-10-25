@@ -7,8 +7,9 @@ collection for efficient handling of large rule sets.
 
 import time
 from collections import defaultdict
-from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple
+from collections.abc import Callable
+from dataclasses import dataclass
+from typing import Any
 
 from cachetools import TTLCache
 from loguru import logger
@@ -36,8 +37,8 @@ class PerformanceMetrics:
     filter_time_ms: float = 0.0
     total_rules_fetched: int = 0
     rules_after_filtering: int = 0
-    index_lookup_time_ms: Optional[float] = None
-    batch_processing_time_ms: Optional[float] = None
+    index_lookup_time_ms: float | None = None
+    batch_processing_time_ms: float | None = None
 
 
 class RuleCache:
@@ -60,7 +61,7 @@ class RuleCache:
         self._hits = 0
         self._misses = 0
 
-    def get(self, key: Tuple[Any, ...]) -> Optional[List[MemoryRule]]:
+    def get(self, key: tuple[Any, ...]) -> list[MemoryRule] | None:
         """
         Get cached rules by key.
 
@@ -80,7 +81,7 @@ class RuleCache:
             logger.debug(f"Cache miss for key: {key[:2]}...")
             return None
 
-    def set(self, key: Tuple[Any, ...], value: List[MemoryRule]) -> None:
+    def set(self, key: tuple[Any, ...], value: list[MemoryRule]) -> None:
         """
         Store rules in cache.
 
@@ -96,7 +97,7 @@ class RuleCache:
         self._cache.clear()
         logger.debug("Cache cleared")
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """
         Get cache statistics.
 
@@ -126,16 +127,16 @@ class RuleIndex:
 
     def __init__(self):
         """Initialize empty indices."""
-        self._by_category: Dict[MemoryCategory, List[MemoryRule]] = defaultdict(list)
-        self._by_authority: Dict[AuthorityLevel, List[MemoryRule]] = defaultdict(
+        self._by_category: dict[MemoryCategory, list[MemoryRule]] = defaultdict(list)
+        self._by_authority: dict[AuthorityLevel, list[MemoryRule]] = defaultdict(
             list
         )
-        self._by_project: Dict[str, List[MemoryRule]] = defaultdict(list)
-        self._by_scope: Dict[str, List[MemoryRule]] = defaultdict(list)
-        self._all_rules: List[MemoryRule] = []
+        self._by_project: dict[str, list[MemoryRule]] = defaultdict(list)
+        self._by_scope: dict[str, list[MemoryRule]] = defaultdict(list)
+        self._all_rules: list[MemoryRule] = []
         self._is_built = False
 
-    def build_index(self, rules: List[MemoryRule]) -> None:
+    def build_index(self, rules: list[MemoryRule]) -> None:
         """
         Build indices from rule list.
 
@@ -180,7 +181,7 @@ class RuleIndex:
             f"scopes: {len(self._by_scope)})"
         )
 
-    def lookup_by_category(self, category: MemoryCategory) -> List[MemoryRule]:
+    def lookup_by_category(self, category: MemoryCategory) -> list[MemoryRule]:
         """
         Fast lookup by category.
 
@@ -194,7 +195,7 @@ class RuleIndex:
             raise RuntimeError("Index not built. Call build_index() first.")
         return self._by_category.get(category, [])
 
-    def lookup_by_authority(self, authority: AuthorityLevel) -> List[MemoryRule]:
+    def lookup_by_authority(self, authority: AuthorityLevel) -> list[MemoryRule]:
         """
         Fast lookup by authority.
 
@@ -208,7 +209,7 @@ class RuleIndex:
             raise RuntimeError("Index not built. Call build_index() first.")
         return self._by_authority.get(authority, [])
 
-    def lookup_by_project(self, project_id: str) -> List[MemoryRule]:
+    def lookup_by_project(self, project_id: str) -> list[MemoryRule]:
         """
         Fast lookup by project ID.
 
@@ -222,7 +223,7 @@ class RuleIndex:
             raise RuntimeError("Index not built. Call build_index() first.")
         return self._by_project.get(project_id, [])
 
-    def lookup_by_scope(self, scope: str) -> List[MemoryRule]:
+    def lookup_by_scope(self, scope: str) -> list[MemoryRule]:
         """
         Fast lookup by scope.
 
@@ -236,7 +237,7 @@ class RuleIndex:
             raise RuntimeError("Index not built. Call build_index() first.")
         return self._by_scope.get(scope, [])
 
-    def get_all_rules(self) -> List[MemoryRule]:
+    def get_all_rules(self) -> list[MemoryRule]:
         """
         Get all indexed rules.
 
@@ -276,10 +277,10 @@ class BatchProcessor:
 
     @staticmethod
     def process_in_batches(
-        rules: List[MemoryRule],
-        process_fn: Callable[[List[MemoryRule]], Any],
+        rules: list[MemoryRule],
+        process_fn: Callable[[list[MemoryRule]], Any],
         batch_size: int = 100,
-    ) -> List[Any]:
+    ) -> list[Any]:
         """
         Process rules in batches.
 
@@ -310,7 +311,7 @@ class BatchProcessor:
         return results
 
     @staticmethod
-    def flatten_batch_results(results: List[List[Any]]) -> List[Any]:
+    def flatten_batch_results(results: list[list[Any]]) -> list[Any]:
         """
         Flatten batch processing results.
 

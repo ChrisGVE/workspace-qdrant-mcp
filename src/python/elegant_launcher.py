@@ -13,13 +13,11 @@ This replaces the complex stdio launcher with a simple, elegant approach:
 import os
 import sys
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
-from python.common.logging.loguru_config import setup_logging
 
 
-def show_elegant_banner(transport: str, config_file: Optional[str] = None):
+def show_elegant_banner(transport: str, config_file: str | None = None):
     """Display elegant startup banner to stderr (FastMCP style)."""
     banner_lines = [
         "╭─────────────────────────────────────────╮",

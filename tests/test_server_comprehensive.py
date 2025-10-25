@@ -5,12 +5,13 @@ This test suite validates all functionality of the new server that consolidates
 36 tools into 4 comprehensive tools with content-based routing.
 """
 
-import pytest
+import asyncio
 import sys
 import uuid
-import asyncio
-from unittest.mock import AsyncMock, Mock, patch
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 # Add source path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "python"))
@@ -24,7 +25,7 @@ def get_function_from_tool(tool):
         return tool.func
     elif hasattr(tool, '_func'):
         return tool._func
-    elif hasattr(tool, '__call__'):
+    elif callable(tool):
         return tool
     else:
         return tool
@@ -45,14 +46,14 @@ class TestServerImports:
 
     def test_server_imports(self):
         """Test the server module imports."""
-        from workspace_qdrant_mcp.server import app, run_server, main
+        from workspace_qdrant_mcp.server import app, main, run_server
         assert app is not None
         assert run_server is not None
         assert main is not None
 
     def test_server_has_four_tools(self):
         """Test that server has exactly 4 tools."""
-        from workspace_qdrant_mcp.server import store, search, manage, retrieve
+        from workspace_qdrant_mcp.server import manage, retrieve, search, store
 
         # Check that all 4 tools exist
         assert store is not None

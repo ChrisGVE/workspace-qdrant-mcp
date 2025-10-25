@@ -38,32 +38,25 @@ Examples:
 
 import asyncio
 import json
-import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import typer
+from common.core.client import QdrantWorkspaceClient
+from loguru import logger
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
 from rich.panel import Panel
 from rich.progress import (
-    BarColumn,
-    MofNCompleteColumn,
     Progress,
     SpinnerColumn,
-    TaskProgressColumn,
     TextColumn,
-    TimeElapsedColumn,
 )
 from rich.table import Table
 from rich.text import Text
-from rich.tree import Tree
 
-from common.core.client import QdrantWorkspaceClient
-from common.core.config import get_config_manager
-from loguru import logger
 # TEMPORARY FIX: Comment out grpc_tools import that causes CLI to hang
 # This needs to be fixed properly by making grpc_tools imports lazy or conditional
 # from workspace_qdrant_mcp.tools.grpc_tools import (
@@ -157,9 +150,9 @@ def format_duration(seconds: float) -> str:
 
 
 def create_status_overview(
-    processing_status: Dict[str, Any],
-    queue_stats: Dict[str, Any],
-    grpc_stats: Dict[str, Any] = None,
+    processing_status: dict[str, Any],
+    queue_stats: dict[str, Any],
+    grpc_stats: dict[str, Any] = None,
 ) -> Panel:
     """Create status overview panel."""
 
@@ -207,7 +200,7 @@ def create_status_overview(
     )
 
 
-def create_queue_breakdown(queue_stats: Dict[str, Any]) -> Panel:
+def create_queue_breakdown(queue_stats: dict[str, Any]) -> Panel:
     """Create queue breakdown panel."""
     queue_info = queue_stats.get("queue_stats", {})
 
@@ -245,7 +238,7 @@ def create_queue_breakdown(queue_stats: Dict[str, Any]) -> Panel:
     )
 
 
-def create_recent_activity(processing_status: Dict[str, Any]) -> Panel:
+def create_recent_activity(processing_status: dict[str, Any]) -> Panel:
     """Create recent activity panel."""
     recent_files = processing_status.get("recent_files", [])
 
@@ -294,7 +287,7 @@ def create_recent_activity(processing_status: Dict[str, Any]) -> Panel:
     )
 
 
-def create_watch_status(watch_configs: List[Dict[str, Any]]) -> Panel:
+def create_watch_status(watch_configs: list[dict[str, Any]]) -> Panel:
     """Create watch folder status panel."""
     if not watch_configs:
         return Panel(
@@ -338,7 +331,7 @@ def create_watch_status(watch_configs: List[Dict[str, Any]]) -> Panel:
 
 
 def create_performance_metrics(
-    grpc_stats: Dict[str, Any], db_stats: Dict[str, Any]
+    grpc_stats: dict[str, Any], db_stats: dict[str, Any]
 ) -> Panel:
     """Create performance metrics panel."""
     metrics_table = Table(show_header=False, box=None, padding=(0, 2))
@@ -394,7 +387,7 @@ def create_performance_metrics(
     )
 
 
-async def get_comprehensive_status() -> Dict[str, Any]:
+async def get_comprehensive_status() -> dict[str, Any]:
     """Get comprehensive status data from all sources."""
     try:
         # Initialize clients
@@ -471,16 +464,16 @@ def status_main(
     ),
     grpc_host: str = typer.Option("127.0.0.1", "--grpc-host", help="gRPC daemon host"),
     grpc_port: int = typer.Option(50051, "--grpc-port", help="gRPC daemon port"),
-    export: Optional[str] = typer.Option(
+    export: str | None = typer.Option(
         None, "--export", help="Export format: json, csv"
     ),
-    output: Optional[Path] = typer.Option(
+    output: Path | None = typer.Option(
         None, "--output", "-o", help="Output file path"
     ),
-    collection: Optional[str] = typer.Option(
+    collection: str | None = typer.Option(
         None, "--collection", "-c", help="Filter by collection"
     ),
-    status_filter: Optional[str] = typer.Option(
+    status_filter: str | None = typer.Option(
         None, "--status", help="Filter by status: success, failed, skipped, pending"
     ),
     days: int = typer.Option(
@@ -535,10 +528,10 @@ async def show_status_overview(
     queue: bool = False,
     watch: bool = False,
     performance: bool = False,
-    export: Optional[str] = None,
-    output: Optional[Path] = None,
-    collection: Optional[str] = None,
-    status_filter: Optional[str] = None,
+    export: str | None = None,
+    output: Path | None = None,
+    collection: str | None = None,
+    status_filter: str | None = None,
     days: int = 7,
     limit: int = 100,
     verbose: bool = False,
@@ -668,9 +661,9 @@ async def show_status_overview(
 
 
 def create_processing_history_panel(
-    status_data: Dict[str, Any],
-    collection: Optional[str] = None,
-    status_filter: Optional[str] = None,
+    status_data: dict[str, Any],
+    collection: str | None = None,
+    status_filter: str | None = None,
     days: int = 7,
     limit: int = 100,
 ) -> Panel:
@@ -756,11 +749,11 @@ def create_processing_history_panel(
 
 
 async def export_status_data(
-    status_data: Dict[str, Any],
+    status_data: dict[str, Any],
     export_format: str,
-    output_path: Optional[Path] = None,
-    collection: Optional[str] = None,
-    status_filter: Optional[str] = None,
+    output_path: Path | None = None,
+    collection: str | None = None,
+    status_filter: str | None = None,
     days: int = 7,
     limit: int = 100,
 ) -> None:
@@ -856,11 +849,11 @@ async def export_status_data(
 
 
 async def live_status_monitor(
-    interval: int = 5, collection: Optional[str] = None
+    interval: int = 5, collection: str | None = None
 ) -> None:
     """Run live status monitoring with real-time updates."""
 
-    def create_live_layout(status_data: Dict[str, Any]) -> Layout:
+    def create_live_layout(status_data: dict[str, Any]) -> Layout:
         """Create live monitoring layout."""
         layout = Layout()
         layout.split_column(
@@ -909,7 +902,7 @@ async def live_status_monitor(
             database_stats = db_stats.get("database_stats", {})
             footer_text += f"DB: {database_stats.get('total_size_mb', 0):.1f}MB | "
 
-        footer_text += f"Press Ctrl+C to exit"
+        footer_text += "Press Ctrl+C to exit"
 
         layout["footer"].update(Panel(footer_text, style="dim", border_style="dim"))
 
@@ -944,16 +937,16 @@ async def live_status_monitor(
 
 async def live_streaming_status_monitor(
     interval: int = 5,
-    collection: Optional[str] = None,
+    collection: str | None = None,
     grpc_host: str = "127.0.0.1",
     grpc_port: int = 50051,
 ) -> None:
     """Run live status monitoring with real-time gRPC streaming updates."""
 
     def create_streaming_layout(
-        processing_update: Optional[Dict[str, Any]] = None,
-        metrics_update: Optional[Dict[str, Any]] = None,
-        queue_update: Optional[Dict[str, Any]] = None,
+        processing_update: dict[str, Any] | None = None,
+        metrics_update: dict[str, Any] | None = None,
+        queue_update: dict[str, Any] | None = None,
     ) -> Layout:
         """Create live streaming layout with real-time data."""
         layout = Layout()
@@ -1038,8 +1031,8 @@ async def live_streaming_status_monitor(
         await live_status_monitor(interval, collection)
         return
 
-    console.print(f"[green]✓ Connected to gRPC daemon[/green]")
-    console.print(f"[cyan]Starting real-time streaming monitor[/cyan]")
+    console.print("[green]✓ Connected to gRPC daemon[/green]")
+    console.print("[cyan]Starting real-time streaming monitor[/cyan]")
     if collection:
         console.print(f"[dim]Filtered to collection: {collection}[/dim]")
     console.print("Press Ctrl+C to exit\n")
@@ -1144,7 +1137,7 @@ async def live_streaming_status_monitor(
         console.print("\n[yellow]Streaming monitor stopped by user[/yellow]")
 
 
-def create_streaming_processing_panel(processing_update: Dict[str, Any]) -> Panel:
+def create_streaming_processing_panel(processing_update: dict[str, Any]) -> Panel:
     """Create a panel for streaming processing status."""
 
     processing_table = Table(show_header=True, box=None)
@@ -1196,7 +1189,7 @@ def create_streaming_processing_panel(processing_update: Dict[str, Any]) -> Pane
     )
 
 
-def create_streaming_metrics_panel(metrics_update: Dict[str, Any]) -> Panel:
+def create_streaming_metrics_panel(metrics_update: dict[str, Any]) -> Panel:
     """Create a panel for streaming system metrics."""
 
     metrics_table = Table(show_header=False, box=None, padding=(0, 2))

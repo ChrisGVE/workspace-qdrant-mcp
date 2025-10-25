@@ -18,13 +18,12 @@ from unittest.mock import Mock, patch
 
 import git
 import pytest
-from git.exc import GitCommandError, InvalidGitRepositoryError
-
 from common.utils.project_detection import (
-    calculate_tenant_id,
-    _sanitize_remote_url,
     _generate_path_hash_tenant_id,
+    _sanitize_remote_url,
+    calculate_tenant_id,
 )
+from git.exc import GitCommandError, InvalidGitRepositoryError
 
 
 class TestCalculateTenantId:
@@ -377,7 +376,6 @@ class TestGeneratePathHashTenantId:
         """Test that path normalization affects hash."""
         # Normalized paths should be equivalent
         path1 = "/path/to/project"
-        path2 = "/path/to/../to/project"  # Equivalent after normalization
 
         # Since we normalize, these should produce same hash
         # But actually normpath will make them different strings

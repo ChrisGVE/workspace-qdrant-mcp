@@ -18,11 +18,12 @@ Test coverage:
 
 import asyncio
 import json
+import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
-import sys
 from typer.testing import CliRunner
 
 # Add the project root to sys.path for imports
@@ -365,7 +366,10 @@ class TestAdminUtilityFunctions:
     def test_option_helpers(self):
         """Test option helper functions."""
         from wqm_cli.cli.commands.admin import (
-            verbose_option, json_output_option, force_option, config_path_option
+            config_path_option,
+            force_option,
+            json_output_option,
+            verbose_option,
         )
 
         # These should return typer.Option objects
@@ -385,7 +389,11 @@ class TestAdminUtilityFunctions:
     @patch('wqm_cli.cli.commands.admin.warning_message')
     def test_message_helpers(self, mock_warning, mock_error, mock_success):
         """Test message helper functions."""
-        from wqm_cli.cli.commands.admin import success_message, error_message, warning_message
+        from wqm_cli.cli.commands.admin import (
+            error_message,
+            success_message,
+            warning_message,
+        )
 
         success_message("Test success")
         error_message("Test error")
@@ -427,7 +435,7 @@ class TestAdminErrorHandling:
 
         mock_system_status.return_value = failing_coro()
 
-        result = self.runner.invoke(admin_app, ["status"])
+        self.runner.invoke(admin_app, ["status"])
 
         # Error should be handled appropriately
         # The exact behavior depends on handle_async implementation
@@ -447,7 +455,7 @@ class TestAdminErrorHandling:
             from wqm_cli.cli.commands.admin import admin_app
 
             # Should handle missing dependencies gracefully
-            result = self.runner.invoke(admin_app, ["status"])
+            self.runner.invoke(admin_app, ["status"])
             # Behavior depends on how imports are handled
 
 
@@ -562,7 +570,7 @@ class TestAdminArgumentParsing:
         ]
 
         for flags in short_flags:
-            result = self.runner.invoke(admin_app, flags)
+            self.runner.invoke(admin_app, flags)
             # Some short flags may not exist, so we allow for that
             # The test is mainly to ensure parsing doesn't crash
 

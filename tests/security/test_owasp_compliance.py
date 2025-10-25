@@ -26,7 +26,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import MagicMock, patch
 from urllib.parse import urlparse
 
@@ -49,7 +49,7 @@ class OWASPComplianceReporter:
     """Generate OWASP compliance reports with scoring."""
 
     def __init__(self):
-        self.results: List[OWASPComplianceResult] = []
+        self.results: list[OWASPComplianceResult] = []
 
     def add_result(self, result: OWASPComplianceResult):
         """Add test result to report."""
@@ -79,7 +79,7 @@ class OWASPComplianceReporter:
 
         return (passed_weight / total_weight * 100) if total_weight > 0 else 0.0
 
-    def generate_report(self) -> Dict[str, Any]:
+    def generate_report(self) -> dict[str, Any]:
         """Generate compliance report."""
         score = self.calculate_score()
 
@@ -139,7 +139,6 @@ class TestBrokenAccessControl:
     def test_horizontal_privilege_escalation(self, compliance_reporter):
         """Test prevention of horizontal privilege escalation."""
         # User should only access their own resources
-        user1_id = "user1"
         user2_id = "user2"
         resource_owner = "user1"
 
@@ -411,7 +410,7 @@ class TestInsecureDesign:
         import html
         return html.escape(data)
 
-    def _get_default_config(self) -> Dict[str, Any]:
+    def _get_default_config(self) -> dict[str, Any]:
         """Get default configuration."""
         return {
             "debug_mode": False,
@@ -500,7 +499,7 @@ class TestSecurityMisconfiguration:
 
         assert not leaks_info, "Error messages leak sensitive information"
 
-    def _get_system_config(self) -> Dict[str, bool]:
+    def _get_system_config(self) -> dict[str, bool]:
         """Get system configuration."""
         return {
             "directory_listing": False,
@@ -603,7 +602,7 @@ class TestIntegrityFailures:
         """Calculate data checksum."""
         return hashlib.sha256(data).hexdigest()
 
-    def _get_cicd_config(self) -> Dict[str, bool]:
+    def _get_cicd_config(self) -> dict[str, bool]:
         """Get CI/CD configuration."""
         return {
             "code_signing": True,
@@ -707,7 +706,7 @@ class TestLoggingFailures:
         # In production: check file permissions, immutability
         return False  # Assume protected
 
-    def _get_retention_policy(self) -> Dict[str, Any]:
+    def _get_retention_policy(self) -> dict[str, Any]:
         """Get log retention policy."""
         return {
             "retention_days": 90,

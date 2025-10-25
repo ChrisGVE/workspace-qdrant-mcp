@@ -7,20 +7,25 @@ data formatting, and integration with monitoring modules.
 
 import asyncio
 import json
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any
+from datetime import datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from src.python.common.core.queue_dashboard_data import (
-    DashboardWidget,
     DashboardLayout,
+    DashboardWidget,
     QueueDashboardDataProvider,
-    WidgetType
+    WidgetType,
+)
+from src.python.common.core.queue_health import (
+    HealthIndicator,
+    HealthStatus,
+    QueueHealthStatus,
 )
 from src.python.common.core.queue_statistics import QueueStatistics
-from src.python.common.core.queue_health import HealthStatus, QueueHealthStatus, HealthIndicator
+
 # ErrorSummary no longer needed
 
 
@@ -257,7 +262,7 @@ class TestQueueDashboardDataProvider:
         await asyncio.sleep(6)  # cache_ttl_seconds = 5
 
         # Third call should regenerate
-        widget3 = await provider.get_widget_data("queue_size_card", use_cache=True)
+        await provider.get_widget_data("queue_size_card", use_cache=True)
         assert provider.stats_collector.get_current_statistics.call_count == 2
 
     @pytest.mark.asyncio

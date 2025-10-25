@@ -37,7 +37,6 @@ Example:
 import os
 import platform
 from pathlib import Path
-from typing import Optional
 
 
 class OSDirectories:
@@ -45,7 +44,7 @@ class OSDirectories:
 
     APP_NAME = "workspace-qdrant"
 
-    def __init__(self, app_name: Optional[str] = None):
+    def __init__(self, app_name: str | None = None):
         """Initialize OS directories manager.
 
         Args:
@@ -263,7 +262,7 @@ class OSDirectories:
                     # Ignore permission errors if we can't set them
                     pass
 
-    def get_runtime_dir(self) -> Optional[Path]:
+    def get_runtime_dir(self) -> Path | None:
         """Get OS-standard runtime directory (for sockets, etc.).
 
         Returns:

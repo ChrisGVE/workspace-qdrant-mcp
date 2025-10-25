@@ -1,7 +1,6 @@
 """Unit tests for collection type error handling."""
 
 import pytest
-
 from common.core.collection_type_errors import (
     CollectionMigrationError,
     CollectionTypeConfigError,

@@ -30,18 +30,14 @@ import asyncio
 import json
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import typer
-
-from common.core.client import QdrantWorkspaceClient
-from common.core.config import get_config_manager
-from loguru import logger
 from common.observability import (
-    HealthStatus,
     health_checker_instance,
     metrics_instance,
 )
+
 from .utils import create_command_app
 
 # logger imported from loguru
@@ -54,7 +50,7 @@ observability_app = create_command_app(
 )
 
 
-def print_health_status(health_data: Dict[str, Any]) -> None:
+def print_health_status(health_data: dict[str, Any]) -> None:
     """Print health status in plain text format."""
     print("System Health Status")
     print("=" * 80)
@@ -83,7 +79,7 @@ def print_health_status(health_data: Dict[str, Any]) -> None:
     print()
 
 
-def print_metrics_summary(metrics_data: Dict[str, Any]) -> None:
+def print_metrics_summary(metrics_data: dict[str, Any]) -> None:
     """Print metrics summary in plain text format."""
     print("System Metrics Summary")
     print("=" * 90)
@@ -223,10 +219,10 @@ def metrics(
     format: str = typer.Option(
         "table", "--format", "-f", help="Output format: table, json, prometheus"
     ),
-    filter_type: Optional[str] = typer.Option(
+    filter_type: str | None = typer.Option(
         None, "--type", help="Filter by metric type: counter, gauge, histogram"
     ),
-    output_file: Optional[Path] = typer.Option(
+    output_file: Path | None = typer.Option(
         None, "--output", "-o", help="Write output to file"
     ),
 ) -> None:
@@ -301,7 +297,7 @@ def metrics(
 
 @observability_app.command()
 def diagnostics(
-    output_file: Optional[Path] = typer.Option(
+    output_file: Path | None = typer.Option(
         None, "--output", "-o", help="Write diagnostics to file"
     ),
     verbose: bool = typer.Option(
@@ -425,7 +421,7 @@ def monitor(
     interval: int = typer.Option(
         30, "--interval", "-i", help="Monitoring interval in seconds"
     ),
-    duration: Optional[int] = typer.Option(
+    duration: int | None = typer.Option(
         None, "--duration", "-d", help="Total monitoring duration in seconds"
     ),
     alert_threshold: str = typer.Option(
@@ -450,7 +446,7 @@ def monitor(
             print("Press Ctrl+C to stop\n")
 
             def create_monitor_layout(
-                health_data: Dict[str, Any], metrics_data: Dict[str, Any]
+                health_data: dict[str, Any], metrics_data: dict[str, Any]
             ) -> Layout:
                 """Create live monitoring layout."""
                 layout = Layout()

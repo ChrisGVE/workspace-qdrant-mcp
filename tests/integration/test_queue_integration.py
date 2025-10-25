@@ -26,29 +26,28 @@ import tempfile
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional, List
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
-from src.python.common.core.queue_client import (
-    SQLiteQueueClient,
-    QueueOperation,
-    QueueItem,
-)
+from src.python.common.core.error_message_manager import ErrorMessageManager
 from src.python.common.core.priority_queue_manager import (
-    PriorityQueueManager,
     MCPActivityLevel,
+    PriorityQueueManager,
     ProcessingMode,
     ProcessingPriority,
 )
-from src.python.common.core.sqlite_state_manager import (
-    SQLiteStateManager,
-    FileProcessingStatus,
+from src.python.common.core.queue_client import (
+    QueueItem,
+    QueueOperation,
+    SQLiteQueueClient,
 )
-from src.python.common.core.error_message_manager import ErrorMessageManager
 from src.python.common.core.queue_connection import ConnectionConfig
-
+from src.python.common.core.sqlite_state_manager import (
+    FileProcessingStatus,
+    SQLiteStateManager,
+)
 
 # =============================================================================
 # FIXTURES
@@ -87,7 +86,7 @@ async def initialized_db(temp_db):
         / "core"
         / "queue_schema.sql"
     )
-    with open(queue_schema_path, "r") as f:
+    with open(queue_schema_path) as f:
         conn.executescript(f.read())
 
     # Load error messages schema
@@ -99,7 +98,7 @@ async def initialized_db(temp_db):
         / "core"
         / "error_messages_schema.sql"
     )
-    with open(error_schema_path, "r") as f:
+    with open(error_schema_path) as f:
         conn.executescript(f.read())
 
     # Load state manager schema
@@ -113,7 +112,7 @@ async def initialized_db(temp_db):
         / "state_manager_schema.sql"
     )
     if state_schema_path.exists():
-        with open(state_schema_path, "r") as f:
+        with open(state_schema_path) as f:
             conn.executescript(f.read())
 
     conn.commit()
@@ -221,10 +220,10 @@ async def wait_for_queue_processing(
 
 async def enqueue_test_files(
     queue_client: SQLiteQueueClient,
-    files: List[str],
+    files: list[str],
     collection: str = "test-collection",
     priority: int = 5,
-) -> List[str]:
+) -> list[str]:
     """Enqueue multiple test files."""
     queue_ids = []
 
@@ -239,7 +238,7 @@ async def enqueue_test_files(
     return queue_ids
 
 
-async def get_queue_stats(queue_client: SQLiteQueueClient) -> Dict[str, Any]:
+async def get_queue_stats(queue_client: SQLiteQueueClient) -> dict[str, Any]:
     """Get comprehensive queue statistics."""
     return await queue_client.get_queue_stats()
 
@@ -315,7 +314,7 @@ async def test_batch_processing_workflow(queue_client, test_files):
     # Enqueue multiple files with varying priorities
     priorities = [3, 7, 5, 9, 4]
 
-    for file_path, priority in zip(test_files, priorities):
+    for file_path, priority in zip(test_files, priorities, strict=False):
         await queue_client.enqueue_file(
             file_path=file_path,
             collection="test-collection",
@@ -350,7 +349,7 @@ async def test_multi_tenant_workflow(queue_client, test_files):
     # Enqueue different files for different tenants (file_path is PRIMARY KEY)
     file_idx = 0
     for tenant in tenants:
-        for i in range(2):
+        for _i in range(2):
             if file_idx < len(test_files):
                 await queue_client.enqueue_file(
                     file_path=test_files[file_idx],
@@ -526,7 +525,7 @@ async def test_tool_missing_recovery_workflow(queue_client, test_files):
 async def test_partial_batch_failure(queue_client, test_files):
     """Test handling of partial batch failures."""
     # Enqueue batch of files
-    queue_ids = await enqueue_test_files(queue_client, test_files[:5], priority=5)
+    await enqueue_test_files(queue_client, test_files[:5], priority=5)
 
     # Dequeue batch
     items = await queue_client.dequeue_batch(batch_size=5)
@@ -774,7 +773,7 @@ async def test_concurrent_enqueue_operations(queue_client, test_files):
         return await asyncio.gather(*tasks)
 
     # Enqueue concurrently from multiple "workers"
-    results = await asyncio.gather(
+    await asyncio.gather(
         enqueue_batch(test_files[:3], "worker-1"),
         enqueue_batch(test_files[:3], "worker-2"),
         enqueue_batch(test_files[:3], "worker-3"),

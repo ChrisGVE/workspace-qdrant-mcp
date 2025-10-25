@@ -5,21 +5,22 @@ This module tests the metadata aggregation functionality, including parser-speci
 metadata normalization, batch processing, and validation capabilities.
 """
 
-import pytest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
+import pytest
+
+from src.python.common.core.metadata_schema import (
+    CollectionCategory,
+    MultiTenantMetadataSchema,
+)
 from src.python.wqm_cli.cli.metadata.aggregator import (
-    MetadataAggregator,
     DocumentMetadata,
+    MetadataAggregator,
 )
 from src.python.wqm_cli.cli.metadata.exceptions import AggregationError
 from src.python.wqm_cli.cli.parsers.base import ParsedDocument
-from src.python.common.core.metadata_schema import (
-    MultiTenantMetadataSchema,
-    CollectionCategory,
-)
 
 
 class TestDocumentMetadata:

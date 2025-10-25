@@ -1,17 +1,17 @@
 """Cross-platform tests for tree-sitter grammar management."""
 
 import platform
-import pytest
-from pathlib import Path, PureWindowsPath, PurePosixPath
-from unittest.mock import Mock, patch, MagicMock
+from pathlib import Path, PurePosixPath, PureWindowsPath
+from unittest.mock import MagicMock, Mock, patch
 
+import pytest
 from common.core.grammar_compiler import (
-    GrammarCompiler,
     CompilerDetector,
     CompilerInfo,
+    GrammarCompiler,
 )
-from common.core.grammar_discovery import GrammarDiscovery
 from common.core.grammar_dependencies import DependencyResolver
+from common.core.grammar_discovery import GrammarDiscovery
 
 
 @pytest.fixture
@@ -34,7 +34,7 @@ class TestCrossPlatformPaths:
     def test_path_handling_with_home_directory(self, tmp_path):
         """Test that paths with ~ work on all platforms."""
         # This should work regardless of platform
-        discovery = GrammarDiscovery()
+        GrammarDiscovery()
 
         # Test that path resolution doesn't break
         test_path = tmp_path / "test"
@@ -250,7 +250,7 @@ class TestCrossPlatformCompilation:
         output_file = build_dir / "test.so"
         output_file.touch()
 
-        result = compiler.compile(temp_grammar)
+        compiler.compile(temp_grammar)
 
         # Check that gcc was called with correct flags
         call_args = mock_run.call_args[0][0]
@@ -283,7 +283,7 @@ class TestCrossPlatformCompilation:
         output_file = build_dir / "test.dylib"
         output_file.touch()
 
-        result = compiler.compile(temp_grammar)
+        compiler.compile(temp_grammar)
 
         # Check that clang was called with macOS-specific flags
         call_args = mock_run.call_args[0][0]
@@ -315,7 +315,7 @@ class TestCrossPlatformCompilation:
         output_file = build_dir / "test.dll"
         output_file.touch()
 
-        result = compiler.compile(temp_grammar)
+        compiler.compile(temp_grammar)
 
         # Check that cl was called with MSVC-specific flags
         call_args = mock_run.call_args[0][0]

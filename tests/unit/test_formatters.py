@@ -12,8 +12,8 @@ import pytest
 from src.python.common.core.context_injection.formatters import (
     ClaudeCodeAdapter,
     FormatManager,
-    FormatType,
     FormattedContext,
+    FormatType,
     GitHubCodexAdapter,
     GoogleGeminiAdapter,
     LLMToolAdapter,

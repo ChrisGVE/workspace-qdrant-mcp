@@ -8,7 +8,7 @@ Provides a unified data structure for representing test results from multiple so
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from uuid import uuid4
 
 
@@ -62,23 +62,23 @@ class TestSource(str, Enum):
 class PerformanceMetrics:
     """Performance metrics for benchmark and performance tests."""
 
-    min_ms: Optional[float] = None
-    max_ms: Optional[float] = None
-    avg_ms: Optional[float] = None
-    median_ms: Optional[float] = None
-    std_ms: Optional[float] = None
-    p95_ms: Optional[float] = None
-    p99_ms: Optional[float] = None
-    operations_per_second: Optional[float] = None
+    min_ms: float | None = None
+    max_ms: float | None = None
+    avg_ms: float | None = None
+    median_ms: float | None = None
+    std_ms: float | None = None
+    p95_ms: float | None = None
+    p99_ms: float | None = None
+    operations_per_second: float | None = None
 
     # Additional metrics
-    memory_mb: Optional[float] = None
-    cpu_percent: Optional[float] = None
+    memory_mb: float | None = None
+    cpu_percent: float | None = None
 
     # Custom metrics (stored as JSON)
-    custom_metrics: Dict[str, Any] = field(default_factory=dict)
+    custom_metrics: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "min_ms": self.min_ms,
@@ -95,7 +95,7 @@ class PerformanceMetrics:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PerformanceMetrics":
+    def from_dict(cls, data: dict[str, Any]) -> "PerformanceMetrics":
         """Create from dictionary."""
         return cls(
             min_ms=data.get("min_ms"),
@@ -123,16 +123,16 @@ class TestResult:
     timestamp: datetime
 
     # Optional fields
-    error_message: Optional[str] = None
-    error_traceback: Optional[str] = None
+    error_message: str | None = None
+    error_traceback: str | None = None
 
     # Performance metrics (for benchmarks/performance tests)
-    performance: Optional[PerformanceMetrics] = None
+    performance: PerformanceMetrics | None = None
 
     # Flexible metadata for source-specific data
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "test_id": self.test_id,
@@ -147,7 +147,7 @@ class TestResult:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TestResult":
+    def from_dict(cls, data: dict[str, Any]) -> "TestResult":
         """Create from dictionary."""
         return cls(
             test_id=data["test_id"],
@@ -170,37 +170,37 @@ class TestCase:
 
     case_id: str  # Unique ID for this test case
     name: str  # Test case name
-    file_path: Optional[str] = None  # Source file path
-    line_number: Optional[int] = None  # Line number in source file
+    file_path: str | None = None  # Source file path
+    line_number: int | None = None  # Line number in source file
 
     # Test classification
-    test_type: Optional[TestType] = None
-    markers: List[str] = field(default_factory=list)  # pytest markers or tags
+    test_type: TestType | None = None
+    markers: list[str] = field(default_factory=list)  # pytest markers or tags
 
     # Results from this test case
-    results: List[TestResult] = field(default_factory=list)
+    results: list[TestResult] = field(default_factory=list)
 
     # Metadata
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_result(self, result: TestResult) -> None:
         """Add a test result to this case."""
         self.results.append(result)
 
     @property
-    def latest_result(self) -> Optional[TestResult]:
+    def latest_result(self) -> TestResult | None:
         """Get the most recent test result."""
         if not self.results:
             return None
         return max(self.results, key=lambda r: r.timestamp)
 
     @property
-    def latest_status(self) -> Optional[TestStatus]:
+    def latest_status(self) -> TestStatus | None:
         """Get the status of the most recent test result."""
         latest = self.latest_result
         return latest.status if latest else None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "case_id": self.case_id,
@@ -214,7 +214,7 @@ class TestCase:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TestCase":
+    def from_dict(cls, data: dict[str, Any]) -> "TestCase":
         """Create from dictionary."""
         return cls(
             case_id=data["case_id"],
@@ -237,10 +237,10 @@ class TestSuite:
     test_type: TestType
 
     # Test cases in this suite
-    test_cases: List[TestCase] = field(default_factory=list)
+    test_cases: list[TestCase] = field(default_factory=list)
 
     # Metadata
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def add_test_case(self, test_case: TestCase) -> None:
         """Add a test case to this suite."""
@@ -291,7 +291,7 @@ class TestSuite:
             if result.status == TestStatus.ERROR
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "suite_id": self.suite_id,
@@ -302,7 +302,7 @@ class TestSuite:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TestSuite":
+    def from_dict(cls, data: dict[str, Any]) -> "TestSuite":
         """Create from dictionary."""
         return cls(
             suite_id=data["suite_id"],
@@ -321,13 +321,13 @@ class FileCoverage:
     lines_covered: int
     lines_total: int
     line_coverage_percent: float
-    uncovered_lines: List[int] = field(default_factory=list)  # Line numbers not covered
-    functions_covered: Optional[int] = None
-    functions_total: Optional[int] = None
-    branches_covered: Optional[int] = None
-    branches_total: Optional[int] = None
+    uncovered_lines: list[int] = field(default_factory=list)  # Line numbers not covered
+    functions_covered: int | None = None
+    functions_total: int | None = None
+    branches_covered: int | None = None
+    branches_total: int | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "file_path": self.file_path,
@@ -342,7 +342,7 @@ class FileCoverage:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FileCoverage":
+    def from_dict(cls, data: dict[str, Any]) -> "FileCoverage":
         """Create from dictionary."""
         return cls(
             file_path=data["file_path"],
@@ -367,25 +367,25 @@ class CoverageMetrics:
     lines_total: int
 
     # Function/method coverage
-    function_coverage_percent: Optional[float] = None
-    functions_covered: Optional[int] = None
-    functions_total: Optional[int] = None
+    function_coverage_percent: float | None = None
+    functions_covered: int | None = None
+    functions_total: int | None = None
 
     # Branch coverage (for languages that support it)
-    branch_coverage_percent: Optional[float] = None
-    branches_covered: Optional[int] = None
-    branches_total: Optional[int] = None
+    branch_coverage_percent: float | None = None
+    branches_covered: int | None = None
+    branches_total: int | None = None
 
     # Per-file coverage breakdown
-    file_coverage: List[FileCoverage] = field(default_factory=list)
+    file_coverage: list[FileCoverage] = field(default_factory=list)
 
     # Coverage source (e.g., "coverage.py", "tarpaulin", "llvm-cov")
-    coverage_tool: Optional[str] = None
+    coverage_tool: str | None = None
 
     # Custom metrics
-    custom_metrics: Dict[str, Any] = field(default_factory=dict)
+    custom_metrics: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "line_coverage_percent": self.line_coverage_percent,
@@ -403,7 +403,7 @@ class CoverageMetrics:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "CoverageMetrics":
+    def from_dict(cls, data: dict[str, Any]) -> "CoverageMetrics":
         """Create from dictionary."""
         return cls(
             line_coverage_percent=data["line_coverage_percent"],
@@ -437,23 +437,23 @@ class TestRun:
     source: TestSource
 
     # Test suites in this run
-    suites: List[TestSuite] = field(default_factory=list)
+    suites: list[TestSuite] = field(default_factory=list)
 
     # Code coverage metrics
-    coverage: Optional[CoverageMetrics] = None
+    coverage: CoverageMetrics | None = None
 
     # Run metadata
-    environment: Dict[str, Any] = field(default_factory=dict)  # Python version, OS, etc.
-    metadata: Dict[str, Any] = field(default_factory=dict)  # Branch, commit, CI info, etc.
+    environment: dict[str, Any] = field(default_factory=dict)  # Python version, OS, etc.
+    metadata: dict[str, Any] = field(default_factory=dict)  # Branch, commit, CI info, etc.
 
     @classmethod
     def create(
         cls,
         source: TestSource,
-        run_id: Optional[str] = None,
-        timestamp: Optional[datetime] = None,
-        environment: Optional[Dict[str, Any]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        run_id: str | None = None,
+        timestamp: datetime | None = None,
+        environment: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> "TestRun":
         """Create a new test run with auto-generated ID if not provided."""
         return cls(
@@ -501,7 +501,7 @@ class TestRun:
             return 0.0
         return (self.passed_tests / total) * 100.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "run_id": self.run_id,
@@ -514,7 +514,7 @@ class TestRun:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "TestRun":
+    def from_dict(cls, data: dict[str, Any]) -> "TestRun":
         """Create from dictionary."""
         return cls(
             run_id=data["run_id"],
@@ -541,15 +541,15 @@ class FailurePattern:
     error_signature: str  # Normalized error signature (e.g., "AssertionError: expected X got Y")
     category: FailureCategory  # Classification of failure type
     occurrences: int  # Number of times this pattern occurred
-    affected_tests: List[str] = field(default_factory=list)  # Test case names
-    first_seen: Optional[datetime] = None  # When first observed
-    last_seen: Optional[datetime] = None  # When last observed
+    affected_tests: list[str] = field(default_factory=list)  # Test case names
+    first_seen: datetime | None = None  # When first observed
+    last_seen: datetime | None = None  # When last observed
 
     # Sample error details
-    sample_error_message: Optional[str] = None
-    sample_error_traceback: Optional[str] = None
+    sample_error_message: str | None = None
+    sample_error_traceback: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "pattern_id": self.pattern_id,
@@ -564,7 +564,7 @@ class FailurePattern:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FailurePattern":
+    def from_dict(cls, data: dict[str, Any]) -> "FailurePattern":
         """Create from dictionary."""
         return cls(
             pattern_id=data["pattern_id"],
@@ -604,14 +604,14 @@ class FlakinessMetrics:
     pass_rate: float
 
     # Failure analysis
-    failure_categories: Dict[str, int] = field(default_factory=dict)  # Category -> count
-    common_error_signatures: List[str] = field(default_factory=list)  # Most common errors
+    failure_categories: dict[str, int] = field(default_factory=dict)  # Category -> count
+    common_error_signatures: list[str] = field(default_factory=list)  # Most common errors
 
     # Time window analyzed
-    first_run: Optional[datetime] = None
-    last_run: Optional[datetime] = None
+    first_run: datetime | None = None
+    last_run: datetime | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "test_case_name": self.test_case_name,
@@ -629,7 +629,7 @@ class FlakinessMetrics:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FlakinessMetrics":
+    def from_dict(cls, data: dict[str, Any]) -> "FlakinessMetrics":
         """Create from dictionary."""
         return cls(
             test_case_name=data["test_case_name"],
@@ -659,28 +659,28 @@ class FailureAnalysisReport:
     timestamp: datetime  # When analysis was performed
 
     # Analysis scope
-    analyzed_runs: List[str] = field(default_factory=list)  # Run IDs analyzed
-    time_window_start: Optional[datetime] = None
-    time_window_end: Optional[datetime] = None
+    analyzed_runs: list[str] = field(default_factory=list)  # Run IDs analyzed
+    time_window_start: datetime | None = None
+    time_window_end: datetime | None = None
 
     # Flakiness analysis
-    flaky_tests: List[FlakinessMetrics] = field(default_factory=list)  # Sorted by flakiness score
+    flaky_tests: list[FlakinessMetrics] = field(default_factory=list)  # Sorted by flakiness score
     total_flaky_tests: int = 0
 
     # Failure patterns
-    failure_patterns: List[FailurePattern] = field(default_factory=list)  # Sorted by occurrence
+    failure_patterns: list[FailurePattern] = field(default_factory=list)  # Sorted by occurrence
     total_failure_patterns: int = 0
 
     # Failure categories distribution
-    category_distribution: Dict[str, int] = field(default_factory=dict)  # Category -> count
+    category_distribution: dict[str, int] = field(default_factory=dict)  # Category -> count
 
     # Trends
-    failure_trend: Optional[str] = None  # "increasing", "decreasing", "stable"
+    failure_trend: str | None = None  # "increasing", "decreasing", "stable"
 
     # Metadata
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for storage."""
         return {
             "report_id": self.report_id,
@@ -698,7 +698,7 @@ class FailureAnalysisReport:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "FailureAnalysisReport":
+    def from_dict(cls, data: dict[str, Any]) -> "FailureAnalysisReport":
         """Create from dictionary."""
         return cls(
             report_id=data["report_id"],

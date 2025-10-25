@@ -7,11 +7,12 @@ Comprehensive test to systematically import and execute functions across
 all modules to achieve maximum coverage.
 """
 
-import sys
-import os
-import pytest
 import importlib
 import inspect
+import os
+import sys
+
+import pytest
 
 # Add src to path
 src_path = os.path.join(os.path.dirname(__file__), '..', '..', 'src')

@@ -12,29 +12,29 @@ Tests cover all components with edge cases and error conditions:
 
 import asyncio
 import json
-import pytest
 import tempfile
+from collections import deque
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock, mock_open
-from collections import deque
+from unittest.mock import AsyncMock, Mock, mock_open, patch
+
+import pytest
 
 from src.python.common.security.security_monitor import (
-    SecurityMonitor,
-    SecurityMetrics,
     AlertingSystem,
-    SecurityEventLogger,
-    SecurityAlert,
-    SecurityMetric,
     AlertLevel,
-    MetricType
+    MetricType,
+    SecurityAlert,
+    SecurityEventLogger,
+    SecurityMetric,
+    SecurityMetrics,
+    SecurityMonitor,
 )
-
 from src.python.common.security.threat_detection import (
+    SecurityEvent,
     ThreatDetection,
     ThreatLevel,
     ThreatType,
-    SecurityEvent
 )
 
 
@@ -365,16 +365,16 @@ class TestAlertingSystem:
         }
 
         # Test various operators
-        assert alerting._evaluate_condition("threat_count.total > 10", metrics) == True
-        assert alerting._evaluate_condition("threat_count.total < 10", metrics) == False
-        assert alerting._evaluate_condition("threat_count.average >= 3.0", metrics) == True
-        assert alerting._evaluate_condition("error_rate.total <= 8", metrics) == True
-        assert alerting._evaluate_condition("threat_count.max == 5", metrics) == True
-        assert alerting._evaluate_condition("threat_count.max != 3", metrics) == True
+        assert alerting._evaluate_condition("threat_count.total > 10", metrics)
+        assert not alerting._evaluate_condition("threat_count.total < 10", metrics)
+        assert alerting._evaluate_condition("threat_count.average >= 3.0", metrics)
+        assert alerting._evaluate_condition("error_rate.total <= 8", metrics)
+        assert alerting._evaluate_condition("threat_count.max == 5", metrics)
+        assert alerting._evaluate_condition("threat_count.max != 3", metrics)
 
         # Test invalid conditions
-        assert alerting._evaluate_condition("invalid.path > 5", metrics) == False
-        assert alerting._evaluate_condition("malformed condition", metrics) == False
+        assert not alerting._evaluate_condition("invalid.path > 5", metrics)
+        assert not alerting._evaluate_condition("malformed condition", metrics)
 
     def test_alert_suppression(self, alerting):
         """Test alert suppression functionality."""
@@ -506,14 +506,14 @@ class TestAlertingSystem:
         # Acknowledge alert
         result = alerting.acknowledge_alert(alert.alert_id, "test_user")
 
-        assert result == True
-        assert alert.acknowledged == True
+        assert result
+        assert alert.acknowledged
         assert alert.metadata['acknowledged_by'] == "test_user"
         assert 'acknowledged_at' in alert.metadata
 
         # Try to acknowledge non-existent alert
         result = alerting.acknowledge_alert("non_existent", "test_user")
-        assert result == False
+        assert not result
 
     def test_get_active_alerts(self, alerting):
         """Test getting active (unacknowledged) alerts."""
@@ -573,7 +573,7 @@ class TestAlertingSystem:
         assert alert_dict['alert_id'] == "dict_test"
         assert alert_dict['alert_level'] == "CRITICAL"
         assert alert_dict['title'] == "Test Alert"
-        assert alert_dict['acknowledged'] == True
+        assert alert_dict['acknowledged']
         assert alert_dict['metadata'] == {'key': 'value'}
 
 
@@ -699,7 +699,7 @@ class TestSecurityEventLogger:
         assert recent[0]['event_id'] == "event_10"   # 10th from end
 
     @pytest.mark.asyncio
-    @patch('builtins.open', side_effect=IOError("File write error"))
+    @patch('builtins.open', side_effect=OSError("File write error"))
     async def test_log_file_write_error(self, mock_open, logger, sample_event):
         """Test handling of file write errors."""
         # Should not crash on file write error

@@ -1,7 +1,7 @@
 """Enhanced CLI ingestion integration layer.
 
 This module provides an enhanced document ingestion interface that integrates
-directly with the simplified 4-tool interface (qdrant_store, qdrant_find, 
+directly with the simplified 4-tool interface (qdrant_store, qdrant_find,
 qdrant_manage, qdrant_watch) for improved usability, progress tracking,
 and error handling.
 
@@ -14,21 +14,23 @@ The enhanced layer provides:
 """
 
 import asyncio
+import fnmatch
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Union, Any
-import fnmatch
+from typing import Any
 
 from common.core.client import QdrantWorkspaceClient
-from workspace_qdrant_mcp.tools.simplified_interface import SimplifiedToolsRouter, get_simplified_router
 from loguru import logger
+from workspace_qdrant_mcp.tools.simplified_interface import (
+    get_simplified_router,
+)
 
 # logger imported from loguru
 
 
 class IngestionProgress:
     """Track and display ingestion progress with real-time updates."""
-    
+
     def __init__(self, total_items: int, operation_name: str = "Processing"):
         self.total_items = total_items
         self.operation_name = operation_name
@@ -37,7 +39,7 @@ class IngestionProgress:
         self.skipped = 0
         self.start_time = time.time()
         self.last_update = 0
-        
+
     def update(self, completed: int = None, failed: int = None, skipped: int = None):
         """Update progress counters and display if needed."""
         if completed is not None:
@@ -46,51 +48,51 @@ class IngestionProgress:
             self.failed += failed
         if skipped is not None:
             self.skipped += skipped
-            
+
         # Update display every 0.5 seconds or on completion
         current_time = time.time()
         if (current_time - self.last_update > 0.5) or self._is_complete():
             self._display_progress()
             self.last_update = current_time
-    
+
     def _is_complete(self) -> bool:
         """Check if all items have been processed."""
         return (self.completed + self.failed + self.skipped) >= self.total_items
-    
+
     def _display_progress(self):
         """Display current progress with ETA."""
         processed = self.completed + self.failed + self.skipped
         if processed == 0:
             return
-            
+
         percentage = (processed / self.total_items) * 100
         elapsed = time.time() - self.start_time
-        
+
         if processed < self.total_items and elapsed > 1:
             eta_seconds = (elapsed / processed) * (self.total_items - processed)
             eta_str = f", ETA: {int(eta_seconds)}s"
         else:
             eta_str = ""
-        
+
         progress_bar = self._create_progress_bar(percentage)
         status_line = (
             f"\r{self.operation_name}: {progress_bar} "
             f"{processed}/{self.total_items} ({percentage:.1f}%)"
             f"{eta_str}"
         )
-        
+
         print(status_line, end="", flush=True)
-        
+
         if self._is_complete():
             print()  # New line when complete
-    
+
     def _create_progress_bar(self, percentage: float) -> str:
         """Create a visual progress bar."""
         filled = int(percentage / 5)  # 20 character width
         bar = "█" * filled + "░" * (20 - filled)
         return f"[{bar}]"
-    
-    def summary(self) -> Dict[str, Any]:
+
+    def summary(self) -> dict[str, Any]:
         """Get final progress summary."""
         elapsed = time.time() - self.start_time
         return {
@@ -105,13 +107,13 @@ class IngestionProgress:
 
 class EnhancedIngestionEngine:
     """Enhanced ingestion engine with simplified tool integration."""
-    
+
     def __init__(self, workspace_client: QdrantWorkspaceClient):
         self.workspace_client = workspace_client
         self.router = get_simplified_router()
         if not self.router:
             raise RuntimeError("Simplified tools router not initialized")
-        
+
     async def ingest_single_file(
         self,
         file_path: Path,
@@ -119,10 +121,10 @@ class EnhancedIngestionEngine:
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
         dry_run: bool = False,
-        metadata: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Ingest a single file with enhanced progress tracking and error handling."""
-        
+
         # Validate file before processing
         validation_result = await self._validate_file(file_path)
         if not validation_result["valid"]:
@@ -131,16 +133,16 @@ class EnhancedIngestionEngine:
                 "error": validation_result["error"],
                 "suggestions": validation_result.get("suggestions", [])
             }
-        
+
         if dry_run:
             return await self._analyze_file(file_path, collection, chunk_size)
-        
+
         print(f"Ingesting: {file_path.name}")
-        
+
         try:
             # Read file content
             content = await self._read_file_content(file_path)
-            
+
             # Prepare metadata
             enhanced_metadata = {
                 "source": "cli_enhanced",
@@ -150,7 +152,7 @@ class EnhancedIngestionEngine:
                 "chunk_overlap": chunk_overlap,
                 **(metadata or {})
             }
-            
+
             # Use qdrant_store tool for ingestion
             result = await self.router.qdrant_store(
                 information=content,
@@ -159,7 +161,7 @@ class EnhancedIngestionEngine:
                 chunk_text=True,
                 note_type="document"
             )
-            
+
             if result.get("success", True) and not result.get("error"):
                 return {
                     "success": True,
@@ -174,7 +176,7 @@ class EnhancedIngestionEngine:
                     "error": result.get("error", "Unknown ingestion error"),
                     "suggestions": self._get_error_suggestions(result.get("error", ""))
                 }
-                
+
         except Exception as e:
             logger.error("File ingestion failed", file_path=str(file_path), error=str(e))
             return {
@@ -182,26 +184,26 @@ class EnhancedIngestionEngine:
                 "error": f"Failed to process file: {str(e)}",
                 "suggestions": self._get_error_suggestions(str(e))
             }
-    
+
     async def ingest_folder(
         self,
         folder_path: Path,
         collection: str,
-        formats: Optional[List[str]] = None,
+        formats: list[str] | None = None,
         chunk_size: int = 1000,
         chunk_overlap: int = 200,
         recursive: bool = True,
-        exclude_patterns: Optional[List[str]] = None,
+        exclude_patterns: list[str] | None = None,
         concurrency: int = 3,
         dry_run: bool = False,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Ingest all compatible files in a folder with batch processing."""
-        
+
         # Find and validate files
         files = await self._find_files(
             folder_path, formats, recursive, exclude_patterns
         )
-        
+
         if not files:
             return {
                 "success": False,
@@ -212,35 +214,35 @@ class EnhancedIngestionEngine:
                     "Try different format filters"
                 ]
             }
-        
+
         print(f"Found {len(files)} files to process")
-        
+
         if dry_run:
             return await self._analyze_folder(files, collection, chunk_size)
-        
+
         # Process files with progress tracking
         progress = IngestionProgress(len(files), "Ingesting files")
         results = []
         semaphore = asyncio.Semaphore(concurrency)
-        
-        async def process_file_with_semaphore(file_path: Path) -> Dict[str, Any]:
+
+        async def process_file_with_semaphore(file_path: Path) -> dict[str, Any]:
             async with semaphore:
                 result = await self.ingest_single_file(
                     file_path, collection, chunk_size, chunk_overlap
                 )
-                
+
                 if result["success"]:
                     progress.update(completed=1)
                 else:
                     progress.update(failed=1)
                     print(f"\nError processing {file_path.name}: {result['error']}")
-                
+
                 return result
-        
+
         # Process files concurrently
         tasks = [process_file_with_semaphore(file_path) for file_path in files]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         # Process results and handle exceptions
         processed_results = []
         for i, result in enumerate(results):
@@ -254,20 +256,20 @@ class EnhancedIngestionEngine:
                 print(f"\nException processing {files[i].name}: {result}")
             else:
                 processed_results.append(result)
-        
+
         # Generate summary
         summary = progress.summary()
         successful_results = [r for r in processed_results if r.get("success")]
-        
-        print(f"\nFolder ingestion completed!")
+
+        print("\nFolder ingestion completed!")
         print(f"Successfully processed: {len(successful_results)}/{len(files)} files")
         print(f"Success rate: {summary['success_rate']:.1f}%")
         print(f"Processing time: {summary['elapsed_seconds']:.2f}s")
-        
+
         if successful_results:
             total_chunks = sum(r.get("chunks_created", 0) for r in successful_results)
             print(f"Total chunks created: {total_chunks}")
-        
+
         return {
             "success": True,
             "summary": summary,
@@ -275,12 +277,12 @@ class EnhancedIngestionEngine:
             "files_processed": len(successful_results),
             "total_chunks": sum(r.get("chunks_created", 0) for r in successful_results)
         }
-    
+
     async def get_ingestion_status(
-        self, collection: Optional[str] = None
-    ) -> Dict[str, Any]:
+        self, collection: str | None = None
+    ) -> dict[str, Any]:
         """Get ingestion status using qdrant_manage tool."""
-        
+
         try:
             if collection:
                 # Get specific collection status
@@ -291,21 +293,21 @@ class EnhancedIngestionEngine:
             else:
                 # Get all collections status
                 result = await self.router.qdrant_manage(action="collections")
-            
+
             return {
                 "success": True,
                 "status": result
             }
-            
+
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Failed to get status: {str(e)}"
             }
-    
-    async def _validate_file(self, file_path: Path) -> Dict[str, Any]:
+
+    async def _validate_file(self, file_path: Path) -> dict[str, Any]:
         """Validate file accessibility and format compatibility."""
-        
+
         if not file_path.exists():
             return {
                 "valid": False,
@@ -316,7 +318,7 @@ class EnhancedIngestionEngine:
                     "Verify you have read permissions"
                 ]
             }
-        
+
         if not file_path.is_file():
             return {
                 "valid": False,
@@ -326,11 +328,11 @@ class EnhancedIngestionEngine:
                     "Check if path points to a symbolic link or special file"
                 ]
             }
-        
+
         # Check file size (warn if very large)
         file_size = file_path.stat().st_size
         max_size = 100 * 1024 * 1024  # 100MB warning threshold
-        
+
         if file_size > max_size:
             return {
                 "valid": True,
@@ -341,7 +343,7 @@ class EnhancedIngestionEngine:
                     "Monitor system resources during processing"
                 ]
             }
-        
+
         # Check format compatibility
         supported_formats = [".pdf", ".txt", ".md", ".docx", ".rtf", ".epub"]
         if file_path.suffix.lower() not in supported_formats:
@@ -354,14 +356,14 @@ class EnhancedIngestionEngine:
                     "Check if format support has been added"
                 ]
             }
-        
+
         return {"valid": True}
-    
+
     async def _read_file_content(self, file_path: Path) -> str:
         """Read file content with format-specific handling."""
-        
+
         suffix = file_path.suffix.lower()
-        
+
         if suffix == ".txt" or suffix == ".md":
             return file_path.read_text(encoding="utf-8")
         elif suffix == ".pdf":
@@ -374,26 +376,26 @@ class EnhancedIngestionEngine:
         else:
             # Default text reading
             return file_path.read_text(encoding="utf-8", errors="ignore")
-    
+
     async def _find_files(
         self,
         folder_path: Path,
-        formats: Optional[List[str]],
+        formats: list[str] | None,
         recursive: bool,
-        exclude_patterns: Optional[List[str]]
-    ) -> List[Path]:
+        exclude_patterns: list[str] | None
+    ) -> list[Path]:
         """Find files to process with format and exclusion filtering."""
-        
+
         if not formats:
             formats = ["pdf", "txt", "md", "docx", "rtf", "epub"]
         else:
             formats = [fmt.strip().lower().lstrip(".") for fmt in formats]
-        
+
         files = []
         for fmt in formats:
             pattern = f"**/*.{fmt}" if recursive else f"*.{fmt}"
             files.extend(folder_path.glob(pattern))
-        
+
         # Apply exclusion patterns
         if exclude_patterns:
             filtered_files = []
@@ -406,18 +408,18 @@ class EnhancedIngestionEngine:
                 if not exclude_file:
                     filtered_files.append(file_path)
             files = filtered_files
-        
+
         return sorted(files)
-    
+
     async def _analyze_file(
         self, file_path: Path, collection: str, chunk_size: int
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Analyze file for dry run mode."""
-        
+
         file_stats = file_path.stat()
         file_size_mb = file_stats.st_size / (1024 * 1024)
         estimated_chunks = max(1, int(file_stats.st_size / chunk_size))
-        
+
         return {
             "success": True,
             "analysis": {
@@ -429,31 +431,31 @@ class EnhancedIngestionEngine:
                 "processing_estimate": f"~{estimated_chunks} chunks, {file_size_mb/5:.1f}s processing time"
             }
         }
-    
+
     async def _analyze_folder(
-        self, files: List[Path], collection: str, chunk_size: int
-    ) -> Dict[str, Any]:
+        self, files: list[Path], collection: str, chunk_size: int
+    ) -> dict[str, Any]:
         """Analyze folder for dry run mode."""
-        
+
         format_stats = {}
         total_size = 0
         total_chunks = 0
-        
+
         for file_path in files:
             ext = file_path.suffix.lower().lstrip(".")
             size_mb = file_path.stat().st_size / (1024 * 1024)
             chunks = max(1, int(file_path.stat().st_size / chunk_size))
-            
+
             if ext not in format_stats:
                 format_stats[ext] = {"count": 0, "size_mb": 0, "chunks": 0}
-            
+
             format_stats[ext]["count"] += 1
             format_stats[ext]["size_mb"] += size_mb
             format_stats[ext]["chunks"] += chunks
-            
+
             total_size += size_mb
             total_chunks += chunks
-        
+
         return {
             "success": True,
             "analysis": {
@@ -465,46 +467,46 @@ class EnhancedIngestionEngine:
                 "processing_estimate": f"~{total_chunks} chunks, {total_size/3:.1f}s processing time"
             }
         }
-    
-    def _get_error_suggestions(self, error_message: str) -> List[str]:
+
+    def _get_error_suggestions(self, error_message: str) -> list[str]:
         """Generate helpful suggestions based on error message."""
-        
+
         suggestions = []
         error_lower = error_message.lower()
-        
+
         if "connection" in error_lower or "network" in error_lower:
             suggestions.extend([
                 "Check if Qdrant server is running",
                 "Verify network connectivity",
                 "Check firewall settings"
             ])
-        
+
         if "permission" in error_lower or "access" in error_lower:
             suggestions.extend([
                 "Check file permissions",
                 "Run with appropriate user privileges",
                 "Verify folder access rights"
             ])
-        
+
         if "memory" in error_lower or "out of" in error_lower:
             suggestions.extend([
                 "Try smaller chunk sizes",
                 "Process files individually instead of batch",
                 "Check available system memory"
             ])
-        
+
         if "format" in error_lower or "parse" in error_lower:
             suggestions.extend([
                 "Verify file is not corrupted",
                 "Check file format is supported",
                 "Try converting to a different format"
             ])
-        
+
         if not suggestions:
             suggestions = [
                 "Check log files for detailed error information",
                 "Try processing with debug mode enabled",
                 "Verify system requirements are met"
             ]
-        
+
         return suggestions

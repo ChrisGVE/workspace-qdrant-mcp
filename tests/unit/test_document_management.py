@@ -24,20 +24,21 @@ Requirements:
 """
 
 import asyncio
-import pytest
-import uuid
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock, patch
 
 # Import MCP server functions
 import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
-from workspace_qdrant_mcp.server import store, manage, retrieve
 from qdrant_client.models import Distance, PointStruct, VectorParams
-
+from workspace_qdrant_mcp.server import manage, retrieve, store
 
 # ============================================================================
 # TEST FIXTURES (Task 282.1)
@@ -329,7 +330,6 @@ class TestDocumentUpdate:
         self, mock_qdrant_client, mock_daemon_client
     ):
         """Test updating document metadata."""
-        original_metadata = {"title": "Original", "version": 1}
         updated_metadata = {"title": "Updated", "version": 2, "updated": True}
 
         with patch('workspace_qdrant_mcp.server.qdrant_client', mock_qdrant_client), \
@@ -401,7 +401,7 @@ class TestBatchOperations:
         """Test retrieving multiple documents by category."""
         # Mock scroll response with multiple documents
         mock_points = []
-        for i, doc in enumerate(sample_documents):
+        for _i, doc in enumerate(sample_documents):
             mock_point = MagicMock()
             mock_point.id = str(uuid.uuid4())
             mock_point.payload = {

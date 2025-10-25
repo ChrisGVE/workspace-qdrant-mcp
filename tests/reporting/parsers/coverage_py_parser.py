@@ -22,7 +22,7 @@ class CoveragePyParser(BaseParser):
     """
 
     def parse(
-        self, coverage_xml_path: Path, source_root: Optional[Path] = None
+        self, coverage_xml_path: Path, source_root: Path | None = None
     ) -> CoverageMetrics:
         """
         Parse coverage.py XML file.
@@ -104,8 +104,8 @@ class CoveragePyParser(BaseParser):
         )
 
     def _parse_class(
-        self, class_elem: ET.Element, source_root: Optional[Path] = None
-    ) -> Optional[FileCoverage]:
+        self, class_elem: ET.Element, source_root: Path | None = None
+    ) -> FileCoverage | None:
         """
         Parse a single class element (represents a file).
 
@@ -184,7 +184,7 @@ class CoveragePyParser(BaseParser):
 
 
 # Convenience function for quick parsing
-def parse_coverage_xml(coverage_xml_path: Path, source_root: Optional[Path] = None) -> CoverageMetrics:
+def parse_coverage_xml(coverage_xml_path: Path, source_root: Path | None = None) -> CoverageMetrics:
     """
     Quick helper to parse coverage.py XML file.
 

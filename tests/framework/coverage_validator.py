@@ -8,17 +8,17 @@ Integrates with pytest-cov, coverage.py, and custom AST analysis for deep valida
 
 import ast
 import json
+import logging
+import sqlite3
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ET
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Any, Union
-import xml.etree.ElementTree as ET
-import logging
-import sqlite3
-from collections import defaultdict, Counter
+from typing import Any, Optional, Union
 
 from .discovery import TestDiscovery, TestMetadata
 
@@ -55,11 +55,11 @@ class CoverageGap:
     line_number: int
     line_content: str
     coverage_type: CoverageType
-    function_name: Optional[str] = None
-    class_name: Optional[str] = None
+    function_name: str | None = None
+    class_name: str | None = None
     complexity: int = 1
     is_edge_case: bool = False
-    suggested_test: Optional[str] = None
+    suggested_test: str | None = None
 
 
 @dataclass
@@ -72,13 +72,13 @@ class CoverageReport:
     line_coverage_percentage: float
     branch_coverage_percentage: float
     function_coverage_percentage: float
-    coverage_gaps: List[CoverageGap] = field(default_factory=list)
-    uncovered_functions: List[str] = field(default_factory=list)
-    uncovered_branches: List[str] = field(default_factory=list)
-    edge_cases_missing: List[str] = field(default_factory=list)
-    file_coverage: Dict[str, float] = field(default_factory=dict)
-    complexity_coverage: Dict[int, int] = field(default_factory=dict)
-    validation_issues: List[Dict[str, Any]] = field(default_factory=list)
+    coverage_gaps: list[CoverageGap] = field(default_factory=list)
+    uncovered_functions: list[str] = field(default_factory=list)
+    uncovered_branches: list[str] = field(default_factory=list)
+    edge_cases_missing: list[str] = field(default_factory=list)
+    file_coverage: dict[str, float] = field(default_factory=dict)
+    complexity_coverage: dict[int, int] = field(default_factory=dict)
+    validation_issues: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def overall_coverage_percentage(self) -> float:
@@ -110,13 +110,13 @@ class CoverageAnalyzer(ast.NodeVisitor):
     """AST-based coverage analyzer for deep code analysis."""
 
     def __init__(self):
-        self.functions: List[Dict[str, Any]] = []
-        self.classes: List[Dict[str, Any]] = []
-        self.branches: List[Dict[str, Any]] = []
-        self.complexity_points: List[Dict[str, Any]] = []
-        self.edge_cases: List[Dict[str, Any]] = []
-        self.current_class: Optional[str] = None
-        self.current_function: Optional[str] = None
+        self.functions: list[dict[str, Any]] = []
+        self.classes: list[dict[str, Any]] = []
+        self.branches: list[dict[str, Any]] = []
+        self.complexity_points: list[dict[str, Any]] = []
+        self.edge_cases: list[dict[str, Any]] = []
+        self.current_class: str | None = None
+        self.current_function: str | None = None
 
     def visit_ClassDef(self, node: ast.ClassDef):
         """Visit class definition."""
@@ -290,7 +290,7 @@ class CoverageValidator:
                  source_directory: Path,
                  test_directory: Path,
                  coverage_level: CoverageLevel = CoverageLevel.COMPREHENSIVE,
-                 database_path: Optional[Path] = None):
+                 database_path: Path | None = None):
         """Initialize coverage validator.
 
         Args:
@@ -379,7 +379,7 @@ class CoverageValidator:
 
     def validate_coverage(self,
                          run_tests: bool = True,
-                         target_files: Optional[List[str]] = None) -> CoverageReport:
+                         target_files: list[str] | None = None) -> CoverageReport:
         """
         Perform comprehensive coverage validation.
 
@@ -455,7 +455,7 @@ class CoverageValidator:
             self.logger.error(f"Failed to run tests with coverage: {e}")
             raise
 
-    def _load_coverage_data(self) -> Dict[str, Any]:
+    def _load_coverage_data(self) -> dict[str, Any]:
         """Load coverage data from coverage files."""
         coverage_data = {}
 
@@ -472,7 +472,7 @@ class CoverageValidator:
 
         return coverage_data
 
-    def _perform_ast_analysis(self, target_files: Optional[List[str]]) -> Dict[str, CoverageAnalyzer]:
+    def _perform_ast_analysis(self, target_files: list[str] | None) -> dict[str, CoverageAnalyzer]:
         """Perform AST analysis on source files."""
         self.logger.info("Performing AST analysis...")
 
@@ -490,7 +490,7 @@ class CoverageValidator:
                 continue
 
             try:
-                with open(source_file, 'r', encoding='utf-8') as f:
+                with open(source_file, encoding='utf-8') as f:
                     source_code = f.read()
 
                 tree = ast.parse(source_code)
@@ -506,8 +506,8 @@ class CoverageValidator:
         return analyzers
 
     def _generate_coverage_report(self,
-                                 coverage_data: Dict[str, Any],
-                                 ast_analysis: Dict[str, CoverageAnalyzer]) -> CoverageReport:
+                                 coverage_data: dict[str, Any],
+                                 ast_analysis: dict[str, CoverageAnalyzer]) -> CoverageReport:
         """Generate comprehensive coverage report."""
         report = CoverageReport(timestamp=time.time(), total_lines=0, covered_lines=0, missed_lines=0,
                                line_coverage_percentage=0.0, branch_coverage_percentage=0.0,
@@ -567,7 +567,7 @@ class CoverageValidator:
 
         return report
 
-    def _validate_edge_cases(self, report: CoverageReport, ast_analysis: Dict[str, CoverageAnalyzer]):
+    def _validate_edge_cases(self, report: CoverageReport, ast_analysis: dict[str, CoverageAnalyzer]):
         """Validate edge case coverage."""
         self.logger.info("Validating edge case coverage...")
 
@@ -593,7 +593,7 @@ class CoverageValidator:
                     )
                     report.coverage_gaps.append(gap)
 
-    def _is_edge_case_covered(self, file_path: str, edge_case: Dict[str, Any]) -> bool:
+    def _is_edge_case_covered(self, file_path: str, edge_case: dict[str, Any]) -> bool:
         """Check if specific edge case is covered by tests."""
         # In a full implementation, this would analyze test execution traces
         # For demo, we'll use heuristics based on file coverage
@@ -622,7 +622,7 @@ class CoverageValidator:
     def _get_line_content(self, file_path: str, line_number: int) -> str:
         """Get content of specific line from file."""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, encoding='utf-8') as f:
                 lines = f.readlines()
                 if 0 <= line_number - 1 < len(lines):
                     return lines[line_number - 1].strip()
@@ -669,7 +669,7 @@ class CoverageValidator:
                     gap.is_edge_case, gap.suggested_test
                 ))
 
-    def get_coverage_trends(self, days: int = 30) -> Dict[str, List[float]]:
+    def get_coverage_trends(self, days: int = 30) -> dict[str, list[float]]:
         """Get coverage trends over time."""
         with sqlite3.connect(self.database_path) as conn:
             cutoff_time = time.time() - (days * 24 * 3600)
@@ -698,7 +698,7 @@ class CoverageValidator:
 
             return trends
 
-    def get_persistent_coverage_gaps(self, occurrences_threshold: int = 3) -> List[Dict[str, Any]]:
+    def get_persistent_coverage_gaps(self, occurrences_threshold: int = 3) -> list[dict[str, Any]]:
         """Get coverage gaps that persist across multiple reports."""
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.execute("""
@@ -724,7 +724,7 @@ class CoverageValidator:
 
             return gaps
 
-    def generate_coverage_improvement_plan(self) -> Dict[str, Any]:
+    def generate_coverage_improvement_plan(self) -> dict[str, Any]:
         """Generate comprehensive plan to achieve 100% coverage."""
         latest_report = self._get_latest_coverage_report()
         if not latest_report:
@@ -777,7 +777,7 @@ class CoverageValidator:
 
         return plan
 
-    def _get_latest_coverage_report(self) -> Optional[Dict[str, Any]]:
+    def _get_latest_coverage_report(self) -> dict[str, Any] | None:
         """Get the latest coverage report from database."""
         with sqlite3.connect(self.database_path) as conn:
             cursor = conn.execute("""
@@ -811,7 +811,7 @@ class CoverageValidator:
         else:
             return str(latest_report_data)
 
-    def _generate_html_report(self, report_data: Dict[str, Any]) -> str:
+    def _generate_html_report(self, report_data: dict[str, Any]) -> str:
         """Generate HTML coverage report."""
         html_template = f"""
         <!DOCTYPE html>

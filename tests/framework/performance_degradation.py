@@ -16,14 +16,14 @@ Features:
 8. Percentile-based analysis (p50/p90/p95/p99)
 """
 
-import time
-import statistics
 import logging
+import statistics
+import time
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Tuple, Callable
-from collections import deque
-
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -83,8 +83,8 @@ class PerformanceBaseline:
 class PerformanceSnapshot:
     """Snapshot of performance metrics at a point in time."""
     timestamp: float
-    metrics: Dict[str, float] = field(default_factory=dict)
-    metadata: Dict[str, any] = field(default_factory=dict)
+    metrics: dict[str, float] = field(default_factory=dict)
+    metadata: dict[str, any] = field(default_factory=dict)
 
 
 @dataclass
@@ -144,7 +144,7 @@ class PerformanceDegradationTracker:
 
     def __init__(
         self,
-        alert_callback: Optional[Callable[[PerformanceDegradation], None]] = None,
+        alert_callback: Callable[[PerformanceDegradation], None] | None = None,
         default_degradation_threshold_percent: float = 20.0,
         trend_window_size: int = 50,
         min_samples_for_trend: int = 10
@@ -164,28 +164,28 @@ class PerformanceDegradationTracker:
         self.min_samples_for_trend = min_samples_for_trend
 
         # Baselines (metric_name -> baseline)
-        self.baselines: Dict[str, PerformanceBaseline] = {}
+        self.baselines: dict[str, PerformanceBaseline] = {}
 
         # Custom thresholds (metric_name -> threshold_percent)
-        self.thresholds: Dict[str, float] = {}
+        self.thresholds: dict[str, float] = {}
 
         # Performance history (metric_name -> deque of (timestamp, value))
-        self.history: Dict[str, deque] = {}
+        self.history: dict[str, deque] = {}
 
         # Detected degradations
-        self.degradations: List[PerformanceDegradation] = []
+        self.degradations: list[PerformanceDegradation] = []
 
         # Snapshots history
-        self.snapshots: List[PerformanceSnapshot] = []
+        self.snapshots: list[PerformanceSnapshot] = []
 
         # Metric type registry (metric_name -> type)
-        self.metric_types: Dict[str, PerformanceMetricType] = {}
+        self.metric_types: dict[str, PerformanceMetricType] = {}
 
     def register_metric(
         self,
         metric_name: str,
         metric_type: PerformanceMetricType,
-        threshold_percent: Optional[float] = None
+        threshold_percent: float | None = None
     ):
         """
         Register a performance metric for tracking.
@@ -209,8 +209,8 @@ class PerformanceDegradationTracker:
     def establish_baseline(
         self,
         metric_name: str,
-        samples: List[float],
-        metric_type: Optional[PerformanceMetricType] = None
+        samples: list[float],
+        metric_type: PerformanceMetricType | None = None
     ) -> PerformanceBaseline:
         """
         Establish performance baseline from samples.
@@ -272,7 +272,7 @@ class PerformanceDegradationTracker:
         self,
         metric_name: str,
         value: float,
-        timestamp: Optional[float] = None,
+        timestamp: float | None = None,
         check_degradation: bool = True
     ):
         """
@@ -304,8 +304,8 @@ class PerformanceDegradationTracker:
 
     def record_snapshot(
         self,
-        metrics: Dict[str, float],
-        metadata: Optional[Dict[str, any]] = None
+        metrics: dict[str, float],
+        metadata: dict[str, any] | None = None
     ) -> PerformanceSnapshot:
         """
         Record a snapshot of multiple metrics at once.
@@ -335,7 +335,7 @@ class PerformanceDegradationTracker:
         metric_name: str,
         current_value: float,
         timestamp: float
-    ) -> Optional[PerformanceDegradation]:
+    ) -> PerformanceDegradation | None:
         """
         Check if current value represents degradation from baseline.
 
@@ -410,7 +410,7 @@ class PerformanceDegradationTracker:
     def analyze_trend(
         self,
         metric_name: str,
-        lookback_count: Optional[int] = None
+        lookback_count: int | None = None
     ) -> PerformanceTrendAnalysis:
         """
         Analyze performance trend for a metric.
@@ -529,9 +529,9 @@ class PerformanceDegradationTracker:
 
     def get_degradations(
         self,
-        severity: Optional[AlertSeverity] = None,
-        since_timestamp: Optional[float] = None
-    ) -> List[PerformanceDegradation]:
+        severity: AlertSeverity | None = None,
+        since_timestamp: float | None = None
+    ) -> list[PerformanceDegradation]:
         """
         Get detected degradations.
 

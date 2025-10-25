@@ -38,7 +38,6 @@ Example:
 
 import logging
 from pathlib import Path
-from typing import Optional
 
 from git import InvalidGitRepositoryError, Repo
 from git.exc import GitCommandError
@@ -104,7 +103,7 @@ def get_current_branch(repo_path: Path) -> str:
         # An empty repository (no commits) will have an empty HEAD
         try:
             _ = repo.head.commit
-        except ValueError as e:
+        except ValueError:
             # Repository exists but has no commits yet
             logger.warning(
                 "Git repository has no commits yet, defaulting to '%s': %s",
@@ -157,7 +156,7 @@ def get_current_branch(repo_path: Path) -> str:
         )
         return DEFAULT_BRANCH
 
-    except (OSError, IOError) as e:
+    except OSError as e:
         # File system errors - permissions, missing files, etc.
         logger.error(
             "File system error accessing Git repository, defaulting to '%s': %s - Error: %s",
@@ -179,7 +178,7 @@ def get_current_branch(repo_path: Path) -> str:
         return DEFAULT_BRANCH
 
 
-def get_repository_root(repo_path: Path) -> Optional[Path]:
+def get_repository_root(repo_path: Path) -> Path | None:
     """Get the root directory of a Git repository.
 
     This is a utility function that returns the repository root directory

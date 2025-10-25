@@ -14,20 +14,19 @@ This test suite covers:
 - Malformed HTML and broken link handling
 """
 
-import pytest
 import asyncio
 from collections import deque
 from datetime import datetime
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
 from bs4 import BeautifulSoup
-
 from common.core.link_discovery import (
+    DiscoveredLink,
     LinkDiscovery,
     LinkDiscoveryConfig,
-    DiscoveredLink,
+    LinkExtractor,
     URLNormalizer,
-    LinkExtractor
 )
 
 

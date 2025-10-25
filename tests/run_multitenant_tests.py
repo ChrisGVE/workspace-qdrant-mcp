@@ -27,7 +27,7 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Optional
 
 import pytest
 
@@ -42,7 +42,7 @@ class MultiTenantTestRunner:
         self.performance_metrics = {}
         self.start_time = None
 
-    def run_test_suite(self, test_categories: List[str], report_format: str = "json") -> Dict[str, Any]:
+    def run_test_suite(self, test_categories: list[str], report_format: str = "json") -> dict[str, Any]:
         """Run comprehensive test suite for multi-tenant architecture."""
         self.start_time = time.time()
 
@@ -134,7 +134,7 @@ class MultiTenantTestRunner:
 
         return overall_results
 
-    def _run_test_category(self, category: str, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _run_test_category(self, category: str, config: dict[str, Any]) -> dict[str, Any]:
         """Run a specific test category."""
         start_time = time.time()
 
@@ -237,7 +237,7 @@ class MultiTenantTestRunner:
                 "exception": True
             }
 
-    def _extract_performance_metrics(self, json_report: Dict[str, Any]) -> Dict[str, Any]:
+    def _extract_performance_metrics(self, json_report: dict[str, Any]) -> dict[str, Any]:
         """Extract performance metrics from test results."""
         metrics = {
             "test_performance": {},
@@ -263,7 +263,7 @@ class MultiTenantTestRunner:
 
         return metrics
 
-    def _generate_reports(self, results: Dict[str, Any], report_format: str):
+    def _generate_reports(self, results: dict[str, Any], report_format: str):
         """Generate test reports in specified format."""
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
@@ -283,7 +283,7 @@ class MultiTenantTestRunner:
             self._generate_text_report(results, text_file)
             print(f"📄 Text report saved to: {text_file}")
 
-    def _generate_html_report(self, results: Dict[str, Any], output_file: Path):
+    def _generate_html_report(self, results: dict[str, Any], output_file: Path):
         """Generate HTML test report."""
         html_content = f"""
 <!DOCTYPE html>
@@ -370,7 +370,7 @@ class MultiTenantTestRunner:
         with open(output_file, "w") as f:
             f.write(html_content)
 
-    def _generate_text_report(self, results: Dict[str, Any], output_file: Path):
+    def _generate_text_report(self, results: dict[str, Any], output_file: Path):
         """Generate text test report."""
         report_lines = [
             "=" * 80,
@@ -394,7 +394,7 @@ class MultiTenantTestRunner:
         for category, result in results["categories"].items():
             status = "PASSED" if result.get("success", False) else "FAILED"
             report_lines.extend([
-                f"",
+                "",
                 f"{category.upper()} Tests: {status}",
                 f"  Execution Time: {result.get('execution_time', 0):.1f} seconds"
             ])
@@ -420,7 +420,7 @@ class MultiTenantTestRunner:
         with open(output_file, "w") as f:
             f.write("\n".join(report_lines))
 
-    def _print_test_summary(self, results: Dict[str, Any]):
+    def _print_test_summary(self, results: dict[str, Any]):
         """Print test execution summary to console."""
         print("\n" + "=" * 60)
         print("🎯 MULTI-TENANT ARCHITECTURE TEST RESULTS")

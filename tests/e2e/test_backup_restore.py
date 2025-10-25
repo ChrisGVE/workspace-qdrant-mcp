@@ -6,17 +6,17 @@ collections, configuration files, and watch folder state. Verifies data
 integrity, system recovery, and state preservation after restore operations.
 """
 
-import pytest
-import shutil
-import time
 import json
+import shutil
 import sqlite3
+import time
 from pathlib import Path
-from typing import Dict, List
+
+import pytest
 
 from tests.e2e.fixtures import (
-    SystemComponents,
     CLIHelper,
+    SystemComponents,
 )
 
 
@@ -708,7 +708,6 @@ class TestSystemRecovery:
         self, system_components: SystemComponents, cli_helper: CLIHelper
     ):
         """Test measuring system recovery time."""
-        workspace = system_components.workspace_path
         state_db = system_components.state_db_path
 
         # Create backup

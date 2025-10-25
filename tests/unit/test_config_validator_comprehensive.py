@@ -12,22 +12,27 @@ Test coverage:
 """
 
 import os
-import sys
-import tempfile
-from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import Mock, patch, MagicMock, call
-import pytest
-from typer.testing import CliRunner
 
 # Ensure proper imports from the project structure
 import sys
+import tempfile
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, Mock, call, patch
+
+import pytest
+from typer.testing import CliRunner
+
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src" / "python"))
 
-from common.utils.config_validator import ConfigValidator, validate_config_cmd, validate_config_cli
 from common.core.config import Config
 from common.core.embeddings import EmbeddingService
+from common.utils.config_validator import (
+    ConfigValidator,
+    validate_config_cli,
+    validate_config_cmd,
+)
 from common.utils.project_detection import ProjectDetector
 
 
@@ -89,7 +94,7 @@ class TestConfigValidator:
         with patch('common.utils.config_validator.suppress_qdrant_ssl_warnings'):
             is_valid, message = validator.validate_qdrant_connection()
 
-            assert is_valid == True
+            assert is_valid
             assert "successfully connected" in message
             mock_client.get_collections.assert_called_once()
             mock_client.close.assert_called_once()
@@ -104,7 +109,7 @@ class TestConfigValidator:
         with patch('common.utils.config_validator.suppress_qdrant_ssl_warnings'):
             is_valid, message = validator.validate_qdrant_connection()
 
-            assert is_valid == False
+            assert not is_valid
             assert "Connection failed" in message
 
     @patch('common.utils.config_validator.EmbeddingService')
@@ -122,7 +127,7 @@ class TestConfigValidator:
         validator = ConfigValidator(self.mock_config)
         is_valid, message = validator.validate_embedding_model()
 
-        assert is_valid == True
+        assert is_valid
         assert "all-MiniLM-L6-v2" in message
         assert "384D" in message
 
@@ -134,7 +139,7 @@ class TestConfigValidator:
         validator = ConfigValidator(self.mock_config)
         is_valid, message = validator.validate_embedding_model()
 
-        assert is_valid == False
+        assert not is_valid
         assert "Model not found" in message
 
     @patch('common.utils.config_validator.ProjectDetector')
@@ -151,7 +156,7 @@ class TestConfigValidator:
         validator = ConfigValidator(self.mock_config)
         is_valid, message = validator.validate_project_detection()
 
-        assert is_valid == True
+        assert is_valid
         assert "test-project" in message
         assert "2 subprojects" in message
 
@@ -169,7 +174,7 @@ class TestConfigValidator:
         validator = ConfigValidator(self.mock_config)
         is_valid, message = validator.validate_project_detection()
 
-        assert is_valid == True
+        assert is_valid
         assert "test-project" in message
         assert "not a Git repository" in message
 
@@ -187,7 +192,7 @@ class TestConfigValidator:
         validator = ConfigValidator(self.mock_config)
         is_valid, message = validator.validate_project_detection()
 
-        assert is_valid == True
+        assert is_valid
         assert "1 subproject" in message  # Singular form
 
     @patch('common.utils.config_validator.ProjectDetector')
@@ -198,7 +203,7 @@ class TestConfigValidator:
         validator = ConfigValidator(self.mock_config)
         is_valid, message = validator.validate_project_detection()
 
-        assert is_valid == False
+        assert not is_valid
         assert "Detection failed" in message
 
     def test_validate_all_success(self):
@@ -212,12 +217,12 @@ class TestConfigValidator:
 
             is_valid, results = validator.validate_all()
 
-            assert is_valid == True
+            assert is_valid
             assert len(results['issues']) == 0
-            assert results['qdrant_connection']['valid'] == True
-            assert results['embedding_model']['valid'] == True
-            assert results['project_detection']['valid'] == True
-            assert results['config_validation']['valid'] == True
+            assert results['qdrant_connection']['valid']
+            assert results['embedding_model']['valid']
+            assert results['project_detection']['valid']
+            assert results['config_validation']['valid']
 
     def test_validate_all_with_issues(self):
         """Test comprehensive validation with issues."""
@@ -231,7 +236,7 @@ class TestConfigValidator:
 
             is_valid, results = validator.validate_all()
 
-            assert is_valid == False
+            assert not is_valid
             assert len(results['issues']) == 2  # Qdrant + Config issue
             assert "Qdrant failed" in results['issues']
             assert "Config issue" in results['issues']
@@ -601,7 +606,7 @@ class TestConfigValidator:
         with patch('common.utils.config_validator.suppress_qdrant_ssl_warnings'):
             result = validator._test_qdrant_connection()
 
-            assert result == True
+            assert result
 
     @patch('common.utils.config_validator.QdrantClient')
     def test_test_qdrant_connection_failure(self, mock_qdrant_client):
@@ -613,7 +618,7 @@ class TestConfigValidator:
         with patch('common.utils.config_validator.suppress_qdrant_ssl_warnings'):
             result = validator._test_qdrant_connection()
 
-            assert result == False
+            assert not result
 
     def test_get_setup_guide(self):
         """Test setup guide generation."""
@@ -626,7 +631,7 @@ class TestConfigValidator:
         assert "troubleshooting" in guide
 
         # Check that each section has content
-        for section_name, content in guide.items():
+        for _section_name, content in guide.items():
             assert isinstance(content, list)
             assert len(content) > 0
 

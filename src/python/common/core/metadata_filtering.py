@@ -62,9 +62,8 @@ import hashlib
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Set, Union, Tuple
 from enum import Enum
+from typing import Any
 
 from loguru import logger
 from qdrant_client import QdrantClient
@@ -73,11 +72,11 @@ from qdrant_client.http import models
 # Import metadata schema components from subtask 249.1
 try:
     from .metadata_schema import (
-        MultiTenantMetadataSchema,
-        CollectionCategory,
-        WorkspaceScope,
+        METADATA_SCHEMA_VERSION,
         AccessLevel,
-        METADATA_SCHEMA_VERSION
+        CollectionCategory,
+        MultiTenantMetadataSchema,
+        WorkspaceScope,
     )
     from .metadata_validator import MetadataValidator, ValidationResult
 except ImportError:
@@ -107,31 +106,31 @@ class FilterCriteria:
     """Comprehensive criteria for metadata-based filtering."""
 
     # Core project isolation
-    project_id: Optional[str] = None
-    project_name: Optional[str] = None
-    tenant_namespace: Optional[str] = None
+    project_id: str | None = None
+    project_name: str | None = None
+    tenant_namespace: str | None = None
 
     # Collection filtering
-    collection_types: Optional[List[str]] = None
-    collection_categories: Optional[List[CollectionCategory]] = None
-    workspace_scopes: Optional[List[WorkspaceScope]] = None
+    collection_types: list[str] | None = None
+    collection_categories: list[CollectionCategory] | None = None
+    workspace_scopes: list[WorkspaceScope] | None = None
 
     # Access control filtering
-    access_levels: Optional[List[AccessLevel]] = None
-    created_by: Optional[List[str]] = None
-    mcp_readonly: Optional[bool] = None
-    cli_writable: Optional[bool] = None
+    access_levels: list[AccessLevel] | None = None
+    created_by: list[str] | None = None
+    mcp_readonly: bool | None = None
+    cli_writable: bool | None = None
 
     # Temporal filtering
-    created_after: Optional[str] = None
-    created_before: Optional[str] = None
-    updated_after: Optional[str] = None
-    updated_before: Optional[str] = None
+    created_after: str | None = None
+    created_before: str | None = None
+    updated_after: str | None = None
+    updated_before: str | None = None
 
     # Organizational filtering
-    tags: Optional[List[str]] = None
-    categories: Optional[List[str]] = None
-    priority_range: Optional[Tuple[int, int]] = None
+    tags: list[str] | None = None
+    categories: list[str] | None = None
+    priority_range: tuple[int, int] | None = None
 
     # Special options
     include_global: bool = True
@@ -193,10 +192,10 @@ class FilterResult:
 
     filter: models.Filter
     criteria: FilterCriteria
-    performance_metrics: Dict[str, Any] = field(default_factory=dict)
+    performance_metrics: dict[str, Any] = field(default_factory=dict)
     cache_hit: bool = False
-    warnings: List[str] = field(default_factory=list)
-    optimizations_applied: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    optimizations_applied: list[str] = field(default_factory=list)
 
     def __post_init__(self):
         """Initialize performance metrics."""
@@ -240,7 +239,7 @@ class MetadataFilterManager:
         self.enable_performance_monitoring = enable_performance_monitoring
 
         # Initialize caching system
-        self._filter_cache: Dict[str, Tuple[FilterResult, float]] = {}
+        self._filter_cache: dict[str, tuple[FilterResult, float]] = {}
 
         # Initialize performance tracking
         self._performance_stats = defaultdict(list)
@@ -264,7 +263,7 @@ class MetadataFilterManager:
 
     def create_project_isolation_filter(
         self,
-        project_identifier: Union[str, MultiTenantMetadataSchema],
+        project_identifier: str | MultiTenantMetadataSchema,
         strategy: FilterStrategy = FilterStrategy.STRICT
     ) -> FilterResult:
         """
@@ -524,7 +523,7 @@ class MetadataFilterManager:
 
     def create_collection_type_filter(
         self,
-        collection_types: Union[str, List[str]],
+        collection_types: str | list[str],
         include_global: bool = True
     ) -> FilterResult:
         """
@@ -550,9 +549,9 @@ class MetadataFilterManager:
 
     def create_access_control_filter(
         self,
-        access_levels: Union[AccessLevel, List[AccessLevel]],
-        created_by: Optional[List[str]] = None,
-        mcp_readonly: Optional[bool] = None
+        access_levels: AccessLevel | list[AccessLevel],
+        created_by: list[str] | None = None,
+        mcp_readonly: bool | None = None
     ) -> FilterResult:
         """
         Create a filter for access control.
@@ -599,7 +598,6 @@ class MetadataFilterManager:
             collection_info = self.qdrant_client.get_collection(collection_name)
 
             # Validate indexed fields
-            indexed_fields = set()
             if hasattr(collection_info, 'config') and hasattr(collection_info.config, 'params'):
                 # Extract indexed fields from collection config
                 # This would need to be implemented based on Qdrant's actual API
@@ -630,7 +628,7 @@ class MetadataFilterManager:
 
         return result
 
-    def get_filter_performance_stats(self) -> Dict[str, Any]:
+    def get_filter_performance_stats(self) -> dict[str, Any]:
         """Get performance statistics for filter operations."""
         if not self.enable_performance_monitoring:
             return {"monitoring_disabled": True}
@@ -664,7 +662,7 @@ class MetadataFilterManager:
         self._filter_cache.clear()
         logger.debug("Filter cache cleared")
 
-    def _build_project_conditions(self, criteria: FilterCriteria) -> List[models.Condition]:
+    def _build_project_conditions(self, criteria: FilterCriteria) -> list[models.Condition]:
         """Build project isolation conditions."""
         conditions = []
 
@@ -695,7 +693,7 @@ class MetadataFilterManager:
 
         return conditions
 
-    def _build_collection_type_conditions(self, criteria: FilterCriteria) -> List[models.Condition]:
+    def _build_collection_type_conditions(self, criteria: FilterCriteria) -> list[models.Condition]:
         """Build collection type conditions."""
         if not criteria.collection_types:
             return []
@@ -715,7 +713,7 @@ class MetadataFilterManager:
                 )
             ]
 
-    def _build_collection_category_conditions(self, criteria: FilterCriteria) -> List[models.Condition]:
+    def _build_collection_category_conditions(self, criteria: FilterCriteria) -> list[models.Condition]:
         """Build collection category conditions."""
         if not criteria.collection_categories:
             return []
@@ -737,7 +735,7 @@ class MetadataFilterManager:
                 )
             ]
 
-    def _build_workspace_scope_conditions(self, criteria: FilterCriteria) -> List[models.Condition]:
+    def _build_workspace_scope_conditions(self, criteria: FilterCriteria) -> list[models.Condition]:
         """Build workspace scope conditions."""
         if not criteria.workspace_scopes:
             return []
@@ -759,7 +757,7 @@ class MetadataFilterManager:
                 )
             ]
 
-    def _build_access_control_conditions(self, criteria: FilterCriteria) -> List[models.Condition]:
+    def _build_access_control_conditions(self, criteria: FilterCriteria) -> list[models.Condition]:
         """Build access control conditions."""
         conditions = []
 
@@ -814,7 +812,7 @@ class MetadataFilterManager:
 
         return conditions
 
-    def _build_temporal_conditions(self, criteria: FilterCriteria) -> List[models.Condition]:
+    def _build_temporal_conditions(self, criteria: FilterCriteria) -> list[models.Condition]:
         """Build temporal filtering conditions."""
         conditions = []
 
@@ -850,7 +848,7 @@ class MetadataFilterManager:
 
         return conditions
 
-    def _build_organizational_conditions(self, criteria: FilterCriteria) -> List[models.Condition]:
+    def _build_organizational_conditions(self, criteria: FilterCriteria) -> list[models.Condition]:
         """Build organizational filtering conditions."""
         conditions = []
 
@@ -890,14 +888,14 @@ class MetadataFilterManager:
 
         return conditions
 
-    def _build_special_conditions(self, criteria: FilterCriteria) -> List[models.Condition]:
+    def _build_special_conditions(self, criteria: FilterCriteria) -> list[models.Condition]:
         """Build special inclusion/exclusion conditions."""
         conditions = []
 
         # Handle global collection inclusion
         if criteria.include_global:
             # Add condition to include global collections
-            global_condition = models.FieldCondition(
+            models.FieldCondition(
                 key="collection_category",
                 match=models.MatchValue(value="global")
             )
@@ -907,7 +905,7 @@ class MetadataFilterManager:
         # Handle shared collection inclusion
         if criteria.include_shared:
             # Add condition to include shared collections
-            shared_condition = models.FieldCondition(
+            models.FieldCondition(
                 key="workspace_scope",
                 match=models.MatchValue(value="shared")
             )
@@ -935,7 +933,7 @@ class MetadataFilterManager:
 
         return conditions
 
-    def _get_cached_filter(self, criteria: FilterCriteria) -> Optional[FilterResult]:
+    def _get_cached_filter(self, criteria: FilterCriteria) -> FilterResult | None:
         """Retrieve cached filter result if available and valid."""
         if not self.enable_caching:
             return None
@@ -1023,7 +1021,7 @@ class MetadataFilterManager:
 
         return min(base_score + non_indexed_penalty, 10.0)
 
-    def _get_non_indexed_conditions(self, criteria: FilterCriteria) -> List[str]:
+    def _get_non_indexed_conditions(self, criteria: FilterCriteria) -> list[str]:
         """Get list of criteria that would result in non-indexed conditions."""
         non_indexed = []
 
@@ -1038,7 +1036,7 @@ class MetadataFilterManager:
 
         return non_indexed
 
-    def _map_criteria_to_metadata_field(self, criteria_field: str) -> Optional[str]:
+    def _map_criteria_to_metadata_field(self, criteria_field: str) -> str | None:
         """Map filter criteria field to metadata field name."""
         mapping = {
             "project_id": "project_id",
@@ -1061,7 +1059,7 @@ class MetadataFilterManager:
         }
         return mapping.get(criteria_field)
 
-    def _record_performance_stats(self, filter_type: str, metrics: Dict[str, Any]):
+    def _record_performance_stats(self, filter_type: str, metrics: dict[str, Any]):
         """Record performance statistics for monitoring."""
         self._performance_stats[filter_type].append(metrics)
         self._filter_usage_count[filter_type] += 1

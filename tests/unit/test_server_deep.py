@@ -7,13 +7,13 @@ by testing core functionality, error paths, and edge cases.
 
 import asyncio
 import os
-import sys
 import signal
+import sys
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from unittest.mock import Mock, patch, AsyncMock, MagicMock, call, mock_open
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, mock_open, patch
 
 import pytest
 
@@ -25,8 +25,11 @@ sys.path.insert(0, str(src_path))
 try:
     from workspace_qdrant_mcp import server
     from workspace_qdrant_mcp.server import (
-        run_server, create_app, create_client,
-        handle_server_signal, setup_logging
+        create_app,
+        create_client,
+        handle_server_signal,
+        run_server,
+        setup_logging,
     )
     SERVER_AVAILABLE = True
 except ImportError as e:
@@ -75,7 +78,7 @@ class TestServerDeepCoverage:
             with patch('workspace_qdrant_mcp.server.register_memory_tools') as mock_memory:
                 with patch('workspace_qdrant_mcp.server.register_search_tools') as mock_search:
                     with patch('workspace_qdrant_mcp.server.register_state_tools') as mock_state:
-                        app = create_app(mock_config)
+                        create_app(mock_config)
 
                         # Verify tool registration calls
                         mock_memory.assert_called_once_with(mock_app, mock_config)
@@ -167,7 +170,7 @@ class TestServerDeepCoverage:
         with patch('workspace_qdrant_mcp.server.create_app') as mock_create_app:
             with patch('workspace_qdrant_mcp.server.create_client') as mock_create_client:
                 with patch('workspace_qdrant_mcp.server.setup_logging') as mock_setup_logging:
-                    with patch('workspace_qdrant_mcp.server.signal.signal') as mock_signal:
+                    with patch('workspace_qdrant_mcp.server.signal.signal'):
                         mock_app = AsyncMock()
                         mock_create_app.return_value = mock_app
                         mock_create_client.return_value = AsyncMock()
@@ -187,7 +190,7 @@ class TestServerDeepCoverage:
         """Test run_server when client creation fails."""
         with patch('workspace_qdrant_mcp.server.create_app') as mock_create_app:
             with patch('workspace_qdrant_mcp.server.create_client') as mock_create_client:
-                with patch('workspace_qdrant_mcp.server.setup_logging') as mock_setup_logging:
+                with patch('workspace_qdrant_mcp.server.setup_logging'):
                     mock_create_app.return_value = AsyncMock()
                     mock_create_client.side_effect = Exception("Client creation failed")
 

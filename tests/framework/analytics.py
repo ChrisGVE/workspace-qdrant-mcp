@@ -18,25 +18,22 @@ Features:
 
 import json
 import logging
+
+# Use basic statistics instead of numpy/scipy for better compatibility
 import math
 import sqlite3
 import statistics
 import threading
 import time
-from collections import defaultdict, Counter, deque
-from dataclasses import dataclass, field, asdict
+from collections import Counter, defaultdict, deque
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum, auto
 from pathlib import Path
-from typing import (
-    Dict, List, Set, Optional, Tuple, Any, Union,
-    Callable, NamedTuple
-)
+from typing import Any, NamedTuple, Optional, Union
 
-# Use basic statistics instead of numpy/scipy for better compatibility
-import math
-
-from .discovery import TestMetadata, TestCategory, TestComplexity
+from .discovery import TestCategory, TestComplexity, TestMetadata
 from .execution import ExecutionResult, ExecutionStatus
 
 
@@ -92,8 +89,8 @@ class TestMetrics:
     reliability_trend: TrendDirection = TrendDirection.STABLE
 
     # Failure analysis
-    failure_patterns: Dict[str, int] = field(default_factory=dict)
-    common_errors: List[str] = field(default_factory=list)
+    failure_patterns: dict[str, int] = field(default_factory=dict)
+    common_errors: list[str] = field(default_factory=list)
 
     # Historical data (limited to recent entries)
     duration_history: deque = field(default_factory=lambda: deque(maxlen=50))
@@ -123,18 +120,18 @@ class SuiteMetrics:
     flaky_test_count: int = 0
 
     # Coverage metrics (if available)
-    code_coverage: Optional[float] = None
-    branch_coverage: Optional[float] = None
+    code_coverage: float | None = None
+    branch_coverage: float | None = None
     coverage_trend: TrendDirection = TrendDirection.STABLE
 
     # Distribution by category
-    category_breakdown: Dict[TestCategory, int] = field(default_factory=dict)
-    complexity_breakdown: Dict[TestComplexity, int] = field(default_factory=dict)
+    category_breakdown: dict[TestCategory, int] = field(default_factory=dict)
+    complexity_breakdown: dict[TestComplexity, int] = field(default_factory=dict)
 
     # Trends and alerts
     performance_trend: TrendDirection = TrendDirection.STABLE
     reliability_trend: TrendDirection = TrendDirection.STABLE
-    alerts: List[str] = field(default_factory=list)
+    alerts: list[str] = field(default_factory=list)
 
     timestamp: float = field(default_factory=time.time)
 
@@ -144,10 +141,10 @@ class Alert:
     """Test suite alert information."""
     level: AlertLevel
     message: str
-    test_name: Optional[str] = None
-    category: Optional[str] = None
-    threshold_value: Optional[float] = None
-    actual_value: Optional[float] = None
+    test_name: str | None = None
+    category: str | None = None
+    threshold_value: float | None = None
+    actual_value: float | None = None
     timestamp: float = field(default_factory=time.time)
     acknowledged: bool = False
 
@@ -166,7 +163,7 @@ class FlakeDetector:
         self.min_runs = min_runs
         self.significance_level = significance_level
 
-    def calculate_flakiness_score(self, result_history: List[bool]) -> float:
+    def calculate_flakiness_score(self, result_history: list[bool]) -> float:
         """
         Calculate flakiness score based on result pattern.
 
@@ -211,7 +208,7 @@ class FlakeDetector:
 
         return flakiness_score
 
-    def _calculate_runs(self, binary_list: List[int]) -> int:
+    def _calculate_runs(self, binary_list: list[int]) -> int:
         """Calculate the number of runs in a binary sequence."""
         if len(binary_list) == 0:
             return 0
@@ -223,7 +220,7 @@ class FlakeDetector:
 
         return runs
 
-    def detect_flaky_tests(self, metrics: Dict[str, TestMetrics]) -> List[str]:
+    def detect_flaky_tests(self, metrics: dict[str, TestMetrics]) -> list[str]:
         """
         Detect flaky tests based on statistical analysis.
 
@@ -266,7 +263,7 @@ class TrendAnalyzer:
         """
         self.window_size = window_size
 
-    def analyze_performance_trend(self, duration_history: List[float]) -> TrendDirection:
+    def analyze_performance_trend(self, duration_history: list[float]) -> TrendDirection:
         """
         Analyze performance trend based on execution duration history.
 
@@ -314,7 +311,7 @@ class TrendAnalyzer:
         except Exception:
             return TrendDirection.STABLE
 
-    def analyze_reliability_trend(self, result_history: List[bool]) -> TrendDirection:
+    def analyze_reliability_trend(self, result_history: list[bool]) -> TrendDirection:
         """
         Analyze reliability trend based on pass/fail history.
 
@@ -357,7 +354,7 @@ class TrendAnalyzer:
         else:
             return TrendDirection.DEGRADING
 
-    def _calculate_volatility(self, result_history: List[bool]) -> float:
+    def _calculate_volatility(self, result_history: list[bool]) -> float:
         """Calculate volatility of test results."""
         if len(result_history) < 2:
             return 0.0
@@ -373,7 +370,7 @@ class AlertManager:
     """Manages test suite alerts and notifications."""
 
     def __init__(self):
-        self.alerts: List[Alert] = []
+        self.alerts: list[Alert] = []
         self._alert_thresholds = {
             'success_rate_warning': 0.90,
             'success_rate_critical': 0.70,
@@ -383,7 +380,7 @@ class AlertManager:
             'timeout_rate_warning': 0.05,   # 5% timeout rate
         }
 
-    def check_suite_health(self, suite_metrics: SuiteMetrics) -> List[Alert]:
+    def check_suite_health(self, suite_metrics: SuiteMetrics) -> list[Alert]:
         """
         Check overall suite health and generate alerts.
 
@@ -456,7 +453,7 @@ class AlertManager:
         self.alerts.extend(new_alerts)
         return new_alerts
 
-    def check_test_health(self, test_metrics: TestMetrics) -> List[Alert]:
+    def check_test_health(self, test_metrics: TestMetrics) -> list[Alert]:
         """
         Check individual test health and generate alerts.
 
@@ -472,7 +469,7 @@ class AlertManager:
         if test_metrics.flakiness_score > self._alert_thresholds['flakiness_critical']:
             new_alerts.append(Alert(
                 level=AlertLevel.CRITICAL,
-                message=f"Critical flaky test detected",
+                message="Critical flaky test detected",
                 test_name=test_metrics.test_name,
                 category="flakiness",
                 threshold_value=self._alert_thresholds['flakiness_critical'],
@@ -481,7 +478,7 @@ class AlertManager:
         elif test_metrics.flakiness_score > self._alert_thresholds['flakiness_warning']:
             new_alerts.append(Alert(
                 level=AlertLevel.WARNING,
-                message=f"Flaky test detected",
+                message="Flaky test detected",
                 test_name=test_metrics.test_name,
                 category="flakiness",
                 threshold_value=self._alert_thresholds['flakiness_warning'],
@@ -492,7 +489,7 @@ class AlertManager:
         if test_metrics.performance_trend == TrendDirection.DEGRADING:
             new_alerts.append(Alert(
                 level=AlertLevel.WARNING,
-                message=f"Performance degradation detected",
+                message="Performance degradation detected",
                 test_name=test_metrics.test_name,
                 category="performance"
             ))
@@ -514,7 +511,7 @@ class AlertManager:
 class TestAnalytics:
     """Comprehensive test analytics system."""
 
-    def __init__(self, database_path: Optional[Path] = None):
+    def __init__(self, database_path: Path | None = None):
         """
         Initialize test analytics system.
 
@@ -522,8 +519,8 @@ class TestAnalytics:
             database_path: Path to SQLite database for persistent storage
         """
         self.database_path = database_path or Path(".test_analytics.db")
-        self.test_metrics: Dict[str, TestMetrics] = {}
-        self.suite_history: List[SuiteMetrics] = []
+        self.test_metrics: dict[str, TestMetrics] = {}
+        self.suite_history: list[SuiteMetrics] = []
 
         self.flake_detector = FlakeDetector()
         self.trend_analyzer = TrendAnalyzer()
@@ -577,8 +574,8 @@ class TestAnalytics:
             logging.warning(f"Failed to initialize analytics database: {e}")
 
     def process_execution_results(self,
-                                results: Dict[str, ExecutionResult],
-                                test_metadata: Dict[str, TestMetadata]) -> SuiteMetrics:
+                                results: dict[str, ExecutionResult],
+                                test_metadata: dict[str, TestMetadata]) -> SuiteMetrics:
         """
         Process test execution results and update analytics.
 
@@ -664,8 +661,8 @@ class TestAnalytics:
         metrics.last_updated = time.time()
 
     def _calculate_suite_metrics(self,
-                                results: Dict[str, ExecutionResult],
-                                test_metadata: Dict[str, TestMetadata]) -> SuiteMetrics:
+                                results: dict[str, ExecutionResult],
+                                test_metadata: dict[str, TestMetadata]) -> SuiteMetrics:
         """Calculate suite-level metrics."""
         suite_metrics = SuiteMetrics()
 
@@ -730,7 +727,7 @@ class TestAnalytics:
 
     def _analyze_trends(self):
         """Analyze trends for all tests."""
-        for test_name, metrics in self.test_metrics.items():
+        for _test_name, metrics in self.test_metrics.items():
             if len(metrics.duration_history) > 0:
                 metrics.performance_trend = self.trend_analyzer.analyze_performance_trend(
                     list(metrics.duration_history)
@@ -742,7 +739,7 @@ class TestAnalytics:
 
     def _detect_flaky_tests(self):
         """Detect and update flaky test information."""
-        flaky_tests = self.flake_detector.detect_flaky_tests(self.test_metrics)
+        self.flake_detector.detect_flaky_tests(self.test_metrics)
 
         # Update flakiness scores in metrics (done by detector)
         # Additional processing could be added here
@@ -811,7 +808,7 @@ class TestAnalytics:
         except Exception as e:
             logging.warning(f"Failed to store suite metrics: {e}")
 
-    def get_test_report(self, test_name: str) -> Optional[Dict[str, Any]]:
+    def get_test_report(self, test_name: str) -> dict[str, Any] | None:
         """Get comprehensive report for a specific test."""
         if test_name not in self.test_metrics:
             return None
@@ -826,7 +823,7 @@ class TestAnalytics:
             'recommendations': self._get_test_recommendations(metrics)
         }
 
-    def get_suite_report(self) -> Dict[str, Any]:
+    def get_suite_report(self) -> dict[str, Any]:
         """Get comprehensive suite-level report."""
         if not self.suite_history:
             return {}
@@ -842,7 +839,7 @@ class TestAnalytics:
             'alerts': [asdict(alert) for alert in self.alert_manager.alerts[-10:]]  # Last 10 alerts
         }
 
-    def _get_recent_failures(self, test_name: str, limit: int) -> List[Dict[str, Any]]:
+    def _get_recent_failures(self, test_name: str, limit: int) -> list[dict[str, Any]]:
         """Get recent failure information for a test."""
         try:
             with sqlite3.connect(self.database_path) as conn:
@@ -863,7 +860,7 @@ class TestAnalytics:
         except Exception:
             return []
 
-    def _get_performance_statistics(self, test_name: str) -> Dict[str, Any]:
+    def _get_performance_statistics(self, test_name: str) -> dict[str, Any]:
         """Get performance statistics for a test."""
         if test_name not in self.test_metrics:
             return {}
@@ -884,7 +881,7 @@ class TestAnalytics:
             'trend': metrics.performance_trend.name
         }
 
-    def _get_test_recommendations(self, metrics: TestMetrics) -> List[str]:
+    def _get_test_recommendations(self, metrics: TestMetrics) -> list[str]:
         """Generate recommendations for a specific test."""
         recommendations = []
 
@@ -904,7 +901,7 @@ class TestAnalytics:
 
         return recommendations
 
-    def _get_trending_tests(self) -> Dict[str, List[str]]:
+    def _get_trending_tests(self) -> dict[str, list[str]]:
         """Get tests categorized by trends."""
         trends = {
             'improving': [],
@@ -922,7 +919,7 @@ class TestAnalytics:
 
         return trends
 
-    def _get_flaky_test_summary(self) -> List[Dict[str, Any]]:
+    def _get_flaky_test_summary(self) -> list[dict[str, Any]]:
         """Get summary of flaky tests."""
         flaky_tests = []
 
@@ -937,7 +934,7 @@ class TestAnalytics:
 
         return sorted(flaky_tests, key=lambda x: x['flakiness_score'], reverse=True)
 
-    def _get_performance_insights(self) -> Dict[str, Any]:
+    def _get_performance_insights(self) -> dict[str, Any]:
         """Get performance insights for the suite."""
         if not self.suite_history:
             return {}
@@ -951,7 +948,7 @@ class TestAnalytics:
             'performance_improvement_opportunities': self._identify_performance_opportunities()
         }
 
-    def _get_slowest_tests(self, limit: int) -> List[Dict[str, Any]]:
+    def _get_slowest_tests(self, limit: int) -> list[dict[str, Any]]:
         """Get the slowest tests."""
         test_durations = [
             {
@@ -965,7 +962,7 @@ class TestAnalytics:
 
         return sorted(test_durations, key=lambda x: x['avg_duration'], reverse=True)[:limit]
 
-    def _identify_performance_opportunities(self) -> List[str]:
+    def _identify_performance_opportunities(self) -> list[str]:
         """Identify performance improvement opportunities."""
         opportunities = []
 
@@ -979,17 +976,16 @@ class TestAnalytics:
             opportunities.append(f"Tests with inconsistent performance: {', '.join(high_variance_tests[:3])}")
 
         # Find slow test categories
-        slow_categories = []
         category_durations = defaultdict(list)
 
-        for name, metrics in self.test_metrics.items():
+        for _name, metrics in self.test_metrics.items():
             if metrics.avg_duration > 0:
                 # This would need test metadata to categorize properly
                 category_durations['unknown'].append(metrics.avg_duration)
 
         return opportunities
 
-    def _get_suite_recommendations(self) -> List[str]:
+    def _get_suite_recommendations(self) -> list[str]:
         """Generate suite-level recommendations."""
         recommendations = []
 
@@ -1012,7 +1008,7 @@ class TestAnalytics:
 
         return recommendations
 
-    def export_data(self, format: str = 'json', file_path: Optional[Path] = None) -> Union[str, Path]:
+    def export_data(self, format: str = 'json', file_path: Path | None = None) -> str | Path:
         """
         Export analytics data in specified format.
 
@@ -1042,7 +1038,7 @@ class TestAnalytics:
         else:
             raise ValueError(f"Unsupported export format: {format}")
 
-    def _percentile(self, data: List[float], percentile: float) -> float:
+    def _percentile(self, data: list[float], percentile: float) -> float:
         """Calculate percentile of data."""
         if not data:
             return 0.0

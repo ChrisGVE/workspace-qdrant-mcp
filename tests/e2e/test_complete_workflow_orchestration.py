@@ -15,19 +15,20 @@ proper cleanup, timing, and performance baselines.
 
 import asyncio
 import json
-import pytest
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
+import pytest
 
 from tests.e2e.utils import (
     HealthChecker,
-    WorkflowTimer,
-    TestDataGenerator,
     QdrantTestHelper,
-    assert_within_threshold,
+    TestDataGenerator,
+    WorkflowTimer,
     assert_no_performance_regression,
-    run_git_command
+    assert_within_threshold,
+    run_git_command,
 )
 
 
@@ -118,7 +119,7 @@ class TestCompleteWorkflowOrchestration:
             "configuration settings"
         ]
 
-        for query in search_queries:
+        for _query in search_queries:
             # Simulate search operation
             await asyncio.sleep(0.5)
 
@@ -141,7 +142,7 @@ class TestCompleteWorkflowOrchestration:
 
         # Check resource usage
         resource_tracker.capture_current()
-        delta = resource_tracker.get_delta()
+        resource_tracker.get_delta()
         warnings = resource_tracker.check_thresholds()
 
         if warnings:
@@ -175,7 +176,7 @@ class TestCompleteWorkflowOrchestration:
             "project_config": ["config/settings.yaml", "config/logging.yaml"]
         }
 
-        for collection, files in collections.items():
+        for _collection, files in collections.items():
             for file_path in files:
                 full_path = workspace_path / file_path
                 full_path.parent.mkdir(parents=True, exist_ok=True)
@@ -294,7 +295,6 @@ class TestCompleteWorkflowOrchestration:
         assert isinstance(collections, list)
 
         # Test: Get collection statistics (mocked)
-        stats = {}  # Would call admin.get_collection_stats("project_code")
         # assert stats["document_count"] >= 0
 
         # Test: System health check (mocked)

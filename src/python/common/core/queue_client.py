@@ -37,21 +37,18 @@ Example:
     ```
 """
 
-import asyncio
 import json
 import sqlite3
-import time
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
-from .queue_connection import QueueConnectionPool, ConnectionConfig
 from .collection_types import CollectionTypeClassifier
 from .error_message_manager import ErrorMessageManager
-from .error_categorization import ErrorCategorizer, ErrorCategory, ErrorSeverity
+from .queue_connection import ConnectionConfig, QueueConnectionPool
 
 
 class QueueOperation(Enum):
@@ -72,11 +69,11 @@ class QueueItem:
         branch: str = "main",
         operation: QueueOperation = QueueOperation.INGEST,
         priority: int = 5,
-        queued_timestamp: Optional[datetime] = None,
+        queued_timestamp: datetime | None = None,
         retry_count: int = 0,
-        retry_from: Optional[str] = None,
-        error_message_id: Optional[int] = None,
-        collection_type: Optional[str] = None,
+        retry_from: str | None = None,
+        error_message_id: int | None = None,
+        collection_type: str | None = None,
     ):
         self.file_absolute_path = file_absolute_path
         self.collection_name = collection_name
@@ -107,7 +104,7 @@ class QueueItem:
             collection_type=row["collection_type"] if "collection_type" in row.keys() else None,  # May be None for legacy items
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "file_absolute_path": self.file_absolute_path,
@@ -136,8 +133,8 @@ class SQLiteQueueClient:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        connection_config: Optional[ConnectionConfig] = None,
+        db_path: str | None = None,
+        connection_config: ConnectionConfig | None = None,
         enable_statistics: bool = True
     ):
         """
@@ -153,7 +150,7 @@ class SQLiteQueueClient:
             config=connection_config or ConnectionConfig()
         )
         self._initialized = False
-        self.error_manager: Optional[ErrorMessageManager] = None
+        self.error_manager: ErrorMessageManager | None = None
 
         # Statistics collection
         self.enable_statistics = enable_statistics
@@ -212,10 +209,10 @@ class SQLiteQueueClient:
     async def _record_stat_event(
         self,
         event_type: str,
-        processing_time: Optional[float] = None,
+        processing_time: float | None = None,
         queue_type: str = "ingestion_queue",
-        collection: Optional[str] = None,
-        tenant_id: Optional[str] = None
+        collection: str | None = None,
+        tenant_id: str | None = None
     ):
         """
         Record a statistics event.
@@ -247,7 +244,7 @@ class SQLiteQueueClient:
         branch: str = "main",
         operation: QueueOperation = QueueOperation.INGEST,
         priority: int = 5,
-        retry_from: Optional[str] = None
+        retry_from: str | None = None
     ) -> str:
         """
         Enqueue a file for processing.
@@ -324,9 +321,9 @@ class SQLiteQueueClient:
     async def dequeue_batch(
         self,
         batch_size: int = 10,
-        tenant_id: Optional[str] = None,
-        branch: Optional[str] = None
-    ) -> List[QueueItem]:
+        tenant_id: str | None = None,
+        branch: str | None = None
+    ) -> list[QueueItem]:
         """
         Dequeue a batch of items for processing.
 
@@ -420,7 +417,7 @@ class SQLiteQueueClient:
     async def mark_complete(
         self,
         file_path: str,
-        processing_time_ms: Optional[float] = None
+        processing_time_ms: float | None = None
     ) -> bool:
         """
         Mark a file as completed and remove from queue.
@@ -480,11 +477,11 @@ class SQLiteQueueClient:
     async def mark_error(
         self,
         file_path: str,
-        exception: Optional[Exception] = None,
-        error_message: Optional[str] = None,
-        error_context: Optional[Dict[str, Any]] = None,
+        exception: Exception | None = None,
+        error_message: str | None = None,
+        error_context: dict[str, Any] | None = None,
         max_retries: int = 3
-    ) -> Tuple[bool, Optional[int]]:
+    ) -> tuple[bool, int | None]:
         """
         Mark a file as having an error and update retry count.
 
@@ -623,9 +620,9 @@ class SQLiteQueueClient:
 
     async def get_queue_stats(
         self,
-        tenant_id: Optional[str] = None,
-        branch: Optional[str] = None
-    ) -> Dict[str, Any]:
+        tenant_id: str | None = None,
+        branch: str | None = None
+    ) -> dict[str, Any]:
         """
         Get queue statistics.
 
@@ -684,9 +681,9 @@ class SQLiteQueueClient:
 
     async def clear_queue(
         self,
-        collection: Optional[str] = None,
-        tenant_id: Optional[str] = None,
-        branch: Optional[str] = None
+        collection: str | None = None,
+        tenant_id: str | None = None,
+        branch: str | None = None
     ) -> int:
         """
         Clear items from the queue.
@@ -731,7 +728,7 @@ class SQLiteQueueClient:
         self,
         collection_name: str,
         collection_type: str,
-        configuration: Optional[Dict[str, Any]] = None,
+        configuration: dict[str, Any] | None = None,
         tenant_id: str = "default",
         branch: str = "main"
     ) -> bool:
@@ -783,7 +780,7 @@ class SQLiteQueueClient:
     async def get_collection_info(
         self,
         collection_name: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """
         Get collection metadata.
 
@@ -822,10 +819,10 @@ class SQLiteQueueClient:
 
     async def enqueue_batch(
         self,
-        items: List[Dict[str, Any]],
-        max_queue_depth: Optional[int] = None,
+        items: list[dict[str, Any]],
+        max_queue_depth: int | None = None,
         overflow_strategy: str = "reject"
-    ) -> Tuple[int, List[str]]:
+    ) -> tuple[int, list[str]]:
         """
         Enqueue multiple files as a batch with priority calculation.
 
@@ -941,8 +938,8 @@ class SQLiteQueueClient:
     async def purge_completed_items(
         self,
         retention_hours: int = 24,
-        tenant_id: Optional[str] = None,
-        branch: Optional[str] = None
+        tenant_id: str | None = None,
+        branch: str | None = None
     ) -> int:
         """
         Purge completed items based on retention policy.
@@ -987,8 +984,8 @@ class SQLiteQueueClient:
 
     async def get_queue_depth(
         self,
-        tenant_id: Optional[str] = None,
-        branch: Optional[str] = None
+        tenant_id: str | None = None,
+        branch: str | None = None
     ) -> int:
         """
         Get current queue depth (item count).

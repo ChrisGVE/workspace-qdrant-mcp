@@ -8,7 +8,7 @@ connection pooling, keep-alive optimization, and request pipelining.
 import asyncio
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 from urllib.parse import urlparse
 
 import aiohttp
@@ -48,7 +48,7 @@ class ConnectionConfig:
 
     # TLS/SSL settings
     verify_ssl: bool = True
-    ssl_context: Optional[Any] = None
+    ssl_context: Any | None = None
 
     # HTTP/2 settings
     enable_http2: bool = False  # Enable HTTP/2 support
@@ -65,15 +65,15 @@ class ConnectionConfig:
 class ConnectionOptimizer:
     """Optimizes HTTP connections for web crawling."""
 
-    def __init__(self, config: Optional[ConnectionConfig] = None):
+    def __init__(self, config: ConnectionConfig | None = None):
         self.config = config or ConnectionConfig()
         self.stats = ConnectionStats()
-        self.host_connection_pools: Dict[str, aiohttp.TCPConnector] = {}
-        self.session_cache: Dict[str, aiohttp.ClientSession] = {}
-        self.connection_start_times: Dict[str, float] = {}
+        self.host_connection_pools: dict[str, aiohttp.TCPConnector] = {}
+        self.session_cache: dict[str, aiohttp.ClientSession] = {}
+        self.connection_start_times: dict[str, float] = {}
         self.last_cleanup_time = time.time()
 
-    async def create_optimized_connector(self, host: Optional[str] = None) -> aiohttp.TCPConnector:
+    async def create_optimized_connector(self, host: str | None = None) -> aiohttp.TCPConnector:
         """Create an optimized TCP connector."""
         try:
             # Create SSL context if needed
@@ -106,8 +106,8 @@ class ConnectionOptimizer:
             raise
 
     async def create_optimized_session(self,
-                                     host: Optional[str] = None,
-                                     headers: Optional[Dict[str, str]] = None) -> aiohttp.ClientSession:
+                                     host: str | None = None,
+                                     headers: dict[str, str] | None = None) -> aiohttp.ClientSession:
         """Create an optimized HTTP session."""
         try:
             start_time = time.time()
@@ -178,7 +178,7 @@ class ConnectionOptimizer:
     async def make_request(self,
                           url: str,
                           method: str = 'GET',
-                          headers: Optional[Dict[str, str]] = None,
+                          headers: dict[str, str] | None = None,
                           **kwargs) -> aiohttp.ClientResponse:
         """Make an optimized HTTP request."""
         parsed_url = urlparse(url)
@@ -203,7 +203,7 @@ class ConnectionOptimizer:
             self.stats.connection_errors += 1
             raise
 
-    def get_connection_stats(self) -> Dict[str, Any]:
+    def get_connection_stats(self) -> dict[str, Any]:
         """Get comprehensive connection statistics."""
         # Calculate averages
         if self.stats.total_connections_created > 0:
@@ -291,7 +291,7 @@ class ConnectionOptimizer:
 class UserAgentRotator:
     """Rotates user agents to avoid detection."""
 
-    def __init__(self, user_agents: Optional[List[str]] = None):
+    def __init__(self, user_agents: list[str] | None = None):
         """Initialize with user agents list."""
         if user_agents:
             self.user_agents = user_agents
@@ -299,9 +299,9 @@ class UserAgentRotator:
             self.user_agents = self._get_default_user_agents()
 
         self.current_index = 0
-        self.usage_stats = {ua: 0 for ua in self.user_agents}
+        self.usage_stats = dict.fromkeys(self.user_agents, 0)
 
-    def _get_default_user_agents(self) -> List[str]:
+    def _get_default_user_agents(self) -> list[str]:
         """Get default user agent strings."""
         return [
             # Chrome on Windows
@@ -363,7 +363,7 @@ class UserAgentRotator:
             return True
         return False
 
-    def get_usage_stats(self) -> Dict[str, Any]:
+    def get_usage_stats(self) -> dict[str, Any]:
         """Get user agent usage statistics."""
         total_uses = sum(self.usage_stats.values())
 
@@ -384,7 +384,7 @@ class UserAgentRotator:
 
     def reset_stats(self) -> None:
         """Reset usage statistics."""
-        self.usage_stats = {ua: 0 for ua in self.user_agents}
+        self.usage_stats = dict.fromkeys(self.user_agents, 0)
         self.current_index = 0
 
 
@@ -403,13 +403,13 @@ class RequestPipeline:
         self.last_request_time = 0.0
 
     async def process_url_batch(self,
-                               urls: List[str],
-                               request_kwargs: Optional[Dict[str, Any]] = None) -> List[Tuple[str, Any]]:
+                               urls: list[str],
+                               request_kwargs: dict[str, Any] | None = None) -> list[tuple[str, Any]]:
         """Process a batch of URLs concurrently with rate limiting."""
         if not request_kwargs:
             request_kwargs = {}
 
-        async def process_single_url(url: str) -> Tuple[str, Any]:
+        async def process_single_url(url: str) -> tuple[str, Any]:
             async with self.semaphore:
                 # Rate limiting
                 current_time = time.time()
@@ -433,9 +433,9 @@ class RequestPipeline:
         return results
 
     async def process_with_callback(self,
-                                  urls: List[str],
+                                  urls: list[str],
                                   callback: callable,
-                                  request_kwargs: Optional[Dict[str, Any]] = None) -> List[Any]:
+                                  request_kwargs: dict[str, Any] | None = None) -> list[Any]:
         """Process URLs with callback function for each result."""
         results = await self.process_url_batch(urls, request_kwargs)
 

@@ -6,16 +6,15 @@ capabilities, collecting metadata from all document parser types and
 normalizing it into a unified format for YAML generation and storage.
 """
 
-import hashlib
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Union, Set
+from typing import Any
 
 from loguru import logger
 
+from ....common.core.metadata_schema import (
+    MultiTenantMetadataSchema,
+)
 from ..parsers.base import ParsedDocument
-from ..parsers.file_detector import detect_file_type
-from ....common.core.metadata_schema import MultiTenantMetadataSchema, CollectionCategory
 from .exceptions import AggregationError
 
 
@@ -32,7 +31,7 @@ class DocumentMetadata:
         file_path: str,
         content_hash: str,
         parsed_document: ParsedDocument,
-        collection_metadata: Optional[MultiTenantMetadataSchema] = None,
+        collection_metadata: MultiTenantMetadataSchema | None = None,
     ):
         """
         Initialize document metadata.
@@ -49,7 +48,7 @@ class DocumentMetadata:
         self.collection_metadata = collection_metadata
         self.aggregated_at = datetime.now(timezone.utc).isoformat()
 
-    def to_dict(self, include_content: bool = True) -> Dict[str, Any]:
+    def to_dict(self, include_content: bool = True) -> dict[str, Any]:
         """
         Convert metadata to dictionary format.
 
@@ -96,7 +95,7 @@ class MetadataAggregator:
 
     def __init__(self):
         """Initialize the metadata aggregator."""
-        self.parser_registry: Dict[str, Set[str]] = {}
+        self.parser_registry: dict[str, set[str]] = {}
         self._register_known_parsers()
 
     def _register_known_parsers(self) -> None:
@@ -177,7 +176,7 @@ class MetadataAggregator:
     def aggregate_metadata(
         self,
         parsed_document: ParsedDocument,
-        project_name: Optional[str] = None,
+        project_name: str | None = None,
         collection_type: str = "documents",
     ) -> DocumentMetadata:
         """
@@ -248,10 +247,10 @@ class MetadataAggregator:
 
     def aggregate_batch_metadata(
         self,
-        parsed_documents: List[ParsedDocument],
-        project_name: Optional[str] = None,
+        parsed_documents: list[ParsedDocument],
+        project_name: str | None = None,
         collection_type: str = "documents",
-    ) -> List[DocumentMetadata]:
+    ) -> list[DocumentMetadata]:
         """
         Aggregate metadata for a batch of parsed documents.
 
@@ -328,8 +327,8 @@ class MetadataAggregator:
             )
 
     def _normalize_parser_metadata(
-        self, parser_type: str, metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, parser_type: str, metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Normalize parser-specific metadata fields.
 
@@ -367,7 +366,7 @@ class MetadataAggregator:
 
         return normalized
 
-    def _normalize_common_fields(self, metadata: Dict[str, Any]) -> None:
+    def _normalize_common_fields(self, metadata: dict[str, Any]) -> None:
         """Normalize common metadata fields across all parsers."""
         # Standardize date fields
         for date_field in ["creation_date", "modification_date", "publication_date"]:
@@ -388,7 +387,7 @@ class MetadataAggregator:
             if bool_field in metadata:
                 metadata[bool_field] = bool(metadata[bool_field])
 
-    def _normalize_pdf_metadata(self, metadata: Dict[str, Any]) -> None:
+    def _normalize_pdf_metadata(self, metadata: dict[str, Any]) -> None:
         """Normalize PDF-specific metadata fields."""
         # Ensure required PDF fields have defaults
         if "has_text_layer" not in metadata:
@@ -403,7 +402,7 @@ class MetadataAggregator:
             if not version.startswith("1."):
                 metadata["pdf_version"] = f"1.{version}"
 
-    def _normalize_ebook_metadata(self, metadata: Dict[str, Any]) -> None:
+    def _normalize_ebook_metadata(self, metadata: dict[str, Any]) -> None:
         """Normalize EPUB/MOBI-specific metadata fields."""
         # Ensure chapter count is available
         if "chapter_count" not in metadata:
@@ -416,7 +415,7 @@ class MetadataAggregator:
             isbn = str(metadata["isbn"]).replace("-", "").replace(" ", "")
             metadata["isbn"] = isbn
 
-    def _normalize_web_metadata(self, metadata: Dict[str, Any]) -> None:
+    def _normalize_web_metadata(self, metadata: dict[str, Any]) -> None:
         """Normalize web content metadata fields."""
         # Ensure URL fields are properly formatted
         for url_field in ["url", "canonical_url"]:
@@ -429,7 +428,7 @@ class MetadataAggregator:
         if "status_code" not in metadata:
             metadata["status_code"] = 200
 
-    def _normalize_code_metadata(self, metadata: Dict[str, Any]) -> None:
+    def _normalize_code_metadata(self, metadata: dict[str, Any]) -> None:
         """Normalize code parser metadata fields."""
         # Ensure complexity score is numeric
         if "complexity_score" in metadata:
@@ -443,7 +442,7 @@ class MetadataAggregator:
             if count_field in metadata:
                 metadata[count_field] = self._ensure_integer(metadata[count_field])
 
-    def _normalize_office_metadata(self, metadata: Dict[str, Any]) -> None:
+    def _normalize_office_metadata(self, metadata: dict[str, Any]) -> None:
         """Normalize DOCX/PPTX metadata fields."""
         # Handle revision field
         if "revision" in metadata:
@@ -456,7 +455,7 @@ class MetadataAggregator:
         if "company" in metadata and metadata["company"]:
             metadata["company"] = str(metadata["company"])
 
-    def _normalize_date_field(self, date_value: Any) -> Optional[str]:
+    def _normalize_date_field(self, date_value: Any) -> str | None:
         """
         Normalize date field to ISO format.
 
@@ -521,7 +520,7 @@ class MetadataAggregator:
             category="document_collection",
         )
 
-    def get_supported_parsers(self) -> List[str]:
+    def get_supported_parsers(self) -> list[str]:
         """
         Get list of supported parser types.
 
@@ -530,7 +529,7 @@ class MetadataAggregator:
         """
         return list(self.parser_registry.keys())
 
-    def get_parser_fields(self, parser_type: str) -> Set[str]:
+    def get_parser_fields(self, parser_type: str) -> set[str]:
         """
         Get known metadata fields for a parser type.
 
@@ -544,7 +543,7 @@ class MetadataAggregator:
 
     def validate_metadata_completeness(
         self, document_metadata: DocumentMetadata
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Validate completeness of aggregated metadata.
 

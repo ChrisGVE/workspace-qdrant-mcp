@@ -15,18 +15,17 @@ enterprise-grade RBAC capabilities for the entire MCP server.
 """
 
 import asyncio
-import hashlib
-import secrets
-import time
-import json
 import logging
-from typing import Dict, Set, List, Optional, Any, Tuple, Union, Callable
-from dataclasses import dataclass, field
-from enum import Enum, auto
-from datetime import datetime, timedelta
-from collections import defaultdict
+import secrets
 import threading
+import time
+from collections import defaultdict
+from collections.abc import Callable
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from enum import Enum, auto
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -80,14 +79,14 @@ class AccessResult(Enum):
 class Role:
     """Represents a role with permissions and constraints."""
     name: str
-    permissions: Set[Permission] = field(default_factory=set)
-    parent_roles: Set[str] = field(default_factory=set)
+    permissions: set[Permission] = field(default_factory=set)
+    parent_roles: set[str] = field(default_factory=set)
     max_sessions: int = 5
     session_timeout: int = 3600  # seconds
     require_mfa: bool = False
-    ip_whitelist: Set[str] = field(default_factory=set)
-    time_restrictions: Dict[str, Any] = field(default_factory=dict)
-    resource_limits: Dict[str, int] = field(default_factory=dict)
+    ip_whitelist: set[str] = field(default_factory=set)
+    time_restrictions: dict[str, Any] = field(default_factory=dict)
+    resource_limits: dict[str, int] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
 
@@ -102,14 +101,14 @@ class User:
     """Represents a user with roles and session information."""
     user_id: str
     username: str
-    roles: Set[str] = field(default_factory=set)
-    active_sessions: Set[str] = field(default_factory=set)
-    last_login: Optional[datetime] = None
+    roles: set[str] = field(default_factory=set)
+    active_sessions: set[str] = field(default_factory=set)
+    last_login: datetime | None = None
     failed_attempts: int = 0
-    locked_until: Optional[datetime] = None
+    locked_until: datetime | None = None
     mfa_enabled: bool = False
-    mfa_secret: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    mfa_secret: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.utcnow)
     updated_at: datetime = field(default_factory=datetime.utcnow)
 
@@ -125,13 +124,13 @@ class Session:
     user_id: str
     created_at: datetime = field(default_factory=datetime.utcnow)
     last_activity: datetime = field(default_factory=datetime.utcnow)
-    expires_at: Optional[datetime] = None
-    ip_address: Optional[str] = None
-    user_agent: Optional[str] = None
-    permissions: Set[Permission] = field(default_factory=set)
+    expires_at: datetime | None = None
+    ip_address: str | None = None
+    user_agent: str | None = None
+    permissions: set[Permission] = field(default_factory=set)
     elevated: bool = False
     mfa_verified: bool = False
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def is_expired(self) -> bool:
         """Check if session has expired."""
@@ -150,15 +149,15 @@ class Session:
 @dataclass
 class AccessContext:
     """Context information for access control decisions."""
-    user_id: Optional[str] = None
-    session_id: Optional[str] = None
-    ip_address: Optional[str] = None
-    user_agent: Optional[str] = None
-    resource_type: Optional[str] = None
-    resource_id: Optional[str] = None
-    operation: Optional[str] = None
+    user_id: str | None = None
+    session_id: str | None = None
+    ip_address: str | None = None
+    user_agent: str | None = None
+    resource_type: str | None = None
+    resource_id: str | None = None
+    operation: str | None = None
     timestamp: datetime = field(default_factory=datetime.utcnow)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class RoleBasedAccessControl:
@@ -175,16 +174,16 @@ class RoleBasedAccessControl:
 
     def __init__(self, audit_logger=None):
         """Initialize the RBAC system."""
-        self._roles: Dict[str, Role] = {}
-        self._users: Dict[str, User] = {}
-        self._sessions: Dict[str, Session] = {}
-        self._permission_cache: Dict[Tuple[str, str], Tuple[Set[Permission], float]] = {}
+        self._roles: dict[str, Role] = {}
+        self._users: dict[str, User] = {}
+        self._sessions: dict[str, Session] = {}
+        self._permission_cache: dict[tuple[str, str], tuple[set[Permission], float]] = {}
         self._cache_ttl = 300  # 5 minutes
         self._lock = threading.RLock()
         self._audit_logger = audit_logger
 
         # Rate limiting
-        self._rate_limits: Dict[str, List[float]] = defaultdict(list)
+        self._rate_limits: dict[str, list[float]] = defaultdict(list)
         self._rate_limit_window = 300  # 5 minutes
         self._rate_limit_max = 100  # requests per window
 
@@ -220,8 +219,8 @@ class RoleBasedAccessControl:
         }
         self.create_role("writer", permissions=writer_permissions)
 
-    def create_role(self, name: str, permissions: Optional[Set[Permission]] = None,
-                   parent_roles: Optional[Set[str]] = None, **kwargs) -> bool:
+    def create_role(self, name: str, permissions: set[Permission] | None = None,
+                   parent_roles: set[str] | None = None, **kwargs) -> bool:
         """Create a new role."""
         try:
             with self._lock:
@@ -290,7 +289,7 @@ class RoleBasedAccessControl:
             logger.error(f"Failed to delete role {name}: {e}")
             return False
 
-    def create_user(self, user_id: str, username: str, roles: Optional[Set[str]] = None,
+    def create_user(self, user_id: str, username: str, roles: set[str] | None = None,
                    **kwargs) -> bool:
         """Create a new user."""
         try:
@@ -433,8 +432,8 @@ class RoleBasedAccessControl:
             logger.error(f"Failed to revoke role {role_name} from user {user_id}: {e}")
             return False
 
-    def create_session(self, user_id: str, ip_address: Optional[str] = None,
-                      user_agent: Optional[str] = None, timeout_seconds: int = 3600) -> Optional[str]:
+    def create_session(self, user_id: str, ip_address: str | None = None,
+                      user_agent: str | None = None, timeout_seconds: int = 3600) -> str | None:
         """Create a new session for a user."""
         try:
             with self._lock:
@@ -541,8 +540,8 @@ class RoleBasedAccessControl:
             return False
 
     def check_access(self, session_id: str, permission: Permission,
-                    resource_id: Optional[str] = None,
-                    context: Optional[AccessContext] = None) -> AccessResult:
+                    resource_id: str | None = None,
+                    context: AccessContext | None = None) -> AccessResult:
         """Check if a session has access to perform an operation."""
         try:
             with self._lock:
@@ -595,7 +594,7 @@ class RoleBasedAccessControl:
             logger.error(f"Failed to check access for session {session_id}: {e}")
             return AccessResult.DENIED
 
-    def _calculate_user_permissions(self, user_id: str) -> Set[Permission]:
+    def _calculate_user_permissions(self, user_id: str) -> set[Permission]:
         """Calculate effective permissions for a user."""
         # Check cache first
         cache_key = (user_id, "permissions")
@@ -647,7 +646,7 @@ class RoleBasedAccessControl:
         user_requests.append(now)
         return True
 
-    def _check_ip_restrictions(self, user: User, ip_address: Optional[str]) -> bool:
+    def _check_ip_restrictions(self, user: User, ip_address: str | None) -> bool:
         """Check IP restrictions for user roles."""
         if not ip_address:
             return True
@@ -681,7 +680,7 @@ class RoleBasedAccessControl:
 
         return True
 
-    def _clear_permission_cache(self, user_id: Optional[str] = None):
+    def _clear_permission_cache(self, user_id: str | None = None):
         """Clear permission cache for user or all users."""
         if user_id:
             # Clear cache for specific user
@@ -693,7 +692,7 @@ class RoleBasedAccessControl:
             self._permission_cache.clear()
 
     def _log_access_granted(self, session: Session, permission: Permission,
-                           resource_id: Optional[str], context: Optional[AccessContext]):
+                           resource_id: str | None, context: AccessContext | None):
         """Log successful access."""
         if self._audit_logger:
             self._audit_logger.log_event(
@@ -709,7 +708,7 @@ class RoleBasedAccessControl:
             )
 
     def _log_access_denied(self, session: Session, permission: Permission,
-                          resource_id: Optional[str], context: Optional[AccessContext]):
+                          resource_id: str | None, context: AccessContext | None):
         """Log access denial."""
         if self._audit_logger:
             self._audit_logger.log_event(
@@ -724,7 +723,7 @@ class RoleBasedAccessControl:
                 user_id=session.user_id
             )
 
-    def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
+    def get_session_info(self, session_id: str) -> dict[str, Any] | None:
         """Get session information."""
         session = self._sessions.get(session_id)
         if not session:
@@ -747,7 +746,7 @@ class RoleBasedAccessControl:
             'mfa_verified': session.mfa_verified
         }
 
-    def list_active_sessions(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    def list_active_sessions(self, user_id: str | None = None) -> list[dict[str, Any]]:
         """List active sessions."""
         sessions = []
 
@@ -798,7 +797,7 @@ class SessionManager:
         """Initialize session manager."""
         self._rbac = rbac
         self._cleanup_interval = cleanup_interval
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: asyncio.Task | None = None
         self._running = False
 
         logger.info("Session manager initialized")

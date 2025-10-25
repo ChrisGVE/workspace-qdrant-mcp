@@ -5,17 +5,17 @@ Provides reusable fixtures for mock memory collections, sample rules,
 and testing utilities.
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Any
-from unittest.mock import AsyncMock, Mock, MagicMock
+from datetime import datetime, timedelta, timezone
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock
 
+import pytest
 from common.core.memory import (
-    MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
     AgentDefinition,
+    AuthorityLevel,
+    MemoryCategory,
     MemoryConflict,
+    MemoryRule,
 )
 
 
@@ -79,7 +79,7 @@ def mock_memory_client():
 
 
 @pytest.fixture
-def sample_memory_rules() -> List[MemoryRule]:
+def sample_memory_rules() -> list[MemoryRule]:
     """
     Provide sample memory rules for testing.
 
@@ -144,7 +144,7 @@ def sample_memory_rules() -> List[MemoryRule]:
 
 
 @pytest.fixture
-def sample_agent_definitions() -> List[AgentDefinition]:
+def sample_agent_definitions() -> list[AgentDefinition]:
     """
     Provide sample agent definitions for testing.
 
@@ -227,7 +227,7 @@ def mock_bm25_encoder():
 
 
 @pytest.fixture
-def memory_collection_names() -> Dict[str, str]:
+def memory_collection_names() -> dict[str, str]:
     """
     Provide standard memory collection names.
 
@@ -244,7 +244,7 @@ def memory_collection_names() -> Dict[str, str]:
 
 
 @pytest.fixture
-def rule_conflict_pairs() -> List[tuple[MemoryRule, MemoryRule]]:
+def rule_conflict_pairs() -> list[tuple[MemoryRule, MemoryRule]]:
     """
     Provide pairs of conflicting rules for testing conflict detection.
 
@@ -300,7 +300,7 @@ def rule_conflict_pairs() -> List[tuple[MemoryRule, MemoryRule]]:
 
 
 @pytest.fixture
-def sample_memory_conflicts(rule_conflict_pairs) -> List[MemoryConflict]:
+def sample_memory_conflicts(rule_conflict_pairs) -> list[MemoryConflict]:
     """
     Provide sample memory conflicts for testing.
 

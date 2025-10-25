@@ -7,15 +7,15 @@ memory rules testing.
 
 import random
 import string
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
 
 from common.core.memory import (
-    MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
     AgentDefinition,
+    AuthorityLevel,
+    MemoryCategory,
     MemoryConflict,
+    MemoryRule,
 )
 
 
@@ -27,7 +27,7 @@ class MemoryRuleGenerator:
     for comprehensive testing.
     """
 
-    def __init__(self, seed: Optional[int] = None):
+    def __init__(self, seed: int | None = None):
         """
         Initialize the rule generator.
 
@@ -42,9 +42,9 @@ class MemoryRuleGenerator:
 
     def generate_rule(
         self,
-        category: Optional[MemoryCategory] = None,
-        authority: Optional[AuthorityLevel] = None,
-        scope: Optional[List[str]] = None,
+        category: MemoryCategory | None = None,
+        authority: AuthorityLevel | None = None,
+        scope: list[str] | None = None,
         **kwargs: Any
     ) -> MemoryRule:
         """
@@ -90,9 +90,9 @@ class MemoryRuleGenerator:
     def generate_rules(
         self,
         count: int,
-        category: Optional[MemoryCategory] = None,
-        authority: Optional[AuthorityLevel] = None,
-    ) -> List[MemoryRule]:
+        category: MemoryCategory | None = None,
+        authority: AuthorityLevel | None = None,
+    ) -> list[MemoryRule]:
         """
         Generate multiple memory rules.
 
@@ -129,7 +129,7 @@ class MemoryRuleGenerator:
 
     def generate_preference_rule(
         self,
-        scope: Optional[List[str]] = None,
+        scope: list[str] | None = None,
         **kwargs: Any
     ) -> MemoryRule:
         """
@@ -166,8 +166,8 @@ class MemoryRuleGenerator:
 
     def generate_agent_definition(
         self,
-        name: Optional[str] = None,
-        capabilities: Optional[List[str]] = None,
+        name: str | None = None,
+        capabilities: list[str] | None = None,
         **kwargs: Any
     ) -> AgentDefinition:
         """
@@ -208,9 +208,9 @@ class MemoryRuleGenerator:
 
     def generate_scoped_rules(
         self,
-        scopes: List[str],
-        category: Optional[MemoryCategory] = None,
-    ) -> List[MemoryRule]:
+        scopes: list[str],
+        category: MemoryCategory | None = None,
+    ) -> list[MemoryRule]:
         """
         Generate rules with specific scopes.
 
@@ -230,7 +230,7 @@ class MemoryRuleGenerator:
         self,
         count: int,
         time_span_days: int = 30,
-    ) -> List[MemoryRule]:
+    ) -> list[MemoryRule]:
         """
         Generate rules with timestamps spread over a time period.
 
@@ -267,7 +267,7 @@ class MemoryRuleValidator:
     """
 
     @staticmethod
-    def validate_structure(rule: MemoryRule) -> Tuple[bool, List[str]]:
+    def validate_structure(rule: MemoryRule) -> tuple[bool, list[str]]:
         """
         Validate rule structure and required fields.
 
@@ -321,7 +321,7 @@ class MemoryRuleValidator:
         return len(errors) == 0, errors
 
     @staticmethod
-    def validate_semantics(rule: MemoryRule) -> Tuple[bool, List[str]]:
+    def validate_semantics(rule: MemoryRule) -> tuple[bool, list[str]]:
         """
         Validate rule semantic correctness.
 
@@ -352,7 +352,7 @@ class MemoryRuleValidator:
         return len(warnings) == 0, warnings
 
     @staticmethod
-    def validate_relationships(rules: List[MemoryRule]) -> Tuple[bool, List[str]]:
+    def validate_relationships(rules: list[MemoryRule]) -> tuple[bool, list[str]]:
         """
         Validate relationships between rules.
 
@@ -388,7 +388,7 @@ class ConflictSimulator:
     Useful for testing conflict detection and resolution.
     """
 
-    def __init__(self, generator: Optional[MemoryRuleGenerator] = None):
+    def __init__(self, generator: MemoryRuleGenerator | None = None):
         """
         Initialize the conflict simulator.
 
@@ -399,8 +399,8 @@ class ConflictSimulator:
 
     def generate_contradictory_pair(
         self,
-        scope: Optional[List[str]] = None,
-    ) -> Tuple[MemoryRule, MemoryRule]:
+        scope: list[str] | None = None,
+    ) -> tuple[MemoryRule, MemoryRule]:
         """
         Generate a pair of directly contradictory rules.
 
@@ -431,8 +431,8 @@ class ConflictSimulator:
 
     def generate_authority_conflict(
         self,
-        scope: Optional[List[str]] = None,
-    ) -> Tuple[MemoryRule, MemoryRule]:
+        scope: list[str] | None = None,
+    ) -> tuple[MemoryRule, MemoryRule]:
         """
         Generate rules with conflicting authority levels.
 
@@ -463,9 +463,9 @@ class ConflictSimulator:
 
     def generate_scope_overlap(
         self,
-        scope1: List[str],
-        scope2: List[str],
-    ) -> Tuple[MemoryRule, MemoryRule]:
+        scope1: list[str],
+        scope2: list[str],
+    ) -> tuple[MemoryRule, MemoryRule]:
         """
         Generate rules with overlapping but different scopes.
 

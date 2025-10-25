@@ -4,17 +4,15 @@ Unit tests for Tree-sitter Grammar Configuration Management.
 Tests configuration loading, saving, updating, and thread safety.
 """
 
-import pytest
-import tempfile
 import json
+import tempfile
 import threading
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
-from src.python.common.core.grammar_config import (
-    GrammarConfig,
-    ConfigManager
-)
+import pytest
+
+from src.python.common.core.grammar_config import ConfigManager, GrammarConfig
 
 
 class TestGrammarConfig:
@@ -126,7 +124,7 @@ class TestConfigManager:
 
     def test_manager_initialization(self, temp_config_dir):
         """Test config manager initialization creates directory and default config."""
-        manager = ConfigManager(config_dir=temp_config_dir)
+        ConfigManager(config_dir=temp_config_dir)
 
         assert temp_config_dir.exists()
         assert (temp_config_dir / "config.json").exists()
@@ -159,7 +157,7 @@ class TestConfigManager:
         config = GrammarConfig(c_compiler="gcc")
         manager.save(config)
 
-        with open(manager.config_file, 'r') as f:
+        with open(manager.config_file) as f:
             data = json.load(f)
 
         assert data["c_compiler"] == "gcc"
@@ -297,7 +295,7 @@ class TestConfigManager:
         manager.add_grammar_directory("/nonexistent/path")
 
         with patch('src.python.common.core.grammar_config.logger') as mock_logger:
-            paths = manager.get_grammar_search_paths()
+            manager.get_grammar_search_paths()
             # Should log warning for non-existent directory
             mock_logger.warning.assert_called()
 
@@ -330,7 +328,7 @@ class TestConfigManager:
 
         assert export_file.exists()
 
-        with open(export_file, 'r') as f:
+        with open(export_file) as f:
             data = json.load(f)
 
         assert data["c_compiler"] == "gcc"
@@ -397,10 +395,9 @@ class TestConfigManager:
         manager.update(c_compiler="gcc")
 
         # Simulate failure during write by patching rename
-        original_rename = Path.replace
 
         def failing_rename(self, target):
-            raise IOError("Simulated failure")
+            raise OSError("Simulated failure")
 
         with patch.object(Path, 'replace', failing_rename):
             with pytest.raises(IOError):

@@ -6,42 +6,43 @@ YAML serialization failures, and incremental update scenarios as specified
 in the task requirements.
 """
 
-import pytest
-import tempfile
-import sqlite3
 import json
+import sqlite3
+import tempfile
+from concurrent.futures import TimeoutError
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from concurrent.futures import TimeoutError
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from src.python.wqm_cli.cli.metadata.aggregator import (
-    MetadataAggregator,
     DocumentMetadata,
-)
-from src.python.wqm_cli.cli.metadata.yaml_generator import (
-    YAMLGenerator,
-    YAMLConfig,
+    MetadataAggregator,
 )
 from src.python.wqm_cli.cli.metadata.batch_processor import (
-    BatchProcessor,
     BatchConfig,
+    BatchProcessor,
     BatchResult,
 )
-from src.python.wqm_cli.cli.metadata.incremental_tracker import (
-    IncrementalTracker,
-    DocumentChangeInfo,
-)
-from src.python.wqm_cli.cli.metadata.workflow_manager import (
-    WorkflowManager,
-    WorkflowConfig,
-)
 from src.python.wqm_cli.cli.metadata.exceptions import (
-    MetadataError,
     AggregationError,
-    YAMLGenerationError,
     BatchProcessingError,
     IncrementalTrackingError,
+    MetadataError,
+    YAMLGenerationError,
+)
+from src.python.wqm_cli.cli.metadata.incremental_tracker import (
+    DocumentChangeInfo,
+    IncrementalTracker,
+)
+from src.python.wqm_cli.cli.metadata.workflow_manager import (
+    WorkflowConfig,
+    WorkflowManager,
+)
+from src.python.wqm_cli.cli.metadata.yaml_generator import (
+    YAMLConfig,
+    YAMLGenerator,
 )
 from src.python.wqm_cli.cli.parsers.base import ParsedDocument
 
@@ -339,7 +340,7 @@ class TestYAMLSerializationFailures:
         * asterisk
         """
 
-        parsed_doc = ParsedDocument.create(
+        ParsedDocument.create(
             content=special_content,
             file_path="/test/special_chars.txt",
             file_type="text",

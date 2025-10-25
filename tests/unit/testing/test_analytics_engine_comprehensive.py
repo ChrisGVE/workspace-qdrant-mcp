@@ -5,23 +5,23 @@ Tests all functionality including trend analysis, quality scoring,
 anomaly detection, and error handling scenarios.
 """
 
-import pytest
+import json
 import sqlite3
 import tempfile
-import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
-import numpy as np
 
+import numpy as np
+import pytest
 from src.python.workspace_qdrant_mcp.testing.analytics.engine import (
-    TestAnalyticsEngine,
-    TestResult,
-    TestMetrics,
-    TrendAnalysis,
-    QualityReport,
     MetricType,
-    TrendDirection
+    QualityReport,
+    TestAnalyticsEngine,
+    TestMetrics,
+    TestResult,
+    TrendAnalysis,
+    TrendDirection,
 )
 
 
@@ -66,7 +66,7 @@ class TestTestAnalyticsEngine:
 
     def test_initialization(self, temp_db):
         """Test analytics engine initialization."""
-        engine = TestAnalyticsEngine(db_path=temp_db)
+        TestAnalyticsEngine(db_path=temp_db)
 
         # Check database was created
         assert temp_db.exists()
@@ -436,7 +436,7 @@ class TestTestAnalyticsEngine:
 
     def test_reliability_score_error_handling(self, analytics_engine):
         """Test reliability score calculation with error."""
-        metrics = TestMetrics()
+        TestMetrics()
 
         with patch.object(analytics_engine, '_calculate_reliability_score', side_effect=Exception("Error")):
             # Should not crash, but return default

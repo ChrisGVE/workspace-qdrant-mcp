@@ -43,13 +43,13 @@ import asyncio
 import statistics
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
-from .queue_connection import QueueConnectionPool, ConnectionConfig
+from .queue_connection import ConnectionConfig, QueueConnectionPool
 from .queue_statistics import QueueStatisticsCollector
 
 
@@ -73,11 +73,11 @@ class SlowOperation:
     duration_ms: float
     timestamp: datetime
     collection_name: str
-    file_type: Optional[str] = None
-    tenant_id: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    file_type: str | None = None
+    tenant_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "file_path": self.file_path,
@@ -109,11 +109,11 @@ class OperationBottleneck:
     avg_duration: float
     p95_duration: float
     p99_duration: float
-    slowest_items: List[SlowOperation]
+    slowest_items: list[SlowOperation]
     count: int
     recommendation: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "operation_type": self.operation_type,
@@ -148,9 +148,9 @@ class CollectionBottleneck:
     overall_avg_time: float
     issue_description: str
     recommendation: str
-    sample_slow_items: List[SlowOperation] = field(default_factory=list)
+    sample_slow_items: list[SlowOperation] = field(default_factory=list)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "collection_name": self.collection_name,
@@ -181,10 +181,10 @@ class ParserStats:
     count: int
     avg_time: float
     p95_time: float
-    slowest_items: List[SlowOperation]
+    slowest_items: list[SlowOperation]
     recommendation: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "file_type": self.file_type,
@@ -214,7 +214,7 @@ class TenantBottleneck:
     issue_description: str
     recommendation: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "tenant_id": self.tenant_id,
@@ -246,10 +246,10 @@ class PipelineAnalysis:
     store_avg_time: float
     total_avg_time: float
     bottleneck_stage: str
-    stage_percentages: Dict[str, float]
+    stage_percentages: dict[str, float]
     recommendation: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "parse_avg_time": round(self.parse_avg_time, 2),
@@ -273,8 +273,8 @@ class BottleneckDetector:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        connection_config: Optional[ConnectionConfig] = None,
+        db_path: str | None = None,
+        connection_config: ConnectionConfig | None = None,
         slow_operation_threshold_ms: float = 5000.0,
         slow_collection_multiplier: float = 2.0,
         slow_parser_multiplier: float = 2.0,
@@ -310,7 +310,7 @@ class BottleneckDetector:
         self._lock = asyncio.Lock()
 
         # Statistics collector for rate calculations
-        self.stats_collector: Optional[QueueStatisticsCollector] = None
+        self.stats_collector: QueueStatisticsCollector | None = None
 
     def _get_default_db_path(self) -> str:
         """Get default database path from OS directories."""
@@ -353,9 +353,9 @@ class BottleneckDetector:
         operation: str,
         duration_ms: float,
         collection_name: str,
-        file_type: Optional[str] = None,
-        tenant_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        file_type: str | None = None,
+        tenant_id: str | None = None,
+        metadata: dict[str, Any] | None = None
     ):
         """
         Record an operation for bottleneck analysis.
@@ -393,8 +393,8 @@ class BottleneckDetector:
     async def identify_slow_operations(
         self,
         threshold_percentile: int = 95,
-        time_window_minutes: Optional[int] = 60
-    ) -> List[OperationBottleneck]:
+        time_window_minutes: int | None = 60
+    ) -> list[OperationBottleneck]:
         """
         Identify operations taking >p95 (or specified percentile) of all operations.
 
@@ -421,7 +421,7 @@ class BottleneckDetector:
             return []
 
         # Group by operation type
-        by_operation_type: Dict[str, List[SlowOperation]] = defaultdict(list)
+        by_operation_type: dict[str, list[SlowOperation]] = defaultdict(list)
         for op in operations:
             by_operation_type[op.operation].append(op)
 
@@ -470,7 +470,7 @@ class BottleneckDetector:
     async def identify_slow_collections(
         self,
         time_window_minutes: int = 60
-    ) -> List[CollectionBottleneck]:
+    ) -> list[CollectionBottleneck]:
         """
         Identify collections with avg processing time >2x overall average.
 
@@ -495,7 +495,7 @@ class BottleneckDetector:
         overall_avg_time = statistics.mean([op.duration_ms for op in operations])
 
         # Group by collection
-        by_collection: Dict[str, List[SlowOperation]] = defaultdict(list)
+        by_collection: dict[str, list[SlowOperation]] = defaultdict(list)
         for op in operations:
             by_collection[op.collection_name].append(op)
 
@@ -548,7 +548,7 @@ class BottleneckDetector:
     async def identify_slow_parsers(
         self,
         time_window_minutes: int = 60
-    ) -> Dict[str, ParserStats]:
+    ) -> dict[str, ParserStats]:
         """
         Identify file types with avg parsing time >2x overall average.
 
@@ -573,7 +573,7 @@ class BottleneckDetector:
         overall_avg_time = statistics.mean([op.duration_ms for op in operations])
 
         # Group by file type
-        by_file_type: Dict[str, List[SlowOperation]] = defaultdict(list)
+        by_file_type: dict[str, list[SlowOperation]] = defaultdict(list)
         for op in operations:
             file_type = op.file_type or 'unknown'
             by_file_type[file_type].append(op)
@@ -616,7 +616,7 @@ class BottleneckDetector:
     async def identify_slow_tenants(
         self,
         time_window_minutes: int = 60
-    ) -> List[TenantBottleneck]:
+    ) -> list[TenantBottleneck]:
         """
         Identify tenants with processing rate <50% of average.
 
@@ -638,7 +638,7 @@ class BottleneckDetector:
             return []
 
         # Group by tenant
-        by_tenant: Dict[str, List[SlowOperation]] = defaultdict(list)
+        by_tenant: dict[str, list[SlowOperation]] = defaultdict(list)
         for op in operations:
             if op.tenant_id:
                 by_tenant[op.tenant_id].append(op)
@@ -686,7 +686,7 @@ class BottleneckDetector:
     async def get_slowest_items(
         self,
         limit: int = 10
-    ) -> List[SlowOperation]:
+    ) -> list[SlowOperation]:
         """
         Get top N slowest operations.
 
@@ -785,7 +785,7 @@ class BottleneckDetector:
         self,
         operation_type: str,
         avg_duration: float,
-        slowest_ops: List[SlowOperation]
+        slowest_ops: list[SlowOperation]
     ) -> str:
         """Generate recommendation for operation bottleneck."""
         # Analyze patterns in slowest operations
@@ -816,7 +816,7 @@ class BottleneckDetector:
         self,
         collection_name: str,
         avg_time: float,
-        ops: List[SlowOperation]
+        ops: list[SlowOperation]
     ) -> str:
         """Generate recommendation for collection bottleneck."""
         # Check if collection has specific file types

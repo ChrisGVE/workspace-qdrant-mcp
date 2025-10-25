@@ -322,7 +322,7 @@ class TestDiscoverCompilers:
         compilers = discovery.discover_compilers()
 
         # All non-None paths should be valid executables
-        for compiler, path in compilers.items():
+        for _compiler, path in compilers.items():
             if path is not None:
                 assert discovery.validate_executable(path)
 
@@ -399,7 +399,7 @@ class TestDiscoverBuildTools:
         build_tools = discovery.discover_build_tools()
 
         # All non-None paths should be valid executables
-        for tool, path in build_tools.items():
+        for _tool, path in build_tools.items():
             if path is not None:
                 assert discovery.validate_executable(path)
 

@@ -5,21 +5,20 @@ Tests authority level handling (absolute vs default), rule precedence resolution
 when conflicts occur, override behavior, and authority inheritance scenarios.
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta
-from typing import List
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, Mock
 
+import pytest
 from common.core.memory import (
-    MemoryRule,
-    MemoryCategory,
     AuthorityLevel,
     BehavioralController,
+    MemoryCategory,
+    MemoryRule,
 )
 
 from .rule_test_utils import (
-    MemoryRuleGenerator,
     ConflictSimulator,
+    MemoryRuleGenerator,
 )
 
 
@@ -144,7 +143,7 @@ class TestDefaultAuthorityRules:
         # All should be default authority
         assert all(r.authority == AuthorityLevel.DEFAULT for r in rules)
         # Each should have its specified scope
-        for rule, scope in zip(rules, scopes):
+        for rule, scope in zip(rules, scopes, strict=False):
             assert set(rule.scope) == set(scope)
 
 

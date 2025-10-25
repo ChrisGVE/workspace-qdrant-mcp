@@ -6,9 +6,7 @@ including fuzzy command matching, contextual help, and command suggestions.
 Task 251: Create comprehensive unified CLI interface with interactive help system.
 """
 
-import re
 import difflib
-from typing import Dict, List, Optional, Set, Tuple, Union
 from dataclasses import dataclass
 from enum import Enum
 
@@ -16,10 +14,7 @@ import typer
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
-from rich.text import Text
 from rich.tree import Tree
-from rich.columns import Columns
-from rich.markdown import Markdown
 
 console = Console()
 
@@ -38,12 +33,12 @@ class CommandInfo:
     name: str
     description: str
     usage: str
-    examples: List[str]
-    aliases: List[str]
+    examples: list[str]
+    aliases: list[str]
     category: str
-    subcommands: List[str]
-    common_flags: List[str]
-    related_commands: List[str]
+    subcommands: list[str]
+    common_flags: list[str]
+    related_commands: list[str]
 
 
 class InteractiveHelpSystem:
@@ -55,7 +50,7 @@ class InteractiveHelpSystem:
         self._categories = self._build_categories()
         self._command_tree = self._build_command_tree()
 
-    def _initialize_commands(self) -> Dict[str, CommandInfo]:
+    def _initialize_commands(self) -> dict[str, CommandInfo]:
         """Initialize command information database."""
         return {
             "memory": CommandInfo(
@@ -254,7 +249,7 @@ class InteractiveHelpSystem:
             ),
         }
 
-    def _build_categories(self) -> Dict[str, List[str]]:
+    def _build_categories(self) -> dict[str, list[str]]:
         """Build command categories."""
         categories = {}
         for cmd_name, cmd_info in self._commands.items():
@@ -312,7 +307,7 @@ class InteractiveHelpSystem:
         )
         console.print(tip_panel)
 
-    def suggest_commands(self, partial_command: str, limit: int = 5) -> List[Tuple[str, float]]:
+    def suggest_commands(self, partial_command: str, limit: int = 5) -> list[tuple[str, float]]:
         """Suggest commands based on partial input using fuzzy matching."""
         suggestions = []
 
@@ -342,7 +337,7 @@ class InteractiveHelpSystem:
     def show_command_help(
         self,
         command: str,
-        subcommand: Optional[str] = None,
+        subcommand: str | None = None,
         level: HelpLevel = HelpLevel.DETAILED
     ) -> None:
         """Show enhanced help for a specific command."""
@@ -387,19 +382,19 @@ class InteractiveHelpSystem:
         # Subcommands
         if cmd_info.subcommands and not subcommand:
             if level in [HelpLevel.DETAILED, HelpLevel.FULL]:
-                content.append(f"[bold]Subcommands:[/bold]")
+                content.append("[bold]Subcommands:[/bold]")
                 for sub in cmd_info.subcommands:
                     content.append(f"  • [yellow]{sub}[/yellow]")
 
         # Common flags
         if cmd_info.common_flags and level in [HelpLevel.DETAILED, HelpLevel.FULL]:
-            content.append(f"[bold]Common Flags:[/bold]")
+            content.append("[bold]Common Flags:[/bold]")
             for flag in cmd_info.common_flags:
                 content.append(f"  • [green]{flag}[/green]")
 
         # Examples
         if level in [HelpLevel.EXAMPLES, HelpLevel.FULL]:
-            content.append(f"[bold]Examples:[/bold]")
+            content.append("[bold]Examples:[/bold]")
             for example in cmd_info.examples:
                 content.append(f"  [dim]$[/dim] [cyan]{example}[/cyan]")
 
@@ -422,7 +417,7 @@ class InteractiveHelpSystem:
         # Show additional tips for the command
         self._show_command_tips(command, subcommand)
 
-    def _show_command_tips(self, command: str, subcommand: Optional[str] = None) -> None:
+    def _show_command_tips(self, command: str, subcommand: str | None = None) -> None:
         """Show contextual tips for a command."""
         tips = []
 

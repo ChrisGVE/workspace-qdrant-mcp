@@ -5,18 +5,17 @@ This module provides seamless integration between the enhanced web crawler
 and the existing document processing pipeline for vector database ingestion.
 """
 
-import asyncio
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 from urllib.parse import urlparse
 
 from loguru import logger
 
-from .enhanced_web_crawler import EnhancedWebCrawler, EnhancedCrawlResult
-from .web_crawler import SecurityConfig
-from .web_cache import CacheConfig
 from .advanced_retry import RetryConfig
+from .enhanced_web_crawler import EnhancedCrawlResult, EnhancedWebCrawler
+from .web_cache import CacheConfig
+from .web_crawler import SecurityConfig
 
 try:
     # Import document processing pipeline components
@@ -33,15 +32,15 @@ class WebCrawlSession:
     def __init__(self, session_id: str):
         self.session_id = session_id
         self.start_time = time.time()
-        self.end_time: Optional[float] = None
+        self.end_time: float | None = None
         self.status = "running"
         self.urls_processed = 0
         self.urls_successful = 0
         self.urls_failed = 0
         self.total_content_length = 0
         self.total_processing_time = 0.0
-        self.errors: List[Dict[str, Any]] = []
-        self.results: List[EnhancedCrawlResult] = []
+        self.errors: list[dict[str, Any]] = []
+        self.results: list[EnhancedCrawlResult] = []
 
     def add_result(self, result: EnhancedCrawlResult) -> None:
         """Add crawl result to session."""
@@ -68,7 +67,7 @@ class WebCrawlSession:
         self.end_time = time.time()
         self.status = status
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get session summary."""
         duration = (self.end_time or time.time()) - self.start_time
 
@@ -92,11 +91,11 @@ class WebCrawlSession:
 class WebContentProcessor:
     """Processes web crawl results for document pipeline ingestion."""
 
-    def __init__(self, qdrant_client: Optional[Any] = None, embedding_manager: Optional[Any] = None):
+    def __init__(self, qdrant_client: Any | None = None, embedding_manager: Any | None = None):
         self.qdrant_client = qdrant_client
         self.embedding_manager = embedding_manager
 
-    def prepare_document(self, result: EnhancedCrawlResult) -> Dict[str, Any]:
+    def prepare_document(self, result: EnhancedCrawlResult) -> dict[str, Any]:
         """Prepare crawl result for document processing pipeline."""
         # Extract URL components
         parsed_url = urlparse(result.url)
@@ -161,7 +160,7 @@ class WebContentProcessor:
 
         return document
 
-    def chunk_content(self, document: Dict[str, Any], chunk_size: int = 1000) -> List[Dict[str, Any]]:
+    def chunk_content(self, document: dict[str, Any], chunk_size: int = 1000) -> list[dict[str, Any]]:
         """Split document content into chunks for processing."""
         content = document['content']
         if not content:
@@ -187,7 +186,7 @@ class WebContentProcessor:
 
         return chunks
 
-    async def process_for_vector_db(self, document: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def process_for_vector_db(self, document: dict[str, Any]) -> list[dict[str, Any]]:
         """Process document for vector database ingestion."""
         try:
             # Chunk the document if it's large
@@ -222,21 +221,21 @@ class WebCrawlPipeline:
 
     def __init__(
         self,
-        security_config: Optional[SecurityConfig] = None,
-        cache_config: Optional[CacheConfig] = None,
-        retry_config: Optional[RetryConfig] = None,
-        qdrant_client: Optional[Any] = None,
-        embedding_manager: Optional[Any] = None,
-        collection_name: Optional[str] = None
+        security_config: SecurityConfig | None = None,
+        cache_config: CacheConfig | None = None,
+        retry_config: RetryConfig | None = None,
+        qdrant_client: Any | None = None,
+        embedding_manager: Any | None = None,
+        collection_name: str | None = None
     ):
         self.crawler = EnhancedWebCrawler(security_config, cache_config, retry_config)
         self.processor = WebContentProcessor(qdrant_client, embedding_manager)
         self.collection_name = collection_name
-        self.active_sessions: Dict[str, WebCrawlSession] = {}
+        self.active_sessions: dict[str, WebCrawlSession] = {}
 
     async def crawl_and_process(
         self,
-        urls: Union[str, List[str]],
+        urls: str | list[str],
         process_for_vector_db: bool = True,
         **crawl_options
     ) -> WebCrawlSession:
@@ -325,7 +324,7 @@ class WebCrawlPipeline:
 
             # Store in vector DB if client available
             if self.crawler.client and self.collection_name and processed_docs:
-                for doc in processed_docs:
+                for _doc in processed_docs:
                     try:
                         # This would integrate with the actual Qdrant client
                         # await self.crawler.client.upsert_document(
@@ -339,11 +338,11 @@ class WebCrawlPipeline:
         except Exception as e:
             logger.error(f"Failed to process result for vector DB: {e}")
 
-    def get_session(self, session_id: str) -> Optional[WebCrawlSession]:
+    def get_session(self, session_id: str) -> WebCrawlSession | None:
         """Get crawl session by ID."""
         return self.active_sessions.get(session_id)
 
-    def get_active_sessions(self) -> List[Dict[str, Any]]:
+    def get_active_sessions(self) -> list[dict[str, Any]]:
         """Get all active session summaries."""
         return [session.get_summary() for session in self.active_sessions.values()]
 
@@ -436,7 +435,7 @@ async def crawl_url_list_from_file(
 ) -> WebCrawlSession:
     """Crawl URLs from a text file."""
     try:
-        with open(file_path, 'r') as f:
+        with open(file_path) as f:
             urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
         return await pipeline.crawl_and_process(urls, **options)

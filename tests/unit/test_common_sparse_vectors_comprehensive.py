@@ -5,19 +5,20 @@ Tests cover BM25SparseEncoder and all sparse vector functionality
 with 100% coverage including async patterns, dual implementations, and error handling.
 """
 
-import pytest
 import asyncio
 import math
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from collections import Counter, defaultdict
-from typing import List, Dict, Any, Optional
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 # Import modules under test
 from src.python.common.core.sparse_vectors import (
     BM25SparseEncoder,
-    create_qdrant_sparse_vector,
     create_named_sparse_vector,
-    word_tokenize
+    create_qdrant_sparse_vector,
+    word_tokenize,
 )
 
 
@@ -117,7 +118,7 @@ class TestBM25SparseEncoder:
         """Test encoder initialization with default parameters."""
         encoder = BM25SparseEncoder()
 
-        assert encoder.use_fastembed == True
+        assert encoder.use_fastembed
         assert encoder.k1 == 1.2
         assert encoder.b == 0.75
         assert encoder.min_df == 1
@@ -126,7 +127,7 @@ class TestBM25SparseEncoder:
         assert encoder.vectorizer is None
         assert encoder.bm25_model is None
         assert encoder.vocabulary is None
-        assert encoder.initialized == False
+        assert not encoder.initialized
 
     def test_init_custom_params(self):
         """Test encoder initialization with custom parameters."""
@@ -138,7 +139,7 @@ class TestBM25SparseEncoder:
             max_df=0.7
         )
 
-        assert encoder.use_fastembed == False
+        assert not encoder.use_fastembed
         assert encoder.k1 == 1.8
         assert encoder.b == 0.5
         assert encoder.min_df == 3
@@ -149,7 +150,7 @@ class TestBM25SparseEncoder:
         with patch('src.python.common.core.sparse_vectors.SparseTextEmbedding', mock_fastembed_model):
             await encoder_fastembed.initialize()
 
-            assert encoder_fastembed.initialized == True
+            assert encoder_fastembed.initialized
             assert encoder_fastembed.sparse_model == mock_fastembed_model
             assert encoder_fastembed.fastembed_model == mock_fastembed_model
 
@@ -158,7 +159,7 @@ class TestBM25SparseEncoder:
         with patch('src.python.common.core.sparse_vectors.SparseTextEmbedding', None):
             await encoder_fastembed.initialize()
 
-            assert encoder_fastembed.initialized == True
+            assert encoder_fastembed.initialized
             assert encoder_fastembed.sparse_model is None
 
     async def test_initialize_fastembed_failure(self, encoder_fastembed):
@@ -169,7 +170,7 @@ class TestBM25SparseEncoder:
             with pytest.raises(RuntimeError, match="Failed to initialize BM25 sparse encoder"):
                 await encoder_fastembed.initialize()
 
-            assert encoder_fastembed.initialized == False
+            assert not encoder_fastembed.initialized
 
     async def test_initialize_fastembed_async_executor_mock(self, encoder_fastembed):
         """Test FastEmbed initialization with mocked executor."""
@@ -182,7 +183,7 @@ class TestBM25SparseEncoder:
 
                 await encoder_fastembed.initialize()
 
-                assert encoder_fastembed.initialized == True
+                assert encoder_fastembed.initialized
                 assert encoder_fastembed.sparse_model == mock_model
 
     async def test_initialize_custom_with_corpus(self, encoder_custom, mock_vectorizer, mock_bm25_model):
@@ -195,7 +196,7 @@ class TestBM25SparseEncoder:
 
                 await encoder_custom.initialize(training_corpus)
 
-                assert encoder_custom.initialized == True
+                assert encoder_custom.initialized
                 assert encoder_custom.vectorizer == mock_vectorizer
                 assert encoder_custom.bm25_model == mock_bm25_model
                 assert encoder_custom.vocabulary == ["machine", "learning", "algorithm"]
@@ -599,7 +600,7 @@ class TestBM25SparseEncoder:
         assert info["avg_doc_length"] == 15.5
         assert info["parameters"]["k1"] == 1.2
         assert info["parameters"]["b"] == 0.75
-        assert info["initialized"] == True
+        assert info["initialized"]
 
     def test_get_model_info_custom(self, encoder_custom):
         """Test getting model info for custom BM25 encoder."""
@@ -620,7 +621,7 @@ class TestBM25SparseEncoder:
         assert info["avg_doc_length"] == 12.3
         assert info["parameters"]["k1"] == 1.5
         assert info["parameters"]["b"] == 0.6
-        assert info["initialized"] == True
+        assert info["initialized"]
 
 
 class TestCreateQdrantSparseVector:
@@ -776,7 +777,7 @@ class TestIntegrationScenarios:
             # Check model info
             info = encoder.get_model_info()
             assert info["encoder_type"] == "fastembed"
-            assert info["initialized"] == True
+            assert info["initialized"]
 
     async def test_full_encoding_workflow_custom(self, sample_documents):
         """Test complete encoding workflow with custom BM25."""
@@ -838,7 +839,7 @@ class TestIntegrationScenarios:
 
         # Create basic sparse vector
         with patch('src.python.common.core.sparse_vectors.models.SparseVector') as mock_sparse:
-            sparse_vector = create_qdrant_sparse_vector(indices, values)
+            create_qdrant_sparse_vector(indices, values)
             mock_sparse.assert_called_once_with(indices=indices, values=values)
 
         # Create named sparse vector

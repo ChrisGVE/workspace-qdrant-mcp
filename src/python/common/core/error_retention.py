@@ -46,11 +46,10 @@ import asyncio
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional
 
 from loguru import logger
 
-from .queue_connection import QueueConnectionPool, ConnectionConfig
+from .queue_connection import ConnectionConfig, QueueConnectionPool
 
 
 @dataclass
@@ -66,8 +65,8 @@ class RetentionPolicy:
         preserve_active_retries: Never delete messages with retry_count > 0 (default: True)
     """
     max_age_days: int = 30
-    max_count: Optional[int] = None
-    severity_specific_retention: Dict[str, int] = field(default_factory=lambda: {
+    max_count: int | None = None
+    severity_specific_retention: dict[str, int] = field(default_factory=lambda: {
         'info': 30,
         'warning': 90,
         'error': 180
@@ -111,7 +110,7 @@ class CleanupResult:
     """
     deleted_count: int = 0
     preserved_count: int = 0
-    by_severity: Dict[str, int] = field(default_factory=dict)
+    by_severity: dict[str, int] = field(default_factory=dict)
     errors: list = field(default_factory=list)
     dry_run: bool = False
 
@@ -138,7 +137,7 @@ class CleanupStatistics:
         average_deleted_per_cleanup: Average messages deleted per cleanup
         last_cleanup_duration: Duration of last cleanup in seconds
     """
-    last_cleanup_at: Optional[datetime] = None
+    last_cleanup_at: datetime | None = None
     total_cleanups: int = 0
     total_deleted: int = 0
     average_deleted_per_cleanup: float = 0.0
@@ -165,9 +164,9 @@ class ErrorRetentionManager:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        connection_config: Optional[ConnectionConfig] = None,
-        default_policy: Optional[RetentionPolicy] = None
+        db_path: str | None = None,
+        connection_config: ConnectionConfig | None = None,
+        default_policy: RetentionPolicy | None = None
     ):
         """
         Initialize error retention manager.
@@ -183,7 +182,7 @@ class ErrorRetentionManager:
         )
         self._initialized = False
         self.default_policy = default_policy or RetentionPolicy()
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._cleanup_task: asyncio.Task | None = None
         self._cleanup_running = False
         self._cleanup_stats = CleanupStatistics()
 

@@ -52,15 +52,14 @@ Example:
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from .grammar_discovery import GrammarDiscovery, GrammarInfo
-from .grammar_compiler import GrammarCompiler, CompilerDetector
+from .grammar_compiler import CompilerDetector, GrammarCompiler
 from .grammar_config import ConfigManager
+from .grammar_discovery import GrammarDiscovery, GrammarInfo
 from .language_support_manager import LanguageSupportManager
 from .sqlite_state_manager import SQLiteStateManager
 
@@ -86,8 +85,8 @@ class GrammarLanguageIntegrator:
     def __init__(
         self,
         state_manager: SQLiteStateManager,
-        tree_sitter_cli: Optional[str] = None,
-        config_path: Optional[Path] = None
+        tree_sitter_cli: str | None = None,
+        config_path: Path | None = None
     ):
         """
         Initialize grammar-language integrator.
@@ -112,9 +111,9 @@ class GrammarLanguageIntegrator:
     async def sync_grammar_availability(
         self,
         force_refresh: bool = False,
-        progress: Optional["Progress"] = None,
-        progress_task: Optional["TaskID"] = None
-    ) -> Dict[str, any]:
+        progress: Progress | None = None,
+        progress_task: TaskID | None = None
+    ) -> dict[str, any]:
         """
         Synchronize grammar availability with language support database.
 
@@ -246,7 +245,7 @@ class GrammarLanguageIntegrator:
             logger.error(f"Failed to sync grammar availability: {e}")
             raise
 
-    async def get_grammar_for_language(self, language_name: str) -> Optional[GrammarInfo]:
+    async def get_grammar_for_language(self, language_name: str) -> GrammarInfo | None:
         """
         Get grammar information for a specific language.
 
@@ -276,7 +275,7 @@ class GrammarLanguageIntegrator:
             logger.error(f"Error getting grammar for {language_name}: {e}")
             return None
 
-    async def get_grammar_for_file(self, file_path: Path) -> Optional[GrammarInfo]:
+    async def get_grammar_for_file(self, file_path: Path) -> GrammarInfo | None:
         """
         Get grammar for a specific file based on its language.
 
@@ -325,7 +324,7 @@ class GrammarLanguageIntegrator:
             logger.error(f"Error checking grammar availability for {language_name}: {e}")
             return False
 
-    async def ensure_grammar_compiled(self, language_name: str) -> Tuple[bool, str]:
+    async def ensure_grammar_compiled(self, language_name: str) -> tuple[bool, str]:
         """
         Ensure grammar is compiled and ready for use.
 
@@ -372,7 +371,7 @@ class GrammarLanguageIntegrator:
             logger.error(f"Error ensuring grammar compilation for {language_name}: {e}")
             return False, f"Compilation error: {e}"
 
-    async def get_languages_with_grammars(self) -> List[str]:
+    async def get_languages_with_grammars(self) -> list[str]:
         """
         Get list of all languages with available grammars.
 
@@ -392,7 +391,7 @@ class GrammarLanguageIntegrator:
             logger.error(f"Error getting languages with grammars: {e}")
             return []
 
-    async def get_languages_missing_grammars(self) -> List[str]:
+    async def get_languages_missing_grammars(self) -> list[str]:
         """
         Get list of languages missing grammars.
 
@@ -412,7 +411,7 @@ class GrammarLanguageIntegrator:
             logger.error(f"Error getting languages missing grammars: {e}")
             return []
 
-    async def get_grammar_stats(self) -> Dict[str, any]:
+    async def get_grammar_stats(self) -> dict[str, any]:
         """
         Get statistics about grammar availability across languages.
 
@@ -453,7 +452,7 @@ class GrammarLanguageIntegrator:
                 "languages_missing_grammars": []
             }
 
-    async def _get_language_info(self, language_name: str) -> Optional[Dict]:
+    async def _get_language_info(self, language_name: str) -> dict | None:
         """
         Internal helper to get language information from database.
 

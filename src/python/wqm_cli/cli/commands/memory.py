@@ -4,25 +4,19 @@ This module provides the wqm memory commands for managing user preferences,
 LLM behavioral rules, and agent library definitions in the memory collection.
 """
 
-import asyncio
 import json
-import sys
-from typing import List, Optional
 
 import typer
-
 from common.core.collection_naming import create_naming_manager
 from common.core.config import get_config_manager
-from common.grpc.daemon_client import get_daemon_client, with_daemon_client
 from common.core.memory import (
     AuthorityLevel,
     MemoryCategory,
-    MemoryManager,
     create_memory_manager,
     parse_conversational_memory_update,
 )
 from loguru import logger
-from ..utils import get_configured_client
+
 from ..formatting import (
     create_data_table,
     display_operation_result,
@@ -30,21 +24,17 @@ from ..formatting import (
     error_panel,
     format_rule_summary,
     info_panel,
-    simple_error,
     simple_info,
-    simple_success,
     success_panel,
 )
 from ..utils import (
-    CLIError,
     confirm,
     create_command_app,
     force_option,
+    get_configured_client,
     handle_async,
-    handle_cli_error,
     json_output_option,
     prompt_input,
-    verbose_option,
 )
 
 # logger imported from loguru
@@ -323,7 +313,7 @@ async def _add_memory_rule(
         success_msg += f"Authority: {authority_enum.value}"
         if scope_list:
             success_msg += f"\nScope: {', '.join(scope_list)}"
-        
+
         success_panel(success_msg, "Memory Rule Added")
 
     except Exception as e:
@@ -358,7 +348,7 @@ async def _edit_memory_rule(rule_id: str):
         if new_name != rule.name:
             updates["name"] = new_name
 
-        authority_choices = [a.value for a in AuthorityLevel]
+        [a.value for a in AuthorityLevel]
         new_authority = prompt_input("Authority level")
         if new_authority != rule.authority.value:
             updates["authority"] = AuthorityLevel(new_authority)
@@ -379,7 +369,7 @@ async def _edit_memory_rule(rule_id: str):
         changes_text = "Proposed changes:\n"
         for key, value in updates.items():
             changes_text += f"  {key}: {getattr(rule, key)} → {value}\n"
-        
+
         info_panel(changes_text.strip(), "Proposed Changes")
 
         if not confirm("Apply changes?"):
@@ -422,7 +412,7 @@ async def _remove_memory_rule(rule_id: str, force: bool):
             rule_details += f"Name: {rule.name}\n"
             rule_details += f"Rule: {rule.rule}\n"
             rule_details += f"Authority: {rule.authority.value}"
-            
+
             info_panel(rule_details, "Remove Memory Rule")
 
             if not confirm("Are you sure you want to delete this rule?"):
@@ -572,7 +562,7 @@ async def _detect_conflicts(auto_resolve: bool):
             else:
                 if confirm(f"Resolve conflict {i}?"):
                     # Interactive resolution
-                    choices = [
+                    [
                         str(j) for j in range(1, len(conflict.resolution_options) + 1)
                     ]
                     print(

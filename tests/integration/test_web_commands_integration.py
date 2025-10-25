@@ -18,9 +18,9 @@ import tempfile
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
 import pytest
 from typer.testing import CliRunner
-
 from wqm_cli.cli.main import app
 
 
@@ -31,7 +31,7 @@ class TestWebCommandsIntegration:
         """Set up test environment."""
         self.runner = CliRunner()
         self.original_cwd = os.getcwd()
-        
+
     def teardown_method(self):
         """Clean up test environment."""
         os.chdir(self.original_cwd)
@@ -40,7 +40,7 @@ class TestWebCommandsIntegration:
         """Create a mock web-ui directory structure for testing."""
         web_ui_path = temp_dir / "web-ui"
         web_ui_path.mkdir(parents=True, exist_ok=True)
-        
+
         # Create package.json
         package_json = {
             "name": "qdrant-web-ui",
@@ -48,7 +48,7 @@ class TestWebCommandsIntegration:
             "license": "MIT",
             "scripts": {
                 "build": "echo 'Mock build process'",
-                "serve": "echo 'Mock serve process'", 
+                "serve": "echo 'Mock serve process'",
                 "start": "echo 'Mock dev process'",
                 "dev": "echo 'Mock dev process'"
             },
@@ -56,15 +56,15 @@ class TestWebCommandsIntegration:
                 "react": "^18.0.0"
             }
         }
-        
+
         import json
         (web_ui_path / "package.json").write_text(json.dumps(package_json, indent=2))
-        
+
         # Create mock dist directory
         dist_dir = web_ui_path / "dist"
         dist_dir.mkdir(exist_ok=True)
         (dist_dir / "index.html").write_text("<html><body>Mock build output</body></html>")
-        
+
         return web_ui_path
 
     @patch('wqm_cli.cli.commands.web.get_web_ui_path')
@@ -74,12 +74,12 @@ class TestWebCommandsIntegration:
             temp_path = Path(temp_dir)
             web_ui_path = self.create_mock_web_ui_directory(temp_path)
             mock_get_web_ui_path.return_value = web_ui_path
-            
+
             result = self.runner.invoke(app, ["web", "status"])
-            
+
             assert result.exit_code == 0
             output = result.stdout
-            
+
             # Check status information is displayed
             assert "Web UI Status:" in output
             assert str(web_ui_path) in output
@@ -94,19 +94,19 @@ class TestWebCommandsIntegration:
             temp_path = Path(temp_dir)
             web_ui_path = temp_path / "web-ui"
             web_ui_path.mkdir(parents=True)
-            
+
             # Create package.json but no node_modules or dist
             package_json = {"name": "test", "version": "1.0.0"}
             import json
             (web_ui_path / "package.json").write_text(json.dumps(package_json))
-            
+
             mock_get_web_ui_path.return_value = web_ui_path
-            
+
             result = self.runner.invoke(app, ["web", "status"])
-            
+
             assert result.exit_code == 0
             output = result.stdout
-            
+
             # Should show missing dependencies and build
             assert "✗ (run: wqm web install)" in output
             assert "✗ (run: wqm web build)" in output
@@ -119,14 +119,14 @@ class TestWebCommandsIntegration:
             temp_path = Path(temp_dir)
             web_ui_path = self.create_mock_web_ui_directory(temp_path)
             mock_get_web_ui_path.return_value = web_ui_path
-            
+
             # Mock successful npm install
             mock_subprocess.return_value.returncode = 0
-            
+
             result = self.runner.invoke(app, ["web", "install"])
-            
+
             assert result.exit_code == 0
-            
+
             # Verify npm install was called
             mock_subprocess.assert_called_with(
                 ["npm", "install"],
@@ -134,7 +134,7 @@ class TestWebCommandsIntegration:
                 check=True,
                 capture_output=False
             )
-            
+
             assert "Installing Node.js dependencies..." in result.stdout
             assert "Dependencies installed successfully!" in result.stdout
 
@@ -146,12 +146,12 @@ class TestWebCommandsIntegration:
             temp_path = Path(temp_dir)
             web_ui_path = self.create_mock_web_ui_directory(temp_path)
             mock_get_web_ui_path.return_value = web_ui_path
-            
+
             # Mock FileNotFoundError for missing npm
             mock_subprocess.side_effect = FileNotFoundError("npm not found")
-            
+
             result = self.runner.invoke(app, ["web", "install"])
-            
+
             assert result.exit_code == 1
             assert "npm not found" in result.stdout
             assert "https://nodejs.org/" in result.stdout
@@ -165,17 +165,17 @@ class TestWebCommandsIntegration:
             temp_path = Path(temp_dir)
             web_ui_path = self.create_mock_web_ui_directory(temp_path)
             mock_get_web_ui_path.return_value = web_ui_path
-            
+
             # Mock successful build
             mock_subprocess.return_value.returncode = 0
-            
+
             result = self.runner.invoke(app, ["web", "build"])
-            
+
             assert result.exit_code == 0
-            
+
             # Verify dependencies check was called
             mock_ensure_deps.assert_called_once_with(web_ui_path)
-            
+
             # Verify npm build was called
             mock_subprocess.assert_called_with(
                 ["npm", "run", "build"],
@@ -184,7 +184,7 @@ class TestWebCommandsIntegration:
                 check=True,
                 capture_output=False
             )
-            
+
             assert "Building web UI for production..." in result.stdout
             assert "Build completed successfully!" in result.stdout
 
@@ -198,19 +198,19 @@ class TestWebCommandsIntegration:
             web_ui_path = self.create_mock_web_ui_directory(temp_path)
             mock_get_web_ui_path.return_value = web_ui_path
             custom_output = "/custom/output"
-            
+
             # Mock successful build
             mock_subprocess.return_value.returncode = 0
-            
+
             result = self.runner.invoke(app, ["web", "build", "--output", custom_output])
-            
+
             assert result.exit_code == 0
-            
+
             # Verify environment variable was set
             call_args = mock_subprocess.call_args
             env = call_args.kwargs["env"]
             assert env["BUILD_PATH"] == custom_output
-            
+
             assert custom_output in result.stdout
 
     @patch('wqm_cli.cli.commands.web.get_web_ui_path')
@@ -222,20 +222,20 @@ class TestWebCommandsIntegration:
             temp_path = Path(temp_dir)
             web_ui_path = self.create_mock_web_ui_directory(temp_path)
             mock_get_web_ui_path.return_value = web_ui_path
-            
+
             result = self.runner.invoke(app, ["web", "dev", "--port", "3001", "--host", "0.0.0.0"])
-            
+
             assert result.exit_code == 0
-            
+
             # Verify dependencies check was called
             mock_ensure_deps.assert_called_once_with(web_ui_path)
-            
+
             # Verify npm start was called with correct environment
             call_args = mock_subprocess.call_args
             env = call_args.kwargs["env"]
             assert env["PORT"] == "3001"
             assert env["HOST"] == "0.0.0.0"
-            
+
             assert "Starting development server on 0.0.0.0:3001" in result.stdout
             assert "Hot reloading enabled" in result.stdout
 
@@ -248,22 +248,22 @@ class TestWebCommandsIntegration:
             temp_path = Path(temp_dir)
             web_ui_path = self.create_mock_web_ui_directory(temp_path)
             mock_get_web_ui_path.return_value = web_ui_path
-            
+
             result = self.runner.invoke(app, ["web", "start", "--port", "8081", "--host", "0.0.0.0"])
-            
+
             assert result.exit_code == 0
-            
+
             # Verify dependencies check was called
             mock_ensure_deps.assert_called_once_with(web_ui_path)
-            
+
             # Should call build then serve
             calls = mock_subprocess.call_args_list
             assert len(calls) >= 2
-            
+
             # First call should be build
             build_call = calls[0]
             assert build_call[0][0] == ["npm", "run", "build"]
-            
+
             # Second call should be serve
             serve_call = calls[1]
             args = serve_call[0][0]
@@ -271,7 +271,7 @@ class TestWebCommandsIntegration:
             assert "serve" in args
             assert "--port" in args
             assert "8081" in args
-            
+
             assert "Starting web UI server on 0.0.0.0:8081" in result.stdout
             assert "Building web UI..." in result.stdout
 
@@ -280,9 +280,9 @@ class TestWebCommandsIntegration:
         with patch('wqm_cli.cli.commands.web.get_web_ui_path') as mock_get_path:
             # Mock a path that doesn't exist
             mock_get_path.side_effect = Exception("Web UI not found")
-            
+
             result = self.runner.invoke(app, ["web", "status"])
-            
+
             assert result.exit_code == 1
 
     @pytest.mark.parametrize("command", ["install", "build", "dev", "start"])
@@ -294,24 +294,24 @@ class TestWebCommandsIntegration:
             temp_path = Path(temp_dir)
             web_ui_path = self.create_mock_web_ui_directory(temp_path)
             mock_get_web_ui_path.return_value = web_ui_path
-            
+
             # Mock subprocess failure
             mock_subprocess.side_effect = subprocess.CalledProcessError(1, "npm")
-            
+
             result = self.runner.invoke(app, ["web", command])
-            
+
             assert result.exit_code == 1
             # Should contain appropriate error message
-            assert any(error_word in result.stdout.lower() 
+            assert any(error_word in result.stdout.lower()
                       for error_word in ["failed", "error"])
 
     def test_web_command_help(self):
         """Test web command shows help information."""
         result = self.runner.invoke(app, ["web", "--help"])
-        
+
         assert result.exit_code == 0
         assert "Web UI server for workspace-qdrant-mcp" in result.stdout
-        
+
         # Should list available subcommands
         for subcommand in ["start", "dev", "build", "install", "status"]:
             assert subcommand in result.stdout
@@ -320,7 +320,7 @@ class TestWebCommandsIntegration:
     def test_web_subcommand_help(self, subcommand):
         """Test web subcommands show help information."""
         result = self.runner.invoke(app, ["web", subcommand, "--help"])
-        
+
         assert result.exit_code == 0
         # Each subcommand should have descriptive help text
         assert len(result.stdout) > 50  # Reasonable help text length

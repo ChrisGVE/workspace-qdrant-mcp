@@ -5,8 +5,8 @@ This module provides configuration settings, evaluation criteria customization,
 and integration options for the pytest-mcp framework.
 """
 
-from typing import Dict, Any, List
 from dataclasses import dataclass, field
+from typing import Any
 
 from tests.utils.pytest_mcp_framework import EvaluationCriteria
 
@@ -22,7 +22,7 @@ class PytestMCPConfig:
     ai_recommendations_enabled: bool = True
 
     # Evaluation Criteria Weights (must sum to 1.0)
-    criteria_weights: Dict[EvaluationCriteria, float] = field(default_factory=lambda: {
+    criteria_weights: dict[EvaluationCriteria, float] = field(default_factory=lambda: {
         EvaluationCriteria.FUNCTIONALITY: 0.25,
         EvaluationCriteria.USABILITY: 0.15,
         EvaluationCriteria.PERFORMANCE: 0.15,
@@ -33,7 +33,7 @@ class PytestMCPConfig:
     })
 
     # Performance Thresholds (in milliseconds)
-    performance_thresholds: Dict[str, float] = field(default_factory=lambda: {
+    performance_thresholds: dict[str, float] = field(default_factory=lambda: {
         "workspace_status": 100.0,
         "list_workspace_collections": 200.0,
         "search_workspace_tool": 500.0,
@@ -49,7 +49,7 @@ class PytestMCPConfig:
     })
 
     # Success Rate Thresholds
-    reliability_thresholds: Dict[str, float] = field(default_factory=lambda: {
+    reliability_thresholds: dict[str, float] = field(default_factory=lambda: {
         "critical_tools": 0.95,  # workspace_status, health_check
         "important_tools": 0.90,  # search, document operations
         "standard_tools": 0.80,  # collection management
@@ -57,7 +57,7 @@ class PytestMCPConfig:
     })
 
     # Tool Criticality Levels
-    tool_criticality: Dict[str, str] = field(default_factory=lambda: {
+    tool_criticality: dict[str, str] = field(default_factory=lambda: {
         "workspace_status": "critical",
         "health_check_tool": "critical",
         "search_workspace_tool": "important",
@@ -72,7 +72,7 @@ class PytestMCPConfig:
     })
 
     # Expected Response Fields for Tools
-    expected_response_fields: Dict[str, List[str]] = field(default_factory=lambda: {
+    expected_response_fields: dict[str, list[str]] = field(default_factory=lambda: {
         "workspace_status": ["connected", "current_project", "collections"],
         "search_workspace_tool": ["results", "total", "query"],
         "list_workspace_collections": [],  # May return list or dict
@@ -87,7 +87,7 @@ class PytestMCPConfig:
     })
 
     # Evaluation Context Settings
-    evaluation_contexts: Dict[str, Dict[str, Any]] = field(default_factory=lambda: {
+    evaluation_contexts: dict[str, dict[str, Any]] = field(default_factory=lambda: {
         "development": {
             "performance_tolerance": 2.0,  # Allow 2x slower than threshold
             "error_tolerance": 0.2,  # Allow 20% error rate
@@ -113,7 +113,7 @@ class PytestMCPConfig:
     # Reporting Settings
     generate_detailed_reports: bool = True
     include_test_history: bool = True
-    export_formats: List[str] = field(default_factory=lambda: ["json", "html"])
+    export_formats: list[str] = field(default_factory=lambda: ["json", "html"])
     report_output_dir: str = "tests/reports/pytest_mcp"
 
     # Integration Settings
@@ -122,7 +122,7 @@ class PytestMCPConfig:
     parallel_evaluation: bool = False  # Set to True for parallel tool evaluation
     max_parallel_workers: int = 4
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """Validate configuration settings and return any issues."""
         issues = []
 
@@ -162,11 +162,11 @@ class PytestMCPConfig:
         else:
             return self.reliability_thresholds["standard_tools"]
 
-    def get_expected_fields(self, tool_name: str) -> List[str]:
+    def get_expected_fields(self, tool_name: str) -> list[str]:
         """Get expected response fields for a specific tool."""
         return self.expected_response_fields.get(tool_name, [])
 
-    def get_evaluation_context(self, context_name: str) -> Dict[str, Any]:
+    def get_evaluation_context(self, context_name: str) -> dict[str, Any]:
         """Get evaluation context settings."""
         return self.evaluation_contexts.get(context_name, self.evaluation_contexts["development"])
 
@@ -271,12 +271,12 @@ def load_config_from_file(file_path: str) -> PytestMCPConfig:
         raise FileNotFoundError(f"Configuration file not found: {file_path}")
 
     if config_file.suffix.lower() == '.json':
-        with open(config_file, 'r') as f:
+        with open(config_file) as f:
             config_data = json.load(f)
     elif config_file.suffix.lower() in ['.yml', '.yaml']:
         try:
             import yaml
-            with open(config_file, 'r') as f:
+            with open(config_file) as f:
                 config_data = yaml.safe_load(f)
         except ImportError:
             raise ImportError("PyYAML is required to load YAML configuration files")

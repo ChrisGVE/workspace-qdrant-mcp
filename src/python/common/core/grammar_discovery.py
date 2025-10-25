@@ -12,11 +12,10 @@ Key features:
 """
 
 import json
-import subprocess
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass
 import logging
+import subprocess
+from dataclasses import dataclass
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +30,16 @@ class GrammarInfo:
     path: Path
     """Absolute path to grammar directory"""
 
-    parser_path: Optional[Path] = None
+    parser_path: Path | None = None
     """Path to compiled parser (.so/.dll/.dylib)"""
 
-    version: Optional[str] = None
+    version: str | None = None
     """Parser version if available"""
 
     has_external_scanner: bool = False
     """Whether grammar includes external scanner"""
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
             "name": self.name,
@@ -59,7 +58,7 @@ class GrammarDiscovery:
     and validates their availability.
     """
 
-    def __init__(self, tree_sitter_cli: Optional[str] = None):
+    def __init__(self, tree_sitter_cli: str | None = None):
         """
         Initialize grammar discovery.
 
@@ -68,9 +67,9 @@ class GrammarDiscovery:
                            If None, searches in PATH.
         """
         self.tree_sitter_cli = tree_sitter_cli or "tree-sitter"
-        self._grammars_cache: Optional[Dict[str, GrammarInfo]] = None
+        self._grammars_cache: dict[str, GrammarInfo] | None = None
 
-    def discover_grammars(self, force_refresh: bool = False) -> Dict[str, GrammarInfo]:
+    def discover_grammars(self, force_refresh: bool = False) -> dict[str, GrammarInfo]:
         """
         Discover all installed tree-sitter grammars.
 
@@ -119,7 +118,7 @@ class GrammarDiscovery:
                 f"tree-sitter dump-languages failed: {e.stderr}"
             )
 
-    def _parse_dump_languages_output(self, output: str) -> Dict[str, GrammarInfo]:
+    def _parse_dump_languages_output(self, output: str) -> dict[str, GrammarInfo]:
         """
         Parse output from 'tree-sitter dump-languages' command.
 
@@ -166,7 +165,7 @@ class GrammarDiscovery:
 
         return grammars
 
-    def _find_parser_library(self, grammar_path: Path) -> Optional[Path]:
+    def _find_parser_library(self, grammar_path: Path) -> Path | None:
         """
         Find compiled parser library (.so/.dll/.dylib) for a grammar.
 
@@ -214,7 +213,7 @@ class GrammarDiscovery:
         scanner_files = ["scanner.c", "scanner.cc", "scanner.cpp"]
         return any((src_dir / f).exists() for f in scanner_files)
 
-    def get_grammar(self, language: str) -> Optional[GrammarInfo]:
+    def get_grammar(self, language: str) -> GrammarInfo | None:
         """
         Get information about a specific grammar.
 
@@ -227,7 +226,7 @@ class GrammarDiscovery:
         grammars = self.discover_grammars()
         return grammars.get(language)
 
-    def list_languages(self) -> List[str]:
+    def list_languages(self) -> list[str]:
         """
         Get list of available language names.
 
@@ -237,7 +236,7 @@ class GrammarDiscovery:
         grammars = self.discover_grammars()
         return sorted(grammars.keys())
 
-    def validate_grammar(self, language: str) -> Tuple[bool, str]:
+    def validate_grammar(self, language: str) -> tuple[bool, str]:
         """
         Validate that a grammar is properly installed and compiled.
 

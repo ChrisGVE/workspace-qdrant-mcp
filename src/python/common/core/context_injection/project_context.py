@@ -5,16 +5,14 @@ This module provides project boundary detection and context-aware rule selection
 using the existing project identification infrastructure.
 """
 
-import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
 
 from loguru import logger
 
 from ..memory import MemoryRule
 from .authority_filter import AuthorityFilter
-from .rule_retrieval import RuleRetrieval, RuleFilter
+from .rule_retrieval import RuleFilter, RuleRetrieval
 
 
 @dataclass
@@ -34,9 +32,9 @@ class ProjectContext:
     project_id: str
     project_root: Path
     current_path: Path
-    scope: List[str]
+    scope: list[str]
     is_submodule: bool = False
-    parent_project_id: Optional[str] = None
+    parent_project_id: str | None = None
 
 
 class ProjectContextDetector:
@@ -53,8 +51,8 @@ class ProjectContextDetector:
         self._git_cache = {}  # Cache for git repository detection
 
     def detect_project_context(
-        self, path: Optional[Path] = None
-    ) -> Optional[ProjectContext]:
+        self, path: Path | None = None
+    ) -> ProjectContext | None:
         """
         Detect project context for a given path.
 
@@ -100,7 +98,7 @@ class ProjectContextDetector:
 
         return context
 
-    def _find_project_root(self, path: Path) -> Optional[Path]:
+    def _find_project_root(self, path: Path) -> Path | None:
         """
         Find project root by walking up directory tree.
 
@@ -220,7 +218,7 @@ class ProjectContextDetector:
 
         return url
 
-    def _detect_scope(self, path: Path, project_root: Path) -> List[str]:
+    def _detect_scope(self, path: Path, project_root: Path) -> list[str]:
         """
         Detect scope contexts from path.
 
@@ -278,7 +276,7 @@ class ProjectContextDetector:
 
         return scope
 
-    def _check_submodule(self, project_root: Path) -> tuple[bool, Optional[str]]:
+    def _check_submodule(self, project_root: Path) -> tuple[bool, str | None]:
         """
         Check if project is a git submodule.
 
@@ -324,8 +322,8 @@ class ProjectRuleApplicator:
     def __init__(
         self,
         rule_retrieval: RuleRetrieval,
-        authority_filter: Optional[AuthorityFilter] = None,
-        context_detector: Optional[ProjectContextDetector] = None,
+        authority_filter: AuthorityFilter | None = None,
+        context_detector: ProjectContextDetector | None = None,
     ):
         """
         Initialize the project rule applicator.
@@ -340,8 +338,8 @@ class ProjectRuleApplicator:
         self.context_detector = context_detector or ProjectContextDetector()
 
     async def get_applicable_rules(
-        self, path: Optional[Path] = None, include_parent_project: bool = True
-    ) -> List[MemoryRule]:
+        self, path: Path | None = None, include_parent_project: bool = True
+    ) -> list[MemoryRule]:
         """
         Get rules applicable to current project context.
 
@@ -395,8 +393,8 @@ class ProjectRuleApplicator:
         return effective_rules
 
     async def get_project_overrides(
-        self, global_rules: List[MemoryRule], project_id: str
-    ) -> List[MemoryRule]:
+        self, global_rules: list[MemoryRule], project_id: str
+    ) -> list[MemoryRule]:
         """
         Get project-specific overrides for global rules.
 

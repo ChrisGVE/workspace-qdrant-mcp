@@ -6,19 +6,19 @@ capabilities to ensure rule updates are tracked and reversible.
 """
 
 import asyncio
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-
 from common.core.memory import (
-    MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
     AgentDefinition,
+    AuthorityLevel,
+    MemoryCategory,
+    MemoryRule,
 )
+
 from .test_rules_base import BaseMemoryRuleTest
 
 
@@ -441,7 +441,7 @@ class TestRuleRollback(BaseMemoryRuleTest):
         )
 
         # Dependent rule
-        dependent = self.create_test_rule(
+        self.create_test_rule(
             rule_id="dependent-1",
             name="Dependent Rule",
             metadata={"depends_on": ["rollback-test-3"]}

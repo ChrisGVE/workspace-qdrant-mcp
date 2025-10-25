@@ -4,18 +4,15 @@ This module provides comprehensive backup and restore capabilities
 with version compatibility validation to prevent data corruption.
 """
 
-import asyncio
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 import typer
-from loguru import logger
-
-from common.core.backup import BackupManager, BackupMetadata, RestoreManager
+from common.core.backup import BackupManager, RestoreManager
 from common.core.client import create_qdrant_client
 from common.core.config import get_config_manager
 from common.core.error_handling import FileSystemError
+from loguru import logger
+
 from wqm_cli import __version__
 
 from ..utils import (
@@ -55,10 +52,10 @@ def create_backup(
     backup_path: str = typer.Argument(
         ..., help="Path where backup should be created"
     ),
-    description: Optional[str] = typer.Option(
+    description: str | None = typer.Option(
         None, "--description", "-d", help="Human-readable backup description"
     ),
-    collections: Optional[str] = typer.Option(
+    collections: str | None = typer.Option(
         None, "--collections", "-c", help="Comma-separated list of collections (default: all)"
     ),
     force: bool = force_option(),
@@ -155,8 +152,8 @@ def restore_backup(
 
 async def _create_backup(
     backup_path: str,
-    description: Optional[str],
-    collections: Optional[str],
+    description: str | None,
+    collections: str | None,
     force: bool,
     verbose: bool,
 ) -> None:
@@ -344,7 +341,7 @@ async def _backup_info(
                 typer.echo(f"Total Documents: {metadata.total_documents}")
 
             if metadata.partial_backup:
-                typer.echo(f"Partial Backup:  Yes")
+                typer.echo("Partial Backup:  Yes")
                 if metadata.selected_collections:
                     typer.echo(f"Selected:        {', '.join(metadata.selected_collections)}")
 
@@ -355,7 +352,7 @@ async def _backup_info(
                 typer.echo(f"Database Ver:    {metadata.database_version}")
 
             # Check compatibility with current version
-            from common.core.backup import VersionValidator, CompatibilityStatus
+            from common.core.backup import CompatibilityStatus, VersionValidator
             status = VersionValidator.check_compatibility(
                 metadata.version,
                 __version__
@@ -373,7 +370,7 @@ async def _backup_info(
                 __version__
             )
 
-            typer.echo(f"\nCompatibility:   ", nl=False)
+            typer.echo("\nCompatibility:   ", nl=False)
             typer.secho(status.value.upper(), fg=compatibility_color, bold=True)
             typer.echo(f"  {message}")
 
@@ -489,7 +486,7 @@ async def _validate_backup(
             typer.echo("✓ Manifest loaded successfully")
 
         # Check version compatibility
-        from common.core.backup import VersionValidator, CompatibilityStatus
+        from common.core.backup import CompatibilityStatus, VersionValidator
         status = VersionValidator.check_compatibility(
             metadata.version,
             __version__
@@ -553,7 +550,7 @@ async def _restore_backup(
 ) -> None:
     """Restore system from backup with version validation."""
     try:
-        from common.core.backup import IncompatibleVersionError, CompatibilityStatus
+        from common.core.backup import IncompatibleVersionError
 
         backup_dir = Path(backup_path)
 
@@ -595,11 +592,11 @@ async def _restore_backup(
         typer.echo(f"Backup date:     {restore_plan['backup_timestamp']}")
 
         if restore_plan.get('partial_backup'):
-            typer.echo(f"Backup type:     PARTIAL")
+            typer.echo("Backup type:     PARTIAL")
             if restore_plan.get('selected_collections'):
                 typer.echo(f"Collections:     {', '.join(restore_plan['selected_collections'])}")
         else:
-            typer.echo(f"Backup type:     FULL")
+            typer.echo("Backup type:     FULL")
 
         if restore_plan.get('collections'):
             if isinstance(restore_plan['collections'], dict):
@@ -617,14 +614,14 @@ async def _restore_backup(
         if contents.get('sqlite'):
             typer.echo(f"  ✓ SQLite database ({len(contents['sqlite'])} file(s))")
         else:
-            typer.echo(f"  ✗ SQLite database (not found)")
+            typer.echo("  ✗ SQLite database (not found)")
 
         if contents.get('collections'):
             collection_files = [f for f in contents['collections'] if f.endswith('.config.json')]
             typer.echo(f"  ✓ Collection metadata ({len(collection_files)} collection(s))")
-            typer.echo(f"      (Full collection restore not yet implemented)")
+            typer.echo("      (Full collection restore not yet implemented)")
         else:
-            typer.echo(f"  ✗ Collection data (not found)")
+            typer.echo("  ✗ Collection data (not found)")
 
         typer.echo("=" * 60)
 
@@ -674,7 +671,7 @@ async def _restore_backup(
             import shutil
             shutil.copy2(sqlite_backup, sqlite_db_path)
             if verbose:
-                typer.echo(f"  ✓ SQLite database restored")
+                typer.echo("  ✓ SQLite database restored")
         else:
             warning_message("No SQLite database found in backup")
 

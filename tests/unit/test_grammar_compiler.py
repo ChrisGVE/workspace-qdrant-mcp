@@ -5,19 +5,20 @@ Tests compiler detection, grammar compilation, external scanner support,
 and cross-platform compatibility.
 """
 
-import pytest
-import tempfile
-import shutil
 import platform
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+import shutil
 import subprocess
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from src.python.common.core.grammar_compiler import (
-    GrammarCompiler,
+    CompilationResult,
     CompilerDetector,
     CompilerInfo,
-    CompilationResult
+    GrammarCompiler,
 )
 
 

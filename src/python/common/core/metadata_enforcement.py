@@ -38,18 +38,15 @@ Example:
 """
 
 import asyncio
-from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 from loguru import logger
 
 from .collection_type_config import (
-    CollectionTypeConfig,
     get_type_config,
-    validate_metadata_for_type,
 )
 from .collection_types import CollectionType, CollectionTypeClassifier
 from .missing_metadata_tracker import MissingMetadataTracker
@@ -62,10 +59,10 @@ class ValidationResult:
 
     is_valid: bool
     collection_type: CollectionType
-    missing_fields: List[str] = field(default_factory=list)
-    invalid_fields: Dict[str, str] = field(default_factory=dict)  # field -> error
+    missing_fields: list[str] = field(default_factory=list)
+    invalid_fields: dict[str, str] = field(default_factory=dict)  # field -> error
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "is_valid": self.is_valid,
@@ -82,11 +79,11 @@ class EnforcementResult:
     success: bool
     validation_result: ValidationResult
     metadata_generated: bool = False
-    completed_metadata: Optional[Dict[str, Any]] = None
+    completed_metadata: dict[str, Any] | None = None
     moved_to_missing_metadata_queue: bool = False
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "success": self.success,
@@ -107,10 +104,10 @@ class EnforcementStatistics:
     failed: int = 0
     metadata_generated: int = 0
     moved_to_queue: int = 0
-    by_collection_type: Dict[str, Dict[str, int]] = field(default_factory=dict)
-    common_missing_fields: Dict[str, int] = field(default_factory=dict)
+    by_collection_type: dict[str, dict[str, int]] = field(default_factory=dict)
+    common_missing_fields: dict[str, int] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         success_rate = (self.successful / self.total_enforced * 100) if self.total_enforced > 0 else 0.0
         return {
@@ -156,7 +153,7 @@ class MetadataEnforcer:
     async def validate_metadata(
         self,
         collection_type: CollectionType,
-        metadata: Dict[str, Any]
+        metadata: dict[str, Any]
     ) -> ValidationResult:
         """
         Validate metadata against collection type requirements.
@@ -231,8 +228,8 @@ class MetadataEnforcer:
         self,
         file_path: str,
         collection_type: CollectionType,
-        existing_metadata: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        existing_metadata: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Generate missing metadata using LSP/Tree-sitter and context.
 
@@ -302,7 +299,7 @@ class MetadataEnforcer:
     async def _add_basic_file_metadata(
         self,
         file_path: Path,
-        metadata: Dict[str, Any]
+        metadata: dict[str, Any]
     ) -> None:
         """Add basic file metadata (exists, size, etc.)."""
         try:
@@ -318,7 +315,7 @@ class MetadataEnforcer:
     async def _add_library_metadata(
         self,
         file_path: Path,
-        metadata: Dict[str, Any]
+        metadata: dict[str, Any]
     ) -> None:
         """
         Add library-specific metadata using LSP if available.
@@ -366,7 +363,7 @@ class MetadataEnforcer:
     async def _add_project_metadata(
         self,
         file_path: Path,
-        metadata: Dict[str, Any]
+        metadata: dict[str, Any]
     ) -> None:
         """
         Add project-specific metadata from git context.
@@ -393,7 +390,7 @@ class MetadataEnforcer:
         except Exception as e:
             logger.warning(f"Failed to add project metadata for {file_path}: {e}")
 
-    def _detect_language_from_extension(self, file_path: Path) -> Optional[str]:
+    def _detect_language_from_extension(self, file_path: Path) -> str | None:
         """Detect programming language from file extension."""
         extension_map = {
             ".py": "python",

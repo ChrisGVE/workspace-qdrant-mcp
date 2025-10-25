@@ -8,20 +8,21 @@ and manage session lifecycle.
 
 import asyncio
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any
 
 from loguru import logger
 
 from ..memory import MemoryManager
 from .claude_code_detector import ClaudeCodeDetector, ClaudeCodeSession
 from .claude_md_injector import ClaudeMdInjector
-from .system_prompt_injector import SystemPromptInjector, SystemPromptConfig
-from .llm_tool_detector import LLMToolDetector, LLMToolType, UnifiedLLMSession
 from .formatters import FormatManager
+from .llm_tool_detector import LLMToolDetector, LLMToolType, UnifiedLLMSession
 from .rule_retrieval import RuleFilter
+from .system_prompt_injector import SystemPromptConfig, SystemPromptInjector
 
 
 class TriggerPhase(Enum):
@@ -62,8 +63,8 @@ class TriggerResult:
     phase: TriggerPhase
     trigger_name: str
     execution_time_ms: float
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -81,7 +82,7 @@ class TriggerContext:
     session: ClaudeCodeSession
     project_root: Path
     memory_manager: MemoryManager
-    trigger_metadata: Dict[str, Any] = field(default_factory=dict)
+    trigger_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class SessionTrigger(ABC):
@@ -151,7 +152,7 @@ class ClaudeMdFileTrigger(SessionTrigger):
         self,
         output_path: Path,
         token_budget: int = 50000,
-        filter: Optional[RuleFilter] = None,
+        filter: RuleFilter | None = None,
         priority: TriggerPriority = TriggerPriority.HIGH,
     ):
         """
@@ -171,7 +172,7 @@ class ClaudeMdFileTrigger(SessionTrigger):
         self.output_path = output_path
         self.token_budget = token_budget
         self.filter = filter
-        self._injector: Optional[ClaudeMdInjector] = None
+        self._injector: ClaudeMdInjector | None = None
 
     async def execute(self, context: TriggerContext) -> TriggerResult:
         """Execute CLAUDE.md file injection."""
@@ -241,9 +242,9 @@ class SystemPromptTrigger(SessionTrigger):
 
     def __init__(
         self,
-        config: Optional[SystemPromptConfig] = None,
-        filter: Optional[RuleFilter] = None,
-        output_path: Optional[Path] = None,
+        config: SystemPromptConfig | None = None,
+        filter: RuleFilter | None = None,
+        output_path: Path | None = None,
         priority: TriggerPriority = TriggerPriority.HIGH,
     ):
         """
@@ -263,7 +264,7 @@ class SystemPromptTrigger(SessionTrigger):
         self.config = config or SystemPromptConfig()
         self.filter = filter
         self.output_path = output_path
-        self._generated_prompt: Optional[str] = None
+        self._generated_prompt: str | None = None
 
     async def execute(self, context: TriggerContext) -> TriggerResult:
         """Execute system prompt generation."""
@@ -314,7 +315,7 @@ class SystemPromptTrigger(SessionTrigger):
                 error=str(e),
             )
 
-    def get_prompt(self) -> Optional[str]:
+    def get_prompt(self) -> str | None:
         """
         Get the generated system prompt.
 
@@ -334,7 +335,7 @@ class CleanupTrigger(SessionTrigger):
 
     def __init__(
         self,
-        cleanup_paths: Optional[List[Path]] = None,
+        cleanup_paths: list[Path] | None = None,
         priority: TriggerPriority = TriggerPriority.LOW,
     ):
         """
@@ -496,9 +497,9 @@ class PostUpdateTrigger(SessionTrigger):
         self,
         debounce_seconds: float = 2.0,
         batch_window_seconds: float = 5.0,
-        output_path: Optional[Path] = None,
+        output_path: Path | None = None,
         token_budget: int = 50000,
-        filter: Optional[RuleFilter] = None,
+        filter: RuleFilter | None = None,
         priority: TriggerPriority = TriggerPriority.HIGH,
     ):
         """
@@ -524,9 +525,9 @@ class PostUpdateTrigger(SessionTrigger):
         self.filter = filter
 
         # Tracking for debouncing and batching
-        self._last_trigger_time: Optional[float] = None
-        self._pending_changes: List[str] = []
-        self._batch_task: Optional[asyncio.Task] = None
+        self._last_trigger_time: float | None = None
+        self._pending_changes: list[str] = []
+        self._batch_task: asyncio.Task | None = None
 
     async def execute(self, context: TriggerContext) -> TriggerResult:
         """Execute post-update refresh."""
@@ -621,7 +622,7 @@ class PostUpdateTrigger(SessionTrigger):
             f"total pending: {len(self._pending_changes)}"
         )
 
-    def get_pending_changes(self) -> List[str]:
+    def get_pending_changes(self) -> list[str]:
         """
         Get list of pending changes.
 
@@ -643,9 +644,9 @@ class OnDemandRefreshTrigger(SessionTrigger):
     def __init__(
         self,
         refresh_type: str = "full",  # full, rules_only, context_only
-        output_path: Optional[Path] = None,
+        output_path: Path | None = None,
         token_budget: int = 50000,
-        filter: Optional[RuleFilter] = None,
+        filter: RuleFilter | None = None,
         priority: TriggerPriority = TriggerPriority.HIGH,
     ):
         """
@@ -667,7 +668,7 @@ class OnDemandRefreshTrigger(SessionTrigger):
         self.output_path = output_path
         self.token_budget = token_budget
         self.filter = filter
-        self._last_refresh_time: Optional[float] = None
+        self._last_refresh_time: float | None = None
         self._refresh_count: int = 0
 
     async def execute(self, context: TriggerContext) -> TriggerResult:
@@ -750,7 +751,7 @@ class OnDemandRefreshTrigger(SessionTrigger):
                 error=str(e),
             )
 
-    def get_refresh_stats(self) -> Dict[str, Any]:
+    def get_refresh_stats(self) -> dict[str, Any]:
         """
         Get refresh statistics.
 
@@ -796,9 +797,9 @@ class TriggerEvent:
     event_type: str  # started, completed, failed, retrying
     success: bool
     execution_time_ms: float = 0.0
-    error: Optional[str] = None
+    error: str | None = None
     retry_count: int = 0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -827,8 +828,8 @@ class TriggerHealthMetrics:
     failed_executions: int = 0
     total_retries: int = 0
     average_execution_time_ms: float = 0.0
-    last_success_timestamp: Optional[float] = None
-    last_failure_timestamp: Optional[float] = None
+    last_success_timestamp: float | None = None
+    last_failure_timestamp: float | None = None
     consecutive_failures: int = 0
     failure_rate: float = 0.0
 
@@ -884,7 +885,7 @@ class TriggerRetryPolicy:
     max_delay_seconds: float = 60.0
     exponential_base: float = 2.0
     jitter: float = 0.1
-    retryable_errors: List[str] = field(default_factory=lambda: [
+    retryable_errors: list[str] = field(default_factory=lambda: [
         "timeout",
         "connection",
         "temporary",
@@ -929,7 +930,7 @@ class TriggerEventLogger:
         Args:
             max_events: Maximum events to retain in memory
         """
-        self._events: List[TriggerEvent] = []
+        self._events: list[TriggerEvent] = []
         self._max_events = max_events
 
     def log_event(self, event: TriggerEvent) -> None:
@@ -956,12 +957,12 @@ class TriggerEventLogger:
 
     def get_events(
         self,
-        trigger_name: Optional[str] = None,
-        phase: Optional[TriggerPhase] = None,
-        success: Optional[bool] = None,
-        since_timestamp: Optional[float] = None,
-        limit: Optional[int] = None,
-    ) -> List[TriggerEvent]:
+        trigger_name: str | None = None,
+        phase: TriggerPhase | None = None,
+        success: bool | None = None,
+        since_timestamp: float | None = None,
+        limit: int | None = None,
+    ) -> list[TriggerEvent]:
         """
         Query event history.
 
@@ -994,7 +995,7 @@ class TriggerEventLogger:
 
         return events
 
-    def get_recent_failures(self, minutes: int = 60) -> List[TriggerEvent]:
+    def get_recent_failures(self, minutes: int = 60) -> list[TriggerEvent]:
         """
         Get recent failed events.
 
@@ -1008,7 +1009,7 @@ class TriggerEventLogger:
         cutoff = time.time() - (minutes * 60)
         return self.get_events(success=False, since_timestamp=cutoff)
 
-    def clear_events(self, before_timestamp: Optional[float] = None) -> int:
+    def clear_events(self, before_timestamp: float | None = None) -> int:
         """
         Clear old events.
 
@@ -1048,10 +1049,10 @@ class TriggerHealthMonitor:
             failure_threshold: Alert after this many consecutive failures
             failure_rate_threshold: Alert when failure rate exceeds this
         """
-        self._metrics: Dict[str, TriggerHealthMetrics] = {}
+        self._metrics: dict[str, TriggerHealthMetrics] = {}
         self._failure_threshold = failure_threshold
         self._failure_rate_threshold = failure_rate_threshold
-        self._alerts: List[str] = []
+        self._alerts: list[str] = []
 
     def record_event(self, event: TriggerEvent) -> None:
         """
@@ -1094,7 +1095,7 @@ class TriggerHealthMonitor:
                 self._alerts.append(alert)
                 logger.warning(alert)
 
-    def get_metrics(self, trigger_name: Optional[str] = None) -> Dict[str, TriggerHealthMetrics]:
+    def get_metrics(self, trigger_name: str | None = None) -> dict[str, TriggerHealthMetrics]:
         """
         Get health metrics.
 
@@ -1110,7 +1111,7 @@ class TriggerHealthMonitor:
             return {}
         return self._metrics.copy()
 
-    def get_unhealthy_triggers(self) -> List[str]:
+    def get_unhealthy_triggers(self) -> list[str]:
         """
         Get list of unhealthy trigger names.
 
@@ -1126,7 +1127,7 @@ class TriggerHealthMonitor:
 
         return unhealthy
 
-    def get_alerts(self, clear: bool = False) -> List[str]:
+    def get_alerts(self, clear: bool = False) -> list[str]:
         """
         Get current health alerts.
 
@@ -1141,7 +1142,7 @@ class TriggerHealthMonitor:
             self._alerts = []
         return alerts
 
-    def get_performance_summary(self) -> Dict[str, Any]:
+    def get_performance_summary(self) -> dict[str, Any]:
         """
         Get performance summary across all triggers.
 
@@ -1184,8 +1185,8 @@ class TriggerManager:
     def __init__(
         self,
         memory_manager: MemoryManager,
-        detector: Optional[ClaudeCodeDetector] = None,
-        retry_policy: Optional[TriggerRetryPolicy] = None,
+        detector: ClaudeCodeDetector | None = None,
+        retry_policy: TriggerRetryPolicy | None = None,
         enable_event_logging: bool = True,
         enable_health_monitoring: bool = True,
     ):
@@ -1201,10 +1202,10 @@ class TriggerManager:
         """
         self.memory_manager = memory_manager
         self.detector = detector or ClaudeCodeDetector()
-        self._triggers: Dict[TriggerPhase, List[SessionTrigger]] = {
+        self._triggers: dict[TriggerPhase, list[SessionTrigger]] = {
             phase: [] for phase in TriggerPhase
         }
-        self._execution_history: List[TriggerResult] = []
+        self._execution_history: list[TriggerResult] = []
 
         # Event logging and monitoring
         self._event_logger = TriggerEventLogger() if enable_event_logging else None
@@ -1240,7 +1241,7 @@ class TriggerManager:
             return True
         return False
 
-    def get_triggers(self, phase: TriggerPhase) -> List[SessionTrigger]:
+    def get_triggers(self, phase: TriggerPhase) -> list[SessionTrigger]:
         """
         Get all triggers for a specific phase.
 
@@ -1256,10 +1257,10 @@ class TriggerManager:
     async def execute_phase(
         self,
         phase: TriggerPhase,
-        project_root: Optional[Path] = None,
+        project_root: Path | None = None,
         fail_fast: bool = False,
         enable_retry: bool = True,
-    ) -> List[TriggerResult]:
+    ) -> list[TriggerResult]:
         """
         Execute all triggers for a specific phase.
 
@@ -1272,7 +1273,6 @@ class TriggerManager:
         Returns:
             List of TriggerResult objects
         """
-        import time
 
         if project_root is None:
             project_root = Path.cwd()
@@ -1508,10 +1508,10 @@ class TriggerManager:
 
     async def trigger_manual_refresh(
         self,
-        project_root: Optional[Path] = None,
+        project_root: Path | None = None,
         refresh_type: str = "full",
         fail_fast: bool = False,
-    ) -> List[TriggerResult]:
+    ) -> list[TriggerResult]:
         """
         Trigger manual refresh of context injection.
 
@@ -1539,9 +1539,9 @@ class TriggerManager:
 
     async def execute_on_demand(
         self,
-        project_root: Optional[Path] = None,
+        project_root: Path | None = None,
         fail_fast: bool = False,
-    ) -> List[TriggerResult]:
+    ) -> list[TriggerResult]:
         """
         Execute on-demand triggers (alias for trigger_manual_refresh).
 
@@ -1560,9 +1560,9 @@ class TriggerManager:
 
     async def execute_session_lifecycle(
         self,
-        project_root: Optional[Path] = None,
+        project_root: Path | None = None,
         fail_fast: bool = False,
-    ) -> Dict[TriggerPhase, List[TriggerResult]]:
+    ) -> dict[TriggerPhase, list[TriggerResult]]:
         """
         Execute complete session lifecycle (pre-session → post-session).
 
@@ -1593,7 +1593,7 @@ class TriggerManager:
 
         return results
 
-    async def cleanup_all(self, project_root: Optional[Path] = None) -> None:
+    async def cleanup_all(self, project_root: Path | None = None) -> None:
         """
         Execute cleanup on all registered triggers.
 
@@ -1623,7 +1623,7 @@ class TriggerManager:
                         f"Cleanup failed for trigger '{trigger.name}': {e}"
                     )
 
-    def get_execution_history(self) -> List[TriggerResult]:
+    def get_execution_history(self) -> list[TriggerResult]:
         """
         Get history of all trigger executions.
 
@@ -1638,7 +1638,7 @@ class TriggerManager:
 
     # Event logging and monitoring methods
 
-    def get_event_logger(self) -> Optional[TriggerEventLogger]:
+    def get_event_logger(self) -> TriggerEventLogger | None:
         """
         Get event logger instance.
 
@@ -1647,7 +1647,7 @@ class TriggerManager:
         """
         return self._event_logger
 
-    def get_health_monitor(self) -> Optional[TriggerHealthMonitor]:
+    def get_health_monitor(self) -> TriggerHealthMonitor | None:
         """
         Get health monitor instance.
 
@@ -1658,11 +1658,11 @@ class TriggerManager:
 
     def get_recent_events(
         self,
-        trigger_name: Optional[str] = None,
-        phase: Optional[TriggerPhase] = None,
+        trigger_name: str | None = None,
+        phase: TriggerPhase | None = None,
         minutes: int = 60,
-        limit: Optional[int] = 100,
-    ) -> List[TriggerEvent]:
+        limit: int | None = 100,
+    ) -> list[TriggerEvent]:
         """
         Get recent trigger events.
 
@@ -1688,7 +1688,7 @@ class TriggerManager:
             limit=limit,
         )
 
-    def get_recent_failures(self, minutes: int = 60) -> List[TriggerEvent]:
+    def get_recent_failures(self, minutes: int = 60) -> list[TriggerEvent]:
         """
         Get recent failed trigger events.
 
@@ -1705,8 +1705,8 @@ class TriggerManager:
 
     def get_health_metrics(
         self,
-        trigger_name: Optional[str] = None
-    ) -> Dict[str, TriggerHealthMetrics]:
+        trigger_name: str | None = None
+    ) -> dict[str, TriggerHealthMetrics]:
         """
         Get health metrics for triggers.
 
@@ -1721,7 +1721,7 @@ class TriggerManager:
 
         return self._health_monitor.get_metrics(trigger_name)
 
-    def get_unhealthy_triggers(self) -> List[str]:
+    def get_unhealthy_triggers(self) -> list[str]:
         """
         Get list of unhealthy trigger names.
 
@@ -1733,7 +1733,7 @@ class TriggerManager:
 
         return self._health_monitor.get_unhealthy_triggers()
 
-    def get_health_alerts(self, clear: bool = False) -> List[str]:
+    def get_health_alerts(self, clear: bool = False) -> list[str]:
         """
         Get current health alerts.
 
@@ -1748,7 +1748,7 @@ class TriggerManager:
 
         return self._health_monitor.get_alerts(clear)
 
-    def get_performance_summary(self) -> Dict[str, Any]:
+    def get_performance_summary(self) -> dict[str, Any]:
         """
         Get performance summary across all triggers.
 
@@ -1794,10 +1794,10 @@ class TriggerManager:
 
 async def prepare_claude_code_session(
     memory_manager: MemoryManager,
-    project_root: Optional[Path] = None,
-    output_path: Optional[Path] = None,
+    project_root: Path | None = None,
+    output_path: Path | None = None,
     token_budget: int = 50000,
-) -> List[TriggerResult]:
+) -> list[TriggerResult]:
     """
     Convenience function to prepare Claude Code session with file injection.
 
@@ -1843,9 +1843,9 @@ async def prepare_claude_code_session(
 
 async def cleanup_claude_code_session(
     memory_manager: MemoryManager,
-    cleanup_paths: Optional[List[Path]] = None,
-    project_root: Optional[Path] = None,
-) -> List[TriggerResult]:
+    cleanup_paths: list[Path] | None = None,
+    project_root: Path | None = None,
+) -> list[TriggerResult]:
     """
     Convenience function to cleanup after Claude Code session.
 
@@ -1904,11 +1904,11 @@ class ToolAwareTrigger(SessionTrigger):
         self,
         name: str,
         phase: TriggerPhase,
-        output_path: Optional[Path] = None,
+        output_path: Path | None = None,
         token_budget: int = 50000,
-        filter: Optional[RuleFilter] = None,
+        filter: RuleFilter | None = None,
         priority: TriggerPriority = TriggerPriority.NORMAL,
-        force_tool_type: Optional[LLMToolType] = None,
+        force_tool_type: LLMToolType | None = None,
     ):
         """
         Initialize tool-aware trigger.
@@ -1931,7 +1931,7 @@ class ToolAwareTrigger(SessionTrigger):
         # Initialize managers
         self._format_manager = FormatManager()
         self._llm_detector = LLMToolDetector()
-        self._current_tool_session: Optional[UnifiedLLMSession] = None
+        self._current_tool_session: UnifiedLLMSession | None = None
 
     def _detect_tool(self) -> UnifiedLLMSession:
         """
@@ -2077,7 +2077,7 @@ class ToolAwareTrigger(SessionTrigger):
                 },
             )
 
-    def get_current_tool_session(self) -> Optional[UnifiedLLMSession]:
+    def get_current_tool_session(self) -> UnifiedLLMSession | None:
         """
         Get the currently detected tool session.
 
@@ -2089,11 +2089,11 @@ class ToolAwareTrigger(SessionTrigger):
 
 async def refresh_claude_code_context(
     memory_manager: MemoryManager,
-    project_root: Optional[Path] = None,
-    output_path: Optional[Path] = None,
+    project_root: Path | None = None,
+    output_path: Path | None = None,
     token_budget: int = 50000,
     refresh_type: str = "full",
-) -> List[TriggerResult]:
+) -> list[TriggerResult]:
     """
     Convenience function to manually refresh Claude Code context.
 

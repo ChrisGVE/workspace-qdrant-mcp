@@ -8,12 +8,12 @@ circuit breaker patterns, and comprehensive logging using structlog.
 import asyncio
 import inspect
 import time
-import traceback
+from collections.abc import Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from functools import wraps
-from typing import Any, Callable, Dict, List, Optional, Type, Union
+from typing import Any
 
 # Use unified logging system to prevent console interference in MCP mode
 from loguru import logger
@@ -59,8 +59,8 @@ class WorkspaceError(Exception):
         category: ErrorCategory = ErrorCategory.INTERNAL,
         severity: ErrorSeverity = ErrorSeverity.MEDIUM,
         retryable: bool = False,
-        context: Optional[Dict[str, Any]] = None,
-        cause: Optional[Exception] = None,
+        context: dict[str, Any] | None = None,
+        cause: Exception | None = None,
     ):
         super().__init__(message)
         self.message = message
@@ -71,7 +71,7 @@ class WorkspaceError(Exception):
         self.cause = cause
         self.timestamp = time.time()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert error to dictionary for logging and monitoring"""
         return {
             "message": self.message,
@@ -92,7 +92,7 @@ class WorkspaceError(Exception):
 class ConfigurationError(WorkspaceError):
     """Configuration-related errors"""
 
-    def __init__(self, message: str, field: Optional[str] = None, **kwargs):
+    def __init__(self, message: str, field: str | None = None, **kwargs):
         context = kwargs.pop("context", {})
         if field:
             context["field"] = field
@@ -112,7 +112,7 @@ class NetworkError(WorkspaceError):
     def __init__(
         self,
         message: str,
-        url: Optional[str] = None,
+        url: str | None = None,
         attempt: int = 1,
         max_attempts: int = 1,
         **kwargs,
@@ -132,7 +132,7 @@ class NetworkError(WorkspaceError):
 class DatabaseError(WorkspaceError):
     """Database-related errors"""
 
-    def __init__(self, message: str, operation: Optional[str] = None, **kwargs):
+    def __init__(self, message: str, operation: str | None = None, **kwargs):
         context = kwargs.pop("context", {})
         if operation:
             context["operation"] = operation
@@ -152,8 +152,8 @@ class FileSystemError(WorkspaceError):
     def __init__(
         self,
         message: str,
-        path: Optional[str] = None,
-        operation: Optional[str] = None,
+        path: str | None = None,
+        operation: str | None = None,
         **kwargs,
     ):
         context = kwargs.pop("context", {})
@@ -175,8 +175,8 @@ class ProcessingError(WorkspaceError):
     def __init__(
         self,
         message: str,
-        file_path: Optional[str] = None,
-        document_type: Optional[str] = None,
+        file_path: str | None = None,
+        document_type: str | None = None,
         **kwargs,
     ):
         context = kwargs.pop("context", {})
@@ -195,7 +195,7 @@ class EmbeddingError(WorkspaceError):
     """Embedding generation errors"""
 
     def __init__(
-        self, message: str, model: Optional[str] = None, retry_count: int = 0, **kwargs
+        self, message: str, model: str | None = None, retry_count: int = 0, **kwargs
     ):
         context = kwargs.pop("context", {})
         context.update({"model": model, "retry_count": retry_count})
@@ -215,8 +215,8 @@ class TimeoutError(WorkspaceError):
     def __init__(
         self,
         message: str,
-        operation: Optional[str] = None,
-        duration_ms: Optional[int] = None,
+        operation: str | None = None,
+        duration_ms: int | None = None,
         **kwargs,
     ):
         context = kwargs.pop("context", {})
@@ -239,7 +239,7 @@ class CircuitBreakerOpenError(WorkspaceError):
         message: str,
         service: str,
         failure_count: int = 0,
-        last_failure: Optional[str] = None,
+        last_failure: str | None = None,
         **kwargs,
     ):
         context = kwargs.pop("context", {})
@@ -266,8 +266,8 @@ class IncompatibleVersionError(WorkspaceError):
     def __init__(
         self,
         message: str,
-        backup_version: Optional[str] = None,
-        current_version: Optional[str] = None,
+        backup_version: str | None = None,
+        current_version: str | None = None,
         **kwargs,
     ):
         context = kwargs.pop("context", {})
@@ -295,8 +295,8 @@ class ErrorRecoveryStrategy:
     base_delay_ms: int = 100
     max_delay_ms: int = 30000
     exponential_backoff: bool = True
-    circuit_breaker_threshold: Optional[int] = 5
-    timeout_ms: Optional[int] = None
+    circuit_breaker_threshold: int | None = 5
+    timeout_ms: int | None = None
 
     @classmethod
     def network_strategy(cls) -> "ErrorRecoveryStrategy":
@@ -351,8 +351,8 @@ class CircuitBreakerState:
     failure_threshold: int = 5
     reset_timeout_ms: int = 60000
     failure_count: int = 0
-    last_failure_time: Optional[float] = None
-    last_success_time: Optional[float] = None
+    last_failure_time: float | None = None
+    last_success_time: float | None = None
     state: str = "closed"  # closed, open, half-open
 
     def should_allow_request(self) -> bool:
@@ -387,7 +387,7 @@ class CircuitBreakerState:
         if self.failure_count >= self.failure_threshold:
             self.state = "open"
 
-    def get_status(self) -> Dict[str, Any]:
+    def get_status(self) -> dict[str, Any]:
         """Get circuit breaker status"""
         return {
             "name": self.name,
@@ -411,9 +411,9 @@ class ErrorMonitor:
             "recovery_successes": 0,
             "circuit_breaker_opens": 0,
         }
-        self.circuit_breakers: Dict[str, CircuitBreakerState] = {}
+        self.circuit_breakers: dict[str, CircuitBreakerState] = {}
 
-    def report_error(self, error: WorkspaceError, context: Optional[str] = None):
+    def report_error(self, error: WorkspaceError, context: str | None = None):
         """Report error for monitoring"""
         self.stats["total_errors"] += 1
         category = error.category.value
@@ -462,7 +462,7 @@ class ErrorMonitor:
             )
         return self.circuit_breakers[name]
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get error statistics"""
         return {
             **self.stats,
@@ -479,7 +479,7 @@ error_monitor = ErrorMonitor()
 class ErrorRecovery:
     """Error recovery with retry logic and circuit breaker protection"""
 
-    def __init__(self, monitor: Optional[ErrorMonitor] = None):
+    def __init__(self, monitor: ErrorMonitor | None = None):
         self.monitor = monitor or error_monitor
 
     async def execute_with_retry(
@@ -602,8 +602,8 @@ error_recovery = ErrorRecovery()
 
 
 def with_error_handling(
-    strategy: Optional[ErrorRecoveryStrategy] = None,
-    operation_name: Optional[str] = None,
+    strategy: ErrorRecoveryStrategy | None = None,
+    operation_name: str | None = None,
 ):
     """Decorator for automatic error handling and recovery"""
 
@@ -671,7 +671,7 @@ async def error_context(context_name: str, **context_data):
 
 
 async def safe_shutdown(
-    cleanup_functions: List[Callable], timeout_seconds: float = 30.0
+    cleanup_functions: list[Callable], timeout_seconds: float = 30.0
 ):
     """Safely shutdown with proper async cleanup instead of os._exit"""
     logger.info("Starting graceful shutdown", timeout_seconds=timeout_seconds)
@@ -711,7 +711,7 @@ async def safe_shutdown(
     sys.exit(0)
 
 
-def get_error_stats() -> Dict[str, Any]:
+def get_error_stats() -> dict[str, Any]:
     """Get current error statistics"""
     return error_monitor.get_stats()
 

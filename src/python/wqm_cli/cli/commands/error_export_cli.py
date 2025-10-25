@@ -11,25 +11,21 @@ Usage:
     wqm errors debug-bundle --last-n=10 --output=last_errors.tar.gz
 """
 
-import asyncio
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 import typer
-from loguru import logger
-
 from common.core.error_categorization import ErrorCategory, ErrorSeverity
 from common.core.error_export import DebugBundleGenerator, ErrorExporter
 from common.core.error_filtering import ErrorFilter
 from common.core.error_message_manager import ErrorMessageManager
+from loguru import logger
 
 from ..utils import (
     create_command_app,
     error_message,
     handle_async,
     success_message,
-    warning_message,
 )
 
 # Create the export commands app (to be registered under errors_app)
@@ -62,35 +58,35 @@ def export_errors(
         "-o",
         help="Output file path",
     ),
-    severity: Optional[str] = typer.Option(
+    severity: str | None = typer.Option(
         None,
         "--severity",
         "-s",
         help="Filter by severity (error, warning, info)",
     ),
-    category: Optional[str] = typer.Option(
+    category: str | None = typer.Option(
         None,
         "--category",
         "-c",
         help="Filter by category (e.g., file_corrupt, network)",
     ),
-    days: Optional[int] = typer.Option(
+    days: int | None = typer.Option(
         None,
         "--days",
         "-d",
         help="Export errors from last N days",
     ),
-    start_date: Optional[str] = typer.Option(
+    start_date: str | None = typer.Option(
         None,
         "--start-date",
         help="Start date (ISO format: YYYY-MM-DD)",
     ),
-    end_date: Optional[str] = typer.Option(
+    end_date: str | None = typer.Option(
         None,
         "--end-date",
         help="End date (ISO format: YYYY-MM-DD)",
     ),
-    acknowledged: Optional[bool] = typer.Option(
+    acknowledged: bool | None = typer.Option(
         None,
         "--acknowledged/--unacknowledged",
         help="Filter by acknowledgment status",
@@ -116,12 +112,12 @@ def export_errors(
 async def _export_errors(
     format: str,
     output: str,
-    severity: Optional[str],
-    category: Optional[str],
-    days: Optional[int],
-    start_date_str: Optional[str],
-    end_date_str: Optional[str],
-    acknowledged: Optional[bool],
+    severity: str | None,
+    category: str | None,
+    days: int | None,
+    start_date_str: str | None,
+    end_date_str: str | None,
+    acknowledged: bool | None,
     limit: int,
 ) -> None:
     """Implementation of export_errors command."""
@@ -139,7 +135,6 @@ async def _export_errors(
         await exporter.initialize()
 
         # Build filter criteria
-        filter_criteria = {}
 
         # Parse severity
         severity_levels = None
@@ -219,13 +214,13 @@ async def _export_errors(
 
 @export_app.command("debug-bundle")
 def create_debug_bundle(
-    error_id: Optional[int] = typer.Option(
+    error_id: int | None = typer.Option(
         None,
         "--error-id",
         "-e",
         help="Specific error ID to include in bundle",
     ),
-    last_n: Optional[int] = typer.Option(
+    last_n: int | None = typer.Option(
         None,
         "--last-n",
         "-n",
@@ -237,7 +232,7 @@ def create_debug_bundle(
         "-o",
         help="Output path for .tar.gz bundle file",
     ),
-    severity: Optional[str] = typer.Option(
+    severity: str | None = typer.Option(
         None,
         "--severity",
         "-s",
@@ -254,10 +249,10 @@ def create_debug_bundle(
 
 
 async def _create_debug_bundle(
-    error_id: Optional[int],
-    last_n: Optional[int],
+    error_id: int | None,
+    last_n: int | None,
     output: str,
-    severity: Optional[str],
+    severity: str | None,
 ) -> None:
     """Implementation of create_debug_bundle command."""
     try:
@@ -310,7 +305,7 @@ async def _create_debug_bundle(
             )
 
             if not errors:
-                error_message(f"No errors found matching criteria")
+                error_message("No errors found matching criteria")
                 await bundle_gen.close()
                 await error_manager.close()
                 raise typer.Exit(1)

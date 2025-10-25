@@ -1,18 +1,18 @@
 """Comprehensive unit tests for consistency checker with edge cases."""
 
-import pytest
+import json
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import json
-import yaml
+from unittest.mock import MagicMock, Mock, patch
 
+import pytest
+import yaml
 from docs.framework.validation.consistency_checker import (
     ConsistencyChecker,
+    ConsistencyLevel,
+    ConsistencyReport,
     ConsistencyRule,
     ConsistencyViolation,
-    ConsistencyReport,
-    ConsistencyLevel
 )
 
 
@@ -285,14 +285,14 @@ Some inconsistent terminology:
     def test_load_config_file_errors(self, temp_docs_dir):
         """Test config file loading error handling."""
         # Test with non-existent file
-        checker = ConsistencyChecker(temp_docs_dir, config_file="nonexistent.yaml")
+        ConsistencyChecker(temp_docs_dir, config_file="nonexistent.yaml")
         # Should not raise exception, just log error
 
         # Test with invalid YAML
         invalid_config = temp_docs_dir / "invalid.yaml"
         invalid_config.write_text("invalid: yaml: content: [")
 
-        checker = ConsistencyChecker(temp_docs_dir, config_file=invalid_config)
+        ConsistencyChecker(temp_docs_dir, config_file=invalid_config)
         # Should handle gracefully
 
     def test_load_default_rules(self, temp_docs_dir):
@@ -685,7 +685,7 @@ All "consistent" throughout."""
         assert output_path.exists()
 
         # Verify exported data
-        with open(output_path, 'r') as f:
+        with open(output_path) as f:
             data = json.load(f)
 
         assert data['summary']['total_files_checked'] == 5

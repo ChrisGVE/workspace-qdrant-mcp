@@ -6,20 +6,18 @@ production deployments, rollback mechanisms, health monitoring, and
 A/B testing capabilities for machine learning models.
 """
 
-import logging
-import time
-import threading
 import json
-import shutil
-import subprocess
-from typing import Dict, List, Optional, Any, Callable, Union
-from pathlib import Path
+import logging
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 from datetime import datetime
-from dataclasses import dataclass, asdict
 from enum import Enum
+from typing import Any
 
 from ..config.ml_config import MLConfig
-from .model_registry import ModelRegistry, ModelMetadata
+from .model_registry import ModelRegistry
 
 
 class DeploymentStage(Enum):
@@ -58,7 +56,7 @@ class DeploymentConfig:
     monitoring_duration: int = 3600  # Seconds to monitor after deployment
     max_replicas: int = 3
     min_replicas: int = 1
-    resource_limits: Dict[str, str] = None
+    resource_limits: dict[str, str] = None
 
     def __post_init__(self):
         if self.resource_limits is None:
@@ -72,7 +70,7 @@ class DeploymentMetrics:
     response_time_p99: float = 0.0  # 99th percentile response time in ms
     error_rate: float = 0.0
     throughput: float = 0.0  # requests per second
-    resource_usage: Dict[str, float] = None  # CPU/Memory usage
+    resource_usage: dict[str, float] = None  # CPU/Memory usage
 
     def __post_init__(self):
         if self.resource_usage is None:
@@ -92,15 +90,15 @@ class DeploymentRecord:
     metrics: DeploymentMetrics
     created_at: datetime
     updated_at: datetime
-    deployed_at: Optional[datetime] = None
-    rolled_back_at: Optional[datetime] = None
-    logs: List[str] = None
+    deployed_at: datetime | None = None
+    rolled_back_at: datetime | None = None
+    logs: list[str] = None
 
     def __post_init__(self):
         if self.logs is None:
             self.logs = []
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         data = asdict(self)
         data['created_at'] = self.created_at.isoformat()
@@ -150,10 +148,10 @@ class DeploymentManager:
         """
         self.config = config
         self.model_registry = model_registry
-        self.deployments: Dict[str, DeploymentRecord] = {}
-        self.active_deployments: Dict[str, str] = {}  # stage -> deployment_id
-        self.health_check_callbacks: List[Callable[[str], bool]] = []
-        self.metrics_callbacks: List[Callable[[str], DeploymentMetrics]] = []
+        self.deployments: dict[str, DeploymentRecord] = {}
+        self.active_deployments: dict[str, str] = {}  # stage -> deployment_id
+        self.health_check_callbacks: list[Callable[[str], bool]] = []
+        self.metrics_callbacks: list[Callable[[str], DeploymentMetrics]] = []
 
         # Setup logging
         self.logger = logging.getLogger(f"{__name__}.{self.__class__.__name__}")
@@ -169,8 +167,8 @@ class DeploymentManager:
         self,
         model_id: str,
         stage: DeploymentStage,
-        config: Optional[DeploymentConfig] = None,
-        version: Optional[str] = None
+        config: DeploymentConfig | None = None,
+        version: str | None = None
     ) -> str:
         """
         Deploy a model to specified stage.
@@ -236,15 +234,15 @@ class DeploymentManager:
             self.logger.error(error_msg)
             raise DeploymentError(error_msg)
 
-    def get_deployment_status(self, deployment_id: str) -> Optional[DeploymentRecord]:
+    def get_deployment_status(self, deployment_id: str) -> DeploymentRecord | None:
         """Get deployment status and details."""
         return self.deployments.get(deployment_id)
 
     def list_deployments(
         self,
-        stage: Optional[DeploymentStage] = None,
-        status: Optional[DeploymentStatus] = None
-    ) -> List[DeploymentRecord]:
+        stage: DeploymentStage | None = None,
+        status: DeploymentStatus | None = None
+    ) -> list[DeploymentRecord]:
         """
         List deployments with optional filtering.
 
@@ -366,7 +364,7 @@ class DeploymentManager:
         """
         self.metrics_callbacks.append(callback)
 
-    def get_deployment_metrics(self, deployment_id: str) -> Optional[DeploymentMetrics]:
+    def get_deployment_metrics(self, deployment_id: str) -> DeploymentMetrics | None:
         """Get current metrics for a deployment."""
         deployment = self.deployments.get(deployment_id)
         if not deployment or deployment.status != DeploymentStatus.DEPLOYED:
@@ -636,7 +634,7 @@ class DeploymentManager:
 
     # Helper methods for deployment strategies (simplified implementations)
 
-    def _create_environment(self, deployment: DeploymentRecord, model: Any) -> Optional[str]:
+    def _create_environment(self, deployment: DeploymentRecord, model: Any) -> str | None:
         """Create deployment environment."""
         try:
             env_id = f"{deployment.deployment_id}_env"
@@ -677,11 +675,11 @@ class DeploymentManager:
         """Gradually increase traffic to canary."""
         pass
 
-    def _get_current_instances(self, stage: DeploymentStage) -> List[str]:
+    def _get_current_instances(self, stage: DeploymentStage) -> list[str]:
         """Get current instances for stage."""
         return [f"instance_{i}" for i in range(2)]
 
-    def _create_instance(self, deployment: DeploymentRecord, model: Any) -> Optional[str]:
+    def _create_instance(self, deployment: DeploymentRecord, model: Any) -> str | None:
         """Create new instance."""
         return f"instance_{int(time.time())}"
 
@@ -706,7 +704,7 @@ class DeploymentManager:
         time.sleep(1)
         return True
 
-    def _get_previous_deployment(self, stage: DeploymentStage, exclude_id: str) -> Optional[DeploymentRecord]:
+    def _get_previous_deployment(self, stage: DeploymentStage, exclude_id: str) -> DeploymentRecord | None:
         """Get previous successful deployment for stage."""
         deployments = [
             d for d in self.deployments.values()
@@ -742,7 +740,7 @@ class DeploymentManager:
         try:
             deployments_file = self.deployment_dir / "deployments.json"
             if deployments_file.exists():
-                with open(deployments_file, 'r') as f:
+                with open(deployments_file) as f:
                     data = json.load(f)
 
                 for deployment_id, deployment_data in data.items():

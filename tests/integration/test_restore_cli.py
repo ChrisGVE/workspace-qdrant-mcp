@@ -11,15 +11,15 @@ Comprehensive integration tests for restore CLI command including:
 """
 
 import json
-import pytest
 import tempfile
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
-from typer.testing import CliRunner
 
-from wqm_cli.cli.main import app
+import pytest
 from common.core.backup import BackupManager, RestoreManager
+from typer.testing import CliRunner
 from wqm_cli import __version__
+from wqm_cli.cli.main import app
 
 
 @pytest.fixture

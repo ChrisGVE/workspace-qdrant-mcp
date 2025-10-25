@@ -1,10 +1,10 @@
 """Unit tests for error monitoring system."""
 
 import asyncio
-import pytest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from common.core.error_categorization import ErrorCategory, ErrorSeverity
 from common.core.error_message_manager import ErrorMessage
 from common.core.error_monitoring import (

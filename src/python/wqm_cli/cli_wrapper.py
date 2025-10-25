@@ -10,7 +10,6 @@ Task 215: Migrated to unified logging system for MCP stdio compliance.
 """
 
 import os
-import sys
 
 # Set environment variables IMMEDIATELY before any other imports
 os.environ.setdefault("WQM_CLI_MODE", "true")
@@ -19,7 +18,6 @@ os.environ.setdefault("WQM_LOG_INIT", "false")
 # Task 221: Use loguru-based logging system for CLI
 # Configure loguru with CLI-appropriate settings
 from common.logging.loguru_config import setup_logging
-from loguru import logger
 
 # Configure loguru to be silent in CLI mode but allow file logging for debug
 setup_logging(

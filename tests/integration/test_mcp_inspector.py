@@ -10,8 +10,9 @@ import json
 import os
 import subprocess
 import tempfile
-import pytest
 from pathlib import Path
+
+import pytest
 
 
 class TestMCPInspectorIntegration:

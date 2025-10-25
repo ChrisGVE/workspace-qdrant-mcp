@@ -15,9 +15,9 @@ Tests:
 """
 
 import asyncio
-import json
 import inspect
-from typing import Dict, Any, List, Optional, Union
+import json
+from typing import Any, Optional, Union
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -28,7 +28,7 @@ from fastmcp.tools import FunctionTool
 from tests.utils.fastmcp_test_infrastructure import (
     FastMCPTestClient,
     MCPProtocolTester,
-    fastmcp_test_environment
+    fastmcp_test_environment,
 )
 
 # Import server and tools for testing

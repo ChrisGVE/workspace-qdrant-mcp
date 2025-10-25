@@ -16,11 +16,10 @@ Key features:
 import logging
 import shutil
 import subprocess
-from pathlib import Path
-from typing import Optional, Tuple, Dict, List, TYPE_CHECKING
-from dataclasses import dataclass
 import tempfile
-import os
+from dataclasses import dataclass
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from rich.progress import Progress, TaskID
@@ -41,13 +40,13 @@ class InstallationResult:
     installation_path: Path
     """Path where grammar was installed"""
 
-    version: Optional[str] = None
+    version: str | None = None
     """Installed version (tag, branch, or commit)"""
 
     message: str = ""
     """Human-readable status message"""
 
-    error: Optional[str] = None
+    error: str | None = None
     """Error message if installation failed"""
 
 
@@ -59,7 +58,7 @@ class GrammarInstaller:
     discovery system. Supports progress tracking for long-running operations.
     """
 
-    def __init__(self, installation_dir: Optional[Path] = None):
+    def __init__(self, installation_dir: Path | None = None):
         """
         Initialize grammar installer.
 
@@ -80,8 +79,8 @@ class GrammarInstaller:
     def install(
         self,
         grammar_url: str,
-        grammar_name: Optional[str] = None,
-        version: Optional[str] = None,
+        grammar_name: str | None = None,
+        version: str | None = None,
         force: bool = False,
         progress: Optional["Progress"] = None,
         progress_task: Optional["TaskID"] = None
@@ -117,7 +116,7 @@ class GrammarInstaller:
 
         # Update progress
         if progress and progress_task is not None:
-            progress.update(progress_task, description=f"Checking existing installation...")
+            progress.update(progress_task, description="Checking existing installation...")
 
         # Check if already installed
         install_path = self.installation_dir / f"tree-sitter-{grammar_name}"
@@ -156,20 +155,20 @@ class GrammarInstaller:
 
                 # Verify it's a valid tree-sitter grammar
                 if progress and progress_task is not None:
-                    progress.update(progress_task, description=f"Verifying grammar structure...")
+                    progress.update(progress_task, description="Verifying grammar structure...")
 
                 if not self._verify_grammar(temp_path):
                     return InstallationResult(
                         success=False,
                         grammar_name=grammar_name,
                         installation_path=install_path,
-                        error=f"Repository does not appear to be a valid tree-sitter grammar (missing grammar.js or src/grammar.json)"
+                        error="Repository does not appear to be a valid tree-sitter grammar (missing grammar.js or src/grammar.json)"
                     )
 
                 # Remove existing installation if force=True
                 if install_path.exists():
                     if progress and progress_task is not None:
-                        progress.update(progress_task, description=f"Removing existing installation...")
+                        progress.update(progress_task, description="Removing existing installation...")
 
                     logger.info(f"Removing existing installation at {install_path}")
                     shutil.rmtree(install_path)
@@ -182,7 +181,7 @@ class GrammarInstaller:
 
                 # Get installed version
                 if progress and progress_task is not None:
-                    progress.update(progress_task, description=f"Detecting version...")
+                    progress.update(progress_task, description="Detecting version...")
 
                 installed_version = self._get_installed_version(install_path)
 
@@ -206,7 +205,7 @@ class GrammarInstaller:
                 error=f"Installation failed: {str(e)}"
             )
 
-    def uninstall(self, grammar_name: str) -> Tuple[bool, str]:
+    def uninstall(self, grammar_name: str) -> tuple[bool, str]:
         """
         Uninstall a tree-sitter grammar.
 
@@ -229,7 +228,7 @@ class GrammarInstaller:
             logger.error(f"Failed to uninstall grammar '{grammar_name}': {e}")
             return False, f"Uninstallation failed: {str(e)}"
 
-    def list_installed(self) -> List[str]:
+    def list_installed(self) -> list[str]:
         """
         List all installed grammars.
 
@@ -248,7 +247,7 @@ class GrammarInstaller:
 
         return sorted(installed)
 
-    def get_installation_path(self, grammar_name: str) -> Optional[Path]:
+    def get_installation_path(self, grammar_name: str) -> Path | None:
         """
         Get installation path for a grammar.
 
@@ -312,10 +311,10 @@ class GrammarInstaller:
         self,
         url: str,
         destination: Path,
-        version: Optional[str] = None,
+        version: str | None = None,
         progress: Optional["Progress"] = None,
         progress_task: Optional["TaskID"] = None
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         """
         Clone a Git repository.
 
@@ -401,7 +400,7 @@ class GrammarInstaller:
 
         return False
 
-    def _get_installed_version(self, path: Path) -> Optional[str]:
+    def _get_installed_version(self, path: Path) -> str | None:
         """
         Get version of installed grammar from Git.
 

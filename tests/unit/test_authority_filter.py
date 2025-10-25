@@ -2,7 +2,7 @@
 Unit tests for authority level filtering system.
 """
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 

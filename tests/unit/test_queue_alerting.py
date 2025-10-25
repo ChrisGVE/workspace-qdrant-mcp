@@ -43,7 +43,6 @@ from src.python.common.core.queue_statistics import (
     QueueStatisticsCollector,
 )
 
-
 # =============================================================================
 # FIXTURES
 # =============================================================================
@@ -63,7 +62,7 @@ async def alert_system(temp_db):
     conn = sqlite3.connect(temp_db)
     schema_path = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "alert_history_schema.sql"
 
-    with open(schema_path, "r") as f:
+    with open(schema_path) as f:
         schema_sql = f.read()
     conn.executescript(schema_sql)
     conn.commit()

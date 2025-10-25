@@ -23,14 +23,13 @@ import hashlib
 import time
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple, Union
 from datetime import datetime, timedelta
 
 from loguru import logger
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 
-from .multitenant_collections import ProjectMetadata, ProjectIsolationManager
+from .multitenant_collections import ProjectMetadata
 
 
 @dataclass
@@ -41,7 +40,7 @@ class FilterCacheEntry:
     cache_key: str
     created_at: datetime
     access_count: int = 0
-    last_accessed: Optional[datetime] = None
+    last_accessed: datetime | None = None
     avg_execution_time: float = 0.0
 
     def update_performance(self, execution_time: float) -> None:
@@ -70,7 +69,7 @@ class PerformanceMetrics:
     p95_response_time: float = 0.0
     p99_response_time: float = 0.0
     sub_3ms_percentage: float = 0.0
-    response_times: List[float] = field(default_factory=list)
+    response_times: list[float] = field(default_factory=list)
 
     def add_response_time(self, response_time: float) -> None:
         """Add a response time measurement and update metrics."""
@@ -119,7 +118,7 @@ class FilterOptimizer:
         """
         self.cache_size = cache_size
         self.cache_ttl = timedelta(minutes=cache_ttl_minutes)
-        self._filter_cache: Dict[str, FilterCacheEntry] = {}
+        self._filter_cache: dict[str, FilterCacheEntry] = {}
         self._performance = PerformanceMetrics()
 
         logger.info("Filter optimizer initialized",
@@ -127,11 +126,11 @@ class FilterOptimizer:
 
     def get_optimized_filter(
         self,
-        project_context: Optional[Union[Dict, ProjectMetadata]] = None,
-        collection_type: Optional[str] = None,
-        additional_filters: Optional[Dict] = None,
-        base_filter: Optional[models.Filter] = None
-    ) -> Tuple[models.Filter, bool]:
+        project_context: dict | ProjectMetadata | None = None,
+        collection_type: str | None = None,
+        additional_filters: dict | None = None,
+        base_filter: models.Filter | None = None
+    ) -> tuple[models.Filter, bool]:
         """
         Get optimized filter with caching and performance tracking.
 
@@ -180,10 +179,10 @@ class FilterOptimizer:
 
     def _generate_cache_key(
         self,
-        project_context: Optional[Union[Dict, ProjectMetadata]],
-        collection_type: Optional[str],
-        additional_filters: Optional[Dict],
-        base_filter: Optional[models.Filter]
+        project_context: dict | ProjectMetadata | None,
+        collection_type: str | None,
+        additional_filters: dict | None,
+        base_filter: models.Filter | None
     ) -> str:
         """Generate stable cache key for filter combination."""
         key_components = []
@@ -220,7 +219,7 @@ class FilterOptimizer:
         cache_key = "|".join(key_components)
         return hashlib.sha256(cache_key.encode()).hexdigest()
 
-    def _get_from_cache(self, cache_key: str) -> Optional[FilterCacheEntry]:
+    def _get_from_cache(self, cache_key: str) -> FilterCacheEntry | None:
         """Get filter from cache if valid and not expired."""
         if cache_key not in self._filter_cache:
             return None
@@ -276,10 +275,10 @@ class FilterOptimizer:
 
     def _create_optimized_filter(
         self,
-        project_context: Optional[Union[Dict, ProjectMetadata]],
-        collection_type: Optional[str],
-        additional_filters: Optional[Dict],
-        base_filter: Optional[models.Filter]
+        project_context: dict | ProjectMetadata | None,
+        collection_type: str | None,
+        additional_filters: dict | None,
+        base_filter: models.Filter | None
     ) -> models.Filter:
         """Create optimized filter using best practices."""
         conditions = []
@@ -368,7 +367,7 @@ class FilterOptimizer:
         else:
             return models.Filter(must=conditions)
 
-    def get_performance_metrics(self) -> Dict:
+    def get_performance_metrics(self) -> dict:
         """Get current performance metrics."""
         cache_hit_rate = (
             (self._performance.cache_hits /
@@ -405,8 +404,8 @@ class MetadataIndexManager:
     def __init__(self, client: QdrantClient):
         """Initialize metadata index manager."""
         self.client = client
-        self._indexed_collections: Set[str] = set()
-        self._index_configurations: Dict[str, Dict] = {}
+        self._indexed_collections: set[str] = set()
+        self._index_configurations: dict[str, dict] = {}
 
         # Optimal index configurations for different field types
         self.optimal_index_configs = {
@@ -441,7 +440,7 @@ class MetadataIndexManager:
         self,
         collection_name: str,
         force_recreate: bool = False
-    ) -> Dict[str, bool]:
+    ) -> dict[str, bool]:
         """
         Ensure optimal indexes exist for metadata filtering.
 
@@ -493,7 +492,7 @@ class MetadataIndexManager:
         self,
         collection_name: str,
         field_name: str,
-        index_config: Union[models.KeywordIndexParams, models.IntegerIndexParams, models.TextIndexParams],
+        index_config: models.KeywordIndexParams | models.IntegerIndexParams | models.TextIndexParams,
         force_recreate: bool = False
     ) -> bool:
         """Create index for a specific field."""
@@ -501,7 +500,7 @@ class MetadataIndexManager:
             # Check if index already exists (if not forcing recreate)
             if not force_recreate:
                 try:
-                    collection_info = self.client.get_collection(collection_name)
+                    self.client.get_collection(collection_name)
                     # Qdrant doesn't easily expose index info, so we try to create and handle conflicts
                 except Exception:
                     pass
@@ -535,7 +534,7 @@ class MetadataIndexManager:
     async def optimize_collection_settings(
         self,
         collection_name: str,
-        expected_points: Optional[int] = None
+        expected_points: int | None = None
     ) -> bool:
         """
         Optimize collection settings for metadata filtering performance.
@@ -577,11 +576,11 @@ class MetadataIndexManager:
                         collection=collection_name, error=str(e))
             return False
 
-    def get_indexed_collections(self) -> Set[str]:
+    def get_indexed_collections(self) -> set[str]:
         """Get set of collections with optimized indexes."""
         return self._indexed_collections.copy()
 
-    def get_index_status(self, collection_name: str) -> Optional[Dict[str, bool]]:
+    def get_index_status(self, collection_name: str) -> dict[str, bool] | None:
         """Get index status for a collection."""
         return self._index_configurations.get(collection_name)
 
@@ -597,8 +596,8 @@ class QueryOptimizer:
     def __init__(self, target_response_time: float = 3.0):
         """Initialize query optimizer."""
         self.target_response_time = target_response_time
-        self._query_stats: Dict[str, List[float]] = defaultdict(list)
-        self._optimization_cache: Dict[str, Dict] = {}
+        self._query_stats: dict[str, list[float]] = defaultdict(list)
+        self._optimization_cache: dict[str, dict] = {}
 
         logger.info("Query optimizer initialized",
                    target_ms=target_response_time)
@@ -662,7 +661,7 @@ class QueryOptimizer:
         response_time: float,
         result_count: int,
         has_filters: bool = False
-    ) -> Dict:
+    ) -> dict:
         """
         Track query performance and provide optimization recommendations.
 
@@ -716,7 +715,7 @@ class QueryOptimizer:
 
         return analysis
 
-    def get_performance_summary(self) -> Dict:
+    def get_performance_summary(self) -> dict:
         """Get overall query performance summary."""
         summary = {
             "target_response_time": self.target_response_time,
@@ -751,8 +750,8 @@ class PerformanceTracker:
     def __init__(self, target_response_time: float = 3.0):
         """Initialize performance tracker."""
         self.target_response_time = target_response_time
-        self._measurements: List[Tuple[str, float, datetime]] = []
-        self._alerts: List[Dict] = []
+        self._measurements: list[tuple[str, float, datetime]] = []
+        self._alerts: list[dict] = []
 
         logger.info("Performance tracker initialized", target_ms=target_response_time)
 
@@ -760,7 +759,7 @@ class PerformanceTracker:
         self,
         operation: str,
         response_time: float,
-        metadata: Optional[Dict] = None
+        metadata: dict | None = None
     ) -> None:
         """Record a performance measurement."""
         timestamp = datetime.now()
@@ -781,7 +780,7 @@ class PerformanceTracker:
         self,
         operation: str,
         response_time: float,
-        metadata: Optional[Dict] = None
+        metadata: dict | None = None
     ) -> None:
         """Create performance alert when target is exceeded."""
         alert = {
@@ -804,7 +803,7 @@ class PerformanceTracker:
                       response_time=response_time,
                       target=self.target_response_time)
 
-    def get_performance_report(self) -> Dict:
+    def get_performance_report(self) -> dict:
         """Generate comprehensive performance report."""
         if not self._measurements:
             return {"error": "No measurements available"}
@@ -859,7 +858,7 @@ class PerformanceTracker:
 
         return report
 
-    def get_recent_alerts(self, hours: int = 24) -> List[Dict]:
+    def get_recent_alerts(self, hours: int = 24) -> list[dict]:
         """Get recent performance alerts."""
         cutoff = datetime.now() - timedelta(hours=hours)
 

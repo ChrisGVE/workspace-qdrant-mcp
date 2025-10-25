@@ -1,14 +1,15 @@
 """Unit tests for binary security validation utilities."""
 
 import os
-import pytest
 import stat
 import tempfile
 from pathlib import Path
 
+import pytest
+
 from src.python.wqm_cli.cli.binary_security import (
-    BinaryValidator,
     BinarySecurityError,
+    BinaryValidator,
 )
 
 

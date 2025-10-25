@@ -16,20 +16,21 @@ import asyncio
 import concurrent.futures
 import json
 import multiprocessing
-import pytest
 import random
 import threading
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
+
+import pytest
 
 from tests.e2e.utils import (
     HealthChecker,
-    WorkflowTimer,
-    TestDataGenerator,
     QdrantTestHelper,
+    TestDataGenerator,
+    WorkflowTimer,
     assert_within_threshold,
-    run_git_command
+    run_git_command,
 )
 
 
@@ -73,7 +74,7 @@ class TestConcurrentMCPClients:
         num_clients = 10
         connection_results = []
 
-        async def connect_client(client_id: int) -> Dict[str, Any]:
+        async def connect_client(client_id: int) -> dict[str, Any]:
             """Simulate MCP client connection."""
             start = time.time()
 
@@ -154,7 +155,7 @@ class TestConcurrentMCPClients:
             "data processing"
         ]
 
-        async def perform_search(search_id: int) -> Dict[str, Any]:
+        async def perform_search(search_id: int) -> dict[str, Any]:
             """Simulate concurrent search operation."""
             query = random.choice(search_queries)
             start = time.time()
@@ -223,7 +224,7 @@ class TestConcurrentMCPClients:
         workspace_path = temp_project_workspace["path"]
         num_ingestions = 15
 
-        async def ingest_document(doc_id: int) -> Dict[str, Any]:
+        async def ingest_document(doc_id: int) -> dict[str, Any]:
             """Simulate concurrent ingestion operation."""
             file_path = workspace_path / f"docs/document_{doc_id}.md"
             file_path.parent.mkdir(parents=True, exist_ok=True)
@@ -310,7 +311,7 @@ class TestConcurrentCLIOperations:
         num_commands = 20
         results = []
 
-        def run_status_check(command_id: int) -> Dict[str, Any]:
+        def run_status_check(command_id: int) -> dict[str, Any]:
             """Run CLI status check command."""
             start = time.time()
 
@@ -361,7 +362,7 @@ class TestConcurrentCLIOperations:
         workspace_path = temp_project_workspace["path"]
         results = []
 
-        def run_add_command(op_id: int) -> Dict[str, Any]:
+        def run_add_command(op_id: int) -> dict[str, Any]:
             """Run CLI add command."""
             # Create test file
             file_path = workspace_path / f"cli_test_{op_id}.py"
@@ -416,7 +417,7 @@ class TestConcurrentCLIOperations:
 
         command_types = ["status", "add", "search", "list", "info"]
 
-        def run_mixed_command(op_id: int) -> Dict[str, Any]:
+        def run_mixed_command(op_id: int) -> dict[str, Any]:
             """Run random CLI command."""
             command_type = random.choice(command_types)
             start = time.time()
@@ -494,7 +495,7 @@ class TestSharedDaemonAccess:
         num_projects = 5
         operations_per_project = 10
 
-        async def project_operations(project_id: int) -> Dict[str, Any]:
+        async def project_operations(project_id: int) -> dict[str, Any]:
             """Simulate operations from a specific project."""
             operations = []
 
@@ -573,7 +574,7 @@ class TestSharedDaemonAccess:
         num_switches = 30
         project_pool = ["project_a", "project_b", "project_c", "project_d", "project_e"]
 
-        async def perform_project_switch(switch_id: int) -> Dict[str, Any]:
+        async def perform_project_switch(switch_id: int) -> dict[str, Any]:
             """Simulate project switch operation."""
             from_project = random.choice(project_pool)
             to_project = random.choice([p for p in project_pool if p != from_project])
@@ -649,7 +650,7 @@ class TestSQLiteConcurrentAccess:
 
         num_reads = 50
 
-        async def perform_read(read_id: int) -> Dict[str, Any]:
+        async def perform_read(read_id: int) -> dict[str, Any]:
             """Simulate SQLite read operation."""
             start = time.time()
 
@@ -713,7 +714,7 @@ class TestSQLiteConcurrentAccess:
 
         num_writes = 20
 
-        async def perform_write(write_id: int) -> Dict[str, Any]:
+        async def perform_write(write_id: int) -> dict[str, Any]:
             """Simulate SQLite write operation."""
             start = time.time()
 
@@ -777,7 +778,7 @@ class TestSQLiteConcurrentAccess:
         num_reads = 30
         num_writes = 10
 
-        async def perform_mixed_operation(op_id: int, is_write: bool) -> Dict[str, Any]:
+        async def perform_mixed_operation(op_id: int, is_write: bool) -> dict[str, Any]:
             """Simulate mixed read/write operation."""
             start = time.time()
 
@@ -865,7 +866,7 @@ class TestCollectionAccessConflicts:
 
         num_collections = 15
 
-        async def create_collection(coll_id: int) -> Dict[str, Any]:
+        async def create_collection(coll_id: int) -> dict[str, Any]:
             """Simulate collection creation."""
             collection_name = f"test_collection_{coll_id}"
             start = time.time()
@@ -930,7 +931,7 @@ class TestCollectionAccessConflicts:
         num_queries = 40
         collections = [f"collection_{i}" for i in range(5)]
 
-        async def query_collection(query_id: int) -> Dict[str, Any]:
+        async def query_collection(query_id: int) -> dict[str, Any]:
             """Simulate collection query."""
             collection = random.choice(collections)
             start = time.time()
@@ -1018,7 +1019,7 @@ class TestResourceContentionHandling:
 
         resource_tracker.capture_baseline()
 
-        async def mcp_client_operations(client_id: int) -> Dict[str, Any]:
+        async def mcp_client_operations(client_id: int) -> dict[str, Any]:
             """Simulate MCP client load."""
             operations = []
             for _ in range(5):
@@ -1026,17 +1027,17 @@ class TestResourceContentionHandling:
                 operations.append({"success": True})
             return {"client_id": client_id, "ops": len(operations)}
 
-        def cli_operations(op_id: int) -> Dict[str, Any]:
+        def cli_operations(op_id: int) -> dict[str, Any]:
             """Simulate CLI load."""
             time.sleep(random.uniform(0.3, 0.7))
             return {"op_id": op_id, "success": True}
 
-        async def search_operations(search_id: int) -> Dict[str, Any]:
+        async def search_operations(search_id: int) -> dict[str, Any]:
             """Simulate search load."""
             await asyncio.sleep(random.uniform(0.2, 0.6))
             return {"search_id": search_id, "success": True}
 
-        async def ingestion_operations(ingest_id: int) -> Dict[str, Any]:
+        async def ingestion_operations(ingest_id: int) -> dict[str, Any]:
             """Simulate ingestion load."""
             await asyncio.sleep(random.uniform(0.5, 1.0))
             return {"ingest_id": ingest_id, "success": True}
@@ -1082,7 +1083,7 @@ class TestResourceContentionHandling:
 
         # Check resource usage
         resource_tracker.capture_current()
-        delta = resource_tracker.get_delta()
+        resource_tracker.get_delta()
         warnings = resource_tracker.check_thresholds()
 
         # Allow higher memory usage under load, but still check thresholds
@@ -1112,7 +1113,7 @@ class TestResourceContentionHandling:
         # Submit burst of 50 operations rapidly
         num_operations = 50
 
-        async def burst_operation(op_id: int) -> Dict[str, Any]:
+        async def burst_operation(op_id: int) -> dict[str, Any]:
             """Simulate burst operation."""
             start = time.time()
             await asyncio.sleep(random.uniform(0.5, 1.0))

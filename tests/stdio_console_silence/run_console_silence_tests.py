@@ -14,7 +14,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 
 class ConsoleSilenceTestRunner:
@@ -26,7 +26,7 @@ class ConsoleSilenceTestRunner:
         self.performance_metrics = {}
         self.start_time = time.time()
 
-    def run_test_category(self, category: str, test_file: str) -> Dict:
+    def run_test_category(self, category: str, test_file: str) -> dict:
         """Run a specific test category."""
         print(f"\n{'='*60}")
         print(f"Running {category} Tests")
@@ -85,7 +85,7 @@ class ConsoleSilenceTestRunner:
         self.test_results[category] = test_result
         return test_result
 
-    def run_all_tests(self) -> Dict:
+    def run_all_tests(self) -> dict:
         """Run all console silence test categories."""
         print("Starting Comprehensive Console Silence Validation")
         print(f"Quick mode: {self.quick_mode}")
@@ -183,7 +183,7 @@ class ConsoleSilenceTestRunner:
 
         return requirements_met
 
-    def generate_report(self, report_file: Optional[str] = None) -> Dict:
+    def generate_report(self, report_file: str | None = None) -> dict:
         """Generate comprehensive test report."""
         report = {
             "test_execution": self.test_results,
@@ -250,7 +250,7 @@ class ConsoleSilenceTestRunner:
             status_icon = "✅" if result.get("passed") else "❌"
             print(f"  {status_icon} {category}: {result.get('status', 'UNKNOWN')}")
 
-        print(f"\nTarget Achievement:")
+        print("\nTarget Achievement:")
         print(f"  Complete stdio silence: {'✅' if self.validate_console_silence_requirements() else '❌'}")
         print(f"  MCP protocol compliance: {'✅' if 'MCP Protocol Purity' in self.test_results and self.test_results['MCP Protocol Purity'].get('passed') else '❌'}")
         print(f"  Integration functionality: {'✅' if 'Integration with Claude Desktop' in self.test_results and self.test_results['Integration with Claude Desktop'].get('passed') else '❌'}")
@@ -273,7 +273,7 @@ def main():
         results = runner.run_all_tests()
 
         # Generate and optionally save report
-        report = runner.generate_report(args.report_file)
+        runner.generate_report(args.report_file)
 
         # Print final summary
         runner.print_final_summary()

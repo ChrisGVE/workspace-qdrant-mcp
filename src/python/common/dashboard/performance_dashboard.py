@@ -19,18 +19,14 @@ Task 233.6: Web dashboard for multi-tenant search performance monitoring.
 
 import asyncio
 import json
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional
+from datetime import datetime
 
+import uvicorn
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 from loguru import logger
-import uvicorn
 
 from ..core.performance_monitoring import MetadataFilteringPerformanceMonitor
-from ..core.hybrid_search import HybridSearchEngine
 
 
 class PerformanceDashboardServer:
@@ -50,7 +46,7 @@ class PerformanceDashboardServer:
         self.performance_monitor = performance_monitor
         self.title = title
         self.app = FastAPI(title=title)
-        self.active_websockets: List[WebSocket] = []
+        self.active_websockets: list[WebSocket] = []
 
         # Setup routes and websockets
         self._setup_routes()
@@ -671,7 +667,7 @@ class PerformanceDashboardServer:
 </html>
         """.replace("{{ title }}", self.title)
 
-    async def broadcast_update(self, data: Dict):
+    async def broadcast_update(self, data: dict):
         """Broadcast update to all connected WebSocket clients."""
         if not self.active_websockets:
             return

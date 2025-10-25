@@ -19,18 +19,17 @@ import sqlite3
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 
 import pytest
 
-from src.python.common.core.queue_client import SQLiteQueueClient, QueueOperation
-from src.python.common.core.error_message_manager import ErrorMessageManager
 from src.python.common.core.error_categorization import (
     ErrorCategorizer,
     ErrorCategory,
     ErrorSeverity,
 )
-
+from src.python.common.core.error_message_manager import ErrorMessageManager
+from src.python.common.core.queue_client import QueueOperation, SQLiteQueueClient
 
 # =============================================================================
 # FIXTURES
@@ -61,12 +60,12 @@ async def initialized_db(temp_db):
 
     # Load queue schema
     queue_schema_path = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "queue_schema.sql"
-    with open(queue_schema_path, "r") as f:
+    with open(queue_schema_path) as f:
         conn.executescript(f.read())
 
     # Load error messages schema
     error_schema_path = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
-    with open(error_schema_path, "r") as f:
+    with open(error_schema_path) as f:
         conn.executescript(f.read())
 
     conn.commit()
@@ -146,7 +145,7 @@ async def enqueue_test_file(
 async def get_queue_item(
     queue_client: SQLiteQueueClient,
     file_path: str
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Get queue item by file path."""
     file_absolute_path = str(Path(file_path).resolve())
 
@@ -179,7 +178,7 @@ async def get_queue_item(
 async def get_error_message(
     queue_client: SQLiteQueueClient,
     error_id: int
-) -> Optional[Dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Get error message by ID."""
     async with queue_client.connection_pool.get_connection_async() as conn:
         cursor = conn.execute(
@@ -208,8 +207,8 @@ async def get_error_message(
 
 async def count_error_messages(
     queue_client: SQLiteQueueClient,
-    severity: Optional[str] = None,
-    category: Optional[str] = None,
+    severity: str | None = None,
+    category: str | None = None,
 ) -> int:
     """Count error messages with optional filters."""
     query = "SELECT COUNT(*) FROM messages_enhanced WHERE 1=1"
@@ -272,7 +271,7 @@ async def test_error_messages_have_proper_severity_and_category(queue_client, te
         (FileNotFoundError("File not found"), "file_corrupt", "error"),
         (PermissionError("Access denied"), "permission_denied", "error"),
         (TimeoutError("Connection timeout"), "timeout", "error"),
-        (socket.timeout("Socket timeout"), "timeout", "error"),
+        (TimeoutError("Socket timeout"), "timeout", "error"),
         (ConnectionError("Network error"), "network", "error"),
     ]
 

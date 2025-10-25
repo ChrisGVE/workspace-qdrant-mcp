@@ -24,17 +24,16 @@ import hashlib
 import json
 import os
 import threading
-import time
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union, Tuple
 from dataclasses import dataclass, field
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field, ValidationError, validator
-from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 try:
     import tomllib  # Python 3.11+
@@ -75,18 +74,18 @@ class AssetMetadata:
     size_bytes: int = 0
     permissions: int = 0
     status: AssetStatus = AssetStatus.VALID
-    dependencies: List[str] = field(default_factory=list)
-    tags: Set[str] = field(default_factory=set)
+    dependencies: list[str] = field(default_factory=list)
+    tags: set[str] = field(default_factory=set)
 
 
 @dataclass
 class ValidationResult:
     """Result of configuration validation."""
     is_valid: bool
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    metadata: Optional[AssetMetadata] = None
-    validated_config: Optional[Dict[str, Any]] = None
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    metadata: AssetMetadata | None = None
+    validated_config: dict[str, Any] | None = None
 
 
 class AssetConfigSchema(BaseModel):
@@ -95,21 +94,21 @@ class AssetConfigSchema(BaseModel):
     # Core configuration fields
     name: str = Field(..., description="Asset configuration name")
     version: str = Field(default="1.0.0", description="Configuration version")
-    description: Optional[str] = Field(None, description="Asset description")
+    description: str | None = Field(None, description="Asset description")
 
     # Asset management fields
     enabled: bool = Field(default=True, description="Whether asset is enabled")
     priority: int = Field(default=0, description="Asset loading priority")
-    dependencies: List[str] = Field(default_factory=list, description="Asset dependencies")
+    dependencies: list[str] = Field(default_factory=list, description="Asset dependencies")
 
     # Security and validation fields
     checksum_algorithm: str = Field(default="sha256", description="Checksum algorithm")
-    required_permissions: Optional[int] = Field(None, description="Required file permissions")
+    required_permissions: int | None = Field(None, description="Required file permissions")
     max_file_size: int = Field(default=100*1024*1024, description="Maximum file size in bytes")
 
     # Environment variable substitution
     allow_env_substitution: bool = Field(default=True, description="Allow environment variable substitution")
-    required_env_vars: List[str] = Field(default_factory=list, description="Required environment variables")
+    required_env_vars: list[str] = Field(default_factory=list, description="Required environment variables")
 
     @validator('version')
     def validate_version(cls, v):
@@ -143,7 +142,7 @@ class AssetConfigValidator:
     """Comprehensive asset configuration validator with multi-format support."""
 
     def __init__(self,
-                 asset_directories: List[Path] = None,
+                 asset_directories: list[Path] = None,
                  cache_enabled: bool = True,
                  hot_reload_enabled: bool = False):
         """Initialize the asset configuration validator.
@@ -158,10 +157,10 @@ class AssetConfigValidator:
         self.hot_reload_enabled = hot_reload_enabled
 
         # Internal state
-        self._cache: Dict[str, Tuple[AssetMetadata, Dict[str, Any]]] = {}
+        self._cache: dict[str, tuple[AssetMetadata, dict[str, Any]]] = {}
         self._cache_lock = threading.RLock()
-        self._observers: List[Observer] = []
-        self._loaded_assets: Dict[str, AssetMetadata] = {}
+        self._observers: list[Observer] = []
+        self._loaded_assets: dict[str, AssetMetadata] = {}
 
         # Supported file extensions by format
         self._format_extensions = {
@@ -174,7 +173,7 @@ class AssetConfigValidator:
         if self.hot_reload_enabled:
             self._setup_hot_reload()
 
-    def discover_assets(self, directory: Path = None) -> List[AssetMetadata]:
+    def discover_assets(self, directory: Path = None) -> list[AssetMetadata]:
         """Discover asset configuration files in specified directories.
 
         Args:
@@ -205,7 +204,7 @@ class AssetConfigValidator:
 
     def validate_config_file(self,
                            file_path: Path,
-                           schema: Optional[BaseModel] = None,
+                           schema: BaseModel | None = None,
                            enable_env_substitution: bool = True) -> ValidationResult:
         """Validate a single configuration file.
 
@@ -293,9 +292,9 @@ class AssetConfigValidator:
             )
 
     def validate_multiple_configs(self,
-                                file_paths: List[Path],
-                                schema: Optional[BaseModel] = None,
-                                fail_fast: bool = False) -> Dict[str, ValidationResult]:
+                                file_paths: list[Path],
+                                schema: BaseModel | None = None,
+                                fail_fast: bool = False) -> dict[str, ValidationResult]:
         """Validate multiple configuration files.
 
         Args:
@@ -331,7 +330,7 @@ class AssetConfigValidator:
 
     def validate_configuration_inheritance(self,
                                          base_config: Path,
-                                         override_configs: List[Path]) -> ValidationResult:
+                                         override_configs: list[Path]) -> ValidationResult:
         """Validate configuration inheritance and overrides.
 
         Args:
@@ -457,7 +456,7 @@ class AssetConfigValidator:
                 errors=[f"Error checking asset integrity: {str(e)}"]
             )
 
-    def get_cached_config(self, file_path: str) -> Optional[Dict[str, Any]]:
+    def get_cached_config(self, file_path: str) -> dict[str, Any] | None:
         """Get cached configuration if available and valid.
 
         Args:
@@ -495,7 +494,7 @@ class AssetConfigValidator:
                     del self._cache[file_path]
                 return None
 
-    def clear_cache(self, file_path: Optional[str] = None):
+    def clear_cache(self, file_path: str | None = None):
         """Clear configuration cache.
 
         Args:
@@ -540,7 +539,7 @@ class AssetConfigValidator:
 
         raise ValueError(f"Unsupported configuration format: {suffix}")
 
-    def _create_asset_metadata(self, file_path: Path) -> Optional[AssetMetadata]:
+    def _create_asset_metadata(self, file_path: Path) -> AssetMetadata | None:
         """Create asset metadata for a configuration file."""
         try:
             format_type = self._detect_format(file_path)
@@ -568,10 +567,10 @@ class AssetConfigValidator:
 
         return hash_func.hexdigest()
 
-    def _load_config_file(self, file_path: Path, format_type: ConfigFormat) -> Optional[Dict[str, Any]]:
+    def _load_config_file(self, file_path: Path, format_type: ConfigFormat) -> dict[str, Any] | None:
         """Load configuration file based on format."""
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 content = f.read()
 
             if format_type == ConfigFormat.YAML:
@@ -589,7 +588,7 @@ class AssetConfigValidator:
             logger.error(f"Error loading config file {file_path}: {e}")
             return None
 
-    def _substitute_environment_variables(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _substitute_environment_variables(self, config_data: dict[str, Any]) -> dict[str, Any]:
         """Substitute environment variables in configuration data."""
         def substitute_value(value):
             if isinstance(value, str):
@@ -642,7 +641,7 @@ class AssetConfigValidator:
             metadata=metadata
         )
 
-    def _perform_additional_validation(self, config_data: Dict[str, Any], metadata: AssetMetadata) -> ValidationResult:
+    def _perform_additional_validation(self, config_data: dict[str, Any], metadata: AssetMetadata) -> ValidationResult:
         """Perform additional validation checks on configuration data."""
         errors = []
         warnings = []
@@ -673,7 +672,7 @@ class AssetConfigValidator:
             warnings=warnings
         )
 
-    def _deep_merge_configs(self, base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+    def _deep_merge_configs(self, base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
         """Deep merge configuration dictionaries."""
         result = base.copy()
 
@@ -685,7 +684,7 @@ class AssetConfigValidator:
 
         return result
 
-    def _validate_merged_config(self, merged_config: Dict[str, Any]) -> ValidationResult:
+    def _validate_merged_config(self, merged_config: dict[str, Any]) -> ValidationResult:
         """Validate merged configuration for consistency."""
         errors = []
         warnings = []
@@ -705,13 +704,13 @@ class AssetConfigValidator:
             warnings=warnings
         )
 
-    def _cache_configuration(self, file_path: str, metadata: AssetMetadata, config_data: Dict[str, Any]):
+    def _cache_configuration(self, file_path: str, metadata: AssetMetadata, config_data: dict[str, Any]):
         """Cache validated configuration data."""
         with self._cache_lock:
             self._cache[file_path] = (metadata, config_data)
             logger.debug(f"Cached configuration: {file_path}")
 
-    def _get_cached_metadata(self, file_path: str) -> Optional[AssetMetadata]:
+    def _get_cached_metadata(self, file_path: str) -> AssetMetadata | None:
         """Get cached metadata for a file path."""
         with self._cache_lock:
             cached_entry = self._cache.get(file_path)

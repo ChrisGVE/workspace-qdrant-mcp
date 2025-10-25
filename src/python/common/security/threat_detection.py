@@ -16,16 +16,16 @@ Features:
 
 import asyncio
 import hashlib
-import json
+import re
+import statistics
 import time
 from collections import defaultdict, deque
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple, Any, Callable
-import statistics
-import re
-from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 from loguru import logger
 
@@ -64,10 +64,10 @@ class SecurityEvent:
     timestamp: datetime
     event_type: str
     source_ip: str
-    user_id: Optional[str]
-    collection: Optional[str]
-    query: Optional[str]
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    user_id: str | None
+    collection: str | None
+    query: str | None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Validate and normalize event data."""
@@ -93,11 +93,11 @@ class ThreatDetection:
     threat_level: ThreatLevel
     confidence: float  # 0.0 - 1.0
     description: str
-    source_events: List[SecurityEvent]
-    mitigation_suggestions: List[str]
+    source_events: list[SecurityEvent]
+    mitigation_suggestions: list[str]
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for logging/serialization."""
         return {
             'threat_id': self.threat_id,
@@ -124,7 +124,7 @@ class BehavioralAnalyzer:
         """
         self.learning_window = learning_window
         self.anomaly_threshold = anomaly_threshold
-        self.user_profiles: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
+        self.user_profiles: dict[str, dict[str, Any]] = defaultdict(lambda: {
             'query_patterns': defaultdict(int),
             'request_intervals': deque(maxlen=100),
             'collection_access': defaultdict(int),
@@ -135,7 +135,7 @@ class BehavioralAnalyzer:
         })
         self._lock = asyncio.Lock()
 
-    async def analyze_event(self, event: SecurityEvent) -> Optional[ThreatDetection]:
+    async def analyze_event(self, event: SecurityEvent) -> ThreatDetection | None:
         """
         Analyze an event for behavioral anomalies.
 
@@ -151,7 +151,7 @@ class BehavioralAnalyzer:
         async with self._lock:
             return await self._analyze_user_behavior(event)
 
-    async def _analyze_user_behavior(self, event: SecurityEvent) -> Optional[ThreatDetection]:
+    async def _analyze_user_behavior(self, event: SecurityEvent) -> ThreatDetection | None:
         """Internal behavior analysis."""
         user_id = event.user_id
         profile = self.user_profiles[user_id]
@@ -195,7 +195,7 @@ class BehavioralAnalyzer:
 
         return None
 
-    def _update_user_profile(self, profile: Dict[str, Any], event: SecurityEvent) -> None:
+    def _update_user_profile(self, profile: dict[str, Any], event: SecurityEvent) -> None:
         """Update user profile with new event data."""
         current_time = time.time()
 
@@ -222,7 +222,7 @@ class BehavioralAnalyzer:
         # Update IP addresses
         profile['ip_addresses'][event.source_ip] += 1
 
-    def _detect_query_anomaly(self, profile: Dict[str, Any], event: SecurityEvent) -> bool:
+    def _detect_query_anomaly(self, profile: dict[str, Any], event: SecurityEvent) -> bool:
         """Detect unusual query patterns."""
         if not event.query or len(profile['query_sizes']) < 10:
             return False
@@ -239,7 +239,7 @@ class BehavioralAnalyzer:
 
         return False
 
-    def _detect_frequency_anomaly(self, profile: Dict[str, Any], event: SecurityEvent) -> bool:
+    def _detect_frequency_anomaly(self, profile: dict[str, Any], event: SecurityEvent) -> bool:
         """Detect abnormal request frequency."""
         intervals = list(profile['request_intervals'])
         if len(intervals) < 10:
@@ -252,7 +252,7 @@ class BehavioralAnalyzer:
         # Flag if average interval is less than 0.1 seconds (10 requests per second)
         return avg_interval < 0.1
 
-    def _detect_access_anomaly(self, profile: Dict[str, Any], event: SecurityEvent) -> bool:
+    def _detect_access_anomaly(self, profile: dict[str, Any], event: SecurityEvent) -> bool:
         """Detect unusual collection access patterns."""
         if not event.collection:
             return False
@@ -270,7 +270,7 @@ class BehavioralAnalyzer:
         # Flag if accessing a collection used in less than 5% of requests
         return access_ratio < 0.05 and current_collection_count == 1
 
-    def _detect_temporal_anomaly(self, profile: Dict[str, Any], event: SecurityEvent) -> bool:
+    def _detect_temporal_anomaly(self, profile: dict[str, Any], event: SecurityEvent) -> bool:
         """Detect activity during unusual hours."""
         activity_hours = profile['activity_hours']
         total_activity = sum(activity_hours.values())
@@ -292,10 +292,10 @@ class AnomalyDetector:
         """Initialize anomaly detector with sliding window."""
         self.window_size = window_size
         self.event_history: deque = deque(maxlen=window_size)
-        self.feature_baselines: Dict[str, Dict[str, float]] = {}
+        self.feature_baselines: dict[str, dict[str, float]] = {}
         self._lock = asyncio.Lock()
 
-    async def detect_anomaly(self, event: SecurityEvent) -> Optional[ThreatDetection]:
+    async def detect_anomaly(self, event: SecurityEvent) -> ThreatDetection | None:
         """
         Detect anomalies using statistical analysis.
 
@@ -334,7 +334,7 @@ class AnomalyDetector:
 
         return None
 
-    def _extract_features(self, event: SecurityEvent) -> Dict[str, float]:
+    def _extract_features(self, event: SecurityEvent) -> dict[str, float]:
         """Extract numerical features from event for analysis."""
         features = {}
 
@@ -379,7 +379,7 @@ class AnomalyDetector:
 
         return min(complexity, 10.0)  # Cap at 10
 
-    async def _calculate_anomaly_score(self, features: Dict[str, float]) -> float:
+    async def _calculate_anomaly_score(self, features: dict[str, float]) -> float:
         """Calculate anomaly score based on deviation from baselines."""
         if not self.feature_baselines:
             return 0.0
@@ -471,7 +471,7 @@ class ThreatAnalyzer:
                 re.compile(pattern) for pattern in patterns
             ]
 
-    async def analyze_for_threats(self, event: SecurityEvent) -> List[ThreatDetection]:
+    async def analyze_for_threats(self, event: SecurityEvent) -> list[ThreatDetection]:
         """
         Analyze event for known threat patterns.
 
@@ -526,7 +526,7 @@ class ThreatAnalyzer:
 
         return base_level
 
-    def _get_mitigation_suggestions(self, threat_type: ThreatType) -> List[str]:
+    def _get_mitigation_suggestions(self, threat_type: ThreatType) -> list[str]:
         """Get mitigation suggestions for specific threat types."""
         suggestions = {
             ThreatType.SQL_INJECTION: [
@@ -559,7 +559,7 @@ class ThreatAnalyzer:
 class ThreatDetectionEngine:
     """Main threat detection engine coordinating all detection methods."""
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize threat detection engine.
 
@@ -581,21 +581,21 @@ class ThreatDetectionEngine:
         self.threat_analyzer = ThreatAnalyzer()
 
         # Detection state
-        self.active_threats: Dict[str, ThreatDetection] = {}
+        self.active_threats: dict[str, ThreatDetection] = {}
         self.event_buffer: deque = deque(maxlen=10000)
-        self.rate_limits: Dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
+        self.rate_limits: dict[str, deque] = defaultdict(lambda: deque(maxlen=100))
 
         # Thread pool for concurrent analysis
         self.executor = ThreadPoolExecutor(max_workers=4)
 
         # Callbacks for threat notifications
-        self.threat_callbacks: List[Callable[[ThreatDetection], None]] = []
+        self.threat_callbacks: list[Callable[[ThreatDetection], None]] = []
 
     def register_threat_callback(self, callback: Callable[[ThreatDetection], None]) -> None:
         """Register a callback to be called when threats are detected."""
         self.threat_callbacks.append(callback)
 
-    async def process_event(self, event: SecurityEvent) -> List[ThreatDetection]:
+    async def process_event(self, event: SecurityEvent) -> list[ThreatDetection]:
         """
         Process a security event through all detection layers.
 
@@ -654,7 +654,7 @@ class ThreatDetectionEngine:
 
         return detected_threats
 
-    async def _detect_rate_abuse(self, event: SecurityEvent) -> Optional[ThreatDetection]:
+    async def _detect_rate_abuse(self, event: SecurityEvent) -> ThreatDetection | None:
         """Detect rate-based abuse patterns."""
         source_key = f"{event.source_ip}:{event.user_id or 'anonymous'}"
         current_time = time.time()
@@ -694,8 +694,8 @@ class ThreatDetectionEngine:
         return None
 
     def get_active_threats(self,
-                          threat_level: Optional[ThreatLevel] = None,
-                          threat_type: Optional[ThreatType] = None) -> List[ThreatDetection]:
+                          threat_level: ThreatLevel | None = None,
+                          threat_type: ThreatType | None = None) -> list[ThreatDetection]:
         """
         Get currently active threats with optional filtering.
 
@@ -739,7 +739,7 @@ class ThreatDetectionEngine:
         logger.info(f"Cleared {len(old_threat_ids)} old threats")
         return len(old_threat_ids)
 
-    def get_threat_summary(self) -> Dict[str, Any]:
+    def get_threat_summary(self) -> dict[str, Any]:
         """Get summary statistics of threat detection."""
         threats = list(self.active_threats.values())
 

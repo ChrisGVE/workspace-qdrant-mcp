@@ -254,7 +254,7 @@ def test_tracker_context_manager_no_tokens(tracker):
     with tracker.track_context(
         tool_name="claude",
         operation_type=OperationType.CONTEXT_INJECTION,
-    ) as add_tokens:
+    ):
         pass  # Don't add any tokens
 
     # Should not create an operation if no tokens added
@@ -395,7 +395,7 @@ def test_tracker_operation_trimming():
     )
 
     # Add more operations than the limit
-    for i in range(20):
+    for _i in range(20):
         tracker.track_operation(
             tool_name="claude",
             operation_type=OperationType.CONTEXT_INJECTION,
@@ -418,7 +418,7 @@ def test_tracker_thread_safety():
     operations_per_thread = 10
 
     def add_operations():
-        for i in range(operations_per_thread):
+        for _i in range(operations_per_thread):
             tracker.track_operation(
                 tool_name="claude",
                 operation_type=OperationType.CONTEXT_INJECTION,
@@ -517,7 +517,7 @@ def test_tracker_with_claude_budget_manager_integration():
 
     # Create tracker and budget manager
     tracker = TokenUsageTracker(session_id="integration_test")
-    budget_manager = ClaudeBudgetManager(
+    ClaudeBudgetManager(
         model=ClaudeModel.SONNET_3_5,
         session_id="integration_test",
     )

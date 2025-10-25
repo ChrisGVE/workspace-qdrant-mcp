@@ -10,10 +10,10 @@ Tests verify benchmark targets:
 Execution: uv run pytest tests/functional/test_recall_precision.py -v
 """
 
+import asyncio
 import sys
 from pathlib import Path
-from typing import List, Set, Dict, Any
-import asyncio
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
@@ -25,7 +25,7 @@ sys.path.insert(0, str(src_path))
 # Import hybrid search components
 from common.core.hybrid_search import HybridSearchEngine, RRFFusionRanker
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct, ScoredPoint
+from qdrant_client.models import Distance, PointStruct, ScoredPoint, VectorParams
 
 # Import metrics utilities
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -41,7 +41,7 @@ class GroundTruthDataset:
         self.hybrid_queries = self._create_hybrid_dataset()
         self.edge_case_queries = self._create_edge_case_dataset()
 
-    def _create_exact_match_dataset(self) -> List[Dict[str, Any]]:
+    def _create_exact_match_dataset(self) -> list[dict[str, Any]]:
         """Create dataset for exact match precision testing (target: 100%)."""
         return [
             {
@@ -111,7 +111,7 @@ class GroundTruthDataset:
             },
         ]
 
-    def _create_semantic_dataset(self) -> List[Dict[str, Any]]:
+    def _create_semantic_dataset(self) -> list[dict[str, Any]]:
         """Create dataset for semantic search precision testing (target: 94.2%)."""
         return [
             {
@@ -204,7 +204,7 @@ class GroundTruthDataset:
             },
         ]
 
-    def _create_hybrid_dataset(self) -> List[Dict[str, Any]]:
+    def _create_hybrid_dataset(self) -> list[dict[str, Any]]:
         """Create dataset for hybrid search combining exact and semantic."""
         return [
             {
@@ -253,7 +253,7 @@ class GroundTruthDataset:
             },
         ]
 
-    def _create_edge_case_dataset(self) -> List[Dict[str, Any]]:
+    def _create_edge_case_dataset(self) -> list[dict[str, Any]]:
         """Create edge case dataset for robustness testing."""
         return [
             {
@@ -305,7 +305,7 @@ class MockSearchResults:
     """Mock search results for controlled testing."""
 
     @staticmethod
-    def create_perfect_exact_match(expected_docs: Set[str]) -> List[Dict[str, Any]]:
+    def create_perfect_exact_match(expected_docs: set[str]) -> list[dict[str, Any]]:
         """Create results with 100% precision for exact matches."""
         results = []
         for i, doc_id in enumerate(sorted(expected_docs)):
@@ -321,8 +321,8 @@ class MockSearchResults:
 
     @staticmethod
     def create_semantic_results(
-        expected_docs: Set[str], precision_rate: float = 0.942
-    ) -> List[Dict[str, Any]]:
+        expected_docs: set[str], precision_rate: float = 0.942
+    ) -> list[dict[str, Any]]:
         """Create semantic results with configurable precision."""
         results = []
         expected_count = len(expected_docs)
@@ -362,8 +362,8 @@ class MockSearchResults:
 
     @staticmethod
     def create_partial_recall_results(
-        expected_docs: Set[str], recall_rate: float = 0.783
-    ) -> List[Dict[str, Any]]:
+        expected_docs: set[str], recall_rate: float = 0.783
+    ) -> list[dict[str, Any]]:
         """Create results with specific recall rate."""
         expected_list = sorted(expected_docs)
         recall_count = max(1, round(len(expected_list) * recall_rate))
@@ -588,9 +588,7 @@ class TestSemanticSearchPrecision:
         )
 
         # Create relevance scores (simulating graded relevance)
-        relevance_scores = {
-            doc_id: 1.0 for doc_id in query_data["expected_docs"]
-        }  # Binary relevance
+        relevance_scores = dict.fromkeys(query_data["expected_docs"], 1.0)  # Binary relevance
 
         metrics = metrics_meter.evaluate_search(
             query=query_data["query"],

@@ -9,10 +9,9 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Union
+from typing import Any, Union
 from uuid import uuid4
 
-from .base import BaseParser
 from ..models import (
     TestCase,
     TestResult,
@@ -22,12 +21,13 @@ from ..models import (
     TestSuite,
     TestType,
 )
+from .base import BaseParser
 
 
 class CargoTestParser(BaseParser):
     """Parser for cargo test output."""
 
-    def parse(self, source: Union[str, Path, dict]) -> TestRun:
+    def parse(self, source: str | Path | dict) -> TestRun:
         """
         Parse cargo test results into TestRun.
 
@@ -45,7 +45,7 @@ class CargoTestParser(BaseParser):
         if isinstance(source, (str, Path)):
             path = Path(source)
             if path.exists():
-                with open(path, "r") as f:
+                with open(path) as f:
                     content = f.read()
             else:
                 # Treat as string content
@@ -80,7 +80,7 @@ class CargoTestParser(BaseParser):
         #         "test module::test_name ... FAILED"
         #         "test module::test_name ... ignored"
 
-        test_results: List[Dict[str, Any]] = []
+        test_results: list[dict[str, Any]] = []
 
         for line in lines:
             line = line.strip()
@@ -125,7 +125,7 @@ class CargoTestParser(BaseParser):
                 )
 
         # Group tests by module into suites
-        suite_map: Dict[str, TestSuite] = {}
+        suite_map: dict[str, TestSuite] = {}
 
         for test_data in test_results:
             name = test_data["name"]
@@ -188,7 +188,7 @@ class CargoTestParser(BaseParser):
 
         return test_run
 
-    def _parse_json(self, data: Union[Dict[str, Any], List[Dict[str, Any]]]) -> TestRun:
+    def _parse_json(self, data: dict[str, Any] | list[dict[str, Any]]) -> TestRun:
         """
         Parse cargo test JSON output (cargo test -- --format json).
 
@@ -229,7 +229,7 @@ class CargoTestParser(BaseParser):
                     )
 
         # Process events
-        suite_map: Dict[str, TestSuite] = {}
+        suite_map: dict[str, TestSuite] = {}
         test_events = {}
 
         for event in events:

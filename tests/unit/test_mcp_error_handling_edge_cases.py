@@ -25,25 +25,24 @@ Error Handling Principles:
     - Proper exception handling without exposing internal details
 """
 
-import pytest
 import asyncio
+import os
+import sys
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
-from typing import Dict, Any, List
 from datetime import datetime, timezone
 from pathlib import Path
-import sys
-import os
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 # Add the source directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/python'))
 
 # Import server module for testing
 import workspace_qdrant_mcp.server as server_module
-from workspace_qdrant_mcp.server import app
 from common.core.daemon_client import DaemonConnectionError
-
-
+from workspace_qdrant_mcp.server import app
 
 
 @pytest.fixture(autouse=True)
@@ -134,7 +133,7 @@ class TestStoreErrorHandling:
         store_fn = app._tool_manager._tools['store'].fn
 
         with patch.object(server_module, 'daemon_client', None), \
-             patch.object(server_module, 'qdrant_client') as mock_qdrant, \
+             patch.object(server_module, 'qdrant_client'), \
              patch.object(server_module, 'ensure_collection_exists', return_value=False):
 
             result = await store_fn(

@@ -9,7 +9,6 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from common.core.context_injection.budget_warning_system import (
     BudgetThreshold,
     BudgetWarningSystem,
@@ -602,12 +601,12 @@ class TestBudgetWarningSystem:
         tool_names = {w.tool_name for w in warnings}
         assert "claude" in tool_names
         assert "codex" in tool_names
-        
+
         # Verify levels
         claude_warnings = [w for w in warnings if w.tool_name == "claude"]
         assert len(claude_warnings) == 1
         assert claude_warnings[0].level == WarningLevel.INFO
-        
+
         codex_warnings = [w for w in warnings if w.tool_name == "codex"]
         assert len(codex_warnings) == 2
         assert any(w.level == WarningLevel.INFO for w in codex_warnings)

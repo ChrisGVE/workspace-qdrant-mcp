@@ -7,13 +7,13 @@ in the server.py module to ensure complete code coverage and robust testing.
 
 import asyncio
 import os
-import sys
 import signal
+import sys
 import warnings
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from unittest.mock import Mock, patch, AsyncMock, MagicMock, call, mock_open
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, mock_open, patch
 
 import pytest
 
@@ -927,7 +927,7 @@ class TestLifecycleOperations:
             server.setup_signal_handlers()
 
             # Should have set up handlers for SIGINT and SIGTERM
-            expected_calls = [
+            [
                 call(signal.SIGINT, server.cleanup_workspace),
                 call(signal.SIGTERM, server.cleanup_workspace)
             ]
@@ -936,7 +936,7 @@ class TestLifecycleOperations:
 
     # ORPHAN:             result = await server.initialize_workspace(config_file="test.yaml")
     # ORPHAN:             assert result is None
-    # ORPHAN: 
+    # ORPHAN:
     # ORPHAN:             result = await server.initialize_workspace(config_file=None)
     # ORPHAN:             assert result is None
 
@@ -1008,60 +1008,60 @@ class TestModuleConstants:
 
 # class TestErrorHandling:
 #     """Test comprehensive error handling scenarios."""
-# 
+#
 #             assert isinstance(result, dict)
 #             assert "connected" in result
 #             assert result["connected"] is False
-# 
+#
 #             with pytest.raises(Exception, match="Embedding error"):
 #                 await server.search_workspace_tool(query="test", limit=10)
-# 
+#
 #         with patch('workspace_qdrant_mcp.server.get_client', return_value=mock_client), \
 #              patch('workspace_qdrant_mcp.server.get_embedding_model', return_value=mock_embedding_model):
-# 
+#
 #             with pytest.raises(Exception, match="Upsert failed"):
 #                 await server.add_document_tool(
 #                     content="test",
 #                     collection="test-collection"
 #                 )
-# 
-# 
+#
+#
 # class TestEdgeCases:
 #     """Test edge cases and boundary conditions."""
-# 
+#
 #             result = await server.search_workspace_tool(
 #                 query="",
 #                 limit=10
 #             )
-# 
+#
 #             assert isinstance(result, dict)
-# 
+#
 #             result = await server.add_document_tool(
 #                 content="",
 #                 collection="test-collection"
 #             )
-# 
+#
 #             assert isinstance(result, dict)
-# 
+#
 #             result = await server.search_workspace_tool(
 #                 query="test",
 #                 limit=0
 #             )
-# 
+#
 #             assert isinstance(result, dict)
-# 
+#
 #             result = await server.hybrid_search_advanced_tool(
 #                 query="test",
 #                 semantic_weight=1.5,  # Invalid: > 1.0
 #                 keyword_weight=0.5
 #             )
-# 
+#
 #             assert isinstance(result, dict)
-# 
-# 
+#
+#
 # class TestIntegrationScenarios:
 #     """Test integration scenarios between components."""
-# 
+#
 #             # Add document
 #             add_result = await server.add_document_tool(
 #                 content="Test document for workflow",
@@ -1069,66 +1069,66 @@ class TestModuleConstants:
 #                 collection="test-collection"
 #             )
 #             assert isinstance(add_result, dict)
-# 
+#
 #             # Search for document
 #             search_result = await server.search_workspace_tool(
 #                 query="workflow",
 #                 collection="test-collection"
 #             )
 #             assert isinstance(search_result, dict)
-# 
+#
 #             # Retrieve document
 #             retrieve_result = await server.get_document_tool(
 #                 document_id="doc1",
 #                 collection_name="test-collection"
 #             )
 #             assert isinstance(retrieve_result, dict)
-# 
+#
 #             # Update scratchbook
 #             update_result = await server.update_scratchbook_tool(
 #                 note="Test scratchbook note",
 #                 project_name="test-project"
 #             )
 #             assert isinstance(update_result, dict)
-# 
+#
 #             # Search scratchbook
 #             search_result = await server.search_scratchbook_tool(
 #                 query="test",
 #                 project_name="test-project"
 #             )
 #             assert isinstance(search_result, dict)
-# 
+#
 #             # List scratchbook notes
 #             list_result = await server.list_scratchbook_notes_tool(
 #                 project_name="test-project"
 #             )
 #             assert isinstance(list_result, dict)
-# 
-# 
+#
+#
 # # Performance and stress tests
 # class TestPerformanceScenarios:
 #     """Test performance-related scenarios."""
-# 
+#
 #             result = await server.search_workspace_tool(
 #                 query="test",
 #                 limit=10000  # Large limit
 #             )
-# 
+#
 #             assert isinstance(result, dict)
-# 
+#
 #             # Create multiple concurrent tasks
 #             tasks = [
 #                 server.search_workspace_tool(query=f"query{i}", limit=10)
 #                 for i in range(5)
 #             ]
-# 
+#
 #             results = await asyncio.gather(*tasks, return_exceptions=True)
-# 
+#
 #             # All should complete successfully or with expected exceptions
 #             for result in results:
 #                 assert isinstance(result, (dict, Exception))
-# 
-# 
+#
+#
 
 # ============================================================================
 # FIRST PRINCIPLE 10 VALIDATION TESTS (Task 375.6)
@@ -1307,7 +1307,7 @@ class TestDaemonWritePathEnforcement:
             with patch('workspace_qdrant_mcp.server.initialize_components', AsyncMock()):
                 with patch('workspace_qdrant_mcp.server.get_project_collection', return_value='_0f72d776622e'):
                     with patch('workspace_qdrant_mcp.server.calculate_tenant_id', return_value='0f72d776622e'):
-                        result = await server.store(
+                        await server.store(
                             content="Python code",
                             source="file",
                             file_path="/project/src/main.py",
@@ -1357,7 +1357,7 @@ class TestCollectionTypeCompliance:
 
             with patch('workspace_qdrant_mcp.server.initialize_components', AsyncMock()):
                 with patch('workspace_qdrant_mcp.server.calculate_tenant_id', return_value='tenant123'):
-                    result = await server.store(
+                    await server.store(
                         content="User notes",
                         collection="my-app-notes",  # USER collection
                         source="user_input"
@@ -1378,7 +1378,7 @@ class TestCollectionTypeCompliance:
             mock_daemon.ingest_text = AsyncMock(return_value=mock_response)
 
             with patch('workspace_qdrant_mcp.server.initialize_components', AsyncMock()):
-                result = await server.store(
+                await server.store(
                     content="Library documentation",
                     collection="_numpy",  # LIBRARY collection
                     source="library"
@@ -1412,7 +1412,7 @@ class TestFallbackBehaviorCompliance:
                     with patch('workspace_qdrant_mcp.server.ensure_collection_exists', AsyncMock(return_value=True)):
                         with patch('workspace_qdrant_mcp.server.generate_embeddings', AsyncMock(return_value=[0.1] * 384)):
                             with patch('workspace_qdrant_mcp.server.get_project_collection', return_value='_test'):
-                                with patch('workspace_qdrant_mcp.server.logging.getLogger') as mock_logger:
+                                with patch('workspace_qdrant_mcp.server.logging.getLogger'):
                                     await server.store(content="test", source="user_input")
 
                                     # Note: Warning is logged in ensure_collection_exists

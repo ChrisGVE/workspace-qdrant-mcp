@@ -10,11 +10,11 @@ import asyncio
 import os
 import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -42,12 +42,12 @@ class ProjectContextMetadata:
         parent_project_id: Parent project ID if this is a submodule
     """
 
-    project_id: Optional[str] = None
-    project_root: Optional[Path] = None
-    current_path: Optional[Path] = None
-    scope: List[str] = field(default_factory=list)
+    project_id: str | None = None
+    project_root: Path | None = None
+    current_path: Path | None = None
+    scope: list[str] = field(default_factory=list)
     is_submodule: bool = False
-    parent_project_id: Optional[str] = None
+    parent_project_id: str | None = None
 
 
 @dataclass
@@ -67,13 +67,13 @@ class ClaudeCodeSession:
     """
 
     is_active: bool
-    entrypoint: Optional[str] = None
-    detection_method: Optional[str] = None
-    session_id: Optional[str] = None
-    start_time: Optional[float] = None
-    project_context: Optional[ProjectContextMetadata] = None
-    configuration: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    entrypoint: str | None = None
+    detection_method: str | None = None
+    session_id: str | None = None
+    start_time: float | None = None
+    project_context: ProjectContextMetadata | None = None
+    configuration: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class ClaudeCodeDetector:
@@ -364,7 +364,7 @@ class ClaudeSessionMonitor:
         self,
         poll_interval: float = 1.0,
         enrich_metadata: bool = True,
-        detector: Optional[ClaudeCodeDetector] = None,
+        detector: ClaudeCodeDetector | None = None,
     ):
         """
         Initialize the session monitor.
@@ -377,12 +377,12 @@ class ClaudeSessionMonitor:
         self.poll_interval = poll_interval
         self.enrich_metadata = enrich_metadata
         self.detector = detector or ClaudeCodeDetector
-        self._current_session: Optional[ClaudeCodeSession] = None
-        self._callbacks: Dict[SessionEvent, List[Callable]] = {
+        self._current_session: ClaudeCodeSession | None = None
+        self._callbacks: dict[SessionEvent, list[Callable]] = {
             event: [] for event in SessionEvent
         }
         self._monitoring = False
-        self._monitor_task: Optional[asyncio.Task] = None
+        self._monitor_task: asyncio.Task | None = None
 
     def register_callback(
         self, event: SessionEvent, callback: Callable[[ClaudeCodeSession], None]
@@ -522,7 +522,7 @@ class ClaudeSessionMonitor:
             except Exception as e:
                 logger.error(f"Error in callback for {event.value}: {e}")
 
-    def get_current_session(self) -> Optional[ClaudeCodeSession]:
+    def get_current_session(self) -> ClaudeCodeSession | None:
         """
         Get the current session state.
 

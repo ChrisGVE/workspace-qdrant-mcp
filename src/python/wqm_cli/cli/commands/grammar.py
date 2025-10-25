@@ -4,27 +4,23 @@ This module provides commands for installing, compiling, and managing
 tree-sitter grammars for enhanced code parsing and analysis.
 """
 
-import asyncio
 from pathlib import Path
-from typing import Optional
 
 import typer
-from rich.console import Console
-from rich.table import Table
-from rich.progress import Progress, SpinnerColumn, TextColumn
-
+from common.core.grammar_compiler import CompilerDetector, GrammarCompiler
+from common.core.grammar_config import ConfigManager
 from common.core.grammar_discovery import GrammarDiscovery
 from common.core.grammar_installer import GrammarInstaller
-from common.core.grammar_compiler import GrammarCompiler, CompilerDetector
-from common.core.grammar_config import ConfigManager, GrammarConfig
 from loguru import logger
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from ..utils import (
     confirm,
     create_command_app,
     error_message,
     force_option,
-    handle_async,
     json_output_option,
     success_message,
     verbose_option,
@@ -117,8 +113,8 @@ def list_grammars(
 @grammar_app.command("install")
 def install_grammar(
     url_or_name: str = typer.Argument(..., help="Git URL or grammar name"),
-    version: Optional[str] = typer.Option(None, "--version", "-v", help="Version (tag/branch/commit)"),
-    name: Optional[str] = typer.Option(None, "--name", "-n", help="Custom grammar name"),
+    version: str | None = typer.Option(None, "--version", "-v", help="Version (tag/branch/commit)"),
+    name: str | None = typer.Option(None, "--name", "-n", help="Custom grammar name"),
     compile: bool = typer.Option(True, "--compile/--no-compile", help="Compile after installation"),
     force: bool = force_option(),
     verbose: bool = verbose_option(),
@@ -176,7 +172,7 @@ def install_grammar(
             compile_result = _compile_grammar(result.grammar_name, result.installation_path)
 
             if compile_result:
-                success_message(f"Compiled successfully")
+                success_message("Compiled successfully")
             else:
                 warning_message("Compilation failed (grammar still installed)")
 
@@ -190,7 +186,7 @@ def install_grammar(
 @grammar_app.command("compile")
 def compile_grammar(
     grammar_name: str = typer.Argument(..., help="Grammar name to compile"),
-    output_dir: Optional[Path] = typer.Option(None, "--output", "-o", help="Output directory"),
+    output_dir: Path | None = typer.Option(None, "--output", "-o", help="Output directory"),
     verbose: bool = verbose_option(),
 ):
     """Compile a tree-sitter grammar to shared library."""
@@ -215,7 +211,7 @@ def compile_grammar(
         raise typer.Exit(1)
 
 
-def _compile_grammar(grammar_name: str, grammar_path: Path, output_dir: Optional[Path] = None) -> bool:
+def _compile_grammar(grammar_name: str, grammar_path: Path, output_dir: Path | None = None) -> bool:
     """Helper function to compile a grammar."""
     config_manager = ConfigManager()
     config = config_manager.load()
@@ -383,16 +379,16 @@ def grammar_info(
 
 @grammar_app.command("config")
 def show_config(
-    set_c_compiler: Optional[str] = typer.Option(None, "--set-c-compiler", help="Set C compiler"),
-    set_cpp_compiler: Optional[str] = typer.Option(None, "--set-cpp-compiler", help="Set C++ compiler"),
+    set_c_compiler: str | None = typer.Option(None, "--set-c-compiler", help="Set C compiler"),
+    set_cpp_compiler: str | None = typer.Option(None, "--set-cpp-compiler", help="Set C++ compiler"),
     set_auto_compile: bool = typer.Option(False, "--auto-compile", help="Enable auto-compile"),
     set_no_auto_compile: bool = typer.Option(False, "--no-auto-compile", help="Disable auto-compile"),
-    set_parallel_builds: Optional[int] = typer.Option(None, "--parallel-builds", help="Parallel build jobs"),
-    add_directory: Optional[str] = typer.Option(None, "--add-directory", help="Add grammar search directory"),
-    remove_directory: Optional[str] = typer.Option(None, "--remove-directory", help="Remove search directory"),
+    set_parallel_builds: int | None = typer.Option(None, "--parallel-builds", help="Parallel build jobs"),
+    add_directory: str | None = typer.Option(None, "--add-directory", help="Add grammar search directory"),
+    remove_directory: str | None = typer.Option(None, "--remove-directory", help="Remove search directory"),
     reset: bool = typer.Option(False, "--reset", help="Reset to defaults"),
-    export: Optional[Path] = typer.Option(None, "--export", help="Export config to file"),
-    import_config: Optional[Path] = typer.Option(None, "--import", help="Import config from file"),
+    export: Path | None = typer.Option(None, "--export", help="Export config to file"),
+    import_config: Path | None = typer.Option(None, "--import", help="Import config from file"),
     json_output: bool = json_output_option(),
     verbose: bool = verbose_option(),
 ):
@@ -484,7 +480,7 @@ def show_config(
 @grammar_app.command("update")
 def update_grammar(
     grammar_name: str = typer.Argument(..., help="Grammar name to update"),
-    version: Optional[str] = typer.Option(None, "--version", "-v", help="Version to update to"),
+    version: str | None = typer.Option(None, "--version", "-v", help="Version to update to"),
     compile: bool = typer.Option(True, "--compile/--no-compile", help="Compile after update"),
     verbose: bool = verbose_option(),
 ):
@@ -502,7 +498,7 @@ def update_grammar(
             raise typer.Exit(1)
 
         # Get current installation to derive URL
-        install_path = installer.get_installation_path(grammar_name)
+        installer.get_installation_path(grammar_name)
 
         console.print(f"🔄 Updating grammar '{grammar_name}'...")
 

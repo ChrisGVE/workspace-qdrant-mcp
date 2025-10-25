@@ -5,33 +5,47 @@ Tests all components including documentation generation, test discovery,
 lifecycle management, and maintenance scheduling with extensive edge case coverage.
 """
 
-import pytest
-import tempfile
-import sqlite3
-from pathlib import Path
-from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, MagicMock
-import json
 import ast
+import json
+import sqlite3
+import tempfile
+from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
 
-from src.python.workspace_qdrant_mcp.testing.documentation.parser import (
-    TestFileParser, TestFileInfo, TestMetadata, TestType
-)
-from src.python.workspace_qdrant_mcp.testing.documentation.generator import (
-    TestDocumentationGenerator, CoverageIntegrator
+import pytest
+from src.python.workspace_qdrant_mcp.testing.discovery.categorizer import (
+    CoverageGap,
+    TestCategorizer,
+    TestCategory,
 )
 from src.python.workspace_qdrant_mcp.testing.discovery.engine import (
-    TestDiscoveryEngine, SourceCodeAnalyzer, TestSuggestionEngine
+    SourceCodeAnalyzer,
+    TestDiscoveryEngine,
+    TestSuggestionEngine,
 )
-from src.python.workspace_qdrant_mcp.testing.discovery.categorizer import (
-    TestCategorizer, TestCategory, CoverageGap
+from src.python.workspace_qdrant_mcp.testing.documentation.generator import (
+    CoverageIntegrator,
+    TestDocumentationGenerator,
 )
-from src.python.workspace_qdrant_mcp.testing.lifecycle.scheduler import (
-    MaintenanceScheduler, MaintenanceTask, TaskType, TaskPriority, TaskStatus,
-    ResourceConstraint
+from src.python.workspace_qdrant_mcp.testing.documentation.parser import (
+    TestFileInfo,
+    TestFileParser,
+    TestMetadata,
+    TestType,
 )
 from src.python.workspace_qdrant_mcp.testing.lifecycle.manager import (
-    TestLifecycleManager, TestHealth, ObsoleteTestCandidate
+    ObsoleteTestCandidate,
+    TestHealth,
+    TestLifecycleManager,
+)
+from src.python.workspace_qdrant_mcp.testing.lifecycle.scheduler import (
+    MaintenanceScheduler,
+    MaintenanceTask,
+    ResourceConstraint,
+    TaskPriority,
+    TaskStatus,
+    TaskType,
 )
 
 
@@ -195,7 +209,7 @@ def test_module_level_{i}():
 import pytest
 import asyncio
 from unittest.mock import Mock, patch, AsyncMock
-from typing import List, Optional, Dict, Any
+from typing import Optional, Any
 
 class TestComplexScenarios:
     """Complex test scenarios for comprehensive analysis."""
@@ -514,7 +528,7 @@ class TestWellStructured:
 
         # Create files with different modification times
         old_file = self.create_test_file("test_old_legacy.py", old_test_content)
-        good_file = self.create_test_file("test_good_practices.py", good_test_content)
+        self.create_test_file("test_good_practices.py", good_test_content)
 
         # Simulate old file by modifying timestamp
         old_timestamp = datetime.now() - timedelta(days=400)
@@ -816,7 +830,7 @@ class TestFrameworkErrorHandling:
 
         # Test scheduler initialization with corrupted DB
         try:
-            scheduler = MaintenanceScheduler(self.db_path)
+            MaintenanceScheduler(self.db_path)
             # Should either recover or recreate database
             assert True  # If we get here, recovery worked
         except Exception as e:
@@ -854,7 +868,7 @@ def test_normal():
 
             # Should handle memory errors gracefully
             with pytest.raises(MemoryError):
-                scheduler = MaintenanceScheduler(self.db_path)
+                MaintenanceScheduler(self.db_path)
 
     def test_permission_denied_scenarios(self):
         """Test handling of permission denied errors."""

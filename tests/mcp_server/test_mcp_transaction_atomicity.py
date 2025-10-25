@@ -23,17 +23,18 @@ Test Strategy:
 """
 
 import asyncio
-import pytest
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from src.python.workspace_qdrant_mcp import server
-from src.python.common.grpc.daemon_client import DaemonClient, DaemonConnectionError
+import pytest
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.models import FieldCondition, Filter, MatchValue, PointStruct
+
+from src.python.common.grpc.daemon_client import DaemonClient, DaemonConnectionError
+from src.python.workspace_qdrant_mcp import server
 
 
 @pytest.fixture
@@ -121,8 +122,9 @@ class TestRollbackBehaviorOnFailures:
         mock_daemon = AsyncMock(spec=DaemonClient)
 
         # Simulate gRPC error for invalid metadata
-        import grpc
         from unittest.mock import Mock
+
+        import grpc
 
         grpc_error = grpc.RpcError()
         grpc_error.code = Mock(return_value=grpc.StatusCode.INVALID_ARGUMENT)
@@ -152,7 +154,9 @@ class TestRollbackBehaviorOnFailures:
         mock_daemon = AsyncMock(spec=DaemonClient)
 
         # First call succeeds
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
         success_response = IngestTextResponse(
             document_id="doc-1",
             success=True,
@@ -226,7 +230,9 @@ class TestACIDProperties:
     @pytest.mark.asyncio
     async def test_consistency_metadata_constraints(self, mcp_server_initialized, clean_qdrant):
         """Test consistency: Metadata constraints are enforced across operations."""
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
 
         mock_daemon = AsyncMock(spec=DaemonClient)
         server.daemon_client = mock_daemon
@@ -260,7 +266,9 @@ class TestACIDProperties:
     @pytest.mark.asyncio
     async def test_isolation_concurrent_stores(self, mcp_server_initialized, clean_qdrant):
         """Test isolation: Concurrent store operations don't interfere."""
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
 
         mock_daemon = AsyncMock(spec=DaemonClient)
 
@@ -298,7 +306,9 @@ class TestACIDProperties:
     @pytest.mark.asyncio
     async def test_durability_after_successful_store(self, mcp_server_initialized, clean_qdrant):
         """Test durability: Successfully stored documents persist."""
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
 
         # Use real Qdrant for durability test
         server.daemon_client = None  # Force fallback to direct Qdrant writes
@@ -376,7 +386,9 @@ class TestSystemFailureRecovery:
     @pytest.mark.asyncio
     async def test_partial_write_prevention_on_crash(self, mcp_server_initialized, clean_qdrant):
         """Test that partial writes don't occur if operation crashes."""
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
 
         mock_daemon = AsyncMock(spec=DaemonClient)
 
@@ -411,7 +423,9 @@ class TestDataIntegrityAfterRollback:
     @pytest.mark.asyncio
     async def test_collection_integrity_after_failed_store(self, mcp_server_initialized, clean_qdrant):
         """Test collection remains in valid state after failed store."""
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
 
         # Use fallback path for direct control
         server.daemon_client = None
@@ -484,7 +498,9 @@ class TestDataIntegrityAfterRollback:
     @pytest.mark.asyncio
     async def test_no_orphaned_vectors_after_failure(self, mcp_server_initialized, clean_qdrant):
         """Test no orphaned vectors exist after operation failure."""
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
 
         mock_daemon = AsyncMock(spec=DaemonClient)
 
@@ -525,7 +541,9 @@ class TestNestedTransactionScenarios:
     @pytest.mark.asyncio
     async def test_batch_store_with_partial_failure(self, mcp_server_initialized, clean_qdrant):
         """Test batch store operations where some succeed and some fail."""
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
 
         mock_daemon = AsyncMock(spec=DaemonClient)
 
@@ -613,7 +631,9 @@ class TestBackendWritePathAtomicity:
     @pytest.mark.asyncio
     async def test_backend_ingest_text_atomicity(self, mcp_server_initialized, clean_qdrant):
         """Test daemon ingest_text operation is atomic."""
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
 
         mock_daemon = AsyncMock(spec=DaemonClient)
 
@@ -652,7 +672,9 @@ class TestBackendWritePathAtomicity:
     @pytest.mark.asyncio
     async def test_backend_collection_creation_atomicity(self, mcp_server_initialized, clean_qdrant):
         """Test daemon collection creation is atomic with first write."""
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
 
         mock_daemon = AsyncMock(spec=DaemonClient)
 
@@ -682,7 +704,9 @@ class TestBackendWritePathAtomicity:
     @pytest.mark.asyncio
     async def test_backend_metadata_enrichment_atomicity(self, mcp_server_initialized, clean_qdrant):
         """Test daemon metadata enrichment is atomic with document storage."""
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
 
         mock_daemon = AsyncMock(spec=DaemonClient)
         server.daemon_client = mock_daemon
@@ -892,7 +916,9 @@ class TestComplexTransactionScenarios:
     @pytest.mark.asyncio
     async def test_concurrent_store_operations_isolation(self, mcp_server_initialized, clean_qdrant):
         """Test concurrent store operations maintain isolation."""
-        from src.python.common.grpc.generated.workspace_daemon_pb2 import IngestTextResponse
+        from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+            IngestTextResponse,
+        )
 
         mock_daemon = AsyncMock(spec=DaemonClient)
 

@@ -54,16 +54,16 @@ Example:
 
 import asyncio
 import json
-import psutil
 import time
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
+import psutil
 from loguru import logger
 
-from .queue_statistics import QueueStatisticsCollector, ProcessingEvent
+from .queue_statistics import QueueStatisticsCollector
 
 
 @dataclass
@@ -84,7 +84,7 @@ class ThroughputMetrics:
     window_seconds: int = 300
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "items_per_second": round(self.items_per_second, 2),
@@ -113,7 +113,7 @@ class LatencyMetrics:
     total_items: int = 0
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "avg_latency_ms": round(self.avg_latency_ms, 2),
@@ -146,7 +146,7 @@ class MetricsAggregator:
     p99: float = 0.0
     count: int = 0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "min": round(self.min, 2),
@@ -176,12 +176,12 @@ class PerformanceMetrics:
     throughput: ThroughputMetrics = field(default_factory=ThroughputMetrics)
     latency: LatencyMetrics = field(default_factory=LatencyMetrics)
     processing_time: MetricsAggregator = field(default_factory=MetricsAggregator)
-    resource_usage: Dict[str, float] = field(default_factory=dict)
+    resource_usage: dict[str, float] = field(default_factory=dict)
     success_count: int = 0
     failure_count: int = 0
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "throughput": self.throughput.to_dict(),
@@ -204,8 +204,8 @@ class QueuePerformanceCollector:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        connection_config: Optional[Any] = None,
+        db_path: str | None = None,
+        connection_config: Any | None = None,
         window_minutes: int = 5,
         max_events: int = 10000,
         enable_resource_tracking: bool = True
@@ -235,7 +235,7 @@ class QueuePerformanceCollector:
         self._initialized = False
 
         # Latency tracking (enqueue to processing start time)
-        self._latency_events: deque[Tuple[float, float]] = deque(maxlen=max_events)
+        self._latency_events: deque[tuple[float, float]] = deque(maxlen=max_events)
         self._lock = asyncio.Lock()
 
     async def initialize(self):
@@ -260,7 +260,7 @@ class QueuePerformanceCollector:
         self,
         duration_ms: float,
         success: bool,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ) -> None:
         """
         Record a processing event with performance data.
@@ -295,8 +295,8 @@ class QueuePerformanceCollector:
     async def get_throughput_metrics(
         self,
         window_minutes: int = 5,
-        collection: Optional[str] = None,
-        tenant_id: Optional[str] = None
+        collection: str | None = None,
+        tenant_id: str | None = None
     ) -> ThroughputMetrics:
         """
         Get throughput metrics for specified time window.
@@ -372,9 +372,9 @@ class QueuePerformanceCollector:
 
     async def get_processing_time_stats(
         self,
-        window_minutes: Optional[int] = None,
-        collection: Optional[str] = None,
-        tenant_id: Optional[str] = None
+        window_minutes: int | None = None,
+        collection: str | None = None,
+        tenant_id: str | None = None
     ) -> MetricsAggregator:
         """
         Get processing time statistics with percentiles.
@@ -423,7 +423,7 @@ class QueuePerformanceCollector:
             count=count
         )
 
-    def _calculate_percentile(self, sorted_values: List[float], percentile: float) -> float:
+    def _calculate_percentile(self, sorted_values: list[float], percentile: float) -> float:
         """
         Calculate percentile from sorted values.
 
@@ -457,7 +457,7 @@ class QueuePerformanceCollector:
     async def get_metrics_by_collection(
         self,
         collection_name: str,
-        window_minutes: Optional[int] = None
+        window_minutes: int | None = None
     ) -> PerformanceMetrics:
         """
         Get performance metrics for specific collection.
@@ -513,7 +513,7 @@ class QueuePerformanceCollector:
     async def get_metrics_by_tenant(
         self,
         tenant_id: str,
-        window_minutes: Optional[int] = None
+        window_minutes: int | None = None
     ) -> PerformanceMetrics:
         """
         Get performance metrics for specific tenant.
@@ -566,7 +566,7 @@ class QueuePerformanceCollector:
             timestamp=datetime.now(timezone.utc)
         )
 
-    def _get_resource_usage(self) -> Dict[str, float]:
+    def _get_resource_usage(self) -> dict[str, float]:
         """
         Get current resource usage metrics.
 
@@ -587,7 +587,7 @@ class QueuePerformanceCollector:
     async def export_metrics(
         self,
         format: str = 'json',
-        window_minutes: Optional[int] = None
+        window_minutes: int | None = None
     ) -> str:
         """
         Export metrics in specified format.
@@ -655,7 +655,7 @@ class QueuePerformanceCollector:
         throughput: ThroughputMetrics,
         latency: LatencyMetrics,
         processing_time: MetricsAggregator,
-        resource_usage: Dict[str, float],
+        resource_usage: dict[str, float],
         success_count: int,
         failure_count: int,
         window_minutes: int
@@ -701,7 +701,7 @@ class QueuePerformanceCollector:
         throughput: ThroughputMetrics,
         latency: LatencyMetrics,
         processing_time: MetricsAggregator,
-        resource_usage: Dict[str, float],
+        resource_usage: dict[str, float],
         success_count: int,
         failure_count: int
     ) -> str:

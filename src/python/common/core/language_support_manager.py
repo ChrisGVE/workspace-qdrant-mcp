@@ -48,13 +48,13 @@ Example:
 
 import hashlib
 import json
-from loguru import logger
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
-from .sqlite_state_manager import SQLiteStateManager
-from .language_support_parser import LanguageSupportParser
+from loguru import logger
+
 from .language_support_loader import LanguageSupportLoader
+from .language_support_parser import LanguageSupportParser
+from .sqlite_state_manager import SQLiteStateManager
 
 
 class LanguageSupportManager:
@@ -139,7 +139,7 @@ class LanguageSupportManager:
         self,
         yaml_path: Path,
         force: bool = False
-    ) -> Dict[str, any]:
+    ) -> dict[str, any]:
         """
         Initialize language support from YAML file.
 
@@ -239,7 +239,7 @@ class LanguageSupportManager:
             logger.error(f"Failed to initialize language support from YAML: {e}")
             raise RuntimeError(f"Language support initialization failed: {e}")
 
-    async def get_language_for_file(self, file_path: Path) -> Optional[Dict]:
+    async def get_language_for_file(self, file_path: Path) -> dict | None:
         """
         Detect programming language for a file based on extension.
 
@@ -398,10 +398,10 @@ class LanguageSupportManager:
 
     async def get_files_missing_metadata(
         self,
-        language_name: Optional[str] = None,
+        language_name: str | None = None,
         missing_lsp_only: bool = False,
         missing_ts_only: bool = False
-    ) -> List[Dict]:
+    ) -> list[dict]:
         """
         Get list of files missing metadata extraction.
 
@@ -468,7 +468,7 @@ class LanguageSupportManager:
             logger.error(f"Failed to get files missing metadata: {e}")
             return []
 
-    async def get_supported_languages(self) -> List[Dict]:
+    async def get_supported_languages(self) -> list[dict]:
         """
         Get list of all supported languages from database.
 
@@ -514,7 +514,7 @@ class LanguageSupportManager:
             logger.error(f"Failed to get supported languages: {e}")
             return []
 
-    async def get_version_info(self) -> Optional[Dict]:
+    async def get_version_info(self) -> dict | None:
         """
         Get current language support version information.
 

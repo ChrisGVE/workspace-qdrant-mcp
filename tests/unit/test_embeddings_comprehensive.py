@@ -12,16 +12,16 @@ This test suite covers all aspects of the EmbeddingService class including:
 - Memory and resource management
 """
 
-import sys
-from pathlib import Path
 import asyncio
 import hashlib
 import math
-from unittest.mock import AsyncMock, MagicMock, patch, call
+import sys
+from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
-import pytest
 import numpy as np
+import pytest
 
 # Add src/python to path for common module imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))

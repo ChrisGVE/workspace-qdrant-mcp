@@ -16,11 +16,12 @@ This ensures the full rule lifecycle works correctly from end to end.
 """
 
 import asyncio
-import pytest
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 from unittest.mock import AsyncMock, Mock
+
+import pytest
 
 from src.python.common.core.memory import (
     MemoryManager,
@@ -41,14 +42,14 @@ except ImportError:
 
 # Import our behavioral harness from 337.1
 from tests.integration.test_llm_behavioral_harness import (
-    LLMBehavioralHarness,
-    MockLLMProvider,
+    ANTHROPIC_AVAILABLE,
+    BehavioralMetrics,
     ClaudeProvider,
     ExecutionMode,
-    BehavioralMetrics,
+    LLMBehavioralHarness,
     LLMResponse,
+    MockLLMProvider,
     PromptTemplate,
-    ANTHROPIC_AVAILABLE,
 )
 
 
@@ -135,9 +136,9 @@ class ConversationalRuleWorkflow:
         self,
         conversation_text: str,
         test_prompt: str,
-        expected_patterns: List[str] = None,
-        forbidden_patterns: List[str] = None
-    ) -> tuple[List[MemoryRule], BehavioralMetrics, LLMResponse, LLMResponse]:
+        expected_patterns: list[str] = None,
+        forbidden_patterns: list[str] = None
+    ) -> tuple[list[MemoryRule], BehavioralMetrics, LLMResponse, LLMResponse]:
         """
         Process a conversational rule end-to-end.
 

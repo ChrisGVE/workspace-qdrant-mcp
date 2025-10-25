@@ -36,8 +36,7 @@ import threading
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from queue import Queue, Empty
-from typing import Optional
+from queue import Empty, Queue
 
 from loguru import logger
 
@@ -87,7 +86,7 @@ class QueueConnection:
         """
         self.db_path = Path(db_path)
         self.config = config
-        self.conn: Optional[sqlite3.Connection] = None
+        self.conn: sqlite3.Connection | None = None
         self._is_connected = False
 
     def connect(self) -> sqlite3.Connection:
@@ -214,7 +213,7 @@ class QueueConnectionPool:
     def __init__(
         self,
         db_path: str,
-        config: Optional[ConnectionConfig] = None
+        config: ConnectionConfig | None = None
     ):
         """
         Initialize connection pool.
@@ -232,7 +231,7 @@ class QueueConnectionPool:
         self._initialized = False
 
         # Checkpoint management
-        self._checkpoint_task: Optional[asyncio.Task] = None
+        self._checkpoint_task: asyncio.Task | None = None
         self._shutdown_event = asyncio.Event()
 
     async def initialize(self):
@@ -392,7 +391,7 @@ class QueueConnectionPool:
 
         logger.info("WAL checkpoint loop stopped")
 
-    def execute_with_retry(self, query: str, params: tuple = (), max_retries: Optional[int] = None):
+    def execute_with_retry(self, query: str, params: tuple = (), max_retries: int | None = None):
         """
         Execute query with automatic retry on SQLITE_BUSY.
 
@@ -430,7 +429,7 @@ class QueueConnectionPool:
         raise sqlite3.OperationalError(f"Max retries exceeded: {last_error}")
 
 
-def get_default_pool(db_path: Optional[str] = None) -> QueueConnectionPool:
+def get_default_pool(db_path: str | None = None) -> QueueConnectionPool:
     """
     Get default connection pool with standard configuration.
 

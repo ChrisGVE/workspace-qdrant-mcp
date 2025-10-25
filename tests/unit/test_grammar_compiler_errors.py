@@ -1,11 +1,15 @@
 """Unit tests for grammar compiler error handling."""
 
-import pytest
 import subprocess
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
-from common.core.grammar_compiler import GrammarCompiler, CompilerInfo, CompilationResult
+import pytest
+from common.core.grammar_compiler import (
+    CompilationResult,
+    CompilerInfo,
+    GrammarCompiler,
+)
 from common.core.grammar_dependencies import DependencyAnalysis
 
 

@@ -6,20 +6,21 @@ metadata management, and deployment workflows with extensive edge cases
 and error conditions.
 """
 
-import pytest
-import tempfile
-import sqlite3
-import pickle
-import json
-from pathlib import Path
-from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock
-import shutil
 import hashlib
+import json
+import pickle
+import shutil
+import sqlite3
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
 import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.ensemble import RandomForestClassifier
+import pytest
 from sklearn.datasets import make_classification
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.linear_model import LogisticRegression
 
 from src.python.common.ml.config.ml_config import (
     MLConfig,
@@ -27,18 +28,18 @@ from src.python.common.ml.config.ml_config import (
     MLModelConfig,
     MLPerformanceMetrics,
     MLTaskType,
-    ModelType
+    ModelType,
+)
+from src.python.common.ml.management.model_registry import (
+    ModelMetadata,
+    ModelNotFoundError,
+    ModelRegistry,
+    ModelRegistryError,
+    ModelStorageError,
+    ModelVersion,
+    ModelVersionError,
 )
 from src.python.common.ml.pipeline.training_pipeline import TrainingResult
-from src.python.common.ml.management.model_registry import (
-    ModelRegistry,
-    ModelMetadata,
-    ModelVersion,
-    ModelRegistryError,
-    ModelNotFoundError,
-    ModelVersionError,
-    ModelStorageError
-)
 
 
 def create_trained_logistic_model():
@@ -348,7 +349,7 @@ class TestModelRegistry:
         registry = ModelRegistry(self.config)
 
         # Register models in different stages
-        model_id_dev = registry.register_model(
+        registry.register_model(
             training_result=self.test_training_result,
             name="test_classifier",
             version="1.0.0",
@@ -703,7 +704,7 @@ class TestModelRegistry:
         with pytest.raises(ModelNotFoundError):
             registry.load_model("nonexistent_model")
 
-    @patch('builtins.open', side_effect=IOError("Permission denied"))
+    @patch('builtins.open', side_effect=OSError("Permission denied"))
     def test_load_model_storage_error(self, mock_open):
         """Test model loading with storage error."""
         registry = ModelRegistry(self.config)
@@ -886,7 +887,7 @@ class TestModelRegistry:
         registry = ModelRegistry(self.config)
 
         # Register model with non-semantic version
-        model_id_1 = registry.register_model(
+        registry.register_model(
             training_result=self.test_training_result,
             name="test_classifier",
             version="v1_alpha"
@@ -903,8 +904,8 @@ class TestModelRegistry:
     def test_model_artifacts_storage(self):
         """Test storage of model artifacts."""
         # Create training result with additional artifacts
-        from sklearn.preprocessing import StandardScaler
         from sklearn.feature_selection import SelectKBest
+        from sklearn.preprocessing import StandardScaler
 
         scaler = StandardScaler()
         selector = SelectKBest()
@@ -943,7 +944,7 @@ class TestModelRegistry:
         assert metadata_path.exists()
 
         # Verify metadata file content
-        with open(metadata_path, 'r') as f:
+        with open(metadata_path) as f:
             metadata_content = json.load(f)
         assert metadata_content["test"] == "data"
 

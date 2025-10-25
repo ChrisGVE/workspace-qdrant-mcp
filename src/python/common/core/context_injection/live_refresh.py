@@ -23,25 +23,22 @@ Refresh Modes:
 import asyncio
 import hashlib
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any
 
 from loguru import logger
 
-from ..memory import MemoryManager, MemoryRule
-from .claude_budget_manager import ClaudeBudgetManager, SessionUsageStats
+from ..memory import MemoryManager
+from .claude_budget_manager import ClaudeBudgetManager
 from .claude_md_injector import ClaudeMdInjector
 from .rule_retrieval import RuleFilter, RuleRetrieval
 from .session_trigger import (
-    SessionTrigger,
-    TriggerContext,
     TriggerManager,
     TriggerPhase,
-    TriggerPriority,
-    TriggerResult,
 )
 
 
@@ -87,13 +84,13 @@ class RefreshState:
         is_refreshing: Whether a refresh is currently in progress
     """
 
-    last_refresh_at: Optional[datetime] = None
-    last_file_hash: Optional[str] = None
-    last_rules_hash: Optional[str] = None
-    pending_changes: Set[str] = field(default_factory=set)
+    last_refresh_at: datetime | None = None
+    last_file_hash: str | None = None
+    last_rules_hash: str | None = None
+    pending_changes: set[str] = field(default_factory=set)
     refresh_count: int = 0
     refresh_count_last_minute: int = 0
-    refresh_history: List[datetime] = field(default_factory=list)
+    refresh_history: list[datetime] = field(default_factory=list)
     is_refreshing: bool = False
 
 
@@ -116,11 +113,11 @@ class RefreshResult:
     success: bool
     mode: RefreshMode
     execution_time_ms: float
-    changes_detected: List[str] = field(default_factory=list)
+    changes_detected: list[str] = field(default_factory=list)
     rules_updated: int = 0
     tokens_used: int = 0
-    error: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class LiveRefreshManager:
@@ -151,11 +148,11 @@ class LiveRefreshManager:
     def __init__(
         self,
         memory_manager: MemoryManager,
-        budget_manager: Optional[ClaudeBudgetManager] = None,
-        claude_md_injector: Optional[ClaudeMdInjector] = None,
-        rule_retrieval: Optional[RuleRetrieval] = None,
-        trigger_manager: Optional[TriggerManager] = None,
-        throttle_config: Optional[RefreshThrottleConfig] = None,
+        budget_manager: ClaudeBudgetManager | None = None,
+        claude_md_injector: ClaudeMdInjector | None = None,
+        rule_retrieval: RuleRetrieval | None = None,
+        trigger_manager: TriggerManager | None = None,
+        throttle_config: RefreshThrottleConfig | None = None,
         enable_file_watching: bool = True,
         enable_rule_monitoring: bool = True,
         enable_periodic_refresh: bool = False,
@@ -199,15 +196,15 @@ class LiveRefreshManager:
         self.refresh_state = RefreshState()
 
         # Refresh callbacks
-        self._refresh_callbacks: List[Callable[[RefreshResult], Any]] = []
+        self._refresh_callbacks: list[Callable[[RefreshResult], Any]] = []
 
         # Background tasks
-        self._monitoring_tasks: List[asyncio.Task] = []
-        self._periodic_refresh_task: Optional[asyncio.Task] = None
+        self._monitoring_tasks: list[asyncio.Task] = []
+        self._periodic_refresh_task: asyncio.Task | None = None
 
         # Project context
-        self._project_root: Optional[Path] = None
-        self._output_path: Optional[Path] = None
+        self._project_root: Path | None = None
+        self._output_path: Path | None = None
 
         logger.info(
             f"Initialized LiveRefreshManager "
@@ -218,8 +215,8 @@ class LiveRefreshManager:
 
     async def start(
         self,
-        project_root: Optional[Path] = None,
-        output_path: Optional[Path] = None,
+        project_root: Path | None = None,
+        output_path: Path | None = None,
     ) -> bool:
         """
         Start live refresh monitoring.
@@ -347,7 +344,7 @@ class LiveRefreshManager:
             callback_name = getattr(callback, "__name__", repr(callback))
             logger.debug(f"Added refresh callback: {callback_name}")
 
-    def get_refresh_stats(self) -> Dict[str, Any]:
+    def get_refresh_stats(self) -> dict[str, Any]:
         """
         Get refresh statistics.
 
@@ -620,7 +617,7 @@ class LiveRefreshManager:
         finally:
             self.refresh_state.is_refreshing = False
 
-    async def _detect_changes(self) -> List[str]:
+    async def _detect_changes(self) -> list[str]:
         """
         Detect what has changed since last refresh.
 
@@ -777,9 +774,9 @@ class LiveRefreshManager:
 
 async def start_live_refresh(
     memory_manager: MemoryManager,
-    project_root: Optional[Path] = None,
-    output_path: Optional[Path] = None,
-    budget_manager: Optional[ClaudeBudgetManager] = None,
+    project_root: Path | None = None,
+    output_path: Path | None = None,
+    budget_manager: ClaudeBudgetManager | None = None,
     enable_periodic: bool = False,
 ) -> LiveRefreshManager:
     """

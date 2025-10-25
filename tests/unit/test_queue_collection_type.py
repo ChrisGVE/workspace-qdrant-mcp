@@ -5,13 +5,21 @@ Tests collection type detection, storage, and retrieval across Python
 queue client and database operations.
 """
 
-import pytest
 import sqlite3
 import tempfile
 from pathlib import Path
 
-from src.python.common.core.queue_client import SQLiteQueueClient, QueueItem, QueueOperation
-from src.python.common.core.collection_types import CollectionTypeClassifier, CollectionType
+import pytest
+
+from src.python.common.core.collection_types import (
+    CollectionType,
+    CollectionTypeClassifier,
+)
+from src.python.common.core.queue_client import (
+    QueueItem,
+    QueueOperation,
+    SQLiteQueueClient,
+)
 from src.python.common.core.queue_connection import ConnectionConfig
 
 

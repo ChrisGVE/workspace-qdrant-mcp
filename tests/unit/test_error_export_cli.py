@@ -6,13 +6,13 @@ Tests CLI commands for error export and debug bundle generation:
 """
 
 import json
-import pytest
 import tarfile
 from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
-from typer.testing import CliRunner
 
+import pytest
+from typer.testing import CliRunner
 from wqm_cli.cli.commands.error_reporting import errors_app
 
 
@@ -301,8 +301,8 @@ class TestDebugBundleCommand:
         mock_manager_class.return_value = mock_error_manager
 
         # Mock get_error_by_id to return a valid error
+        from common.core.error_categorization import ErrorCategory, ErrorSeverity
         from common.core.error_message_manager import ErrorMessage
-        from common.core.error_categorization import ErrorSeverity, ErrorCategory
         mock_error = ErrorMessage(
             id=123,
             timestamp=datetime.now(),
@@ -336,8 +336,8 @@ class TestDebugBundleCommand:
         mock_manager_class.return_value = mock_error_manager
 
         # Mock get_errors to return a list
+        from common.core.error_categorization import ErrorCategory, ErrorSeverity
         from common.core.error_message_manager import ErrorMessage
-        from common.core.error_categorization import ErrorSeverity, ErrorCategory
         mock_errors = [
             ErrorMessage(id=i, timestamp=datetime.now(), severity=ErrorSeverity.ERROR,
                         category=ErrorCategory.FILE_CORRUPT, message=f"Error {i}",
@@ -369,8 +369,8 @@ class TestDebugBundleCommand:
         mock_manager_class.return_value = mock_error_manager
 
         # Mock get_errors
+        from common.core.error_categorization import ErrorCategory, ErrorSeverity
         from common.core.error_message_manager import ErrorMessage
-        from common.core.error_categorization import ErrorSeverity, ErrorCategory
         mock_errors = [
             ErrorMessage(id=1, timestamp=datetime.now(), severity=ErrorSeverity.ERROR,
                         category=ErrorCategory.FILE_CORRUPT, message="Error 1",
@@ -477,8 +477,8 @@ class TestDebugBundleCommand:
         # Setup mocks
         mock_manager_class.return_value = mock_error_manager
 
+        from common.core.error_categorization import ErrorCategory, ErrorSeverity
         from common.core.error_message_manager import ErrorMessage
-        from common.core.error_categorization import ErrorSeverity, ErrorCategory
         mock_error = ErrorMessage(
             id=123,
             timestamp=datetime.now(),

@@ -34,20 +34,19 @@ Example:
 import contextlib
 import ssl
 import warnings
-from typing import Any, ContextManager, Dict, List, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import urllib3
-
 from loguru import logger
 
 # Import enhanced certificate validation
 try:
     from ..security.certificate_validator import (
-        EnhancedCertificateValidator,
         CertificateSecurityPolicy,
-        create_secure_ssl_context,
         CertificateValidationError,
+        EnhancedCertificateValidator,
+        create_secure_ssl_context,
     )
     _ENHANCED_VALIDATION_AVAILABLE = True
 except ImportError:
@@ -65,15 +64,15 @@ class SSLConfiguration:
     def __init__(
         self,
         verify_certificates: bool = True,
-        ca_cert_path: Optional[str] = None,
-        client_cert_path: Optional[str] = None,
-        client_key_path: Optional[str] = None,
-        auth_token: Optional[str] = None,
-        api_key: Optional[str] = None,
+        ca_cert_path: str | None = None,
+        client_cert_path: str | None = None,
+        client_key_path: str | None = None,
+        auth_token: str | None = None,
+        api_key: str | None = None,
         environment: str = "production",
         enhanced_validation: bool = True,
-        certificate_pinning: Optional[Dict[str, List[str]]] = None,
-        security_policy: Optional[Any] = None,
+        certificate_pinning: dict[str, list[str]] | None = None,
+        security_policy: Any | None = None,
     ):
         """Initialize SSL configuration.
 
@@ -114,7 +113,7 @@ class SSLConfiguration:
                 logger.warning(f"Failed to initialize enhanced certificate validator: {e}")
                 self.enhanced_validation = False
 
-    def to_qdrant_config(self) -> Dict[str, Any]:
+    def to_qdrant_config(self) -> dict[str, Any]:
         """Convert to Qdrant client configuration.
 
         Returns:
@@ -182,7 +181,7 @@ class SSLConfiguration:
 
         return context
 
-    def validate_certificate_for_host(self, hostname: str, certificate_chain: List[bytes]) -> bool:
+    def validate_certificate_for_host(self, hostname: str, certificate_chain: list[bytes]) -> bool:
         """Validate certificate chain for specific hostname.
 
         Args:
@@ -224,7 +223,7 @@ class SSLContextManager:
         self._suppression_active = False
 
     @contextlib.contextmanager
-    def for_localhost(self) -> ContextManager[None]:
+    def for_localhost(self) -> AbstractContextManager[None]:
         """Context manager for localhost SSL warning suppression.
 
         This context manager temporarily suppresses SSL warnings that are
@@ -296,8 +295,8 @@ class SSLContextManager:
         self,
         url: str,
         verify_certificates: bool = True,
-        auth_token: Optional[str] = None,
-        api_key: Optional[str] = None,
+        auth_token: str | None = None,
+        api_key: str | None = None,
         environment: str = "production",
     ) -> SSLConfiguration:
         """Create SSL configuration based on URL and environment.
@@ -334,8 +333,8 @@ class SSLContextManager:
         )
 
     def get_qdrant_client_config(
-        self, base_config: Dict[str, Any], ssl_config: SSLConfiguration
-    ) -> Dict[str, Any]:
+        self, base_config: dict[str, Any], ssl_config: SSLConfiguration
+    ) -> dict[str, Any]:
         """Merge SSL configuration with Qdrant client config.
 
         Args:
@@ -375,12 +374,12 @@ def get_ssl_manager() -> SSLContextManager:
 
 
 def create_secure_qdrant_config(
-    base_config: Dict[str, Any],
+    base_config: dict[str, Any],
     url: str,
     environment: str = "production",
-    auth_token: Optional[str] = None,
-    api_key: Optional[str] = None,
-) -> Dict[str, Any]:
+    auth_token: str | None = None,
+    api_key: str | None = None,
+) -> dict[str, Any]:
     """Create secure Qdrant client configuration.
 
     This is a convenience function that creates appropriate SSL configuration
@@ -407,25 +406,25 @@ def create_secure_qdrant_config(
 @contextlib.contextmanager
 def suppress_qdrant_ssl_warnings():
     """Context manager to suppress SSL warnings during QdrantClient creation.
-    
+
     This suppresses the specific warning: "Api key is used with an insecure connection"
     and other SSL-related warnings that appear during QdrantClient instantiation.
     """
     # Store original warning filters
     original_filters = warnings.filters.copy()
-    
+
     try:
         # Suppress specific SSL warnings
         warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*")
         warnings.filterwarnings("ignore", message=".*insecure connection.*")
         warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*")
         warnings.filterwarnings("ignore", category=urllib3.exceptions.InsecureRequestWarning)
-        
+
         # Temporarily disable urllib3 warnings
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        
+
         yield
-        
+
     finally:
         # Restore original warning filters
         warnings.filters[:] = original_filters

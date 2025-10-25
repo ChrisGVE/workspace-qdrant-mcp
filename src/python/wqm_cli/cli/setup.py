@@ -40,17 +40,19 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import Optional
 from urllib.parse import urlparse
-from loguru import logger
 
 import typer
-
-from common.grpc.daemon_client import get_daemon_client, with_daemon_client
-from common.core.config import get_config_manager, EmbeddingConfig, QdrantConfig, WorkspaceConfig
+from common.core.config import (
+    EmbeddingConfig,
+    QdrantConfig,
+    WorkspaceConfig,
+)
 from common.core.embeddings import EmbeddingService
+from common.grpc.daemon_client import with_daemon_client
 from common.utils.config_validator import ConfigValidator
 from common.utils.project_detection import ProjectDetector
+from loguru import logger
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -277,7 +279,6 @@ class SetupWizard:
 
     def _check_python_version(self) -> tuple[bool, str]:
         """Check Python version compatibility."""
-        import sys
 
         version = sys.version_info
         if version >= (3, 10):
@@ -372,9 +373,10 @@ class SetupWizard:
     async def _test_qdrant_connection(self, config: QdrantConfig) -> tuple[bool, str]:
         """Test Qdrant database connection."""
         try:
-            from qdrant_client import QdrantClient
             import warnings
+
             import urllib3
+            from qdrant_client import QdrantClient
 
             client_config = {
                 "url": config.url,
@@ -400,7 +402,7 @@ class SetupWizard:
                     warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
                     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                     return client.get_collections()
-            
+
             collections = await asyncio.get_event_loop().run_in_executor(
                 None, get_collections_with_suppression
             )
@@ -435,7 +437,6 @@ class SetupWizard:
 
         print("Available embedding models:")
         for i, model in enumerate(available_models, 1):
-            style = "bold green" if i == 1 else "white"
             quality = (
                 "Fast, Good Quality (Recommended)"
                 if i == 1
@@ -1023,19 +1024,19 @@ Remove a document from the collection.
 
                 # Test collections listing
                 collections_response = await client.list_collections(include_stats=True)
-                
+
                 # Test system status
                 status = await client.get_system_status()
-                
+
                 print("[OK] System verification passed")
                 print("System Status:")
-                print(f"  Daemon Connection: Connected")
+                print("  Daemon Connection: Connected")
                 print(f"  Qdrant Connection: {status.qdrant_status.connected}")
                 print(f"  Collections: {len(collections_response.collections)} available")
-                
+
                 if hasattr(status, 'embedding_models_loaded'):
                     print(f"  Embedding Models: {len(status.embedding_models_loaded)} loaded")
-                
+
                 return True, "System verified successfully"
 
             # Execute verification with daemon client

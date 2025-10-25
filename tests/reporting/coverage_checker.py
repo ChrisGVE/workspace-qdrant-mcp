@@ -7,7 +7,7 @@ and generate warnings/failures for CI/CD integration.
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Optional
 
 from .models import CoverageMetrics, FileCoverage
 
@@ -25,20 +25,20 @@ class CoverageThresholds:
     """Coverage thresholds configuration."""
 
     # Overall thresholds
-    line_coverage_min: Optional[float] = None  # Minimum line coverage %
-    function_coverage_min: Optional[float] = None  # Minimum function coverage %
-    branch_coverage_min: Optional[float] = None  # Minimum branch coverage %
+    line_coverage_min: float | None = None  # Minimum line coverage %
+    function_coverage_min: float | None = None  # Minimum function coverage %
+    branch_coverage_min: float | None = None  # Minimum branch coverage %
 
     # Per-file thresholds
-    file_line_coverage_min: Optional[float] = None  # Minimum per-file line coverage %
+    file_line_coverage_min: float | None = None  # Minimum per-file line coverage %
 
     # Warning thresholds (if not met, warn but don't fail)
-    line_coverage_warning: Optional[float] = None
-    function_coverage_warning: Optional[float] = None
-    branch_coverage_warning: Optional[float] = None
+    line_coverage_warning: float | None = None
+    function_coverage_warning: float | None = None
+    branch_coverage_warning: float | None = None
 
     # Allow specific files to be excluded from threshold checks
-    exclude_files: List[str] = field(default_factory=list)  # File path patterns
+    exclude_files: list[str] = field(default_factory=list)  # File path patterns
 
     @classmethod
     def default(cls) -> "CoverageThresholds":
@@ -85,7 +85,7 @@ class ThresholdViolation:
     actual: float  # Actual coverage percentage
     threshold: float  # Required threshold
     status: ThresholdStatus  # FAILED or WARNING
-    file_path: Optional[str] = None  # If violation is for specific file
+    file_path: str | None = None  # If violation is for specific file
 
     @property
     def message(self) -> str:
@@ -107,8 +107,8 @@ class CoverageCheckResult:
     """Result of coverage threshold check."""
 
     status: ThresholdStatus
-    violations: List[ThresholdViolation] = field(default_factory=list)
-    warnings: List[ThresholdViolation] = field(default_factory=list)
+    violations: list[ThresholdViolation] = field(default_factory=list)
+    warnings: list[ThresholdViolation] = field(default_factory=list)
 
     @property
     def passed(self) -> bool:
@@ -130,7 +130,7 @@ class CoverageCheckResult:
         else:
             return f"Coverage thresholds failed with {len(self.violations)} violation(s)"
 
-    def get_all_issues(self) -> List[ThresholdViolation]:
+    def get_all_issues(self) -> list[ThresholdViolation]:
         """Get all violations and warnings combined."""
         return self.violations + self.warnings
 
@@ -138,7 +138,7 @@ class CoverageCheckResult:
 class CoverageChecker:
     """Check coverage metrics against thresholds."""
 
-    def __init__(self, thresholds: Optional[CoverageThresholds] = None):
+    def __init__(self, thresholds: CoverageThresholds | None = None):
         """
         Initialize coverage checker.
 
@@ -292,7 +292,7 @@ class CoverageChecker:
 # Convenience function
 def check_coverage_thresholds(
     coverage: CoverageMetrics,
-    thresholds: Optional[CoverageThresholds] = None,
+    thresholds: CoverageThresholds | None = None,
 ) -> CoverageCheckResult:
     """
     Quick helper to check coverage against thresholds.

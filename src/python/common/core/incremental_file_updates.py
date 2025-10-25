@@ -6,20 +6,19 @@ and resolution strategies for file system changes. It includes checksumming,
 delta processing, and rollback capabilities for robust file processing.
 """
 
-import asyncio
 import hashlib
-import json
 import os
 import shutil
 import time
-from dataclasses import dataclass, field, asdict
-from datetime import datetime, timezone
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union, Callable, Tuple
-from loguru import logger
+from typing import Any
+
 import aiofiles
 import aiofiles.os
+from loguru import logger
 
 
 class ChangeType(Enum):
@@ -59,9 +58,9 @@ class FileChecksum:
     size: int
     mtime: float
     md5_hash: str
-    sha256_hash: Optional[str] = None
+    sha256_hash: str | None = None
     created_at: float = field(default_factory=time.time)
-    content_type: Optional[str] = None
+    content_type: str | None = None
 
     def __eq__(self, other: 'FileChecksum') -> bool:
         """Compare checksums for equality."""
@@ -94,21 +93,21 @@ class ChangeRecord:
     file_path: str
     change_type: ChangeType
     timestamp: float
-    old_checksum: Optional[FileChecksum] = None
-    new_checksum: Optional[FileChecksum] = None
+    old_checksum: FileChecksum | None = None
+    new_checksum: FileChecksum | None = None
     change_size: int = 0  # Bytes changed
     processing_priority: int = 1  # 1-10, higher is more urgent
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    dependencies: List[str] = field(default_factory=list)  # Other files this depends on
+    metadata: dict[str, Any] = field(default_factory=dict)
+    dependencies: list[str] = field(default_factory=list)  # Other files this depends on
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         data = asdict(self)
         data['change_type'] = self.change_type.value
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ChangeRecord':
+    def from_dict(cls, data: dict[str, Any]) -> 'ChangeRecord':
         """Create from dictionary."""
         data = data.copy()
         data['change_type'] = ChangeType(data['change_type'])
@@ -122,13 +121,13 @@ class ConflictInfo:
     file_path: str
     conflict_type: str
     timestamp: float
-    conflicting_changes: List[ChangeRecord]
-    resolution_strategy: Optional[ConflictResolutionStrategy] = None
-    resolution_data: Dict[str, Any] = field(default_factory=dict)
+    conflicting_changes: list[ChangeRecord]
+    resolution_strategy: ConflictResolutionStrategy | None = None
+    resolution_data: dict[str, Any] = field(default_factory=dict)
     resolved: bool = False
     manual_review_required: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         data = asdict(self)
         if self.resolution_strategy:
@@ -144,11 +143,11 @@ class UpdateOperation:
     operation_type: str
     status: UpdateStatus
     timestamp: float
-    backup_path: Optional[str] = None
-    error_message: Optional[str] = None
+    backup_path: str | None = None
+    error_message: str | None = None
     retry_count: int = 0
     max_retries: int = 3
-    rollback_data: Dict[str, Any] = field(default_factory=dict)
+    rollback_data: dict[str, Any] = field(default_factory=dict)
 
     def can_retry(self) -> bool:
         """Check if operation can be retried."""
@@ -160,10 +159,10 @@ class ChecksumCalculator:
 
     def __init__(self, cache_size: int = 1000):
         """Initialize checksum calculator."""
-        self._cache: Dict[str, FileChecksum] = {}
+        self._cache: dict[str, FileChecksum] = {}
         self._cache_size = cache_size
 
-    async def calculate_checksum(self, file_path: Path) -> Optional[FileChecksum]:
+    async def calculate_checksum(self, file_path: Path) -> FileChecksum | None:
         """Calculate comprehensive checksum for a file."""
         try:
             file_path_str = str(file_path)
@@ -215,7 +214,7 @@ class ChecksumCalculator:
 
         self._cache[cache_key] = checksum
 
-    def _detect_content_type(self, file_path: Path) -> Optional[str]:
+    def _detect_content_type(self, file_path: Path) -> str | None:
         """Simple content type detection based on file extension."""
         extension_map = {
             '.txt': 'text/plain',
@@ -244,9 +243,9 @@ class ChangeDetector:
     def __init__(self, checksum_calculator: ChecksumCalculator):
         """Initialize change detector."""
         self.checksum_calculator = checksum_calculator
-        self._previous_checksums: Dict[str, FileChecksum] = {}
+        self._previous_checksums: dict[str, FileChecksum] = {}
 
-    async def detect_changes(self, file_paths: List[Path]) -> List[ChangeRecord]:
+    async def detect_changes(self, file_paths: list[Path]) -> list[ChangeRecord]:
         """Detect changes in a list of files."""
         changes = []
         current_time = time.time()
@@ -261,7 +260,7 @@ class ChangeDetector:
 
         return changes
 
-    async def _detect_single_file_change(self, file_path: Path, timestamp: float) -> Optional[ChangeRecord]:
+    async def _detect_single_file_change(self, file_path: Path, timestamp: float) -> ChangeRecord | None:
         """Detect changes for a single file."""
         file_path_str = str(file_path)
 
@@ -339,11 +338,11 @@ class ChangeDetector:
         """Generate a unique change ID."""
         return hashlib.md5(f"{file_path}:{timestamp}".encode()).hexdigest()
 
-    def set_baseline_checksums(self, checksums: Dict[str, FileChecksum]) -> None:
+    def set_baseline_checksums(self, checksums: dict[str, FileChecksum]) -> None:
         """Set baseline checksums for comparison."""
         self._previous_checksums = checksums.copy()
 
-    def get_current_checksums(self) -> Dict[str, FileChecksum]:
+    def get_current_checksums(self) -> dict[str, FileChecksum]:
         """Get current checksum state."""
         return self._previous_checksums.copy()
 
@@ -354,18 +353,18 @@ class ConflictResolver:
     def __init__(self, default_strategy: ConflictResolutionStrategy = ConflictResolutionStrategy.LAST_WRITER_WINS):
         """Initialize conflict resolver."""
         self.default_strategy = default_strategy
-        self._active_conflicts: Dict[str, ConflictInfo] = {}
-        self._resolution_handlers: Dict[ConflictResolutionStrategy, Callable] = {
+        self._active_conflicts: dict[str, ConflictInfo] = {}
+        self._resolution_handlers: dict[ConflictResolutionStrategy, Callable] = {
             ConflictResolutionStrategy.LAST_WRITER_WINS: self._resolve_last_writer_wins,
             ConflictResolutionStrategy.FIRST_WRITER_WINS: self._resolve_first_writer_wins,
             ConflictResolutionStrategy.BACKUP_AND_REPLACE: self._resolve_backup_and_replace,
             ConflictResolutionStrategy.CREATE_VERSIONS: self._resolve_create_versions,
         }
 
-    def detect_conflicts(self, changes: List[ChangeRecord]) -> List[ConflictInfo]:
+    def detect_conflicts(self, changes: list[ChangeRecord]) -> list[ConflictInfo]:
         """Detect conflicts in a set of changes."""
         conflicts = []
-        file_changes: Dict[str, List[ChangeRecord]] = {}
+        file_changes: dict[str, list[ChangeRecord]] = {}
 
         # Group changes by file path
         for change in changes:
@@ -384,7 +383,7 @@ class ConflictResolver:
 
         return conflicts
 
-    def _analyze_potential_conflict(self, file_path: str, changes: List[ChangeRecord]) -> Optional[ConflictInfo]:
+    def _analyze_potential_conflict(self, file_path: str, changes: list[ChangeRecord]) -> ConflictInfo | None:
         """Analyze whether multiple changes constitute a real conflict."""
         # Sort changes by timestamp
         changes.sort(key=lambda x: x.timestamp)
@@ -506,11 +505,11 @@ class ConflictResolver:
             logger.error(f"Failed to create versions for conflict resolution: {e}")
             return False
 
-    def get_active_conflicts(self) -> List[ConflictInfo]:
+    def get_active_conflicts(self) -> list[ConflictInfo]:
         """Get all active conflicts."""
         return list(self._active_conflicts.values())
 
-    def get_conflict_by_id(self, conflict_id: str) -> Optional[ConflictInfo]:
+    def get_conflict_by_id(self, conflict_id: str) -> ConflictInfo | None:
         """Get a specific conflict by ID."""
         return self._active_conflicts.get(conflict_id)
 
@@ -522,7 +521,7 @@ class UpdateProcessor:
         """Initialize update processor."""
         self.backup_dir = backup_dir
         self.backup_dir.mkdir(parents=True, exist_ok=True)
-        self._operations: Dict[str, UpdateOperation] = {}
+        self._operations: dict[str, UpdateOperation] = {}
 
     async def process_update(self, change_record: ChangeRecord, callback: Callable[[str, ChangeRecord], Any]) -> UpdateOperation:
         """Process a single update with rollback capability."""
@@ -632,11 +631,11 @@ class UpdateProcessor:
             logger.error(f"Retry failed for operation {operation_id}: {e}")
             return False
 
-    def get_operation_status(self, operation_id: str) -> Optional[UpdateOperation]:
+    def get_operation_status(self, operation_id: str) -> UpdateOperation | None:
         """Get the status of an operation."""
         return self._operations.get(operation_id)
 
-    def get_failed_operations(self) -> List[UpdateOperation]:
+    def get_failed_operations(self) -> list[UpdateOperation]:
         """Get all failed operations."""
         return [op for op in self._operations.values() if op.status == UpdateStatus.FAILED]
 
@@ -692,7 +691,7 @@ class IncrementalUpdateSystem:
         self.update_processor = UpdateProcessor(backup_dir)
 
         # State tracking
-        self._processing_callback: Optional[Callable] = None
+        self._processing_callback: Callable | None = None
         self._statistics = {
             "changes_processed": 0,
             "conflicts_detected": 0,
@@ -704,14 +703,14 @@ class IncrementalUpdateSystem:
         }
 
         # Performance monitoring
-        self._processing_times: List[float] = []
+        self._processing_times: list[float] = []
         self._max_processing_history = 1000
 
     def set_processing_callback(self, callback: Callable[[str, ChangeRecord], Any]) -> None:
         """Set the callback function for processing file changes."""
         self._processing_callback = callback
 
-    async def initialize_baseline(self, file_paths: List[Path]) -> Dict[str, FileChecksum]:
+    async def initialize_baseline(self, file_paths: list[Path]) -> dict[str, FileChecksum]:
         """Initialize baseline checksums for a set of files."""
         logger.info(f"Initializing baseline for {len(file_paths)} files")
         checksums = {}
@@ -726,7 +725,7 @@ class IncrementalUpdateSystem:
         logger.info(f"Initialized baseline with {len(checksums)} file checksums")
         return checksums
 
-    async def process_file_changes(self, file_paths: List[Path]) -> Dict[str, Any]:
+    async def process_file_changes(self, file_paths: list[Path]) -> dict[str, Any]:
         """Process changes for a list of files."""
         if not self._processing_callback:
             raise ValueError("Processing callback not set")
@@ -806,7 +805,7 @@ class IncrementalUpdateSystem:
         self._statistics["total_processing_time"] += processing_time
         self._statistics["average_processing_time"] = sum(self._processing_times) / len(self._processing_times)
 
-    async def handle_single_file_update(self, file_path: Path) -> Dict[str, Any]:
+    async def handle_single_file_update(self, file_path: Path) -> dict[str, Any]:
         """Handle an update for a single file."""
         return await self.process_file_changes([file_path])
 
@@ -839,7 +838,7 @@ class IncrementalUpdateSystem:
 
         return retried_count
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get comprehensive statistics."""
         stats = self._statistics.copy()
         stats.update({
@@ -850,15 +849,15 @@ class IncrementalUpdateSystem:
         })
         return stats
 
-    def get_active_conflicts(self) -> List[ConflictInfo]:
+    def get_active_conflicts(self) -> list[ConflictInfo]:
         """Get all active conflicts."""
         return self.conflict_resolver.get_active_conflicts()
 
-    def get_conflict_by_id(self, conflict_id: str) -> Optional[ConflictInfo]:
+    def get_conflict_by_id(self, conflict_id: str) -> ConflictInfo | None:
         """Get a specific conflict by ID."""
         return self.conflict_resolver.get_conflict_by_id(conflict_id)
 
-    async def cleanup_old_data(self, max_age_hours: int = 24) -> Dict[str, int]:
+    async def cleanup_old_data(self, max_age_hours: int = 24) -> dict[str, int]:
         """Clean up old data and return cleanup statistics."""
         cleanup_stats = {}
 
@@ -877,7 +876,7 @@ class IncrementalUpdateSystem:
 
         return cleanup_stats
 
-    def export_state(self) -> Dict[str, Any]:
+    def export_state(self) -> dict[str, Any]:
         """Export current state for persistence."""
         return {
             "checksums": self.change_detector.get_current_checksums(),
@@ -886,7 +885,7 @@ class IncrementalUpdateSystem:
             "export_time": time.time()
         }
 
-    def import_state(self, state_data: Dict[str, Any]) -> None:
+    def import_state(self, state_data: dict[str, Any]) -> None:
         """Import previously exported state."""
         if "checksums" in state_data:
             checksums = {}

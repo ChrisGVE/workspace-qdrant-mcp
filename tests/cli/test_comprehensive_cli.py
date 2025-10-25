@@ -1,7 +1,7 @@
 """Comprehensive CLI testing for all wqm command domains.
 
 This test suite systematically validates all wqm command domains and subcommands:
-- init: Shell completion initialization  
+- init: Shell completion initialization
 - memory: Memory rules and LLM behavior management (list|add|remove|search|config)
 - admin: System administration (status|health|config|reset)
 - ingest: Document processing (file|folder|watch)
@@ -21,13 +21,13 @@ Tests include:
 """
 
 import os
-import pytest
 import tempfile
-import yaml
 from pathlib import Path
-from typer.testing import CliRunner
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
+import pytest
+import yaml
+from typer.testing import CliRunner
 from wqm_cli.cli.main import app, cli
 
 
@@ -39,7 +39,7 @@ class TestCLIComprehensive:
         self.runner = CliRunner()
         self.temp_dir = tempfile.mkdtemp()
         self.config_path = Path(self.temp_dir) / "test_config.yaml"
-        
+
         # Create test configuration
         self.test_config = {
             "qdrant": {
@@ -54,7 +54,7 @@ class TestCLIComprehensive:
                 "data": self.temp_dir
             }
         }
-        
+
         with open(self.config_path, 'w') as f:
             yaml.dump(self.test_config, f)
 
@@ -73,7 +73,7 @@ class TestVersionAndBasicCommands(TestCLIComprehensive):
         assert result.exit_code == 0
         assert "0.2.0" in result.stdout.strip()
         assert "Python" not in result.stdout  # Should be clean version
-        
+
     def test_version_flag_long(self):
         """Test --version flag shows clean version number."""
         result = self.runner.invoke(app, ["--version"])
@@ -98,7 +98,7 @@ class TestVersionAndBasicCommands(TestCLIComprehensive):
     def test_debug_flag_enables_logging(self):
         """Test --debug flag enables debug logging."""
         with patch('wqm_cli.cli.main.configure_logging') as mock_logging:
-            result = self.runner.invoke(app, ["--debug", "admin", "status"])
+            self.runner.invoke(app, ["--debug", "admin", "status"])
             mock_logging.assert_called_with(level="DEBUG", json_format=True, console_output=True)
 
 
@@ -115,10 +115,10 @@ class TestHelpSystemConsistency(TestCLIComprehensive):
     def test_subcommand_help_consistency(self):
         """Test help consistency across all subcommands."""
         subcommands = [
-            "init", "memory", "admin", "ingest", "search", 
+            "init", "memory", "admin", "ingest", "search",
             "library", "service", "watch", "web", "observability", "status"
         ]
-        
+
         for cmd in subcommands:
             result = self.runner.invoke(app, [cmd, "--help"])
             assert result.exit_code == 0, f"Help failed for {cmd}"
@@ -129,7 +129,7 @@ class TestHelpSystemConsistency(TestCLIComprehensive):
         """Test help for nested commands."""
         nested_commands = [
             ["memory", "add", "--help"],
-            ["memory", "list", "--help"], 
+            ["memory", "list", "--help"],
             ["admin", "status", "--help"],
             ["admin", "health", "--help"],
             ["ingest", "file", "--help"],
@@ -140,7 +140,7 @@ class TestHelpSystemConsistency(TestCLIComprehensive):
             ["service", "status", "--help"],
             ["web", "start", "--help"]
         ]
-        
+
         for cmd_parts in nested_commands:
             result = self.runner.invoke(app, cmd_parts)
             assert result.exit_code == 0, f"Help failed for {' '.join(cmd_parts)}"
@@ -637,7 +637,7 @@ class TestConfigurationHierarchy(TestCLIComprehensive):
         # Create invalid YAML
         invalid_config = Path(self.temp_dir) / "invalid.yaml"
         invalid_config.write_text("invalid: yaml: content: [")
-        
+
         result = self.runner.invoke(app, ["--config", str(invalid_config), "admin", "status"])
         # Should handle invalid YAML gracefully
         assert result.exit_code != 0 or "Error" in result.stdout
@@ -648,7 +648,7 @@ class TestErrorHandlingAndExitCodes(TestCLIComprehensive):
 
     def test_connection_error_exit_code(self):
         """Test connection errors return proper exit code."""
-        with patch('wqm_cli.cli.commands.admin.get_daemon_client', 
+        with patch('wqm_cli.cli.commands.admin.get_daemon_client',
                    side_effect=ConnectionError("Connection failed")):
             result = self.runner.invoke(app, ["admin", "status"])
             assert result.exit_code == 1
@@ -666,7 +666,7 @@ class TestErrorHandlingAndExitCodes(TestCLIComprehensive):
 
     def test_keyboard_interrupt_handling(self):
         """Test keyboard interrupt is handled gracefully."""
-        with patch('wqm_cli.cli.main.handle_async_command', 
+        with patch('wqm_cli.cli.main.handle_async_command',
                    side_effect=KeyboardInterrupt):
             result = self.runner.invoke(app, ["admin", "status"])
             assert result.exit_code == 1
@@ -674,7 +674,7 @@ class TestErrorHandlingAndExitCodes(TestCLIComprehensive):
 
     def test_unexpected_exception_handling(self):
         """Test unexpected exceptions are handled gracefully."""
-        with patch('wqm_cli.cli.commands.admin.get_daemon_client', 
+        with patch('wqm_cli.cli.commands.admin.get_daemon_client',
                    side_effect=RuntimeError("Unexpected error")):
             result = self.runner.invoke(app, ["admin", "status"])
             assert result.exit_code == 1
@@ -688,7 +688,7 @@ class TestOutputFormatting(TestCLIComprehensive):
         """Test JSON output format where supported."""
         with patch('wqm_cli.cli.commands.admin.get_daemon_client') as mock_client:
             mock_client.return_value.get_status.return_value = {"status": "running"}
-            
+
             result = self.runner.invoke(app, ["admin", "status", "--json"])
             assert result.exit_code == 0
             # Should contain valid JSON output
@@ -706,7 +706,7 @@ class TestOutputFormatting(TestCLIComprehensive):
                 {"id": "1", "rule": "Test rule 1"},
                 {"id": "2", "rule": "Test rule 2"}
             ]
-            
+
             result = self.runner.invoke(app, ["memory", "list"])
             assert result.exit_code == 0
             # Should contain tabular data
@@ -728,7 +728,7 @@ class TestEdgeCasesAndBoundaryConditions(TestCLIComprehensive):
         long_query = "x" * 1000
         with patch('wqm_cli.cli.commands.search.get_daemon_client') as mock_client:
             mock_client.return_value.search.return_value = {"results": []}
-            
+
             result = self.runner.invoke(app, ["search", "project", long_query])
             assert result.exit_code == 0
             mock_client.return_value.search.assert_called_once()
@@ -737,10 +737,10 @@ class TestEdgeCasesAndBoundaryConditions(TestCLIComprehensive):
         """Test special characters in file paths."""
         special_dir = Path(self.temp_dir) / "special-dir with spaces & symbols!"
         special_dir.mkdir(exist_ok=True)
-        
+
         with patch('wqm_cli.cli.commands.ingest.get_daemon_client') as mock_client:
             mock_client.return_value.ingest_folder.return_value = {"status": "processed"}
-            
+
             result = self.runner.invoke(app, ["ingest", "folder", str(special_dir)])
             assert result.exit_code == 0
 
@@ -749,7 +749,7 @@ class TestEdgeCasesAndBoundaryConditions(TestCLIComprehensive):
         unicode_query = "测试 query with émojis 🚀"
         with patch('wqm_cli.cli.commands.search.get_daemon_client') as mock_client:
             mock_client.return_value.search.return_value = {"results": []}
-            
+
             result = self.runner.invoke(app, ["search", "project", unicode_query])
             assert result.exit_code == 0
 
@@ -757,7 +757,7 @@ class TestEdgeCasesAndBoundaryConditions(TestCLIComprehensive):
         """Test empty configuration file."""
         empty_config = Path(self.temp_dir) / "empty.yaml"
         empty_config.write_text("")
-        
+
         result = self.runner.invoke(app, ["--config", str(empty_config), "admin", "status"])
         # Should handle empty config gracefully
         assert result.exit_code == 0 or "Error" not in result.stdout
@@ -766,20 +766,20 @@ class TestEdgeCasesAndBoundaryConditions(TestCLIComprehensive):
         """Test CLI behavior under concurrent execution."""
         import threading
         import time
-        
+
         results = []
-        
+
         def run_command():
             result = self.runner.invoke(app, ["--version"])
             results.append(result.exit_code)
-        
+
         # Run multiple commands concurrently
         threads = [threading.Thread(target=run_command) for _ in range(5)]
         for t in threads:
             t.start()
         for t in threads:
             t.join()
-        
+
         # All should succeed
         assert all(code == 0 for code in results)
 

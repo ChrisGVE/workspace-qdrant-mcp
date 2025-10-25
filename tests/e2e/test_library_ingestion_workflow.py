@@ -32,26 +32,25 @@ Performance Targets:
 import asyncio
 import json
 import os
-import pytest
 import shutil
 import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from common.utils.project_detection import (
-    ProjectDetector,
-    DaemonIdentifier,
-    calculate_tenant_id,
-)
+import pytest
 from common.core.sqlite_state_manager import (
+    ProjectRecord,
     SQLiteStateManager,
     WatchFolderConfig,
-    ProjectRecord,
 )
-
+from common.utils.project_detection import (
+    DaemonIdentifier,
+    ProjectDetector,
+    calculate_tenant_id,
+)
 
 # ============================================================================
 # Fixtures
@@ -448,12 +447,8 @@ class TestLibraryIngestionWorkflow:
         - Version-aware search
         - Migration path between versions
         """
-        lib_docs = library_documentation_set
 
         # Simulate versioned collections
-        v1_collection = "_mylib_v1_0"
-        v2_collection = "_mylib_v2_0"
-        default_collection = "_mylib"  # Points to latest (v2.0)
 
         # Version metadata
         v1_metadata = {
@@ -640,7 +635,7 @@ class TestLibraryIngestionPerformance:
         tasks = []
 
         for i in range(0, len(files), batch_size):
-            batch = files[i:i + batch_size]
+            files[i:i + batch_size]
             # Simulate batch processing
             task = asyncio.create_task(asyncio.sleep(0.05))
             tasks.append(task)
@@ -663,8 +658,9 @@ class TestLibraryIngestionPerformance:
 
         Target: < 500MB for 10K documents
         """
-        import psutil
         import os
+
+        import psutil
 
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss / 1024 / 1024  # MB

@@ -8,10 +8,11 @@ including lifecycle management, health checks, and cleanup.
 import asyncio
 import time
 from contextlib import asynccontextmanager
-from typing import Optional, Dict, Any
+from typing import Any, Optional
+
+import httpx
 from testcontainers.core.container import DockerContainer
 from testcontainers.core.waiting_utils import wait_for_logs
-import httpx
 
 
 class IsolatedQdrantContainer:
@@ -39,8 +40,8 @@ class IsolatedQdrantContainer:
         self.image = image
         self.http_port = http_port
         self.grpc_port = grpc_port
-        self.container: Optional[DockerContainer] = None
-        self._http_url: Optional[str] = None
+        self.container: DockerContainer | None = None
+        self._http_url: str | None = None
 
     def start(self) -> "IsolatedQdrantContainer":
         """
@@ -195,7 +196,7 @@ class QdrantContainerManager:
     """
 
     def __init__(self):
-        self._container: Optional[IsolatedQdrantContainer] = None
+        self._container: IsolatedQdrantContainer | None = None
         self._reference_count = 0
 
     async def get_or_create(

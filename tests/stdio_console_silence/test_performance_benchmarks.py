@@ -13,15 +13,15 @@ SUCCESS CRITERIA:
 
 import asyncio
 import json
-import memory_profiler
-import psutil
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Optional
 from unittest.mock import patch
 
+import memory_profiler
+import psutil
 import pytest
 
 # Test markers
@@ -81,7 +81,7 @@ class PerformanceMetrics:
         self.tool_latencies.append(latency)
         return result, latency
 
-    def get_summary(self) -> Dict[str, float]:
+    def get_summary(self) -> dict[str, float]:
         """Get performance summary statistics."""
         return {
             "avg_startup_time_ms": sum(self.startup_times) / len(self.startup_times) if self.startup_times else 0,
@@ -112,7 +112,9 @@ class TestPerformanceBenchmarks:
                 mock_app = mock_fastmcp.return_value
                 mock_app.run.side_effect = KeyboardInterrupt("Benchmark stop")
 
-                from workspace_qdrant_mcp.stdio_server import run_lightweight_stdio_server
+                from workspace_qdrant_mcp.stdio_server import (
+                    run_lightweight_stdio_server,
+                )
 
                 try:
                     run_lightweight_stdio_server()
@@ -120,7 +122,7 @@ class TestPerformanceBenchmarks:
                     pass
 
         # Benchmark startup time
-        result = benchmark.pedantic(startup_stdio_server, iterations=10, rounds=3)
+        benchmark.pedantic(startup_stdio_server, iterations=10, rounds=3)
 
         # Verify startup overhead is minimal
         stats = benchmark.stats
@@ -147,7 +149,7 @@ class TestPerformanceBenchmarks:
             importlib.reload(sys.modules['workspace_qdrant_mcp.server'])
 
         memory_without_stdio = process.memory_info().rss / 1024 / 1024
-        baseline_overhead = memory_without_stdio - baseline_memory
+        memory_without_stdio - baseline_memory
 
         # Now measure with stdio mode
         monkeypatch.setenv("WQM_STDIO_MODE", "true")
@@ -181,7 +183,7 @@ class TestPerformanceBenchmarks:
             return asyncio.run(mock_tool_function())
 
         # Benchmark the tool execution
-        result = benchmark.pedantic(run_tool, iterations=50, rounds=5)
+        benchmark.pedantic(run_tool, iterations=50, rounds=5)
 
         stats = benchmark.stats
         avg_latency_ms = stats.mean * 1000
@@ -352,8 +354,9 @@ except Exception:
         monkeypatch.setenv("WQM_STDIO_MODE", "true")
 
         # Import server to set up logging suppression
-        import workspace_qdrant_mcp.server
         import logging
+
+        import workspace_qdrant_mcp.server
 
         # Create loggers for testing
         loggers = [
@@ -370,7 +373,7 @@ except Exception:
                     logger.log(level, f"Test message at level {level}")
 
         # Benchmark logging operations
-        result = benchmark.pedantic(generate_log_messages, iterations=100, rounds=5)
+        benchmark.pedantic(generate_log_messages, iterations=100, rounds=5)
 
         stats = benchmark.stats
         avg_time_ms = stats.mean * 1000
@@ -402,7 +405,7 @@ except Exception:
 
             # Generate warnings
             import warnings
-            warnings.warn(f"Warning {iteration}", UserWarning)
+            warnings.warn(f"Warning {iteration}", UserWarning, stacklevel=2)
 
             # Check memory periodically
             if iteration % 20 == 0:
@@ -430,7 +433,7 @@ except Exception:
         cpu_measurements = []
 
         for _ in range(50):
-            cpu_before = process.cpu_percent()
+            process.cpu_percent()
 
             # Generate activity that triggers suppression
             for i in range(100):

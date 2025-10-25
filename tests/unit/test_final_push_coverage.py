@@ -4,10 +4,11 @@ Final push coverage test file.
 Targets specific modules to push coverage over 10%.
 """
 
-import pytest
-from unittest.mock import Mock, patch
-import tempfile
 import os
+import tempfile
+from unittest.mock import Mock, patch
+
+import pytest
 
 
 class TestFinalPushCoverage:
@@ -20,9 +21,7 @@ class TestFinalPushCoverage:
 
     def test_tools_imports_comprehensive(self):
         """Test comprehensive tools imports."""
-        from src.python.workspace_qdrant_mcp.tools import memory
-        from src.python.workspace_qdrant_mcp.tools import search
-        from src.python.workspace_qdrant_mcp.tools import documents
+        from src.python.workspace_qdrant_mcp.tools import documents, memory, search
         assert memory is not None
         assert search is not None
         assert documents is not None
@@ -179,7 +178,7 @@ class TestFinalPushCoverage:
 
                 # Try to access __all__ if it exists
                 if hasattr(imported, '__all__'):
-                    all_attrs = getattr(imported, '__all__')
+                    all_attrs = imported.__all__
                     assert isinstance(all_attrs, (list, tuple))
 
             except ImportError:

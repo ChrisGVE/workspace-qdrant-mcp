@@ -1,11 +1,12 @@
 """Unit tests for log sanitization utilities."""
 
 import pytest
+
 from src.python.common.utils.log_sanitizer import (
     LogSanitizer,
     SanitizationLevel,
-    sanitize,
     configure_default_sanitizer,
+    sanitize,
 )
 
 

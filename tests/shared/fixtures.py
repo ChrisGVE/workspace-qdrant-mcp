@@ -5,18 +5,19 @@ Provides reusable fixtures for testcontainers, test data,
 and common testing utilities.
 """
 
-import pytest
 import asyncio
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
 
+import pytest
+
+from tests.shared.test_data import SampleData, TestDataGenerator
 from tests.shared.testcontainers_utils import (
     IsolatedQdrantContainer,
+    cleanup_shared_containers,
     get_shared_qdrant_container,
     release_shared_qdrant_container,
-    cleanup_shared_containers,
 )
-from tests.shared.test_data import TestDataGenerator, SampleData
 
 
 @pytest.fixture(scope="session")
@@ -149,7 +150,7 @@ def test_embeddings(test_data_generator, embedding_dimensions):
 
 
 @pytest.fixture
-def performance_thresholds() -> Dict[str, float]:
+def performance_thresholds() -> dict[str, float]:
     """
     Provide performance threshold expectations.
 
@@ -166,7 +167,7 @@ def performance_thresholds() -> Dict[str, float]:
 
 
 @pytest.fixture
-def test_timeout_config() -> Dict[str, int]:
+def test_timeout_config() -> dict[str, int]:
     """
     Provide timeout configuration for tests.
 
@@ -237,7 +238,7 @@ def mock_git_repo(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def environment_vars(tmp_path: Path) -> Dict[str, str]:
+def environment_vars(tmp_path: Path) -> dict[str, str]:
     """
     Provide test environment variables.
 

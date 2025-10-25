@@ -7,11 +7,10 @@ and hierarchical rule application (global > project > local).
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import List, Dict, Set, Optional
 
 from loguru import logger
 
-from ..memory import MemoryRule, AuthorityLevel
+from ..memory import AuthorityLevel, MemoryRule
 
 
 class RuleHierarchy(Enum):
@@ -50,10 +49,10 @@ class FilteredRules:
         rules_by_hierarchy: Rules grouped by hierarchy level
     """
 
-    absolute_rules: List[MemoryRule]
-    default_rules: List[MemoryRule]
+    absolute_rules: list[MemoryRule]
+    default_rules: list[MemoryRule]
     conflicts_resolved: int
-    rules_by_hierarchy: Dict[RuleHierarchy, List[MemoryRule]]
+    rules_by_hierarchy: dict[RuleHierarchy, list[MemoryRule]]
 
 
 class AuthorityFilter:
@@ -78,9 +77,9 @@ class AuthorityFilter:
 
     def filter_by_authority(
         self,
-        rules: List[MemoryRule],
-        project_id: Optional[str] = None,
-        scope: Optional[List[str]] = None,
+        rules: list[MemoryRule],
+        project_id: str | None = None,
+        scope: list[str] | None = None,
     ) -> FilteredRules:
         """
         Filter rules by authority level with hierarchy support.
@@ -123,8 +122,8 @@ class AuthorityFilter:
         )
 
     def apply_authority_precedence(
-        self, rules: List[MemoryRule], project_id: Optional[str] = None
-    ) -> List[MemoryRule]:
+        self, rules: list[MemoryRule], project_id: str | None = None
+    ) -> list[MemoryRule]:
         """
         Apply authority precedence to resolve conflicts.
 
@@ -196,10 +195,10 @@ class AuthorityFilter:
 
     def get_effective_rules(
         self,
-        rules: List[MemoryRule],
-        project_id: Optional[str] = None,
-        scope: Optional[List[str]] = None,
-    ) -> List[MemoryRule]:
+        rules: list[MemoryRule],
+        project_id: str | None = None,
+        scope: list[str] | None = None,
+    ) -> list[MemoryRule]:
         """
         Get effective rules after applying authority and hierarchy filtering.
 
@@ -230,10 +229,10 @@ class AuthorityFilter:
 
     def _group_by_hierarchy(
         self,
-        rules: List[MemoryRule],
-        project_id: Optional[str],
-        scope: Optional[List[str]],
-    ) -> Dict[RuleHierarchy, List[MemoryRule]]:
+        rules: list[MemoryRule],
+        project_id: str | None,
+        scope: list[str] | None,
+    ) -> dict[RuleHierarchy, list[MemoryRule]]:
         """
         Group rules by hierarchy level.
 
@@ -260,8 +259,8 @@ class AuthorityFilter:
     def _determine_hierarchy(
         self,
         rule: MemoryRule,
-        project_id: Optional[str],
-        scope: Optional[List[str]],
+        project_id: str | None,
+        scope: list[str] | None,
     ) -> RuleHierarchy:
         """
         Determine hierarchy level for a rule.
@@ -289,7 +288,7 @@ class AuthorityFilter:
         return RuleHierarchy.GLOBAL
 
     def _calculate_precedence(
-        self, rule: MemoryRule, project_id: Optional[str]
+        self, rule: MemoryRule, project_id: str | None
     ) -> AuthorityPrecedence:
         """
         Calculate precedence for a rule.
@@ -340,8 +339,8 @@ class AuthorityFilter:
         return (authority_level, hierarchy_level, priority, recency)
 
     def _remove_conflicts(
-        self, sorted_rules: List[MemoryRule], project_id: Optional[str]
-    ) -> List[MemoryRule]:
+        self, sorted_rules: list[MemoryRule], project_id: str | None
+    ) -> list[MemoryRule]:
         """
         Remove conflicting rules, keeping highest precedence.
 
@@ -359,7 +358,7 @@ class AuthorityFilter:
             return []
 
         # Track which scopes/contexts are covered
-        covered_contexts: Set[str] = set()
+        covered_contexts: set[str] = set()
         resolved_rules = []
 
         for rule in sorted_rules:
@@ -380,7 +379,7 @@ class AuthorityFilter:
 
         return resolved_rules
 
-    def _get_context_key(self, rule: MemoryRule, project_id: Optional[str]) -> str:
+    def _get_context_key(self, rule: MemoryRule, project_id: str | None) -> str:
         """
         Get context key for conflict detection.
 
@@ -400,10 +399,10 @@ class AuthorityFilter:
 
     def _resolve_authority_conflicts(
         self,
-        absolute_rules: List[MemoryRule],
-        default_rules: List[MemoryRule],
-        project_id: Optional[str],
-        scope: Optional[List[str]],
+        absolute_rules: list[MemoryRule],
+        default_rules: list[MemoryRule],
+        project_id: str | None,
+        scope: list[str] | None,
     ) -> int:
         """
         Resolve conflicts between absolute and default rules.

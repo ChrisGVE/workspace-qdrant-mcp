@@ -46,19 +46,14 @@ Example:
 """
 
 import asyncio
-import hashlib
-import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
-from urllib.parse import urljoin, urlparse, urlunparse
+from typing import Any
+from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
-import aiofiles
 import aiohttp
-from bs4 import BeautifulSoup
 
 
 @dataclass
@@ -67,15 +62,15 @@ class CrawlResult:
 
     url: str
     status_code: int
-    content: Optional[str] = None
-    headers: Optional[Dict[str, str]] = None
-    content_type: Optional[str] = None
-    content_length: Optional[int] = None
-    crawl_time: Optional[datetime] = None
-    processing_time: Optional[float] = None
-    error: Optional[str] = None
-    redirect_url: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    content: str | None = None
+    headers: dict[str, str] | None = None
+    content_type: str | None = None
+    content_length: int | None = None
+    crawl_time: datetime | None = None
+    processing_time: float | None = None
+    error: str | None = None
+    redirect_url: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -94,7 +89,7 @@ class CrawlerConfig:
 
     # Content filtering
     max_content_size: int = 10 * 1024 * 1024  # 10MB
-    allowed_content_types: Set[str] = field(default_factory=lambda: {
+    allowed_content_types: set[str] = field(default_factory=lambda: {
         'text/html', 'text/plain', 'text/xml',
         'application/xml', 'application/json',
         'application/pdf'
@@ -111,18 +106,18 @@ class CrawlerConfig:
     retry_backoff: float = 2.0
 
     # Headers and authentication
-    custom_headers: Dict[str, str] = field(default_factory=dict)
-    cookies: Dict[str, str] = field(default_factory=dict)
+    custom_headers: dict[str, str] = field(default_factory=dict)
+    cookies: dict[str, str] = field(default_factory=dict)
 
 
 class RobotsCache:
     """Cache for robots.txt files with TTL support."""
 
     def __init__(self, ttl: int = 3600):
-        self._cache: Dict[str, Tuple[RobotFileParser, datetime]] = {}
+        self._cache: dict[str, tuple[RobotFileParser, datetime]] = {}
         self._ttl = ttl
 
-    def get_robots(self, domain: str) -> Optional[RobotFileParser]:
+    def get_robots(self, domain: str) -> RobotFileParser | None:
         """Get cached robots.txt parser for domain."""
         if domain not in self._cache:
             return None
@@ -157,10 +152,10 @@ class WebCrawler:
     website policies while providing comprehensive crawling capabilities.
     """
 
-    def __init__(self, config: Optional[CrawlerConfig] = None):
+    def __init__(self, config: CrawlerConfig | None = None):
         """Initialize web crawler with configuration."""
         self.config = config or CrawlerConfig()
-        self._session: Optional[aiohttp.ClientSession] = None
+        self._session: aiohttp.ClientSession | None = None
         self._rate_limiter = asyncio.Semaphore(self.config.max_concurrent)
         self._last_request_time = 0.0
         self._robots_cache = RobotsCache(self.config.robots_cache_ttl)
@@ -259,7 +254,7 @@ class WebCrawler:
 
         return robots_parser.can_fetch(self.config.user_agent, url)
 
-    def _is_valid_url(self, url: str, base_domain: Optional[str] = None) -> bool:
+    def _is_valid_url(self, url: str, base_domain: str | None = None) -> bool:
         """Validate URL format and domain restrictions."""
         try:
             parsed = urlparse(url)
@@ -276,8 +271,8 @@ class WebCrawler:
         except Exception:
             return False
 
-    def _should_process_content(self, content_type: Optional[str],
-                              content_length: Optional[int]) -> bool:
+    def _should_process_content(self, content_type: str | None,
+                              content_length: int | None) -> bool:
         """Check if content should be processed based on type and size."""
         if content_type:
             # Extract main content type (ignore charset, etc.)
@@ -396,7 +391,7 @@ class WebCrawler:
 
         return await self._make_request(url)
 
-    async def crawl_urls(self, urls: List[str]) -> List[CrawlResult]:
+    async def crawl_urls(self, urls: list[str]) -> list[CrawlResult]:
         """
         Crawl multiple URLs concurrently with rate limiting.
 
@@ -409,15 +404,14 @@ class WebCrawler:
         tasks = [self.crawl_url(url) for url in urls]
         return await asyncio.gather(*tasks, return_exceptions=False)
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get crawler statistics and performance metrics."""
         total_requests = self._stats['requests_made']
         if total_requests > 0:
             success_rate = self._stats['successful_requests'] / total_requests
-            avg_response_time = self._stats.get('average_response_time', 0.0)
+            self._stats.get('average_response_time', 0.0)
         else:
             success_rate = 0.0
-            avg_response_time = 0.0
 
         return {
             **self._stats,
@@ -443,7 +437,7 @@ class WebCrawler:
             'average_response_time': 0.0
         }
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Perform health check of crawler components."""
         health = {
             'session_active': self._session is not None,

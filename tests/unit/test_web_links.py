@@ -8,7 +8,6 @@ import time
 from unittest.mock import patch
 
 import pytest
-
 from workspace_qdrant_mcp.web.links import (
     CrawlSession,
     DiscoveredLink,

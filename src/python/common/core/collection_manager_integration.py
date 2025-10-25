@@ -38,30 +38,16 @@ Example Usage:
     ```
 """
 
-import asyncio
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Any
-from loguru import logger
+from typing import Any
 
+from loguru import logger
 from qdrant_client import QdrantClient
 from qdrant_client.http.models import CollectionInfo
 
-from .collision_detection import (
-    CollisionDetector,
-    CollisionResult,
-    CollisionSeverity,
-    CollisionCategory
-)
-
-from .collection_naming_validation import (
-    CollectionNamingValidator,
-    NamingConfiguration
-)
-
-from .metadata_schema import (
-    CollectionCategory,
-    MultiTenantMetadataSchema
-)
+from .collection_naming_validation import CollectionNamingValidator, NamingConfiguration
+from .collision_detection import CollisionDetector, CollisionResult, CollisionSeverity
+from .metadata_schema import CollectionCategory, MultiTenantMetadataSchema
 
 
 class CollectionCollisionError(Exception):
@@ -86,10 +72,10 @@ class CollectionCreationResult:
     success: bool
     collection_name: str
     category: CollectionCategory
-    metadata: Optional[MultiTenantMetadataSchema] = None
-    collision_result: Optional[CollisionResult] = None
+    metadata: MultiTenantMetadataSchema | None = None
+    collision_result: CollisionResult | None = None
     creation_time_ms: float = 0.0
-    warnings: List[str] = None
+    warnings: list[str] = None
 
     def __post_init__(self):
         if self.warnings is None:
@@ -106,7 +92,7 @@ class CollisionAwareCollectionManager:
     """
 
     def __init__(self, qdrant_client: QdrantClient,
-                 naming_config: Optional[NamingConfiguration] = None):
+                 naming_config: NamingConfiguration | None = None):
         """
         Initialize collision-aware collection manager.
 
@@ -152,7 +138,7 @@ class CollisionAwareCollectionManager:
 
     async def create_collection_safely(self, collection_name: str,
                                      category: CollectionCategory,
-                                     project_context: Optional[str] = None,
+                                     project_context: str | None = None,
                                      auto_resolve_conflicts: bool = False) -> CollectionCreationResult:
         """
         Create a collection with comprehensive collision detection.
@@ -214,7 +200,7 @@ class CollisionAwareCollectionManager:
                 # Create the collection in Qdrant
                 # Note: This is a simplified example - real implementation would
                 # include vector configuration, index parameters, etc.
-                collection_info = self._create_qdrant_collection(collection_name, category)
+                self._create_qdrant_collection(collection_name, category)
 
                 # Register successful creation
                 await self.collision_detector.register_collection_creation(
@@ -262,7 +248,7 @@ class CollisionAwareCollectionManager:
 
     async def suggest_alternative_names(self, collection_name: str,
                                       category: CollectionCategory,
-                                      count: int = 5) -> List[str]:
+                                      count: int = 5) -> list[str]:
         """
         Generate alternative collection names for a given name.
 
@@ -289,7 +275,7 @@ class CollisionAwareCollectionManager:
         return suggestions
 
     async def validate_collection_name(self, collection_name: str,
-                                     category: Optional[CollectionCategory] = None) -> CollisionResult:
+                                     category: CollectionCategory | None = None) -> CollisionResult:
         """
         Validate a collection name without creating it.
 
@@ -307,7 +293,7 @@ class CollisionAwareCollectionManager:
             collection_name, category
         )
 
-    async def list_collections_by_category(self, category: CollectionCategory) -> List[str]:
+    async def list_collections_by_category(self, category: CollectionCategory) -> list[str]:
         """
         List all collections in a specific category.
 
@@ -323,7 +309,7 @@ class CollisionAwareCollectionManager:
         category_collections = self.collision_detector.registry.get_by_category(category)
         return list(category_collections)
 
-    async def get_collection_statistics(self) -> Dict[str, Any]:
+    async def get_collection_statistics(self) -> dict[str, Any]:
         """Get comprehensive collection management statistics."""
         if not self._initialized:
             await self.initialize()
@@ -387,7 +373,7 @@ class CollisionAwareCollectionManager:
         """
         # Example simplified collection creation
         # In real implementation, this would use proper Qdrant collection configuration
-        from qdrant_client.http.models import VectorParams, Distance
+        from qdrant_client.http.models import Distance, VectorParams
 
         self.qdrant_client.create_collection(
             collection_name=collection_name,
@@ -438,7 +424,7 @@ class CollisionAwareCollectionManager:
 async def create_collection_with_collision_detection(qdrant_client: QdrantClient,
                                                    collection_name: str,
                                                    category: CollectionCategory,
-                                                   naming_config: Optional[NamingConfiguration] = None) -> CollectionCreationResult:
+                                                   naming_config: NamingConfiguration | None = None) -> CollectionCreationResult:
     """
     Convenience function to create a collection with collision detection.
 
@@ -461,7 +447,7 @@ async def create_collection_with_collision_detection(qdrant_client: QdrantClient
 
 async def validate_collection_name_with_collision_detection(qdrant_client: QdrantClient,
                                                           collection_name: str,
-                                                          category: Optional[CollectionCategory] = None) -> CollisionResult:
+                                                          category: CollectionCategory | None = None) -> CollisionResult:
     """
     Convenience function to validate a collection name.
 

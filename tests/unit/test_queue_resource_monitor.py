@@ -8,7 +8,7 @@ import asyncio
 import os
 import sqlite3
 import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
@@ -16,12 +16,12 @@ import pytest
 
 # Import the module to test
 from common.core.queue_resource_monitor import (
+    PSUTIL_AVAILABLE,
+    QueueResourceMonitor,
+    ResourceBottleneck,
+    ResourceCorrelation,
     ResourceMetrics,
     ResourceSnapshot,
-    ResourceCorrelation,
-    ResourceBottleneck,
-    QueueResourceMonitor,
-    PSUTIL_AVAILABLE
 )
 from common.core.queue_statistics import QueueStatistics
 
@@ -380,7 +380,7 @@ class TestQueueResourceMonitor:
         monitor.stats_collector.get_current_statistics = AsyncMock(return_value=mock_stats)
 
         # Take 5 snapshots
-        for i in range(5):
+        for _i in range(5):
             await monitor.take_snapshot()
 
         # Should only retain last 3

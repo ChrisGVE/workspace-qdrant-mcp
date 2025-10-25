@@ -5,12 +5,13 @@ This test focuses on importing key modules and basic instantiation to get
 actual coverage measurements without timeouts.
 """
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
 import asyncio
-import tempfile
 import os
+import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 
 class TestSimpleCoverage:

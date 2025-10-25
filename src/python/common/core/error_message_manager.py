@@ -49,13 +49,12 @@ import json
 import sqlite3
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
 from .error_categorization import ErrorCategorizer, ErrorCategory, ErrorSeverity
-from .queue_connection import QueueConnectionPool, ConnectionConfig
+from .queue_connection import ConnectionConfig, QueueConnectionPool
 
 
 @dataclass
@@ -80,10 +79,10 @@ class ErrorMessage:
     severity: ErrorSeverity
     category: ErrorCategory
     message: str
-    context: Optional[Dict[str, Any]] = None
+    context: dict[str, Any] | None = None
     acknowledged: bool = False
-    acknowledged_at: Optional[datetime] = None
-    acknowledged_by: Optional[str] = None
+    acknowledged_at: datetime | None = None
+    acknowledged_by: str | None = None
     retry_count: int = 0
 
     @classmethod
@@ -125,7 +124,7 @@ class ErrorMessage:
             retry_count=row["retry_count"]
         )
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert to dictionary representation.
 
@@ -159,12 +158,12 @@ class ErrorStatistics:
         last_error_at: Timestamp of most recent error
     """
     total_count: int
-    by_severity: Dict[str, int] = field(default_factory=dict)
-    by_category: Dict[str, int] = field(default_factory=dict)
+    by_severity: dict[str, int] = field(default_factory=dict)
+    by_category: dict[str, int] = field(default_factory=dict)
     unacknowledged_count: int = 0
-    last_error_at: Optional[datetime] = None
+    last_error_at: datetime | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert to dictionary representation.
 
@@ -190,8 +189,8 @@ class ErrorMessageManager:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        connection_config: Optional[ConnectionConfig] = None
+        db_path: str | None = None,
+        connection_config: ConnectionConfig | None = None
     ):
         """
         Initialize error message manager.
@@ -265,11 +264,11 @@ class ErrorMessageManager:
 
     async def record_error(
         self,
-        exception: Optional[Exception] = None,
-        context: Optional[Dict[str, Any]] = None,
-        severity_override: Optional[ErrorSeverity] = None,
-        category_override: Optional[ErrorCategory] = None,
-        message_override: Optional[str] = None
+        exception: Exception | None = None,
+        context: dict[str, Any] | None = None,
+        severity_override: ErrorSeverity | None = None,
+        category_override: ErrorCategory | None = None,
+        message_override: str | None = None
     ) -> int:
         """
         Record an error message with automatic categorization.
@@ -338,7 +337,7 @@ class ErrorMessageManager:
 
             return error_id
 
-    async def get_error_by_id(self, error_id: int) -> Optional[ErrorMessage]:
+    async def get_error_by_id(self, error_id: int) -> ErrorMessage | None:
         """
         Retrieve a single error message by ID.
 
@@ -367,14 +366,14 @@ class ErrorMessageManager:
 
     async def get_errors(
         self,
-        severity: Optional[str] = None,
-        category: Optional[str] = None,
-        acknowledged: Optional[bool] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        severity: str | None = None,
+        category: str | None = None,
+        acknowledged: bool | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 100,
         offset: int = 0
-    ) -> List[ErrorMessage]:
+    ) -> list[ErrorMessage]:
         """
         Retrieve error messages with filtering.
 
@@ -488,8 +487,8 @@ class ErrorMessageManager:
 
     async def get_error_stats(
         self,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None
+        start_date: datetime | None = None,
+        end_date: datetime | None = None
     ) -> ErrorStatistics:
         """
         Get aggregated error statistics.

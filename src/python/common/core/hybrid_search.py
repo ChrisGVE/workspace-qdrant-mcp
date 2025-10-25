@@ -58,41 +58,27 @@ Task 233.1: Enhanced for multi-tenant metadata-based filtering with project isol
 
 # Task 215: Replace direct logging import with unified logging system
 # import logging  # MIGRATED to unified system
-from collections import defaultdict
-from typing import Optional, Union, Dict, List
 import time
-
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
+from collections import defaultdict
+from dataclasses import dataclass
 
 # Task 222: Import loguru-based logging system
 from loguru import logger
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
 
-from .sparse_vectors import create_named_sparse_vector
-from .multitenant_collections import (
-    ProjectIsolationManager,
-    WorkspaceCollectionRegistry,
-    ProjectMetadata
-)
-from .metadata_optimization import (
-    FilterOptimizer,
-    MetadataIndexManager,
-    QueryOptimizer,
-    PerformanceTracker
-)
-from .performance_monitoring import (
-    MetadataFilteringPerformanceMonitor,
-    PerformanceBaseline
-)
 # Task 249.3: Import new comprehensive metadata filtering system
 from .metadata_filtering import (
     MetadataFilterManager,
-    FilterCriteria,
-    FilterStrategy,
-    FilterPerformanceLevel
 )
-from collections import defaultdict
-from dataclasses import dataclass
+from .metadata_optimization import (
+    FilterOptimizer,
+    QueryOptimizer,
+)
+from .performance_monitoring import (
+    MetadataFilteringPerformanceMonitor,
+)
+from .sparse_vectors import create_named_sparse_vector
 
 # Task 215: Use unified logging system instead of logging.getLogger(__name__)
 # logger imported from loguru
@@ -153,9 +139,9 @@ class TenantAwareResultDeduplicator:
 
     def deduplicate_results(
         self,
-        results: List[TenantAwareResult],
+        results: list[TenantAwareResult],
         aggregation_method: str = "max_score"
-    ) -> List[TenantAwareResult]:
+    ) -> list[TenantAwareResult]:
         """
         Deduplicate results while preserving tenant isolation.
 
@@ -226,7 +212,7 @@ class TenantAwareResultDeduplicator:
 
     def _aggregate_duplicate_results(
         self,
-        results: List[TenantAwareResult],
+        results: list[TenantAwareResult],
         aggregation_method: str
     ) -> TenantAwareResult:
         """
@@ -309,11 +295,11 @@ class MultiTenantResultAggregator:
 
     def aggregate_multi_collection_results(
         self,
-        collection_results: Dict[str, List],
+        collection_results: dict[str, list],
         score_normalization: str = "min_max",
-        aggregation_method: Optional[str] = None,
-        deduplication_enabled: Optional[bool] = None
-    ) -> Dict[str, any]:
+        aggregation_method: str | None = None,
+        deduplication_enabled: bool | None = None
+    ) -> dict[str, any]:
         """
         Aggregate results from multiple collections with score normalization.
 
@@ -403,9 +389,9 @@ class MultiTenantResultAggregator:
 
     def _normalize_cross_collection_scores(
         self,
-        results: List[TenantAwareResult],
+        results: list[TenantAwareResult],
         method: str = "min_max"
-    ) -> List[TenantAwareResult]:
+    ) -> list[TenantAwareResult]:
         """
         Normalize scores across collections to enable fair comparison.
 
@@ -432,7 +418,7 @@ class MultiTenantResultAggregator:
 
         normalized_results = []
 
-        for collection, col_results in collection_groups.items():
+        for _collection, col_results in collection_groups.items():
             scores = [r.score for r in col_results]
 
             if method == "min_max":
@@ -473,7 +459,7 @@ class MultiTenantResultAggregator:
 
         return normalized_results
 
-    def _convert_to_api_format(self, results: List[TenantAwareResult]) -> List[Dict]:
+    def _convert_to_api_format(self, results: list[TenantAwareResult]) -> list[dict]:
         """
         Convert TenantAwareResult objects to API-friendly dictionary format.
 
@@ -529,7 +515,7 @@ class RRFFusionRanker:
     Task 215: Migrated to use unified loguru-based logging system.
     """
 
-    def __init__(self, k: int = 60, boost_weights: Optional[dict] = None) -> None:
+    def __init__(self, k: int = 60, boost_weights: dict | None = None) -> None:
         """Initialize RRF ranker with parameters."""
         self.k = k
         self.boost_weights = boost_weights or {}
@@ -539,7 +525,7 @@ class RRFFusionRanker:
         self,
         dense_results: list,
         sparse_results: list,
-        weights: Optional[dict] = None,
+        weights: dict | None = None,
     ) -> list:
         """
         Fuse dense and sparse search results using RRF algorithm.
@@ -636,7 +622,7 @@ class RRFFusionRanker:
         self,
         dense_results: list,
         sparse_results: list,
-        weights: Optional[dict] = None,
+        weights: dict | None = None,
     ) -> dict:
         """
         Generate detailed explanation of RRF fusion process.
@@ -943,13 +929,13 @@ class HybridSearchEngine:
         collection_name: str,
         query_embeddings: dict,
         limit: int = 10,
-        filter_conditions: Optional[models.Filter] = None,
+        filter_conditions: models.Filter | None = None,
         fusion_method: str = "rrf",
         dense_weight: float = 1.0,
         sparse_weight: float = 1.0,
-        search_params: Optional[models.SearchParams] = None,
-        with_payload: Union[bool, list, models.PayloadSelector] = True,
-        with_vectors: Union[bool, list] = False,
+        search_params: models.SearchParams | None = None,
+        with_payload: bool | list | models.PayloadSelector = True,
+        with_vectors: bool | list = False,
     ) -> dict:
         """
         Perform hybrid search combining dense and sparse vectors with RRF fusion.
@@ -1152,9 +1138,9 @@ class HybridSearchEngine:
 
     def _build_enhanced_filter(
         self,
-        base_filter: Optional[models.Filter],
-        additional_conditions: Optional[List] = None
-    ) -> Optional[models.Filter]:
+        base_filter: models.Filter | None,
+        additional_conditions: list | None = None
+    ) -> models.Filter | None:
         """
         Build enhanced filter with optimizations and additional conditions.
 
@@ -1193,8 +1179,8 @@ class HybridSearchEngine:
     def create_project_isolation_filter(
         self,
         project_id: str,
-        workspace_type: Optional[str] = None,
-        additional_filters: Optional[models.Filter] = None
+        workspace_type: str | None = None,
+        additional_filters: models.Filter | None = None
     ) -> models.Filter:
         """
         Create filter for project isolation in multi-tenant scenarios.
@@ -1234,7 +1220,7 @@ class HybridSearchEngine:
 
         return isolation_filter
 
-    def get_filter_performance_stats(self) -> Dict[str, dict]:
+    def get_filter_performance_stats(self) -> dict[str, dict]:
         """
         Get performance statistics for filter operations.
 
@@ -1250,7 +1236,7 @@ class HybridSearchEngine:
         self,
         project_id: str,
         query_embeddings: dict,
-        workspace_type: Optional[str] = None,
+        workspace_type: str | None = None,
         limit: int = 10,
         fusion_method: str = "rrf"
     ) -> dict:
@@ -1286,7 +1272,7 @@ class HybridSearchEngine:
         self,
         tenant_id: str,
         query_embeddings: dict,
-        collections: Optional[List[str]] = None,
+        collections: list[str] | None = None,
         limit: int = 10,
         fusion_method: str = "rrf"
     ) -> dict:
@@ -1347,17 +1333,17 @@ class HybridSearchEngine:
 
     async def multi_collection_hybrid_search(
         self,
-        collection_names: List[str],
+        collection_names: list[str],
         query_embeddings: dict,
         limit: int = 10,
         fusion_method: str = "rrf",
         dense_weight: float = 1.0,
         sparse_weight: float = 1.0,
-        filter_conditions: Optional[models.Filter] = None,
+        filter_conditions: models.Filter | None = None,
         enable_deduplication: bool = True,
         score_normalization: str = "min_max",
         aggregation_method: str = "max_score",
-        score_threshold: Optional[float] = None,
+        score_threshold: float | None = None,
     ) -> dict:
         """
         Perform hybrid search across multiple collections with result aggregation.
@@ -1468,9 +1454,9 @@ class HybridSearchEngine:
 
     async def _basic_multi_collection_search(
         self,
-        collection_results: Dict[str, List],
+        collection_results: dict[str, list],
         limit: int,
-        score_threshold: Optional[float] = None
+        score_threshold: float | None = None
     ) -> dict:
         """
         Basic multi-collection search without advanced aggregation.
@@ -1560,7 +1546,7 @@ class HybridSearchEngine:
             aggregation_method=default_aggregation_method
         )
 
-    def get_result_aggregation_stats(self) -> Dict:
+    def get_result_aggregation_stats(self) -> dict:
         """
         Get statistics about result aggregation.
 
@@ -1577,7 +1563,7 @@ class HybridSearchEngine:
             "default_aggregation_method": self.result_aggregator.default_aggregation_method
         }
 
-    async def ensure_collection_optimized(self, collection_name: str, force_recreate: bool = False) -> Dict:
+    async def ensure_collection_optimized(self, collection_name: str, force_recreate: bool = False) -> dict:
         """
         Ensure collection has optimal configuration for hybrid search.
 
@@ -1645,7 +1631,7 @@ class HybridSearchEngine:
                 "message": str(e)
             }
 
-    def get_optimization_performance(self) -> Dict:
+    def get_optimization_performance(self) -> dict:
         """
         Get performance metrics for query optimizations.
 
@@ -1671,7 +1657,7 @@ class HybridSearchEngine:
 
         return stats
 
-    def clear_optimization_caches(self) -> Dict:
+    def clear_optimization_caches(self) -> dict:
         """
         Clear all optimization caches.
 
@@ -1694,7 +1680,7 @@ class HybridSearchEngine:
             "caches_cleared": cleared
         }
 
-    def get_performance_alerts(self, hours: int = 24) -> List[Dict]:
+    def get_performance_alerts(self, hours: int = 24) -> list[dict]:
         """
         Get performance alerts from the last N hours.
 
@@ -1711,7 +1697,7 @@ class HybridSearchEngine:
         # Placeholder implementation
         return []
 
-    def get_performance_monitoring_status(self) -> Dict:
+    def get_performance_monitoring_status(self) -> dict:
         """
         Get current status of performance monitoring.
 
@@ -1723,7 +1709,7 @@ class HybridSearchEngine:
             "monitor_active": self.performance_monitor is not None,
         }
 
-    def get_performance_dashboard_data(self) -> Dict:
+    def get_performance_dashboard_data(self) -> dict:
         """
         Get comprehensive data for performance dashboard.
 
@@ -1740,9 +1726,9 @@ class HybridSearchEngine:
     async def run_performance_benchmark(
         self,
         collection_name: str,
-        test_queries: List[dict],
-        fusion_methods: Optional[List[str]] = None
-    ) -> Dict:
+        test_queries: list[dict],
+        fusion_methods: list[str] | None = None
+    ) -> dict:
         """
         Run performance benchmark on collection with various fusion methods.
 
@@ -1831,10 +1817,10 @@ class HybridSearchEngine:
     def record_search_accuracy(
         self,
         query_id: str,
-        results: List,
-        relevant_doc_ids: List[str],
+        results: list,
+        relevant_doc_ids: list[str],
         fusion_method: str
-    ) -> Dict:
+    ) -> dict:
         """
         Record search accuracy metrics for a query.
 
@@ -1889,7 +1875,7 @@ class HybridSearchEngine:
 
         return metrics
 
-    async def export_performance_report(self, filepath: Optional[str] = None) -> Optional[Dict]:
+    async def export_performance_report(self, filepath: str | None = None) -> dict | None:
         """
         Export comprehensive performance report.
 
@@ -1909,7 +1895,7 @@ class HybridSearchEngine:
 
         return report
 
-    def get_baseline_configuration(self) -> Optional[Dict]:
+    def get_baseline_configuration(self) -> dict | None:
         """
         Get baseline configuration for performance monitoring.
 

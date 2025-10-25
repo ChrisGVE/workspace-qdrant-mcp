@@ -250,7 +250,7 @@ class TestClaudeBudgetManager:
             custom_budget_limit=10000,
         )
 
-        allocation = manager.allocate_budget(
+        manager.allocate_budget(
             rules=sample_rules,
             user_query="Write a function to calculate fibonacci numbers",
         )
@@ -266,14 +266,14 @@ class TestClaudeBudgetManager:
         )
 
         # First interaction
-        allocation1 = manager.allocate_budget(
+        manager.allocate_budget(
             rules=sample_rules,
             user_query_tokens=100,
         )
         tokens_after_first = manager.session_stats.total_tokens_used
 
         # Second interaction
-        allocation2 = manager.allocate_budget(
+        manager.allocate_budget(
             rules=sample_rules,
             user_query_tokens=150,
         )
@@ -324,7 +324,7 @@ class TestClaudeBudgetManager:
 
         # Consume more budget to trigger warnings
         # Use large user query to push utilization higher
-        allocation2 = manager.allocate_budget(
+        manager.allocate_budget(
             rules=sample_rules,
             user_query_tokens=700,  # Large query to push over threshold
         )

@@ -16,38 +16,39 @@ Features:
 """
 
 import asyncio
+import json
 import logging
 import time
 import uuid
+from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Any, Callable
-from collections import defaultdict
-import json
+from typing import Any, Optional
 
-from .resource_exhaustion import (
-    ResourceExhaustionSimulator,
-    ResourceExhaustionScenario,
+from .cascading_failures import (
+    CascadeScenario,
+    CascadingFailureSimulator,
 )
 from .network_instability import (
-    NetworkInstabilitySimulator,
     NetworkInstabilityScenario,
-)
-from .cascading_failures import (
-    CascadingFailureSimulator,
-    CascadeScenario,
-)
-from .recovery_metrics import (
-    RecoveryTimeTracker,
-    RecoveryEvent,
-    MTTRAnalysis,
-    MTTFAnalysis,
+    NetworkInstabilitySimulator,
 )
 from .performance_degradation import (
+    AlertSeverity,
     PerformanceDegradationTracker,
     PerformanceMetricType,
     PerformanceTrend,
-    AlertSeverity,
+)
+from .recovery_metrics import (
+    MTTFAnalysis,
+    MTTRAnalysis,
+    RecoveryEvent,
+    RecoveryTimeTracker,
+)
+from .resource_exhaustion import (
+    ResourceExhaustionScenario,
+    ResourceExhaustionSimulator,
 )
 
 
@@ -86,15 +87,15 @@ class ChaosExperimentConfig:
 
     # Experiment parameters
     duration_seconds: float = 60.0
-    target_components: List[str] = field(default_factory=list)
+    target_components: list[str] = field(default_factory=list)
 
     # Trigger parameters (varies by condition type)
-    trigger_params: Dict[str, Any] = field(default_factory=dict)
+    trigger_params: dict[str, Any] = field(default_factory=dict)
 
     # Experiment-specific configs (varies by type)
-    resource_exhaustion_scenario: Optional[ResourceExhaustionScenario] = None
-    network_instability_scenario: Optional[NetworkInstabilityScenario] = None
-    cascade_scenario: Optional[CascadeScenario] = None
+    resource_exhaustion_scenario: ResourceExhaustionScenario | None = None
+    network_instability_scenario: NetworkInstabilityScenario | None = None
+    cascade_scenario: CascadeScenario | None = None
 
     # Monitoring and correlation
     collect_recovery_metrics: bool = True
@@ -103,7 +104,7 @@ class ChaosExperimentConfig:
 
     # Metadata
     description: str = ""
-    tags: List[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -115,33 +116,33 @@ class ChaosExperimentResult:
 
     # Timing
     start_time: float
-    end_time: Optional[float] = None
-    duration_seconds: Optional[float] = None
+    end_time: float | None = None
+    duration_seconds: float | None = None
 
     # Baseline metrics (captured before experiment)
-    baseline_metrics: Dict[str, float] = field(default_factory=dict)
+    baseline_metrics: dict[str, float] = field(default_factory=dict)
 
     # Recovery metrics
-    recovery_events: List[RecoveryEvent] = field(default_factory=list)
-    mttr_analysis: Optional[MTTRAnalysis] = None
-    mttf_analysis: Optional[MTTFAnalysis] = None
+    recovery_events: list[RecoveryEvent] = field(default_factory=list)
+    mttr_analysis: MTTRAnalysis | None = None
+    mttf_analysis: MTTFAnalysis | None = None
 
     # Performance degradation
-    performance_degradations: List[Dict[str, Any]] = field(default_factory=list)
+    performance_degradations: list[dict[str, Any]] = field(default_factory=list)
     max_degradation_percent: float = 0.0
     avg_degradation_percent: float = 0.0
 
     # Experiment-specific results
-    resource_exhaustion_results: Dict[str, Any] = field(default_factory=dict)
-    network_instability_results: Dict[str, Any] = field(default_factory=dict)
-    cascade_failure_results: Dict[str, Any] = field(default_factory=dict)
+    resource_exhaustion_results: dict[str, Any] = field(default_factory=dict)
+    network_instability_results: dict[str, Any] = field(default_factory=dict)
+    cascade_failure_results: dict[str, Any] = field(default_factory=dict)
 
     # Success criteria
     success: bool = True
-    failure_reason: Optional[str] = None
+    failure_reason: str | None = None
 
     # Correlation data
-    correlated_metrics: Dict[str, List[float]] = field(default_factory=lambda: defaultdict(list))
+    correlated_metrics: dict[str, list[float]] = field(default_factory=lambda: defaultdict(list))
 
     # Metadata
     notes: str = ""
@@ -151,7 +152,7 @@ class ChaosExperimentResult:
 class ChaosOrchestrationConfig:
     """Configuration for chaos engineering orchestration."""
     # Experiment scheduling
-    experiments: List[ChaosExperimentConfig] = field(default_factory=list)
+    experiments: list[ChaosExperimentConfig] = field(default_factory=list)
 
     # Global settings
     max_concurrent_experiments: int = 1  # Safety limit
@@ -167,7 +168,7 @@ class ChaosOrchestrationConfig:
 
     # Reporting
     generate_detailed_reports: bool = True
-    report_callback: Optional[Callable[[ChaosExperimentResult], None]] = None
+    report_callback: Callable[[ChaosExperimentResult], None] | None = None
 
 
 class ChaosExperimentScheduler:
@@ -179,9 +180,9 @@ class ChaosExperimentScheduler:
 
     def __init__(self):
         """Initialize experiment scheduler."""
-        self.pending_experiments: List[ChaosExperimentConfig] = []
-        self.running_experiments: Dict[str, ChaosExperimentConfig] = {}
-        self.completed_experiments: List[ChaosExperimentResult] = []
+        self.pending_experiments: list[ChaosExperimentConfig] = []
+        self.running_experiments: dict[str, ChaosExperimentConfig] = {}
+        self.completed_experiments: list[ChaosExperimentResult] = []
         self.logger = logging.getLogger(__name__)
 
     def schedule_experiment(self, config: ChaosExperimentConfig) -> None:
@@ -195,9 +196,9 @@ class ChaosExperimentScheduler:
 
     def get_next_experiment(
         self,
-        current_metrics: Optional[Dict[str, float]] = None,
+        current_metrics: dict[str, float] | None = None,
         max_concurrent: int = 1
-    ) -> Optional[ChaosExperimentConfig]:
+    ) -> ChaosExperimentConfig | None:
         """Get the next experiment that should be executed.
 
         Args:
@@ -225,7 +226,7 @@ class ChaosExperimentScheduler:
         self,
         exp: ChaosExperimentConfig,
         current_time: float,
-        current_metrics: Optional[Dict[str, float]]
+        current_metrics: dict[str, float] | None
     ) -> bool:
         """Determine if an experiment should start.
 
@@ -286,7 +287,7 @@ class ChaosExperimentScheduler:
         self.pending_experiments.clear()
         self.logger.info("Cancelled all pending experiments")
 
-    def get_experiment_summary(self) -> Dict[str, Any]:
+    def get_experiment_summary(self) -> dict[str, Any]:
         """Get summary of all experiments.
 
         Returns:
@@ -328,7 +329,7 @@ class ChaosResultCorrelator:
         self,
         result: ChaosExperimentResult,
         perf_tracker: PerformanceDegradationTracker
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Correlate experiment with performance degradation.
 
         Args:
@@ -378,7 +379,7 @@ class ChaosResultCorrelator:
         self,
         result: ChaosExperimentResult,
         recovery_tracker: RecoveryTimeTracker
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Correlate experiment with recovery metrics.
 
         Args:
@@ -420,7 +421,7 @@ class ChaosResultCorrelator:
     def generate_correlation_report(
         self,
         result: ChaosExperimentResult
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate comprehensive correlation report.
 
         Args:
@@ -486,7 +487,7 @@ class ChaosOrchestrator:
 
         # State
         self.running = False
-        self.current_experiment: Optional[ChaosExperimentConfig] = None
+        self.current_experiment: ChaosExperimentConfig | None = None
         self.logger = logging.getLogger(__name__)
 
     def add_experiment(self, config: ChaosExperimentConfig) -> None:
@@ -497,7 +498,7 @@ class ChaosOrchestrator:
         """
         self.scheduler.schedule_experiment(config)
 
-    async def run_experiments(self, duration_seconds: Optional[float] = None) -> List[ChaosExperimentResult]:
+    async def run_experiments(self, duration_seconds: float | None = None) -> list[ChaosExperimentResult]:
         """Run all scheduled experiments.
 
         Args:
@@ -619,7 +620,7 @@ class ChaosOrchestrator:
         self.logger.info(f"Collecting baseline metrics for {config.experiment_id}")
 
         # Collect samples for baseline
-        for i in range(self.config.performance_baseline_samples):
+        for _i in range(self.config.performance_baseline_samples):
             metrics = self._get_current_metrics()
             for metric_name, value in metrics.items():
                 if metric_name not in result.baseline_metrics:
@@ -746,7 +747,7 @@ class ChaosOrchestrator:
         # Correlate with recovery metrics
         self.correlator.correlate_recovery_metrics(result, self.recovery_tracker)
 
-    def _get_current_metrics(self) -> Dict[str, float]:
+    def _get_current_metrics(self) -> dict[str, float]:
         """Get current system metrics.
 
         Returns:
@@ -777,7 +778,7 @@ class ChaosOrchestrator:
         self.scheduler.cancel_all_experiments()
         self.logger.info("Stopped chaos orchestration")
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get orchestration summary.
 
         Returns:

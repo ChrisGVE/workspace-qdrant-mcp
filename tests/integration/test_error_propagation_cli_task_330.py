@@ -23,13 +23,13 @@ import os
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 import pytest
 
 
 def run_wqm_command(
-    command: list, env: Optional[Dict] = None, timeout: int = 30
+    command: list, env: dict | None = None, timeout: int = 30
 ) -> subprocess.CompletedProcess:
     """Run wqm CLI command via subprocess."""
     full_command = ["uv", "run", "wqm"] + command
@@ -387,7 +387,7 @@ class TestTimeoutHandling:
         test_file = test_workspace["test_file"]
 
         try:
-            result = run_wqm_command(
+            run_wqm_command(
                 ["ingest", "file", str(test_file), "--collection", test_collection],
                 timeout=0.1,  # Very short timeout
             )
@@ -474,7 +474,7 @@ class TestRecoveryMechanisms:
     def test_daemon_restarts_after_multiple_errors(self, test_collection):
         """Test daemon remains stable after multiple error conditions."""
         # Generate multiple errors
-        for i in range(5):
+        for _i in range(5):
             run_wqm_command(
                 ["ingest", "file", "/nonexistent.txt", "--collection", test_collection]
             )

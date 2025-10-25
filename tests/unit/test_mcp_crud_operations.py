@@ -23,15 +23,16 @@ Test Focus:
     - FastMCP tool access patterns
 """
 
-import pytest
 import asyncio
+import os
+import sys
 import uuid
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
-from typing import Dict, Any, List
 from datetime import datetime, timezone
 from pathlib import Path
-import sys
-import os
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 # Add the source directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/python'))
@@ -484,7 +485,7 @@ class TestStoreCRUDUpdate:
 
             mock_qdrant.upsert = Mock()
 
-            result = await store_fn(
+            await store_fn(
                 content=content,
                 metadata=update_meta
             )
@@ -510,7 +511,7 @@ class TestManageCRUDDelete:
         manage_fn = app._tool_manager._tools['manage'].fn
 
         with patch.object(server_module, 'daemon_client') as mock_daemon, \
-             patch.object(server_module, 'qdrant_client') as mock_qdrant:
+             patch.object(server_module, 'qdrant_client'):
 
             # Mock daemon delete
             mock_daemon.delete_collection_v2 = AsyncMock()
@@ -680,7 +681,7 @@ class TestCRUDDataIntegrity:
 
             mock_qdrant.upsert = Mock()
 
-            result = await store_fn(content=original_content)
+            await store_fn(content=original_content)
 
             # Verify content in upsert call
             call_args = mock_qdrant.upsert.call_args
@@ -712,7 +713,7 @@ def complex_function(x, y):
 
             mock_qdrant.upsert = Mock()
 
-            result = await store_fn(
+            await store_fn(
                 content=code_content,
                 document_type="code"
             )
@@ -748,7 +749,7 @@ def complex_function(x, y):
 
             mock_qdrant.upsert = Mock()
 
-            result = await store_fn(
+            await store_fn(
                 content="Test",
                 metadata=nested_metadata
             )

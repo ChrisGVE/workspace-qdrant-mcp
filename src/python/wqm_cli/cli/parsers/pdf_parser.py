@@ -7,21 +7,24 @@ Provides fallback handling for encrypted or corrupted PDFs.
 """
 
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
 from loguru import logger
 
 # Optional OCR detection dependencies
 try:
-    from PIL import Image
     import fitz  # PyMuPDF for image extraction and OCR detection
+    from PIL import Image
     HAS_OCR_DEPS = True
 except ImportError:
     HAS_OCR_DEPS = False
 
 # State management import
 try:
-    from ...common.core.sqlite_state_manager import SQLiteStateManager, FileProcessingStatus
+    from ...common.core.sqlite_state_manager import (
+        FileProcessingStatus,
+        SQLiteStateManager,
+    )
     HAS_STATE_MANAGER = True
 except ImportError:
     HAS_STATE_MANAGER = False
@@ -67,7 +70,7 @@ class PDFParser(DocumentParser):
     Integrates with state management for tracking OCR-required documents.
     """
 
-    def __init__(self, state_manager: Optional[SQLiteStateManager] = None):
+    def __init__(self, state_manager: SQLiteStateManager | None = None):
         """
         Initialize PDF parser with optional state management.
 
@@ -104,7 +107,7 @@ class PDFParser(DocumentParser):
     async def parse(
         self,
         file_path: str | Path,
-        progress_tracker: Optional[ProgressTracker] = None,
+        progress_tracker: ProgressTracker | None = None,
         extract_metadata: bool = True,
         include_page_numbers: bool = False,
         max_pages: int | None = None,
@@ -611,7 +614,7 @@ class PDFParser(DocumentParser):
                         # Get image object
                         xref = img[0]
                         base_image = doc.extract_image(xref)
-                        image_bytes = base_image["image"]
+                        base_image["image"]
 
                         # Get image dimensions and position
                         image_rects = page.get_image_rects(img)

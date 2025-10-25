@@ -32,14 +32,15 @@ SUCCESS CRITERIA:
 """
 
 import asyncio
-import pytest
-import time
 import random
 import statistics
+import time
 from collections import defaultdict
 from datetime import datetime
-from typing import List, Dict, Any, Tuple
-from unittest.mock import AsyncMock, patch, MagicMock
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 # Test markers
 pytestmark = [
@@ -54,13 +55,13 @@ class ConcurrencyMetrics:
     """Track metrics for concurrent operations."""
 
     def __init__(self):
-        self.operation_times: List[float] = []
-        self.errors: List[Tuple[str, Exception]] = []
+        self.operation_times: list[float] = []
+        self.errors: list[tuple[str, Exception]] = []
         self.success_count: int = 0
         self.failure_count: int = 0
         self.start_time: float = None
         self.end_time: float = None
-        self.operation_types: Dict[str, int] = defaultdict(int)
+        self.operation_types: dict[str, int] = defaultdict(int)
 
     def record_success(self, operation_type: str, duration: float):
         """Record successful operation."""
@@ -136,7 +137,7 @@ class ConcurrencyMetrics:
             return (self.success_count + self.failure_count) / self.total_duration
         return 0
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get metrics summary."""
         return {
             "total_operations": self.success_count + self.failure_count,
@@ -159,12 +160,12 @@ class ConcurrencyMetrics:
         print(f"{'='*70}")
 
         summary = self.get_summary()
-        print(f"\nOperations:")
+        print("\nOperations:")
         print(f"  Total:      {summary['total_operations']}")
         print(f"  Successful: {summary['successful']} ({100-summary['error_rate_percent']:.1f}%)")
         print(f"  Failed:     {summary['failed']} ({summary['error_rate_percent']:.1f}%)")
 
-        print(f"\nPerformance:")
+        print("\nPerformance:")
         print(f"  Duration:   {summary['duration_seconds']:.2f}s")
         print(f"  Throughput: {summary['throughput_ops_per_sec']:.2f} ops/sec")
         print(f"  Avg Time:   {summary['avg_operation_time_ms']:.2f}ms")
@@ -173,12 +174,12 @@ class ConcurrencyMetrics:
         print(f"  P99:        {summary['p99_operation_time_ms']:.2f}ms")
 
         if summary['operation_breakdown']:
-            print(f"\nOperation Breakdown:")
+            print("\nOperation Breakdown:")
             for op_type, count in sorted(summary['operation_breakdown'].items()):
                 print(f"  {op_type}: {count}")
 
         if self.errors:
-            print(f"\nErrors (showing first 10):")
+            print("\nErrors (showing first 10):")
             for i, (op_type, error) in enumerate(self.errors[:10]):
                 print(f"  {i+1}. {op_type}: {type(error).__name__}: {str(error)[:100]}")
 
@@ -218,7 +219,7 @@ class TestConcurrentStoreOperations:
         stored_document_ids = []
         lock = asyncio.Lock()
 
-        async def store_document(doc_id: int) -> Dict[str, Any]:
+        async def store_document(doc_id: int) -> dict[str, Any]:
             """Store a single document."""
             operation_start = time.time()
 
@@ -249,11 +250,11 @@ class TestConcurrentStoreOperations:
                 return {"success": False, "error": str(e)}
 
         # Execute 1000 concurrent store operations
-        print(f"\nStarting 1000 concurrent store operations...")
+        print("\nStarting 1000 concurrent store operations...")
         metrics.start()
 
         tasks = [store_document(i) for i in range(1000)]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
 
         metrics.end()
 
@@ -277,7 +278,7 @@ class TestConcurrentStoreOperations:
         """Test concurrent store operations with varying document sizes."""
         metrics = ConcurrencyMetrics()
 
-        async def store_variable_size_document(doc_id: int) -> Dict[str, Any]:
+        async def store_variable_size_document(doc_id: int) -> dict[str, Any]:
             """Store document with variable size."""
             operation_start = time.time()
 
@@ -306,7 +307,7 @@ class TestConcurrentStoreOperations:
                 return {"success": False, "error": str(e)}
 
         # Execute 500 concurrent operations with varying sizes
-        print(f"\nStarting 500 concurrent store operations (varying sizes)...")
+        print("\nStarting 500 concurrent store operations (varying sizes)...")
         metrics.start()
 
         tasks = [store_variable_size_document(i) for i in range(500)]
@@ -331,7 +332,7 @@ class TestConcurrentSearchOperations:
         metrics = ConcurrencyMetrics()
 
         # First, populate collection with test data
-        print(f"\nPopulating collection with test data...")
+        print("\nPopulating collection with test data...")
         for i in range(100):
             await mcp_server_instance.store(
                 content=f"Search test document {i} with content about testing, performance, and concurrency",
@@ -342,7 +343,7 @@ class TestConcurrentSearchOperations:
         # Give Qdrant time to index
         await asyncio.sleep(2)
 
-        async def search_operation(search_id: int) -> Dict[str, Any]:
+        async def search_operation(search_id: int) -> dict[str, Any]:
             """Perform a search operation."""
             operation_start = time.time()
 
@@ -377,7 +378,7 @@ class TestConcurrentSearchOperations:
                 return {"success": False, "error": str(e)}
 
         # Execute 1000 concurrent search operations
-        print(f"\nStarting 1000 concurrent search operations...")
+        print("\nStarting 1000 concurrent search operations...")
         metrics.start()
 
         tasks = [search_operation(i) for i in range(1000)]
@@ -408,7 +409,7 @@ class TestMixedConcurrentWorkloads:
         lock = asyncio.Lock()
 
         # Pre-populate with some documents for read/update/delete operations
-        print(f"\nPre-populating collection...")
+        print("\nPre-populating collection...")
         for i in range(200):
             result = await mcp_server_instance.store(
                 content=f"Pre-populated document {i}",
@@ -420,7 +421,7 @@ class TestMixedConcurrentWorkloads:
 
         await asyncio.sleep(2)  # Let Qdrant index
 
-        async def mixed_operation(op_id: int) -> Dict[str, Any]:
+        async def mixed_operation(op_id: int) -> dict[str, Any]:
             """Perform a random CRUD operation."""
             operation_start = time.time()
 
@@ -483,7 +484,7 @@ class TestMixedConcurrentWorkloads:
                 return {"success": False, "error": str(e)}
 
         # Execute 1000 concurrent mixed operations
-        print(f"\nStarting 1000 concurrent mixed CRUD operations...")
+        print("\nStarting 1000 concurrent mixed CRUD operations...")
         metrics.start()
 
         tasks = [mixed_operation(i) for i in range(1000)]
@@ -515,7 +516,7 @@ class TestMixedConcurrentWorkloads:
 
         await asyncio.sleep(2)
 
-        async def realistic_operation(op_id: int) -> Dict[str, Any]:
+        async def realistic_operation(op_id: int) -> dict[str, Any]:
             """Perform operation with realistic read/write ratio."""
             operation_start = time.time()
 
@@ -553,7 +554,7 @@ class TestMixedConcurrentWorkloads:
                 return {"success": False, "error": str(e)}
 
         # Execute 1000 operations with realistic ratio
-        print(f"\nStarting 1000 operations with 80/20 read/write ratio...")
+        print("\nStarting 1000 operations with 80/20 read/write ratio...")
         metrics.start()
 
         tasks = [realistic_operation(i) for i in range(1000)]
@@ -588,7 +589,7 @@ class TestDataConsistency:
         document_versions = defaultdict(list)
         lock = asyncio.Lock()
 
-        async def update_document_concurrently(doc_id: int, version: int) -> Dict[str, Any]:
+        async def update_document_concurrently(doc_id: int, version: int) -> dict[str, Any]:
             """Attempt to update the same document concurrently."""
             operation_start = time.time()
 
@@ -621,7 +622,7 @@ class TestDataConsistency:
                 return {"success": False, "error": str(e)}
 
         # Create 100 tasks that update 10 documents concurrently (10 versions each)
-        print(f"\nTesting data consistency with concurrent updates...")
+        print("\nTesting data consistency with concurrent updates...")
         metrics.start()
 
         tasks = []
@@ -658,7 +659,7 @@ class TestDataConsistency:
         expected_documents = {}
         lock = asyncio.Lock()
 
-        async def store_and_verify(doc_id: int) -> Dict[str, Any]:
+        async def store_and_verify(doc_id: int) -> dict[str, Any]:
             """Store document and track expected content."""
             operation_start = time.time()
 
@@ -688,7 +689,7 @@ class TestDataConsistency:
                 return {"success": False, "error": str(e)}
 
         # Store 500 documents concurrently
-        print(f"\nStoring 500 documents concurrently for integrity verification...")
+        print("\nStoring 500 documents concurrently for integrity verification...")
         metrics.start()
 
         tasks = [store_and_verify(i) for i in range(500)]
@@ -776,7 +777,7 @@ class TestDeadlockPrevention:
                     raise Exception("Store failed")
 
                 # Step 2: Search for it immediately
-                search_result = await mcp_server_instance.search(
+                await mcp_server_instance.search(
                     query=f"Chain {chain_id}",
                     collection=test_collection_name,
                 )
@@ -788,7 +789,7 @@ class TestDeadlockPrevention:
                 )
 
                 # Step 4: Retrieve original document
-                retrieve_result = await mcp_server_instance.retrieve(
+                await mcp_server_instance.retrieve(
                     document_id=store_result["document_id"],
                     collection=test_collection_name,
                 )
@@ -805,7 +806,7 @@ class TestDeadlockPrevention:
                 metrics.record_failure("operation_chain", e)
 
         # Run 200 concurrent operation chains
-        print(f"\nTesting deadlock prevention with 200 concurrent operation chains...")
+        print("\nTesting deadlock prevention with 200 concurrent operation chains...")
         metrics.start()
 
         tasks = [complex_operation_chain(i) for i in range(200)]
@@ -837,7 +838,7 @@ class TestPerformanceDegradation:
         """Measure performance degradation from 1 to 1000 concurrent operations."""
 
         # Baseline: Single operation performance
-        print(f"\nMeasuring baseline performance (single operation)...")
+        print("\nMeasuring baseline performance (single operation)...")
         baseline_times = []
 
         for i in range(10):
@@ -895,7 +896,7 @@ class TestPerformanceDegradation:
 
         # Analyze degradation
         print(f"\n{'='*70}")
-        print(f"PERFORMANCE DEGRADATION ANALYSIS")
+        print("PERFORMANCE DEGRADATION ANALYSIS")
         print(f"{'='*70}")
         print(f"Baseline (1 op):     {baseline_avg:.2f}ms")
 
@@ -949,7 +950,7 @@ class TestConnectionPoolExhaustion:
                 metrics.record_failure("long_op", e)
 
         # Launch more operations than typical connection pool size
-        print(f"\nTesting connection pool with 500 concurrent long-running operations...")
+        print("\nTesting connection pool with 500 concurrent long-running operations...")
         metrics.start()
 
         tasks = [long_running_operation(i) for i in range(500)]
@@ -977,7 +978,7 @@ class TestConnectionPoolExhaustion:
         """Test connection pool recovery after exhaustion."""
 
         # Phase 1: Exhaust connection pool
-        print(f"\nPhase 1: Exhausting connection pool...")
+        print("\nPhase 1: Exhausting connection pool...")
         phase1_metrics = ConcurrencyMetrics()
 
         async def exhaust_connection(op_id: int):
@@ -1002,11 +1003,11 @@ class TestConnectionPoolExhaustion:
         print(f"Phase 1 complete: {phase1_metrics.success_count} succeeded, {phase1_metrics.failure_count} failed")
 
         # Phase 2: Wait for recovery
-        print(f"\nPhase 2: Waiting for connection pool recovery...")
+        print("\nPhase 2: Waiting for connection pool recovery...")
         await asyncio.sleep(5)
 
         # Phase 3: Test normal operations after recovery
-        print(f"\nPhase 3: Testing operations after recovery...")
+        print("\nPhase 3: Testing operations after recovery...")
         phase2_metrics = ConcurrencyMetrics()
 
         async def post_recovery_operation(op_id: int):
@@ -1054,7 +1055,7 @@ async def test_comprehensive_concurrent_stress_summary(
     - Graceful error handling
     """
     print(f"\n{'='*70}")
-    print(f"COMPREHENSIVE CONCURRENT STRESS TEST")
+    print("COMPREHENSIVE CONCURRENT STRESS TEST")
     print(f"{'='*70}")
 
     metrics = ConcurrencyMetrics()
@@ -1121,7 +1122,7 @@ async def test_comprehensive_concurrent_stress_summary(
             metrics.record_failure(op_type, e)
 
     # Execute 1500 concurrent operations for comprehensive test
-    print(f"\nExecuting 1500 concurrent mixed operations...")
+    print("\nExecuting 1500 concurrent mixed operations...")
     metrics.start()
 
     tasks = [realistic_mixed_operation(i) for i in range(1500)]
@@ -1139,11 +1140,11 @@ async def test_comprehensive_concurrent_stress_summary(
 
     # Final Validation
     print(f"\n{'='*70}")
-    print(f"FINAL VALIDATION")
+    print("FINAL VALIDATION")
     print(f"{'='*70}")
 
     success_rate = (metrics.success_count / 1500) * 100
-    print(f"Total operations:    1500")
+    print("Total operations:    1500")
     print(f"Success rate:        {success_rate:.2f}% ({metrics.success_count}/1500)")
     print(f"Error rate:          {metrics.error_rate:.2f}%")
     print(f"Throughput:          {metrics.throughput:.2f} ops/sec")

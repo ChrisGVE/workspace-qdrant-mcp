@@ -10,31 +10,47 @@ This test suite provides comprehensive coverage of:
 - Error conditions, edge cases, and security validations
 """
 
-import pytest
-import os
-import json
-import time
 import base64
+import json
+import os
 import secrets
+import time
 from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, Any
+from typing import Any
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 # Skip tests if cryptography is not available
 try:
-    from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import hashes, serialization
     CRYPTOGRAPHY_AVAILABLE = True
 except ImportError:
     CRYPTOGRAPHY_AVAILABLE = False
 
 from src.python.common.security.encryption import (
-    KeyManager, EncryptionEngine, SecureCommunication, SecureChannel,
-    EncryptionKey, EncryptedData, EncryptionAlgorithm, HashAlgorithm,
-    KeyDerivationFunction, CryptoError, KeyManagementError,
-    EncryptionError, DecryptionError, encrypt_json, decrypt_json,
-    secure_temp_key, generate_secure_token, constant_time_compare,
-    get_key_manager, get_encryption_engine, get_secure_communication
+    CryptoError,
+    DecryptionError,
+    EncryptedData,
+    EncryptionAlgorithm,
+    EncryptionEngine,
+    EncryptionError,
+    EncryptionKey,
+    HashAlgorithm,
+    KeyDerivationFunction,
+    KeyManagementError,
+    KeyManager,
+    SecureChannel,
+    SecureCommunication,
+    constant_time_compare,
+    decrypt_json,
+    encrypt_json,
+    generate_secure_token,
+    get_encryption_engine,
+    get_key_manager,
+    get_secure_communication,
+    secure_temp_key,
 )
 
 
@@ -1257,7 +1273,7 @@ class TestErrorConditionsAndEdgeCases:
 
         def generate_keys():
             try:
-                for i in range(10):
+                for _i in range(10):
                     key_id = key_manager.generate_key(EncryptionAlgorithm.AES_256_GCM)
                     results.append(key_id)
             except Exception as e:

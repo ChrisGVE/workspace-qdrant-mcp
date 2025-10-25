@@ -272,7 +272,7 @@ class TestThrottlingAndDebouncing:
 
         # Execute max refreshes with force
         max_rate = refresh_manager.throttle_config.max_refresh_rate_per_minute
-        for i in range(max_rate):
+        for _i in range(max_rate):
             result = await refresh_manager.refresh_now(force=True)
             assert result.success is True
 
@@ -628,7 +628,7 @@ class TestConvenienceFunction:
             mock_instance.start = AsyncMock(return_value=True)
             mock_manager_class.return_value = mock_instance
 
-            manager = await start_live_refresh(
+            await start_live_refresh(
                 memory_manager=mock_memory_manager,
                 project_root=tmp_path,
                 output_path=output_path,
@@ -675,7 +675,6 @@ class TestIntegration:
 
         # Initial baseline
         initial_file_hash = refresh_manager.refresh_state.last_file_hash
-        initial_rules_hash = refresh_manager.refresh_state.last_rules_hash
 
         # Modify file
         claude_md.write_text("# Test CLAUDE.md\n\nModified content")

@@ -30,7 +30,7 @@ Usage:
     ```
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .collection_types import CollectionType
 
@@ -54,9 +54,9 @@ class CollectionTypeError(Exception):
         self,
         message: str,
         error_code: str = "COLLECTION_TYPE_ERROR",
-        recovery_suggestion: Optional[str] = None,
-        doc_link: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
+        recovery_suggestion: str | None = None,
+        doc_link: str | None = None,
+        details: dict[str, Any] | None = None,
     ):
         """
         Initialize collection type error.
@@ -75,7 +75,7 @@ class CollectionTypeError(Exception):
         self.doc_link = doc_link or "docs/collection_types/troubleshooting.md"
         self.details = details or {}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert exception to dictionary for logging/serialization.
 
@@ -120,12 +120,12 @@ class InvalidCollectionTypeError(CollectionTypeError):
     def __init__(
         self,
         collection_name: str,
-        detected_type: Optional[CollectionType] = None,
-        expected_type: Optional[CollectionType] = None,
+        detected_type: CollectionType | None = None,
+        expected_type: CollectionType | None = None,
         error_code: str = "TYPE_INVALID_PATTERN",
-        message: Optional[str] = None,
-        recovery_suggestion: Optional[str] = None,
-        confidence: Optional[float] = None,
+        message: str | None = None,
+        recovery_suggestion: str | None = None,
+        confidence: float | None = None,
     ):
         """
         Initialize invalid collection type error.
@@ -184,8 +184,8 @@ class InvalidCollectionTypeError(CollectionTypeError):
     @staticmethod
     def _build_recovery_suggestion(
         collection_name: str,
-        detected_type: Optional[CollectionType],
-        expected_type: Optional[CollectionType],
+        detected_type: CollectionType | None,
+        expected_type: CollectionType | None,
     ) -> str:
         """Build type-specific recovery suggestion."""
         if expected_type == CollectionType.SYSTEM:
@@ -232,12 +232,12 @@ class CollectionMigrationError(CollectionTypeError):
     def __init__(
         self,
         collection_name: str,
-        target_type: Optional[CollectionType] = None,
+        target_type: CollectionType | None = None,
         error_code: str = "MIG_FAILED",
-        message: Optional[str] = None,
-        recovery_suggestion: Optional[str] = None,
-        validation_errors: Optional[List[str]] = None,
-        conflicts: Optional[List[str]] = None,
+        message: str | None = None,
+        recovery_suggestion: str | None = None,
+        validation_errors: list[str] | None = None,
+        conflicts: list[str] | None = None,
         can_rollback: bool = False,
     ):
         """
@@ -299,8 +299,8 @@ class CollectionMigrationError(CollectionTypeError):
 
     @staticmethod
     def _build_recovery_suggestion(
-        validation_errors: Optional[List[str]],
-        conflicts: Optional[List[str]],
+        validation_errors: list[str] | None,
+        conflicts: list[str] | None,
         can_rollback: bool,
     ) -> str:
         """Build migration-specific recovery suggestion."""
@@ -359,11 +359,11 @@ class MetadataValidationError(CollectionTypeError):
         self,
         collection_type: CollectionType,
         error_code: str = "META_VALIDATION_FAILED",
-        message: Optional[str] = None,
-        recovery_suggestion: Optional[str] = None,
-        missing_fields: Optional[List[str]] = None,
-        invalid_fields: Optional[Dict[str, str]] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        message: str | None = None,
+        recovery_suggestion: str | None = None,
+        missing_fields: list[str] | None = None,
+        invalid_fields: dict[str, str] | None = None,
+        metadata: dict[str, Any] | None = None,
     ):
         """
         Initialize metadata validation error.
@@ -419,8 +419,8 @@ class MetadataValidationError(CollectionTypeError):
     @staticmethod
     def _build_recovery_suggestion(
         collection_type: CollectionType,
-        missing_fields: Optional[List[str]],
-        invalid_fields: Optional[Dict[str, str]],
+        missing_fields: list[str] | None,
+        invalid_fields: dict[str, str] | None,
     ) -> str:
         """Build metadata-specific recovery suggestion."""
         suggestions = []
@@ -468,11 +468,11 @@ class CollectionTypeConfigError(CollectionTypeError):
 
     def __init__(
         self,
-        collection_type: Optional[CollectionType] = None,
-        config_issue: Optional[str] = None,
+        collection_type: CollectionType | None = None,
+        config_issue: str | None = None,
         error_code: str = "CONFIG_INVALID",
-        message: Optional[str] = None,
-        recovery_suggestion: Optional[str] = None,
+        message: str | None = None,
+        recovery_suggestion: str | None = None,
     ):
         """
         Initialize collection type config error.

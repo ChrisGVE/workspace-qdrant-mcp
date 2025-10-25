@@ -7,17 +7,15 @@ including status monitoring, configuration management, and engine lifecycle.
 import asyncio
 import json
 import subprocess
-import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import psutil
 import typer
-
-from common.core.client import QdrantWorkspaceClient, create_qdrant_client
 from common.core.config import get_config_manager
-from loguru import logger
 from common.utils.project_detection import ProjectDetector
+from loguru import logger
+
 # Lazy import to avoid CLI startup issues
 # from workspace_qdrant_mcp.utils.migration import ConfigMigrator, ReportGenerator
 
@@ -48,9 +46,7 @@ from ..utils import (
     get_configured_client,
     handle_async,
     json_output_option,
-    success_message,
     verbose_option,
-    warning_message,
 )
 
 # logger imported from loguru
@@ -149,9 +145,9 @@ def health_check(
 
 @admin_app.command("migration-report")
 def migration_report(
-    migration_id: Optional[str] = typer.Argument(None, help="Specific migration ID to view"),
+    migration_id: str | None = typer.Argument(None, help="Specific migration ID to view"),
     format: str = typer.Option("text", "--format", help="Output format: text, json"),
-    export: Optional[str] = typer.Option(None, "--export", help="Export report to file"),
+    export: str | None = typer.Option(None, "--export", help="Export report to file"),
     latest: bool = typer.Option(False, "--latest", help="Show latest migration report"),
 ):
     """View detailed migration reports."""
@@ -161,10 +157,10 @@ def migration_report(
 @admin_app.command("migration-history")
 def migration_history(
     limit: int = typer.Option(10, "--limit", help="Number of recent migrations to show"),
-    source_version: Optional[str] = typer.Option(None, "--source", help="Filter by source version"),
-    target_version: Optional[str] = typer.Option(None, "--target", help="Filter by target version"),
-    success_only: Optional[bool] = typer.Option(None, "--success-only", help="Show only successful migrations"),
-    days_back: Optional[int] = typer.Option(None, "--days", help="Show migrations from last N days"),
+    source_version: str | None = typer.Option(None, "--source", help="Filter by source version"),
+    target_version: str | None = typer.Option(None, "--target", help="Filter by target version"),
+    success_only: bool | None = typer.Option(None, "--success-only", help="Show only successful migrations"),
+    days_back: int | None = typer.Option(None, "--days", help="Show migrations from last N days"),
     format: str = typer.Option("table", "--format", help="Output format: table, json"),
 ):
     """View migration history with filtering options."""
@@ -226,7 +222,6 @@ async def _system_status(verbose: bool, json_output: bool) -> None:
 async def _watch_status(verbose: bool) -> None:
     """Watch system status with continuous refresh."""
     import os
-    import time
 
     print("Watching system status (Ctrl+C to stop)\n")
 
@@ -453,7 +448,7 @@ async def _config_management(show: bool, validate: bool, path: str | None) -> No
             try:
                 # Use configured client for validation
                 raw_client = get_configured_client(config)
-                collections = raw_client.get_collections()
+                raw_client.get_collections()
                 raw_client.close()
                 validation_results.append(("Qdrant Connection", "Valid"))
             except Exception as e:
@@ -610,7 +605,7 @@ async def _health_check(deep: bool, timeout: int) -> None:
         raw_client = get_configured_client(config)
 
         # Test basic connectivity
-        collections = raw_client.get_collections()
+        raw_client.get_collections()
         raw_client.close()
         health_results.append(("Qdrant Connectivity", "Healthy", "ok"))
     except Exception as e:
@@ -649,7 +644,7 @@ async def _health_check(deep: bool, timeout: int) -> None:
     # Display results
     print("\nHealth Check Results:")
     print("-" * 50)
-    for component, status, level in health_results:
+    for component, status, _level in health_results:
         print(f"{component:<20} | {status}")
 
     # Overall assessment
@@ -667,7 +662,7 @@ async def _health_check(deep: bool, timeout: int) -> None:
 
 
 # Migration reporting functions
-async def _migration_report(migration_id: Optional[str], format: str, export: Optional[str], latest: bool) -> None:
+async def _migration_report(migration_id: str | None, format: str, export: str | None, latest: bool) -> None:
     """View detailed migration reports."""
     try:
         migrator = _get_config_migrator()
@@ -711,8 +706,8 @@ async def _migration_report(migration_id: Optional[str], format: str, export: Op
         raise typer.Exit(1)
 
 
-async def _migration_history(limit: int, source_version: Optional[str], target_version: Optional[str],
-                            success_only: Optional[bool], days_back: Optional[int], format: str) -> None:
+async def _migration_history(limit: int, source_version: str | None, target_version: str | None,
+                            success_only: bool | None, days_back: int | None, format: str) -> None:
     """View migration history with filtering options."""
     try:
         migrator = _get_config_migrator()
@@ -823,7 +818,7 @@ async def _rollback_config(backup_id: str, force: bool) -> None:
                 return
 
         # Perform rollback
-        restored_config = migrator.rollback_config(backup_id)
+        migrator.rollback_config(backup_id)
         print("✅ Configuration rollback completed successfully")
         print(f"   Restored from: {backup_info.get('timestamp', 'unknown')}")
         print(f"   Configuration version: {backup_info.get('version', 'unknown')}")
@@ -896,7 +891,7 @@ async def _cleanup_migration_history(keep_count: int, force: bool) -> None:
         # Perform cleanup
         removed_count = migrator.cleanup_old_migration_reports(keep_count)
 
-        print(f"✅ Cleanup completed")
+        print("✅ Cleanup completed")
         print(f"   Removed: {removed_count} migration reports")
         print(f"   Remaining: {len(migrator.get_migration_history())} reports")
 

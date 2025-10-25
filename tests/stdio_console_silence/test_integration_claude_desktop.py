@@ -20,7 +20,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -46,7 +46,7 @@ class MCPClientSimulator:
         self.message_id += 1
         return self.message_id
 
-    def send_request(self, method: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+    def send_request(self, method: str, params: dict | None = None) -> dict[str, Any]:
         """Send JSON-RPC request to server."""
         request = {
             "jsonrpc": "2.0",
@@ -63,7 +63,7 @@ class MCPClientSimulator:
 
         return request
 
-    def read_response(self, timeout: float = 5.0) -> Optional[Dict[str, Any]]:
+    def read_response(self, timeout: float = 5.0) -> dict[str, Any] | None:
         """Read response from server stdout."""
         start_time = time.time()
 
@@ -193,7 +193,7 @@ except Exception as e:
         client = MCPClientSimulator(mcp_server_process)
 
         # Send tools/list request
-        tools_request = client.send_request("tools/list")
+        client.send_request("tools/list")
         response = client.read_response()
 
         # Validate tool listing response
@@ -223,7 +223,7 @@ except Exception as e:
         client = MCPClientSimulator(mcp_server_process)
 
         # Test workspace_status tool
-        status_request = client.send_request("tools/call", {
+        client.send_request("tools/call", {
             "name": "workspace_status",
             "arguments": {}
         })
@@ -237,7 +237,7 @@ except Exception as e:
         assert "content" in status_result, f"Missing content in tool response: {status_result}"
 
         # Test echo_test tool
-        echo_request = client.send_request("tools/call", {
+        client.send_request("tools/call", {
             "name": "echo_test",
             "arguments": {"message": "integration_test"}
         })
@@ -277,7 +277,7 @@ except Exception as e:
         responses = []
         for _ in range(5):
             response = client.read_response(timeout=10)
-            assert response is not None, f"Missing response for concurrent request"
+            assert response is not None, "Missing response for concurrent request"
             responses.append(response)
 
         # Validate all responses
@@ -285,7 +285,7 @@ except Exception as e:
 
         for response in responses:
             assert "result" in response, f"Concurrent request failed: {response}"
-            assert response.get("jsonrpc") == "2.0", f"Invalid JSON-RPC in concurrent response"
+            assert response.get("jsonrpc") == "2.0", "Invalid JSON-RPC in concurrent response"
 
         # Verify response IDs match request IDs
         response_ids = {resp.get("id") for resp in responses}
@@ -301,7 +301,7 @@ except Exception as e:
         client = MCPClientSimulator(mcp_server_process)
 
         # Test invalid tool name
-        invalid_request = client.send_request("tools/call", {
+        client.send_request("tools/call", {
             "name": "nonexistent_tool",
             "arguments": {}
         })
@@ -312,7 +312,7 @@ except Exception as e:
         assert "error" in invalid_response or "result" in invalid_response, f"Malformed error response: {invalid_response}"
 
         # Test malformed request (missing arguments)
-        malformed_request = client.send_request("tools/call", {
+        client.send_request("tools/call", {
             "name": "echo_test"
             # Missing arguments
         })
@@ -347,8 +347,8 @@ except Exception as e:
         assert "result" in search_response, f"Search failed: {search_response}"
 
         # Verify the response is valid JSON-RPC
-        assert search_response.get("jsonrpc") == "2.0", f"Invalid JSON-RPC in large response"
-        assert search_response.get("id") == search_request["id"], f"ID mismatch in large response"
+        assert search_response.get("jsonrpc") == "2.0", "Invalid JSON-RPC in large response"
+        assert search_response.get("id") == search_request["id"], "ID mismatch in large response"
 
         # No stderr contamination
         stderr_check = mcp_server_process.stderr.read(1024)
@@ -374,7 +374,7 @@ except Exception as e:
                 tool_name = "search_workspace"
                 args = {"query": f"test_{i}"}
 
-            request = client.send_request("tools/call", {
+            client.send_request("tools/call", {
                 "name": tool_name,
                 "arguments": args
             })
@@ -443,7 +443,7 @@ except Exception as e:
         assert len(responses) == len(session_steps), "Session incomplete"
 
         # Check specific responses
-        for i, (method, response) in enumerate(responses):
+        for _i, (method, response) in enumerate(responses):
             if method == "initialize":
                 # Should have capabilities in result
                 if "result" in response:

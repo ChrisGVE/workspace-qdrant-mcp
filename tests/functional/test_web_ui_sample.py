@@ -7,10 +7,11 @@ These tests demonstrate web UI testing patterns for:
 - API endpoint browser interfaces
 """
 
-import pytest
-from playwright.async_api import Page, Browser, expect
 import asyncio
-from typing import Dict, Any
+from typing import Any
+
+import pytest
+from playwright.async_api import Browser, Page, expect
 
 
 @pytest.mark.playwright
@@ -214,7 +215,7 @@ class TestRegressionScenarios:
         contexts = []
         try:
             # Create multiple concurrent contexts
-            for i in range(5):
+            for _i in range(5):
                 context = await browser.new_context()
                 contexts.append(context)
 

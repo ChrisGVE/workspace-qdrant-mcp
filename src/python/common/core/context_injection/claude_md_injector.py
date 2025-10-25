@@ -5,21 +5,18 @@ This module provides functionality to read, parse, and inject CLAUDE.md content
 into Claude Code sessions, with support for file watching and precedence rules.
 """
 
-import asyncio
-import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Callable, Dict, Any
 
 from loguru import logger
+from watchdog.events import FileCreatedEvent, FileModifiedEvent, FileSystemEventHandler
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileModifiedEvent, FileCreatedEvent
 
-from ..memory import MemoryRule, MemoryManager
-from .claude_code_detector import ClaudeCodeDetector, ClaudeCodeSession
+from ..memory import MemoryManager
 from .formatters.claude_code import ClaudeCodeAdapter
-from .rule_retrieval import RuleRetrieval, RuleFilter
+from .rule_retrieval import RuleFilter, RuleRetrieval
 
 
 @dataclass
@@ -54,7 +51,7 @@ class ClaudeMdFileHandler(FileSystemEventHandler):
         """
         super().__init__()
         self.callback = callback
-        self._last_modified: Dict[str, float] = {}
+        self._last_modified: dict[str, float] = {}
         self._debounce_seconds = 1.0
 
     def on_modified(self, event: FileModifiedEvent) -> None:
@@ -114,8 +111,8 @@ class ClaudeMdInjector:
     def __init__(
         self,
         memory_manager: MemoryManager,
-        rule_retrieval: Optional[RuleRetrieval] = None,
-        adapter: Optional[ClaudeCodeAdapter] = None,
+        rule_retrieval: RuleRetrieval | None = None,
+        adapter: ClaudeCodeAdapter | None = None,
         enable_watching: bool = True,
     ):
         """
@@ -133,13 +130,13 @@ class ClaudeMdInjector:
         self.enable_watching = enable_watching
 
         # File watching infrastructure
-        self._observer: Optional[Observer] = None
-        self._watched_paths: List[Path] = []
-        self._change_callbacks: List[Callable[[Path], None]] = []
+        self._observer: Observer | None = None
+        self._watched_paths: list[Path] = []
+        self._change_callbacks: list[Callable[[Path], None]] = []
 
     def discover_claude_md_files(
-        self, project_root: Optional[Path] = None
-    ) -> List[ClaudeMdLocation]:
+        self, project_root: Path | None = None
+    ) -> list[ClaudeMdLocation]:
         """
         Discover CLAUDE.md files with precedence ordering.
 
@@ -188,9 +185,9 @@ class ClaudeMdInjector:
 
     async def inject_from_files(
         self,
-        project_root: Optional[Path] = None,
+        project_root: Path | None = None,
         token_budget: int = 50000,
-        filter: Optional[RuleFilter] = None,
+        filter: RuleFilter | None = None,
     ) -> str:
         """
         Read CLAUDE.md files and inject content with memory rules.
@@ -245,9 +242,9 @@ class ClaudeMdInjector:
     async def inject_to_file(
         self,
         output_path: Path,
-        project_root: Optional[Path] = None,
+        project_root: Path | None = None,
         token_budget: int = 50000,
-        filter: Optional[RuleFilter] = None,
+        filter: RuleFilter | None = None,
     ) -> bool:
         """
         Generate injected content and write to file.
@@ -285,8 +282,8 @@ class ClaudeMdInjector:
 
     def start_watching(
         self,
-        project_root: Optional[Path] = None,
-        callback: Optional[Callable[[Path], None]] = None,
+        project_root: Path | None = None,
+        callback: Callable[[Path], None] | None = None,
     ) -> bool:
         """
         Start watching CLAUDE.md files for changes.
@@ -390,7 +387,7 @@ class ClaudeMdInjector:
             return ""
 
     async def _get_memory_rules_content(
-        self, token_budget: int, filter: Optional[RuleFilter] = None
+        self, token_budget: int, filter: RuleFilter | None = None
     ) -> str:
         """
         Retrieve and format memory rules.
@@ -445,7 +442,7 @@ class ClaudeMdInjector:
 # Convenience function for quick injection
 async def inject_claude_md_content(
     memory_manager: MemoryManager,
-    project_root: Optional[Path] = None,
+    project_root: Path | None = None,
     token_budget: int = 50000,
 ) -> str:
     """

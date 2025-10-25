@@ -5,16 +5,17 @@ Tests grammar installation, uninstallation, version management,
 and error handling.
 """
 
-import pytest
-import tempfile
 import shutil
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
 import subprocess
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from src.python.common.core.grammar_installer import (
     GrammarInstaller,
-    InstallationResult
+    InstallationResult,
 )
 
 

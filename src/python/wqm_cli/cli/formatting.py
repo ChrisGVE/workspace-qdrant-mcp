@@ -5,13 +5,11 @@ to ensure consistent, professional-looking output across the interface.
 Standardizes on Rich Panel and Table formatting used by service commands.
 """
 
-from typing import Any, Dict, List, Optional, Union
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
-
 
 # Create global console instance for consistent formatting
 console = Console()
@@ -19,7 +17,7 @@ console = Console()
 
 def success_panel(message: str, title: str = "Success") -> None:
     """Display a success message in a green panel.
-    
+
     Args:
         message: Success message content
         title: Panel title (default: "Success")
@@ -35,7 +33,7 @@ def success_panel(message: str, title: str = "Success") -> None:
 
 def error_panel(message: str, title: str = "Error") -> None:
     """Display an error message in a red panel.
-    
+
     Args:
         message: Error message content
         title: Panel title (default: "Error")
@@ -51,7 +49,7 @@ def error_panel(message: str, title: str = "Error") -> None:
 
 def warning_panel(message: str, title: str = "Warning") -> None:
     """Display a warning message in a yellow panel.
-    
+
     Args:
         message: Warning message content
         title: Panel title (default: "Warning")
@@ -67,7 +65,7 @@ def warning_panel(message: str, title: str = "Warning") -> None:
 
 def info_panel(message: str, title: str = "Information") -> None:
     """Display an info message in a blue panel.
-    
+
     Args:
         message: Info message content
         title: Panel title (default: "Information")
@@ -83,7 +81,7 @@ def info_panel(message: str, title: str = "Information") -> None:
 
 def simple_success(message: str) -> None:
     """Display a simple success message without panel.
-    
+
     Args:
         message: Success message content
     """
@@ -92,7 +90,7 @@ def simple_success(message: str) -> None:
 
 def simple_error(message: str) -> None:
     """Display a simple error message without panel.
-    
+
     Args:
         message: Error message content
     """
@@ -101,7 +99,7 @@ def simple_error(message: str) -> None:
 
 def simple_warning(message: str) -> None:
     """Display a simple warning message without panel.
-    
+
     Args:
         message: Warning message content
     """
@@ -110,7 +108,7 @@ def simple_warning(message: str) -> None:
 
 def simple_info(message: str) -> None:
     """Display a simple info message without panel.
-    
+
     Args:
         message: Info message content
     """
@@ -119,10 +117,10 @@ def simple_info(message: str) -> None:
 
 def create_status_table(title: str) -> Table:
     """Create a standardized status table with consistent styling.
-    
+
     Args:
         title: Table title
-        
+
     Returns:
         Configured Rich Table instance
     """
@@ -132,13 +130,13 @@ def create_status_table(title: str) -> Table:
     return table
 
 
-def create_data_table(title: str, headers: List[str]) -> Table:
+def create_data_table(title: str, headers: list[str]) -> Table:
     """Create a standardized data table with consistent styling.
-    
+
     Args:
         title: Table title
         headers: Column headers
-        
+
     Returns:
         Configured Rich Table instance
     """
@@ -150,7 +148,7 @@ def create_data_table(title: str, headers: List[str]) -> Table:
 
 def display_table_or_empty(table: Table, empty_message: str) -> None:
     """Display a table if it has rows, otherwise show empty message.
-    
+
     Args:
         table: Rich Table instance
         empty_message: Message to show if table is empty
@@ -163,11 +161,11 @@ def display_table_or_empty(table: Table, empty_message: str) -> None:
 
 def format_rule_summary(rules_count: int, tokens_estimate: int) -> str:
     """Format a summary string for memory rules.
-    
+
     Args:
         rules_count: Number of rules
         tokens_estimate: Estimated token count
-        
+
     Returns:
         Formatted summary string
     """
@@ -176,11 +174,11 @@ def format_rule_summary(rules_count: int, tokens_estimate: int) -> str:
 
 def format_status_text(status: str, is_running: bool) -> Text:
     """Format status text with appropriate color coding.
-    
+
     Args:
         status: Status string
         is_running: Whether the item is running
-        
+
     Returns:
         Rich Text with color styling
     """
@@ -201,12 +199,12 @@ def format_status_text(status: str, is_running: bool) -> Text:
 
 def format_boolean_text(value: bool, true_text: str = "Yes", false_text: str = "No") -> str:
     """Format boolean values consistently.
-    
+
     Args:
         value: Boolean value
         true_text: Text to show for True (default: "Yes")
         false_text: Text to show for False (default: "No")
-        
+
     Returns:
         Formatted boolean string
     """
@@ -215,12 +213,12 @@ def format_boolean_text(value: bool, true_text: str = "Yes", false_text: str = "
 
 def truncate_text(text: str, max_length: int, suffix: str = "...") -> str:
     """Truncate text to maximum length with suffix.
-    
+
     Args:
         text: Text to truncate
         max_length: Maximum length
         suffix: Suffix to add when truncated (default: "...")
-        
+
     Returns:
         Truncated text
     """
@@ -229,13 +227,13 @@ def truncate_text(text: str, max_length: int, suffix: str = "...") -> str:
     return text[:max_length - len(suffix)] + suffix
 
 
-def format_list_items(items: List[str], prefix: str = "  • ") -> List[str]:
+def format_list_items(items: list[str], prefix: str = "  • ") -> list[str]:
     """Format a list of items with consistent bullet points.
-    
+
     Args:
         items: List of items to format
         prefix: Prefix for each item (default: "  • ")
-        
+
     Returns:
         List of formatted strings
     """
@@ -244,7 +242,7 @@ def format_list_items(items: List[str], prefix: str = "  • ") -> List[str]:
 
 def print_section_header(title: str, char: str = "=") -> None:
     """Print a section header with underline.
-    
+
     Args:
         title: Section title
         char: Character to use for underline (default: "=")
@@ -255,7 +253,7 @@ def print_section_header(title: str, char: str = "=") -> None:
 
 def print_subsection_header(title: str, char: str = "-") -> None:
     """Print a subsection header with underline.
-    
+
     Args:
         title: Subsection title
         char: Character to use for underline (default: "-")
@@ -272,7 +270,7 @@ def display_operation_result(
     error_title: str = "Error"
 ) -> None:
     """Display operation result with appropriate formatting.
-    
+
     Args:
         success: Whether operation succeeded
         success_message: Message to show on success

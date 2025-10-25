@@ -32,7 +32,6 @@ Example:
 """
 
 import re
-from typing import Dict, List, Optional, Set, Tuple
 from dataclasses import dataclass
 
 from loguru import logger
@@ -46,7 +45,7 @@ class CollectionNamingRule:
     description: str          # Human-readable description
     scope: str               # 'project' or 'global'
     required_suffix: bool    # Whether a project suffix is required
-    allowed_types: Set[str]  # Allowed collection types for this pattern
+    allowed_types: set[str]  # Allowed collection types for this pattern
 
 
 class ProjectCollectionValidator:
@@ -84,7 +83,7 @@ class ProjectCollectionValidator:
         """Initialize the collection naming validator."""
         self.naming_rules = self._initialize_naming_rules()
 
-    def _initialize_naming_rules(self) -> List[CollectionNamingRule]:
+    def _initialize_naming_rules(self) -> list[CollectionNamingRule]:
         """Initialize the collection naming rules."""
         return [
             CollectionNamingRule(
@@ -113,9 +112,9 @@ class ProjectCollectionValidator:
     def validate_collection_name(
         self,
         collection_name: str,
-        project_name: Optional[str] = None,
-        collection_type: Optional[str] = None
-    ) -> Dict[str, any]:
+        project_name: str | None = None,
+        collection_type: str | None = None
+    ) -> dict[str, any]:
         """
         Validate a collection name against naming conventions.
 
@@ -179,7 +178,7 @@ class ProjectCollectionValidator:
 
         return result
 
-    def _detect_naming_pattern(self, collection_name: str) -> Optional[str]:
+    def _detect_naming_pattern(self, collection_name: str) -> str | None:
         """Detect which naming pattern a collection name follows."""
         # Check for project pattern (contains hyphen)
         if '-' in collection_name and not collection_name.startswith('-') and not collection_name.endswith('-'):
@@ -200,9 +199,9 @@ class ProjectCollectionValidator:
     def _validate_project_collection(
         self,
         collection_name: str,
-        project_name: Optional[str],
-        collection_type: Optional[str],
-        result: Dict
+        project_name: str | None,
+        collection_type: str | None,
+        result: dict
     ):
         """Validate a project-scoped collection name."""
         parts = collection_name.split('-')
@@ -233,8 +232,8 @@ class ProjectCollectionValidator:
     def _validate_global_collection(
         self,
         collection_name: str,
-        collection_type: Optional[str],
-        result: Dict
+        collection_type: str | None,
+        result: dict
     ):
         """Validate a global collection name."""
         # Check if it's a known global type
@@ -246,7 +245,7 @@ class ProjectCollectionValidator:
 
         logger.debug(f"Validated global collection: {collection_name}")
 
-    def check_naming_conflicts(self, collection_names: List[str]) -> List[Dict[str, any]]:
+    def check_naming_conflicts(self, collection_names: list[str]) -> list[dict[str, any]]:
         """
         Check for naming conflicts between collections.
 
@@ -320,13 +319,13 @@ class ProjectCollectionValidator:
         escaped_project = re.escape(project_name)
         return f"^{escaped_project}-[a-z0-9][a-z0-9\\-]*$"
 
-    def extract_project_from_collection(self, collection_name: str) -> Optional[str]:
+    def extract_project_from_collection(self, collection_name: str) -> str | None:
         """Extract the project name from a collection name if it follows project pattern."""
         if self._detect_naming_pattern(collection_name) == 'project':
             return collection_name.split('-')[0]
         return None
 
-    def extract_type_from_collection(self, collection_name: str) -> Optional[str]:
+    def extract_type_from_collection(self, collection_name: str) -> str | None:
         """Extract the collection type from a collection name."""
         pattern = self._detect_naming_pattern(collection_name)
 

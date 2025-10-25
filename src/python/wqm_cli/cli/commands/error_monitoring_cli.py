@@ -15,15 +15,8 @@ import asyncio
 import json
 import signal
 from datetime import datetime
-from typing import Optional
 
 import typer
-from loguru import logger
-from rich.console import Console
-from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
-
 from common.core.error_message_manager import ErrorMessageManager
 from common.core.error_monitoring import (
     ErrorMetricsCollector,
@@ -32,13 +25,16 @@ from common.core.error_monitoring import (
     LoggingHook,
     WebhookHook,
 )
+from loguru import logger
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
 
 from ..utils import (
     create_command_app,
     error_message,
     handle_async,
-    success_message,
-    warning_message,
 )
 
 # Create the monitoring commands app (to be registered under errors_app)
@@ -306,7 +302,7 @@ async def _start_monitoring(webhook: str, interval: int) -> None:
         health_manager = HealthCheckManager(error_manager)
         await health_manager.initialize()
 
-        console.print(f"[green]Starting error monitoring...[/green]")
+        console.print("[green]Starting error monitoring...[/green]")
         console.print(f"[cyan]Webhook:[/cyan] {webhook}")
         console.print(f"[cyan]Interval:[/cyan] {interval} seconds")
         console.print("[yellow]Press Ctrl+C to stop[/yellow]")

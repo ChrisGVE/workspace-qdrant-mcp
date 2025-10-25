@@ -19,13 +19,13 @@ import signal
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 import pytest
 
 
 def run_wqm_command(
-    command: list, env: Optional[Dict] = None, timeout: int = 30
+    command: list, env: dict | None = None, timeout: int = 30
 ) -> subprocess.CompletedProcess:
     """Run wqm CLI command via subprocess."""
     full_command = ["uv", "run", "wqm"] + command
@@ -182,7 +182,7 @@ class TestCommandInterruption:
         watch_dir = test_workspace["workspace"]
 
         # Start watch add and interrupt quickly
-        result = run_wqm_command_interruptible(
+        run_wqm_command_interruptible(
             [
                 "watch",
                 "add",
@@ -216,7 +216,7 @@ class TestCommandInterruption:
         small_file = test_workspace["small_file"]
 
         # Send interrupt very early
-        result = run_wqm_command_interruptible(
+        run_wqm_command_interruptible(
             ["ingest", "file", str(small_file), "--collection", test_collection],
             interrupt_after=0.05,
             signal_type=signal.SIGINT,
@@ -258,7 +258,7 @@ class TestPartialOperationHandling:
         empty_dir = tmp_path / "empty_folder"
         empty_dir.mkdir()
 
-        result = run_wqm_command(
+        run_wqm_command(
             ["ingest", "folder", str(empty_dir), "--collection", test_collection]
         )
 
@@ -272,7 +272,7 @@ class TestPartialOperationHandling:
 
     def test_watch_nonexistent_path_atomicity(self, test_collection):
         """Test atomicity when adding watch for nonexistent path."""
-        result = run_wqm_command(
+        run_wqm_command(
             [
                 "watch",
                 "add",
@@ -310,7 +310,7 @@ class TestPartialOperationHandling:
             time.sleep(1)
 
             # Try to add same watch again
-            result2 = run_wqm_command(
+            run_wqm_command(
                 ["watch", "add", str(watch_dir), "--collection", test_collection]
             )
 
@@ -371,7 +371,7 @@ class TestStateConsistency:
         watch_dir = test_workspace["workspace"]
 
         # Interrupt watch add
-        result = run_wqm_command_interruptible(
+        run_wqm_command_interruptible(
             ["watch", "add", str(watch_dir), "--collection", test_collection],
             interrupt_after=0.1,
         )
@@ -530,7 +530,7 @@ class TestConcurrentInterruptions:
             time.sleep(0.1)
 
         # Try to interrupt another operation
-        result = run_wqm_command_interruptible(
+        run_wqm_command_interruptible(
             [
                 "ingest",
                 "file",

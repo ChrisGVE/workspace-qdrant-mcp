@@ -49,35 +49,36 @@ Example:
 """
 
 import asyncio
-import json
-import os
-import psutil
-import resource
-import signal
-import subprocess
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import asynccontextmanager
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from enum import Enum
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 from weakref import WeakSet
 
+import psutil
 from loguru import logger
 
+from .automatic_recovery import RecoveryManager
 from .component_coordination import (
     ComponentCoordinator,
-    ComponentType,
-    ComponentStatus,
     ComponentHealth,
-    ProcessingQueueType,
+    ComponentType,
 )
-from .component_lifecycle import ComponentLifecycleManager, ComponentState, LifecyclePhase
-from .graceful_degradation import DegradationManager, DegradationMode, CircuitBreakerState
-from .automatic_recovery import RecoveryManager, RecoveryStrategy, RecoveryTrigger
-from .lsp_health_monitor import LspHealthMonitor, HealthStatus, NotificationLevel, UserNotification
+from .component_lifecycle import (
+    ComponentLifecycleManager,
+)
+from .graceful_degradation import (
+    DegradationManager,
+)
+from .lsp_health_monitor import (
+    LspHealthMonitor,
+    NotificationLevel,
+    UserNotification,
+)
 
 
 class IsolationStrategy(Enum):
@@ -126,14 +127,14 @@ class ResourceType(Enum):
 class ResourceLimits:
     """Resource limits for component isolation."""
 
-    cpu_limit_percent: Optional[float] = None      # CPU usage limit (0-100%)
-    memory_limit_mb: Optional[int] = None          # Memory limit in MB
-    disk_limit_mb: Optional[int] = None            # Disk usage limit in MB
-    disk_io_limit_mbps: Optional[float] = None     # Disk I/O limit in MB/s
-    network_io_limit_mbps: Optional[float] = None  # Network I/O limit in MB/s
-    max_file_descriptors: Optional[int] = None     # Max open file descriptors
-    max_processes: Optional[int] = None            # Max child processes
-    max_threads: Optional[int] = None              # Max threads per component
+    cpu_limit_percent: float | None = None      # CPU usage limit (0-100%)
+    memory_limit_mb: int | None = None          # Memory limit in MB
+    disk_limit_mb: int | None = None            # Disk usage limit in MB
+    disk_io_limit_mbps: float | None = None     # Disk I/O limit in MB/s
+    network_io_limit_mbps: float | None = None  # Network I/O limit in MB/s
+    max_file_descriptors: int | None = None     # Max open file descriptors
+    max_processes: int | None = None            # Max child processes
+    max_threads: int | None = None              # Max threads per component
 
     # Enforcement settings
     enforce_cpu: bool = True
@@ -153,19 +154,19 @@ class ComponentBoundary:
     retry_count: int = 3
     retry_delay_seconds: float = 1.0
     circuit_breaker_enabled: bool = True
-    fallback_strategy: Optional[str] = None
+    fallback_strategy: str | None = None
     isolation_level: IsolationStrategy = IsolationStrategy.COMMUNICATION_BOUNDARIES
 
     # Error handling
-    allowed_exceptions: Set[str] = field(default_factory=set)
-    critical_exceptions: Set[str] = field(default_factory=set)
+    allowed_exceptions: set[str] = field(default_factory=set)
+    critical_exceptions: set[str] = field(default_factory=set)
     max_error_rate: float = 0.1  # 10% error rate threshold
     error_window_seconds: int = 300  # 5-minute error window
 
     # Resource protection
     max_concurrent_calls: int = 100
     queue_timeout_seconds: float = 10.0
-    memory_threshold_mb: Optional[int] = None
+    memory_threshold_mb: int | None = None
 
 
 @dataclass
@@ -179,11 +180,11 @@ class IsolationEvent:
     trigger_reason: str
     action_taken: str
     impact_level: FailureImpact
-    resource_usage: Dict[str, float]
-    error_details: Optional[Dict[str, Any]] = None
+    resource_usage: dict[str, float]
+    error_details: dict[str, Any] | None = None
     recovery_triggered: bool = False
     timestamp: datetime = None
-    metadata: Dict[str, Any] = None
+    metadata: dict[str, Any] = None
 
     def __post_init__(self):
         if self.timestamp is None:
@@ -198,10 +199,10 @@ class ProcessInfo:
 
     component_type: ComponentType
     process_id: int
-    parent_process_id: Optional[int]
-    command_line: List[str]
+    parent_process_id: int | None
+    command_line: list[str]
     working_directory: str
-    environment: Dict[str, str]
+    environment: dict[str, str]
     resource_limits: ResourceLimits
     start_time: datetime
 
@@ -215,10 +216,10 @@ class ProcessInfo:
 
     # Status tracking
     is_running: bool = True
-    exit_code: Optional[int] = None
-    termination_reason: Optional[str] = None
-    last_health_check: Optional[datetime] = None
-    resource_violations: List[str] = field(default_factory=list)
+    exit_code: int | None = None
+    termination_reason: str | None = None
+    last_health_check: datetime | None = None
+    resource_violations: list[str] = field(default_factory=list)
 
 
 class ComponentIsolationManager:
@@ -303,12 +304,12 @@ class ComponentIsolationManager:
 
     def __init__(
         self,
-        lifecycle_manager: Optional[ComponentLifecycleManager] = None,
-        coordinator: Optional[ComponentCoordinator] = None,
-        degradation_manager: Optional[DegradationManager] = None,
-        recovery_manager: Optional[RecoveryManager] = None,
-        health_monitor: Optional[LspHealthMonitor] = None,
-        config: Optional[Dict[str, Any]] = None
+        lifecycle_manager: ComponentLifecycleManager | None = None,
+        coordinator: ComponentCoordinator | None = None,
+        degradation_manager: DegradationManager | None = None,
+        recovery_manager: RecoveryManager | None = None,
+        health_monitor: LspHealthMonitor | None = None,
+        config: dict[str, Any] | None = None
     ):
         """
         Initialize component isolation manager.
@@ -329,27 +330,27 @@ class ComponentIsolationManager:
         self.config = config or {}
 
         # Isolation state
-        self.component_processes: Dict[str, ProcessInfo] = {}
-        self.resource_limits: Dict[ComponentType, ResourceLimits] = {}
-        self.component_boundaries: Dict[ComponentType, ComponentBoundary] = {}
-        self.active_boundaries: Dict[str, List[str]] = {}  # component_id -> list of active boundary calls
+        self.component_processes: dict[str, ProcessInfo] = {}
+        self.resource_limits: dict[ComponentType, ResourceLimits] = {}
+        self.component_boundaries: dict[ComponentType, ComponentBoundary] = {}
+        self.active_boundaries: dict[str, list[str]] = {}  # component_id -> list of active boundary calls
 
         # Error tracking and boundaries
-        self.error_counts: Dict[str, List[datetime]] = {}
-        self.isolation_events: List[IsolationEvent] = []
-        self.boundary_violations: Dict[str, int] = {}
+        self.error_counts: dict[str, list[datetime]] = {}
+        self.isolation_events: list[IsolationEvent] = []
+        self.boundary_violations: dict[str, int] = {}
 
         # Resource monitoring
-        self.resource_usage_history: Dict[str, List[Tuple[datetime, Dict[str, float]]]] = {}
+        self.resource_usage_history: dict[str, list[tuple[datetime, dict[str, float]]]] = {}
 
         # Background tasks
-        self.monitoring_tasks: List[asyncio.Task] = []
+        self.monitoring_tasks: list[asyncio.Task] = []
         self.shutdown_event = asyncio.Event()
 
         # Timeout and concurrency management
-        self.active_calls: Dict[str, Set[str]] = {}  # component_id -> set of call_ids
-        self.call_timeouts: Dict[str, asyncio.Handle] = {}  # call_id -> timeout handle
-        self.semaphores: Dict[ComponentType, asyncio.Semaphore] = {}
+        self.active_calls: dict[str, set[str]] = {}  # component_id -> set of call_ids
+        self.call_timeouts: dict[str, asyncio.Handle] = {}  # call_id -> timeout handle
+        self.semaphores: dict[ComponentType, asyncio.Semaphore] = {}
 
         # Notification handlers
         self.notification_handlers: WeakSet[Callable[[UserNotification], None]] = WeakSet()
@@ -446,7 +447,7 @@ class ComponentIsolationManager:
         except Exception as e:
             logger.error(f"Failed to discover existing processes: {e}")
 
-    def _identify_component_from_cmdline(self, cmdline: List[str]) -> Optional[ComponentType]:
+    def _identify_component_from_cmdline(self, cmdline: list[str]) -> ComponentType | None:
         """Identify component type from command line."""
         if not cmdline:
             return None
@@ -799,7 +800,7 @@ class ComponentIsolationManager:
 
     async def _cleanup_expired_timeouts(self):
         """Clean up expired timeout handles and stale calls."""
-        current_time = time.time()
+        time.time()
         expired_calls = []
 
         for call_id, timeout_handle in list(self.call_timeouts.items()):
@@ -811,7 +812,7 @@ class ComponentIsolationManager:
             del self.call_timeouts[call_id]
 
             # Remove from active calls
-            for component_id, call_set in self.active_calls.items():
+            for _component_id, call_set in self.active_calls.items():
                 call_set.discard(call_id)
 
         if expired_calls:
@@ -855,7 +856,7 @@ class ComponentIsolationManager:
         self,
         component_type: ComponentType,
         operation_name: str = "unknown",
-        timeout_override: Optional[float] = None,
+        timeout_override: float | None = None,
         allow_degraded: bool = False
     ):
         """
@@ -1058,7 +1059,7 @@ class ComponentIsolationManager:
         self.resource_limits[component_type] = resource_limits
 
         # Update existing processes
-        for component_id, process_info in self.component_processes.items():
+        for _component_id, process_info in self.component_processes.items():
             if process_info.component_type == component_type:
                 process_info.resource_limits = resource_limits
 
@@ -1083,7 +1084,7 @@ class ComponentIsolationManager:
 
         logger.info(f"Updated boundary configuration for {component_type.value}")
 
-    async def get_isolation_status(self) -> Dict[str, Any]:
+    async def get_isolation_status(self) -> dict[str, Any]:
         """
         Get comprehensive isolation status.
 
@@ -1177,7 +1178,7 @@ class ComponentIsolationManager:
         await self._trigger_component_isolation(component_type, reason)
         logger.warning(f"Component manually isolated: {component_type.value}")
 
-    async def _terminate_violating_process(self, component_id: str, violations: List[str]):
+    async def _terminate_violating_process(self, component_id: str, violations: list[str]):
         """Terminate a process that violates resource limits."""
         logger.warning(f"Terminating process {component_id} due to resource violations: {violations}")
 
@@ -1219,7 +1220,7 @@ class ComponentIsolationManager:
         except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
             logger.error(f"Failed to terminate process {component_id}: {e}")
 
-    async def _send_resource_violation_notification(self, component_id: str, violations: List[str]):
+    async def _send_resource_violation_notification(self, component_id: str, violations: list[str]):
         """Send notification about resource violations."""
         title = f"Resource Violation: {component_id}"
         message = f"Component {component_id} has exceeded resource limits: {', '.join(violations)}"
@@ -1401,16 +1402,16 @@ class TimeoutWarning(Warning):
 
 
 # Global isolation manager instance
-_isolation_manager: Optional[ComponentIsolationManager] = None
+_isolation_manager: ComponentIsolationManager | None = None
 
 
 async def get_isolation_manager(
-    lifecycle_manager: Optional[ComponentLifecycleManager] = None,
-    coordinator: Optional[ComponentCoordinator] = None,
-    degradation_manager: Optional[DegradationManager] = None,
-    recovery_manager: Optional[RecoveryManager] = None,
-    health_monitor: Optional[LspHealthMonitor] = None,
-    config: Optional[Dict[str, Any]] = None
+    lifecycle_manager: ComponentLifecycleManager | None = None,
+    coordinator: ComponentCoordinator | None = None,
+    degradation_manager: DegradationManager | None = None,
+    recovery_manager: RecoveryManager | None = None,
+    health_monitor: LspHealthMonitor | None = None,
+    config: dict[str, Any] | None = None
 ) -> ComponentIsolationManager:
     """Get or create global component isolation manager instance."""
     global _isolation_manager

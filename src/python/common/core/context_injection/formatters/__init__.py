@@ -6,8 +6,8 @@ LLM-specific formats (Claude Code, GitHub Codex, Google Gemini).
 """
 
 from .base import (
-    FormatType,
     FormattedContext,
+    FormatType,
     LLMToolAdapter,
     ToolCapabilities,
 )

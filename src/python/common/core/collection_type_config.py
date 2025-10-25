@@ -37,13 +37,15 @@ Usage:
     ```
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple, Any, Callable
+from typing import Any
+
 from loguru import logger
 
 try:
-    from .collection_types import CollectionType, CollectionInfo
+    from .collection_types import CollectionInfo, CollectionType
 except ImportError:
     # Fallback for development/testing
     logger.warning("Collection types not available, using fallback definitions")
@@ -85,15 +87,15 @@ class MetadataFieldSpec:
     field_type: MetadataFieldType
     required: bool = True
     default: Any = None
-    min_length: Optional[int] = None
-    max_length: Optional[int] = None
-    min_value: Optional[float] = None
-    max_value: Optional[float] = None
-    allowed_values: Optional[Set[Any]] = None
-    pattern: Optional[str] = None
+    min_length: int | None = None
+    max_length: int | None = None
+    min_value: float | None = None
+    max_value: float | None = None
+    allowed_values: set[Any] | None = None
+    pattern: str | None = None
     description: str = ""
 
-    def validate(self, value: Any) -> Tuple[bool, Optional[str]]:
+    def validate(self, value: Any) -> tuple[bool, str | None]:
         """
         Validate a value against this field specification.
 
@@ -180,7 +182,7 @@ class MigrationSettings:
     """Migration compatibility settings for a collection type."""
 
     supports_legacy_format: bool = False
-    legacy_collection_patterns: List[str] = field(default_factory=list)
+    legacy_collection_patterns: list[str] = field(default_factory=list)
     migration_batch_size: int = 50
     auto_detect_legacy: bool = False
     preserve_legacy_metadata: bool = True
@@ -208,14 +210,14 @@ class CollectionTypeConfig:
 
     collection_type: CollectionType
     deletion_mode: DeletionMode
-    required_metadata_fields: List[MetadataFieldSpec] = field(default_factory=list)
-    optional_metadata_fields: List[MetadataFieldSpec] = field(default_factory=list)
+    required_metadata_fields: list[MetadataFieldSpec] = field(default_factory=list)
+    optional_metadata_fields: list[MetadataFieldSpec] = field(default_factory=list)
     performance_settings: PerformanceSettings = field(default_factory=PerformanceSettings)
     migration_settings: MigrationSettings = field(default_factory=MigrationSettings)
-    validation_rules: List[Callable[[Dict[str, Any]], Tuple[bool, Optional[str]]]] = field(default_factory=list)
+    validation_rules: list[Callable[[dict[str, Any]], tuple[bool, str | None]]] = field(default_factory=list)
     description: str = ""
 
-    def validate_metadata(self, metadata: Dict[str, Any]) -> Tuple[bool, List[str]]:
+    def validate_metadata(self, metadata: dict[str, Any]) -> tuple[bool, list[str]]:
         """
         Validate metadata against this configuration.
 
@@ -250,22 +252,22 @@ class CollectionTypeConfig:
 
         return len(errors) == 0, errors
 
-    def get_required_field_names(self) -> Set[str]:
+    def get_required_field_names(self) -> set[str]:
         """Get the names of all required metadata fields."""
         return {field.name for field in self.required_metadata_fields}
 
-    def get_all_field_names(self) -> Set[str]:
+    def get_all_field_names(self) -> set[str]:
         """Get the names of all metadata fields (required and optional)."""
         return {field.name for field in self.required_metadata_fields + self.optional_metadata_fields}
 
-    def get_field_spec(self, field_name: str) -> Optional[MetadataFieldSpec]:
+    def get_field_spec(self, field_name: str) -> MetadataFieldSpec | None:
         """Get the specification for a specific field."""
         for field_spec in self.required_metadata_fields + self.optional_metadata_fields:
             if field_spec.name == field_name:
                 return field_spec
         return None
 
-    def get_default_metadata(self) -> Dict[str, Any]:
+    def get_default_metadata(self) -> dict[str, Any]:
         """Get a dictionary of default values for all fields with defaults."""
         defaults = {}
         for field_spec in self.required_metadata_fields + self.optional_metadata_fields:
@@ -586,7 +588,7 @@ def _create_global_config() -> CollectionTypeConfig:
 
 
 # Configuration registry
-_TYPE_CONFIGS: Dict[CollectionType, CollectionTypeConfig] = {
+_TYPE_CONFIGS: dict[CollectionType, CollectionTypeConfig] = {
     CollectionType.SYSTEM: _create_system_config(),
     CollectionType.LIBRARY: _create_library_config(),
     CollectionType.PROJECT: _create_project_config(),
@@ -612,7 +614,7 @@ def get_type_config(collection_type: CollectionType) -> CollectionTypeConfig:
     return _TYPE_CONFIGS[collection_type]
 
 
-def get_all_type_configs() -> Dict[CollectionType, CollectionTypeConfig]:
+def get_all_type_configs() -> dict[CollectionType, CollectionTypeConfig]:
     """
     Get all collection type configurations.
 
@@ -624,8 +626,8 @@ def get_all_type_configs() -> Dict[CollectionType, CollectionTypeConfig]:
 
 def validate_metadata_for_type(
     collection_type: CollectionType,
-    metadata: Dict[str, Any]
-) -> Tuple[bool, List[str]]:
+    metadata: dict[str, Any]
+) -> tuple[bool, list[str]]:
     """
     Validate metadata against a specific collection type's configuration.
 

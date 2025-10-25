@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from loguru import logger
 
@@ -33,7 +33,6 @@ from .rule_prioritizer import (
     RulePrioritizer,
     RulePriorityScore,
 )
-from .token_budget import TokenCounter
 
 
 class TrimDecisionType(Enum):
@@ -85,12 +84,12 @@ class TrimSession:
     tool_name: str
     budget: int
     strategy: PrioritizationStrategy
-    decisions: Dict[str, TrimDecision] = field(default_factory=dict)
+    decisions: dict[str, TrimDecision] = field(default_factory=dict)
     total_tokens_used: int = 0
     rules_included: int = 0
     rules_excluded: int = 0
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -179,11 +178,11 @@ class InteractiveTrimmer:
 
     def __init__(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         budget: int,
         tool_name: str,
         prioritizer: RulePrioritizer,
-        strategy: Optional[PrioritizationStrategy] = None,
+        strategy: PrioritizationStrategy | None = None,
         protect_absolute: bool = True,
         auto_apply_suggestions: bool = False,
     ):
@@ -212,18 +211,18 @@ class InteractiveTrimmer:
         )
 
         # Build score lookup
-        self.scores_by_id: Dict[str, RulePriorityScore] = {
+        self.scores_by_id: dict[str, RulePriorityScore] = {
             score.rule_id: score for score in self.prioritization.priority_scores
         }
 
         # Track selection state (rule_id -> included boolean)
-        self.selection: Dict[str, bool] = {}
+        self.selection: dict[str, bool] = {}
 
         # Track decision types (rule_id -> TrimDecision)
-        self.decisions: Dict[str, TrimDecision] = {}
+        self.decisions: dict[str, TrimDecision] = {}
 
         # Identify protected rules
-        self.protected_rules: Set[str] = (
+        self.protected_rules: set[str] = (
             {r.id for r in rules if r.authority == AuthorityLevel.ABSOLUTE}
             if protect_absolute
             else set()
@@ -248,7 +247,7 @@ class InteractiveTrimmer:
             f"budget={budget}, strategy={self.strategy.value}"
         )
 
-    def apply_auto_suggestions(self) -> Dict[str, Any]:
+    def apply_auto_suggestions(self) -> dict[str, Any]:
         """
         Apply automatic trimming suggestions from prioritizer.
 
@@ -376,7 +375,7 @@ class InteractiveTrimmer:
         if self.selection.get(rule_id, True):
             self.toggle_rule(rule_id)
 
-    def reset_to_auto_suggestions(self) -> Dict[str, Any]:
+    def reset_to_auto_suggestions(self) -> dict[str, Any]:
         """
         Reset all selections to automatic suggestions.
 
@@ -469,7 +468,7 @@ class InteractiveTrimmer:
 
     def get_rule_displays(
         self, sort_by: str = "priority"
-    ) -> List[RuleDisplay]:
+    ) -> list[RuleDisplay]:
         """
         Get rule display information for UI rendering.
 
@@ -525,7 +524,7 @@ class InteractiveTrimmer:
 
         return displays
 
-    def get_comparison(self) -> Dict[str, Any]:
+    def get_comparison(self) -> dict[str, Any]:
         """
         Get before/after comparison of rule sets.
 
@@ -648,7 +647,7 @@ class InteractiveTrimmer:
         if not filepath.exists():
             raise FileNotFoundError(f"Session file not found: {filepath}")
 
-        with open(filepath, "r") as f:
+        with open(filepath) as f:
             session_dict = json.load(f)
 
         # Validate compatibility
@@ -679,7 +678,7 @@ class InteractiveTrimmer:
 
         logger.info(f"Loaded trimming session from {filepath}")
 
-    def get_selected_rules(self) -> List[MemoryRule]:
+    def get_selected_rules(self) -> list[MemoryRule]:
         """
         Get currently selected rules.
 
@@ -688,7 +687,7 @@ class InteractiveTrimmer:
         """
         return [r for r in self.rules if self.selection.get(r.id, True)]
 
-    def get_excluded_rules(self) -> List[MemoryRule]:
+    def get_excluded_rules(self) -> list[MemoryRule]:
         """
         Get currently excluded rules.
 

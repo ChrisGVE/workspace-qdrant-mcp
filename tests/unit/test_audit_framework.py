@@ -12,33 +12,32 @@ Tests cover all components with edge cases and error conditions:
 
 import asyncio
 import json
-import pytest
 import sqlite3
 import tempfile
+from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock
-from collections import defaultdict
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from src.python.common.security.audit_framework import (
-    AuditLogger,
-    ComplianceReporter,
-    AuditTrail,
     AuditEvent,
-    AuditLevel,
     AuditEventType,
+    AuditLevel,
+    AuditLogger,
+    AuditTrail,
     ComplianceFramework,
-    ComplianceRule
+    ComplianceReporter,
+    ComplianceRule,
 )
-
+from src.python.common.security.security_monitor import AlertLevel, SecurityAlert
 from src.python.common.security.threat_detection import (
+    SecurityEvent,
     ThreatDetection,
     ThreatLevel,
     ThreatType,
-    SecurityEvent
 )
-
-from src.python.common.security.security_monitor import SecurityAlert, AlertLevel
 
 
 class TestAuditEvent:
@@ -483,7 +482,7 @@ class TestAuditLogger:
     def test_database_initialization(self, temp_db):
         """Test database initialization and schema creation."""
         # Create logger to initialize database
-        logger = AuditLogger(database_path=temp_db)
+        AuditLogger(database_path=temp_db)
 
         # Check that tables were created
         with sqlite3.connect(temp_db) as conn:
@@ -801,7 +800,7 @@ class TestComplianceReporter:
         )
 
         assert valid_rule.rule_id == "VALID_001"
-        assert valid_rule.enabled == True
+        assert valid_rule.enabled
         assert len(valid_rule.remediation_advice) == 0
 
         # Rule with remediation advice

@@ -57,10 +57,10 @@ Example:
 
 import asyncio
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Callable, List, Optional, Tuple
 
 from loguru import logger
 
@@ -150,7 +150,7 @@ class BackpressureAlert:
 
     severity: BackpressureSeverity
     indicators: BackpressureIndicators
-    recommended_actions: List[str] = field(default_factory=list)
+    recommended_actions: list[str] = field(default_factory=list)
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
     def to_dict(self):
@@ -213,7 +213,7 @@ class BackpressureDetector:
     def __init__(
         self,
         stats_collector: QueueStatisticsCollector,
-        thresholds: Optional[BackpressureThresholds] = None,
+        thresholds: BackpressureThresholds | None = None,
     ):
         """
         Initialize backpressure detector.
@@ -227,19 +227,19 @@ class BackpressureDetector:
         self._initialized = False
 
         # Historical data for trend analysis
-        self._queue_size_history: deque[Tuple[datetime, int]] = deque(maxlen=100)
+        self._queue_size_history: deque[tuple[datetime, int]] = deque(maxlen=100)
         self._lock = asyncio.Lock()
 
         # Alert callbacks
-        self._callbacks: List[Callable] = []
+        self._callbacks: list[Callable] = []
 
         # Background monitoring
-        self._monitoring_task: Optional[asyncio.Task] = None
+        self._monitoring_task: asyncio.Task | None = None
         self._monitoring_interval: int = 60  # seconds
         self._shutdown_event = asyncio.Event()
 
         # Latest indicators cache
-        self._latest_indicators: Optional[BackpressureIndicators] = None
+        self._latest_indicators: BackpressureIndicators | None = None
 
     async def initialize(self):
         """Initialize the backpressure detector."""
@@ -266,7 +266,7 @@ class BackpressureDetector:
 
     async def detect_backpressure(
         self, queue_type: str = "ingestion_queue"
-    ) -> Optional[BackpressureAlert]:
+    ) -> BackpressureAlert | None:
         """
         Detect current backpressure state.
 
@@ -629,7 +629,7 @@ class BackpressureDetector:
 
     def _get_recommended_actions(
         self, severity: BackpressureSeverity, indicators: BackpressureIndicators
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Get recommended actions based on severity.
 

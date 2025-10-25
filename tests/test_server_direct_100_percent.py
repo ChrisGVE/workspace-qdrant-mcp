@@ -3,18 +3,19 @@ Direct test for 100% server.py coverage by calling functions directly.
 This bypasses FastMCP decorators and tests the actual function implementations.
 """
 
-import pytest
 import asyncio
-import sys
 import os
 import stat
 import subprocess
-from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock, call
-from typing import Dict, Any, List
+import sys
+import tempfile
 import uuid
 from datetime import datetime, timezone
-import tempfile
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 
 # Add source path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "python"))
@@ -71,25 +72,26 @@ class TestServerDirect:
         # Test ensure_collection_exists - success case
         mock_client.get_collection.return_value = Mock()
         result = await server_module.ensure_collection_exists("test-collection")
-        assert result == True
+        assert result
 
         # Test ensure_collection_exists - creation case
         mock_client.get_collection.side_effect = Exception("Not found")
         mock_client.create_collection.return_value = True
         result = await server_module.ensure_collection_exists("new-collection")
-        assert result == True
+        assert result
 
         # Test ensure_collection_exists - failure case
         mock_client.create_collection.side_effect = Exception("Creation failed")
         result = await server_module.ensure_collection_exists("fail-collection")
-        assert result == False
+        assert not result
 
     @pytest.mark.asyncio
     async def test_mcp_functions_comprehensive(self):
         """Test the MCP tool functions by accessing them directly through introspection."""
-        import workspace_qdrant_mcp.server as server_module
         import importlib
         import inspect
+
+        import workspace_qdrant_mcp.server as server_module
 
         # Reload module to get fresh function references
         importlib.reload(server_module)
@@ -109,20 +111,17 @@ class TestServerDirect:
 
         # Find the tool functions by looking for specific signatures
         store_func = None
-        search_func = None
-        manage_func = None
-        retrieve_func = None
         run_server_func = None
 
         for name, func in all_functions:
             if name == 'store':
                 store_func = func
             elif name == 'search':
-                search_func = func
+                pass
             elif name == 'manage':
-                manage_func = func
+                pass
             elif name == 'retrieve':
-                retrieve_func = func
+                pass
             elif name == 'run_server':
                 run_server_func = func
 
@@ -135,7 +134,12 @@ class TestServerDirect:
             # Create a mock function that exercises the code paths
             async def mock_store(content, **kwargs):
                 # This will exercise the import and execution paths
-                from workspace_qdrant_mcp.server import determine_collection_name, ensure_collection_exists, generate_embeddings, get_project_name
+                from workspace_qdrant_mcp.server import (
+                    determine_collection_name,
+                    ensure_collection_exists,
+                    generate_embeddings,
+                    get_project_name,
+                )
 
                 collection = determine_collection_name(content=content, project_name="test")
                 if not await ensure_collection_exists(collection):
@@ -172,11 +176,14 @@ class TestServerDirect:
         # Test the store function
         with patch('workspace_qdrant_mcp.server.ensure_collection_exists', return_value=True):
             result = await actual_store(content="Test content", title="Test")
-            assert result["success"] == True
+            assert result["success"]
 
         # Test search function paths by creating a comprehensive mock
         async def comprehensive_search_test():
-            from workspace_qdrant_mcp.server import generate_embeddings, get_project_name
+            from workspace_qdrant_mcp.server import (
+                generate_embeddings,
+                get_project_name,
+            )
 
             # Test semantic search path
             embeddings = await generate_embeddings("test query")
@@ -211,7 +218,7 @@ class TestServerDirect:
 
         # Test the search paths
         search_result = await comprehensive_search_test()
-        assert search_result["success"] == True
+        assert search_result["success"]
 
         # Test manage function paths
         async def comprehensive_manage_test():
@@ -267,7 +274,7 @@ class TestServerDirect:
 
         # Test the retrieve paths
         retrieve_result = await comprehensive_retrieve_test()
-        assert retrieve_result["success"] == True
+        assert retrieve_result["success"]
 
         # Test run_server function
         with patch('workspace_qdrant_mcp.server._detect_stdio_mode', return_value=True):

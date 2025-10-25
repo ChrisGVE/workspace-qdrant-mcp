@@ -8,6 +8,7 @@ management, configuration handling, and port allocation.
 
 # Patch json module to add JSONEncodeError if it doesn't exist
 import json
+
 if not hasattr(json, 'JSONEncodeError'):
     json.JSONEncodeError = json.JSONDecodeError
 
@@ -21,8 +22,8 @@ import tempfile
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, mock_open
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, mock_open, patch
 
 import pytest
 
@@ -37,8 +38,8 @@ from src.python.common.core.daemon_manager import (
     get_daemon_manager,
     shutdown_all_daemons,
 )
-from src.python.common.core.resource_manager import ResourceLimits
 from src.python.common.core.project_config_manager import DaemonProjectConfig
+from src.python.common.core.resource_manager import ResourceLimits
 from src.python.common.utils.project_detection import DaemonIdentifier, ProjectDetector
 
 
@@ -605,7 +606,7 @@ class TestDaemonInstance:
         mock_client.start = AsyncMock()
         mock_client.stop = AsyncMock()
 
-        mock_config_class = MagicMock()
+        MagicMock()
 
         # Patch at the import level in the health_check method
         with patch.object(daemon_instance, 'health_check') as mock_health_check:
@@ -637,7 +638,7 @@ class TestDaemonInstance:
         mock_client.start = AsyncMock()
         mock_client.stop = AsyncMock()
 
-        mock_config_class = MagicMock()
+        MagicMock()
 
         # Patch at the import level in the health_check method
         with patch.object(daemon_instance, 'health_check') as mock_health_check:
@@ -683,7 +684,7 @@ class TestDaemonInstance:
             mock_file.assert_called_once()
             # Verify JSON was written
             handle = mock_file()
-            written_calls = [call for call in handle.write.call_args_list]
+            written_calls = list(handle.write.call_args_list)
             assert len(written_calls) > 0
 
     @pytest.mark.asyncio
@@ -901,7 +902,7 @@ class TestDaemonManager:
     def test_setup_signal_handlers(self):
         """Test signal handler setup."""
         with patch('signal.signal') as mock_signal:
-            manager = DaemonManager()
+            DaemonManager()
 
             # Should set up signal handlers if available
             # Just verify that signal.signal was called with appropriate signals

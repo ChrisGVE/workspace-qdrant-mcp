@@ -13,7 +13,6 @@ Each tool has different token limits:
 """
 
 from dataclasses import dataclass
-from typing import Optional, Tuple
 
 from loguru import logger
 
@@ -150,7 +149,7 @@ class ToolTokenManager:
     @classmethod
     def validate_token_count(
         cls, tool_type: LLMToolType, token_count: int
-    ) -> Tuple[bool, Optional[str]]:
+    ) -> tuple[bool, str | None]:
         """
         Validate token count against tool's limit.
 
@@ -216,7 +215,7 @@ class ToolTokenManager:
         return True, None
 
     @classmethod
-    def get_recommended_budget(cls, tool_type: Optional[LLMToolType] = None) -> int:
+    def get_recommended_budget(cls, tool_type: LLMToolType | None = None) -> int:
         """
         Get recommended token budget for a tool (80% of max).
 

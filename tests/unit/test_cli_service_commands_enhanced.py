@@ -14,11 +14,12 @@ This test suite ensures complete coverage of wqm service commands.
 import asyncio
 import os
 import platform
+import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, MagicMock, call
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
 import pytest
-import sys
 from typer.testing import CliRunner
 
 # Add the project root to sys.path for imports

@@ -38,17 +38,15 @@ Example:
 """
 
 import asyncio
-import sqlite3
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any
 
 from loguru import logger
 
-from .queue_connection import QueueConnectionPool, ConnectionConfig
+from .queue_connection import ConnectionConfig, QueueConnectionPool
 
 
 @dataclass
@@ -76,12 +74,12 @@ class QueueStatistics:
     avg_processing_time: float = 0.0  # milliseconds
     items_added_rate: float = 0.0  # items/min
     items_removed_rate: float = 0.0  # items/min
-    priority_distribution: Dict[str, int] = field(default_factory=dict)
+    priority_distribution: dict[str, int] = field(default_factory=dict)
     retry_count: int = 0
     error_count: int = 0
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert to dictionary representation.
 
@@ -118,10 +116,10 @@ class ProcessingEvent:
     """
     timestamp: float
     event_type: str
-    processing_time: Optional[float] = None
+    processing_time: float | None = None
     queue_type: str = "ingestion_queue"
-    collection: Optional[str] = None
-    tenant_id: Optional[str] = None
+    collection: str | None = None
+    tenant_id: str | None = None
 
 
 class QueueStatisticsCollector:
@@ -134,8 +132,8 @@ class QueueStatisticsCollector:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        connection_config: Optional[ConnectionConfig] = None,
+        db_path: str | None = None,
+        connection_config: ConnectionConfig | None = None,
         window_1min: int = 60,
         window_5min: int = 300,
         window_15min: int = 900,
@@ -169,12 +167,12 @@ class QueueStatisticsCollector:
         self._lock = asyncio.Lock()
 
         # Background collection task
-        self._collection_task: Optional[asyncio.Task] = None
+        self._collection_task: asyncio.Task | None = None
         self._collection_interval: int = 5  # seconds
         self._shutdown_event = asyncio.Event()
 
         # Latest snapshot cache
-        self._latest_stats: Optional[QueueStatistics] = None
+        self._latest_stats: QueueStatistics | None = None
 
     def _get_default_db_path(self) -> str:
         """Get default database path from OS directories."""
@@ -208,10 +206,10 @@ class QueueStatisticsCollector:
     async def record_event(
         self,
         event_type: str,
-        processing_time: Optional[float] = None,
+        processing_time: float | None = None,
         queue_type: str = "ingestion_queue",
-        collection: Optional[str] = None,
-        tenant_id: Optional[str] = None
+        collection: str | None = None,
+        tenant_id: str | None = None
     ):
         """
         Record a processing event for statistics calculation.
@@ -526,8 +524,8 @@ class QueueStatisticsCollector:
     async def _get_queue_size(
         self,
         queue_type: str = "ingestion_queue",
-        collection: Optional[str] = None,
-        tenant_id: Optional[str] = None
+        collection: str | None = None,
+        tenant_id: str | None = None
     ) -> int:
         """
         Get current queue size from database.
@@ -562,9 +560,9 @@ class QueueStatisticsCollector:
     async def _get_priority_distribution(
         self,
         queue_type: str = "ingestion_queue",
-        collection: Optional[str] = None,
-        tenant_id: Optional[str] = None
-    ) -> Dict[str, int]:
+        collection: str | None = None,
+        tenant_id: str | None = None
+    ) -> dict[str, int]:
         """
         Get priority distribution from database.
 
@@ -613,9 +611,9 @@ class QueueStatisticsCollector:
     async def _get_retry_error_counts(
         self,
         queue_type: str = "ingestion_queue",
-        collection: Optional[str] = None,
-        tenant_id: Optional[str] = None
-    ) -> Tuple[int, int]:
+        collection: str | None = None,
+        tenant_id: str | None = None
+    ) -> tuple[int, int]:
         """
         Get retry and error counts from database.
 
@@ -660,10 +658,10 @@ class QueueStatisticsCollector:
     async def _calculate_rates(
         self,
         window_seconds: int,
-        queue_type: Optional[str] = None,
-        collection: Optional[str] = None,
-        tenant_id: Optional[str] = None
-    ) -> Tuple[float, float, float]:
+        queue_type: str | None = None,
+        collection: str | None = None,
+        tenant_id: str | None = None
+    ) -> tuple[float, float, float]:
         """
         Calculate processing, success, and failure rates.
 
@@ -705,9 +703,9 @@ class QueueStatisticsCollector:
     async def _calculate_avg_processing_time(
         self,
         window_seconds: int,
-        queue_type: Optional[str] = None,
-        collection: Optional[str] = None,
-        tenant_id: Optional[str] = None
+        queue_type: str | None = None,
+        collection: str | None = None,
+        tenant_id: str | None = None
     ) -> float:
         """
         Calculate average processing time in milliseconds.
@@ -744,9 +742,9 @@ class QueueStatisticsCollector:
         self,
         event_type: str,
         window_seconds: int,
-        queue_type: Optional[str] = None,
-        collection: Optional[str] = None,
-        tenant_id: Optional[str] = None
+        queue_type: str | None = None,
+        collection: str | None = None,
+        tenant_id: str | None = None
     ) -> float:
         """
         Calculate rate for specific event type.

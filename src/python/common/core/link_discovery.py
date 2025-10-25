@@ -54,18 +54,15 @@ Example:
 """
 
 import asyncio
-import hashlib
 import re
-import time
-from collections import deque, defaultdict
+from collections import defaultdict, deque
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, AsyncGenerator
-from urllib.parse import urljoin, urlparse, urlunparse, parse_qs
-from urllib.robotparser import RobotFileParser
+from typing import Any
+from urllib.parse import parse_qs, urljoin, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
-import aiohttp
 
 
 @dataclass
@@ -74,13 +71,13 @@ class DiscoveredLink:
 
     url: str
     source_url: str
-    anchor_text: Optional[str] = None
-    title: Optional[str] = None
+    anchor_text: str | None = None
+    title: str | None = None
     depth: int = 0
     discovery_method: str = "html_anchor"
 
     # Link context
-    context: Optional[str] = None  # Surrounding text
+    context: str | None = None  # Surrounding text
     position: int = 0  # Position on page
 
     # Quality indicators
@@ -89,15 +86,15 @@ class DiscoveredLink:
     is_navigation: bool = False
 
     # Crawling metadata
-    discovered_at: Optional[datetime] = None
+    discovered_at: datetime | None = None
     crawl_priority: float = 0.5  # 0.0 (lowest) to 1.0 (highest)
 
     # Status tracking
     crawled: bool = False
     crawl_attempted: bool = False
-    crawl_error: Optional[str] = None
+    crawl_error: str | None = None
 
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -111,18 +108,18 @@ class LinkDiscoveryConfig:
 
     # Domain restrictions
     same_domain_only: bool = True
-    allowed_domains: Set[str] = field(default_factory=set)
-    blocked_domains: Set[str] = field(default_factory=set)
+    allowed_domains: set[str] = field(default_factory=set)
+    blocked_domains: set[str] = field(default_factory=set)
 
     # URL filtering
-    allowed_schemes: Set[str] = field(default_factory=lambda: {'http', 'https'})
-    blocked_patterns: List[str] = field(default_factory=lambda: [
+    allowed_schemes: set[str] = field(default_factory=lambda: {'http', 'https'})
+    blocked_patterns: list[str] = field(default_factory=lambda: [
         r'\.pdf$', r'\.doc$', r'\.docx$', r'\.xls$', r'\.xlsx$',
         r'\.zip$', r'\.rar$', r'\.exe$', r'\.dmg$',
         r'/admin/', r'/login/', r'/logout/', r'/account/',
         r'\?print=', r'\?download=', r'#'
     ])
-    allowed_patterns: List[str] = field(default_factory=list)
+    allowed_patterns: list[str] = field(default_factory=list)
 
     # Link quality filtering
     min_anchor_text_length: int = 2
@@ -143,7 +140,7 @@ class LinkDiscoveryConfig:
 
     # Duplicate detection
     url_normalization: bool = True
-    ignore_query_params: Set[str] = field(default_factory=lambda: {
+    ignore_query_params: set[str] = field(default_factory=lambda: {
         'utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content',
         'fbclid', 'gclid', 'ref', 'source'
     })
@@ -155,7 +152,7 @@ class URLNormalizer:
     def __init__(self, config: LinkDiscoveryConfig):
         self.config = config
 
-    def normalize_url(self, url: str, base_url: Optional[str] = None) -> str:
+    def normalize_url(self, url: str, base_url: str | None = None) -> str:
         """
         Normalize URL for deduplication and comparison.
 
@@ -238,7 +235,7 @@ class URLNormalizer:
         except Exception:
             return query
 
-    def is_valid_url(self, url: str, base_domain: Optional[str] = None) -> bool:
+    def is_valid_url(self, url: str, base_domain: str | None = None) -> bool:
         """
         Check if URL is valid for crawling.
 
@@ -301,7 +298,7 @@ class LinkExtractor:
         self.config = config
         self.normalizer = URLNormalizer(config)
 
-    def extract_anchor_links(self, soup: BeautifulSoup, base_url: str) -> List[DiscoveredLink]:
+    def extract_anchor_links(self, soup: BeautifulSoup, base_url: str) -> list[DiscoveredLink]:
         """Extract links from HTML anchor tags."""
         if not self.config.discover_from_anchors:
             return []
@@ -367,7 +364,7 @@ class LinkExtractor:
 
         return links
 
-    def extract_canonical_links(self, soup: BeautifulSoup, base_url: str) -> List[DiscoveredLink]:
+    def extract_canonical_links(self, soup: BeautifulSoup, base_url: str) -> list[DiscoveredLink]:
         """Extract canonical links from HTML."""
         links = []
 
@@ -390,7 +387,7 @@ class LinkExtractor:
 
         return links
 
-    def extract_structured_data_links(self, soup: BeautifulSoup, base_url: str) -> List[DiscoveredLink]:
+    def extract_structured_data_links(self, soup: BeautifulSoup, base_url: str) -> list[DiscoveredLink]:
         """Extract links from structured data (JSON-LD, microdata)."""
         if not self.config.discover_from_structured_data:
             return []
@@ -437,7 +434,7 @@ class LinkExtractor:
 
         return links
 
-    def extract_sitemap_links(self, robots_content: str, base_url: str) -> List[DiscoveredLink]:
+    def extract_sitemap_links(self, robots_content: str, base_url: str) -> list[DiscoveredLink]:
         """Extract sitemap URLs from robots.txt content."""
         if not self.config.discover_from_sitemaps:
             return []
@@ -564,7 +561,7 @@ class LinkExtractor:
 
         return False
 
-    def _extract_urls_from_json_ld(self, data: Any) -> List[str]:
+    def _extract_urls_from_json_ld(self, data: Any) -> list[str]:
         """Extract URLs from JSON-LD structured data."""
         urls = []
 
@@ -590,16 +587,16 @@ class LinkDiscovery:
     Main class for link discovery and recursive crawling management.
     """
 
-    def __init__(self, config: Optional[LinkDiscoveryConfig] = None):
+    def __init__(self, config: LinkDiscoveryConfig | None = None):
         """Initialize link discovery with configuration."""
         self.config = config or LinkDiscoveryConfig()
         self.normalizer = URLNormalizer(self.config)
         self.extractor = LinkExtractor(self.config)
 
         # Tracking
-        self._discovered_urls: Set[str] = set()
-        self._crawled_urls: Set[str] = set()
-        self._failed_urls: Set[str] = set()
+        self._discovered_urls: set[str] = set()
+        self._crawled_urls: set[str] = set()
+        self._failed_urls: set[str] = set()
         self._crawl_queue: deque = deque()
 
         # Statistics
@@ -612,7 +609,7 @@ class LinkDiscovery:
         }
 
     async def discover_links(self, html_content: str, base_url: str,
-                           current_depth: int = 0) -> List[DiscoveredLink]:
+                           current_depth: int = 0) -> list[DiscoveredLink]:
         """
         Discover links from HTML content.
 
@@ -652,12 +649,12 @@ class LinkDiscovery:
 
             return filtered_links
 
-        except Exception as e:
+        except Exception:
             # Log error but don't fail completely
             return []
 
-    def _filter_and_deduplicate_links(self, links: List[DiscoveredLink],
-                                    base_url: str) -> List[DiscoveredLink]:
+    def _filter_and_deduplicate_links(self, links: list[DiscoveredLink],
+                                    base_url: str) -> list[DiscoveredLink]:
         """Filter and deduplicate discovered links."""
         filtered = []
         seen_urls = set()
@@ -686,7 +683,7 @@ class LinkDiscovery:
 
         return filtered
 
-    def _update_discovery_stats(self, links: List[DiscoveredLink]) -> None:
+    def _update_discovery_stats(self, links: list[DiscoveredLink]) -> None:
         """Update discovery statistics."""
         self._stats['urls_discovered'] += len(links)
 
@@ -697,8 +694,8 @@ class LinkDiscovery:
             if link.depth > self._stats['max_depth_reached']:
                 self._stats['max_depth_reached'] = link.depth
 
-    async def crawl_recursive(self, start_urls: List[str],
-                            max_pages: Optional[int] = None) -> AsyncGenerator[List[str], None]:
+    async def crawl_recursive(self, start_urls: list[str],
+                            max_pages: int | None = None) -> AsyncGenerator[list[str], None]:
         """
         Perform recursive crawling starting from given URLs.
 
@@ -758,7 +755,7 @@ class LinkDiscovery:
         if batch:
             yield batch
 
-    def add_discovered_links(self, links: List[DiscoveredLink]) -> None:
+    def add_discovered_links(self, links: list[DiscoveredLink]) -> None:
         """
         Add newly discovered links to the crawl queue.
 
@@ -791,7 +788,7 @@ class LinkDiscovery:
         self._failed_urls.add(url)
         self._stats['urls_failed'] += 1
 
-    def get_queue_status(self) -> Dict[str, Any]:
+    def get_queue_status(self) -> dict[str, Any]:
         """Get current status of the crawl queue."""
         return {
             'queue_size': len(self._crawl_queue),

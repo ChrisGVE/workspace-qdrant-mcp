@@ -27,7 +27,6 @@ Example:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import yaml
 from pydantic import ValidationError
@@ -76,7 +75,7 @@ class LanguageSupportParser:
             )
 
         try:
-            with open(file_path, "r", encoding="utf-8") as f:
+            with open(file_path, encoding="utf-8") as f:
                 yaml_content = f.read()
         except OSError as e:
             raise OSError(f"Failed to read YAML file {file_path}: {e}") from e

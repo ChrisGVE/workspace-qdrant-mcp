@@ -15,30 +15,21 @@ Features:
 """
 
 import ast
-import inspect
+import concurrent.futures
+import hashlib
 import importlib
+import inspect
 import json
 import re
 import sqlite3
 import threading
 import time
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
-from typing import (
-    Dict,
-    List,
-    Set,
-    Optional,
-    Tuple,
-    Any,
-    Union,
-    Callable,
-    NamedTuple
-)
-import concurrent.futures
-import hashlib
+from typing import Any, NamedTuple, Optional, Union
 
 import pytest
 
@@ -86,17 +77,17 @@ class TestMetadata:
     file_path: Path
     category: TestCategory
     complexity: TestComplexity
-    resources: Set[ResourceRequirement] = field(default_factory=set)
-    dependencies: Set[str] = field(default_factory=set)
+    resources: set[ResourceRequirement] = field(default_factory=set)
+    dependencies: set[str] = field(default_factory=set)
     estimated_duration: float = 0.0
-    markers: Set[str] = field(default_factory=set)
-    fixtures: Set[str] = field(default_factory=set)
-    imports: Set[str] = field(default_factory=set)
-    mocks: Set[str] = field(default_factory=set)
+    markers: set[str] = field(default_factory=set)
+    fixtures: set[str] = field(default_factory=set)
+    imports: set[str] = field(default_factory=set)
+    mocks: set[str] = field(default_factory=set)
     async_test: bool = False
     parametrized: bool = False
-    expected_failures: Set[str] = field(default_factory=set)
-    flaky_history: List[Dict[str, Any]] = field(default_factory=list)
+    expected_failures: set[str] = field(default_factory=set)
+    flaky_history: list[dict[str, Any]] = field(default_factory=list)
     coverage_impact: float = 0.0
     last_modified: float = 0.0
     source_hash: str = ""
@@ -219,8 +210,8 @@ class TestDiscovery:
 
     def __init__(self,
                  project_root: Path,
-                 test_dir: Optional[Path] = None,
-                 cache_file: Optional[Path] = None):
+                 test_dir: Path | None = None,
+                 cache_file: Path | None = None):
         """
         Initialize test discovery system.
 
@@ -233,9 +224,9 @@ class TestDiscovery:
         self.test_dir = test_dir or self.project_root / "tests"
         self.cache_file = cache_file or self.project_root / ".test_discovery_cache.db"
 
-        self._discovered_tests: Dict[str, TestMetadata] = {}
+        self._discovered_tests: dict[str, TestMetadata] = {}
         self._discovery_lock = threading.RLock()
-        self._cache_db: Optional[sqlite3.Connection] = None
+        self._cache_db: sqlite3.Connection | None = None
 
         # Category detection patterns
         self._category_patterns = {
@@ -308,7 +299,7 @@ class TestDiscovery:
     def discover_tests(self,
                       force_refresh: bool = False,
                       parallel: bool = True,
-                      max_workers: Optional[int] = None) -> Dict[str, TestMetadata]:
+                      max_workers: int | None = None) -> dict[str, TestMetadata]:
         """
         Discover and categorize all tests in the project.
 
@@ -356,7 +347,7 @@ class TestDiscovery:
             except Exception as e:
                 raise TestDiscoveryError(f"Test discovery failed: {e}") from e
 
-    def _find_test_files(self) -> List[Path]:
+    def _find_test_files(self) -> list[Path]:
         """Find all Python test files."""
         patterns = [
             "test_*.py",
@@ -372,7 +363,7 @@ class TestDiscovery:
         return [f for f in test_files
                 if "__pycache__" not in str(f) and f.is_file()]
 
-    def _analyze_files_sequential(self, test_files: List[Path]):
+    def _analyze_files_sequential(self, test_files: list[Path]):
         """Analyze test files sequentially."""
         for file_path in test_files:
             try:
@@ -380,7 +371,7 @@ class TestDiscovery:
             except Exception as e:
                 print(f"Warning: Failed to analyze {file_path}: {e}")
 
-    def _analyze_files_parallel(self, test_files: List[Path], max_workers: Optional[int]):
+    def _analyze_files_parallel(self, test_files: list[Path], max_workers: int | None):
         """Analyze test files in parallel."""
         max_workers = max_workers or min(len(test_files), 4)
 
@@ -400,7 +391,7 @@ class TestDiscovery:
         """Analyze a single test file."""
         try:
             # Read and parse file
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, encoding='utf-8') as f:
                 source_code = f.read()
 
             source_hash = hashlib.md5(source_code.encode()).hexdigest()
@@ -450,7 +441,7 @@ class TestDiscovery:
         except Exception as e:
             print(f"Warning: Failed to analyze file {file_path}: {e}")
 
-    def _extract_test_functions(self, tree: ast.AST, file_path: Path) -> List[Tuple[str, ast.FunctionDef]]:
+    def _extract_test_functions(self, tree: ast.AST, file_path: Path) -> list[tuple[str, ast.FunctionDef]]:
         """Extract test functions from AST."""
         test_functions = []
 
@@ -472,7 +463,7 @@ class TestDiscovery:
                 return decorator.func.id in ['pytest']
         return False
 
-    def _extract_markers(self, test_node: ast.FunctionDef) -> Set[str]:
+    def _extract_markers(self, test_node: ast.FunctionDef) -> set[str]:
         """Extract pytest markers from test function."""
         markers = set()
 
@@ -595,7 +586,7 @@ class TestDiscovery:
                         0.7 * historical_duration
                     )
 
-    def _get_historical_duration(self, test_name: str) -> Optional[float]:
+    def _get_historical_duration(self, test_name: str) -> float | None:
         """Get historical average duration for a test."""
         if not self._cache_db:
             return None
@@ -698,7 +689,7 @@ class TestDiscovery:
 
                 # Check if file was modified
                 try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
+                    with open(file_path, encoding='utf-8') as f:
                         current_hash = hashlib.md5(f.read().encode()).hexdigest()
                     if current_hash != cached_hash:
                         return False  # File modified, need rediscovery
@@ -711,7 +702,7 @@ class TestDiscovery:
                     file_path=file_path,
                     category=TestCategory[row[2]],
                     complexity=TestComplexity[row[3]],
-                    resources=set(ResourceRequirement[r] for r in json.loads(row[4])),
+                    resources={ResourceRequirement[r] for r in json.loads(row[4])},
                     dependencies=set(json.loads(row[5])),
                     estimated_duration=row[6],
                     markers=set(json.loads(row[7])),
@@ -775,22 +766,22 @@ class TestDiscovery:
         except Exception as e:
             print(f"Warning: Failed to save to cache: {e}")
 
-    def get_tests_by_category(self, category: TestCategory) -> Dict[str, TestMetadata]:
+    def get_tests_by_category(self, category: TestCategory) -> dict[str, TestMetadata]:
         """Get all tests of a specific category."""
         return {name: metadata for name, metadata in self._discovered_tests.items()
                 if metadata.category == category}
 
-    def get_tests_by_complexity(self, complexity: TestComplexity) -> Dict[str, TestMetadata]:
+    def get_tests_by_complexity(self, complexity: TestComplexity) -> dict[str, TestMetadata]:
         """Get all tests of a specific complexity level."""
         return {name: metadata for name, metadata in self._discovered_tests.items()
                 if metadata.complexity == complexity}
 
-    def get_flaky_tests(self) -> Dict[str, TestMetadata]:
+    def get_flaky_tests(self) -> dict[str, TestMetadata]:
         """Get tests identified as flaky."""
         return {name: metadata for name, metadata in self._discovered_tests.items()
                 if metadata.flaky_history}
 
-    def get_test_statistics(self) -> Dict[str, Any]:
+    def get_test_statistics(self) -> dict[str, Any]:
         """Get comprehensive test discovery statistics."""
         if not self._discovered_tests:
             return {}
@@ -833,7 +824,7 @@ class TestDiscovery:
                             test_name: str,
                             execution_time: float,
                             result: str,
-                            error_message: Optional[str] = None):
+                            error_message: str | None = None):
         """Record test execution for historical analysis."""
         if not self._cache_db:
             return

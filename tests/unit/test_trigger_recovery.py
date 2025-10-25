@@ -11,25 +11,26 @@ functionality including:
 """
 
 import asyncio
-import pytest
 import time
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
+import pytest
+
 from src.python.common.core.context_injection.session_trigger import (
+    SessionTrigger,
+    TriggerContext,
+    TriggerEvent,
+    TriggerEventLogger,
+    TriggerHealthMetrics,
+    TriggerHealthMonitor,
     TriggerManager,
     TriggerPhase,
     TriggerPriority,
-    TriggerContext,
     TriggerResult,
-    TriggerEvent,
-    TriggerHealthMetrics,
     TriggerRetryPolicy,
-    TriggerEventLogger,
-    TriggerHealthMonitor,
-    SessionTrigger,
 )
-from src.python.common.memory.types import MemoryRule, MemoryCategory, AuthorityLevel
+from src.python.common.memory.types import AuthorityLevel, MemoryCategory, MemoryRule
 
 
 class FailingTrigger(SessionTrigger):
@@ -405,7 +406,7 @@ class TestHealthMonitor:
         )
 
         # Healthy trigger
-        for i in range(5):
+        for _i in range(5):
             event = TriggerEvent(
                 timestamp=time.time(),
                 trigger_name="healthy_trigger",
@@ -416,7 +417,7 @@ class TestHealthMonitor:
             monitor.record_event(event)
 
         # Unhealthy trigger (consecutive failures)
-        for i in range(3):
+        for _i in range(3):
             event = TriggerEvent(
                 timestamp=time.time(),
                 trigger_name="unhealthy_trigger",

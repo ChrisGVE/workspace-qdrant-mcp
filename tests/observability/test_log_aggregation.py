@@ -23,7 +23,7 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 from unittest.mock import Mock, patch
 
 import pytest
@@ -510,7 +510,7 @@ class TestLogPersistenceAndRetrieval:
         """Test retrieving logs within a time range."""
         logger_instance, log_file = json_logger
 
-        start_time = datetime.now()
+        datetime.now()
 
         logger_instance.info("Message 1")
         time.sleep(0.1)
@@ -518,7 +518,7 @@ class TestLogPersistenceAndRetrieval:
         time.sleep(0.1)
         logger_instance.info("Message 3")
 
-        end_time = datetime.now()
+        datetime.now()
 
         # Read logs
         content = log_file.read_text()

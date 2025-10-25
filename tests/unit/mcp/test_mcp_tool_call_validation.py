@@ -15,9 +15,9 @@ All external dependencies (Qdrant, daemon) are mocked.
 """
 
 import json
-import pytest
-from typing import Dict, Any
+from typing import Any
 
+import pytest
 from fastmcp import Client
 from fastmcp.client.client import CallToolResult
 from mcp.types import TextContent

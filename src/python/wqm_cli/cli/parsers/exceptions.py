@@ -11,7 +11,7 @@ and recovery mechanisms.
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any
 
 # logger imported from loguru
 
@@ -50,13 +50,13 @@ class ParsingError(Exception):
     def __init__(
         self,
         message: str,
-        file_path: Optional[Union[str, Path]] = None,
+        file_path: str | Path | None = None,
         severity: ErrorSeverity = ErrorSeverity.HIGH,
         category: ErrorCategory = ErrorCategory.PARSING,
-        error_code: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None,
-        recovery_suggestions: Optional[list[str]] = None,
-        original_exception: Optional[Exception] = None,
+        error_code: str | None = None,
+        context: dict[str, Any] | None = None,
+        recovery_suggestions: list[str] | None = None,
+        original_exception: Exception | None = None,
     ):
         """
         Initialize parsing error.
@@ -87,7 +87,7 @@ class ParsingError(Exception):
         category_code = self.category.value.upper()
         return f"{class_name}_{category_code}"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert error to dictionary for structured logging."""
         return {
             "error_type": self.__class__.__name__,
@@ -103,7 +103,7 @@ class ParsingError(Exception):
             else None,
         }
 
-    def log_error(self, logger_instance: Optional[logging.Logger] = None) -> None:
+    def log_error(self, logger_instance: logging.Logger | None = None) -> None:
         """Log error with appropriate severity level."""
         log = logger_instance or logger
         error_dict = self.to_dict()
@@ -122,7 +122,7 @@ class FileAccessError(ParsingError):
     """Errors related to file access and permissions."""
 
     def __init__(
-        self, message: str, file_path: Optional[Union[str, Path]] = None, **kwargs
+        self, message: str, file_path: str | Path | None = None, **kwargs
     ):
         super().__init__(
             message,
@@ -143,9 +143,9 @@ class FileFormatError(ParsingError):
     def __init__(
         self,
         message: str,
-        file_path: Optional[Union[str, Path]] = None,
-        detected_format: Optional[str] = None,
-        expected_formats: Optional[list[str]] = None,
+        file_path: str | Path | None = None,
+        detected_format: str | None = None,
+        expected_formats: list[str] | None = None,
         **kwargs,
     ):
         context = kwargs.get("context", {})
@@ -181,8 +181,8 @@ class FileCorruptionError(ParsingError):
     def __init__(
         self,
         message: str,
-        file_path: Optional[Union[str, Path]] = None,
-        corruption_type: Optional[str] = None,
+        file_path: str | Path | None = None,
+        corruption_type: str | None = None,
         **kwargs,
     ):
         context = kwargs.get("context", {})
@@ -209,9 +209,9 @@ class EncodingError(ParsingError):
     def __init__(
         self,
         message: str,
-        file_path: Optional[Union[str, Path]] = None,
-        detected_encoding: Optional[str] = None,
-        attempted_encodings: Optional[list[str]] = None,
+        file_path: str | Path | None = None,
+        detected_encoding: str | None = None,
+        attempted_encodings: list[str] | None = None,
         **kwargs,
     ):
         context = kwargs.get("context", {})
@@ -243,9 +243,9 @@ class MemoryError(ParsingError):
     def __init__(
         self,
         message: str,
-        file_path: Optional[Union[str, Path]] = None,
-        file_size: Optional[int] = None,
-        memory_usage: Optional[int] = None,
+        file_path: str | Path | None = None,
+        file_size: int | None = None,
+        memory_usage: int | None = None,
         **kwargs,
     ):
         context = kwargs.get("context", {})
@@ -278,8 +278,8 @@ class ValidationError(ParsingError):
     def __init__(
         self,
         message: str,
-        file_path: Optional[Union[str, Path]] = None,
-        validation_rule: Optional[str] = None,
+        file_path: str | Path | None = None,
+        validation_rule: str | None = None,
         **kwargs,
     ):
         context = kwargs.get("context", {})
@@ -306,8 +306,8 @@ class ParsingTimeout(ParsingError):
     def __init__(
         self,
         message: str,
-        file_path: Optional[Union[str, Path]] = None,
-        timeout_seconds: Optional[int] = None,
+        file_path: str | Path | None = None,
+        timeout_seconds: int | None = None,
         **kwargs,
     ):
         context = kwargs.get("context", {})
@@ -355,7 +355,7 @@ class ErrorHandler:
     logging, recovery suggestions, and error statistics tracking.
     """
 
-    def __init__(self, logger_instance: Optional[logging.Logger] = None):
+    def __init__(self, logger_instance: logging.Logger | None = None):
         """
         Initialize error handler.
 
@@ -363,14 +363,14 @@ class ErrorHandler:
             logger_instance: Custom logger instance to use
         """
         self.logger = logger_instance or logger
-        self.error_counts: Dict[str, int] = {}
-        self.recovery_attempts: Dict[str, int] = {}
+        self.error_counts: dict[str, int] = {}
+        self.recovery_attempts: dict[str, int] = {}
 
     def handle_error(
         self,
         error: Exception,
-        file_path: Optional[Union[str, Path]] = None,
-        context: Optional[Dict[str, Any]] = None,
+        file_path: str | Path | None = None,
+        context: dict[str, Any] | None = None,
         auto_recover: bool = True,
     ) -> ParsingError:
         """
@@ -403,8 +403,8 @@ class ErrorHandler:
     def _classify_error(
         self,
         error: Exception,
-        file_path: Optional[Union[str, Path]],
-        context: Optional[Dict[str, Any]],
+        file_path: str | Path | None,
+        context: dict[str, Any] | None,
     ) -> ParsingError:
         """Classify generic exception into specific ParsingError type."""
         error_message = str(error)
@@ -504,7 +504,7 @@ class ErrorHandler:
 
         return True
 
-    def get_error_statistics(self) -> Dict[str, Any]:
+    def get_error_statistics(self) -> dict[str, Any]:
         """Get error handling statistics."""
         return {
             "error_counts": dict(self.error_counts),
@@ -525,8 +525,8 @@ _global_error_handler = ErrorHandler()
 
 def handle_parsing_error(
     error: Exception,
-    file_path: Optional[Union[str, Path]] = None,
-    context: Optional[Dict[str, Any]] = None,
+    file_path: str | Path | None = None,
+    context: dict[str, Any] | None = None,
     auto_recover: bool = True,
 ) -> ParsingError:
     """
@@ -544,7 +544,7 @@ def handle_parsing_error(
     return _global_error_handler.handle_error(error, file_path, context, auto_recover)
 
 
-def get_error_statistics() -> Dict[str, Any]:
+def get_error_statistics() -> dict[str, Any]:
     """Get global error handling statistics."""
     return _global_error_handler.get_error_statistics()
 

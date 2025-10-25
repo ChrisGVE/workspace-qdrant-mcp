@@ -133,7 +133,7 @@ class TestTokenizerFactory:
             pytest.skip("tiktoken not installed")
 
         # Get encoding to populate cache
-        enc1 = TokenizerFactory.get_tiktoken_encoding("cl100k_base")
+        TokenizerFactory.get_tiktoken_encoding("cl100k_base")
         cache_size_before = len(TokenizerFactory._cache)
         assert cache_size_before > 0
 
@@ -371,7 +371,7 @@ class TestAccuracyComparison:
         diff_percentage = abs(tokens_accurate - tokens_estimate) / tokens_accurate
 
         # Log for analysis (not a strict assertion)
-        print(f"\nClaude accuracy test:")
+        print("\nClaude accuracy test:")
         print(f"  Accurate: {tokens_accurate}")
         print(f"  Estimate: {tokens_estimate}")
         print(f"  Diff: {diff_percentage:.2%}")
@@ -396,7 +396,7 @@ class TestAccuracyComparison:
         diff_percentage = abs(tokens_accurate - tokens_estimate) / tokens_accurate
 
         # Log for analysis
-        print(f"\nCodex accuracy test:")
+        print("\nCodex accuracy test:")
         print(f"  Accurate: {tokens_accurate}")
         print(f"  Estimate: {tokens_estimate}")
         print(f"  Diff: {diff_percentage:.2%}")
@@ -421,7 +421,7 @@ class TestAccuracyComparison:
         diff_percentage = abs(tokens_accurate - tokens_estimate) / tokens_accurate
 
         # Log for analysis
-        print(f"\nGemini accuracy test:")
+        print("\nGemini accuracy test:")
         print(f"  Accurate: {tokens_accurate}")
         print(f"  Estimate: {tokens_estimate}")
         print(f"  Diff: {diff_percentage:.2%}")

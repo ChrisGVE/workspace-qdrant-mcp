@@ -17,10 +17,13 @@ import sqlite3
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
 
 import pytest
 
+from src.python.common.core.error_categorization import (
+    ErrorCategory,
+    ErrorSeverity,
+)
 from src.python.common.core.error_filtering import (
     AlertRule,
     ErrorFilter,
@@ -31,10 +34,6 @@ from src.python.common.core.error_filtering import (
 from src.python.common.core.error_message_manager import (
     ErrorMessage,
     ErrorMessageManager,
-)
-from src.python.common.core.error_categorization import (
-    ErrorCategory,
-    ErrorSeverity,
 )
 
 
@@ -57,7 +56,7 @@ async def db_with_schema(temp_db):
 
     # Read schema from file
     schema_file = Path(__file__).parent.parent.parent / "src" / "python" / "common" / "core" / "error_messages_schema.sql"
-    with open(schema_file, 'r') as f:
+    with open(schema_file) as f:
         schema_sql = f.read()
 
     # Create schema
@@ -352,7 +351,7 @@ class TestErrorFilterManager:
         """Test filtering for acknowledged errors only."""
         # Create errors
         error_id1 = await error_manager.record_error(message_override="Error 1")
-        error_id2 = await error_manager.record_error(message_override="Error 2")
+        await error_manager.record_error(message_override="Error 2")
 
         # Acknowledge one error
         await error_manager.acknowledge_error(error_id1, "admin")

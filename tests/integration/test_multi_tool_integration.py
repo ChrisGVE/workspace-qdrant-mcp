@@ -15,11 +15,12 @@ Validates:
 """
 
 import asyncio
-import pytest
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Optional, Dict, Any
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 from src.python.common.memory.types import (
     AuthorityLevel,
@@ -29,11 +30,11 @@ from src.python.common.memory.types import (
 
 # Import test harness from Task 337.1
 from tests.integration.test_llm_behavioral_harness import (
-    LLMBehavioralHarness,
-    MockLLMProvider,
-    ExecutionMode,
     BehavioralMetrics,
+    ExecutionMode,
+    LLMBehavioralHarness,
     LLMResponse,
+    MockLLMProvider,
 )
 
 # Try to import real components
@@ -54,15 +55,15 @@ class MockMCPServer:
             memory_manager: Memory manager instance
         """
         self.memory_manager = memory_manager
-        self.active_rules: List[MemoryRule] = []
+        self.active_rules: list[MemoryRule] = []
 
     async def add_memory_rule(
         self,
         rule: str,
         category: MemoryCategory,
         authority: AuthorityLevel,
-        scope: Optional[List[str]] = None
-    ) -> Dict[str, Any]:
+        scope: list[str] | None = None
+    ) -> dict[str, Any]:
         """Add a memory rule through MCP interface.
 
         Args:
@@ -96,8 +97,8 @@ class MockMCPServer:
 
     async def get_active_rules(
         self,
-        category: Optional[MemoryCategory] = None
-    ) -> List[MemoryRule]:
+        category: MemoryCategory | None = None
+    ) -> list[MemoryRule]:
         """Get active rules through MCP interface.
 
         Args:
@@ -124,13 +125,13 @@ class MockCLI:
             memory_manager: Memory manager instance
         """
         self.memory_manager = memory_manager
-        self.command_history: List[str] = []
+        self.command_history: list[str] = []
 
     async def execute_command(
         self,
         command: str,
-        args: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        args: dict[str, Any]
+    ) -> dict[str, Any]:
         """Execute CLI command.
 
         Args:
@@ -151,7 +152,7 @@ class MockCLI:
 
         return {"status": "unknown_command"}
 
-    async def _add_rule(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _add_rule(self, args: dict[str, Any]) -> dict[str, Any]:
         """Add rule through CLI.
 
         Args:
@@ -179,7 +180,7 @@ class MockCLI:
             "tool": "cli"
         }
 
-    async def _list_rules(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _list_rules(self, args: dict[str, Any]) -> dict[str, Any]:
         """List rules through CLI.
 
         Args:
@@ -196,7 +197,7 @@ class MockCLI:
             "tool": "cli"
         }
 
-    async def _remove_rule(self, args: Dict[str, Any]) -> Dict[str, Any]:
+    async def _remove_rule(self, args: dict[str, Any]) -> dict[str, Any]:
         """Remove rule through CLI.
 
         Args:
@@ -589,7 +590,7 @@ class TestToolConfigurationHandling:
     ):
         """Test that MCP handles scope correctly."""
         # Add scoped rule
-        result = await mcp_server.add_memory_rule(
+        await mcp_server.add_memory_rule(
             rule="Python-specific rule",
             category=MemoryCategory.BEHAVIOR,
             authority=AuthorityLevel.DEFAULT,

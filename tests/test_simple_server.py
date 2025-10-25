@@ -3,10 +3,11 @@ Tests for the simplified 4-tool MCP server.
 Tests the basic functionality without requiring a running Qdrant instance.
 """
 
-import pytest
 import sys
-from unittest.mock import AsyncMock, Mock, patch
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 # Add source path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "python"))
@@ -50,11 +51,10 @@ class TestSimpleServerCreation:
 
     def test_server_has_four_tools(self):
         """Test that server has exactly 4 tools."""
-        from workspace_qdrant_mcp.simple_server import app
-
         # Check that the app has the expected tools
         # Note: FastMCP doesn't expose tools directly, so we check the module
         import workspace_qdrant_mcp.simple_server as server_module
+        from workspace_qdrant_mcp.simple_server import app
 
         # Count decorated functions (tools)
         tool_functions = ['store', 'search', 'manage', 'retrieve']

@@ -6,18 +6,19 @@ establishment, including configuration loading, Qdrant connection,
 file watcher initialization, and communication channel setup.
 """
 
-import pytest
 import asyncio
 import time
-import httpx
 from pathlib import Path
 
+import httpx
+import pytest
+
 from tests.e2e.fixtures import (
-    SystemComponents,
+    CLIHelper,
     DaemonManager,
     MCPServerManager,
-    CLIHelper,
     ResourceMonitor,
+    SystemComponents,
 )
 
 
@@ -367,7 +368,7 @@ class TestStartupResourceUsage:
         assert len(summary) > 0
 
         # Check resource usage is reasonable (if metrics available)
-        for process_name, metrics in summary.items():
+        for _process_name, metrics in summary.items():
             # Memory should be under 500MB
             if "memory_mb" in metrics:
                 assert metrics["memory_mb"]["max"] < 500.0

@@ -5,20 +5,21 @@ Tests the CommentInject or's ability to format rules as language-specific
 comments for GitHub Copilot context injection.
 """
 
-import pytest
 from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
+import pytest
+
 from src.python.common.core.context_injection.comment_injector import (
     CommentInjector,
-    PlacementStrategy,
     ConflictResolution,
     ConflictType,
-    RuleConflict,
     InjectedComment,
+    PlacementStrategy,
+    RuleConflict,
 )
 from src.python.common.core.context_injection.copilot_detector import CopilotDetector
-from src.python.common.memory import MemoryRule, AuthorityLevel, MemoryCategory
+from src.python.common.memory import AuthorityLevel, MemoryCategory, MemoryRule
 
 
 @pytest.fixture

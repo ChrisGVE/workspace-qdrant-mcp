@@ -14,27 +14,28 @@ Test Categories:
 - Module-level convenience functions
 """
 
-import pytest
-from typing import List, Optional, Dict, Any
-from unittest.mock import Mock, patch, MagicMock
-import sys
 import os
+import sys
+from typing import Any, Optional
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 # Add the project root to Python path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
+from core.collection_types import CollectionInfo, CollectionType
+from core.config import DaemonConfig, McpConfig
 from core.llm_access_control import (
-    LLMAccessController,
-    AccessViolationType,
     AccessViolation,
+    AccessViolationType,
     LLMAccessControlError,
+    LLMAccessController,
     can_llm_create_collection,
     can_llm_delete_collection,
+    get_forbidden_collection_patterns,
     validate_llm_collection_access,
-    get_forbidden_collection_patterns
 )
-from core.collection_types import CollectionType, CollectionInfo
-from core.config import McpConfig, DaemonConfig
 
 
 class TestLLMAccessController:
@@ -67,9 +68,9 @@ class TestLLMAccessController:
         """Test setting existing collections for validation."""
         controller = LLMAccessController()
         collections = ["project1-docs", "project2-data", "__system_config"]
-        
+
         controller.set_existing_collections(collections)
-        
+
         assert controller._existing_collections == set(collections)
 
     def test_set_existing_collections_empty_list(self):
@@ -82,9 +83,9 @@ class TestLLMAccessController:
         """Test setting collections with duplicates."""
         controller = LLMAccessController()
         collections = ["project1-docs", "project1-docs", "project2-data"]
-        
+
         controller.set_existing_collections(collections)
-        
+
         # Set should eliminate duplicates
         assert controller._existing_collections == {"project1-docs", "project2-data"}
 
@@ -114,7 +115,7 @@ class TestCollectionCreationAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_create_collection("__system_config") is False
 
     def test_validate_llm_create_system_collection_raises_exception(self, controller, mock_classifier):
@@ -127,10 +128,10 @@ class TestCollectionCreationAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("create", "__admin_panel")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.FORBIDDEN_SYSTEM_CREATION
         assert violation.collection_name == "__admin_panel"
@@ -150,7 +151,7 @@ class TestCollectionCreationAccess:
             is_readonly=True,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_create_collection("_shared_utils") is False
 
     def test_validate_llm_create_library_collection_raises_exception(self, controller, mock_classifier):
@@ -163,10 +164,10 @@ class TestCollectionCreationAccess:
             is_readonly=True,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("create", "_common_library")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.FORBIDDEN_LIBRARY_CREATION
         assert violation.collection_name == "_common_library"
@@ -186,7 +187,7 @@ class TestCollectionCreationAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_create_collection("algorithms") is False
 
     def test_validate_llm_create_global_collection_raises_exception(self, controller, mock_classifier):
@@ -199,10 +200,10 @@ class TestCollectionCreationAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("create", "workspace")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.FORBIDDEN_GLOBAL_CREATION
         assert violation.collection_name == "workspace"
@@ -223,7 +224,7 @@ class TestCollectionCreationAccess:
             project_name="myproject",
             suffix="docs"
         )
-        
+
         assert controller.can_llm_create_collection("myproject-docs") is True
 
     def test_validate_llm_create_project_collection_success(self, controller, mock_classifier):
@@ -238,7 +239,7 @@ class TestCollectionCreationAccess:
             project_name="testproject",
             suffix="data"
         )
-        
+
         # Should not raise exception
         controller.validate_llm_collection_access("create", "testproject-data")
 
@@ -254,10 +255,10 @@ class TestCollectionCreationAccess:
             project_name="myproject",
             suffix="system"
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("create", "myproject-system")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.RESERVED_NAME_CONFLICT
         assert "reserved" in violation.message.lower()
@@ -277,10 +278,10 @@ class TestCollectionCreationAccess:
             project_name="testproject",
             suffix=reserved_suffix
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("create", collection_name)
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.RESERVED_NAME_CONFLICT
 
@@ -295,7 +296,7 @@ class TestCollectionCreationAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_create_collection("invalid_collection_name") is False
 
     def test_validate_llm_create_unknown_collection_raises_exception(self, controller, mock_classifier):
@@ -308,10 +309,10 @@ class TestCollectionCreationAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("create", "bad-format_name")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.INVALID_COLLECTION_NAME
         assert "does not follow recognized patterns" in violation.message
@@ -321,7 +322,7 @@ class TestCollectionCreationAccess:
     def test_validate_llm_create_existing_collection_raises_exception(self, controller, mock_classifier):
         """Test that creating existing collection raises exception."""
         controller.set_existing_collections(["existing-project"])
-        
+
         mock_classifier.get_collection_info.return_value = CollectionInfo(
             name="existing-project",
             type=CollectionType.PROJECT,
@@ -332,10 +333,10 @@ class TestCollectionCreationAccess:
             project_name="existing",
             suffix="project"
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("create", "existing-project")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.COLLECTION_ALREADY_EXISTS
         assert "already exists" in violation.message
@@ -366,7 +367,7 @@ class TestCollectionDeletionAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_delete_collection("__system_config") is False
 
     def test_validate_llm_delete_system_collection_raises_exception(self, controller, mock_classifier):
@@ -379,10 +380,10 @@ class TestCollectionDeletionAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("delete", "__admin_data")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.FORBIDDEN_SYSTEM_DELETION
         assert "system collections are protected" in violation.message.lower()
@@ -398,7 +399,7 @@ class TestCollectionDeletionAccess:
             is_readonly=True,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_delete_collection("_shared_lib") is False
 
     def test_validate_llm_delete_library_collection_raises_exception(self, controller, mock_classifier):
@@ -411,10 +412,10 @@ class TestCollectionDeletionAccess:
             is_readonly=True,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("delete", "_common_utils")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.FORBIDDEN_LIBRARY_DELETION
         assert "library collections are protected" in violation.message.lower()
@@ -430,7 +431,7 @@ class TestCollectionDeletionAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_delete_collection("documents") is False
 
     def test_validate_llm_delete_global_collection_raises_exception(self, controller, mock_classifier):
@@ -443,10 +444,10 @@ class TestCollectionDeletionAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("delete", "knowledge")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.FORBIDDEN_LIBRARY_DELETION  # Uses same type for globals
         assert "global collections are system-wide" in violation.message.lower()
@@ -464,7 +465,7 @@ class TestCollectionDeletionAccess:
             project_name="project1",
             suffix="memory"
         )
-        
+
         assert controller.can_llm_delete_collection("project1-memory") is False
 
     def test_validate_llm_delete_memory_collection_raises_exception(self, controller, mock_classifier):
@@ -477,10 +478,10 @@ class TestCollectionDeletionAccess:
             is_readonly=False,
             is_memory_collection=True
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("delete", "__workspace_memory")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.FORBIDDEN_MEMORY_DELETION
         assert "memory collections contain persistent state" in violation.message
@@ -498,7 +499,7 @@ class TestCollectionDeletionAccess:
             project_name="myproject",
             suffix="docs"
         )
-        
+
         assert controller.can_llm_delete_collection("myproject-docs") is True
 
     def test_validate_llm_delete_project_collection_success(self, controller, mock_classifier):
@@ -513,7 +514,7 @@ class TestCollectionDeletionAccess:
             project_name="testproject",
             suffix="data"
         )
-        
+
         # Should not raise exception
         controller.validate_llm_collection_access("delete", "testproject-data")
 
@@ -528,7 +529,7 @@ class TestCollectionDeletionAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_delete_collection("unknown_format") is False
 
     def test_validate_llm_delete_unknown_collection_raises_exception(self, controller, mock_classifier):
@@ -541,10 +542,10 @@ class TestCollectionDeletionAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("delete", "bad_format")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.INVALID_COLLECTION_NAME
         assert "unrecognized collection type" in violation.message
@@ -575,7 +576,7 @@ class TestCollectionWriteAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_write_to_collection("__system_logs") is False
 
     def test_validate_llm_write_to_system_collection_raises_exception(self, controller, mock_classifier):
@@ -588,10 +589,10 @@ class TestCollectionWriteAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("write", "__admin_config")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.FORBIDDEN_SYSTEM_WRITE
         assert "cli-writable only" in violation.message.lower()
@@ -607,7 +608,7 @@ class TestCollectionWriteAccess:
             is_readonly=True,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_write_to_collection("_shared_resources") is False
 
     def test_validate_llm_write_to_library_collection_raises_exception(self, controller, mock_classifier):
@@ -620,10 +621,10 @@ class TestCollectionWriteAccess:
             is_readonly=True,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("write", "_common_data")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.FORBIDDEN_LIBRARY_WRITE
         assert "library collections are read-only" in violation.message.lower()
@@ -678,7 +679,7 @@ class TestCollectionWriteAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_write_to_collection("documents") is True
 
     def test_validate_llm_write_to_global_collection_success(self, controller, mock_classifier):
@@ -691,7 +692,7 @@ class TestCollectionWriteAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         # Should not raise exception
         controller.validate_llm_collection_access("write", "workspace")
 
@@ -708,7 +709,7 @@ class TestCollectionWriteAccess:
             project_name="myproject",
             suffix="data"
         )
-        
+
         assert controller.can_llm_write_to_collection("myproject-data") is True
 
     def test_validate_llm_write_to_project_collection_success(self, controller, mock_classifier):
@@ -723,7 +724,7 @@ class TestCollectionWriteAccess:
             project_name="testproject",
             suffix="content"
         )
-        
+
         # Should not raise exception
         controller.validate_llm_collection_access("write", "testproject-content")
 
@@ -740,7 +741,7 @@ class TestCollectionWriteAccess:
             project_name="project1",
             suffix="memory"
         )
-        
+
         assert controller.can_llm_write_to_collection("project1-memory") is True
 
     def test_validate_llm_write_to_memory_collection_success(self, controller, mock_classifier):
@@ -755,7 +756,7 @@ class TestCollectionWriteAccess:
             project_name="test",
             suffix="memory"
         )
-        
+
         # Should not raise exception
         controller.validate_llm_collection_access("write", "test-memory")
 
@@ -770,7 +771,7 @@ class TestCollectionWriteAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         assert controller.can_llm_write_to_collection("unknown_collection") is False
 
     def test_validate_llm_write_to_unknown_collection_raises_exception(self, controller, mock_classifier):
@@ -783,10 +784,10 @@ class TestCollectionWriteAccess:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("write", "malformed_name")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.INVALID_COLLECTION_NAME
         assert "unrecognized collection type" in violation.message
@@ -812,7 +813,7 @@ class TestEdgeCasesAndErrorHandling:
         """Test validation of empty or None collection names."""
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("create", invalid_name)
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.INVALID_COLLECTION_NAME
         assert "cannot be empty" in violation.message
@@ -829,7 +830,7 @@ class TestEdgeCasesAndErrorHandling:
             project_name="project",
             suffix="docs"
         )
-        
+
         # Should not raise exception - whitespace should be stripped
         controller.validate_llm_collection_access("create", "  project-docs  ")
 
@@ -839,7 +840,7 @@ class TestEdgeCasesAndErrorHandling:
         """Test validation of invalid operation types."""
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access(invalid_operation, "test-collection")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.INVALID_COLLECTION_NAME
         assert "invalid operation" in violation.message.lower()
@@ -849,10 +850,10 @@ class TestEdgeCasesAndErrorHandling:
     def test_validate_collection_name_format_failure(self, mock_validate, controller):
         """Test handling of collection name format validation failures."""
         mock_validate.return_value = False
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("create", "invalid-name-format")
-        
+
         violation = exc_info.value.violation
         assert violation.violation_type == AccessViolationType.INVALID_COLLECTION_NAME
         assert "invalid collection name format" in violation.message.lower()
@@ -870,7 +871,7 @@ class TestEdgeCasesAndErrorHandling:
             project_name="project",
             suffix="docs"
         )
-        
+
         # These should all work without exception
         controller.validate_llm_collection_access("CREATE", "project-docs")
         controller.validate_llm_collection_access("Delete", "project-docs")
@@ -887,10 +888,10 @@ class TestEdgeCasesAndErrorHandling:
             is_readonly=False,
             is_memory_collection=False
         )
-        
+
         with pytest.raises(LLMAccessControlError) as exc_info:
             controller.validate_llm_collection_access("create", "__system_test")
-        
+
         error = exc_info.value
         assert hasattr(error, 'violation')
         assert isinstance(error.violation, AccessViolation)
@@ -910,10 +911,10 @@ class TestForbiddenPatternsAndSuggestions:
     def test_get_forbidden_collection_patterns(self, controller):
         """Test that forbidden patterns are properly returned."""
         patterns = controller.get_forbidden_collection_patterns()
-        
+
         assert isinstance(patterns, list)
         assert len(patterns) > 0
-        
+
         # Check that all major pattern types are covered
         pattern_text = " ".join(patterns).lower()
         assert "system collections" in pattern_text
@@ -925,7 +926,7 @@ class TestForbiddenPatternsAndSuggestions:
     def test_suggest_collection_name_basic(self, controller):
         """Test basic collection name suggestions."""
         suggestions = controller.suggest_collection_name("test", "general")
-        
+
         assert isinstance(suggestions, list)
         assert len(suggestions) <= 3  # Should return top 3
         assert all(isinstance(s, str) for s in suggestions)
@@ -941,13 +942,13 @@ class TestForbiddenPatternsAndSuggestions:
     def test_suggest_collection_name_purposes(self, controller, purpose, expected_suffixes):
         """Test collection name suggestions for different purposes."""
         suggestions = controller.suggest_collection_name("myproject", purpose)
-        
+
         assert len(suggestions) > 0
         # Check that suggestions use expected suffixes
         for suggestion in suggestions:
             parts = suggestion.split("-", 1)
             if len(parts) == 2:
-                suffix = parts[1]
+                parts[1]
                 # At least some suggestions should match expected patterns
                 # (We allow flexibility since suggestions may vary)
 
@@ -955,9 +956,9 @@ class TestForbiddenPatternsAndSuggestions:
         """Test that suggestions avoid existing collection names."""
         existing = ["myproject-docs", "myproject-data", "myproject-content"]
         controller.set_existing_collections(existing)
-        
+
         suggestions = controller.suggest_collection_name("myproject", "general")
-        
+
         # Suggestions should not include existing collections
         for suggestion in suggestions:
             assert suggestion not in existing
@@ -965,7 +966,7 @@ class TestForbiddenPatternsAndSuggestions:
     def test_suggest_collection_name_invalid_input(self, controller):
         """Test suggestion handling with invalid input names."""
         suggestions = controller.suggest_collection_name("", "general")
-        
+
         assert isinstance(suggestions, list)
         assert len(suggestions) > 0
         # Should provide fallback suggestions
@@ -979,10 +980,10 @@ class TestForbiddenPatternsAndSuggestions:
             for suffix in ["docs", "data", "content", "code", "source"]:
                 existing.append(f"test-{suffix}{i}")
         controller.set_existing_collections(existing)
-        
+
         with patch('core.llm_access_control.collection_naming.build_project_collection_name', side_effect=ValueError):
             suggestions = controller.suggest_collection_name("test", "general")
-            
+
             assert len(suggestions) > 0
             # Should provide numbered fallbacks
             assert any("collection" in s for s in suggestions)
@@ -995,9 +996,9 @@ class TestConfigurationIntegration:
         """Test controller behavior with MCP configuration."""
         mcp_config = Mock(spec=McpConfig)
         mcp_config.server_name = "test-server"
-        
+
         controller = LLMAccessController(mcp_config)
-        
+
         assert controller.config == mcp_config
         assert hasattr(controller, 'classifier')
 
@@ -1005,9 +1006,9 @@ class TestConfigurationIntegration:
         """Test controller behavior with daemon configuration."""
         daemon_config = Mock(spec=DaemonConfig)
         daemon_config.daemon_name = "test-daemon"
-        
+
         controller = LLMAccessController(daemon_config)
-        
+
         assert controller.config == daemon_config
         assert hasattr(controller, 'classifier')
 
@@ -1015,10 +1016,10 @@ class TestConfigurationIntegration:
         """Test that configuration context is preserved during operations."""
         config = Mock(spec=McpConfig)
         controller = LLMAccessController(config)
-        
+
         # Config should remain available throughout operations
         assert controller.config == config
-        
+
         # After setting existing collections
         controller.set_existing_collections(["test-collection"])
         assert controller.config == config
@@ -1033,9 +1034,9 @@ class TestModuleLevelFunctions:
         mock_controller = Mock()
         mock_controller.can_llm_create_collection.return_value = True
         mock_controller_class.return_value = mock_controller
-        
+
         result = can_llm_create_collection("test-collection")
-        
+
         assert result is True
         mock_controller_class.assert_called_once_with(None)
         mock_controller.can_llm_create_collection.assert_called_once_with("test-collection")
@@ -1046,10 +1047,10 @@ class TestModuleLevelFunctions:
         mock_controller = Mock()
         mock_controller.can_llm_create_collection.return_value = False
         mock_controller_class.return_value = mock_controller
-        
+
         config = Mock(spec=McpConfig)
         result = can_llm_create_collection("__system_test", config)
-        
+
         assert result is False
         mock_controller_class.assert_called_once_with(config)
         mock_controller.can_llm_create_collection.assert_called_once_with("__system_test")
@@ -1060,9 +1061,9 @@ class TestModuleLevelFunctions:
         mock_controller = Mock()
         mock_controller.can_llm_delete_collection.return_value = True
         mock_controller_class.return_value = mock_controller
-        
+
         result = can_llm_delete_collection("project-docs")
-        
+
         assert result is True
         mock_controller_class.assert_called_once_with(None)
         mock_controller.can_llm_delete_collection.assert_called_once_with("project-docs")
@@ -1072,9 +1073,9 @@ class TestModuleLevelFunctions:
         """Test module-level validate_llm_collection_access function."""
         mock_controller = Mock()
         mock_controller_class.return_value = mock_controller
-        
+
         validate_llm_collection_access("write", "test-collection")
-        
+
         mock_controller_class.assert_called_once_with(None)
         mock_controller.validate_llm_collection_access.assert_called_once_with("write", "test-collection")
 
@@ -1083,10 +1084,10 @@ class TestModuleLevelFunctions:
         """Test module-level validate_llm_collection_access function with config."""
         mock_controller = Mock()
         mock_controller_class.return_value = mock_controller
-        
+
         config = Mock(spec=DaemonConfig)
         validate_llm_collection_access("delete", "project-data", config)
-        
+
         mock_controller_class.assert_called_once_with(config)
         mock_controller.validate_llm_collection_access.assert_called_once_with("delete", "project-data")
 
@@ -1097,9 +1098,9 @@ class TestModuleLevelFunctions:
         expected_patterns = ["__* (system)", "_* (library)", "global names"]
         mock_controller.get_forbidden_collection_patterns.return_value = expected_patterns
         mock_controller_class.return_value = mock_controller
-        
+
         result = get_forbidden_collection_patterns()
-        
+
         assert result == expected_patterns
         mock_controller_class.assert_called_once_with(None)
         mock_controller.get_forbidden_collection_patterns.assert_called_once()
@@ -1124,7 +1125,7 @@ class TestSecurityBoundaryValidation:
                 is_readonly=False,
                 is_memory_collection=False
             )
-            
+
             # System collections: Create ❌, Delete ❌, Write ❌
             assert controller.can_llm_create_collection("__test_system") is False
             assert controller.can_llm_delete_collection("__test_system") is False
@@ -1141,7 +1142,7 @@ class TestSecurityBoundaryValidation:
                 is_readonly=True,
                 is_memory_collection=False
             )
-            
+
             # Library collections: Create ❌, Delete ❌, Write ❌
             assert controller.can_llm_create_collection("_test_library") is False
             assert controller.can_llm_delete_collection("_test_library") is False
@@ -1158,7 +1159,7 @@ class TestSecurityBoundaryValidation:
                 is_readonly=False,
                 is_memory_collection=False
             )
-            
+
             # Global collections: Create ❌, Delete ❌, Write ✅
             assert controller.can_llm_create_collection("documents") is False
             assert controller.can_llm_delete_collection("documents") is False
@@ -1177,7 +1178,7 @@ class TestSecurityBoundaryValidation:
                 project_name="project",
                 suffix="docs"
             )
-            
+
             # Project collections: Create ✅, Delete ✅, Write ✅
             assert controller.can_llm_create_collection("project-docs") is True
             assert controller.can_llm_delete_collection("project-docs") is True
@@ -1196,7 +1197,7 @@ class TestSecurityBoundaryValidation:
                 project_name="project",
                 suffix="memory"
             )
-            
+
             # Memory collections: Create ⚠️ (conditional), Delete ❌, Write ✅
             # For this test, assume creation is allowed for project-type memory collections
             assert controller.can_llm_create_collection("project-memory") is True
@@ -1215,7 +1216,7 @@ class TestSecurityBoundaryValidation:
             ("__memory_system", CollectionType.SYSTEM, True, False, False, False),
             ("invalid_format", CollectionType.UNKNOWN, False, False, False, False),
         ]
-        
+
         with patch.object(controller, 'classifier') as mock_classifier:
             for name, col_type, is_memory, exp_create, exp_delete, exp_write in test_cases:
                 mock_classifier.get_collection_info.return_value = CollectionInfo(
@@ -1226,7 +1227,7 @@ class TestSecurityBoundaryValidation:
                     is_readonly=col_type == CollectionType.LIBRARY,
                     is_memory_collection=is_memory
                 )
-                
+
                 assert controller.can_llm_create_collection(name) == exp_create, f"Create access failed for {name}"
                 assert controller.can_llm_delete_collection(name) == exp_delete, f"Delete access failed for {name}"
                 assert controller.can_llm_write_to_collection(name) == exp_write, f"Write access failed for {name}"

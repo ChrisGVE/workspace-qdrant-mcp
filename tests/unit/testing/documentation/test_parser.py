@@ -6,20 +6,20 @@ malformed docstrings, and complex decorator scenarios.
 """
 
 import ast
-import pytest
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, mock_open
-import chardet
+from unittest.mock import mock_open, patch
 
+import chardet
+import pytest
 from src.python.workspace_qdrant_mcp.testing.documentation.parser import (
-    TestFileParser,
-    TestFileInfo,
-    TestMetadata,
-    TestType,
-    ParameterInfo,
     DecoratorInfo,
-    TestMetadataVisitor
+    ParameterInfo,
+    TestFileInfo,
+    TestFileParser,
+    TestMetadata,
+    TestMetadataVisitor,
+    TestType,
 )
 
 
@@ -297,7 +297,7 @@ def test_basic_functionality():
     def test_complex_parameters_and_types(self):
         """Test parsing functions with complex parameters and type annotations."""
         test_content = '''
-from typing import List, Dict, Optional
+from typing import Optional
 
 def test_typed_parameters(
     items: List[str],
@@ -567,7 +567,6 @@ class TestEmpty:
 import os
 import sys
 from pathlib import Path
-from typing import List, Dict
 from unittest.mock import patch, Mock
 import pytest
 from my_module import my_function

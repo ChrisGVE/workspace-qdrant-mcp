@@ -13,20 +13,19 @@ from pathlib import Path
 # Add src/python to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "src" / "python"))
 
-import pytest
-from datetime import datetime, timezone, timedelta
-from typing import List
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from datetime import datetime, timedelta, timezone
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import pytest
+from common.core.collection_naming import CollectionNamingManager
 from common.core.memory import (
+    AuthorityLevel,
+    BehavioralController,
+    MemoryCategory,
+    MemoryConflict,
     MemoryManager,
     MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
-    MemoryConflict,
-    BehavioralController,
 )
-from common.core.collection_naming import CollectionNamingManager
 from common.core.sparse_vectors import BM25SparseEncoder
 from qdrant_client import QdrantClient
 

@@ -11,14 +11,15 @@ This module provides comprehensive input validation and sanitization including:
 - JSON schema validation
 """
 
-import re
-import json
 import html
+import json
+import re
 import urllib.parse
-from typing import Any, Dict, List, Optional, Set, Union, Callable, Pattern
-from pathlib import Path, PurePath
-from datetime import datetime
 import uuid
+from collections.abc import Callable
+from pathlib import Path, PurePath
+from re import Pattern
+from typing import Any
 
 from loguru import logger
 
@@ -75,9 +76,9 @@ class InputValidator:
         self,
         value: Any,
         min_length: int = 0,
-        max_length: Optional[int] = None,
-        pattern: Optional[Pattern] = None,
-        allowed_chars: Optional[Set[str]] = None,
+        max_length: int | None = None,
+        pattern: Pattern | None = None,
+        allowed_chars: set[str] | None = None,
         field_name: str = "string",
     ) -> str:
         """Validate and sanitize string input.
@@ -136,8 +137,8 @@ class InputValidator:
     def validate_integer(
         self,
         value: Any,
-        min_value: Optional[int] = None,
-        max_value: Optional[int] = None,
+        min_value: int | None = None,
+        max_value: int | None = None,
         field_name: str = "integer",
     ) -> int:
         """Validate integer input.
@@ -176,8 +177,8 @@ class InputValidator:
     def validate_float(
         self,
         value: Any,
-        min_value: Optional[float] = None,
-        max_value: Optional[float] = None,
+        min_value: float | None = None,
+        max_value: float | None = None,
         field_name: str = "float",
     ) -> float:
         """Validate float input.
@@ -247,10 +248,10 @@ class InputValidator:
         self,
         value: Any,
         min_size: int = 0,
-        max_size: Optional[int] = None,
-        item_validator: Optional[Callable] = None,
+        max_size: int | None = None,
+        item_validator: Callable | None = None,
         field_name: str = "list",
-    ) -> List[Any]:
+    ) -> list[Any]:
         """Validate list input.
 
         Args:
@@ -293,12 +294,12 @@ class InputValidator:
     def validate_dict(
         self,
         value: Any,
-        required_keys: Optional[Set[str]] = None,
-        optional_keys: Optional[Set[str]] = None,
-        key_validator: Optional[Callable] = None,
-        value_validator: Optional[Callable] = None,
+        required_keys: set[str] | None = None,
+        optional_keys: set[str] | None = None,
+        key_validator: Callable | None = None,
+        value_validator: Callable | None = None,
         field_name: str = "dictionary",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Validate dictionary input.
 
         Args:
@@ -364,7 +365,7 @@ class InputValidator:
         value: Any,
         allow_absolute: bool = False,
         allow_parent_traversal: bool = False,
-        allowed_extensions: Optional[Set[str]] = None,
+        allowed_extensions: set[str] | None = None,
         field_name: str = "path",
     ) -> Path:
         """Validate file path input.
@@ -469,9 +470,9 @@ class InputValidator:
     def validate_json(
         self,
         value: Any,
-        schema: Optional[Dict[str, Any]] = None,
+        schema: dict[str, Any] | None = None,
         field_name: str = "json",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Validate JSON input.
 
         Args:
@@ -582,7 +583,7 @@ def validate_search_query(query: Any) -> str:
     )
 
 
-def validate_metadata_dict(metadata: Any) -> Dict[str, Any]:
+def validate_metadata_dict(metadata: Any) -> dict[str, Any]:
     """Validate metadata dictionary with security checks."""
     validator = InputValidator(strict_mode=True)
 

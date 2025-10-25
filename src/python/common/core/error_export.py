@@ -49,15 +49,14 @@ import sqlite3
 import sys
 import tarfile
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
 from .error_filtering import ErrorFilter, ErrorFilterManager
 from .error_message_manager import ErrorMessage, ErrorMessageManager
-from .queue_connection import QueueConnectionPool
 
 
 @dataclass
@@ -78,13 +77,13 @@ class DebugBundle:
     """
     bundle_id: str
     created_at: datetime
-    error_ids: List[str]
-    error_details: List[Dict[str, Any]]
-    system_info: Dict[str, Any]
-    context_data: Dict[str, Any]
-    log_excerpts: Dict[str, str]  # error_id -> log text
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    output_path: Optional[Path] = None
+    error_ids: list[str]
+    error_details: list[dict[str, Any]]
+    system_info: dict[str, Any]
+    context_data: dict[str, Any]
+    log_excerpts: dict[str, str]  # error_id -> log text
+    metadata: dict[str, Any] = field(default_factory=dict)
+    output_path: Path | None = None
 
 
 class ErrorExporter:
@@ -131,7 +130,7 @@ class ErrorExporter:
 
     async def export_to_csv(
         self,
-        errors: List[ErrorMessage],
+        errors: list[ErrorMessage],
         filepath: str
     ) -> bool:
         """
@@ -209,7 +208,7 @@ class ErrorExporter:
 
     async def export_to_json(
         self,
-        errors: List[ErrorMessage],
+        errors: list[ErrorMessage],
         filepath: str
     ) -> bool:
         """
@@ -348,7 +347,7 @@ class DebugBundleGenerator:
         """
         self.error_manager = error_manager
         self._initialized = False
-        self._db_path: Optional[str] = None
+        self._db_path: str | None = None
 
     async def initialize(self):
         """Initialize the debug bundle generator."""
@@ -373,7 +372,7 @@ class DebugBundleGenerator:
         self._initialized = False
         logger.info("Debug bundle generator closed")
 
-    def include_system_info(self) -> Dict[str, Any]:
+    def include_system_info(self) -> dict[str, Any]:
         """
         Collect system information for debug bundle.
 
@@ -382,7 +381,6 @@ class DebugBundleGenerator:
         """
         try:
             # Get Python version info
-            python_version = sys.version
             python_version_short = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
 
             # Get platform information
@@ -431,7 +429,7 @@ class DebugBundleGenerator:
             logger.error(f"Error collecting system info: {e}", exc_info=True)
             return {"error": str(e)}
 
-    async def include_error_context(self, error_id: str) -> Dict[str, Any]:
+    async def include_error_context(self, error_id: str) -> dict[str, Any]:
         """
         Include error context with related queue items.
 
@@ -536,7 +534,7 @@ class DebugBundleGenerator:
                     try:
                         # Read log file and find lines around timestamp
                         # This is a simplified version - in production would use more sophisticated log parsing
-                        with open(log_path, 'r', encoding='utf-8') as f:
+                        with open(log_path, encoding='utf-8') as f:
                             all_lines = f.readlines()
 
                         # For now, just include last N lines
@@ -556,7 +554,7 @@ class DebugBundleGenerator:
 
             if not log_found:
                 log_content.append(
-                    f"No log files found. Searched:\n" +
+                    "No log files found. Searched:\n" +
                     "\n".join(f"  - {p}" for p in log_paths)
                 )
 
@@ -568,7 +566,7 @@ class DebugBundleGenerator:
 
     async def create_debug_bundle(
         self,
-        error_ids: List[str],
+        error_ids: list[str],
         output_path: str
     ) -> DebugBundle:
         """
@@ -727,4 +725,4 @@ class DebugBundleGenerator:
 
         except Exception as e:
             logger.error(f"Error creating archive: {e}", exc_info=True)
-            raise IOError(f"Failed to create archive: {e}") from e
+            raise OSError(f"Failed to create archive: {e}") from e

@@ -1,5 +1,3 @@
-from loguru import logger
-
 # logger imported from loguru
 """
 Base document parser interface and data structures.
@@ -15,15 +13,12 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Optional, Union
+from typing import Any
 
-from .exceptions import ParsingError, handle_parsing_error
-from .file_detector import FileDetector, detect_file_type
+from .exceptions import handle_parsing_error
+from .file_detector import detect_file_type
 from .progress import (
-    ProgressPhase,
     ProgressTracker,
-    ProgressUnit,
-    create_progress_tracker,
 )
 
 
@@ -216,7 +211,7 @@ class DocumentParser(ABC):
     async def parse(
         self,
         file_path: str | Path,
-        progress_tracker: Optional[ProgressTracker] = None,
+        progress_tracker: ProgressTracker | None = None,
         **options: Any,
     ) -> ParsedDocument:
         """

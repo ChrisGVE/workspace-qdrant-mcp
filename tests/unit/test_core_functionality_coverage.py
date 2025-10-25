@@ -4,12 +4,13 @@ Core functionality coverage test file.
 Targets high-impact modules with actual instantiation and method calls.
 """
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
-import tempfile
 import os
 import sys
+import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 
 class TestCoreFunctionalityCoverage:

@@ -27,25 +27,21 @@ Usage:
 
 import asyncio
 import json
-import pytest
-import psutil
 import statistics
-import time
-from pathlib import Path
-from typing import Dict, Any, List, Optional
-from datetime import datetime
 
 # Import E2E test utilities
 import sys
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Optional
+
+import psutil
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent))
 from conftest import E2E_TEST_CONFIG
-from utils import (
-    HealthChecker,
-    WorkflowTimer,
-    TestDataGenerator,
-    QdrantTestHelper
-)
-
+from utils import HealthChecker, QdrantTestHelper, TestDataGenerator, WorkflowTimer
 
 # Performance Regression Configuration
 PERFORMANCE_CONFIG = {
@@ -88,12 +84,12 @@ class PerformanceTracker:
         self.baselines = PERFORMANCE_CONFIG["baselines"].copy()
         self.historical_data = self._load_historical_data()
 
-    def _load_historical_data(self) -> List[Dict[str, Any]]:
+    def _load_historical_data(self) -> list[dict[str, Any]]:
         """Load historical performance data."""
         history_file = Path(PERFORMANCE_CONFIG["report"]["historical_data_file"])
         if history_file.exists():
             try:
-                with open(history_file, 'r') as f:
+                with open(history_file) as f:
                     return json.load(f)
             except Exception:
                 return []
@@ -112,7 +108,7 @@ class PerformanceTracker:
         name: str,
         value: float,
         unit: str,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ):
         """Record a performance metric."""
         metric = {
@@ -124,7 +120,7 @@ class PerformanceTracker:
         }
         self.metrics.append(metric)
 
-    def calculate_percentiles(self, values: List[float]) -> Dict[str, float]:
+    def calculate_percentiles(self, values: list[float]) -> dict[str, float]:
         """Calculate percentile statistics."""
         if not values:
             return {}
@@ -145,7 +141,7 @@ class PerformanceTracker:
         baseline_value: float,
         threshold_percent: float,
         lower_is_better: bool = True
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Detect if there's a performance regression."""
         if baseline_value == 0:
             return {"detected": False, "reason": "No baseline"}
@@ -169,7 +165,7 @@ class PerformanceTracker:
             "severity": "critical" if abs(change_percent) > threshold_percent * 2 else "warning"
         }
 
-    def generate_report(self) -> Dict[str, Any]:
+    def generate_report(self) -> dict[str, Any]:
         """Generate comprehensive performance report."""
         report = {
             "timestamp": datetime.now().isoformat(),
@@ -236,7 +232,7 @@ def performance_tracker():
 
     # Generate report after test
     report = tracker.generate_report()
-    print(f"\nPerformance Report:")
+    print("\nPerformance Report:")
     print(f"  Total metrics: {report['summary']['total_metrics']}")
     print(f"  Regressions: {report['summary']['regressions_detected']}")
 
@@ -430,7 +426,7 @@ class TestSearchPerformance:
             def run_concurrent():
                 asyncio.run(concurrent_searches())
 
-            result = benchmark.pedantic(
+            benchmark.pedantic(
                 run_concurrent,
                 rounds=5,
                 warmup_rounds=2
@@ -542,7 +538,7 @@ class TestMemoryPerformance:
         memory_increase_mb = load_memory_mb - idle_memory_mb
         baseline = PERFORMANCE_CONFIG["baselines"]["memory_usage_baseline_mb"]
 
-        print(f"\nMemory usage:")
+        print("\nMemory usage:")
         print(f"  Idle: {idle_memory_mb:.1f} MB")
         print(f"  Load: {load_memory_mb:.1f} MB")
         print(f"  Increase: {memory_increase_mb:.1f} MB")
@@ -590,7 +586,7 @@ class TestRegressionDetection:
         assert "summary" in report
         assert isinstance(report["regressions"], list)
 
-        print(f"\nRegression Detection Results:")
+        print("\nRegression Detection Results:")
         print(f"  Total regressions: {len(report['regressions'])}")
 
         for regression in report["regressions"]:

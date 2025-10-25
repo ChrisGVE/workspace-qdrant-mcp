@@ -16,7 +16,6 @@ import sqlite3
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
 
 import pytest
 
@@ -48,7 +47,7 @@ async def analyzer():
 
 
 @pytest.fixture
-def sample_data_points() -> List[TrendDataPoint]:
+def sample_data_points() -> list[TrendDataPoint]:
     """Create sample data points for testing."""
     base_time = datetime.now(timezone.utc) - timedelta(hours=24)
     data_points = []

@@ -17,13 +17,13 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
 from ..memory import AuthorityLevel, MemoryRule
 from .token_budget import TokenCounter
-from .token_usage_tracker import OperationType, TokenUsageTracker, ToolUsageStats
+from .token_usage_tracker import TokenUsageTracker
 
 
 class PrioritizationStrategy(Enum):
@@ -57,12 +57,12 @@ class RulePriorityScore:
     rule_id: str
     rule: MemoryRule
     total_score: float
-    component_scores: Dict[str, float] = field(default_factory=dict)
+    component_scores: dict[str, float] = field(default_factory=dict)
     token_cost: int = 0
     value_per_token: float = 0.0
     usage_count: int = 0
-    last_used: Optional[datetime] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    last_used: datetime | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __lt__(self, other: "RulePriorityScore") -> bool:
         """Compare scores for sorting (higher score = higher priority)."""
@@ -84,11 +84,11 @@ class PrioritizationResult:
     """
 
     strategy: PrioritizationStrategy
-    ranked_rules: List[MemoryRule]
-    priority_scores: List[RulePriorityScore]
+    ranked_rules: list[MemoryRule]
+    priority_scores: list[RulePriorityScore]
     total_rules: int
     total_value: float
-    statistics: Dict[str, Any] = field(default_factory=dict)
+    statistics: dict[str, Any] = field(default_factory=dict)
 
 
 class RulePrioritizer:
@@ -114,7 +114,7 @@ class RulePrioritizer:
 
     def __init__(
         self,
-        usage_tracker: Optional[TokenUsageTracker] = None,
+        usage_tracker: TokenUsageTracker | None = None,
         strategy: PrioritizationStrategy = PrioritizationStrategy.IMPORTANCE,
         importance_weight: float = 0.5,
         frequency_weight: float = 0.3,
@@ -146,7 +146,7 @@ class RulePrioritizer:
         self.use_accurate_counting = use_accurate_counting
 
         # Dynamic priority adjustments (learned from usage)
-        self._priority_adjustments: Dict[str, float] = defaultdict(float)
+        self._priority_adjustments: dict[str, float] = defaultdict(float)
 
         # Normalize weights to sum to 1.0
         total_weight = importance_weight + frequency_weight + recency_weight
@@ -164,9 +164,9 @@ class RulePrioritizer:
 
     def prioritize_rules(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         tool_name: str,
-        strategy: Optional[PrioritizationStrategy] = None,
+        strategy: PrioritizationStrategy | None = None,
     ) -> PrioritizationResult:
         """
         Prioritize rules using specified strategy.
@@ -210,12 +210,12 @@ class RulePrioritizer:
 
     def select_top_rules(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         tool_name: str,
         budget: int,
-        strategy: Optional[PrioritizationStrategy] = None,
+        strategy: PrioritizationStrategy | None = None,
         protect_absolute: bool = True,
-    ) -> Tuple[List[MemoryRule], List[MemoryRule]]:
+    ) -> tuple[list[MemoryRule], list[MemoryRule]]:
         """
         Select top rules that fit within token budget.
 
@@ -248,7 +248,7 @@ class RulePrioritizer:
 
         # Prioritize and select default rules
         if default_rules:
-            remaining_budget = budget - used_tokens
+            budget - used_tokens
             prioritization = self.prioritize_rules(default_rules, tool_name, strategy)
 
             for score in prioritization.priority_scores:
@@ -273,7 +273,7 @@ class RulePrioritizer:
         self,
         rule_id: str,
         usage_value: float,
-        learning_rate: Optional[float] = None,
+        learning_rate: float | None = None,
     ) -> None:
         """
         Adjust rule priority based on usage feedback.
@@ -320,10 +320,10 @@ class RulePrioritizer:
 
     def _compute_priority_scores(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         tool_name: str,
         strategy: PrioritizationStrategy,
-    ) -> List[RulePriorityScore]:
+    ) -> list[RulePriorityScore]:
         """
         Compute priority scores for all rules.
 
@@ -652,8 +652,8 @@ class RulePrioritizer:
         )
 
     def _compute_statistics(
-        self, scores: List[RulePriorityScore], strategy: PrioritizationStrategy
-    ) -> Dict[str, Any]:
+        self, scores: list[RulePriorityScore], strategy: PrioritizationStrategy
+    ) -> dict[str, Any]:
         """
         Compute prioritization statistics.
 

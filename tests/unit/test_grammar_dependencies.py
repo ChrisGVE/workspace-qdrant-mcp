@@ -1,15 +1,15 @@
 """Unit tests for grammar dependency resolution system."""
 
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from common.core.grammar_dependencies import (
-    DependencyResolver,
-    DependencyAnalysis,
     BuildDependency,
-    SourceType,
     CompilerRequirement,
+    DependencyAnalysis,
+    DependencyResolver,
+    SourceType,
 )
 
 

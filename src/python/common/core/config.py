@@ -59,7 +59,7 @@ import os
 import re
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional
 
 import yaml
 
@@ -212,18 +212,18 @@ class ConfigManager:
     _instance: Optional['ConfigManager'] = None
     _lock = threading.Lock()
 
-    def __init__(self, config_file: Optional[str] = None, **kwargs) -> None:
+    def __init__(self, config_file: str | None = None, **kwargs) -> None:
         """Initialize configuration manager with dictionary-based architecture.
 
         Args:
             config_file: Path to YAML configuration file
             **kwargs: Override values for configuration parameters
         """
-        self._config: Dict[str, Any] = {}
+        self._config: dict[str, Any] = {}
         self._load_configuration(config_file, **kwargs)
 
     @classmethod
-    def get_instance(cls, config_file: Optional[str] = None, **kwargs) -> 'ConfigManager':
+    def get_instance(cls, config_file: str | None = None, **kwargs) -> 'ConfigManager':
         """Get singleton instance of ConfigManager (thread-safe).
 
         Args:
@@ -245,7 +245,7 @@ class ConfigManager:
         with cls._lock:
             cls._instance = None
 
-    def _load_configuration(self, config_file: Optional[str] = None, **kwargs) -> None:
+    def _load_configuration(self, config_file: str | None = None, **kwargs) -> None:
         """Load configuration using dictionary-based architecture.
 
         Implements the user-specified process:
@@ -306,7 +306,7 @@ class ConfigManager:
                 f"The old setting will be ignored."
             )
 
-    def _get_asset_base_path(self, deployment_config: Dict[str, Any] = None) -> Path:
+    def _get_asset_base_path(self, deployment_config: dict[str, Any] = None) -> Path:
         """Determine the base path for asset files based on deployment configuration.
 
         Args:
@@ -350,7 +350,7 @@ class ConfigManager:
             # Fallback for unknown systems
             return Path("/usr/local/share/workspace-qdrant-mcp/assets")
 
-    def _create_comprehensive_defaults(self) -> Dict[str, Any]:
+    def _create_comprehensive_defaults(self) -> dict[str, Any]:
         """Load comprehensive default configuration from asset file.
 
         Returns:
@@ -391,7 +391,7 @@ class ConfigManager:
             "performance": {"max_concurrent_tasks": 4, "default_timeout_ms": 30000},
         }
 
-    def _apply_unit_conversions(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    def _apply_unit_conversions(self, config: dict[str, Any]) -> dict[str, Any]:
         """Apply unit conversions to configuration values.
 
         Converts size strings (32MB → 33554432) and time strings (45s → 45000ms).
@@ -432,7 +432,7 @@ class ConfigManager:
 
         return converted
 
-    def _deep_merge_configs(self, configs: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _deep_merge_configs(self, configs: list[dict[str, Any]]) -> dict[str, Any]:
         """Deep merge multiple configuration dictionaries.
 
         Later configs in the list take precedence over earlier ones.
@@ -509,7 +509,7 @@ class ConfigManager:
 
         return True
 
-    def get_all(self) -> Dict[str, Any]:
+    def get_all(self) -> dict[str, Any]:
         """Get complete configuration dictionary (read-only copy).
 
         Returns:
@@ -518,7 +518,7 @@ class ConfigManager:
         import copy
         return copy.deepcopy(self._config)
 
-    def validate(self) -> List[str]:
+    def validate(self) -> list[str]:
         """Validate configuration and return list of issues.
 
         Returns:
@@ -574,7 +574,7 @@ class ConfigManager:
 
         return issues
 
-    def _load_yaml_config(self, config_file: str) -> Dict[str, Any]:
+    def _load_yaml_config(self, config_file: str) -> dict[str, Any]:
         """Load configuration from YAML file.
 
         Args:
@@ -618,7 +618,7 @@ class ConfigManager:
             logger.error(f"Error loading configuration file {config_file}: {e}")
             return {}
 
-    def _find_default_config_file(self) -> Optional[str]:
+    def _find_default_config_file(self) -> str | None:
         """Find default configuration file.
 
         Search order:
@@ -657,7 +657,7 @@ class ConfigManager:
 
         return None
 
-    def _get_xdg_config_dirs(self) -> List[Path]:
+    def _get_xdg_config_dirs(self) -> list[Path]:
         """Get XDG-compliant configuration directories.
 
         Returns:
@@ -689,7 +689,7 @@ class ConfigManager:
 
         return config_dirs
 
-    def _load_environment_variables(self) -> Dict[str, Any]:
+    def _load_environment_variables(self) -> dict[str, Any]:
         """Load configuration from environment variables.
 
         Supports prefixed variables (WORKSPACE_QDRANT_*).
@@ -699,7 +699,7 @@ class ConfigManager:
         """
         return self._load_prefixed_env_vars()
 
-    def _load_prefixed_env_vars(self) -> Dict[str, Any]:
+    def _load_prefixed_env_vars(self) -> dict[str, Any]:
         """Load prefixed environment variables (WORKSPACE_QDRANT_*).
 
         Returns:
@@ -738,7 +738,7 @@ class ConfigManager:
         return env_config
 
 
-    def _set_nested_value(self, config: Dict[str, Any], path: str, value: Any) -> None:
+    def _set_nested_value(self, config: dict[str, Any], path: str, value: Any) -> None:
         """Set nested value in configuration dictionary.
 
         Args:
@@ -756,7 +756,7 @@ class ConfigManager:
 
         current[keys[-1]] = value
 
-    def _parse_env_value(self, value: str) -> Union[str, int, float, bool, List[str]]:
+    def _parse_env_value(self, value: str) -> str | int | float | bool | list[str]:
         """Parse environment variable value to appropriate Python type.
 
         Args:
@@ -788,7 +788,7 @@ class ConfigManager:
 
 
 # Global configuration instance
-_global_config: Optional[ConfigManager] = None
+_global_config: ConfigManager | None = None
 _config_lock = threading.Lock()
 
 
@@ -906,7 +906,7 @@ def get_config_float(path: str, default: float = 0.0) -> float:
     return default
 
 
-def get_config_list(path: str, default: List[Any] = None) -> List[Any]:
+def get_config_list(path: str, default: list[Any] = None) -> list[Any]:
     """Get configuration list value with default (lua-style).
 
     Args:
@@ -922,7 +922,7 @@ def get_config_list(path: str, default: List[Any] = None) -> List[Any]:
     return value if isinstance(value, list) else default
 
 
-def get_config_dict(path: str, default: Dict[str, Any] = None) -> Dict[str, Any]:
+def get_config_dict(path: str, default: dict[str, Any] = None) -> dict[str, Any]:
     """Get configuration dictionary value with default (lua-style).
 
     Args:
@@ -939,7 +939,7 @@ def get_config_dict(path: str, default: Dict[str, Any] = None) -> Dict[str, Any]
 
 
 # Legacy compatibility function - deprecated
-def get_config_manager(config_file: Optional[str] = None, **kwargs) -> ConfigManager:
+def get_config_manager(config_file: str | None = None, **kwargs) -> ConfigManager:
     """Get global configuration manager instance (DEPRECATED).
 
     Use get_config(path) instead for lua-style access.
@@ -974,7 +974,7 @@ def get_backup_auto_backup_before_restore() -> bool:
     return get_config_bool("backup.auto_backup_before_restore", default=True)
 
 
-def get_backup_default_directory() -> Optional[str]:
+def get_backup_default_directory() -> str | None:
     """Get default backup directory path.
 
     Returns:
@@ -1100,7 +1100,7 @@ def get_backup_include_system_info() -> bool:
     return get_config_bool("backup.metadata.include_system_info", default=True)
 
 
-def get_backup_custom_metadata() -> Dict[str, Any]:
+def get_backup_custom_metadata() -> dict[str, Any]:
     """Get custom metadata to include in all backups.
 
     Returns:

@@ -8,10 +8,9 @@ extracting structured content, metadata from frontmatter, and converting
 to plain text while preserving important structural information.
 """
 
-import logging
 import re
 from pathlib import Path
-from typing import Any, Union
+from typing import Any
 
 try:
     import yaml

@@ -3,12 +3,13 @@ Basic unit tests for MCP server components to achieve high coverage.
 Focused on testing core functionality without complex FastMCP infrastructure.
 """
 
-import pytest
-import sys
-import os
 import asyncio
+import os
+import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 # Add the src directory to Python path
 src_path = Path(__file__).parent.parent.parent / "src"
@@ -226,7 +227,7 @@ class TestUtilityFunctions:
             ("valid-project", "/path", "valid-project"),
         ]
 
-        for project_name, project_path, expected in test_cases:
+        for project_name, _project_path, expected in test_cases:
             # Test that we can handle these edge cases
             if project_name is None or project_name == "" or project_name.strip() == "":
                 result = "default"
@@ -403,7 +404,7 @@ class TestMemoryPatterns:
             assert len(large_string) == size
 
             # Test memory efficiency patterns
-            large_list = [i for i in range(size)]
+            large_list = list(range(size))
             assert len(large_list) == size
 
             # Test dictionary with many keys

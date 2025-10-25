@@ -9,7 +9,6 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List
 
 import pytest
 
@@ -174,7 +173,7 @@ class TestPythonDependencyVulnerabilities:
 
         if unpinned:
             pytest.fail(
-                f"Dependencies without version constraints found (security risk):\n" +
+                "Dependencies without version constraints found (security risk):\n" +
                 "\n".join(unpinned) +
                 "\n\nAll dependencies should have version constraints (>=, ==, ~=, etc.)"
             )
@@ -246,7 +245,7 @@ class TestRustDependencyVulnerabilities:
                                 # Skip lines that aren't JSON
                                 continue
 
-                except Exception as e:
+                except Exception:
                     # Could not parse output
                     if result.returncode != 0 and result.stderr:
                         # Non-zero exit with errors
@@ -339,13 +338,13 @@ class TestRustDependencyVulnerabilities:
                     if not cargo_lock.exists():
                         missing_locks.append(str(cargo_file.parent))
 
-            except Exception as e:
+            except Exception:
                 # If we can't parse the Cargo.toml, skip it
                 continue
 
         if missing_locks:
             pytest.fail(
-                f"Cargo.lock files missing for workspace/standalone projects:\n" +
+                "Cargo.lock files missing for workspace/standalone projects:\n" +
                 "\n".join(missing_locks) +
                 "\n\nRun 'cargo build' in these directories to generate Cargo.lock files"
             )

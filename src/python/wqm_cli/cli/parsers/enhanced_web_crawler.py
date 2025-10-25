@@ -9,10 +9,9 @@ import asyncio
 import hashlib
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
-from urllib.parse import urljoin, urlparse
+from typing import Any
+from urllib.parse import urlparse
 
-import aiohttp
 from loguru import logger
 
 from .advanced_retry import AdvancedRetryHandler, RetryConfig
@@ -27,15 +26,15 @@ class EnhancedCrawlResult(CrawlResult):
     def __init__(self, url: str, success: bool = False):
         super().__init__(url, success)
         # Additional fields for enhanced crawler
-        self.extracted_content: Dict[str, Any] = {}
+        self.extracted_content: dict[str, Any] = {}
         self.content_quality_score: float = 0.0
-        self.structured_data: Dict[str, Any] = {}
-        self.media_links: Dict[str, Any] = {}
-        self.text_links: List[Dict[str, str]] = []
+        self.structured_data: dict[str, Any] = {}
+        self.media_links: dict[str, Any] = {}
+        self.text_links: list[dict[str, str]] = []
         self.processing_time: float = 0.0
         self.cache_hit: bool = False
         self.retry_attempts: int = 0
-        self.deduplication_key: Optional[str] = None
+        self.deduplication_key: str | None = None
 
 
 class EnhancedWebCrawler(SecureWebCrawler):
@@ -43,9 +42,9 @@ class EnhancedWebCrawler(SecureWebCrawler):
 
     def __init__(
         self,
-        security_config: Optional[SecurityConfig] = None,
-        cache_config: Optional[CacheConfig] = None,
-        retry_config: Optional[RetryConfig] = None
+        security_config: SecurityConfig | None = None,
+        cache_config: CacheConfig | None = None,
+        retry_config: RetryConfig | None = None
     ):
         super().__init__(security_config)
 
@@ -177,7 +176,7 @@ class EnhancedWebCrawler(SecureWebCrawler):
         self,
         url: str,
         result: EnhancedCrawlResult,
-        conditional_headers: Dict[str, str],
+        conditional_headers: dict[str, str],
         **options
     ):
         """Fetch content with cache validation support."""
@@ -291,7 +290,7 @@ class EnhancedWebCrawler(SecureWebCrawler):
         except Exception as e:
             logger.warning(f"Enhanced content processing failed for {url}: {e}")
 
-    def _calculate_quality_score(self, metrics: Dict[str, Any]) -> float:
+    def _calculate_quality_score(self, metrics: dict[str, Any]) -> float:
         """Calculate content quality score (0-1)."""
         try:
             score = 0.0
@@ -349,7 +348,7 @@ class EnhancedWebCrawler(SecureWebCrawler):
         except Exception as e:
             logger.warning(f"Duplication check failed for {result.url}: {e}")
 
-    async def crawl_recursive(self, start_url: str, **options) -> List[EnhancedCrawlResult]:
+    async def crawl_recursive(self, start_url: str, **options) -> list[EnhancedCrawlResult]:
         """Enhanced recursive crawling with session management."""
         logger.info(f"Starting enhanced recursive crawl (session: {self.crawl_session_id})")
         start_time = time.time()
@@ -419,7 +418,7 @@ class EnhancedWebCrawler(SecureWebCrawler):
             logger.error(f"Enhanced recursive crawl failed: {e}")
             return []
 
-    def get_session_stats(self) -> Dict[str, Any]:
+    def get_session_stats(self) -> dict[str, Any]:
         """Get comprehensive session statistics."""
         cache_stats = self.cache.get_cache_stats()
         retry_stats = self.retry_handler.get_retry_stats()
@@ -433,7 +432,7 @@ class EnhancedWebCrawler(SecureWebCrawler):
             'domain_request_counts': self.domain_request_counts.copy()
         }
 
-    async def save_session_report(self, output_path: Optional[Path] = None) -> Path:
+    async def save_session_report(self, output_path: Path | None = None) -> Path:
         """Save comprehensive session report."""
         if output_path is None:
             output_path = Path(f"crawl_session_{self.crawl_session_id}_report.json")

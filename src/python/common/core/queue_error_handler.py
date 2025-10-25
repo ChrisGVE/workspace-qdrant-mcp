@@ -29,12 +29,11 @@ Example:
     ```
 """
 
-import asyncio
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
@@ -123,8 +122,8 @@ class CircuitBreakerState:
     state: str = "closed"  # closed, open, half-open
     failure_count: int = 0
     success_count: int = 0
-    last_failure_time: Optional[float] = None
-    opened_at: Optional[float] = None
+    last_failure_time: float | None = None
+    opened_at: float | None = None
     failures: list = field(default_factory=list)
 
 
@@ -155,8 +154,8 @@ class ErrorHandler:
     def __init__(
         self,
         queue_client,
-        retry_config: Optional[RetryConfig] = None,
-        circuit_breaker_config: Optional[CircuitBreakerConfig] = None
+        retry_config: RetryConfig | None = None,
+        circuit_breaker_config: CircuitBreakerConfig | None = None
     ):
         """
         Initialize error handler.
@@ -171,7 +170,7 @@ class ErrorHandler:
         self.circuit_breaker_config = circuit_breaker_config or CircuitBreakerConfig()
 
         # Circuit breaker state per collection
-        self.circuit_breakers: Dict[str, CircuitBreakerState] = {}
+        self.circuit_breakers: dict[str, CircuitBreakerState] = {}
 
         # Error metrics
         self.metrics = ErrorMetrics()
@@ -179,7 +178,7 @@ class ErrorHandler:
         # Error type mapping from exception messages
         self.error_patterns = self._build_error_patterns()
 
-    def _build_error_patterns(self) -> Dict[str, ErrorType]:
+    def _build_error_patterns(self) -> dict[str, ErrorType]:
         """Build mapping from error message patterns to error types."""
         return {
             "timeout": ErrorType.NETWORK_TIMEOUT,
@@ -205,7 +204,7 @@ class ErrorHandler:
     def classify_error(
         self,
         error: Exception,
-        context: Optional[Dict[str, Any]] = None
+        context: dict[str, Any] | None = None
     ) -> ErrorType:
         """
         Classify error by analyzing exception message and context.
@@ -300,7 +299,7 @@ class ErrorHandler:
             self.circuit_breakers[collection] = CircuitBreakerState()
         return self.circuit_breakers[collection]
 
-    def check_circuit_breaker(self, collection: str) -> Tuple[bool, str]:
+    def check_circuit_breaker(self, collection: str) -> tuple[bool, str]:
         """
         Check circuit breaker state.
 
@@ -378,8 +377,8 @@ class ErrorHandler:
         file_path: str,
         error: Exception,
         collection: str,
-        context: Optional[Dict[str, Any]] = None
-    ) -> Tuple[bool, ErrorType]:
+        context: dict[str, Any] | None = None
+    ) -> tuple[bool, ErrorType]:
         """
         Handle error with classification, retry logic, and circuit breaker.
 
@@ -472,7 +471,7 @@ class ErrorHandler:
         file_path: str,
         error_type: ErrorType,
         error_message: str,
-        context: Dict[str, Any]
+        context: dict[str, Any]
     ):
         """
         Move permanently failed item to dead letter queue.
@@ -508,7 +507,7 @@ class ErrorHandler:
             f"Moved {file_path} to dead letter queue: {error_type.error_name}"
         )
 
-    def get_metrics(self) -> Dict[str, Any]:
+    def get_metrics(self) -> dict[str, Any]:
         """
         Get error handling metrics.
 

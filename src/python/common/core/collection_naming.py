@@ -22,11 +22,10 @@ Key features:
 """
 
 import re
-
-from loguru import logger
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple, Any, Union
+
+from loguru import logger
 
 # logger imported from loguru
 
@@ -750,10 +749,10 @@ class OperationType(Enum):
 class ValidationResult:
     """Result of collection operation validation."""
     is_valid: bool
-    error_message: Optional[str] = None
-    warning_message: Optional[str] = None
-    suggested_alternatives: Optional[List[str]] = None
-    violation_type: Optional[str] = None
+    error_message: str | None = None
+    warning_message: str | None = None
+    suggested_alternatives: list[str] | None = None
+    violation_type: str | None = None
 
 
 class CollectionRulesEnforcementError(Exception):
@@ -799,8 +798,9 @@ class CollectionRulesEnforcer:
 
         # Initialize subsystems
         try:
-            from .llm_access_control import LLMAccessController, LLMAccessControlError
-            from .collection_types import CollectionTypeClassifier, CollectionType as TypesCollectionType
+            from .collection_types import CollectionType as TypesCollectionType
+            from .collection_types import CollectionTypeClassifier
+            from .llm_access_control import LLMAccessControlError, LLMAccessController
 
             self.llm_access_controller = LLMAccessController(config)
             self.type_classifier = CollectionTypeClassifier()
@@ -813,11 +813,11 @@ class CollectionRulesEnforcer:
         self.naming_manager = CollectionNamingManager()
 
         # Track existing collections for validation
-        self._existing_collections: Set[str] = set()
+        self._existing_collections: set[str] = set()
 
         logger.info("CollectionRulesEnforcer initialized")
 
-    def set_existing_collections(self, collections: List[str]) -> None:
+    def set_existing_collections(self, collections: list[str]) -> None:
         """
         Update the set of existing collections for validation.
 

@@ -11,15 +11,16 @@ import csv
 import json
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
 
-# Import the enhanced TextParser
-from src.python.wqm_cli.cli.parsers.text_parser import TextParser
 from src.python.wqm_cli.cli.parsers.base import ParsedDocument
 from src.python.wqm_cli.cli.parsers.exceptions import ParsingError
+
+# Import the enhanced TextParser
+from src.python.wqm_cli.cli.parsers.text_parser import TextParser
 
 
 class TestEnhancedTextParser:

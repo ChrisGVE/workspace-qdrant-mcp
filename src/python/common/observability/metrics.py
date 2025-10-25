@@ -32,18 +32,15 @@ Example:
     ```
 """
 
-import asyncio
 import os
 import time
-import weakref
-from collections import defaultdict, deque
+from collections import defaultdict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from threading import Lock
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
 
 import psutil
-
 from loguru import logger
 
 # logger imported from loguru
@@ -54,7 +51,7 @@ class MetricValue:
     """Container for a metric value with metadata."""
 
     value: float
-    labels: Dict[str, str] = field(default_factory=dict)
+    labels: dict[str, str] = field(default_factory=dict)
     timestamp: float = field(default_factory=time.time)
 
 
@@ -74,7 +71,7 @@ class Counter:
         self.description = description
         self._value = 0
         self._lock = Lock()
-        self._labels_values: Dict[str, float] = defaultdict(float)
+        self._labels_values: dict[str, float] = defaultdict(float)
 
     def increment(self, amount: float = 1.0, **labels):
         """Increment counter by amount with optional labels."""
@@ -92,12 +89,12 @@ class Counter:
                 return self._labels_values.get(label_key, 0.0)
             return self._value
 
-    def get_all_labeled_values(self) -> Dict[str, float]:
+    def get_all_labeled_values(self) -> dict[str, float]:
         """Get all labeled counter values."""
         with self._lock:
             return dict(self._labels_values)
 
-    def _serialize_labels(self, labels: Dict[str, Any]) -> str:
+    def _serialize_labels(self, labels: dict[str, Any]) -> str:
         """Serialize labels to a consistent string key."""
         return ",".join(f"{k}={v}" for k, v in sorted(labels.items()))
 
@@ -110,7 +107,7 @@ class Gauge:
         self.description = description
         self._value = 0.0
         self._lock = Lock()
-        self._labels_values: Dict[str, float] = defaultdict(float)
+        self._labels_values: dict[str, float] = defaultdict(float)
 
     def set(self, value: float, **labels):
         """Set gauge to a specific value with optional labels."""
@@ -142,12 +139,12 @@ class Gauge:
                 return self._labels_values.get(label_key, 0.0)
             return self._value
 
-    def get_all_labeled_values(self) -> Dict[str, float]:
+    def get_all_labeled_values(self) -> dict[str, float]:
         """Get all labeled gauge values."""
         with self._lock:
             return dict(self._labels_values)
 
-    def _serialize_labels(self, labels: Dict[str, Any]) -> str:
+    def _serialize_labels(self, labels: dict[str, Any]) -> str:
         """Serialize labels to a consistent string key."""
         return ",".join(f"{k}={v}" for k, v in sorted(labels.items()))
 
@@ -171,7 +168,7 @@ class Histogram:
     ]
 
     def __init__(
-        self, name: str, description: str = "", buckets: Optional[List[float]] = None
+        self, name: str, description: str = "", buckets: list[float] | None = None
     ):
         self.name = name
         self.description = description
@@ -179,9 +176,7 @@ class Histogram:
         self._lock = Lock()
 
         # Initialize buckets
-        self._histogram_buckets: Dict[float, int] = {
-            bucket: 0 for bucket in self.buckets
-        }
+        self._histogram_buckets: dict[float, int] = dict.fromkeys(self.buckets, 0)
         self._histogram_buckets[float("inf")] = 0  # +Inf bucket
 
         # Track sum and count for average calculation
@@ -189,11 +184,11 @@ class Histogram:
         self._count = 0
 
         # Labeled histograms
-        self._labeled_histograms: Dict[str, Dict[float, int]] = defaultdict(
-            lambda: {bucket: 0 for bucket in self.buckets + [float("inf")]}
+        self._labeled_histograms: dict[str, dict[float, int]] = defaultdict(
+            lambda: dict.fromkeys(self.buckets + [float("inf")], 0)
         )
-        self._labeled_sums: Dict[str, float] = defaultdict(float)
-        self._labeled_counts: Dict[str, int] = defaultdict(int)
+        self._labeled_sums: dict[str, float] = defaultdict(float)
+        self._labeled_counts: dict[str, int] = defaultdict(int)
 
     def observe(self, value: float, **labels):
         """Record an observation in the histogram."""
@@ -218,7 +213,7 @@ class Histogram:
                 self._sum += value
                 self._count += 1
 
-    def get_buckets(self, **labels) -> Dict[float, int]:
+    def get_buckets(self, **labels) -> dict[float, int]:
         """Get histogram buckets, optionally filtered by labels."""
         with self._lock:
             if labels:
@@ -249,7 +244,7 @@ class Histogram:
             return 0.0
         return self.get_sum(**labels) / count
 
-    def _serialize_labels(self, labels: Dict[str, Any]) -> str:
+    def _serialize_labels(self, labels: dict[str, Any]) -> str:
         """Serialize labels to a consistent string key."""
         return ",".join(f"{k}={v}" for k, v in sorted(labels.items()))
 
@@ -258,9 +253,9 @@ class MetricsCollector:
     """Main metrics collection and management system."""
 
     def __init__(self):
-        self.counters: Dict[str, Counter] = {}
-        self.gauges: Dict[str, Gauge] = {}
-        self.histograms: Dict[str, Histogram] = {}
+        self.counters: dict[str, Counter] = {}
+        self.gauges: dict[str, Gauge] = {}
+        self.histograms: dict[str, Histogram] = {}
         self._lock = Lock()
 
         # System metrics tracking
@@ -268,13 +263,12 @@ class MetricsCollector:
         self._last_system_update = 0
 
         # Active operations tracking
-        self._active_operations: Dict[str, float] = {}  # operation_id -> start_time
+        self._active_operations: dict[str, float] = {}  # operation_id -> start_time
 
         # Initialize standard metrics
         self._initialize_standard_metrics()
 
         # Only log initialization if explicitly requested or in server mode
-        import os
 
         if (
             os.getenv("WQM_LOG_INIT", "false").lower() == "true"
@@ -339,7 +333,7 @@ class MetricsCollector:
             return self.gauges[name]
 
     def create_histogram(
-        self, name: str, description: str = "", buckets: Optional[List[float]] = None
+        self, name: str, description: str = "", buckets: list[float] | None = None
     ) -> Histogram:
         """Create or get existing histogram metric."""
         with self._lock:
@@ -459,7 +453,7 @@ class MetricsCollector:
         except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
             logger.warning("Failed to update system metrics", error=str(e))
 
-    def get_metrics_summary(self) -> Dict[str, Any]:
+    def get_metrics_summary(self) -> dict[str, Any]:
         """Get a summary of all current metrics."""
         summary = {
             "timestamp": time.time(),
@@ -568,12 +562,12 @@ class MetricsCollector:
 
 
 # Global metrics instance (lazy initialization)
-_metrics_instance: Optional[MetricsCollector] = None
+_metrics_instance: MetricsCollector | None = None
 
 
 def get_metrics_collector() -> MetricsCollector:
     """Get the global metrics collector instance with lazy initialization.
-    
+
     Returns:
         The global MetricsCollector instance, created on first access.
     """
@@ -585,10 +579,10 @@ def get_metrics_collector() -> MetricsCollector:
 
 class LazyMetricsCollector:
     """Lazy proxy for metrics collector instance."""
-    
+
     def __getattr__(self, name):
         return getattr(get_metrics_collector(), name)
-    
+
     def __call__(self, *args, **kwargs):
         return get_metrics_collector()(*args, **kwargs)
 

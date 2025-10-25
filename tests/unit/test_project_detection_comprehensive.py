@@ -13,20 +13,19 @@ from pathlib import Path
 # Add src/python to path for common module imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
-import os
-import tempfile
 import hashlib
+import os
 import re
+import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, patch, Mock, call
+from unittest.mock import MagicMock, Mock, call, patch
 from urllib.parse import urlparse
 
 import git
 import pytest
-from git.exc import GitError, InvalidGitRepositoryError
-
-from common.utils.project_detection import ProjectDetector, DaemonIdentifier
 from common.core.pattern_manager import PatternManager
+from common.utils.project_detection import DaemonIdentifier, ProjectDetector
+from git.exc import GitError, InvalidGitRepositoryError
 
 
 class TestDaemonIdentifier:
@@ -262,7 +261,7 @@ class TestDaemonIdentifier:
     def test_check_collision_different_project(self):
         """Test collision checking with different project (collision)."""
         identifier1 = DaemonIdentifier("test-project", "/path/to/project1")
-        id1 = identifier1.generate_identifier()
+        identifier1.generate_identifier()
 
         identifier2 = DaemonIdentifier("test-project", "/path/to/project2")
 
@@ -569,7 +568,7 @@ class TestProjectDetectorComprehensive:
         mock_submodule.url = "https://github.com/testuser/test-submodule.git"
         mock_submodule.hexsha = "abc123"
 
-        with patch.object(detector, '_parse_git_url') as mock_parse:
+        with patch.object(detector, '_parse_git_url'):
             with patch.object(detector, '_belongs_to_user', return_value=True):
                 with patch.object(detector, '_extract_repo_name_from_remote', return_value="test-submodule"):
                     with patch('common.utils.project_detection.os.path.exists', return_value=True):

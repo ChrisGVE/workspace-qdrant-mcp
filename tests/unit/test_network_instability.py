@@ -7,17 +7,18 @@ intermittent connectivity components used in stress testing scenarios.
 
 import asyncio
 import time
+
 import pytest
 
 from tests.framework.network_instability import (
-    NetworkInstabilitySimulator,
-    NetworkInstabilityScenario,
-    LatencyInjector,
-    PacketLossSimulator,
     ConnectionTimeoutSimulator,
     IntermittentConnectivitySimulator,
     LatencyDistribution,
+    LatencyInjector,
     NetworkCondition,
+    NetworkInstabilityScenario,
+    NetworkInstabilitySimulator,
+    PacketLossSimulator,
 )
 
 
@@ -146,7 +147,6 @@ class TestPacketLossSimulator:
         )
 
         # Should drop approximately 20% (allow 10% variance)
-        expected_drops = 200
         assert 150 < dropped_count < 250, \
             f"Expected ~200 drops (20%), got {dropped_count}"
 

@@ -60,21 +60,22 @@ import asyncio
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
 from .error_message_manager import ErrorMessageManager
 from .error_monitoring import (
     ErrorMetricsCollector,
-    HealthCheckManager as ErrorHealthCheckManager,
     LoggingHook,
-    OverallHealthStatus as ErrorHealthStatus,
+)
+from .error_monitoring import (
+    HealthCheckManager as ErrorHealthCheckManager,
 )
 from .queue_alerting import QueueAlertingSystem
 from .queue_backpressure import BackpressureDetector
 from .queue_dashboard_data import QueueDashboardDataProvider
-from .queue_health import QueueHealthCalculator, QueueHealthStatus
+from .queue_health import QueueHealthCalculator
 from .queue_performance_metrics import QueuePerformanceCollector
 from .queue_statistics import QueueStatisticsCollector
 
@@ -91,12 +92,12 @@ class SystemStatus:
         timestamp: When status was captured
     """
 
-    queue_stats: Dict[str, Any]
-    error_stats: Dict[str, Any]
-    health_summary: Dict[str, Any]
+    queue_stats: dict[str, Any]
+    error_stats: dict[str, Any]
+    health_summary: dict[str, Any]
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "queue_stats": self.queue_stats,
@@ -117,7 +118,7 @@ class QueueMonitoringSystem:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
+        db_path: str | None = None,
         enable_alerting: bool = False,
         enable_dashboard: bool = False,
         enable_error_monitoring: bool = True,
@@ -146,19 +147,19 @@ class QueueMonitoringSystem:
         self.enable_backpressure_detection = enable_backpressure_detection
 
         # Core monitoring components
-        self.error_manager: Optional[ErrorMessageManager] = None
-        self.stats_collector: Optional[QueueStatisticsCollector] = None
-        self.performance_collector: Optional[QueuePerformanceCollector] = None
-        self.backpressure_detector: Optional[BackpressureDetector] = None
-        self.health_calculator: Optional[QueueHealthCalculator] = None
+        self.error_manager: ErrorMessageManager | None = None
+        self.stats_collector: QueueStatisticsCollector | None = None
+        self.performance_collector: QueuePerformanceCollector | None = None
+        self.backpressure_detector: BackpressureDetector | None = None
+        self.health_calculator: QueueHealthCalculator | None = None
 
         # Error monitoring components
-        self.error_metrics_collector: Optional[ErrorMetricsCollector] = None
-        self.error_health_checker: Optional[ErrorHealthCheckManager] = None
+        self.error_metrics_collector: ErrorMetricsCollector | None = None
+        self.error_health_checker: ErrorHealthCheckManager | None = None
 
         # Optional high-level components
-        self.alerting_system: Optional[QueueAlertingSystem] = None
-        self.dashboard_provider: Optional[QueueDashboardDataProvider] = None
+        self.alerting_system: QueueAlertingSystem | None = None
+        self.dashboard_provider: QueueDashboardDataProvider | None = None
 
         # Lifecycle management
         self._initialized = False
@@ -352,7 +353,7 @@ class QueueMonitoringSystem:
     async def get_comprehensive_health(
         self,
         queue_type: str = "ingestion_queue"
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get comprehensive health assessment combining queue and error health.
 
@@ -411,7 +412,7 @@ class QueueMonitoringSystem:
 
         return combined
 
-    async def get_monitoring_summary(self) -> Dict[str, Any]:
+    async def get_monitoring_summary(self) -> dict[str, Any]:
         """
         Get high-level monitoring summary.
 
@@ -507,7 +508,7 @@ class QueueMonitoringSystem:
         logger.info("Background monitoring stopped")
         return True
 
-    async def _get_health_summary(self, queue_type: str) -> Dict[str, Any]:
+    async def _get_health_summary(self, queue_type: str) -> dict[str, Any]:
         """Get health summary from both queue and error health."""
         summary = {}
 

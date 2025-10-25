@@ -34,23 +34,24 @@ Example:
 """
 
 import asyncio
-import logging
-from typing import Optional
-
-from qdrant_client import QdrantClient
 
 from loguru import logger
-from .collections import WorkspaceCollectionManager, MemoryCollectionManager
-from .config import get_config_string, get_config_bool, get_config_dict, get_config
+from qdrant_client import QdrantClient
+
+from .collections import MemoryCollectionManager, WorkspaceCollectionManager
+from .config import get_config_dict, get_config_string
 from .embeddings import EmbeddingService
 from .ssl_config import create_secure_qdrant_config, get_ssl_manager
 
 # Import LLM access control system
 try:
-    from .llm_access_control import validate_llm_collection_access, LLMAccessControlError
+    from .llm_access_control import (
+        LLMAccessControlError,
+        validate_llm_collection_access,
+    )
 except ImportError:
     # Fallback for direct imports when not used as a package
-    from llm_access_control import validate_llm_collection_access, LLMAccessControlError
+    pass
 
 # logger imported from loguru
 
@@ -160,14 +161,15 @@ class QdrantWorkspaceClient:
 
             # Create client with comprehensive SSL warning suppression
             import warnings
+
             import urllib3
-            
+
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore", message=".*Api key is used with an insecure connection.*", category=UserWarning)
                 warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
                 warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
                 warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
-                
+
                 from .ssl_config import suppress_qdrant_ssl_warnings
                 with suppress_qdrant_ssl_warnings():
                     self.client = QdrantClient(**secure_config)
@@ -181,7 +183,7 @@ class QdrantWorkspaceClient:
                     warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
                     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                     return self.client.get_collections()
-            
+
             if (
                 ssl_manager.is_localhost_url(get_config_string("qdrant.url", "http://localhost:6333"))
                 and environment == "development"
@@ -216,7 +218,7 @@ class QdrantWorkspaceClient:
             self.collection_manager = WorkspaceCollectionManager(
                 self.client, self.config
             )
-            
+
             # Initialize memory collection manager
             self.memory_collection_manager = MemoryCollectionManager(
                 self.client, self.config
@@ -231,7 +233,7 @@ class QdrantWorkspaceClient:
                 project_name=self.project_info["main_project"],
                 subprojects=self.project_info["subprojects"],
             )
-            
+
             # Ensure memory collections exist for the main project
             if self.project_info["main_project"]:
                 memory_results = await self.memory_collection_manager.ensure_memory_collections_exist(
@@ -520,7 +522,7 @@ class QdrantWorkspaceClient:
         fusion_method: str = "rrf",
         dense_weight: float = 1.0,
         sparse_weight: float = 1.0,
-        additional_filters: Optional[dict] = None,
+        additional_filters: dict | None = None,
         include_shared: bool = True,
         **search_kwargs
     ) -> dict:
@@ -649,9 +651,9 @@ class QdrantWorkspaceClient:
     def select_collections_by_type(
         self,
         collection_type: str,
-        project_name: Optional[str] = None,
+        project_name: str | None = None,
         include_shared: bool = True,
-        workspace_types: Optional[list[str]] = None
+        workspace_types: list[str] | None = None
     ) -> dict[str, list[str]]:
         """
         Select collections by type using enhanced multi-tenant selector.
@@ -694,8 +696,8 @@ class QdrantWorkspaceClient:
 
     def get_searchable_collections(
         self,
-        project_name: Optional[str] = None,
-        workspace_types: Optional[list[str]] = None,
+        project_name: str | None = None,
+        workspace_types: list[str] | None = None,
         include_memory: bool = False,
         include_shared: bool = True
     ) -> list[str]:
@@ -731,7 +733,7 @@ class QdrantWorkspaceClient:
         self,
         collection_name: str,
         operation: str,
-        project_context: Optional[str] = None
+        project_context: str | None = None
     ) -> tuple[bool, str]:
         """
         Validate access to a collection for a given operation.
@@ -762,7 +764,7 @@ class QdrantWorkspaceClient:
         self,
         collection_name: str,
         collection_type: str = "general",
-        project_metadata: Optional[dict] = None
+        project_metadata: dict | None = None
     ) -> dict:
         """Create a new collection with multi-tenant metadata support.
 
@@ -792,8 +794,10 @@ class QdrantWorkspaceClient:
         try:
             # Import multi-tenant components if available
             try:
-                from .multitenant_collections import MultiTenantWorkspaceCollectionManager
                 from .collection_naming_validation import CollectionNamingValidator
+                from .multitenant_collections import (
+                    MultiTenantWorkspaceCollectionManager,
+                )
 
                 # Validate collection name
                 validator = CollectionNamingValidator()

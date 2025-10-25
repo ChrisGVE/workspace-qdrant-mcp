@@ -9,25 +9,25 @@ These tests focus on in-memory operations and don't require a live Qdrant instan
 
 import asyncio
 import time
-import pytest
 from dataclasses import asdict
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
+import pytest
 from common.core.memory import (
-    MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
-    MemoryStats,
     AgentDefinition,
+    AuthorityLevel,
+    MemoryCategory,
     MemoryConflict,
+    MemoryRule,
+    MemoryStats,
 )
 
 
 class TestRuleCollectionScaling:
     """Test memory rule collection scaling characteristics."""
 
-    def create_test_rules(self, count: int) -> List[MemoryRule]:
+    def create_test_rules(self, count: int) -> list[MemoryRule]:
         """Create test rules for performance testing."""
         rules = []
         for i in range(count):
@@ -115,7 +115,7 @@ class TestRuleCollectionScaling:
 class TestMemoryStatsCalculation:
     """Test memory statistics calculation performance and accuracy."""
 
-    def create_diverse_ruleset(self, count: int) -> List[MemoryRule]:
+    def create_diverse_ruleset(self, count: int) -> list[MemoryRule]:
         """Create diverse ruleset for statistics testing."""
         rules = []
         for i in range(count):
@@ -132,10 +132,10 @@ class TestMemoryStatsCalculation:
             rules.append(rule)
         return rules
 
-    def calculate_stats(self, rules: List[MemoryRule]) -> MemoryStats:
+    def calculate_stats(self, rules: list[MemoryRule]) -> MemoryStats:
         """Calculate memory statistics from rule list."""
-        rules_by_category = {cat: 0 for cat in MemoryCategory}
-        rules_by_authority = {auth: 0 for auth in AuthorityLevel}
+        rules_by_category = dict.fromkeys(MemoryCategory, 0)
+        rules_by_authority = dict.fromkeys(AuthorityLevel, 0)
 
         for rule in rules:
             rules_by_category[rule.category] += 1
@@ -420,7 +420,7 @@ class TestEndToEndWorkflows:
         # Match active scope: python
         active_scopes = ["python"]
 
-        def matches_scope(rule: MemoryRule, active: List[str]) -> bool:
+        def matches_scope(rule: MemoryRule, active: list[str]) -> bool:
             """Check if rule scope matches active scopes."""
             if not rule.scope:  # Empty scope = global, always matches
                 return True

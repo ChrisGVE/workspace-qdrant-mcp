@@ -20,9 +20,8 @@ Key classes and functions:
 """
 
 import re
-from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple, Union
 from dataclasses import dataclass
+from enum import Enum
 
 try:
     from . import collection_naming
@@ -76,8 +75,8 @@ class CollectionInfo:
     is_searchable: bool
     is_readonly: bool
     is_memory_collection: bool
-    project_id: Optional[str] = None  # For project collections (12-char hex)
-    suffix: Optional[str] = None  # DEPRECATED - for backward compatibility only
+    project_id: str | None = None  # For project collections (12-char hex)
+    suffix: str | None = None  # DEPRECATED - for backward compatibility only
 
 
 class CollectionTypeClassifier:
@@ -290,7 +289,7 @@ class CollectionTypeClassifier:
             suffix=None  # DEPRECATED
         )
 
-    def extract_project_id(self, collection_name: str) -> Optional[str]:
+    def extract_project_id(self, collection_name: str) -> str | None:
         """
         Extract project ID from project collection names.
 
@@ -314,7 +313,7 @@ class CollectionTypeClassifier:
 
 # Module-level utility functions
 
-def validate_collection_operation(collection_name: str, operation: str) -> Tuple[bool, str]:
+def validate_collection_operation(collection_name: str, operation: str) -> tuple[bool, str]:
     """
     Validate if an operation is allowed on a collection based on its type.
 
@@ -357,8 +356,8 @@ def validate_collection_operation(collection_name: str, operation: str) -> Tuple
     return True, f"Operation '{operation}' is allowed on {collection_info.type.value} collection"
 
 
-def get_collections_by_type(collections: List[str],
-                          collection_type: CollectionType) -> List[str]:
+def get_collections_by_type(collections: list[str],
+                          collection_type: CollectionType) -> list[str]:
     """
     Filter collections by their type.
 
@@ -379,7 +378,7 @@ def get_collections_by_type(collections: List[str],
             if classifier.classify_collection_type(name) == collection_type]
 
 
-def get_searchable_collections(collections: List[str]) -> List[str]:
+def get_searchable_collections(collections: list[str]) -> list[str]:
     """
     Get collections that are globally searchable.
 
@@ -419,7 +418,7 @@ def validate_collection_name_with_type(collection_name: str,
 
 def build_collection_name_for_type(base_name: str,
                                  collection_type: CollectionType,
-                                 project_id: Optional[str] = None) -> str:
+                                 project_id: str | None = None) -> str:
     """
     Build a collection name for a specific type using the existing naming framework.
 

@@ -41,7 +41,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -51,8 +51,8 @@ from fastmcp import FastMCP
 try:
     # Try pytest import path first
     from tests.utils.fastmcp_test_infrastructure import (
-        FastMCPTestServer,
         FastMCPTestClient,
+        FastMCPTestServer,
         MCPProtocolTester,
         MCPTestResult,
         MCPToolTestCase,
@@ -61,8 +61,8 @@ try:
 except ImportError:
     # Fallback to direct import path
     from utils.fastmcp_test_infrastructure import (
-        FastMCPTestServer,
         FastMCPTestClient,
+        FastMCPTestServer,
         MCPProtocolTester,
         MCPTestResult,
         MCPToolTestCase,
@@ -71,7 +71,6 @@ except ImportError:
 
 # Import server app
 from workspace_qdrant_mcp.server import app
-
 
 # Suppress logging during tests for clean output
 logging.getLogger("fastmcp").setLevel(logging.WARNING)
@@ -87,8 +86,8 @@ class MCPProtocolTestCase:
     test_fn: str  # Name of test function to run
     category: str  # tool_call, resource, error, capability, message, version
     expected_outcome: str  # success, failure, error
-    validation_criteria: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    validation_criteria: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -99,10 +98,10 @@ class ProtocolComplianceResult:
     category: str
     passed: bool
     execution_time_ms: float
-    details: Dict[str, Any]
+    details: dict[str, Any]
     compliance_score: float
-    violations: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    violations: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
 
 class MCPProtocolComplianceTester:
@@ -126,10 +125,10 @@ class MCPProtocolComplianceTester:
             server: FastMCP test server instance
         """
         self.server = server
-        self.results: List[ProtocolComplianceResult] = []
+        self.results: list[ProtocolComplianceResult] = []
         self.protocol_tester = MCPProtocolTester(server)
 
-    async def run_all_compliance_tests(self) -> Dict[str, Any]:
+    async def run_all_compliance_tests(self) -> dict[str, Any]:
         """
         Run comprehensive MCP protocol compliance test suite.
 
@@ -153,7 +152,7 @@ class MCPProtocolComplianceTester:
         total_violations = []
         total_warnings = []
 
-        for category, results in test_results.items():
+        for _category, results in test_results.items():
             if isinstance(results, dict):
                 if "compliance_score" in results:
                     compliance_scores.append(results["compliance_score"])
@@ -192,7 +191,7 @@ class MCPProtocolComplianceTester:
         else:
             return "needs_improvement"
 
-    async def test_tool_call_validation(self) -> Dict[str, Any]:
+    async def test_tool_call_validation(self) -> dict[str, Any]:
         """
         Test tool call validation and handling.
 
@@ -258,7 +257,7 @@ class MCPProtocolComplianceTester:
             "warnings": warnings,
         }
 
-    async def test_resource_access_compliance(self) -> Dict[str, Any]:
+    async def test_resource_access_compliance(self) -> dict[str, Any]:
         """
         Test resource access protocols and permissions.
 
@@ -332,7 +331,7 @@ class MCPProtocolComplianceTester:
             "warnings": warnings,
         }
 
-    async def test_error_response_format(self) -> Dict[str, Any]:
+    async def test_error_response_format(self) -> dict[str, Any]:
         """
         Test error response format compliance.
 
@@ -409,7 +408,7 @@ class MCPProtocolComplianceTester:
             "warnings": warnings,
         }
 
-    async def test_capability_negotiation(self) -> Dict[str, Any]:
+    async def test_capability_negotiation(self) -> dict[str, Any]:
         """
         Test capability negotiation and discovery.
 
@@ -476,7 +475,7 @@ class MCPProtocolComplianceTester:
             "warnings": warnings,
         }
 
-    async def test_message_format_compliance(self) -> Dict[str, Any]:
+    async def test_message_format_compliance(self) -> dict[str, Any]:
         """
         Test message format compliance.
 
@@ -537,7 +536,7 @@ class MCPProtocolComplianceTester:
             "warnings": warnings,
         }
 
-    async def test_protocol_version_handling(self) -> Dict[str, Any]:
+    async def test_protocol_version_handling(self) -> dict[str, Any]:
         """
         Test protocol version handling.
 
@@ -594,7 +593,7 @@ class MCPProtocolComplianceTester:
             "warnings": warnings,
         }
 
-    async def test_parameter_validation(self) -> Dict[str, Any]:
+    async def test_parameter_validation(self) -> dict[str, Any]:
         """
         Test parameter validation across all tools.
 
@@ -677,7 +676,7 @@ class MCPProtocolComplianceTester:
             "warnings": warnings,
         }
 
-    async def test_unknown_tool_handling(self) -> Dict[str, Any]:
+    async def test_unknown_tool_handling(self) -> dict[str, Any]:
         """
         Test handling of unknown/unsupported tools.
 
@@ -739,7 +738,7 @@ class MCPProtocolComplianceTester:
             "warnings": warnings,
         }
 
-    async def test_malformed_message_handling(self) -> Dict[str, Any]:
+    async def test_malformed_message_handling(self) -> dict[str, Any]:
         """
         Test handling of malformed messages and edge cases.
 
@@ -861,7 +860,7 @@ class MCPProtocolComplianceTester:
         # No error is also valid
         return True
 
-    def _validate_message_format(self, result: MCPTestResult) -> Dict[str, bool]:
+    def _validate_message_format(self, result: MCPTestResult) -> dict[str, bool]:
         """Validate message format compliance."""
         compliance = {
             "json_serializable": True,

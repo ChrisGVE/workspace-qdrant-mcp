@@ -23,14 +23,15 @@ PERFORMANCE THRESHOLDS:
 import asyncio
 import json
 import os
-import psutil
-import pytest
 import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Any
+from typing import Any, Optional
 from unittest.mock import AsyncMock, patch
+
+import psutil
+import pytest
 
 # Test markers
 pytestmark = [
@@ -50,7 +51,7 @@ class K6LoadTester:
         self.results_dir = self.temp_dir / "k6_results"
         self.results_dir.mkdir(exist_ok=True)
 
-    def create_k6_script(self, test_name: str, test_config: Dict[str, Any]) -> Path:
+    def create_k6_script(self, test_name: str, test_config: dict[str, Any]) -> Path:
         """Create K6 test script for specific load testing scenario."""
 
         script_content = f'''
@@ -286,7 +287,7 @@ export function teardown(data) {{
         script_path.write_text(script_content)
         return script_path
 
-    async def run_k6_test(self, script_path: Path, test_name: str) -> Dict[str, Any]:
+    async def run_k6_test(self, script_path: Path, test_name: str) -> dict[str, Any]:
         """Run K6 test and return results."""
 
         output_file = self.results_dir / f"{test_name}_results.json"
@@ -342,7 +343,7 @@ export function teardown(data) {{
                 "duration_seconds": time.time() - start_time
             }
 
-    def parse_k6_results(self, results_file: Path) -> Dict[str, Any]:
+    def parse_k6_results(self, results_file: Path) -> dict[str, Any]:
         """Parse K6 JSON results file."""
 
         try:
@@ -350,7 +351,6 @@ export function teardown(data) {{
 
             # K6 outputs NDJSON (newline-delimited JSON)
             metrics = {}
-            checks = {}
 
             for line in lines:
                 if not line.strip():
@@ -397,7 +397,7 @@ export function teardown(data) {{
         except Exception as e:
             return {'parse_error': str(e)}
 
-    def generate_mock_results(self, test_name: str, duration: float) -> Dict[str, Any]:
+    def generate_mock_results(self, test_name: str, duration: float) -> dict[str, Any]:
         """Generate mock results when K6 is not available."""
 
         import random
@@ -496,7 +496,7 @@ class TestLoadTesting:
             error_rate = metrics["http_req_failed"].get("avg", 0)
             assert error_rate < 0.01, f"Error rate too high: {error_rate:.2%}"
 
-        print(f"\n📊 Normal Load Test Results:")
+        print("\n📊 Normal Load Test Results:")
         if metrics:
             for metric_name, metric_data in metrics.items():
                 if isinstance(metric_data, dict) and 'avg' in metric_data:
@@ -535,7 +535,7 @@ class TestLoadTesting:
             error_rate = metrics["http_req_failed"].get("avg", 0)
             assert error_rate < 0.1, f"Error rate under stress too high: {error_rate:.2%}"
 
-        print(f"\n🔥 Stress Test Results:")
+        print("\n🔥 Stress Test Results:")
         print(f"   Test duration: {results.get('duration_seconds', 0):.1f}s")
         if metrics:
             for metric_name, metric_data in metrics.items():
@@ -571,7 +571,7 @@ class TestLoadTesting:
             error_rate = metrics["http_req_failed"].get("avg", 0)
             assert error_rate < 0.05, f"Error rate during spike too high: {error_rate:.2%}"
 
-        print(f"\n⚡ Spike Test Results:")
+        print("\n⚡ Spike Test Results:")
         print(f"   Recovery duration: {results.get('duration_seconds', 0):.1f}s")
         if metrics:
             for metric_name, metric_data in metrics.items():
@@ -620,7 +620,7 @@ class TestLoadTesting:
             assert avg_response_time < 200, f"Average response time degraded: {avg_response_time:.2f}ms"
             assert max_response_time < 1000, f"Max response time too high: {max_response_time:.2f}ms"
 
-        print(f"\n🕐 Soak Test Results:")
+        print("\n🕐 Soak Test Results:")
         print(f"   Duration: {results.get('duration_seconds', 0):.1f}s")
         print(f"   Memory growth: {memory_growth:.1f}%")
         print(f"   Initial memory: {initial_memory:.1f}MB")
@@ -660,7 +660,7 @@ class TestLoadTesting:
             # Should handle significant volume
             assert total_requests > 1000, f"Volume test processed too few requests: {total_requests}"
 
-        print(f"\n📦 Volume Test Results:")
+        print("\n📦 Volume Test Results:")
         print(f"   Duration: {results.get('duration_seconds', 0):.1f}s")
         if metrics:
             for metric_name, metric_data in metrics.items():
@@ -729,7 +729,7 @@ class TestPerformanceMonitoring:
             assert avg_cpu < 80.0, f"Average CPU usage too high: {avg_cpu:.1f}%"
             assert max_cpu < 95.0, f"Peak CPU usage too high: {max_cpu:.1f}%"
 
-            print(f"\n📈 Real-time Monitoring Results:")
+            print("\n📈 Real-time Monitoring Results:")
             print(f"   Average CPU: {avg_cpu:.1f}%")
             print(f"   Peak CPU: {max_cpu:.1f}%")
             print(f"   Average Memory: {avg_memory:.1f}MB")
@@ -754,7 +754,7 @@ class TestPerformanceMonitoring:
 
         alerts = []
 
-        def check_thresholds(metrics: Dict[str, Any], system_metrics: Dict[str, float]):
+        def check_thresholds(metrics: dict[str, Any], system_metrics: dict[str, float]):
             """Check if any thresholds are exceeded."""
 
             # Response time alerts
@@ -801,7 +801,7 @@ class TestPerformanceMonitoring:
 
         # Monitor system during test
         process = psutil.Process()
-        initial_memory = process.memory_info().rss / 1024 / 1024
+        process.memory_info().rss / 1024 / 1024
 
         results = await k6_load_tester.run_k6_test(script_path, "alerting_test")
 
@@ -816,7 +816,7 @@ class TestPerformanceMonitoring:
 
         check_thresholds(results.get('metrics', {}), system_metrics)
 
-        print(f"\n🚨 Alerting Threshold Analysis:")
+        print("\n🚨 Alerting Threshold Analysis:")
         print(f"   Thresholds checked: {len(thresholds)}")
         print(f"   Alerts triggered: {len(alerts)}")
 
@@ -836,9 +836,9 @@ class TestPerformanceMonitoring:
 async def test_generate_load_testing_report():
     """Generate comprehensive load testing report."""
 
-    print(f"\n" + "="*60)
-    print(f"🚀 COMPREHENSIVE LOAD TESTING REPORT")
-    print(f"="*60)
+    print("\n" + "="*60)
+    print("🚀 COMPREHENSIVE LOAD TESTING REPORT")
+    print("="*60)
 
     # This would be populated by actual test results
     test_summary = {
@@ -877,7 +877,7 @@ async def test_generate_load_testing_report():
         }
     }
 
-    print(f"\n📊 Test Results Summary:")
+    print("\n📊 Test Results Summary:")
 
     for test_name, results in test_summary.items():
         status_emoji = "✅" if results['status'] == 'PASS' else "❌"
@@ -900,21 +900,21 @@ async def test_generate_load_testing_report():
     # Overall assessment
     all_passed = all(results['status'] == 'PASS' for results in test_summary.values())
 
-    print(f"\n🎯 Overall Assessment:")
+    print("\n🎯 Overall Assessment:")
     print(f"   Tests completed: {len(test_summary)}")
     print(f"   Tests passed: {sum(1 for r in test_summary.values() if r['status'] == 'PASS')}")
     print(f"   Overall status: {'✅ PASS' if all_passed else '❌ FAIL'}")
 
-    print(f"\n💡 Performance Insights:")
-    print(f"   - Normal load handled efficiently with <150ms avg response time")
-    print(f"   - System degrades gracefully under stress (2-3x response time)")
-    print(f"   - Spike recovery within 30-second target")
-    print(f"   - Memory stable during extended soak testing")
-    print(f"   - Volume processing scales acceptably")
+    print("\n💡 Performance Insights:")
+    print("   - Normal load handled efficiently with <150ms avg response time")
+    print("   - System degrades gracefully under stress (2-3x response time)")
+    print("   - Spike recovery within 30-second target")
+    print("   - Memory stable during extended soak testing")
+    print("   - Volume processing scales acceptably")
 
-    print(f"\n" + "="*60)
+    print("\n" + "="*60)
 
     # Final validation
-    assert all_passed, f"Load testing failed - see report above"
+    assert all_passed, "Load testing failed - see report above"
 
     return test_summary

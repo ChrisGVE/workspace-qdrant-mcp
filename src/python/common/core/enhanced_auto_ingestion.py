@@ -7,23 +7,24 @@ comprehensive validation mechanisms.
 """
 
 import asyncio
+import hashlib
+import json
 import mimetypes
-import os
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Union, Tuple
-from loguru import logger
+from typing import Any
+
 import magic
-import hashlib
-import json
+from loguru import logger
 
 # Import existing components
 from .advanced_priority_queue import AdvancedPriorityQueue, PriorityTask, TaskPriority
-from .incremental_file_updates import IncrementalUpdateSystem, ChangeRecord
+from .incremental_file_updates import ChangeRecord, IncrementalUpdateSystem
 
 
 class FileStatus(Enum):
@@ -62,24 +63,24 @@ class FileMetadata:
     size_bytes: int
     mime_type: str
     detected_format: str
-    encoding: Optional[str] = None
+    encoding: str | None = None
     created_at: float = field(default_factory=time.time)
-    modified_at: Optional[float] = None
-    checksum_md5: Optional[str] = None
-    checksum_sha256: Optional[str] = None
-    magic_signature: Optional[str] = None
-    content_preview: Optional[str] = None
-    language_detected: Optional[str] = None
+    modified_at: float | None = None
+    checksum_md5: str | None = None
+    checksum_sha256: str | None = None
+    magic_signature: str | None = None
+    content_preview: str | None = None
+    language_detected: str | None = None
     confidence_score: float = 0.0
-    custom_attributes: Dict[str, Any] = field(default_factory=dict)
+    custom_attributes: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         data = self.__dict__.copy()
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'FileMetadata':
+    def from_dict(cls, data: dict[str, Any]) -> 'FileMetadata':
         """Create from dictionary."""
         return cls(**data)
 
@@ -93,9 +94,9 @@ class ValidationReport:
     integrity_check_passed: bool
     format_validation_passed: bool
     security_scan_passed: bool
-    issues_found: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    recommendations: List[str] = field(default_factory=list)
+    issues_found: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
     validation_time: float = field(default_factory=time.time)
     validator_version: str = "1.0.0"
 
@@ -122,15 +123,15 @@ class ProcessingResult:
     file_path: str
     status: FileStatus
     processing_time: float
-    metadata: Optional[FileMetadata] = None
-    validation_report: Optional[ValidationReport] = None
-    error_message: Optional[str] = None
-    extracted_content: Optional[str] = None
-    processing_strategy_used: Optional[ProcessingStrategy] = None
+    metadata: FileMetadata | None = None
+    validation_report: ValidationReport | None = None
+    error_message: str | None = None
+    extracted_content: str | None = None
+    processing_strategy_used: ProcessingStrategy | None = None
     retry_count: int = 0
     max_retries: int = 3
-    collection_assigned: Optional[str] = None
-    custom_data: Dict[str, Any] = field(default_factory=dict)
+    collection_assigned: str | None = None
+    custom_data: dict[str, Any] = field(default_factory=dict)
 
     def can_retry(self) -> bool:
         """Check if processing can be retried."""
@@ -386,7 +387,7 @@ class FormatDetector:
 
         return extension_mapping.get(extension, 'unknown')
 
-    def _detect_programming_language(self, file_path: Path, content: bytes) -> Optional[str]:
+    def _detect_programming_language(self, file_path: Path, content: bytes) -> str | None:
         """Detect programming language from file content."""
         try:
             text_content = content.decode('utf-8', errors='ignore').lower()
@@ -535,7 +536,7 @@ class FileValidator:
         try:
             # Try to read the file
             with open(file_path, 'rb') as f:
-                chunk = f.read(1024)  # Read first 1KB
+                f.read(1024)  # Read first 1KB
 
             # Check if file size matches metadata
             actual_size = file_path.stat().st_size
@@ -591,7 +592,7 @@ class FileValidator:
     async def _validate_json_format(self, file_path: Path, report: ValidationReport) -> None:
         """Validate JSON file format."""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, encoding='utf-8') as f:
                 content = f.read()
                 json.loads(content)  # Will raise JSONDecodeError if invalid
         except json.JSONDecodeError as e:
@@ -605,7 +606,7 @@ class FileValidator:
         """Validate YAML file format."""
         try:
             import yaml
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(file_path, encoding='utf-8') as f:
                 content = f.read()
                 yaml.safe_load(content)  # Will raise YAMLError if invalid
         except ImportError:
@@ -638,7 +639,7 @@ class FileValidator:
             for signature in self.malicious_signatures:
                 if signature in content:
                     report.security_scan_passed = False
-                    report.issues_found.append(f"Potentially malicious signature detected")
+                    report.issues_found.append("Potentially malicious signature detected")
                     break
 
             # Check for suspicious patterns
@@ -670,7 +671,7 @@ class ProcessingOrchestrator:
                  priority_queue: AdvancedPriorityQueue,
                  update_system: IncrementalUpdateSystem,
                  max_concurrent_processing: int = 5,
-                 quarantine_dir: Optional[Path] = None):
+                 quarantine_dir: Path | None = None):
         """Initialize processing orchestrator."""
         self.priority_queue = priority_queue
         self.update_system = update_system
@@ -699,8 +700,8 @@ class ProcessingOrchestrator:
         }
 
         # Registered processors for different formats
-        self._format_processors: Dict[str, Callable] = {}
-        self._processing_callbacks: List[Callable] = []
+        self._format_processors: dict[str, Callable] = {}
+        self._processing_callbacks: list[Callable] = []
 
     def register_format_processor(self, format_type: str, processor: Callable[[Path, FileMetadata], Any]) -> None:
         """Register a processor for a specific file format."""
@@ -857,7 +858,7 @@ class ProcessingOrchestrator:
 
             if metadata.mime_type.startswith('text/'):
                 # Text file processing
-                with open(file_path, 'r', encoding=metadata.encoding or 'utf-8', errors='ignore') as f:
+                with open(file_path, encoding=metadata.encoding or 'utf-8', errors='ignore') as f:
                     content = f.read()
                 result.extracted_content = content
                 result.status = FileStatus.COMPLETED
@@ -870,7 +871,7 @@ class ProcessingOrchestrator:
             result.status = FileStatus.FAILED
             result.error_message = f"Generic processing failed: {str(e)}"
 
-    async def _batch_processor_callback(self, payload: Dict[str, Any]) -> None:
+    async def _batch_processor_callback(self, payload: dict[str, Any]) -> None:
         """Callback for batch processing."""
         file_path = Path(payload['file_path'])
         result = payload['processing_result']
@@ -925,12 +926,12 @@ class ProcessingOrchestrator:
             validation_result = result.validation_report.validation_result.value
             self.stats['validation_results'][validation_result] = self.stats['validation_results'].get(validation_result, 0) + 1
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get comprehensive processing statistics."""
         return self.stats.copy()
 
     async def process_directory(self, directory_path: Path, recursive: bool = True,
-                              strategy: ProcessingStrategy = ProcessingStrategy.BATCH) -> List[ProcessingResult]:
+                              strategy: ProcessingStrategy = ProcessingStrategy.BATCH) -> list[ProcessingResult]:
         """Process all files in a directory."""
         results = []
 
@@ -982,7 +983,7 @@ class EnhancedAutoIngestionSystem:
 
     def __init__(self,
                  backup_dir: Path,
-                 quarantine_dir: Optional[Path] = None,
+                 quarantine_dir: Path | None = None,
                  max_concurrent_tasks: int = 10,
                  enable_incremental_updates: bool = True):
         """Initialize the enhanced auto-ingestion system."""
@@ -1009,7 +1010,7 @@ class EnhancedAutoIngestionSystem:
         self._running = False
 
         # Callbacks
-        self._ingestion_callbacks: List[Callable] = []
+        self._ingestion_callbacks: list[Callable] = []
 
     async def initialize(self) -> None:
         """Initialize the auto-ingestion system."""
@@ -1035,7 +1036,7 @@ class EnhancedAutoIngestionSystem:
         await self.priority_queue.stop()
         logger.info("Enhanced auto-ingestion system shutdown")
 
-    def register_ingestion_callback(self, callback: Callable[[str, Dict[str, Any]], None]) -> None:
+    def register_ingestion_callback(self, callback: Callable[[str, dict[str, Any]], None]) -> None:
         """Register callback for successful ingestion."""
         self._ingestion_callbacks.append(callback)
 
@@ -1069,7 +1070,7 @@ class EnhancedAutoIngestionSystem:
         return result
 
     async def ingest_directory(self, directory_path: Path, collection: str = "default",
-                             recursive: bool = True, strategy: ProcessingStrategy = ProcessingStrategy.BATCH) -> List[ProcessingResult]:
+                             recursive: bool = True, strategy: ProcessingStrategy = ProcessingStrategy.BATCH) -> list[ProcessingResult]:
         """Ingest all files in a directory."""
         if not self._initialized:
             await self.initialize()
@@ -1136,7 +1137,7 @@ class EnhancedAutoIngestionSystem:
         elif result.status == FileStatus.QUARANTINED:
             logger.warning(f"Quarantined file: {Path(result.file_path).name}")
 
-    def get_comprehensive_statistics(self) -> Dict[str, Any]:
+    def get_comprehensive_statistics(self) -> dict[str, Any]:
         """Get comprehensive statistics from all components."""
         stats = {
             'ingestion_system': {
@@ -1157,7 +1158,7 @@ class EnhancedAutoIngestionSystem:
 # Default format processors
 async def default_json_processor(file_path: Path, metadata: FileMetadata) -> str:
     """Default JSON file processor."""
-    with open(file_path, 'r', encoding='utf-8') as f:
+    with open(file_path, encoding='utf-8') as f:
         content = f.read()
         # Parse and reformat JSON for consistency
         data = json.loads(content)
@@ -1166,12 +1167,12 @@ async def default_json_processor(file_path: Path, metadata: FileMetadata) -> str
 async def default_text_processor(file_path: Path, metadata: FileMetadata) -> str:
     """Default text file processor."""
     encoding = metadata.encoding or 'utf-8'
-    with open(file_path, 'r', encoding=encoding, errors='ignore') as f:
+    with open(file_path, encoding=encoding, errors='ignore') as f:
         return f.read()
 
 async def default_python_processor(file_path: Path, metadata: FileMetadata) -> str:
     """Default Python file processor."""
-    with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+    with open(file_path, encoding='utf-8', errors='ignore') as f:
         content = f.read()
         # Add metadata about the Python file
         metadata.custom_attributes['imports'] = []

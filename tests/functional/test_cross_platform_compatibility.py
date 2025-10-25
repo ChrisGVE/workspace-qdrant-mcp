@@ -17,7 +17,7 @@ import sys
 import tempfile
 import time
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Optional, Union
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -25,33 +25,33 @@ import pytest
 
 class CrossPlatformTestEnvironment:
     """Test environment for cross-platform compatibility validation."""
-    
+
     def __init__(self, tmp_path: Path):
         self.tmp_path = tmp_path
         self.platform_info = self._get_platform_info()
         self.config_dir = self._get_platform_config_dir()
         self.cli_executable = "uv run wqm"
-        
+
         self.setup_environment()
-    
+
     def setup_environment(self):
         """Set up platform-specific test environment."""
         # Create config directory with platform-appropriate permissions
         self.config_dir.mkdir(parents=True, exist_ok=True)
-        
+
         if self.platform_info["system"] != "Windows":
             # Set appropriate permissions on Unix-like systems
             os.chmod(self.config_dir, 0o755)
-        
+
         # Create platform-specific configuration
         config_content = self._get_platform_config()
         config_file = self.config_dir / "config.yaml"
-        
+
         with open(config_file, 'w', encoding='utf-8') as f:
             import yaml
             yaml.dump(config_content, f)
-    
-    def _get_platform_info(self) -> Dict[str, Any]:
+
+    def _get_platform_info(self) -> dict[str, Any]:
         """Get comprehensive platform information."""
         return {
             "system": platform.system(),
@@ -73,7 +73,7 @@ class CrossPlatformTestEnvironment:
             "encoding": sys.getfilesystemencoding(),
             "max_path_length": self._get_max_path_length()
         }
-    
+
     def _get_max_path_length(self) -> int:
         """Get maximum path length for the platform."""
         system = platform.system()
@@ -83,22 +83,22 @@ class CrossPlatformTestEnvironment:
             return 1024  # macOS limit
         else:
             return 4096  # Linux and other Unix-like systems
-    
+
     def _get_platform_config_dir(self) -> Path:
         """Get platform-appropriate configuration directory."""
         if self.platform_info["is_windows"]:
             # Windows: %APPDATA%/workspace-qdrant
-            base_dir = Path(os.environ.get("APPDATA", self.tmp_path))
+            Path(os.environ.get("APPDATA", self.tmp_path))
         elif self.platform_info["is_macos"]:
             # macOS: ~/Library/Application Support/workspace-qdrant
-            base_dir = Path.home() / "Library" / "Application Support"
+            Path.home() / "Library" / "Application Support"
         else:
             # Linux/Unix: ~/.config/workspace-qdrant
-            base_dir = Path.home() / ".config"
-        
+            Path.home() / ".config"
+
         return self.tmp_path / "platform_config" / "workspace-qdrant"
-    
-    def _get_platform_config(self) -> Dict[str, Any]:
+
+    def _get_platform_config(self) -> dict[str, Any]:
         """Get platform-specific configuration."""
         config = {
             "qdrant_url": "http://localhost:6333",
@@ -114,7 +114,7 @@ class CrossPlatformTestEnvironment:
                 "data_dir": str(self._get_platform_data_dir())
             }
         }
-        
+
         # Platform-specific adjustments
         if self.platform_info["is_windows"]:
             config["daemon"] = {
@@ -131,9 +131,9 @@ class CrossPlatformTestEnvironment:
                 "service_name": "workspace-qdrant",
                 "systemd_user": True
             }
-        
+
         return config
-    
+
     def _get_platform_log_dir(self) -> Path:
         """Get platform-appropriate log directory."""
         if self.platform_info["is_windows"]:
@@ -142,7 +142,7 @@ class CrossPlatformTestEnvironment:
             return self.tmp_path / "logs"
         else:
             return self.tmp_path / "logs"
-    
+
     def _get_platform_cache_dir(self) -> Path:
         """Get platform-appropriate cache directory."""
         if self.platform_info["is_windows"]:
@@ -151,7 +151,7 @@ class CrossPlatformTestEnvironment:
             return self.tmp_path / "cache"
         else:
             return self.tmp_path / "cache"
-    
+
     def _get_platform_data_dir(self) -> Path:
         """Get platform-appropriate data directory."""
         if self.platform_info["is_windows"]:
@@ -160,18 +160,18 @@ class CrossPlatformTestEnvironment:
             return self.tmp_path / "data"
         else:
             return self.tmp_path / "data"
-    
+
     def run_cli_command(
         self,
         command: str,
-        cwd: Optional[Path] = None,
+        cwd: Path | None = None,
         timeout: int = 30,
-        env_vars: Optional[Dict[str, str]] = None
-    ) -> Tuple[int, str, str]:
+        env_vars: dict[str, str] | None = None
+    ) -> tuple[int, str, str]:
         """Execute CLI command with platform-specific handling."""
         if cwd is None:
             cwd = self.tmp_path
-        
+
         # Set up environment with platform-specific variables
         env = os.environ.copy()
         env.update({
@@ -179,17 +179,17 @@ class CrossPlatformTestEnvironment:
             "PYTHONPATH": str(Path.cwd()),
             "PYTHONIOENCODING": "utf-8",  # Ensure consistent encoding
         })
-        
+
         # Platform-specific environment adjustments
         if self.platform_info["is_windows"]:
             env["PATHEXT"] = env.get("PATHEXT", "") + ";.PY"
-        
+
         if env_vars:
             env.update(env_vars)
-        
+
         # Execute command with platform-appropriate shell
         shell = self.platform_info["is_windows"]
-        
+
         try:
             result = subprocess.run(
                 f"{self.cli_executable} {command}",
@@ -207,23 +207,23 @@ class CrossPlatformTestEnvironment:
             return -1, "", f"Command timed out after {timeout} seconds"
         except Exception as e:
             return -1, "", f"Command execution failed: {e}"
-    
-    def create_test_files_with_platform_paths(self) -> Dict[str, Path]:
+
+    def create_test_files_with_platform_paths(self) -> dict[str, Path]:
         """Create test files with platform-specific path handling."""
         test_files = {}
-        
+
         # Standard files
         standard_files = {
             "simple.txt": "Simple text file content",
             "unicode_content.txt": "Unicode content: ñoño αβγ 中文 🚀",
             "long_name_file.txt": "File with a long name for testing",
         }
-        
+
         for filename, content in standard_files.items():
             file_path = self.tmp_path / filename
             file_path.write_text(content, encoding='utf-8')
             test_files[filename] = file_path
-        
+
         # Platform-specific path tests
         if self.platform_info["is_windows"]:
             # Test Windows-specific path issues
@@ -231,64 +231,64 @@ class CrossPlatformTestEnvironment:
         else:
             # Test Unix-like path issues
             test_files.update(self._create_unix_specific_files())
-        
+
         return test_files
-    
-    def _create_windows_specific_files(self) -> Dict[str, Path]:
+
+    def _create_windows_specific_files(self) -> dict[str, Path]:
         """Create Windows-specific test files."""
         files = {}
-        
+
         # Test files with Windows-problematic characters (when safe)
         safe_windows_file = self.tmp_path / "windows_safe_file.txt"
         safe_windows_file.write_text("Windows-safe file content", encoding='utf-8')
         files["windows_safe"] = safe_windows_file
-        
+
         # Test long path (but within limits for compatibility)
         long_dir = self.tmp_path / "very" / "long" / "directory" / "structure"
         long_dir.mkdir(parents=True, exist_ok=True)
         long_file = long_dir / "long_path_file.txt"
         long_file.write_text("File in long path", encoding='utf-8')
         files["long_path"] = long_file
-        
+
         return files
-    
-    def _create_unix_specific_files(self) -> Dict[str, Path]:
+
+    def _create_unix_specific_files(self) -> dict[str, Path]:
         """Create Unix-specific test files."""
         files = {}
-        
+
         # Test files with spaces and special characters
         space_file = self.tmp_path / "file with spaces.txt"
         space_file.write_text("File with spaces in name", encoding='utf-8')
         files["spaces"] = space_file
-        
+
         # Test hidden file
         hidden_file = self.tmp_path / ".hidden_file.txt"
         hidden_file.write_text("Hidden file content", encoding='utf-8')
         files["hidden"] = hidden_file
-        
+
         return files
-    
+
     def test_path_handling(self, test_path: Path) -> bool:
         """Test platform-specific path handling."""
         try:
             # Test path existence
-            exists = test_path.exists()
-            
+            test_path.exists()
+
             # Test path resolution
-            resolved = test_path.resolve()
-            
+            test_path.resolve()
+
             # Test path string representation
-            path_str = str(test_path)
-            
+            str(test_path)
+
             # Test path conversion
             if self.platform_info["is_windows"]:
                 # Test Windows path conversion
-                as_posix = test_path.as_posix()
-                pure_windows = PureWindowsPath(test_path)
+                test_path.as_posix()
+                PureWindowsPath(test_path)
             else:
                 # Test Unix path handling
-                pure_posix = PurePosixPath(test_path)
-            
+                PurePosixPath(test_path)
+
             return True
         except Exception:
             return False
@@ -296,35 +296,33 @@ class CrossPlatformTestEnvironment:
 
 class CrossPlatformValidator:
     """Validates cross-platform functionality and compatibility."""
-    
+
     @staticmethod
-    def validate_platform_detection(platform_info: Dict[str, Any]) -> bool:
+    def validate_platform_detection(platform_info: dict[str, Any]) -> bool:
         """Validate platform detection accuracy."""
         required_fields = [
-            "system", "python_version", "architecture", 
+            "system", "python_version", "architecture",
             "encoding", "path_separator"
         ]
         return all(field in platform_info for field in required_fields)
-    
+
     @staticmethod
-    def validate_path_compatibility(paths: List[Path]) -> Dict[str, bool]:
+    def validate_path_compatibility(paths: list[Path]) -> dict[str, bool]:
         """Validate path compatibility across platforms."""
         results = {}
-        
+
         for path in paths:
             try:
                 # Test basic path operations
-                exists = path.exists()
-                resolved = path.resolve()
-                parent = path.parent
-                name = path.name
-                
+                path.exists()
+                path.resolve()
+
                 results[str(path)] = True
             except Exception:
                 results[str(path)] = False
-        
+
         return results
-    
+
     @staticmethod
     def validate_encoding_handling(content: str, file_path: Path) -> bool:
         """Validate Unicode and encoding handling."""
@@ -335,13 +333,13 @@ class CrossPlatformValidator:
             return content == read_content
         except (UnicodeError, OSError):
             return False
-    
+
     @staticmethod
     def validate_command_execution(
-        return_code: int, 
-        stdout: str, 
+        return_code: int,
+        stdout: str,
         stderr: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Validate command execution results."""
         return {
             "executed": return_code != -1,
@@ -355,24 +353,24 @@ class CrossPlatformValidator:
 @pytest.mark.cross_platform
 class TestCrossPlatformCompatibility:
     """Test cross-platform compatibility and consistency."""
-    
+
     @pytest.fixture
     def platform_env(self, tmp_path):
         """Create cross-platform test environment."""
         return CrossPlatformTestEnvironment(tmp_path)
-    
+
     @pytest.fixture
     def validator(self):
         """Create cross-platform validator."""
         return CrossPlatformValidator()
-    
+
     def test_platform_detection(self, platform_env, validator):
         """Test platform detection and information gathering."""
         platform_info = platform_env.platform_info
-        
+
         # Validate platform detection
         assert validator.validate_platform_detection(platform_info)
-        
+
         # Test platform-specific attributes
         if platform_info["is_windows"]:
             assert platform_info["path_separator"] == "\\"
@@ -383,12 +381,12 @@ class TestCrossPlatformCompatibility:
         elif platform_info["is_linux"]:
             assert platform_info["path_separator"] == "/"
             assert platform_info["system"] == "Linux"
-        
+
         # Validate Python version format
         version_parts = platform_info["python_version"].split(".")
         assert len(version_parts) >= 2
         assert all(part.isdigit() for part in version_parts[:2])
-    
+
     def test_cli_command_execution_consistency(self, platform_env, validator):
         """Test CLI command execution consistency across platforms."""
         # Test basic commands that should work on all platforms
@@ -397,49 +395,49 @@ class TestCrossPlatformCompatibility:
             "--help",
             "admin status"
         ]
-        
+
         results = {}
         for command in basic_commands:
             return_code, stdout, stderr = platform_env.run_cli_command(command)
             validation = validator.validate_command_execution(return_code, stdout, stderr)
             results[command] = validation
-        
+
         # Validate command execution
         assert all(result["executed"] for result in results.values())
-        
+
         # Version and help should work consistently
         assert results["--version"]["successful"]
         assert results["--help"]["successful"]
-        
+
         # All commands should produce output
         assert all(result["has_output"] for result in results.values())
-        
+
         # No encoding issues
         assert not any(result["encoding_issues"] for result in results.values())
-    
+
     def test_path_handling_consistency(self, platform_env, validator):
         """Test path handling consistency across platforms."""
         test_files = platform_env.create_test_files_with_platform_paths()
         paths = list(test_files.values())
-        
+
         # Validate path compatibility
         path_results = validator.validate_path_compatibility(paths)
-        
+
         # All paths should be handled correctly
         assert all(result for result in path_results.values())
-        
+
         # Test CLI operations with different path types
-        for file_type, file_path in test_files.items():
+        for _file_type, file_path in test_files.items():
             if file_path.exists():
                 return_code, stdout, stderr = platform_env.run_cli_command(
                     f"ingest file {file_path}"
                 )
-                
+
                 # Should handle file ingestion attempt
                 validation = validator.validate_command_execution(return_code, stdout, stderr)
                 assert validation["executed"]
                 assert validation["has_output"]
-    
+
     def test_unicode_and_encoding_support(self, platform_env, validator):
         """Test Unicode and encoding support across platforms."""
         # Test various Unicode content
@@ -453,33 +451,33 @@ class TestCrossPlatformCompatibility:
             "Emoji: 🚀 🐍 💻 📁 🔍",
             "Mixed: Hello 世界 🌍 Testing αβγ"
         ]
-        
+
         for i, content in enumerate(unicode_tests):
             test_file = platform_env.tmp_path / f"unicode_test_{i}.txt"
-            
+
             # Test encoding handling
             encoding_valid = validator.validate_encoding_handling(content, test_file)
             assert encoding_valid, f"Failed to handle Unicode content: {content[:50]}..."
-            
+
             # Test CLI operations with Unicode files
             if test_file.exists():
                 return_code, stdout, stderr = platform_env.run_cli_command(
                     f"ingest file {test_file}"
                 )
-                
+
                 validation = validator.validate_command_execution(return_code, stdout, stderr)
                 assert validation["executed"]
                 assert not validation["encoding_issues"]
-    
+
     def test_configuration_file_compatibility(self, platform_env, validator):
         """Test configuration file compatibility across platforms."""
         # Test configuration loading
         return_code, stdout, stderr = platform_env.run_cli_command("config show")
-        
+
         validation = validator.validate_command_execution(return_code, stdout, stderr)
         assert validation["executed"]
         assert validation["has_output"]
-        
+
         # Test custom configuration with platform-specific paths
         custom_config = platform_env.config_dir / "custom-config.yaml"
         config_content = {
@@ -491,28 +489,28 @@ class TestCrossPlatformCompatibility:
                 "encoding": platform_env.platform_info["encoding"]
             }
         }
-        
+
         import yaml
         with open(custom_config, 'w', encoding='utf-8') as f:
             yaml.dump(config_content, f)
-        
+
         # Test with custom configuration
         return_code, stdout, stderr = platform_env.run_cli_command(
             f"--config {custom_config} admin status"
         )
-        
+
         validation = validator.validate_command_execution(return_code, stdout, stderr)
         assert validation["executed"]
-    
+
     def test_service_management_platform_differences(self, platform_env, validator):
         """Test service management across different platforms."""
         # Test service status (should handle platform differences gracefully)
         return_code, stdout, stderr = platform_env.run_cli_command("service status")
-        
+
         validation = validator.validate_command_execution(return_code, stdout, stderr)
         assert validation["executed"]
         assert validation["has_output"]
-        
+
         # Platform-specific service operations
         if platform_env.platform_info["is_windows"]:
             # Windows service operations
@@ -523,68 +521,68 @@ class TestCrossPlatformCompatibility:
         else:
             # Linux systemd operations
             commands = ["service install", "service uninstall"]
-        
+
         for command in commands:
             return_code, stdout, stderr = platform_env.run_cli_command(command)
             validation = validator.validate_command_execution(return_code, stdout, stderr)
-            
+
             # Should execute and provide feedback (may fail without permissions)
             assert validation["executed"]
             assert validation["has_output"]
-    
+
     def test_file_system_permissions(self, platform_env, validator):
         """Test file system permissions handling across platforms."""
         # Create test file with content
         test_file = platform_env.tmp_path / "permissions_test.txt"
         test_file.write_text("Permission test content", encoding='utf-8')
-        
+
         # Test basic file operations
         assert test_file.exists()
         assert test_file.is_file()
-        
+
         # Platform-specific permission tests
         if not platform_env.platform_info["is_windows"]:
             # Unix-like systems: test permission modification
             original_mode = test_file.stat().st_mode
-            
+
             # Make file read-only
             os.chmod(test_file, 0o444)
-            
+
             # Test CLI operations with read-only file
             return_code, stdout, stderr = platform_env.run_cli_command(
                 f"ingest file {test_file}"
             )
-            
+
             validation = validator.validate_command_execution(return_code, stdout, stderr)
             assert validation["executed"]
-            
+
             # Restore permissions
             os.chmod(test_file, original_mode)
-    
+
     def test_python_version_compatibility(self, platform_env, validator):
         """Test compatibility with different Python versions."""
         python_info = platform_env.platform_info
-        
+
         # Validate minimum Python version support
         version_parts = python_info["python_version"].split(".")
         major, minor = int(version_parts[0]), int(version_parts[1])
-        
+
         # Should support Python 3.8+
         assert major >= 3
         if major == 3:
             assert minor >= 8
-        
+
         # Test Python implementation compatibility
         implementation = python_info["python_implementation"]
         assert implementation in ["CPython", "PyPy"]
-        
+
         # Test basic CLI functionality with current Python version
         return_code, stdout, stderr = platform_env.run_cli_command("--version")
         validation = validator.validate_command_execution(return_code, stdout, stderr)
-        
+
         assert validation["successful"]
         assert not validation["encoding_issues"]
-    
+
     def test_environment_variable_handling(self, platform_env, validator):
         """Test environment variable handling across platforms."""
         # Test with various environment variables
@@ -593,63 +591,63 @@ class TestCrossPlatformCompatibility:
             "WQM_LOG_LEVEL": "DEBUG",
             "QDRANT_URL": "http://localhost:6333"
         }
-        
+
         for env_var, value in env_tests.items():
             return_code, stdout, stderr = platform_env.run_cli_command(
                 "admin status",
                 env_vars={env_var: value}
             )
-            
+
             validation = validator.validate_command_execution(return_code, stdout, stderr)
             assert validation["executed"]
             assert validation["has_output"]
-    
+
     @pytest.mark.slow
     def test_long_path_handling(self, platform_env, validator):
         """Test long path handling across platforms."""
         # Create progressively longer paths
         max_length = min(platform_env.platform_info["max_path_length"] - 50, 200)
-        
+
         # Build long directory structure
         long_path = platform_env.tmp_path
         path_components = []
-        
+
         while len(str(long_path)) < max_length:
             component = f"dir_{len(path_components)}"
             path_components.append(component)
             long_path = long_path / component
-            
+
             try:
                 long_path.mkdir(exist_ok=True)
             except OSError:
                 # Path too long, stop here
                 break
-        
+
         # Create file in long path
         if long_path.exists():
             long_file = long_path / "long_path_test.txt"
             try:
                 long_file.write_text("Long path test content", encoding='utf-8')
-                
+
                 # Test CLI operations with long path
                 return_code, stdout, stderr = platform_env.run_cli_command(
                     f"ingest file {long_file}"
                 )
-                
+
                 validation = validator.validate_command_execution(return_code, stdout, stderr)
                 assert validation["executed"]
-                
+
             except OSError:
                 # Expected on some platforms with path length limits
                 pass
-    
+
     def test_concurrent_operations_platform_stability(self, platform_env, validator):
         """Test concurrent operations stability across platforms."""
-        import threading
         import queue
-        
+        import threading
+
         results_queue = queue.Queue()
-        
+
         def worker(worker_id):
             try:
                 # Test multiple operations per worker
@@ -658,53 +656,53 @@ class TestCrossPlatformCompatibility:
                     "--version",
                     "config show"
                 ]
-                
+
                 worker_results = []
                 for op in operations:
                     return_code, stdout, stderr = platform_env.run_cli_command(op)
                     validation = validator.validate_command_execution(return_code, stdout, stderr)
                     worker_results.append(validation["executed"])
-                
+
                 results_queue.put({
                     "worker_id": worker_id,
                     "success": all(worker_results),
                     "operations": len(operations)
                 })
-                
+
             except Exception as e:
                 results_queue.put({
                     "worker_id": worker_id,
                     "error": str(e)
                 })
-        
+
         # Start multiple threads
         num_workers = 3
         threads = []
-        
+
         for i in range(num_workers):
             thread = threading.Thread(target=worker, args=(i,))
             thread.start()
             threads.append(thread)
-        
+
         # Wait for completion
         for thread in threads:
             thread.join(timeout=30)
-        
+
         # Collect results
         results = []
         while not results_queue.empty():
             results.append(results_queue.get())
-        
+
         # Validate concurrent operations
         assert len(results) == num_workers
         assert all("error" not in result for result in results)
         assert all(result["success"] for result in results)
-    
+
     def test_system_integration_points(self, platform_env, validator):
         """Test system integration points across platforms."""
         # Test system-specific integration points
         system_commands = []
-        
+
         if platform_env.platform_info["is_windows"]:
             system_commands = [
                 "admin status",  # Should work on Windows
@@ -717,11 +715,11 @@ class TestCrossPlatformCompatibility:
             system_commands = [
                 "admin status",  # Should work on Linux
             ]
-        
+
         for command in system_commands:
             return_code, stdout, stderr = platform_env.run_cli_command(command)
             validation = validator.validate_command_execution(return_code, stdout, stderr)
-            
+
             assert validation["executed"]
             assert validation["has_output"]
             assert not validation["encoding_issues"]

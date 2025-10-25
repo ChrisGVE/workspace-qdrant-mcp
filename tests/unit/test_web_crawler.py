@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import aiohttp
 import pytest
-
 from workspace_qdrant_mcp.web.crawler import (
     CrawlConfig,
     CrawlResponse,
@@ -640,7 +639,7 @@ class TestWebCrawler:
     @pytest.mark.asyncio
     async def test_make_request_encoding_detection(self, crawler):
         """Test content encoding detection and fallbacks."""
-        content_bytes = "Hello, 世界".encode('utf-8')
+        content_bytes = "Hello, 世界".encode()
 
         mock_response = AsyncMock()
         mock_response.status = 200

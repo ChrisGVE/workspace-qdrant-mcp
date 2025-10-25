@@ -13,11 +13,9 @@ Usage:
 """
 
 import argparse
-import asyncio
 import sqlite3
 import sys
 from pathlib import Path
-from typing import Dict, List, Tuple
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
@@ -33,7 +31,7 @@ def get_default_db_path() -> str:
     return str(os_dirs.get_state_file("workspace_state.db"))
 
 
-def classify_existing_items(db_path: str) -> List[Tuple[str, str, str]]:
+def classify_existing_items(db_path: str) -> list[tuple[str, str, str]]:
     """
     Classify existing queue items without collection_type.
 
@@ -73,9 +71,9 @@ def classify_existing_items(db_path: str) -> List[Tuple[str, str, str]]:
 
 def update_collection_types(
     db_path: str,
-    items: List[Tuple[str, str, str]],
+    items: list[tuple[str, str, str]],
     dry_run: bool = False
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """
     Update collection_type for items.
 
@@ -87,7 +85,7 @@ def update_collection_types(
     Returns:
         Dictionary with statistics by type
     """
-    stats: Dict[str, int] = {}
+    stats: dict[str, int] = {}
 
     if dry_run:
         print("DRY RUN MODE - No changes will be made")
@@ -116,7 +114,7 @@ def update_collection_types(
     return stats
 
 
-def verify_migration(db_path: str) -> Dict[str, int]:
+def verify_migration(db_path: str) -> dict[str, int]:
     """
     Verify migration results.
 

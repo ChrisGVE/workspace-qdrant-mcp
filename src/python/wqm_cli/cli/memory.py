@@ -16,28 +16,21 @@ Commands:
 
 import asyncio
 import json
-import sys
-from datetime import datetime
-from typing import List, Optional
 
 import click
-from rich.console import Console
-from rich.panel import Panel
-from rich.prompt import Confirm, Prompt
-from rich.table import Table
-from rich.text import Text
-
 from common.core.client import create_qdrant_client
 from common.core.collection_naming import create_naming_manager
 from common.core.config import get_config
 from common.memory.manager import (
     AuthorityLevel,
     MemoryCategory,
-    MemoryManager,
-    MemoryRule,
     create_memory_manager,
     parse_conversational_memory_update,
 )
+from rich.console import Console
+from rich.panel import Panel
+from rich.prompt import Confirm, Prompt
+from rich.table import Table
 
 console = Console()
 

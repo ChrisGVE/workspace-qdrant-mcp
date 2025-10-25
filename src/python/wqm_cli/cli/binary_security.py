@@ -7,11 +7,10 @@ Security Note: Addresses SECURITY_AUDIT.md finding about service installation vu
 """
 
 import hashlib
+import json
 import os
 import stat
 from pathlib import Path
-from typing import Dict, Optional, Tuple
-import json
 
 from loguru import logger
 
@@ -64,14 +63,14 @@ class BinaryValidator:
                 # Read in chunks for memory efficiency
                 while chunk := f.read(8192):
                     hash_obj.update(chunk)
-        except (IOError, OSError) as e:
+        except OSError as e:
             raise BinarySecurityError(f"Failed to read binary for checksum: {e}") from e
 
         checksum = hash_obj.hexdigest()
         logger.debug("Checksum computed", checksum=checksum, size=file_size)
         return checksum
 
-    def store_checksum(self, binary_path: Path, checksum: Optional[str] = None) -> Path:
+    def store_checksum(self, binary_path: Path, checksum: str | None = None) -> Path:
         """Store binary checksum in sidecar file.
 
         Args:
@@ -108,10 +107,10 @@ class BinaryValidator:
             logger.info("Stored binary checksum", checksum_file=str(checksum_path))
             return checksum_path
 
-        except (IOError, OSError) as e:
+        except OSError as e:
             raise BinarySecurityError(f"Failed to store checksum: {e}") from e
 
-    def load_checksum(self, binary_path: Path) -> Optional[str]:
+    def load_checksum(self, binary_path: Path) -> str | None:
         """Load stored checksum for a binary.
 
         Args:
@@ -127,7 +126,7 @@ class BinaryValidator:
             return None
 
         try:
-            with open(checksum_path, "r") as f:
+            with open(checksum_path) as f:
                 checksum_data = json.load(f)
 
             if checksum_data.get("algorithm") != self.CHECKSUM_ALGORITHM:
@@ -140,11 +139,11 @@ class BinaryValidator:
 
             return checksum_data.get("checksum")
 
-        except (IOError, OSError, json.JSONDecodeError) as e:
+        except (OSError, json.JSONDecodeError) as e:
             logger.warning("Failed to load checksum", error=str(e))
             return None
 
-    def verify_checksum(self, binary_path: Path, expected_checksum: Optional[str] = None) -> bool:
+    def verify_checksum(self, binary_path: Path, expected_checksum: str | None = None) -> bool:
         """Verify binary checksum matches expected value.
 
         Args:
@@ -178,7 +177,7 @@ class BinaryValidator:
         logger.debug("Checksum verification passed", binary=str(binary_path))
         return True
 
-    def validate_ownership(self, binary_path: Path) -> Tuple[bool, str]:
+    def validate_ownership(self, binary_path: Path) -> tuple[bool, str]:
         """Validate binary is owned by current user and not world-writable.
 
         Args:
@@ -236,7 +235,7 @@ class BinaryValidator:
         binary_path: Path,
         verify_checksum: bool = True,
         strict_ownership: bool = True
-    ) -> Dict[str, any]:
+    ) -> dict[str, any]:
         """Comprehensive binary security validation.
 
         Args:

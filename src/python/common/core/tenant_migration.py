@@ -48,15 +48,12 @@ Example:
     ```
 """
 
-import asyncio
-import hashlib
 import json
-import sqlite3
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any
 
 from loguru import logger
 
@@ -85,12 +82,12 @@ class MigrationStatistics:
     metadata_entries_migrated: int = 0
     qdrant_points_total: int = 0
     qdrant_points_migrated: int = 0
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
-    start_time: Optional[datetime] = None
-    end_time: Optional[datetime] = None
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert statistics to dictionary for JSON serialization."""
         return {
             "queue_entries_total": self.queue_entries_total,
@@ -121,11 +118,11 @@ class MigrationPlan:
     new_tenant_id: str
     status: MigrationStatus = MigrationStatus.PLANNING
     created_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     statistics: MigrationStatistics = field(default_factory=MigrationStatistics)
-    rollback_data: Dict[str, Any] = field(default_factory=dict)
-    audit_log: List[Dict[str, Any]] = field(default_factory=list)
+    rollback_data: dict[str, Any] = field(default_factory=dict)
+    audit_log: list[dict[str, Any]] = field(default_factory=list)
 
     def add_audit_entry(self, action: str, details: str, success: bool = True):
         """Add an entry to the audit log."""
@@ -136,7 +133,7 @@ class MigrationPlan:
             "success": success,
         })
 
-    def to_db_dict(self) -> Dict[str, Any]:
+    def to_db_dict(self) -> dict[str, Any]:
         """Convert plan to dictionary for database storage."""
         return {
             "id": self.migration_id,
@@ -171,9 +168,9 @@ class MigrationResult:
     old_tenant_id: str
     new_tenant_id: str
     statistics: MigrationStatistics
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert result to dictionary."""
         return {
             "success": self.success,
@@ -268,8 +265,8 @@ class TenantMigrationManager:
             logger.error(f"Failed to create tenant_migrations table: {e}")
 
     async def detect_tenant_change(
-        self, project_root: Path, stored_tenant_id: Optional[str] = None
-    ) -> Tuple[bool, Optional[str], Optional[str]]:
+        self, project_root: Path, stored_tenant_id: str | None = None
+    ) -> tuple[bool, str | None, str | None]:
         """
         Detect if tenant ID has changed for a project.
 
@@ -319,7 +316,7 @@ class TenantMigrationManager:
             logger.error(f"Failed to detect tenant change for {project_root}: {e}")
             return False, None, None
 
-    async def _get_stored_tenant_id(self, project_root: Path) -> Optional[str]:
+    async def _get_stored_tenant_id(self, project_root: Path) -> str | None:
         """
         Get the stored tenant ID for a project from the database.
 
@@ -814,8 +811,8 @@ class TenantMigrationManager:
             return False
 
     async def get_migration_history(
-        self, project_root: Optional[Path] = None, limit: int = 10
-    ) -> List[Dict[str, Any]]:
+        self, project_root: Path | None = None, limit: int = 10
+    ) -> list[dict[str, Any]]:
         """
         Get migration history.
 

@@ -33,18 +33,20 @@ Example:
     ```
 """
 
-import asyncio
 import functools
 import inspect
 import time
 import uuid
-from contextlib import asynccontextmanager, contextmanager
+from collections.abc import Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Dict, Optional, TypeVar, Union
+from typing import Any, TypeVar
 
 from loguru import logger
+
 from common.logging import LogContext
-from .metrics import metrics_instance, record_operation
+
+from .metrics import metrics_instance
 
 # logger imported from loguru
 
@@ -59,9 +61,9 @@ class OperationConfig:
 
     name: str
     critical: bool = False
-    timeout_warning: Optional[float] = None
-    slow_threshold: Optional[float] = None
-    error_threshold: Optional[float] = None
+    timeout_warning: float | None = None
+    slow_threshold: float | None = None
+    error_threshold: float | None = None
     include_args: bool = False
     include_result: bool = False
     sample_rate: float = 1.0  # 0.0-1.0, for high-frequency operations
@@ -74,8 +76,8 @@ class OperationMonitor:
         self,
         operation_name: str,
         critical: bool = False,
-        timeout_warning: Optional[float] = None,
-        slow_threshold: Optional[float] = None,
+        timeout_warning: float | None = None,
+        slow_threshold: float | None = None,
         **context,
     ):
         self.operation_name = operation_name
@@ -84,7 +86,7 @@ class OperationMonitor:
         self.slow_threshold = slow_threshold
         self.context = context
         self.operation_id = str(uuid.uuid4())
-        self.start_time: Optional[float] = None
+        self.start_time: float | None = None
 
     def __enter__(self):
         """Start monitoring operation."""
@@ -190,8 +192,8 @@ class OperationMonitor:
 async def async_operation_monitor(
     operation_name: str,
     critical: bool = False,
-    timeout_warning: Optional[float] = None,
-    slow_threshold: Optional[float] = None,
+    timeout_warning: float | None = None,
+    slow_threshold: float | None = None,
     **context,
 ):
     """Async context manager for operation monitoring."""
@@ -204,10 +206,10 @@ async def async_operation_monitor(
 
 
 def monitor_sync(
-    operation_name: Optional[str] = None,
+    operation_name: str | None = None,
     critical: bool = False,
-    timeout_warning: Optional[float] = None,
-    slow_threshold: Optional[float] = None,
+    timeout_warning: float | None = None,
+    slow_threshold: float | None = None,
     include_args: bool = False,
     include_result: bool = False,
     **default_context,
@@ -276,7 +278,7 @@ def monitor_sync(
 
                     return result
 
-                except Exception as e:
+                except Exception:
                     # Error already logged by OperationMonitor
                     raise
 
@@ -286,10 +288,10 @@ def monitor_sync(
 
 
 def monitor_async(
-    operation_name: Optional[str] = None,
+    operation_name: str | None = None,
     critical: bool = False,
-    timeout_warning: Optional[float] = None,
-    slow_threshold: Optional[float] = None,
+    timeout_warning: float | None = None,
+    slow_threshold: float | None = None,
     include_args: bool = False,
     include_result: bool = False,
     **default_context,
@@ -358,7 +360,7 @@ def monitor_async(
 
                     return result
 
-                except Exception as e:
+                except Exception:
                     # Error already logged by OperationMonitor
                     raise
 
@@ -370,8 +372,8 @@ def monitor_async(
 def monitor_performance(
     slow_threshold: float = 1.0,
     critical_threshold: float = 5.0,
-    memory_threshold_mb: Optional[float] = None,
-) -> Callable[[Union[F, AF]], Union[F, AF]]:
+    memory_threshold_mb: float | None = None,
+) -> Callable[[F | AF], F | AF]:
     """Decorator for performance monitoring with thresholds.
 
     Args:
@@ -388,7 +390,7 @@ def monitor_performance(
         ```
     """
 
-    def decorator(func: Union[F, AF]) -> Union[F, AF]:
+    def decorator(func: F | AF) -> F | AF:
         is_async = inspect.iscoroutinefunction(func)
 
         if is_async:
@@ -561,7 +563,7 @@ class BatchOperationMonitor:
         self.context = context
         self.processed_items = 0
         self.failed_items = 0
-        self.start_time: Optional[float] = None
+        self.start_time: float | None = None
         self.operation_id = str(uuid.uuid4())
 
     def __enter__(self):

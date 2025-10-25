@@ -4,9 +4,10 @@ Tests the ToolDatabaseIntegration class with mock SQLiteStateManager to ensure
 proper database updates for LSP paths, tree-sitter CLI, and generic tools.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, call
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, call
+
+import pytest
 
 from src.python.common.core.tool_database_integration import ToolDatabaseIntegration
 

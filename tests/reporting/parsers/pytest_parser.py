@@ -10,10 +10,9 @@ import json
 import xml.etree.ElementTree as ET
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Optional, Union
 from uuid import uuid4
 
-from .base import BaseParser
 from ..models import (
     PerformanceMetrics,
     TestCase,
@@ -24,12 +23,13 @@ from ..models import (
     TestSuite,
     TestType,
 )
+from .base import BaseParser
 
 
 class PytestParser(BaseParser):
     """Parser for pytest test results (JUnit XML or JSON)."""
 
-    def parse(self, source: Union[str, Path, dict]) -> TestRun:
+    def parse(self, source: str | Path | dict) -> TestRun:
         """
         Parse pytest results into TestRun.
 
@@ -49,7 +49,7 @@ class PytestParser(BaseParser):
         if path.suffix == ".xml":
             return self._parse_junit_xml(path)
         elif path.suffix == ".json":
-            with open(path, "r") as f:
+            with open(path) as f:
                 data = json.load(f)
             return self._parse_json(data)
         else:
@@ -198,7 +198,7 @@ class PytestParser(BaseParser):
         case.add_result(result)
         return case
 
-    def _parse_json(self, data: Dict[str, Any]) -> TestRun:
+    def _parse_json(self, data: dict[str, Any]) -> TestRun:
         """Parse pytest JSON format (from pytest-json-report plugin)."""
         # Extract timestamp
         created = data.get("created")
@@ -223,11 +223,11 @@ class PytestParser(BaseParser):
 
         # Group tests by file/class into suites
         tests = data.get("tests", [])
-        suite_map: Dict[str, TestSuite] = {}
+        suite_map: dict[str, TestSuite] = {}
 
         for test_data in tests:
             # Determine suite name (use file or class)
-            nodeid = test_data.get("nodeid", "")
+            test_data.get("nodeid", "")
             file_path = test_data.get("location", [""])[0]
 
             # Use file as suite name
@@ -252,7 +252,7 @@ class PytestParser(BaseParser):
 
         return test_run
 
-    def _parse_json_testcase(self, data: Dict[str, Any]) -> TestCase:
+    def _parse_json_testcase(self, data: dict[str, Any]) -> TestCase:
         """Parse a test case from pytest JSON."""
         name = data.get("name", "unknown")
         nodeid = data.get("nodeid", "")
@@ -354,7 +354,7 @@ class PytestParser(BaseParser):
         else:
             return TestType.UNIT  # Default
 
-    def _extract_benchmark_metrics(self, text: str) -> Optional[PerformanceMetrics]:
+    def _extract_benchmark_metrics(self, text: str) -> PerformanceMetrics | None:
         """Try to extract benchmark metrics from test output."""
         # Simple heuristic: look for common benchmark output patterns
         # This is basic - pytest-benchmark has structured output we could parse better
@@ -390,7 +390,7 @@ class PytestParser(BaseParser):
 
         return None
 
-    def _parse_benchmark_data(self, benchmark_data: Dict[str, Any]) -> PerformanceMetrics:
+    def _parse_benchmark_data(self, benchmark_data: dict[str, Any]) -> PerformanceMetrics:
         """Parse pytest-benchmark data."""
         stats = benchmark_data.get("stats", {})
 

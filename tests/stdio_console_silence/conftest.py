@@ -5,12 +5,13 @@ Provides shared fixtures, configuration, and utilities for comprehensive
 console silence validation testing.
 """
 
+import logging
 import os
 import sys
 import tempfile
-import logging
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Dict, Generator
+from typing import Any
 
 import pytest
 
@@ -267,13 +268,11 @@ def mock_qdrant_environment(monkeypatch):
 def validate_test_requirements():
     """Validate test environment requirements."""
     # Check Python version
-    if sys.version_info < (3, 10):
-        pytest.skip("Requires Python 3.10+")
 
     # Check required packages
     try:
-        import pytest_benchmark
         import psutil
+        import pytest_benchmark
     except ImportError as e:
         pytest.skip(f"Missing required package for console silence tests: {e}")
 

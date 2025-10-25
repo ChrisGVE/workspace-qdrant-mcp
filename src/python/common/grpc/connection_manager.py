@@ -8,17 +8,14 @@ including connection pooling, health checks, and automatic reconnection.
 import asyncio
 import logging
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
-from typing import Any, AsyncIterator, Dict, Optional, List
 from dataclasses import dataclass
-import weakref
-import threading
+from datetime import datetime
+from typing import Any
 
 import grpc
 import grpc.aio
-from google.protobuf.empty_pb2 import Empty
-from grpc import ChannelConnectivity
 
 from .ingestion_pb2_grpc import IngestServiceStub
 
@@ -81,10 +78,10 @@ class ConnectionConfig:
         max_concurrent_streams: int = 100,
         # Enhanced security options
         enable_tls: bool = False,
-        tls_cert_path: Optional[str] = None,
-        tls_key_path: Optional[str] = None,
-        tls_ca_path: Optional[str] = None,
-        api_key: Optional[str] = None,
+        tls_cert_path: str | None = None,
+        tls_key_path: str | None = None,
+        tls_ca_path: str | None = None,
+        api_key: str | None = None,
         # Connection pooling options
         enable_connection_pooling: bool = True,
         pool_size: int = 5,
@@ -159,8 +156,8 @@ class ConnectionState:
     """Enhanced state tracking for a gRPC connection."""
 
     def __init__(self):
-        self.channel: Optional[grpc.aio.Channel] = None
-        self.stub: Optional[IngestServiceStub] = None
+        self.channel: grpc.aio.Channel | None = None
+        self.stub: IngestServiceStub | None = None
         self.last_health_check = datetime.now()
         self.consecutive_failures = 0
         self.is_healthy = False
@@ -239,10 +236,10 @@ class ConnectionState:
 class GrpcConnectionManager:
     """Manages gRPC connections with health monitoring and recovery."""
 
-    def __init__(self, config: Optional[ConnectionConfig] = None):
+    def __init__(self, config: ConnectionConfig | None = None):
         self.config = config or ConnectionConfig()
         self.state = ConnectionState()
-        self._health_check_task: Optional[asyncio.Task] = None
+        self._health_check_task: asyncio.Task | None = None
         self._shutdown = False
 
         logger.info("gRPC connection manager initialized", address=self.config.address)
@@ -536,7 +533,7 @@ class GrpcConnectionManager:
         if last_exception:
             raise last_exception
 
-    def get_connection_info(self) -> Dict[str, Any]:
+    def get_connection_info(self) -> dict[str, Any]:
         """Get comprehensive connection information and metrics."""
         if hasattr(self, '_connection_pool') and self.config.enable_connection_pooling:
             pool_info = {

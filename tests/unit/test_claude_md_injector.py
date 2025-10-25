@@ -7,10 +7,9 @@ Tests file discovery, content injection, file watching, and precedence rules.
 import asyncio
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-
 from common.core.context_injection import (
     ClaudeMdInjector,
     ClaudeMdLocation,
@@ -74,15 +73,15 @@ def patch_global_claude_md(tmp_path, monkeypatch):
     """Auto-patch global CLAUDE.md location for all tests to avoid interference."""
     global_dir = tmp_path / ".claude_test_global"
     global_dir.mkdir()
-    
+
     # Create a non-existent path by default (tests can create file if needed)
     global_claude_md = global_dir / "CLAUDE.md"
-    
+
     monkeypatch.setattr(
         "common.core.context_injection.claude_md_injector.ClaudeMdInjector.GLOBAL_CLAUDE_MD",
         global_claude_md,
     )
-    
+
     return global_claude_md
 
 

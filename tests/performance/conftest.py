@@ -8,13 +8,14 @@ across the workspace-qdrant-mcp project.
 import asyncio
 import gc
 import os
-import psutil
-import pytest
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import psutil
+import pytest
 
 # Import performance test configuration
 from . import PERFORMANCE_TEST_CONFIG, REGRESSION_THRESHOLDS
@@ -165,7 +166,7 @@ def system_monitor():
             """Stop monitoring system resources."""
             self.monitoring_active = False
 
-        def get_current_metrics(self) -> Dict[str, float]:
+        def get_current_metrics(self) -> dict[str, float]:
             """Get current system metrics."""
             memory_info = self.process.memory_info()
 
@@ -178,14 +179,14 @@ def system_monitor():
                 'num_fds': self.process.num_fds() if hasattr(self.process, 'num_fds') else 0,
             }
 
-        def record_snapshot(self) -> Dict[str, float]:
+        def record_snapshot(self) -> dict[str, float]:
             """Record a snapshot of current metrics."""
             metrics = self.get_current_metrics()
             metrics['timestamp'] = time.time()
             self.monitoring_data.append(metrics)
             return metrics
 
-        def get_monitoring_summary(self) -> Dict[str, Any]:
+        def get_monitoring_summary(self) -> dict[str, Any]:
             """Get summary of monitoring data."""
             if not self.monitoring_data:
                 return {'error': 'No monitoring data collected'}
@@ -286,7 +287,7 @@ async def mock_embedding_service():
 
     mock_service = AsyncMock()
 
-    async def mock_embed(texts: List[str], *args, **kwargs):
+    async def mock_embed(texts: list[str], *args, **kwargs):
         # Simulate embedding time based on text length and count
         total_chars = sum(len(text) for text in texts)
         base_time = 0.02  # 20ms base time
@@ -448,7 +449,7 @@ def performance_baseline_manager(tmp_path):
             self.baseline_dir = baseline_dir
             self.baseline_dir.mkdir(exist_ok=True)
 
-        def save_baseline(self, test_name: str, metrics: Dict[str, Any]):
+        def save_baseline(self, test_name: str, metrics: dict[str, Any]):
             """Save performance baseline."""
             baseline_file = self.baseline_dir / f"{test_name}_baseline.json"
 
@@ -460,7 +461,7 @@ def performance_baseline_manager(tmp_path):
                     'metrics': metrics
                 }, f, indent=2)
 
-        def load_baseline(self, test_name: str) -> Optional[Dict[str, Any]]:
+        def load_baseline(self, test_name: str) -> dict[str, Any] | None:
             """Load performance baseline."""
             baseline_file = self.baseline_dir / f"{test_name}_baseline.json"
 
@@ -471,10 +472,10 @@ def performance_baseline_manager(tmp_path):
             try:
                 with open(baseline_file) as f:
                     return json.load(f)
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 return None
 
-        def compare_to_baseline(self, test_name: str, current_metrics: Dict[str, Any]) -> Dict[str, Any]:
+        def compare_to_baseline(self, test_name: str, current_metrics: dict[str, Any]) -> dict[str, Any]:
             """Compare current metrics to baseline."""
             baseline = self.load_baseline(test_name)
 

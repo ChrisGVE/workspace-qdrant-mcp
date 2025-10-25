@@ -16,7 +16,6 @@ import logging
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -75,16 +74,16 @@ class DependencyAnalysis:
     grammar_path: Path
     """Path to grammar directory"""
 
-    dependencies: List[BuildDependency] = field(default_factory=list)
+    dependencies: list[BuildDependency] = field(default_factory=list)
     """List of build dependencies"""
 
-    required_compilers: Set[CompilerRequirement] = field(default_factory=set)
+    required_compilers: set[CompilerRequirement] = field(default_factory=set)
     """Set of required compilers"""
 
     is_valid: bool = True
     """Whether grammar has valid structure"""
 
-    validation_errors: List[str] = field(default_factory=list)
+    validation_errors: list[str] = field(default_factory=list)
     """List of validation errors if invalid"""
 
     has_external_scanner: bool = False
@@ -93,7 +92,7 @@ class DependencyAnalysis:
     needs_cpp: bool = False
     """Whether C++ compiler is needed"""
 
-    def get_source_files(self) -> List[Path]:
+    def get_source_files(self) -> list[Path]:
         """
         Get list of source files in compilation order.
 
@@ -103,7 +102,7 @@ class DependencyAnalysis:
         sorted_deps = sorted(self.dependencies, key=lambda d: d.compilation_order)
         return [dep.path for dep in sorted_deps]
 
-    def get_dependencies_by_type(self, source_type: SourceType) -> List[BuildDependency]:
+    def get_dependencies_by_type(self, source_type: SourceType) -> list[BuildDependency]:
         """
         Get dependencies of a specific type.
 
@@ -135,7 +134,7 @@ class DependencyResolver:
         """Initialize dependency resolver."""
         pass
 
-    def analyze_grammar(self, grammar_path: Path, grammar_name: Optional[str] = None) -> DependencyAnalysis:
+    def analyze_grammar(self, grammar_path: Path, grammar_name: str | None = None) -> DependencyAnalysis:
         """
         Analyze grammar directory for build dependencies.
 
@@ -206,7 +205,7 @@ class DependencyResolver:
 
         return analysis
 
-    def _find_scanner(self, src_dir: Path) -> Optional[BuildDependency]:
+    def _find_scanner(self, src_dir: Path) -> BuildDependency | None:
         """
         Find external scanner file in source directory.
 
@@ -233,7 +232,7 @@ class DependencyResolver:
         analysis: DependencyAnalysis,
         available_c_compiler: bool = False,
         available_cpp_compiler: bool = False
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """
         Validate that all dependencies can be satisfied.
 

@@ -10,15 +10,13 @@ Run with: uv run pytest tests/benchmarks/benchmark_search_latency.py --benchmark
 
 import asyncio
 import statistics
-from typing import Dict, List, Tuple
 
 import pytest
+from common.core.embeddings import EmbeddingService
+from common.core.hybrid_search import HybridSearchEngine
+from common.core.ssl_config import suppress_qdrant_ssl_warnings
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-
-from common.core.hybrid_search import HybridSearchEngine
-from common.core.embeddings import EmbeddingService
-from common.core.ssl_config import suppress_qdrant_ssl_warnings
 
 
 class SearchBenchmarkFixtures:
@@ -114,7 +112,7 @@ class SearchBenchmarkFixtures:
     @staticmethod
     async def generate_query_embeddings(
         query_text: str,
-    ) -> Dict[str, any]:
+    ) -> dict[str, any]:
         """
         Generate embeddings for a query.
 
@@ -198,7 +196,7 @@ def long_query_embeddings():
 
 
 # Helper function for percentile calculation
-def calculate_percentiles(benchmark_stats) -> Dict[str, float]:
+def calculate_percentiles(benchmark_stats) -> dict[str, float]:
     """
     Calculate percentile metrics from benchmark stats.
 

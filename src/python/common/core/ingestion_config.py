@@ -16,29 +16,27 @@ Features:
 Example:
     ```python
     from workspace_qdrant_mcp.core.ingestion_config import IngestionConfigManager
-    
+
     # Load ingestion configuration
     manager = IngestionConfigManager()
     config = manager.load_config()
-    
+
     # Check if file should be ignored
     if manager.should_ignore_file("node_modules/package/index.js"):
         print("File ignored by pattern matching")
     ```
 """
 
-import os
-import re
 import fnmatch
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Pattern, Union
-from enum import Enum
 from dataclasses import dataclass, field
+from enum import Enum
+from pathlib import Path
+from re import Pattern
+from typing import Any
 
 import yaml
-from pydantic import BaseModel, Field, field_validator, ValidationError
-
 from loguru import logger
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 # logger imported from loguru
 
@@ -55,44 +53,44 @@ class PatternType(Enum):
 class LanguagePatterns:
     """Language-specific file patterns and ignore rules."""
     name: str
-    file_extensions: List[str] = field(default_factory=list)
-    dependencies: List[str] = field(default_factory=list)
-    build_artifacts: List[str] = field(default_factory=list)
-    generated_files: List[str] = field(default_factory=list)
-    caches: List[str] = field(default_factory=list)
-    temp_files: List[str] = field(default_factory=list)
+    file_extensions: list[str] = field(default_factory=list)
+    dependencies: list[str] = field(default_factory=list)
+    build_artifacts: list[str] = field(default_factory=list)
+    generated_files: list[str] = field(default_factory=list)
+    caches: list[str] = field(default_factory=list)
+    temp_files: list[str] = field(default_factory=list)
 
 
 class IgnorePatternsConfig(BaseModel):
     """Configuration for ignore patterns."""
-    
+
     # Universal patterns
     dot_files: bool = True  # Ignore .git/, .vscode/, .DS_Store, etc.
-    version_control: List[str] = Field(
+    version_control: list[str] = Field(
         default=[".git", ".svn", ".hg", ".bzr", ".fossil"],
         description="Version control directories to ignore"
     )
-    
+
     # Common ignore directories
-    directories: List[str] = Field(
+    directories: list[str] = Field(
         default_factory=list,
         description="Directory names/patterns to ignore"
     )
-    
+
     # File extensions to ignore
-    file_extensions: List[str] = Field(
+    file_extensions: list[str] = Field(
         default_factory=list,
         description="File extensions to ignore (e.g., '*.pyc')"
     )
-    
+
     # File patterns to ignore
-    file_patterns: List[str] = Field(
+    file_patterns: list[str] = Field(
         default_factory=list,
         description="File name patterns to ignore (e.g., '*.log')"
     )
-    
+
     # Glob patterns for complex matching
-    glob_patterns: List[str] = Field(
+    glob_patterns: list[str] = Field(
         default_factory=list,
         description="Glob patterns for complex matching"
     )
@@ -100,42 +98,42 @@ class IgnorePatternsConfig(BaseModel):
 
 class PerformanceConfig(BaseModel):
     """Performance and resource constraints."""
-    
+
     max_file_size_mb: int = Field(
         default=10,
         ge=1,
         le=1000,
         description="Maximum file size to process in megabytes"
     )
-    
+
     max_files_per_directory: int = Field(
         default=1000,
         ge=10,
         le=10000,
         description="Maximum files to process per directory"
     )
-    
+
     max_files_per_batch: int = Field(
         default=100,
         ge=1,
         le=1000,
         description="Maximum files to process in a single batch"
     )
-    
+
     debounce_seconds: float = Field(
         default=5.0,
         ge=0.1,
         le=60.0,
         description="Debounce time for file change events"
     )
-    
+
     pattern_cache_size: int = Field(
         default=10000,
         ge=100,
         le=100000,
         description="Maximum number of compiled patterns to cache"
     )
-    
+
     enable_pattern_compilation: bool = Field(
         default=True,
         description="Enable pattern compilation and caching for performance"
@@ -144,26 +142,26 @@ class PerformanceConfig(BaseModel):
 
 class LanguageConfig(BaseModel):
     """Language-specific configuration."""
-    
+
     name: str
     enabled: bool = True
     custom_patterns: IgnorePatternsConfig = Field(default_factory=IgnorePatternsConfig)
-    
+
     # Override performance settings per language
-    performance_overrides: Optional[PerformanceConfig] = None
+    performance_overrides: PerformanceConfig | None = None
 
 
 class CollectionRoutingConfig(BaseModel):
     """Configuration for routing files to different collections."""
-    
+
     code_suffix: str = Field(default="code", description="Collection suffix for source code")
     docs_suffix: str = Field(default="docs", description="Collection suffix for documentation")
     config_suffix: str = Field(default="config", description="Collection suffix for config files")
     data_suffix: str = Field(default="data", description="Collection suffix for data files")
     default_suffix: str = Field(default="repo", description="Default collection suffix")
-    
+
     # File type to collection mapping
-    file_type_routing: Dict[str, str] = Field(
+    file_type_routing: dict[str, str] = Field(
         default_factory=dict,
         description="Map file extensions to collection suffixes"
     )
@@ -171,21 +169,21 @@ class CollectionRoutingConfig(BaseModel):
 
 class UserOverridesConfig(BaseModel):
     """User customization and override settings."""
-    
+
     # Additional patterns to ignore beyond defaults
     additional_ignores: IgnorePatternsConfig = Field(default_factory=IgnorePatternsConfig)
-    
+
     # Force include patterns (override ignores for specific cases)
     force_include: IgnorePatternsConfig = Field(default_factory=IgnorePatternsConfig)
-    
+
     # Per-project overrides
-    project_specific: Dict[str, Dict[str, Any]] = Field(
+    project_specific: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Per-project custom rules"
     )
-    
-    # Environment-specific overrides  
-    environment_overrides: Dict[str, Dict[str, Any]] = Field(
+
+    # Environment-specific overrides
+    environment_overrides: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
         description="Environment-specific configurations"
     )
@@ -193,34 +191,34 @@ class UserOverridesConfig(BaseModel):
 
 class IngestionConfig(BaseModel):
     """Main ingestion configuration class."""
-    
+
     # Global enable/disable
     enabled: bool = Field(default=True, description="Enable/disable ingestion system")
-    
+
     # Default ignore patterns
     ignore_patterns: IgnorePatternsConfig = Field(default_factory=IgnorePatternsConfig)
-    
+
     # Performance constraints
     performance: PerformanceConfig = Field(default_factory=PerformanceConfig)
-    
+
     # Language-specific configurations
-    languages: Dict[str, LanguageConfig] = Field(
+    languages: dict[str, LanguageConfig] = Field(
         default_factory=dict,
         description="Language-specific configurations"
     )
-    
+
     # Collection routing
     collection_routing: CollectionRoutingConfig = Field(default_factory=CollectionRoutingConfig)
-    
+
     # User overrides
     user_overrides: UserOverridesConfig = Field(default_factory=UserOverridesConfig)
-    
+
     # LSP integration for future features
-    lsp_integration: Dict[str, Any] = Field(
+    lsp_integration: dict[str, Any] = Field(
         default_factory=dict,
         description="LSP integration settings"
     )
-    
+
     @field_validator('languages')
     @classmethod
     def validate_languages(cls, v):
@@ -229,18 +227,18 @@ class IngestionConfig(BaseModel):
             if lang_config.name != lang_name:
                 raise ValueError(f"Language config name '{lang_config.name}' doesn't match key '{lang_name}'")
         return v
-    
-    def validate_config(self) -> List[str]:
+
+    def validate_config(self) -> list[str]:
         """Validate configuration and return list of issues."""
         issues = []
-        
+
         # Validate performance settings
         if self.performance.max_file_size_mb <= 0:
             issues.append("max_file_size_mb must be positive")
-        
+
         if self.performance.max_files_per_batch <= 0:
             issues.append("max_files_per_batch must be positive")
-        
+
         # Validate collection routing
         suffixes = [
             self.collection_routing.code_suffix,
@@ -249,10 +247,10 @@ class IngestionConfig(BaseModel):
             self.collection_routing.data_suffix,
             self.collection_routing.default_suffix
         ]
-        
+
         if len(set(suffixes)) != len(suffixes):
             issues.append("Collection suffixes must be unique")
-        
+
         # Validate patterns - check for conflicting include/ignore patterns
         if self.user_overrides.force_include.directories:
             ignored_dirs = set(self.ignore_patterns.directories)
@@ -260,31 +258,31 @@ class IngestionConfig(BaseModel):
             conflicts = ignored_dirs & forced_dirs
             if conflicts:
                 issues.append(f"Conflicting directory patterns: {', '.join(conflicts)}")
-        
+
         return issues
 
 
 class IngestionConfigManager:
     """Manager class for ingestion configuration with caching and validation."""
-    
-    def __init__(self, config_dir: Optional[Path] = None):
+
+    def __init__(self, config_dir: Path | None = None):
         """
         Initialize ingestion configuration manager.
-        
+
         Args:
             config_dir: Directory to search for configuration files
         """
         self.config_dir = config_dir or Path.cwd()
-        self.current_config: Optional[IngestionConfig] = None
-        self.pattern_cache: Dict[str, Pattern] = {}
-        self.language_patterns: Dict[str, LanguagePatterns] = {}
-        
+        self.current_config: IngestionConfig | None = None
+        self.pattern_cache: dict[str, Pattern] = {}
+        self.language_patterns: dict[str, LanguagePatterns] = {}
+
         # Initialize default language patterns
         self._initialize_language_patterns()
-    
+
     def _initialize_language_patterns(self) -> None:
         """Initialize comprehensive language pattern database."""
-        
+
         # Web Technologies
         self.language_patterns["javascript"] = LanguagePatterns(
             name="javascript",
@@ -295,7 +293,7 @@ class IngestionConfigManager:
             caches=[".eslintcache", ".parcel-cache", ".cache"],
             temp_files=["*.log", "npm-debug.log*", "yarn-debug.log*"]
         )
-        
+
         self.language_patterns["typescript"] = LanguagePatterns(
             name="typescript",
             file_extensions=["*.ts", "*.tsx", "*.d.ts"],
@@ -305,7 +303,7 @@ class IngestionConfigManager:
             caches=[".tscache"],
             temp_files=["tsconfig.tsbuildinfo"]
         )
-        
+
         # Python
         self.language_patterns["python"] = LanguagePatterns(
             name="python",
@@ -316,7 +314,7 @@ class IngestionConfigManager:
             caches=["__pycache__", ".pytest_cache", ".mypy_cache", ".coverage", ".tox"],
             temp_files=["*.log", "*.tmp", "*.swp"]
         )
-        
+
         # Rust
         self.language_patterns["rust"] = LanguagePatterns(
             name="rust",
@@ -327,7 +325,7 @@ class IngestionConfigManager:
             caches=["target/.fingerprint", "target/.rustc_info.json"],
             temp_files=["*.tmp", "*.swp"]
         )
-        
+
         # Java/JVM
         self.language_patterns["java"] = LanguagePatterns(
             name="java",
@@ -338,7 +336,7 @@ class IngestionConfigManager:
             caches=[".gradle", "gradle"],
             temp_files=["*.log", "*.tmp"]
         )
-        
+
         # Go
         self.language_patterns["go"] = LanguagePatterns(
             name="go",
@@ -349,7 +347,7 @@ class IngestionConfigManager:
             caches=["go.work.sum"],
             temp_files=["*.log", "*.tmp"]
         )
-        
+
         # C/C++
         self.language_patterns["cpp"] = LanguagePatterns(
             name="cpp",
@@ -360,8 +358,8 @@ class IngestionConfigManager:
             caches=["CMakeCache.txt", "CMakeFiles"],
             temp_files=["*.log", "*.tmp", "core.*"]
         )
-        
-        # C#/.NET  
+
+        # C#/.NET
         self.language_patterns["csharp"] = LanguagePatterns(
             name="csharp",
             file_extensions=["*.cs", "*.fs", "*.vb", "*.csproj", "*.fsproj", "*.vbproj"],
@@ -371,7 +369,7 @@ class IngestionConfigManager:
             caches=[".vs", ".vscode"],
             temp_files=["*.log", "*.tmp"]
         )
-        
+
         # Ruby
         self.language_patterns["ruby"] = LanguagePatterns(
             name="ruby",
@@ -382,7 +380,7 @@ class IngestionConfigManager:
             caches=[".gem"],
             temp_files=["*.log", "*.tmp"]
         )
-        
+
         # PHP
         self.language_patterns["php"] = LanguagePatterns(
             name="php",
@@ -393,7 +391,7 @@ class IngestionConfigManager:
             caches=[".phpunit.cache"],
             temp_files=["*.log", "*.tmp"]
         )
-        
+
         # Swift
         self.language_patterns["swift"] = LanguagePatterns(
             name="swift",
@@ -404,13 +402,13 @@ class IngestionConfigManager:
             caches=[".swiftpm"],
             temp_files=["*.log", "*.tmp"]
         )
-        
+
         # Continue with other languages...
         self._add_remaining_languages()
-    
+
     def _add_remaining_languages(self) -> None:
         """Add remaining language patterns to complete the 25+ language support."""
-        
+
         # Dart/Flutter
         self.language_patterns["dart"] = LanguagePatterns(
             name="dart",
@@ -421,7 +419,7 @@ class IngestionConfigManager:
             caches=[".dart_tool"],
             temp_files=["*.log", "*.tmp"]
         )
-        
+
         # R
         self.language_patterns["r"] = LanguagePatterns(
             name="r",
@@ -432,7 +430,7 @@ class IngestionConfigManager:
             caches=[".Rhistory", ".RData"],
             temp_files=["*.log", "*.tmp", "*~"]
         )
-        
+
         # Julia
         self.language_patterns["julia"] = LanguagePatterns(
             name="julia",
@@ -443,7 +441,7 @@ class IngestionConfigManager:
             caches=[],
             temp_files=["*.log", "*.tmp"]
         )
-        
+
         # Haskell
         self.language_patterns["haskell"] = LanguagePatterns(
             name="haskell",
@@ -454,7 +452,7 @@ class IngestionConfigManager:
             caches=[".stack"],
             temp_files=["*.log", "*.tmp"]
         )
-        
+
         # Elixir
         self.language_patterns["elixir"] = LanguagePatterns(
             name="elixir",
@@ -465,25 +463,25 @@ class IngestionConfigManager:
             caches=["_build/.mix"],
             temp_files=["*.log", "*.tmp"]
         )
-        
+
         # Add more languages as needed...
-        
-    def load_config(self, config_file: Optional[Union[str, Path]] = None) -> IngestionConfig:
+
+    def load_config(self, config_file: str | Path | None = None) -> IngestionConfig:
         """
         Load ingestion configuration from file or defaults.
-        
+
         Args:
             config_file: Specific config file path (optional)
-            
+
         Returns:
             Loaded ingestion configuration
-            
+
         Raises:
             ValidationError: If configuration is invalid
             FileNotFoundError: If specified config file doesn't exist
         """
         config_data = {}
-        
+
         if config_file:
             config_path = Path(config_file)
             if not config_path.exists():
@@ -495,7 +493,7 @@ class IngestionConfigManager:
             if config_path:
                 config_data = self._load_config_file(config_path)
                 logger.info(f"Loaded ingestion config from: {config_path}")
-        
+
         # Create config with defaults and overrides
         try:
             # Always start with defaults, then merge user config
@@ -504,25 +502,25 @@ class IngestionConfigManager:
                 config_data = self._merge_with_defaults(config_data)
             else:
                 config_data = default_config
-            
+
             self.current_config = IngestionConfig(**config_data)
-            
+
             # Validate configuration
             issues = self.current_config.validate_config()
             if issues:
-                error_msg = f"Ingestion configuration validation failed:\n" + "\n".join(f"  - {issue}" for issue in issues)
+                error_msg = "Ingestion configuration validation failed:\n" + "\n".join(f"  - {issue}" for issue in issues)
                 logger.error(error_msg)
                 raise ValidationError(error_msg, IngestionConfig)
-            
+
             logger.info("Ingestion configuration loaded and validated successfully")
             return self.current_config
-            
+
         except ValidationError as e:
             error_msg = f"Ingestion configuration validation error: {e}"
             logger.error(error_msg)
             raise
-    
-    def _load_config_file(self, file_path: Path) -> Dict[str, Any]:
+
+    def _load_config_file(self, file_path: Path) -> dict[str, Any]:
         """Load configuration from YAML file."""
         try:
             with file_path.open('r', encoding='utf-8') as f:
@@ -531,8 +529,8 @@ class IngestionConfigManager:
             raise ValueError(f"Error parsing ingestion config YAML: {e}") from e
         except Exception as e:
             raise ValueError(f"Error reading ingestion config: {e}") from e
-    
-    def _find_ingestion_config(self) -> Optional[Path]:
+
+    def _find_ingestion_config(self) -> Path | None:
         """Find ingestion configuration file."""
         # Search order: current dir, config dir, user config dir
         search_paths = [
@@ -541,23 +539,23 @@ class IngestionConfigManager:
             Path.home() / ".config" / "workspace-qdrant-mcp",
             Path(__file__).parent.parent.parent / "config"
         ]
-        
+
         config_names = [
             "ingestion.yaml",
             "ingestion.yml",
             ".ingestion.yaml",
             "workspace_qdrant_ingestion.yaml"
         ]
-        
+
         for search_path in search_paths:
             for config_name in config_names:
                 config_file = search_path / config_name
                 if config_file.exists():
                     return config_file
-        
+
         return None
-    
-    def _get_default_config(self) -> Dict[str, Any]:
+
+    def _get_default_config(self) -> dict[str, Any]:
         """Get default configuration with all language patterns."""
         return {
             "enabled": True,
@@ -606,13 +604,13 @@ class IngestionConfigManager:
                 "default_suffix": "repo"
             }
         }
-    
-    def _merge_with_defaults(self, user_config: Dict[str, Any]) -> Dict[str, Any]:
+
+    def _merge_with_defaults(self, user_config: dict[str, Any]) -> dict[str, Any]:
         """Merge user configuration with defaults."""
         default_config = self._get_default_config()
-        
+
         # Deep merge logic here
-        def deep_merge(default: Dict, override: Dict) -> Dict:
+        def deep_merge(default: dict, override: dict) -> dict:
             result = default.copy()
             for key, value in override.items():
                 if key in result and isinstance(result[key], dict) and isinstance(value, dict):
@@ -620,74 +618,74 @@ class IngestionConfigManager:
                 else:
                     result[key] = value
             return result
-        
+
         return deep_merge(default_config, user_config)
-    
-    def should_ignore_file(self, file_path: Union[str, Path]) -> bool:
+
+    def should_ignore_file(self, file_path: str | Path) -> bool:
         """
         Check if a file should be ignored based on current configuration.
-        
+
         Args:
             file_path: Path to check
-            
+
         Returns:
             True if file should be ignored, False otherwise
         """
         if not self.current_config:
             self.load_config()
-        
+
         path = Path(file_path)
-        
+
         # Check file size
         try:
             if path.exists() and path.stat().st_size > (self.current_config.performance.max_file_size_mb * 1024 * 1024):
                 return True
         except OSError:
             return True  # Ignore files we can't stat
-        
+
         # Check against ignore patterns
         return self._matches_ignore_patterns(path)
-    
+
     def _matches_ignore_patterns(self, path: Path) -> bool:
         """Check if path matches any ignore patterns."""
         if not self.current_config:
             return False
-        
+
         patterns = self.current_config.ignore_patterns
         path_str = str(path)
         path_parts = path.parts
-        
+
         # Check dot files
         if patterns.dot_files and any(part.startswith('.') for part in path_parts):
             return True
-        
+
         # Check directory patterns
         for dir_pattern in patterns.directories:
             if any(fnmatch.fnmatch(part, dir_pattern) for part in path_parts):
                 return True
-        
+
         # Check file extension patterns
         for ext_pattern in patterns.file_extensions:
             if fnmatch.fnmatch(path.name, ext_pattern):
                 return True
-        
+
         # Check file patterns
         for file_pattern in patterns.file_patterns:
             if fnmatch.fnmatch(path.name, file_pattern):
                 return True
-        
+
         # Check glob patterns
         for glob_pattern in patterns.glob_patterns:
             if fnmatch.fnmatch(path_str, glob_pattern):
                 return True
-        
+
         return False
-    
-    def get_config_info(self) -> Dict[str, Any]:
+
+    def get_config_info(self) -> dict[str, Any]:
         """Get information about current ingestion configuration."""
         if not self.current_config:
             return {"status": "not_loaded"}
-        
+
         return {
             "status": "loaded",
             "enabled": self.current_config.enabled,

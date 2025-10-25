@@ -9,7 +9,7 @@ import logging
 import re
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from .types import AuthorityLevel, MemoryCategory, MemoryRule
 
@@ -167,8 +167,8 @@ class TokenCounter:
             TokenUsage object with detailed breakdown
         """
         total_tokens = 0
-        category_tokens = {category: 0 for category in MemoryCategory}
-        authority_tokens = {authority: 0 for authority in AuthorityLevel}
+        category_tokens = dict.fromkeys(MemoryCategory, 0)
+        authority_tokens = dict.fromkeys(AuthorityLevel, 0)
 
         for rule in rules:
             rule_tokens = self.count_rule_tokens(rule)

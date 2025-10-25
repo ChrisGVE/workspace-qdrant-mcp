@@ -7,28 +7,27 @@ with detector and injector modules.
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-
 from common.core.context_injection import (
+    ClaudeCodeSession,
+    ClaudeMdFileTrigger,
+    CleanupTrigger,
+    CustomCallbackTrigger,
     SessionTrigger,
+    SystemPromptTrigger,
+    TriggerContext,
+    TriggerManager,
     TriggerPhase,
     TriggerPriority,
     TriggerResult,
-    TriggerContext,
-    TriggerManager,
-    ClaudeMdFileTrigger,
-    SystemPromptTrigger,
-    CleanupTrigger,
-    CustomCallbackTrigger,
-    prepare_claude_code_session,
     cleanup_claude_code_session,
-    ClaudeCodeSession,
+    prepare_claude_code_session,
 )
 from common.core.context_injection.system_prompt_injector import (
-    SystemPromptConfig,
     InjectionMode,
+    SystemPromptConfig,
 )
 from common.core.memory import (
     AuthorityLevel,
@@ -544,7 +543,7 @@ class TestTriggerManager:
         manager.register_trigger(trigger2)
         manager.register_trigger(trigger3)
 
-        results = await manager.execute_phase(
+        await manager.execute_phase(
             TriggerPhase.PRE_SESSION,
             project_root=tmp_path,
             fail_fast=True,

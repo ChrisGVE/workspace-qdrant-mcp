@@ -6,35 +6,36 @@ Tests all components including content extraction, retry logic, caching, and int
 
 import asyncio
 import json
-import pytest
 import tempfile
 import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import pytest
+
 # Import the modules to test
 from src.python.wqm_cli.cli.parsers.advanced_retry import (
     AdvancedRetryHandler,
     CircuitBreaker,
+    CircuitState,
     RetryConfig,
     RetryReason,
-    CircuitState
 )
 from src.python.wqm_cli.cli.parsers.enhanced_content_extractor import (
-    EnhancedContentExtractor,
     ContentQualityMetrics,
+    EnhancedContentExtractor,
+    MediaLinks,
     StructuredData,
-    MediaLinks
 )
 from src.python.wqm_cli.cli.parsers.enhanced_web_crawler import (
+    EnhancedCrawlResult,
     EnhancedWebCrawler,
-    EnhancedCrawlResult
 )
 from src.python.wqm_cli.cli.parsers.web_cache import (
-    WebCache,
     CacheConfig,
     CacheEntry,
-    ContentFingerprinter
+    ContentFingerprinter,
+    WebCache,
 )
 from src.python.wqm_cli.cli.parsers.web_crawler import SecurityConfig
 
@@ -321,7 +322,6 @@ class TestWebCache:
         """Test content fingerprinting for deduplication."""
         content1 = "Same content"
         content2 = "Same content"
-        content3 = "Different content"
 
         duplicates1 = self.cache.find_duplicate_content(content1)
         assert len(duplicates1) == 0  # Nothing cached yet

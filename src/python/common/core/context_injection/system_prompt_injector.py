@@ -6,19 +6,17 @@ memory rules as system prompts suitable for direct API injection or MCP context.
 System prompts have stricter token limits than file-based injection.
 """
 
-import json
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional
 
 from loguru import logger
 
 from ..memory import MemoryManager, MemoryRule
-from .formatters.claude_code import ClaudeCodeAdapter
 from .formatters.base import FormattedContext
+from .formatters.claude_code import ClaudeCodeAdapter
 from .rule_retrieval import RuleFilter, RuleRetrieval
-from .token_budget import TokenBudgetManager, AllocationStrategy
+from .token_budget import AllocationStrategy, TokenBudgetManager
 
 
 class InjectionMode(Enum):
@@ -75,9 +73,9 @@ class SystemPromptInjector:
     def __init__(
         self,
         memory_manager: MemoryManager,
-        rule_retrieval: Optional[RuleRetrieval] = None,
-        adapter: Optional[ClaudeCodeAdapter] = None,
-        token_budget_manager: Optional[TokenBudgetManager] = None,
+        rule_retrieval: RuleRetrieval | None = None,
+        adapter: ClaudeCodeAdapter | None = None,
+        token_budget_manager: TokenBudgetManager | None = None,
     ):
         """
         Initialize the system prompt injector.
@@ -95,8 +93,8 @@ class SystemPromptInjector:
 
     async def generate_system_prompt(
         self,
-        config: Optional[SystemPromptConfig] = None,
-        filter: Optional[RuleFilter] = None,
+        config: SystemPromptConfig | None = None,
+        filter: RuleFilter | None = None,
     ) -> str:
         """
         Generate system prompt from memory rules.
@@ -162,8 +160,8 @@ class SystemPromptInjector:
     async def inject_to_file(
         self,
         output_path: Path,
-        config: Optional[SystemPromptConfig] = None,
-        filter: Optional[RuleFilter] = None,
+        config: SystemPromptConfig | None = None,
+        filter: RuleFilter | None = None,
     ) -> bool:
         """
         Generate system prompt and write to file.
@@ -211,7 +209,7 @@ class SystemPromptInjector:
         return self.DEFAULT_BUDGETS.get(mode, 15000)
 
     def _format_for_system_prompt(
-        self, rules: List[MemoryRule], config: SystemPromptConfig
+        self, rules: list[MemoryRule], config: SystemPromptConfig
     ) -> FormattedContext:
         """
         Format rules for system prompt injection.
@@ -341,7 +339,7 @@ class SystemPromptInjector:
 async def generate_mcp_context(
     memory_manager: MemoryManager,
     token_budget: int = 15000,
-    filter: Optional[RuleFilter] = None,
+    filter: RuleFilter | None = None,
 ) -> str:
     """
     Convenience function to generate MCP context injection.
@@ -372,7 +370,7 @@ async def generate_api_system_prompt(
     memory_manager: MemoryManager,
     token_budget: int = 10000,
     compact: bool = True,
-    filter: Optional[RuleFilter] = None,
+    filter: RuleFilter | None = None,
 ) -> str:
     """
     Convenience function to generate system prompt for direct API usage.

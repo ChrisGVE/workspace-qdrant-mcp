@@ -22,13 +22,14 @@ Architecture:
 
 import asyncio
 import os
-import psutil
-import pytest
 import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Optional
+
+import psutil
+import pytest
 
 
 @pytest.fixture
@@ -45,7 +46,7 @@ def service_env():
     }
 
 
-def run_wqm_command(command: list, env: Optional[Dict] = None, timeout: int = 30) -> subprocess.CompletedProcess:
+def run_wqm_command(command: list, env: dict | None = None, timeout: int = 30) -> subprocess.CompletedProcess:
     """
     Run wqm CLI command via subprocess.
 
@@ -68,7 +69,7 @@ def run_wqm_command(command: list, env: Optional[Dict] = None, timeout: int = 30
     return result
 
 
-def get_daemon_pid_from_status(env: Dict) -> Optional[int]:
+def get_daemon_pid_from_status(env: dict) -> int | None:
     """
     Extract daemon PID from wqm service status command.
 
@@ -111,7 +112,7 @@ def is_process_running(pid: int) -> bool:
         return False
 
 
-def wait_for_daemon_ready(env: Dict, timeout: int = 10) -> bool:
+def wait_for_daemon_ready(env: dict, timeout: int = 10) -> bool:
     """
     Wait for daemon to be ready and responding.
 
@@ -133,7 +134,7 @@ def wait_for_daemon_ready(env: Dict, timeout: int = 10) -> bool:
     return False
 
 
-def wait_for_daemon_stopped(env: Dict, timeout: int = 10) -> bool:
+def wait_for_daemon_stopped(env: dict, timeout: int = 10) -> bool:
     """
     Wait for daemon to fully stop.
 
@@ -561,7 +562,7 @@ class TestServiceLifecycleTransitions:
         time.sleep(2)
 
         # Status should reflect crashed state
-        result = run_wqm_command(["service", "status"], env=env)
+        run_wqm_command(["service", "status"], env=env)
         # Should show not running or crashed
 
         # Restart should work
@@ -579,7 +580,7 @@ class TestServiceErrorHandling:
 
     def test_error_message_quality_when_command_fails(self, service_env):
         """Test that error messages are clear and actionable."""
-        env = service_env["env"]
+        service_env["env"]
 
         # Induce error (implementation-specific)
         # For example: try to start with invalid configuration

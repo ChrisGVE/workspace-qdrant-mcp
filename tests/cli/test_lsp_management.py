@@ -6,17 +6,17 @@ including status monitoring, installation, configuration, and diagnostics.
 
 import asyncio
 import json
-import pytest
 from pathlib import Path
-from typer.testing import CliRunner
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+from typer.testing import CliRunner
 from wqm_cli.cli.commands.lsp_management import (
-    lsp_app,
     KNOWN_LSP_SERVERS,
     _check_server_installation,
-    _get_server_status,
     _get_all_servers_status,
+    _get_server_status,
+    lsp_app,
 )
 
 
@@ -51,7 +51,7 @@ class TestLspStatusCommand:
         """Test showing status for all servers."""
         mock_show_status.return_value = asyncio.Future()
         mock_show_status.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["status"])
         assert result.exit_code == 0
         mock_show_status.assert_called_once()
@@ -61,7 +61,7 @@ class TestLspStatusCommand:
         """Test showing status for a specific server."""
         mock_show_status.return_value = asyncio.Future()
         mock_show_status.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["status", "python"])
         assert result.exit_code == 0
         mock_show_status.assert_called_once()
@@ -71,7 +71,7 @@ class TestLspStatusCommand:
         """Test JSON output for status command."""
         mock_show_status.return_value = asyncio.Future()
         mock_show_status.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["status", "--json"])
         assert result.exit_code == 0
         mock_show_status.assert_called_once()
@@ -81,7 +81,7 @@ class TestLspStatusCommand:
         """Test watch mode for status command."""
         mock_watch_status.return_value = asyncio.Future()
         mock_watch_status.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["status", "--watch"])
         assert result.exit_code == 0
         mock_watch_status.assert_called_once()
@@ -101,7 +101,7 @@ class TestLspInstallCommand:
         """Test installing Python LSP server."""
         mock_install.return_value = asyncio.Future()
         mock_install.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["install", "python"])
         assert result.exit_code == 0
         mock_install.assert_called_once_with("python", False, False, False)
@@ -111,7 +111,7 @@ class TestLspInstallCommand:
         """Test installing with force flag."""
         mock_install.return_value = asyncio.Future()
         mock_install.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["install", "typescript", "--force"])
         assert result.exit_code == 0
         mock_install.assert_called_once_with("typescript", True, False, False)
@@ -121,7 +121,7 @@ class TestLspInstallCommand:
         """Test installing system-wide."""
         mock_install.return_value = asyncio.Future()
         mock_install.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["install", "rust", "--system"])
         assert result.exit_code == 0
         mock_install.assert_called_once_with("rust", False, True, False)
@@ -141,7 +141,7 @@ class TestLspRestartCommand:
         """Test restarting an LSP server."""
         mock_restart.return_value = asyncio.Future()
         mock_restart.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["restart", "python"])
         assert result.exit_code == 0
         mock_restart.assert_called_once_with("python", 30, False)
@@ -151,7 +151,7 @@ class TestLspRestartCommand:
         """Test restarting with custom timeout."""
         mock_restart.return_value = asyncio.Future()
         mock_restart.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["restart", "typescript", "--timeout", "60"])
         assert result.exit_code == 0
         mock_restart.assert_called_once_with("typescript", 60, False)
@@ -171,7 +171,7 @@ class TestLspConfigCommand:
         """Test showing LSP configuration."""
         mock_manage_config.return_value = asyncio.Future()
         mock_manage_config.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["config", "--show"])
         assert result.exit_code == 0
         mock_manage_config.assert_called_once_with(None, True, False, False, False)
@@ -181,7 +181,7 @@ class TestLspConfigCommand:
         """Test validating LSP configuration."""
         mock_manage_config.return_value = asyncio.Future()
         mock_manage_config.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["config", "python", "--validate"])
         assert result.exit_code == 0
         mock_manage_config.assert_called_once_with("python", False, True, False, False)
@@ -191,7 +191,7 @@ class TestLspConfigCommand:
         """Test editing LSP configuration."""
         mock_manage_config.return_value = asyncio.Future()
         mock_manage_config.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["config", "typescript", "--edit"])
         assert result.exit_code == 0
         mock_manage_config.assert_called_once_with("typescript", False, False, True, False)
@@ -211,7 +211,7 @@ class TestLspDiagnoseCommand:
         """Test diagnosing an LSP server."""
         mock_diagnose.return_value = asyncio.Future()
         mock_diagnose.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["diagnose", "python"])
         assert result.exit_code == 0
         mock_diagnose.assert_called_once_with("python", False, False, False)
@@ -221,7 +221,7 @@ class TestLspDiagnoseCommand:
         """Test comprehensive diagnostics."""
         mock_diagnose.return_value = asyncio.Future()
         mock_diagnose.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["diagnose", "rust", "--comprehensive"])
         assert result.exit_code == 0
         mock_diagnose.assert_called_once_with("rust", True, False, False)
@@ -231,7 +231,7 @@ class TestLspDiagnoseCommand:
         """Test diagnostics with automatic fix."""
         mock_diagnose.return_value = asyncio.Future()
         mock_diagnose.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["diagnose", "go", "--fix"])
         assert result.exit_code == 0
         mock_diagnose.assert_called_once_with("go", False, True, False)
@@ -251,7 +251,7 @@ class TestLspSetupCommand:
         """Test interactive setup wizard."""
         mock_setup.return_value = asyncio.Future()
         mock_setup.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["setup"])
         assert result.exit_code == 0
         mock_setup.assert_called_once_with(True, None, False)
@@ -261,7 +261,7 @@ class TestLspSetupCommand:
         """Test setup with pre-selected language."""
         mock_setup.return_value = asyncio.Future()
         mock_setup.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["setup", "--language", "python"])
         assert result.exit_code == 0
         mock_setup.assert_called_once_with(True, "python", False)
@@ -281,7 +281,7 @@ class TestLspListCommand:
         """Test listing all available servers."""
         mock_list.return_value = asyncio.Future()
         mock_list.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["list"])
         assert result.exit_code == 0
         mock_list.assert_called_once_with(False, False)
@@ -291,7 +291,7 @@ class TestLspListCommand:
         """Test listing only installed servers."""
         mock_list.return_value = asyncio.Future()
         mock_list.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["list", "--installed"])
         assert result.exit_code == 0
         mock_list.assert_called_once_with(True, False)
@@ -301,7 +301,7 @@ class TestLspListCommand:
         """Test listing with JSON output."""
         mock_list.return_value = asyncio.Future()
         mock_list.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["list", "--json"])
         assert result.exit_code == 0
         mock_list.assert_called_once_with(False, True)
@@ -321,7 +321,7 @@ class TestLspPerformanceCommand:
         """Test performance monitoring."""
         mock_monitor.return_value = asyncio.Future()
         mock_monitor.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["performance"])
         assert result.exit_code == 0
         mock_monitor.assert_called_once_with(None, 60, 5, False)
@@ -331,7 +331,7 @@ class TestLspPerformanceCommand:
         """Test performance monitoring with custom duration."""
         mock_monitor.return_value = asyncio.Future()
         mock_monitor.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["performance", "--duration", "120"])
         assert result.exit_code == 0
         mock_monitor.assert_called_once_with(None, 120, 5, False)
@@ -341,7 +341,7 @@ class TestLspPerformanceCommand:
         """Test monitoring specific server performance."""
         mock_monitor.return_value = asyncio.Future()
         mock_monitor.return_value.set_result(None)
-        
+
         result = cli_runner.invoke(lsp_app, ["performance", "python", "--interval", "10"])
         assert result.exit_code == 0
         mock_monitor.assert_called_once_with("python", 60, 10, False)
@@ -359,7 +359,7 @@ class TestLspUtilityFunctions:
             mock_process.wait = AsyncMock(return_value=None)
             mock_process.returncode = 0
             mock_subprocess.return_value = mock_process
-            
+
             result = await _check_server_installation("python")
             assert result is True
 
@@ -372,7 +372,7 @@ class TestLspUtilityFunctions:
             mock_process.wait = AsyncMock(return_value=None)
             mock_process.returncode = 1
             mock_subprocess.return_value = mock_process
-            
+
             result = await _check_server_installation("nonexistent")
             assert result is False
 
@@ -388,7 +388,7 @@ class TestLspUtilityFunctions:
         """Test getting status for a known server."""
         with patch('wqm_cli.cli.commands.lsp_management._check_server_installation', return_value=True):
             result = await _get_server_status("python", mock_health_monitor)
-            
+
             assert result["server_name"] == "python"
             assert result["installed"] is True
             assert result["status"] == "healthy"
@@ -409,9 +409,9 @@ class TestLspUtilityFunctions:
                 "status": "healthy",
                 "installed": True
             }
-            
+
             result = await _get_all_servers_status(mock_health_monitor)
-            
+
             assert "timestamp" in result
             assert "total_servers" in result
             assert "servers" in result
@@ -427,27 +427,27 @@ class TestKnownLspServers:
             "name", "package", "command", "check_command",
             "languages", "features"
         ]
-        
+
         for server_key, server_config in KNOWN_LSP_SERVERS.items():
             for field in required_fields:
                 assert field in server_config, f"Server {server_key} missing {field}"
-            
+
             # Test specific field types
             assert isinstance(server_config["name"], str)
             assert isinstance(server_config["languages"], list)
             assert isinstance(server_config["features"], list)
             assert isinstance(server_config["command"], list)
-            
+
             # At least one language should be supported
             assert len(server_config["languages"]) > 0
-            
+
             # At least one feature should be supported
             assert len(server_config["features"]) > 0
 
     def test_python_server_config(self):
         """Test Python server specific configuration."""
         python_config = KNOWN_LSP_SERVERS["python"]
-        
+
         assert python_config["name"] == "Python LSP Server (pylsp)"
         assert "python" in python_config["languages"]
         assert "hover" in python_config["features"]
@@ -457,7 +457,7 @@ class TestKnownLspServers:
     def test_typescript_server_config(self):
         """Test TypeScript server specific configuration."""
         typescript_config = KNOWN_LSP_SERVERS["typescript"]
-        
+
         assert typescript_config["name"] == "TypeScript Language Server"
         assert "typescript" in typescript_config["languages"]
         assert "javascript" in typescript_config["languages"]
@@ -467,7 +467,7 @@ class TestKnownLspServers:
         """Test that servers have install commands or marked as complex."""
         for server_key, server_config in KNOWN_LSP_SERVERS.items():
             install_command = server_config.get("install_command")
-            
+
             # Either has install command or is marked as complex (None)
             if install_command is not None:
                 assert isinstance(install_command, list)
@@ -486,13 +486,13 @@ class TestLspIntegration:
     def test_lsp_app_structure(self):
         """Test that LSP app is properly structured."""
         assert lsp_app.info.name == "lsp"
-        
+
         # Check that all expected commands are registered
         expected_commands = [
-            "status", "install", "restart", "config", 
+            "status", "install", "restart", "config",
             "diagnose", "setup", "list", "performance"
         ]
-        
+
         command_names = [cmd.name for cmd in lsp_app.commands.values()]
         for expected_cmd in expected_commands:
             assert expected_cmd in command_names, f"Command {expected_cmd} not found in LSP app"
@@ -501,10 +501,10 @@ class TestLspIntegration:
         """Test that help text is properly formatted."""
         result = cli_runner.invoke(lsp_app, ["--help"])
         assert result.exit_code == 0
-        
+
         # Should contain main description
         assert "LSP server management and monitoring" in result.stdout
-        
+
         # Should contain examples
         assert "Examples:" in result.stdout
         assert "wqm lsp status" in result.stdout
@@ -522,8 +522,8 @@ class TestLspIntegration:
         """Test that async commands are properly wrapped."""
         # Mock handle_async to avoid actual async execution
         mock_handle_async.return_value = None
-        
-        result = cli_runner.invoke(lsp_app, ["status"])
-        
+
+        cli_runner.invoke(lsp_app, ["status"])
+
         # Should have called handle_async for the async function
         mock_handle_async.assert_called_once()

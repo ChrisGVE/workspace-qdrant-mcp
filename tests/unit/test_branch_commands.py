@@ -8,10 +8,10 @@ This module tests the branch management functionality including:
 """
 
 import json
-import pytest
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
-from typer.testing import CliRunner
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 from qdrant_client.models import (
     FieldCondition,
     Filter,
@@ -20,6 +20,7 @@ from qdrant_client.models import (
     PointStruct,
     Record,
 )
+from typer.testing import CliRunner
 
 
 @pytest.fixture

@@ -72,10 +72,11 @@ Example:
 """
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
@@ -114,7 +115,7 @@ class HealthIndicator:
     message: str
     score: float = 100.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "name": self.name,
@@ -140,12 +141,12 @@ class QueueHealthStatus:
     """
 
     overall_status: HealthStatus
-    indicators: List[HealthIndicator]
+    indicators: list[HealthIndicator]
     score: float
-    recommendations: List[str]
+    recommendations: list[str]
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "overall_status": self.overall_status.value,
@@ -238,10 +239,10 @@ class QueueHealthCalculator:
     def __init__(
         self,
         stats_collector: QueueStatisticsCollector,
-        backpressure_detector: Optional[BackpressureDetector] = None,
-        performance_collector: Optional[QueuePerformanceCollector] = None,
-        thresholds: Optional[HealthThresholds] = None,
-        weights: Optional[HealthWeights] = None,
+        backpressure_detector: BackpressureDetector | None = None,
+        performance_collector: QueuePerformanceCollector | None = None,
+        thresholds: HealthThresholds | None = None,
+        weights: HealthWeights | None = None,
     ):
         """
         Initialize queue health calculator.
@@ -261,7 +262,7 @@ class QueueHealthCalculator:
         self.weights = weights or HealthWeights()
 
         # Custom health checks
-        self._custom_checks: Dict[str, Tuple[Callable, float]] = {}
+        self._custom_checks: dict[str, tuple[Callable, float]] = {}
         self._lock = asyncio.Lock()
         self._initialized = False
 
@@ -325,7 +326,7 @@ class QueueHealthCalculator:
 
     async def get_health_indicators(
         self, queue_type: str = "ingestion_queue"
-    ) -> List[HealthIndicator]:
+    ) -> list[HealthIndicator]:
         """
         Get all individual health indicators.
 
@@ -370,7 +371,7 @@ class QueueHealthCalculator:
         return indicators
 
     async def calculate_health_score(
-        self, indicators: List[HealthIndicator]
+        self, indicators: list[HealthIndicator]
     ) -> float:
         """
         Calculate weighted overall health score from indicators.
@@ -782,7 +783,7 @@ class QueueHealthCalculator:
             score=score,
         )
 
-    async def _run_custom_checks(self) -> List[HealthIndicator]:
+    async def _run_custom_checks(self) -> list[HealthIndicator]:
         """Run all registered custom health checks."""
         indicators = []
 
@@ -856,8 +857,8 @@ class QueueHealthCalculator:
             return HealthStatus.CRITICAL
 
     def _generate_recommendations(
-        self, status: HealthStatus, indicators: List[HealthIndicator]
-    ) -> List[str]:
+        self, status: HealthStatus, indicators: list[HealthIndicator]
+    ) -> list[str]:
         """
         Generate actionable recommendations based on health status.
 

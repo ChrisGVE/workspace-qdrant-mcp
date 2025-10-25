@@ -16,7 +16,6 @@ Comprehensive end-to-end tests covering:
 import asyncio
 import tempfile
 from pathlib import Path
-from typing import List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -158,7 +157,7 @@ async def test_end_to_end_tracking_workflow(tracker, state_manager, temp_files):
             "SELECT * FROM ingestion_queue WHERE file_absolute_path = ?",
             (str(Path(file_path).resolve()),)
         )
-        queue_item = cursor.fetchone()
+        cursor.fetchone()
 
     # Note: queue item might be None if it was already processed and removed
     # That's acceptable - we verified files_requeued == 1
@@ -566,7 +565,7 @@ async def test_transaction_integrity(tracker, state_manager, temp_files):
         state_manager.enqueue = original_enqueue
 
     # Verify file still tracked (rollback worked)
-    tracked_after = await tracker.get_files_missing_metadata()
+    await tracker.get_files_missing_metadata()
     # Note: Current implementation removes from tracking even on failure
     # This is a design decision - file is removed optimistically
     # So we can't assert it's still there

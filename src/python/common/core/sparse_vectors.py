@@ -71,10 +71,10 @@ Example:
     ```
 """
 
-from loguru import logger
 import math
 from collections import Counter, defaultdict
-from typing import Optional
+
+from loguru import logger
 
 try:
     from fastembed.sparse import SparseTextEmbedding

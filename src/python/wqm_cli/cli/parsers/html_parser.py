@@ -8,11 +8,9 @@ extracting clean text content and metadata from HTML head section while
 removing scripts, styles, navigation, and other non-content elements.
 """
 
-import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from urllib.parse import urljoin, urlparse
 
 if TYPE_CHECKING:
     from bs4 import BeautifulSoup

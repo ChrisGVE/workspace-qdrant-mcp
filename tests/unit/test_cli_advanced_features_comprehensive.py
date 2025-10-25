@@ -7,13 +7,14 @@ and edge cases for user interaction patterns.
 Task 251: Comprehensive testing for advanced CLI features.
 """
 
-import pytest
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, call, mock_open, MagicMock
-import sys
+from unittest.mock import MagicMock, Mock, call, mock_open, patch
+
+import pytest
 
 # Add src paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
@@ -24,14 +25,14 @@ os.environ["WQM_LOG_INIT"] = "false"
 
 try:
     from wqm_cli.cli.advanced_features import (
+        CommandSuggestionSystem,
         ConfigurationWizard,
         SmartDefaults,
-        CommandSuggestionSystem,
-        configuration_wizard,
-        smart_defaults,
-        command_suggestions,
         advanced_features_app,
-        create_advanced_features_app
+        command_suggestions,
+        configuration_wizard,
+        create_advanced_features_app,
+        smart_defaults,
     )
     ADVANCED_FEATURES_AVAILABLE = True
 except ImportError as e:

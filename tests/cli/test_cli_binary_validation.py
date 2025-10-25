@@ -4,13 +4,14 @@ Comprehensive testing of the installed wqm CLI binary for all command domains.
 Tests the actual command line interface as users would experience it.
 """
 
-import subprocess
-import tempfile
-import pytest
-import yaml
 import json
 import os
+import subprocess
+import tempfile
 from pathlib import Path
+
+import pytest
+import yaml
 
 
 class TestCLIBinaryValidation:
@@ -20,12 +21,12 @@ class TestCLIBinaryValidation:
         """Set up test environment."""
         self.wqm_cmd = "wqm"  # Assuming wqm is in PATH
         self.temp_dir = tempfile.mkdtemp()
-        
+
     def teardown_method(self):
         """Clean up test environment."""
         import shutil
         shutil.rmtree(self.temp_dir, ignore_errors=True)
-        
+
     def run_wqm(self, args, expect_success=True, input_data=None):
         """Helper to run wqm command and return result."""
         cmd = [self.wqm_cmd] + args
@@ -94,10 +95,10 @@ class TestCommandStructure(TestCLIBinaryValidation):
     def test_all_main_commands_help(self):
         """Test help for all main command groups."""
         commands = [
-            "init", "memory", "admin", "ingest", "search", 
+            "init", "memory", "admin", "ingest", "search",
             "library", "service", "watch", "web", "observability", "status"
         ]
-        
+
         for cmd in commands:
             result = self.run_wqm([cmd, "--help"])
             assert result.returncode == 0, f"Help failed for {cmd}"
@@ -112,7 +113,7 @@ class TestCommandStructure(TestCLIBinaryValidation):
             ["search", "project", "--help"],
             ["init", "bash", "--help"],
         ]
-        
+
         for cmd_parts in nested_commands:
             result = self.run_wqm(cmd_parts)
             assert result.returncode == 0, f"Help failed for {' '.join(cmd_parts)}"
@@ -197,7 +198,7 @@ class TestIngestCommands(TestCLIBinaryValidation):
         """Test ingest with existing file."""
         test_file = Path(self.temp_dir) / "test.txt"
         test_file.write_text("Test content for ingestion")
-        
+
         result = self.run_wqm(["ingest", "file", str(test_file)], expect_success=False)
         # Should fail without daemon but shouldn't crash on file validation
         assert result.returncode != 0
@@ -332,7 +333,7 @@ class TestConfigurationHandling(TestCLIBinaryValidation):
             "qdrant": {"url": "http://localhost:6333"},
             "directories": {"workspace": str(Path.cwd())}
         }
-        
+
         with open(config_file, 'w') as f:
             yaml.dump(config_data, f)
 
@@ -370,7 +371,7 @@ class TestErrorHandling(TestCLIBinaryValidation):
             (["search", "project"], "search project requires query"),
             (["ingest", "file"], "ingest file requires file path"),
         ]
-        
+
         for cmd, description in test_cases:
             result = self.run_wqm(cmd, expect_success=False)
             assert result.returncode != 0, f"Should fail: {description}"
@@ -395,7 +396,7 @@ class TestOutputFormatting(TestCLIBinaryValidation):
         """Test that help output is well-formatted."""
         result = self.run_wqm(["--help"])
         assert result.returncode == 0
-        
+
         lines = result.stdout.split('\n')
         assert len(lines) > 5  # Should be multi-line help
         assert any("Usage:" in line for line in lines)
@@ -405,7 +406,7 @@ class TestOutputFormatting(TestCLIBinaryValidation):
         """Test that version output is clean."""
         result = self.run_wqm(["--version"])
         assert result.returncode == 0
-        
+
         # Should be single line with version number
         output = result.stdout.strip()
         lines = output.split('\n')
@@ -416,7 +417,7 @@ class TestOutputFormatting(TestCLIBinaryValidation):
         """Test that error messages are helpful."""
         result = self.run_wqm(["nonexistent-command"], expect_success=False)
         assert result.returncode != 0
-        
+
         # Error should be informative
         error_output = result.stdout + result.stderr
         assert error_output.strip()  # Should have error message
@@ -437,7 +438,7 @@ class TestEdgeCases(TestCLIBinaryValidation):
         """Test special characters in file paths."""
         special_dir = Path(self.temp_dir) / "special dir with spaces & symbols!"
         special_dir.mkdir(exist_ok=True)
-        
+
         result = self.run_wqm(["ingest", "folder", str(special_dir)], expect_success=False)
         # Should handle path properly, even if it fails due to daemon
         assert "path" not in result.stderr.lower() or result.returncode != 0

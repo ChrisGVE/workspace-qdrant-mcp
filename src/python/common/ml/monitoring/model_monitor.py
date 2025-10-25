@@ -6,19 +6,19 @@ concept drift identification, performance degradation alerts, and automated
 remediation suggestions for production ML models.
 """
 
-import logging
-import time
-import threading
-import json
-import numpy as np
-import sqlite3
-from typing import Dict, List, Optional, Any, Callable, Union, Tuple
-from pathlib import Path
-from datetime import datetime, timedelta
-from dataclasses import dataclass, asdict
-from enum import Enum
-from collections import defaultdict
 import hashlib
+import json
+import logging
+import sqlite3
+import threading
+import time
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+from datetime import datetime, timedelta
+from enum import Enum
+from typing import Any
+
+import numpy as np
 
 from ..config.ml_config import MLConfig
 
@@ -52,14 +52,14 @@ class DataProfile:
     """Statistical profile of data features."""
     feature_name: str
     data_type: str
-    mean: Optional[float] = None
-    std: Optional[float] = None
-    min_val: Optional[float] = None
-    max_val: Optional[float] = None
-    percentiles: Dict[str, float] = None  # e.g., {"25": 1.5, "50": 2.0, "75": 3.5}
-    unique_values: Optional[List[str]] = None  # For categorical features
+    mean: float | None = None
+    std: float | None = None
+    min_val: float | None = None
+    max_val: float | None = None
+    percentiles: dict[str, float] = None  # e.g., {"25": 1.5, "50": 2.0, "75": 3.5}
+    unique_values: list[str] | None = None  # For categorical features
     missing_rate: float = 0.0
-    distribution_hash: Optional[str] = None
+    distribution_hash: str | None = None
     created_at: datetime = None
 
     def __post_init__(self):
@@ -70,7 +70,7 @@ class DataProfile:
         if self.created_at is None:
             self.created_at = datetime.now()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         data = asdict(self)
         data['created_at'] = self.created_at.isoformat()
@@ -85,17 +85,17 @@ class DriftAlert:
     drift_type: DriftType
     level: AlertLevel
     message: str
-    details: Dict[str, Any]
+    details: dict[str, Any]
     detected_at: datetime
     acknowledged: bool = False
     resolved: bool = False
-    remediation_suggestions: List[str] = None
+    remediation_suggestions: list[str] = None
 
     def __post_init__(self):
         if self.remediation_suggestions is None:
             self.remediation_suggestions = []
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         data = asdict(self)
         data['detected_at'] = self.detected_at.isoformat()
@@ -107,14 +107,14 @@ class PerformanceMetrics:
     """Model performance metrics over time."""
     model_id: str
     timestamp: datetime
-    accuracy: Optional[float] = None
-    precision: Optional[float] = None
-    recall: Optional[float] = None
-    f1_score: Optional[float] = None
-    auc_roc: Optional[float] = None
-    mse: Optional[float] = None
-    mae: Optional[float] = None
-    custom_metrics: Dict[str, float] = None
+    accuracy: float | None = None
+    precision: float | None = None
+    recall: float | None = None
+    f1_score: float | None = None
+    auc_roc: float | None = None
+    mse: float | None = None
+    mae: float | None = None
+    custom_metrics: dict[str, float] = None
     prediction_count: int = 0
     error_rate: float = 0.0
     response_time_p95: float = 0.0
@@ -123,7 +123,7 @@ class PerformanceMetrics:
         if self.custom_metrics is None:
             self.custom_metrics = {}
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary."""
         data = asdict(self)
         data['timestamp'] = self.timestamp.isoformat()
@@ -163,10 +163,10 @@ class ModelMonitor:
         """
         self.config = config
         self.status = MonitoringStatus.ACTIVE
-        self.model_profiles: Dict[str, Dict[str, DataProfile]] = {}  # model_id -> feature -> profile
-        self.baseline_metrics: Dict[str, PerformanceMetrics] = {}  # model_id -> metrics
-        self.alerts: Dict[str, DriftAlert] = {}
-        self.alert_callbacks: List[Callable[[DriftAlert], None]] = []
+        self.model_profiles: dict[str, dict[str, DataProfile]] = {}  # model_id -> feature -> profile
+        self.baseline_metrics: dict[str, PerformanceMetrics] = {}  # model_id -> metrics
+        self.alerts: dict[str, DriftAlert] = {}
+        self.alert_callbacks: list[Callable[[DriftAlert], None]] = []
         self.drift_thresholds = {
             "data_drift": 0.05,  # p-value threshold for KS test
             "performance_drift": 0.05,  # relative performance drop threshold
@@ -192,8 +192,8 @@ class ModelMonitor:
     def set_baseline_profile(
         self,
         model_id: str,
-        features: Dict[str, np.ndarray],
-        metrics: Optional[PerformanceMetrics] = None
+        features: dict[str, np.ndarray],
+        metrics: PerformanceMetrics | None = None
     ):
         """
         Set baseline data profile for a model.
@@ -231,9 +231,9 @@ class ModelMonitor:
     def monitor_data_drift(
         self,
         model_id: str,
-        features: Dict[str, np.ndarray],
-        threshold: Optional[float] = None
-    ) -> Dict[str, float]:
+        features: dict[str, np.ndarray],
+        threshold: float | None = None
+    ) -> dict[str, float]:
         """
         Monitor for data drift in model features.
 
@@ -287,7 +287,7 @@ class ModelMonitor:
         self,
         model_id: str,
         current_metrics: PerformanceMetrics,
-        threshold: Optional[float] = None
+        threshold: float | None = None
     ) -> bool:
         """
         Monitor for performance drift in model predictions.
@@ -337,7 +337,7 @@ class ModelMonitor:
         self,
         model_id: str,
         predictions: np.ndarray,
-        threshold: Optional[float] = None
+        threshold: float | None = None
     ) -> float:
         """
         Monitor for drift in model predictions.
@@ -381,7 +381,7 @@ class ModelMonitor:
             self.logger.error(error_msg)
             raise DriftDetectionError(error_msg)
 
-    def get_model_health(self, model_id: str) -> Dict[str, Any]:
+    def get_model_health(self, model_id: str) -> dict[str, Any]:
         """
         Get comprehensive health status for a model.
 
@@ -492,10 +492,10 @@ class ModelMonitor:
 
     def get_alerts(
         self,
-        model_id: Optional[str] = None,
-        level: Optional[AlertLevel] = None,
-        resolved: Optional[bool] = None
-    ) -> List[DriftAlert]:
+        model_id: str | None = None,
+        level: AlertLevel | None = None,
+        resolved: bool | None = None
+    ) -> list[DriftAlert]:
         """
         Get alerts with optional filtering.
 
@@ -660,7 +660,7 @@ class ModelMonitor:
             hist_str = str(hist.tolist())
         else:
             unique, counts = np.unique(values, return_counts=True)
-            hist_str = str(dict(zip(unique, counts)))
+            hist_str = str(dict(zip(unique, counts, strict=False)))
 
         return hashlib.md5(hist_str.encode()).hexdigest()
 
@@ -712,8 +712,8 @@ class ModelMonitor:
     def _generate_alert_message_and_suggestions(
         self,
         drift_type: DriftType,
-        details: Dict[str, Any]
-    ) -> Tuple[str, List[str]]:
+        details: dict[str, Any]
+    ) -> tuple[str, list[str]]:
         """Generate alert message and remediation suggestions."""
         if drift_type == DriftType.DATA_DRIFT:
             feature = details.get('feature_name', 'unknown')
@@ -755,9 +755,9 @@ class ModelMonitor:
     def _generate_health_recommendations(
         self,
         model_id: str,
-        alerts: List[DriftAlert],
-        metrics: Optional[PerformanceMetrics]
-    ) -> List[str]:
+        alerts: list[DriftAlert],
+        metrics: PerformanceMetrics | None
+    ) -> list[str]:
         """Generate health recommendations based on alerts and metrics."""
         recommendations = []
 
@@ -843,8 +843,8 @@ class ModelMonitor:
     def _save_baseline_profile(
         self,
         model_id: str,
-        profiles: Dict[str, DataProfile],
-        metrics: Optional[PerformanceMetrics]
+        profiles: dict[str, DataProfile],
+        metrics: PerformanceMetrics | None
     ):
         """Save baseline profile to database."""
         try:
@@ -924,7 +924,7 @@ class ModelMonitor:
         except Exception as e:
             self.logger.error(f"Failed to update alert status: {str(e)}")
 
-    def _get_historical_predictions(self, model_id: str, limit: int = 1000) -> Optional[np.ndarray]:
+    def _get_historical_predictions(self, model_id: str, limit: int = 1000) -> np.ndarray | None:
         """Get historical predictions for drift analysis."""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -950,7 +950,7 @@ class ModelMonitor:
             self.logger.error(f"Failed to get historical predictions: {str(e)}")
             return None
 
-    def _get_recent_metrics(self, model_id: str) -> Optional[PerformanceMetrics]:
+    def _get_recent_metrics(self, model_id: str) -> PerformanceMetrics | None:
         """Get most recent performance metrics for a model."""
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -973,7 +973,7 @@ class ModelMonitor:
             self.logger.error(f"Failed to get recent metrics: {str(e)}")
             return None
 
-    def _get_recent_drift_scores(self, model_id: str) -> Dict[str, float]:
+    def _get_recent_drift_scores(self, model_id: str) -> dict[str, float]:
         """Get recent drift scores for a model."""
         # This would typically calculate drift scores from recent data
         # For now, return empty dict as a placeholder

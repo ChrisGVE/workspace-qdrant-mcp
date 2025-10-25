@@ -27,13 +27,14 @@ Parent: #290 - Build MCP-daemon integration test framework
 """
 
 import asyncio
-import pytest
-import time
-from pathlib import Path
-from typing import Dict, Any, List
 import json
 import tempfile
-from unittest.mock import Mock, patch, AsyncMock
+import time
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 
 @pytest.fixture(scope="module")
@@ -229,7 +230,6 @@ class TestConnectionLoss:
     ):
         """Test handling connection loss during file ingestion."""
         # Step 1: Start file ingestion
-        test_file_content = "Large file content\n" * 1000
         chunks_to_send = 10
 
         # Step 2: Simulate connection loss mid-operation
@@ -291,7 +291,7 @@ class TestConnectionLoss:
 
         # Step 2: Execute with timeout
         try:
-            result = await asyncio.wait_for(
+            await asyncio.wait_for(
                 slow_operation(), timeout=timeout_ms / 1000
             )
             timed_out = False

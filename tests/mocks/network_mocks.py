@@ -8,7 +8,7 @@ connection failures, timeouts, and various network-related error scenarios.
 import asyncio
 import json
 import random
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 from unittest.mock import AsyncMock, Mock
 from urllib.parse import urlparse
 
@@ -69,8 +69,8 @@ class NetworkErrorInjector(ErrorInjector):
 class MockHTTPResponse:
     """Mock HTTP response object."""
 
-    def __init__(self, status_code: int = 200, content: Union[str, bytes] = "",
-                 headers: Optional[Dict[str, str]] = None, json_data: Optional[Any] = None):
+    def __init__(self, status_code: int = 200, content: str | bytes = "",
+                 headers: dict[str, str] | None = None, json_data: Any | None = None):
         self.status_code = status_code
         self._content = content
         self.headers = headers or {}
@@ -106,9 +106,9 @@ class MockHTTPResponse:
 class NetworkClientMock:
     """Mock network client for HTTP operations."""
 
-    def __init__(self, error_injector: Optional[NetworkErrorInjector] = None):
+    def __init__(self, error_injector: NetworkErrorInjector | None = None):
         self.error_injector = error_injector or NetworkErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
         self.session_active = False
         self.performance_delays = {
             "get": 0.1,
@@ -256,7 +256,7 @@ class NetworkClientMock:
 
         return self._generate_mock_response(url, method, kwargs)
 
-    def _generate_mock_response(self, url: str, method: str, kwargs: Dict[str, Any]) -> MockHTTPResponse:
+    def _generate_mock_response(self, url: str, method: str, kwargs: dict[str, Any]) -> MockHTTPResponse:
         """Generate realistic mock response based on URL and method."""
         parsed_url = urlparse(url)
 
@@ -270,7 +270,7 @@ class NetworkClientMock:
         else:
             return self._generate_generic_response(url, method)
 
-    def _generate_api_response(self, url: str, method: str, kwargs: Dict[str, Any]) -> MockHTTPResponse:
+    def _generate_api_response(self, url: str, method: str, kwargs: dict[str, Any]) -> MockHTTPResponse:
         """Generate API-specific mock response."""
         if method == "GET":
             return MockHTTPResponse(
@@ -319,7 +319,7 @@ class NetworkClientMock:
             headers={"content-type": "application/json"}
         )
 
-    def _generate_auth_response(self, method: str, kwargs: Dict[str, Any]) -> MockHTTPResponse:
+    def _generate_auth_response(self, method: str, kwargs: dict[str, Any]) -> MockHTTPResponse:
         """Generate authentication response."""
         if method == "POST":
             credentials = kwargs.get("json", {})
@@ -353,7 +353,7 @@ class NetworkClientMock:
             headers={"content-type": "application/json"}
         )
 
-    def get_operation_history(self) -> List[Dict[str, Any]]:
+    def get_operation_history(self) -> list[dict[str, Any]]:
         """Get history of network operations."""
         return self.operation_history.copy()
 
@@ -367,9 +367,9 @@ class NetworkClientMock:
 class HTTPRequestMock:
     """Mock for requests-style HTTP library."""
 
-    def __init__(self, error_injector: Optional[NetworkErrorInjector] = None):
+    def __init__(self, error_injector: NetworkErrorInjector | None = None):
         self.error_injector = error_injector or NetworkErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
 
         # Setup method mocks
         self.get = Mock(side_effect=self._mock_sync_get)
@@ -543,7 +543,7 @@ def create_network_mock(
     mock_type: str = "async",
     with_error_injection: bool = False,
     error_probability: float = 0.1
-) -> Union[NetworkClientMock, HTTPRequestMock]:
+) -> NetworkClientMock | HTTPRequestMock:
     """
     Create a network mock with optional error injection.
 

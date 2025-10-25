@@ -27,19 +27,27 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from collections import defaultdict, deque
-from contextlib import asynccontextmanager, contextmanager
+from collections.abc import Callable
+from contextlib import (
+    AbstractAsyncContextManager,
+    AbstractContextManager,
+    asynccontextmanager,
+    contextmanager,
+)
 from dataclasses import dataclass, field
 from enum import Enum, auto
 from pathlib import Path
 from typing import (
-    Dict, List, Set, Optional, Tuple, Any, Union,
-    Callable, AsyncContextManager, ContextManager
+    Any,
+    Optional,
+    Union,
 )
 
 import psutil
+
 import docker
 
-from .discovery import TestMetadata, TestCategory, TestComplexity, ResourceRequirement
+from .discovery import ResourceRequirement, TestCategory, TestComplexity, TestMetadata
 from .execution import ExecutionResult, ExecutionStatus
 
 
@@ -78,20 +86,20 @@ class ComponentConfig:
     """Configuration for a system component."""
     name: str
     component_type: ComponentType
-    start_command: Optional[List[str]] = None
-    stop_command: Optional[List[str]] = None
-    health_check_url: Optional[str] = None
-    health_check_command: Optional[List[str]] = None
-    environment_vars: Dict[str, str] = field(default_factory=dict)
-    working_directory: Optional[Path] = None
+    start_command: list[str] | None = None
+    stop_command: list[str] | None = None
+    health_check_url: str | None = None
+    health_check_command: list[str] | None = None
+    environment_vars: dict[str, str] = field(default_factory=dict)
+    working_directory: Path | None = None
     startup_timeout: float = 30.0
     shutdown_timeout: float = 10.0
-    depends_on: Set[str] = field(default_factory=set)
-    ports: List[int] = field(default_factory=list)
-    volumes: List[Tuple[str, str]] = field(default_factory=list)  # host:container
-    networks: List[str] = field(default_factory=list)
-    docker_image: Optional[str] = None
-    docker_command: Optional[List[str]] = None
+    depends_on: set[str] = field(default_factory=set)
+    ports: list[int] = field(default_factory=list)
+    volumes: list[tuple[str, str]] = field(default_factory=list)  # host:container
+    networks: list[str] = field(default_factory=list)
+    docker_image: str | None = None
+    docker_command: list[str] | None = None
 
 
 @dataclass
@@ -99,11 +107,11 @@ class ComponentInstance:
     """Runtime instance of a system component."""
     config: ComponentConfig
     state: ComponentState = ComponentState.STOPPED
-    process: Optional[subprocess.Popen] = None
-    container: Optional[Any] = None  # Docker container object
-    pid: Optional[int] = None
-    start_time: Optional[float] = None
-    stop_time: Optional[float] = None
+    process: subprocess.Popen | None = None
+    container: Any | None = None  # Docker container object
+    pid: int | None = None
+    start_time: float | None = None
+    stop_time: float | None = None
     health_check_failures: int = 0
     logs: deque = field(default_factory=lambda: deque(maxlen=1000))
 
@@ -127,7 +135,7 @@ class ComponentController(ABC):
         pass
 
     @abstractmethod
-    def get_logs(self, instance: ComponentInstance, lines: int = 100) -> List[str]:
+    def get_logs(self, instance: ComponentInstance, lines: int = 100) -> list[str]:
         """Get component logs."""
         pass
 
@@ -255,7 +263,7 @@ class ProcessController(ComponentController):
         # Basic process existence check
         return instance.process and instance.process.poll() is None
 
-    def get_logs(self, instance: ComponentInstance, lines: int = 100) -> List[str]:
+    def get_logs(self, instance: ComponentInstance, lines: int = 100) -> list[str]:
         """Get process logs."""
         if instance.process and instance.process.stdout:
             try:
@@ -416,7 +424,7 @@ class DockerController(ComponentController):
         except Exception:
             return False
 
-    def get_logs(self, instance: ComponentInstance, lines: int = 100) -> List[str]:
+    def get_logs(self, instance: ComponentInstance, lines: int = 100) -> list[str]:
         """Get Docker container logs."""
         if not instance.container:
             return []
@@ -433,9 +441,9 @@ class EnvironmentManager:
 
     def __init__(self, isolation_level: IsolationLevel = IsolationLevel.PROCESS):
         self.isolation_level = isolation_level
-        self.temp_directories: List[Path] = []
-        self.environment_vars: Dict[str, str] = {}
-        self.cleanup_callbacks: List[Callable] = []
+        self.temp_directories: list[Path] = []
+        self.environment_vars: dict[str, str] = {}
+        self.cleanup_callbacks: list[Callable] = []
 
     @contextmanager
     def isolated_environment(self):
@@ -540,9 +548,9 @@ class IntegrationTestCoordinator:
     """Coordinates integration tests across multiple components."""
 
     def __init__(self, isolation_level: IsolationLevel = IsolationLevel.PROCESS):
-        self.components: Dict[str, ComponentConfig] = {}
-        self.instances: Dict[str, ComponentInstance] = {}
-        self.controllers: Dict[ComponentType, ComponentController] = {
+        self.components: dict[str, ComponentConfig] = {}
+        self.instances: dict[str, ComponentInstance] = {}
+        self.controllers: dict[ComponentType, ComponentController] = {
             ComponentType.PYTHON_SERVICE: ProcessController(),
             ComponentType.RUST_SERVICE: ProcessController(),
             ComponentType.DATABASE: ProcessController(),
@@ -553,20 +561,20 @@ class IntegrationTestCoordinator:
         }
 
         self.environment_manager = EnvironmentManager(isolation_level)
-        self.service_fixtures: Dict[str, ServiceFixture] = {}
+        self.service_fixtures: dict[str, ServiceFixture] = {}
         self.coordination_lock = asyncio.Lock()
 
     def register_component(self, config: ComponentConfig):
         """Register a component configuration."""
         self.components[config.name] = config
 
-    def register_components(self, configs: List[ComponentConfig]):
+    def register_components(self, configs: list[ComponentConfig]):
         """Register multiple component configurations."""
         for config in configs:
             self.register_component(config)
 
     @asynccontextmanager
-    async def managed_components(self, component_names: List[str]):
+    async def managed_components(self, component_names: list[str]):
         """Context manager for managing component lifecycle."""
         async with self.coordination_lock:
             started_components = []
@@ -590,8 +598,8 @@ class IntegrationTestCoordinator:
 
     @asynccontextmanager
     async def test_environment(self,
-                              component_names: List[str],
-                              environment_vars: Optional[Dict[str, str]] = None):
+                              component_names: list[str],
+                              environment_vars: dict[str, str] | None = None):
         """Complete test environment with components and isolation."""
         # Set up environment variables
         if environment_vars:
@@ -602,7 +610,7 @@ class IntegrationTestCoordinator:
             async with self.managed_components(component_names) as components:
                 yield components
 
-    def get_service_fixture(self, component_name: str) -> Optional[ServiceFixture]:
+    def get_service_fixture(self, component_name: str) -> ServiceFixture | None:
         """Get a shared service fixture."""
         if component_name in self.service_fixtures:
             return self.service_fixtures[component_name]
@@ -664,7 +672,7 @@ class IntegrationTestCoordinator:
 
         return True
 
-    def _resolve_startup_order(self, component_names: List[str]) -> List[str]:
+    def _resolve_startup_order(self, component_names: list[str]) -> list[str]:
         """Resolve component startup order based on dependencies."""
         # Simple topological sort
         visited = set()
@@ -695,7 +703,7 @@ class IntegrationTestCoordinator:
 
         return result
 
-    async def health_check_all(self) -> Dict[str, bool]:
+    async def health_check_all(self) -> dict[str, bool]:
         """Perform health check on all running components."""
         results = {}
 
@@ -712,7 +720,7 @@ class IntegrationTestCoordinator:
 
         return results
 
-    def get_component_logs(self, component_name: str, lines: int = 100) -> List[str]:
+    def get_component_logs(self, component_name: str, lines: int = 100) -> list[str]:
         """Get logs from a specific component."""
         if component_name not in self.instances:
             return []
@@ -725,7 +733,7 @@ class IntegrationTestCoordinator:
 
         return []
 
-    def get_all_logs(self) -> Dict[str, List[str]]:
+    def get_all_logs(self) -> dict[str, list[str]]:
         """Get logs from all running components."""
         return {
             name: self.get_component_logs(name)
@@ -734,9 +742,9 @@ class IntegrationTestCoordinator:
 
     async def execute_integration_test(self,
                                      test_metadata: TestMetadata,
-                                     component_names: List[str],
+                                     component_names: list[str],
                                      test_function: Callable,
-                                     environment_vars: Optional[Dict[str, str]] = None) -> ExecutionResult:
+                                     environment_vars: dict[str, str] | None = None) -> ExecutionResult:
         """Execute an integration test with full component coordination."""
         start_time = time.time()
 
@@ -751,9 +759,9 @@ class IntegrationTestCoordinator:
 
                 # Execute the test
                 if asyncio.iscoroutinefunction(test_function):
-                    result = await test_function(components)
+                    await test_function(components)
                 else:
-                    result = test_function(components)
+                    test_function(components)
 
                 end_time = time.time()
 

@@ -5,21 +5,22 @@ This module tests YAML generation functionality including serialization,
 error handling, and various output formats for document metadata.
 """
 
-import pytest
 import tempfile
-import yaml
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import Mock, patch, mock_open
+from unittest.mock import Mock, mock_open, patch
 
-from src.python.wqm_cli.cli.metadata.yaml_generator import (
-    YAMLGenerator,
-    YAMLConfig,
-)
+import pytest
+import yaml
+
+from src.python.common.core.metadata_schema import MultiTenantMetadataSchema
 from src.python.wqm_cli.cli.metadata.aggregator import DocumentMetadata
 from src.python.wqm_cli.cli.metadata.exceptions import YAMLGenerationError
+from src.python.wqm_cli.cli.metadata.yaml_generator import (
+    YAMLConfig,
+    YAMLGenerator,
+)
 from src.python.wqm_cli.cli.parsers.base import ParsedDocument
-from src.python.common.core.metadata_schema import MultiTenantMetadataSchema
 
 
 class TestYAMLConfig:

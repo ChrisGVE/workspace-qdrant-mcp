@@ -27,11 +27,12 @@ Test Coverage:
 import asyncio
 import json
 import os
-import pytest
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
+import pytest
 from testcontainers.compose import DockerCompose
 
 

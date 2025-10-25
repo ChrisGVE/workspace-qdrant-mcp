@@ -58,7 +58,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
@@ -88,7 +88,7 @@ class TrendDataPoint:
     timestamp: datetime
     metric_name: str
     value: float
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -114,11 +114,11 @@ class TrendAnalysis:
     trend_direction: TrendDirection
     slope: float
     intercept: float
-    forecast: Dict[str, float] = field(default_factory=dict)
+    forecast: dict[str, float] = field(default_factory=dict)
     confidence: float = 0.0
     data_points_count: int = 0
-    window_start: Optional[datetime] = None
-    window_end: Optional[datetime] = None
+    window_start: datetime | None = None
+    window_end: datetime | None = None
     mean: float = 0.0
     std_dev: float = 0.0
     volatility_ratio: float = 0.0
@@ -144,7 +144,7 @@ class Anomaly:
     expected_value: float
     z_score: float
     severity: str  # "low", "medium", "high", "critical"
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
 
 @dataclass
@@ -162,12 +162,12 @@ class PeriodComparison:
     """
 
     metric_name: str
-    period1_stats: Dict[str, float]
-    period2_stats: Dict[str, float]
+    period1_stats: dict[str, float]
+    period2_stats: dict[str, float]
     change_pct: float
     change_absolute: float
     significant: bool = False
-    p_value: Optional[float] = None
+    p_value: float | None = None
 
 
 class HistoricalTrendAnalyzer:
@@ -182,7 +182,7 @@ class HistoricalTrendAnalyzer:
     'trend_analysis' section.
     """
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         """Initialize the historical trend analyzer.
 
         Args:
@@ -211,8 +211,8 @@ class HistoricalTrendAnalyzer:
             config_dir.mkdir(parents=True, exist_ok=True)
             self.db_path = config_dir / "state.db"
 
-        self._conn: Optional[sqlite3.Connection] = None
-        self._cleanup_task: Optional[asyncio.Task] = None
+        self._conn: sqlite3.Connection | None = None
+        self._cleanup_task: asyncio.Task | None = None
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -230,7 +230,7 @@ class HistoricalTrendAnalyzer:
         # Load and execute schema
         schema_path = Path(__file__).parent / "metric_history_schema.sql"
         if schema_path.exists():
-            with open(schema_path, 'r') as f:
+            with open(schema_path) as f:
                 schema_sql = f.read()
             self._conn.executescript(schema_sql)
             self._conn.commit()
@@ -279,7 +279,7 @@ class HistoricalTrendAnalyzer:
         self,
         metric_name: str,
         value: float,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ) -> None:
         """Store a metric data point for historical analysis.
 
@@ -318,7 +318,7 @@ class HistoricalTrendAnalyzer:
         self,
         metric_name: str,
         hours: int = 168  # 1 week default
-    ) -> List[TrendDataPoint]:
+    ) -> list[TrendDataPoint]:
         """Retrieve historical data points for a metric.
 
         Args:
@@ -356,8 +356,8 @@ class HistoricalTrendAnalyzer:
 
     def _calculate_linear_regression(
         self,
-        data_points: List[TrendDataPoint]
-    ) -> Tuple[float, float, float]:
+        data_points: list[TrendDataPoint]
+    ) -> tuple[float, float, float]:
         """Calculate linear regression for data points.
 
         Uses simple linear regression: y = slope * x + intercept
@@ -387,7 +387,7 @@ class HistoricalTrendAnalyzer:
         y_mean = sum(y_values) / n
 
         # Calculate slope and intercept
-        numerator = sum((x - x_mean) * (y - y_mean) for x, y in zip(x_values, y_values))
+        numerator = sum((x - x_mean) * (y - y_mean) for x, y in zip(x_values, y_values, strict=False))
         denominator = sum((x - x_mean) ** 2 for x in x_values)
 
         if denominator == 0:
@@ -401,7 +401,7 @@ class HistoricalTrendAnalyzer:
 
             # Calculate R²
             ss_tot = sum((y - y_mean) ** 2 for y in y_values)
-            ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(x_values, y_values))
+            ss_res = sum((y - (slope * x + intercept)) ** 2 for x, y in zip(x_values, y_values, strict=False))
             r_squared = 1.0 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
 
         return slope, intercept, r_squared
@@ -409,7 +409,7 @@ class HistoricalTrendAnalyzer:
     def _determine_trend_direction(
         self,
         slope: float,
-        values: List[float]
+        values: list[float]
     ) -> TrendDirection:
         """Determine trend direction from slope and volatility.
 
@@ -449,7 +449,7 @@ class HistoricalTrendAnalyzer:
     async def get_trend_analysis(
         self,
         metric_name: str,
-        window_hours: Optional[int] = None
+        window_hours: int | None = None
     ) -> TrendAnalysis:
         """Perform trend analysis on a metric over a time window.
 
@@ -536,8 +536,8 @@ class HistoricalTrendAnalyzer:
 
     def _calculate_z_scores(
         self,
-        values: List[float]
-    ) -> List[float]:
+        values: list[float]
+    ) -> list[float]:
         """Calculate z-scores for a list of values.
 
         Args:
@@ -560,9 +560,9 @@ class HistoricalTrendAnalyzer:
     async def detect_anomalies(
         self,
         metric_name: str,
-        sensitivity: Optional[float] = None,
-        window_hours: Optional[int] = None
-    ) -> List[Anomaly]:
+        sensitivity: float | None = None,
+        window_hours: int | None = None
+    ) -> list[Anomaly]:
         """Detect anomalies in metric data using z-score method.
 
         Args:
@@ -592,7 +592,7 @@ class HistoricalTrendAnalyzer:
 
         # Detect anomalies
         anomalies = []
-        for dp, z_score in zip(data_points, z_scores):
+        for dp, z_score in zip(data_points, z_scores, strict=False):
             if abs(z_score) > sensitivity:
                 # Classify severity
                 abs_z = abs(z_score)
@@ -620,8 +620,8 @@ class HistoricalTrendAnalyzer:
 
     def _calculate_period_stats(
         self,
-        data_points: List[TrendDataPoint]
-    ) -> Dict[str, float]:
+        data_points: list[TrendDataPoint]
+    ) -> dict[str, float]:
         """Calculate statistical summary for a period.
 
         Args:

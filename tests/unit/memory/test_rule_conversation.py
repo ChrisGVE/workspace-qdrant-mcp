@@ -5,19 +5,20 @@ Tests natural language rule input parsing, rule extraction from conversation
 context, validation, and edge cases for conversational rule creation.
 """
 
-import pytest
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
+import pytest
 from common.core.memory import (
-    ConversationalMemoryProcessor,
-    ConversationalContext,
-    MemoryRule,
-    MemoryCategory,
     AuthorityLevel,
+    ConversationalContext,
+    ConversationalMemoryProcessor,
+    MemoryCategory,
+    MemoryRule,
 )
-from tests.unit.memory.test_rules_base import BaseMemoryRuleTest
+
 from tests.unit.memory.rule_test_utils import MemoryRuleValidator
+from tests.unit.memory.test_rules_base import BaseMemoryRuleTest
 
 
 class TestConversationalRuleCreation(BaseMemoryRuleTest):
@@ -832,7 +833,7 @@ class TestConversationalRuleConfidence(BaseMemoryRuleTest):
         message_weak = "Maybe use pytest"
         message_strong = "Always use pytest"
 
-        result_weak = self.processor.process_conversational_update(message_weak)
+        self.processor.process_conversational_update(message_weak)
         result_strong = self.processor.process_conversational_update(message_strong)
 
         assert result_strong is not None

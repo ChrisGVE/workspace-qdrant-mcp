@@ -42,14 +42,12 @@ Example:
 """
 
 import re
-import hashlib
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
-from urllib.parse import urljoin, urlparse
+from typing import Any
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Comment
-from bs4.element import Tag, NavigableString
 
 
 @dataclass
@@ -57,13 +55,13 @@ class ContentExtractionResult:
     """Result of content extraction operation."""
 
     url: str
-    main_content: Optional[str] = None
-    title: Optional[str] = None
-    description: Optional[str] = None
-    keywords: List[str] = field(default_factory=list)
-    author: Optional[str] = None
-    publish_date: Optional[datetime] = None
-    language: Optional[str] = None
+    main_content: str | None = None
+    title: str | None = None
+    description: str | None = None
+    keywords: list[str] = field(default_factory=list)
+    author: str | None = None
+    publish_date: datetime | None = None
+    language: str | None = None
 
     # Quality metrics
     quality_score: float = 0.0
@@ -72,21 +70,21 @@ class ContentExtractionResult:
     paragraph_count: int = 0
 
     # Extracted elements
-    links: List[Dict[str, str]] = field(default_factory=list)
-    images: List[Dict[str, str]] = field(default_factory=list)
-    headings: List[Dict[str, str]] = field(default_factory=list)
+    links: list[dict[str, str]] = field(default_factory=list)
+    images: list[dict[str, str]] = field(default_factory=list)
+    headings: list[dict[str, str]] = field(default_factory=list)
 
     # Processing info
     extraction_strategy: str = "unknown"
-    processing_time: Optional[float] = None
-    errors: List[str] = field(default_factory=list)
-    warnings: List[str] = field(default_factory=list)
+    processing_time: float | None = None
+    errors: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
 
     # Raw data for fallback
-    raw_html: Optional[str] = None
-    raw_text: Optional[str] = None
+    raw_html: str | None = None
+    raw_text: str | None = None
 
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -95,7 +93,7 @@ class ExtractionConfig:
 
     # Strategy selection
     preferred_strategy: str = "hybrid"
-    fallback_strategies: List[str] = field(default_factory=lambda: ["beautifulsoup", "custom"])
+    fallback_strategies: list[str] = field(default_factory=lambda: ["beautifulsoup", "custom"])
 
     # Content filtering
     min_content_length: int = 100
@@ -104,7 +102,7 @@ class ExtractionConfig:
 
     # Quality thresholds
     min_quality_score: float = 0.3
-    quality_weights: Dict[str, float] = field(default_factory=lambda: {
+    quality_weights: dict[str, float] = field(default_factory=lambda: {
         "content_length": 0.2,
         "paragraph_density": 0.25,
         "link_ratio": 0.15,
@@ -127,7 +125,7 @@ class ExtractionConfig:
 
     # Language detection
     detect_language: bool = True
-    supported_languages: Set[str] = field(default_factory=lambda: {
+    supported_languages: set[str] = field(default_factory=lambda: {
         'en', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'zh', 'ja', 'ko'
     })
 
@@ -137,7 +135,7 @@ class ContentExtractor:
     Advanced content extraction with multiple parsing strategies and quality assessment.
     """
 
-    def __init__(self, config: Optional[ExtractionConfig] = None):
+    def __init__(self, config: ExtractionConfig | None = None):
         """Initialize content extractor with configuration."""
         self.config = config or ExtractionConfig()
 
@@ -347,7 +345,7 @@ class ContentExtractor:
 
         return text
 
-    def _extract_metadata(self, soup: BeautifulSoup, url: str) -> Dict[str, Any]:
+    def _extract_metadata(self, soup: BeautifulSoup, url: str) -> dict[str, Any]:
         """Extract metadata from HTML."""
         metadata = {}
 
@@ -416,7 +414,7 @@ class ContentExtractor:
 
         return metadata
 
-    def _extract_links(self, soup: BeautifulSoup, base_url: str) -> List[Dict[str, str]]:
+    def _extract_links(self, soup: BeautifulSoup, base_url: str) -> list[dict[str, str]]:
         """Extract and resolve links from HTML."""
         if not self.config.extract_links:
             return []
@@ -441,7 +439,7 @@ class ContentExtractor:
 
         return links
 
-    def _extract_images(self, soup: BeautifulSoup, base_url: str) -> List[Dict[str, str]]:
+    def _extract_images(self, soup: BeautifulSoup, base_url: str) -> list[dict[str, str]]:
         """Extract and resolve images from HTML."""
         if not self.config.extract_images:
             return []
@@ -467,7 +465,7 @@ class ContentExtractor:
 
         return images
 
-    def _extract_headings(self, soup: BeautifulSoup) -> List[Dict[str, str]]:
+    def _extract_headings(self, soup: BeautifulSoup) -> list[dict[str, str]]:
         """Extract heading structure from HTML."""
         if not self.config.extract_headings:
             return []
@@ -484,7 +482,7 @@ class ContentExtractor:
 
         return headings
 
-    def _detect_language(self, text: str) -> Optional[str]:
+    def _detect_language(self, text: str) -> str | None:
         """Detect language of extracted text."""
         if not self.config.detect_language or not text:
             return None
@@ -563,7 +561,7 @@ class ContentExtractor:
         return min(1.0, score)
 
     async def extract_content(self, html_content: str, url: str,
-                            strategy: Optional[str] = None) -> ContentExtractionResult:
+                            strategy: str | None = None) -> ContentExtractionResult:
         """
         Extract content from HTML using specified strategy.
 
@@ -700,7 +698,7 @@ class ContentExtractor:
 
         return True
 
-    def get_content_summary(self, result: ContentExtractionResult) -> Dict[str, Any]:
+    def get_content_summary(self, result: ContentExtractionResult) -> dict[str, Any]:
         """
         Generate summary of extracted content.
 

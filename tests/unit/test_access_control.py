@@ -11,17 +11,25 @@ This test suite provides comprehensive coverage of:
 - Error conditions and edge cases
 """
 
-import pytest
 import asyncio
-import time
 import json
+import time
 from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, AsyncMock
-from typing import Set
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from src.python.common.security.access_control import (
-    RoleBasedAccessControl, SessionManager, Permission, AccessResult,
-    Role, User, Session, AccessContext, get_rbac, require_permission
+    AccessContext,
+    AccessResult,
+    Permission,
+    Role,
+    RoleBasedAccessControl,
+    Session,
+    SessionManager,
+    User,
+    get_rbac,
+    require_permission,
 )
 
 
@@ -967,7 +975,7 @@ class TestRoleBasedAccessControl:
         rbac.create_user("user456", "testuser2")
 
         session1 = rbac.create_session("user123")
-        session2 = rbac.create_session("user456")
+        rbac.create_session("user456")
 
         sessions = rbac.list_active_sessions("user123")
         assert len(sessions) == 1

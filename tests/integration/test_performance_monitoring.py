@@ -9,15 +9,17 @@ Parent: #290 - Build MCP-daemon integration test framework
 """
 
 import asyncio
-import pytest
-import time
 import tempfile
+import time
 from pathlib import Path
+
+import pytest
+
 from tests.integration.performance_monitoring import (
-    PerformanceMonitor,
-    PerformanceMetrics,
     PerformanceBaseline,
     PerformanceFixture,
+    PerformanceMetrics,
+    PerformanceMonitor,
 )
 
 
@@ -43,7 +45,7 @@ class TestPerformanceMetricsCollection:
         performance_monitor.start_monitoring("test_basic_collection")
 
         # Step 2: Simulate operations
-        for i in range(10):
+        for _i in range(10):
             start = time.time()
             await asyncio.sleep(0.01)  # 10ms operation
             latency_ms = (time.time() - start) * 1000
@@ -65,7 +67,7 @@ class TestPerformanceMetricsCollection:
         """Test monitoring using context manager."""
         # Use context manager
         async with performance_monitor.monitor_test("test_context_manager"):
-            for i in range(5):
+            for _i in range(5):
                 start = time.time()
                 await asyncio.sleep(0.005)
                 latency_ms = (time.time() - start) * 1000
@@ -128,7 +130,7 @@ class TestResourceMonitoring:
         await asyncio.sleep(1.5)  # Collect at least 3 samples (500ms intervals)
 
         # Do some work
-        data = [i ** 2 for i in range(10000)]  # Allocate some memory
+        [i ** 2 for i in range(10000)]  # Allocate some memory
 
         metrics = performance_monitor.stop_monitoring()
 
@@ -146,7 +148,7 @@ class TestResourceMonitoring:
         await asyncio.sleep(0.5)
 
         # Stop monitoring
-        metrics = performance_monitor.stop_monitoring()
+        performance_monitor.stop_monitoring()
 
         # Monitoring task should be cancelled
         assert performance_monitor.monitoring_task.cancelled() or performance_monitor.monitoring_task.done()
@@ -160,7 +162,7 @@ class TestBaselineManagement:
         """Test setting and loading baselines."""
         # Step 1: Create metrics
         performance_monitor.start_monitoring("test_baseline_mgmt")
-        for i in range(10):
+        for _i in range(10):
             performance_monitor.record_operation(10.0)
         metrics = performance_monitor.stop_monitoring()
 
@@ -204,14 +206,14 @@ class TestRegressionDetection:
         """Test when no regression occurs."""
         # Set baseline
         performance_monitor.start_monitoring("test_no_regression")
-        for i in range(10):
+        for _i in range(10):
             performance_monitor.record_operation(10.0)
         baseline_metrics = performance_monitor.stop_monitoring()
         performance_monitor.set_baseline(baseline_metrics)
 
         # Run test with similar performance
         performance_monitor.start_monitoring("test_no_regression")
-        for i in range(10):
+        for _i in range(10):
             performance_monitor.record_operation(10.5)  # Slight increase within tolerance
         metrics = performance_monitor.stop_monitoring()
 
@@ -227,14 +229,14 @@ class TestRegressionDetection:
         """Test latency regression detection."""
         # Set baseline with 10ms latency
         performance_monitor.start_monitoring("test_latency_regression")
-        for i in range(10):
+        for _i in range(10):
             performance_monitor.record_operation(10.0)
         baseline_metrics = performance_monitor.stop_monitoring()
         performance_monitor.set_baseline(baseline_metrics)
 
         # Run test with 50% latency increase (exceeds 20% tolerance)
         performance_monitor.start_monitoring("test_latency_regression")
-        for i in range(10):
+        for _i in range(10):
             performance_monitor.record_operation(15.0)  # 50% increase
         metrics = performance_monitor.stop_monitoring()
 
@@ -250,7 +252,7 @@ class TestRegressionDetection:
         """Test throughput regression detection."""
         # Set baseline with high throughput
         performance_monitor.start_monitoring("test_throughput_regression")
-        for i in range(100):
+        for _i in range(100):
             performance_monitor.record_operation(1.0)  # Fast operations
         await asyncio.sleep(0.1)  # Very short duration = high throughput
         baseline_metrics = performance_monitor.stop_monitoring()
@@ -258,7 +260,7 @@ class TestRegressionDetection:
 
         # Run test with lower throughput (slower operations)
         performance_monitor.start_monitoring("test_throughput_regression")
-        for i in range(50):  # Half the operations
+        for _i in range(50):  # Half the operations
             performance_monitor.record_operation(5.0)  # Slower
         await asyncio.sleep(0.5)  # Longer duration = lower throughput
         metrics = performance_monitor.stop_monitoring()
@@ -305,14 +307,14 @@ class TestReportGeneration:
         """Test report includes baseline comparison."""
         # Set baseline
         performance_monitor.start_monitoring("test_report_baseline")
-        for i in range(10):
+        for _i in range(10):
             performance_monitor.record_operation(10.0)
         baseline_metrics = performance_monitor.stop_monitoring()
         performance_monitor.set_baseline(baseline_metrics)
 
         # Run test
         performance_monitor.start_monitoring("test_report_baseline")
-        for i in range(10):
+        for _i in range(10):
             performance_monitor.record_operation(10.5)
         metrics = performance_monitor.stop_monitoring()
 

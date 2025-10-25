@@ -4,11 +4,12 @@ gRPC and protocol modules coverage test file.
 Targets gRPC-related modules for rapid coverage scaling.
 """
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
-import tempfile
 import os
+import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 
 class TestGrpcCoverage:
@@ -211,8 +212,9 @@ class TestGrpcCoverage:
     def test_grpc_directory_scan(self):
         """Test scanning gRPC directory for modules."""
         try:
-            import src.python.common.grpc as grpc_package
             import os
+
+            import src.python.common.grpc as grpc_package
 
             # Get the directory path
             grpc_dir = os.path.dirname(grpc_package.__file__)

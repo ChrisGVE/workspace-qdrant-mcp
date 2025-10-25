@@ -17,16 +17,17 @@ Features:
 import asyncio
 import json
 import os
-import pytest
 import shutil
 import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional, List
-import docker
+from typing import Any, Optional
+
+import pytest
 from testcontainers.compose import DockerCompose
 
+import docker
 
 # E2E Test Configuration
 E2E_TEST_CONFIG = {
@@ -93,7 +94,7 @@ def docker_compose_project(docker_client):
     if not compose_file.exists():
         pytest.skip(f"Docker Compose file not found: {compose_file}")
 
-    project_name = E2E_TEST_CONFIG["docker_compose"]["project_name"]
+    E2E_TEST_CONFIG["docker_compose"]["project_name"]
 
     class DockerComposeManager:
         def __init__(self):
@@ -283,7 +284,7 @@ async def component_lifecycle_manager():
 
             return True
 
-        async def check_health(self, name: str) -> Dict[str, Any]:
+        async def check_health(self, name: str) -> dict[str, Any]:
             """Check component health status."""
             if name not in self.components:
                 return {"healthy": False, "error": "Component not started"}
@@ -385,7 +386,7 @@ def resource_tracker():
 
             self.history.append(self.current.copy())
 
-        def get_delta(self) -> Dict[str, float]:
+        def get_delta(self) -> dict[str, float]:
             """Get resource usage delta from baseline."""
             if not self.baseline or not self.current:
                 return {}
@@ -397,7 +398,7 @@ def resource_tracker():
                 "duration_seconds": self.current["timestamp"] - self.baseline["timestamp"]
             }
 
-        def check_thresholds(self) -> List[str]:
+        def check_thresholds(self) -> list[str]:
             """Check if resource usage exceeds thresholds."""
             warnings = []
             delta = self.get_delta()
@@ -414,7 +415,7 @@ def resource_tracker():
 
     # Final capture and report
     tracker.capture_current()
-    delta = tracker.get_delta()
+    tracker.get_delta()
     warnings = tracker.check_thresholds()
 
     if warnings:
@@ -443,7 +444,7 @@ def test_orchestrator():
                 "func": func
             })
 
-        async def execute_workflow(self) -> Dict[str, Any]:
+        async def execute_workflow(self) -> dict[str, Any]:
             """Execute all steps in order."""
             start_time = time.time()
 

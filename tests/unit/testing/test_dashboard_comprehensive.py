@@ -5,26 +5,26 @@ Tests chart generation, HTML rendering, error handling, and all visualization
 functionality including missing data scenarios.
 """
 
-import pytest
+import json
 import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-import json
+from unittest.mock import MagicMock, Mock, patch
 
+import pytest
 from src.python.workspace_qdrant_mcp.testing.analytics.dashboard import (
-    DashboardGenerator,
-    ChartGenerator,
     ChartConfig,
-    DashboardSection
+    ChartGenerator,
+    DashboardGenerator,
+    DashboardSection,
 )
 from src.python.workspace_qdrant_mcp.testing.analytics.engine import (
+    MetricType,
+    QualityReport,
     TestAnalyticsEngine,
     TestMetrics,
     TrendAnalysis,
-    QualityReport,
-    MetricType,
-    TrendDirection
+    TrendDirection,
 )
 
 

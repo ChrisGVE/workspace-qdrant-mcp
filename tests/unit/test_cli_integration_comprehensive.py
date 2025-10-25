@@ -7,12 +7,13 @@ Focuses on integration patterns, error handling, and complete workflow testing.
 
 import asyncio
 import os
-import pytest
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 
 # Add src paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
@@ -22,9 +23,8 @@ os.environ["WQM_CLI_MODE"] = "true"
 os.environ["WQM_LOG_INIT"] = "false"
 
 try:
-    from wqm_cli.cli_wrapper import (
-        main as cli_wrapper_main, setup_environment, validate_dependencies
-    )
+    from wqm_cli.cli_wrapper import main as cli_wrapper_main
+    from wqm_cli.cli_wrapper import setup_environment, validate_dependencies
     CLI_WRAPPER_AVAILABLE = True
 except ImportError as e:
     CLI_WRAPPER_AVAILABLE = False
@@ -71,8 +71,8 @@ class TestCliWrapper:
     @patch('sys.argv', ['wqm', '--version'])
     def test_cli_wrapper_version_handling(self):
         """Test CLI wrapper version handling"""
-        with patch('wqm_cli.cli_wrapper.main') as mock_main:
-            with patch('sys.exit') as mock_exit:
+        with patch('wqm_cli.cli_wrapper.main'):
+            with patch('sys.exit'):
                 # Should handle version flag gracefully
                 try:
                     cli_wrapper_main()
@@ -82,7 +82,7 @@ class TestCliWrapper:
     def test_cli_wrapper_error_handling(self):
         """Test CLI wrapper error handling"""
         with patch('wqm_cli.cli_wrapper.typer.run', side_effect=Exception("Test error")):
-            with patch('builtins.print') as mock_print:
+            with patch('builtins.print'):
                 try:
                     cli_wrapper_main()
                 except Exception:
@@ -266,7 +266,7 @@ class TestCliIntegrationWorkflows:
             with patch('builtins.open', side_effect=error):
                 try:
                     # Simulate operation that could fail
-                    with open("/nonexistent/file.txt", 'r') as f:
+                    with open("/nonexistent/file.txt"):
                         pass
                 except Exception as e:
                     # Error should be of expected type
@@ -393,8 +393,8 @@ class TestCliIntegrationWorkflows:
         start_time = time.time()
 
         try:
-            from wqm_cli.cli.main import app
             from wqm_cli.cli.commands.admin import admin_app
+            from wqm_cli.cli.main import app
             import_time = time.time() - start_time
 
             # Imports should be reasonably fast (less than 2 seconds)
@@ -445,7 +445,7 @@ class TestCliIntegrationWorkflows:
                 try:
                     from wqm_cli.cli.utils import get_configured_client
                     config = Mock()
-                    client = get_configured_client(config)
+                    get_configured_client(config)
                 except error_type:
                     # Error should be caught and handled gracefully
                     assert True

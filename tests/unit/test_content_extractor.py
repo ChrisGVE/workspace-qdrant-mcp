@@ -15,17 +15,16 @@ This test suite covers:
 - Edge cases with empty or minimal content
 """
 
-import pytest
 import time
 from datetime import datetime
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
+import pytest
 from bs4 import BeautifulSoup
-
 from common.core.content_extractor import (
+    ContentExtractionResult,
     ContentExtractor,
     ExtractionConfig,
-    ContentExtractionResult
 )
 
 

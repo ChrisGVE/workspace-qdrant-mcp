@@ -7,19 +7,19 @@ schema compliance, and round-trip consistency for various rule types.
 
 import asyncio
 import json
-from datetime import datetime, timezone, timedelta
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
 from dataclasses import asdict
+from datetime import datetime, timedelta, timezone
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-
 from common.core.memory import (
-    MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
     AgentDefinition,
+    AuthorityLevel,
+    MemoryCategory,
+    MemoryRule,
 )
+
 from .test_rules_base import BaseMemoryRuleTest
 
 
@@ -381,7 +381,7 @@ class TestRoundTripConsistency(BaseMemoryRuleTest):
         restored = [MemoryRule(**rule_dict) for rule_dict in rule_dicts]
 
         # Verify all rules are preserved
-        for original, restored_rule in zip(originals, restored):
+        for original, restored_rule in zip(originals, restored, strict=False):
             self.assert_rules_equal(original, restored_rule, ignore_timestamps=False)
 
 

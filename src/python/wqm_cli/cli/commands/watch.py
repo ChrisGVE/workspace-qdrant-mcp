@@ -4,37 +4,34 @@ This module provides management for library folder watching,
 enabling automatic ingestion of files into library collections.
 """
 
-import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 import typer
-
-from common.grpc.daemon_client import get_daemon_client
 from common.core.sqlite_state_manager import SQLiteStateManager, WatchFolderConfig
+from common.grpc.daemon_client import get_daemon_client
 from loguru import logger
 
 # Import PatternManager for default patterns
 try:
     from common.core.pattern_manager import PatternManager
 
-    def _get_cli_default_patterns() -> List[str]:
+    def _get_cli_default_patterns() -> list[str]:
         """Get default patterns for CLI watch commands."""
         try:
-            pattern_manager = PatternManager()
+            PatternManager()
             # TODO: Get from PatternManager in future, for now use compatible defaults
             return ["*.pdf", "*.epub", "*.txt", "*.md"]
         except Exception as e:
             logger.debug(f"Failed to load PatternManager, using fallback patterns: {e}")
             return ["*.pdf", "*.epub", "*.txt", "*.md"]
 
-    def _get_cli_default_ignore_patterns() -> List[str]:
+    def _get_cli_default_ignore_patterns() -> list[str]:
         """Get default ignore patterns for CLI watch commands."""
         try:
-            pattern_manager = PatternManager()
+            PatternManager()
             # TODO: Get from PatternManager in future, for now use compatible defaults
             return [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"]
         except Exception as e:
@@ -44,20 +41,18 @@ try:
 except ImportError:
     logger.debug("PatternManager not available - using hardcoded CLI patterns")
 
-    def _get_cli_default_patterns() -> List[str]:
+    def _get_cli_default_patterns() -> list[str]:
         """Fallback default patterns for CLI watch commands."""
         return ["*.pdf", "*.epub", "*.txt", "*.md"]
 
-    def _get_cli_default_ignore_patterns() -> List[str]:
+    def _get_cli_default_ignore_patterns() -> list[str]:
         """Fallback default ignore patterns for CLI watch commands."""
         return [".git/*", "node_modules/*", "__pycache__/*", ".DS_Store"]
 from ..formatting import (
     create_data_table,
-    display_operation_result,
     display_table_or_empty,
     error_panel,
     info_panel,
-    simple_error,
     simple_info,
     simple_success,
     simple_warning,
@@ -66,9 +61,7 @@ from ..formatting import (
 from ..utils import (
     confirm,
     create_command_app,
-    force_option,
     handle_async,
-    verbose_option,
 )
 
 # logger imported from loguru
@@ -289,7 +282,10 @@ async def _configure_watch(
 
             # Validate depth parameter if provided using comprehensive validation
             if depth is not None:
-                from common.core.depth_validation import validate_recursive_depth, format_depth_display
+                from common.core.depth_validation import (
+                    format_depth_display,
+                    validate_recursive_depth,
+                )
                 depth_result = validate_recursive_depth(depth)
 
                 if not depth_result.is_valid:
@@ -398,7 +394,10 @@ async def _add_watch(
                 raise typer.Exit(1)
 
             # Validate depth parameter using comprehensive validation
-            from common.core.depth_validation import validate_recursive_depth, format_depth_display
+            from common.core.depth_validation import (
+                format_depth_display,
+                validate_recursive_depth,
+            )
             depth_result = validate_recursive_depth(depth)
 
             if not depth_result.is_valid:
@@ -486,7 +485,7 @@ async def _add_watch(
                 success_panel(config_text, "Watch Configuration Added")
 
                 if auto_ingest:
-                    simple_info(f"File monitoring active - daemon will poll database for changes")
+                    simple_info("File monitoring active - daemon will poll database for changes")
                     simple_info("New files will be automatically ingested into the collection")
                 else:
                     simple_warning("Auto-ingest is disabled")

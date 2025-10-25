@@ -8,20 +8,17 @@ between error monitoring (Task 359) and queue monitoring (Task 360) components.
 import asyncio
 import os
 import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 
 from src.python.common.core.error_message_manager import (
+    ErrorCategory,
     ErrorMessage,
     ErrorSeverity,
-    ErrorCategory
 )
-from src.python.common.core.queue_monitoring import (
-    QueueMonitoringSystem,
-    SystemStatus
-)
+from src.python.common.core.queue_monitoring import QueueMonitoringSystem, SystemStatus
 
 
 @pytest.fixture
@@ -205,7 +202,7 @@ class TestHealthIntegration:
         """Test that health score degrades when errors are added."""
         # Get baseline health
         baseline_health = await monitoring_system.get_comprehensive_health()
-        baseline_score = baseline_health["score"]
+        baseline_health["score"]
 
         # Add multiple errors
         for i in range(15):

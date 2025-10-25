@@ -8,14 +8,15 @@ reporting, and user interaction for the ingestion process.
 
 import asyncio
 import logging
-import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from loguru import logger
 
 import typer
+from common.core.config import get_config_manager
+from common.grpc.daemon_client import get_daemon_client
+from loguru import logger
 from rich.console import Console
 from rich.progress import (
     BarColumn,
@@ -28,10 +29,8 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from common.core.config import get_config_manager
-from common.grpc.daemon_client import get_daemon_client, with_daemon_client
-from .ingestion_engine import DocumentIngestionEngine, IngestionResult, IngestionStats
-from .parsers import SecurityConfig, WebIngestionInterface, create_secure_web_parser
+from .ingestion_engine import IngestionResult, IngestionStats
+from .parsers import SecurityConfig, WebIngestionInterface
 
 # Configure logging
 # logger imported from loguru
@@ -267,13 +266,13 @@ async def _run_ingestion(
         # Process folder using daemon with progress tracking
         include_patterns = [f"*.{fmt}" for fmt in formats] if formats else None
         ignore_patterns = exclude_patterns or []
-        
+
         # Show basic estimation first
         directory_path = Path(path)
         if directory_path.exists():
             file_count = len(list(directory_path.rglob("*")))
             console.print(f"📊 Found approximately {file_count} files to analyze", style="blue")
-        
+
         # Confirmation (unless dry run or auto-confirmed)
         if not dry_run and not auto_confirm:
             if not typer.confirm("\n🤔 Proceed with ingestion?"):
@@ -287,7 +286,7 @@ async def _run_ingestion(
 
         stats = {
             'files_found': 0,
-            'files_processed': 0, 
+            'files_processed': 0,
             'files_failed': 0,
             'files_skipped': 0,
             'total_documents': 0,
@@ -297,7 +296,7 @@ async def _run_ingestion(
             'errors': [],
             'start_time': datetime.now(timezone.utc)
         }
-        
+
         try:
             # Process folder via daemon
             async for progress in daemon_client.process_folder(
@@ -312,7 +311,7 @@ async def _run_ingestion(
                 stats['files_found'] = progress.total_files
                 stats['files_processed'] = progress.processed_files
                 stats['files_failed'] = progress.failed_files
-                
+
                 if progress_task:
                     task_id = progress_task.task_ids[0] if progress_task.task_ids else progress_task.add_task("Processing files...", total=progress.total_files)
                     progress_task.update(
@@ -325,14 +324,14 @@ async def _run_ingestion(
         finally:
             if progress_task:
                 progress_task.stop()
-            
+
         # Build result from daemon processing
         stats['end_time'] = datetime.now(timezone.utc)
         stats['processing_time'] = (stats['end_time'] - stats['start_time']).total_seconds()
-        
+
         # Create result structure compatible with existing display code
-        from .ingestion_engine import IngestionStats, IngestionResult
-        
+        from .ingestion_engine import IngestionResult, IngestionStats
+
         ingestion_stats = IngestionStats(
             files_found=stats['files_found'],
             files_processed=stats['files_processed'],
@@ -347,7 +346,7 @@ async def _run_ingestion(
             processing_time=stats['processing_time'],
             errors=stats['errors']
         )
-        
+
         result = IngestionResult(
             success=stats['files_failed'] == 0,
             stats=ingestion_stats,
@@ -802,7 +801,7 @@ async def _run_web_ingestion(
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as temp_file:
             temp_file.write(parsed_doc.content)
             temp_file_path = temp_file.name
-        
+
         try:
             response = await daemon_client.process_document(
                 file_path=temp_file_path,
@@ -810,7 +809,7 @@ async def _run_web_ingestion(
                 metadata=parsed_doc.additional_metadata or {},
                 chunk_text=True
             )
-            
+
             result = {
                 'success': response.success,
                 'document_id': response.document_id,
@@ -822,7 +821,7 @@ async def _run_web_ingestion(
 
         # Display results
         if result and result.get("success", False):
-            console.print(f"✅ Successfully ingested web content", style="green bold")
+            console.print("✅ Successfully ingested web content", style="green bold")
             console.print(
                 f"📄 Document ID: {result.get('document_id', 'unknown')}", style="cyan"
             )

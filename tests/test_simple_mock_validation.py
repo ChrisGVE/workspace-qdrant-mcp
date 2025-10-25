@@ -5,17 +5,18 @@ This test validates the core functionality without complex imports.
 """
 
 import asyncio
+
 import pytest
 
 
 def test_mock_imports():
     """Test that all mock components can be imported."""
     from tests.mocks import (
-        create_realistic_qdrant_mock,
+        ErrorModeManager,
         create_basic_embedding_service,
         create_filesystem_mock,
         create_realistic_network_client,
-        ErrorModeManager
+        create_realistic_qdrant_mock,
     )
 
     assert create_realistic_qdrant_mock is not None
@@ -180,8 +181,9 @@ def test_error_injection_configuration():
 @pytest.mark.asyncio
 async def test_realistic_behavior_simulation():
     """Test that mocks provide realistic behavior."""
-    from tests.mocks import create_realistic_qdrant_mock
     import time
+
+    from tests.mocks import create_realistic_qdrant_mock
 
     mock = create_realistic_qdrant_mock()
 
@@ -197,13 +199,13 @@ async def test_realistic_behavior_simulation():
 def test_comprehensive_mock_coverage():
     """Test that all external dependencies have mocks."""
     from tests.mocks import (
-        create_realistic_qdrant_mock,
+        create_basic_embedding_service,
+        create_basic_external_service,
+        create_basic_lsp_server,
         create_filesystem_mock,
         create_realistic_daemon_communication,
         create_realistic_network_client,
-        create_basic_lsp_server,
-        create_basic_embedding_service,
-        create_basic_external_service
+        create_realistic_qdrant_mock,
     )
 
     # Verify all major external dependencies are covered

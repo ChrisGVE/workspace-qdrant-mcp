@@ -167,7 +167,7 @@ class TestSSLConfiguration:
 
     def test_enhanced_validation_availability(self):
         """Test enhanced validation feature."""
-        config = SSLConfiguration(enhanced_validation=True)
+        SSLConfiguration(enhanced_validation=True)
 
         # Enhanced validation should be attempted if available
         # (actual availability depends on imports)
@@ -421,14 +421,14 @@ class TestSecureCommunication:
 
     def test_ssl_context_manager_localhost_handling(self):
         """Test SSL context manager handles localhost appropriately."""
-        manager = SSLContextManager()
+        SSLContextManager()
 
         # Localhost connections may have different requirements
         # (implementation specific)
 
     def test_ssl_context_manager_remote_handling(self):
         """Test SSL context manager handles remote connections securely."""
-        manager = SSLContextManager()
+        SSLContextManager()
 
         # Remote connections should enforce strict validation
         # (implementation specific)
@@ -489,7 +489,7 @@ class TestSecurityPolicyEnforcement:
 
     def test_weak_key_size_rejection(self):
         """Test that weak key sizes are rejected."""
-        policy = CertificateSecurityPolicy(min_key_size=2048)
+        CertificateSecurityPolicy(min_key_size=2048)
 
         # Policy should reject 1024-bit keys
         # (implementation would validate actual certificates)

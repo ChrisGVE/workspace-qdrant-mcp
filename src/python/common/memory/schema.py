@@ -7,21 +7,16 @@ The memory collection stores rules as both vectorized content and structured met
 
 import logging
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
-from uuid import uuid4
+from typing import Any
 
 from qdrant_client.models import (
     CollectionInfo,
-    CreateCollection,
     Distance,
     FieldCondition,
     Filter,
     MatchAny,
     MatchValue,
     PointStruct,
-    SearchParams,
-    SearchRequest,
-    UpdateCollection,
     VectorParams,
 )
 

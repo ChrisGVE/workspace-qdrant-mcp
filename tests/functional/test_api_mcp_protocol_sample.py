@@ -8,15 +8,16 @@ These tests demonstrate API testing patterns for:
 - Performance and load testing
 """
 
-import pytest
-import httpx
-import respx
 import asyncio
 import json
-from typing import Dict, Any, List, Optional
-from unittest.mock import AsyncMock
 import time
 from pathlib import Path
+from typing import Any, Optional
+from unittest.mock import AsyncMock
+
+import httpx
+import pytest
+import respx
 
 
 @pytest.mark.api_testing
@@ -231,7 +232,7 @@ class TestAPIEndpointsWithMockServices:
         async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
             # Make rapid successive requests
             responses = []
-            for i in range(20):
+            for _i in range(20):
                 try:
                     response = await client.get("/health", timeout=5.0)
                     responses.append(response.status_code)
@@ -328,17 +329,18 @@ class TestAPIPerformanceAndLoad:
 
     async def test_memory_usage_during_load(self):
         """Test memory usage during sustained load."""
-        import psutil
         import os
+
+        import psutil
 
         process = psutil.Process(os.getpid())
         initial_memory = process.memory_info().rss
 
         async with httpx.AsyncClient(base_url="http://localhost:8000") as client:
             # Generate sustained load
-            for batch in range(5):
+            for _batch in range(5):
                 tasks = []
-                for i in range(10):
+                for _i in range(10):
                     task = client.get("/health")
                     tasks.append(task)
 
@@ -356,7 +358,7 @@ class TestAPIPerformanceAndLoad:
 
 
 @pytest.fixture
-def sample_workspace_data() -> Dict[str, Any]:
+def sample_workspace_data() -> dict[str, Any]:
     """Provide sample workspace data for testing."""
     return {
         "documents": [

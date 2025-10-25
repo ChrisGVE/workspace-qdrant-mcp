@@ -6,12 +6,11 @@ metadata, supporting structured output with proper serialization handling,
 custom formatting, and error recovery for complex data structures.
 """
 
-import os
-import yaml
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Union, IO
+from typing import Any
 
+import yaml
 from loguru import logger
 
 from .aggregator import DocumentMetadata
@@ -26,7 +25,7 @@ class YAMLConfig:
         include_content: bool = True,
         include_collection_metadata: bool = True,
         pretty_format: bool = True,
-        max_content_length: Optional[int] = None,
+        max_content_length: int | None = None,
         indent_size: int = 2,
         sort_keys: bool = True,
         safe_serialization: bool = True,
@@ -67,7 +66,7 @@ class YAMLGenerator:
     data structures from document metadata aggregation.
     """
 
-    def __init__(self, config: Optional[YAMLConfig] = None):
+    def __init__(self, config: YAMLConfig | None = None):
         """
         Initialize YAML generator.
 
@@ -113,7 +112,7 @@ class YAMLGenerator:
     def generate_yaml(
         self,
         document_metadata: DocumentMetadata,
-        output_path: Optional[Union[str, Path]] = None,
+        output_path: str | Path | None = None,
     ) -> str:
         """
         Generate YAML from document metadata.
@@ -154,8 +153,8 @@ class YAMLGenerator:
 
     def generate_collection_yaml(
         self,
-        document_metadata_list: List[DocumentMetadata],
-        output_path: Optional[Union[str, Path]] = None,
+        document_metadata_list: list[DocumentMetadata],
+        output_path: str | Path | None = None,
         collection_name: str = "document_collection",
     ) -> str:
         """
@@ -233,10 +232,10 @@ class YAMLGenerator:
 
     def generate_batch_yaml_files(
         self,
-        document_metadata_list: List[DocumentMetadata],
-        output_directory: Union[str, Path],
+        document_metadata_list: list[DocumentMetadata],
+        output_directory: str | Path,
         filename_template: str = "{file_stem}_metadata.yaml",
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Generate individual YAML files for each document.
 
@@ -269,7 +268,7 @@ class YAMLGenerator:
                     )
 
                     output_path = output_dir / filename
-                    yaml_content = self.generate_yaml(doc_metadata, output_path)
+                    self.generate_yaml(doc_metadata, output_path)
                     generated_files.append(str(output_path))
 
                 except Exception as e:
@@ -298,7 +297,7 @@ class YAMLGenerator:
                 details={"original_error": str(e)},
             ) from e
 
-    def _prepare_metadata_dict(self, document_metadata: DocumentMetadata) -> Dict[str, Any]:
+    def _prepare_metadata_dict(self, document_metadata: DocumentMetadata) -> dict[str, Any]:
         """
         Prepare metadata dictionary for YAML serialization.
 
@@ -363,7 +362,7 @@ class YAMLGenerator:
             # Convert to string as fallback
             return str(obj)
 
-    def _serialize_to_yaml(self, data: Dict[str, Any]) -> str:
+    def _serialize_to_yaml(self, data: dict[str, Any]) -> str:
         """
         Serialize data to YAML string.
 
@@ -435,7 +434,7 @@ class YAMLGenerator:
 
         return "\n".join(header_lines) + yaml_content
 
-    def _write_yaml_file(self, yaml_content: str, output_path: Union[str, Path]) -> None:
+    def _write_yaml_file(self, yaml_content: str, output_path: str | Path) -> None:
         """
         Write YAML content to file.
 
@@ -461,7 +460,7 @@ class YAMLGenerator:
                 details={"original_error": str(e)},
             ) from e
 
-    def _get_config_dict(self) -> Dict[str, Any]:
+    def _get_config_dict(self) -> dict[str, Any]:
         """
         Get configuration as dictionary for metadata.
 
@@ -476,7 +475,7 @@ class YAMLGenerator:
             "safe_serialization": self.config.safe_serialization,
         }
 
-    def validate_yaml_output(self, yaml_content: str) -> Dict[str, Any]:
+    def validate_yaml_output(self, yaml_content: str) -> dict[str, Any]:
         """
         Validate generated YAML content.
 

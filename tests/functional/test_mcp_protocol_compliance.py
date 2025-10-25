@@ -7,14 +7,14 @@ ensuring the server correctly implements the protocol specifications.
 
 import asyncio
 import json
-import pytest
-import httpx
-import respx
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock
 
-from workspace_qdrant_mcp.server import app
+import httpx
+import pytest
+import respx
 from fastmcp.testing import MockTransport
+from workspace_qdrant_mcp.server import app
 
 
 class MCPProtocolTester:
@@ -24,7 +24,7 @@ class MCPProtocolTester:
         self.transport = MockTransport()
         self.sequence_id = 0
 
-    def create_request(self, method: str, params: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def create_request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Create a properly formatted MCP request."""
         self.sequence_id += 1
         request = {
@@ -36,7 +36,7 @@ class MCPProtocolTester:
             request["params"] = params
         return request
 
-    def validate_response(self, response: Dict[str, Any], request_id: int) -> bool:
+    def validate_response(self, response: dict[str, Any], request_id: int) -> bool:
         """Validate MCP response format compliance."""
         # Basic JSON-RPC validation
         assert "jsonrpc" in response, "Response must include jsonrpc field"
@@ -133,7 +133,7 @@ class TestMCPToolsCompliance:
         assert isinstance(error["code"], int), "Error code must be integer"
         assert isinstance(error["message"], str), "Error message must be string"
 
-    async def mock_tools_list_call(self) -> Dict[str, Any]:
+    async def mock_tools_list_call(self) -> dict[str, Any]:
         """Mock implementation of tools/list call."""
         return {
             "jsonrpc": "2.0",
@@ -168,7 +168,7 @@ class TestMCPToolsCompliance:
             }
         }
 
-    async def mock_tools_call(self) -> Dict[str, Any]:
+    async def mock_tools_call(self) -> dict[str, Any]:
         """Mock implementation of tools/call."""
         return {
             "jsonrpc": "2.0",
@@ -183,7 +183,7 @@ class TestMCPToolsCompliance:
             }
         }
 
-    async def mock_invalid_method_call(self) -> Dict[str, Any]:
+    async def mock_invalid_method_call(self) -> dict[str, Any]:
         """Mock implementation of invalid method call."""
         return {
             "jsonrpc": "2.0",
@@ -237,7 +237,7 @@ class TestServerEndpointValidation:
     @pytest.mark.asyncio
     async def test_concurrent_request_handling(self):
         """Test server handles concurrent requests properly."""
-        async def make_request(request_id: int) -> Dict[str, Any]:
+        async def make_request(request_id: int) -> dict[str, Any]:
             # Simulate concurrent MCP tool calls
             await asyncio.sleep(0.01)  # Small delay to simulate processing
             return {
@@ -255,7 +255,7 @@ class TestServerEndpointValidation:
             assert response["id"] == i
             assert response["result"]["processed"] is True
 
-    async def simulate_health_check(self) -> Dict[str, Any]:
+    async def simulate_health_check(self) -> dict[str, Any]:
         """Simulate health check response."""
         return {"status": "healthy", "timestamp": "2024-01-01T00:00:00Z"}
 
@@ -321,7 +321,7 @@ class TestCrossLanguageIntegration:
         python_result = await self.process_rust_response(rust_processed)
         assert python_result["success"] is True
 
-    async def process_rust_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_rust_response(self, response: dict[str, Any]) -> dict[str, Any]:
         """Mock processing of Rust engine response."""
         if "error" in response:
             raise Exception(f"Rust engine error: {response['error']} - {response['message']}")
@@ -334,7 +334,7 @@ class TestCrossLanguageIntegration:
             }
         }
 
-    async def simulate_rust_processing(self, document: Dict[str, Any]) -> Dict[str, Any]:
+    async def simulate_rust_processing(self, document: dict[str, Any]) -> dict[str, Any]:
         """Simulate Rust engine processing."""
         await asyncio.sleep(0.01)  # Simulate processing time
 

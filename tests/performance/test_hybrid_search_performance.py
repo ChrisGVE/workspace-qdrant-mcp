@@ -36,11 +36,11 @@ Task 322.6: Comprehensive search performance tests for hybrid search.
 
 import asyncio
 import gc
+import statistics
 import time
 import tracemalloc
-from typing import Dict, List, Any, Optional
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
-import statistics
 
 import psutil
 import pytest
@@ -70,7 +70,7 @@ class HybridSearchPerformanceMetrics:
         self.collection_size_metrics = {}
         self.error_count = 0
 
-    def record_search_latency(self, latency_ms: float, metadata: Dict[str, Any] = None):
+    def record_search_latency(self, latency_ms: float, metadata: dict[str, Any] = None):
         """Record search latency with optional metadata."""
         self.search_latencies.append({
             'latency_ms': latency_ms,
@@ -78,7 +78,7 @@ class HybridSearchPerformanceMetrics:
             'metadata': metadata or {}
         })
 
-    def record_memory_snapshot(self, label: str = None) -> Dict[str, float]:
+    def record_memory_snapshot(self, label: str = None) -> dict[str, float]:
         """Record memory snapshot."""
         memory_info = self.process.memory_info()
         snapshot = {
@@ -90,7 +90,7 @@ class HybridSearchPerformanceMetrics:
         self.memory_snapshots.append(snapshot)
         return snapshot
 
-    def calculate_percentiles(self) -> Dict[str, float]:
+    def calculate_percentiles(self) -> dict[str, float]:
         """Calculate latency percentiles."""
         if not self.search_latencies:
             return {}
@@ -108,7 +108,7 @@ class HybridSearchPerformanceMetrics:
             'stddev': statistics.stdev(latencies) if len(latencies) > 1 else 0,
         }
 
-    def get_memory_usage_stats(self) -> Dict[str, Any]:
+    def get_memory_usage_stats(self) -> dict[str, Any]:
         """Get memory usage statistics."""
         if len(self.memory_snapshots) < 2:
             return {'error': 'Insufficient memory snapshots'}
@@ -125,7 +125,7 @@ class HybridSearchPerformanceMetrics:
             'mean_mb': statistics.mean(rss_values),
         }
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """Get comprehensive performance summary."""
         return {
             'latency_percentiles': self.calculate_percentiles(),
@@ -150,14 +150,13 @@ async def mock_hybrid_search_engine():
 
     async def mock_search(
         collection_name: str,
-        query_embeddings: Dict[str, Any],
+        query_embeddings: dict[str, Any],
         limit: int = 10,
         fusion_method: str = "rrf",
         **kwargs
     ):
         """Mock hybrid search with realistic timing based on parameters."""
         # Base search time
-        base_time = 0.015  # 15ms base
 
         # Dense search simulation
         dense_time = 0.008 + (limit * 0.0002)  # 8ms + per-result overhead
@@ -243,7 +242,7 @@ class TestSearchLatency:
         # Perform multiple searches to get good distribution
         for _ in range(50):
             start_time = time.perf_counter()
-            result = await mock_hybrid_search_engine.hybrid_search(
+            await mock_hybrid_search_engine.hybrid_search(
                 collection_name="test_collection",
                 query_embeddings=query_embeddings,
                 limit=10,
@@ -264,7 +263,7 @@ class TestSearchLatency:
         assert percentiles['mean'] < 80.0, \
             f"Mean latency too high: {percentiles['mean']:.2f}ms"
 
-        print(f"\n⚡ Single Search Latency Performance:")
+        print("\n⚡ Single Search Latency Performance:")
         print(f"   Mean: {percentiles['mean']:.2f}ms")
         print(f"   P50 (median): {percentiles['p50']:.2f}ms")
         print(f"   P95: {percentiles['p95']:.2f}ms")
@@ -307,7 +306,7 @@ class TestSearchLatency:
         assert percentiles['p99'] < 150.0, \
             f"P99 latency too high: {percentiles['p99']:.2f}ms"
 
-        print(f"\n📊 Latency Percentile Distribution:")
+        print("\n📊 Latency Percentile Distribution:")
         print(f"   Total searches: {len(perf_metrics.search_latencies)}")
         print(f"   P50: {percentiles['p50']:.2f}ms")
         print(f"   P95: {percentiles['p95']:.2f}ms ({'✅ PASS' if percentiles['p95'] < 100 else '❌ FAIL'})")
@@ -353,7 +352,7 @@ class TestSearchLatency:
 
         perf_metrics.fusion_timings = fusion_results
 
-        print(f"\n🔀 Fusion Method Latency Comparison:")
+        print("\n🔀 Fusion Method Latency Comparison:")
         for method, metrics in fusion_results.items():
             print(f"   {method.upper()}:")
             print(f"     Mean: {metrics['mean']:.2f}ms")
@@ -380,7 +379,7 @@ class TestConcurrentSearchHandling:
         for concurrency in concurrency_levels:
             # Create concurrent search tasks
             tasks = []
-            for i in range(concurrency):
+            for _i in range(concurrency):
                 task = mock_hybrid_search_engine.hybrid_search(
                     collection_name="test_collection",
                     query_embeddings=query_embeddings,
@@ -422,7 +421,7 @@ class TestConcurrentSearchHandling:
                 assert scaling_factor <= concurrency * tolerance, \
                     f"Poor scaling at {concurrency} concurrency: {scaling_factor:.2f}x baseline"
 
-        print(f"\n🔄 Concurrent Search Scaling Analysis:")
+        print("\n🔄 Concurrent Search Scaling Analysis:")
         print(f"   Baseline (1 search): {scaling_results[1]['total_time_ms']:.2f}ms")
         for concurrency, metrics in scaling_results.items():
             if concurrency > 1:
@@ -449,7 +448,7 @@ class TestConcurrentSearchHandling:
 
         perf_metrics.record_memory_snapshot("before_stress")
 
-        for i in range(concurrency):
+        for _i in range(concurrency):
             task = mock_hybrid_search_engine.hybrid_search(
                 collection_name="test_collection",
                 query_embeddings=query_embeddings,
@@ -518,10 +517,10 @@ class TestMemoryUsage:
         for limit in result_limits:
             # Take memory snapshot before
             snapshot_before = tracemalloc.take_snapshot()
-            mem_before = perf_metrics.record_memory_snapshot(f"before_limit_{limit}")
+            perf_metrics.record_memory_snapshot(f"before_limit_{limit}")
 
             # Perform search
-            result = await mock_hybrid_search_engine.hybrid_search(
+            await mock_hybrid_search_engine.hybrid_search(
                 collection_name="test_collection",
                 query_embeddings=query_embeddings,
                 limit=limit,
@@ -530,7 +529,7 @@ class TestMemoryUsage:
 
             # Take memory snapshot after
             snapshot_after = tracemalloc.take_snapshot()
-            mem_after = perf_metrics.record_memory_snapshot(f"after_limit_{limit}")
+            perf_metrics.record_memory_snapshot(f"after_limit_{limit}")
 
             # Calculate memory difference
             top_stats = snapshot_after.compare_to(snapshot_before, 'lineno')
@@ -547,7 +546,7 @@ class TestMemoryUsage:
         assert memory_stats['growth_mb'] < 10.0, \
             f"Excessive memory growth with large results: {memory_stats['growth_mb']:.2f}MB"
 
-        print(f"\n💾 Memory Usage with Large Result Sets:")
+        print("\n💾 Memory Usage with Large Result Sets:")
         print(f"   Initial memory: {memory_stats['initial_mb']:.2f}MB")
         print(f"   Final memory: {memory_stats['final_mb']:.2f}MB")
         print(f"   Total growth: {memory_stats['growth_mb']:.2f}MB")
@@ -658,7 +657,7 @@ class TestCollectionSizeScaling:
         baseline_size = collection_sizes[0]
         baseline_latency = size_results[baseline_size]['mean_latency_ms']
 
-        print(f"\n📈 Collection Size Scaling Analysis:")
+        print("\n📈 Collection Size Scaling Analysis:")
         print(f"   Baseline ({baseline_size} docs): {baseline_latency:.2f}ms")
 
         for size in collection_sizes[1:]:
@@ -726,7 +725,7 @@ class TestCollectionSizeScaling:
         assert degradation_percent < max_degradation, \
             f"Excessive performance degradation: {degradation_percent:.1f}% > {max_degradation}%"
 
-        print(f"\n⚠️  Performance Degradation Analysis:")
+        print("\n⚠️  Performance Degradation Analysis:")
         print(f"   Baseline (small): {baseline_mean:.2f}ms")
         print(f"   Large collection: {large_mean:.2f}ms")
         print(f"   Degradation: {degradation_percent:.1f}%")
@@ -775,13 +774,13 @@ class TestPerformanceRegression:
                 "hybrid_search_latency",
                 current_metrics
             )
-            print(f"\n📊 Performance Baseline Established:")
+            print("\n📊 Performance Baseline Established:")
             print(f"   Mean latency: {current_metrics['mean_latency_ms']:.2f}ms")
             print(f"   P95 latency: {current_metrics['p95_latency_ms']:.2f}ms")
             print(f"   P99 latency: {current_metrics['p99_latency_ms']:.2f}ms")
         else:
             # Compare to baseline
-            baseline_metrics = baseline['metrics']
+            baseline['metrics']
             comparison = performance_baseline_manager.compare_to_baseline(
                 "hybrid_search_latency",
                 current_metrics
@@ -789,16 +788,16 @@ class TestPerformanceRegression:
 
             # Check for regressions
             if comparison.get('regressions'):
-                print(f"\n🚨 Performance Regressions Detected:")
+                print("\n🚨 Performance Regressions Detected:")
                 for regression in comparison['regressions']:
                     print(f"   {regression['metric']}: {regression['change_percent']:.1f}% increase")
 
                 # Don't fail test on first detection - allow some variance
                 # assert len(comparison['regressions']) == 0, "Performance regressions detected"
             else:
-                print(f"\n✅ No Performance Regressions Detected")
+                print("\n✅ No Performance Regressions Detected")
 
-            print(f"\n📊 Performance Comparison:")
+            print("\n📊 Performance Comparison:")
             for metric, comp in comparison.get('comparisons', {}).items():
                 change = comp['change_percent']
                 status = "📈" if change > 0 else "📉" if change < 0 else "➡️"
@@ -849,7 +848,7 @@ class TestPerformanceRegression:
             'memory_stable': memory_stats['growth_mb'] < 10.0,
         }
 
-        print(f"\n✅ Performance Requirements Validation:")
+        print("\n✅ Performance Requirements Validation:")
         print(f"   P95 latency < 100ms: {percentiles['p95']:.2f}ms {'✅' if requirements_met['p95_latency'] else '❌'}")
         print(f"   Mean latency < 80ms: {percentiles['mean']:.2f}ms {'✅' if requirements_met['mean_latency'] else '❌'}")
         print(f"   Memory stable < 10MB: {memory_stats['growth_mb']:.2f}MB {'✅' if requirements_met['memory_stable'] else '❌'}")
@@ -858,16 +857,16 @@ class TestPerformanceRegression:
         assert all(requirements_met.values()), \
             f"Performance requirements not met: {[k for k, v in requirements_met.items() if not v]}"
 
-        print(f"\n🎯 All Performance Requirements Met!")
+        print("\n🎯 All Performance Requirements Met!")
 
 
 @pytest.mark.asyncio
 async def test_comprehensive_hybrid_search_performance_report(perf_metrics, mock_hybrid_search_engine):
     """Generate comprehensive performance report for hybrid search."""
 
-    print(f"\n" + "="*70)
-    print(f"📊 COMPREHENSIVE HYBRID SEARCH PERFORMANCE REPORT")
-    print(f"="*70)
+    print("\n" + "="*70)
+    print("📊 COMPREHENSIVE HYBRID SEARCH PERFORMANCE REPORT")
+    print("="*70)
 
     query_embeddings = {
         "dense": [0.1] * 384,
@@ -879,7 +878,7 @@ async def test_comprehensive_hybrid_search_performance_report(perf_metrics, mock
     perf_metrics.record_memory_snapshot("report_start")
 
     # Run performance tests
-    for i in range(100):
+    for _i in range(100):
         start_time = time.perf_counter()
         await mock_hybrid_search_engine.hybrid_search(
             collection_name="test_collection",
@@ -896,7 +895,7 @@ async def test_comprehensive_hybrid_search_performance_report(perf_metrics, mock
     summary = perf_metrics.get_summary()
 
     # Print comprehensive report
-    print(f"\n⚡ LATENCY METRICS:")
+    print("\n⚡ LATENCY METRICS:")
     percentiles = summary['latency_percentiles']
     print(f"   Total searches: {summary['total_searches']}")
     print(f"   Mean latency: {percentiles['mean']:.2f}ms")
@@ -907,7 +906,7 @@ async def test_comprehensive_hybrid_search_performance_report(perf_metrics, mock
     print(f"   Max latency: {percentiles['max']:.2f}ms")
     print(f"   Std deviation: {percentiles['stddev']:.2f}ms")
 
-    print(f"\n💾 MEMORY METRICS:")
+    print("\n💾 MEMORY METRICS:")
     memory = summary['memory_stats']
     print(f"   Initial memory: {memory['initial_mb']:.2f}MB")
     print(f"   Final memory: {memory['final_mb']:.2f}MB")
@@ -915,7 +914,7 @@ async def test_comprehensive_hybrid_search_performance_report(perf_metrics, mock
     print(f"   Peak memory: {memory['peak_mb']:.2f}MB")
     print(f"   Mean memory: {memory['mean_mb']:.2f}MB")
 
-    print(f"\n🎯 PERFORMANCE ASSESSMENT:")
+    print("\n🎯 PERFORMANCE ASSESSMENT:")
     p95_pass = percentiles['p95'] < 100.0
     memory_pass = memory['growth_mb'] < 10.0
 
@@ -925,6 +924,6 @@ async def test_comprehensive_hybrid_search_performance_report(perf_metrics, mock
     overall_status = "✅ EXCELLENT" if (p95_pass and memory_pass) else "⚠️  NEEDS ATTENTION"
     print(f"   Overall status: {overall_status}")
 
-    print(f"\n" + "="*70)
+    print("\n" + "="*70)
 
     return summary

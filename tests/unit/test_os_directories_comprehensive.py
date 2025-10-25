@@ -14,14 +14,16 @@ Test coverage:
 
 import os
 import platform
-import tempfile
-from pathlib import Path
-from typing import Dict, List, Optional
-from unittest.mock import Mock, patch, MagicMock, call
-import pytest
 
 # Ensure proper imports from the project structure
 import sys
+import tempfile
+from pathlib import Path
+from typing import Optional
+from unittest.mock import MagicMock, Mock, call, patch
+
+import pytest
+
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src" / "python"))
 from common.utils.os_directories import OSDirectories
@@ -494,7 +496,7 @@ class TestOSDirectories:
             assert "config" in migration_plan
             assert len(migration_plan["config"]) == 1
             assert migration_plan["config"][0]["from"] == legacy_config
-            assert migration_plan["config"][0]["exists"] == True
+            assert migration_plan["config"][0]["exists"]
 
     def test_migrate_from_legacy_paths_all_types(self):
         """Test migration planning for all file types."""
@@ -532,7 +534,7 @@ class TestOSDirectories:
             for file_type in legacy_files.keys():
                 assert file_type in migration_plan
                 assert len(migration_plan[file_type]) == 1
-                assert migration_plan[file_type][0]["exists"] == True
+                assert migration_plan[file_type][0]["exists"]
 
     def test_migrate_from_legacy_paths_nonexistent_file(self):
         """Test migration planning for non-existent legacy files."""
@@ -574,7 +576,7 @@ class TestOSDirectories:
         with patch.object(os_dirs, 'get_config_file', return_value=new_config):
             migration_plan = os_dirs.migrate_from_legacy_paths(legacy_paths)
 
-            assert migration_plan["config"][0]["target_exists"] == True
+            assert migration_plan["config"][0]["target_exists"]
 
     def test_get_directory_info(self):
         """Test directory information generation."""

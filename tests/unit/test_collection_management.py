@@ -18,20 +18,21 @@ Requirements:
 """
 
 import asyncio
-import pytest
-import uuid
-from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock, patch
 
 # Import MCP server functions
 import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
+from qdrant_client.models import CollectionStatus, Distance, VectorParams
 from workspace_qdrant_mcp.server import manage
-from qdrant_client.models import Distance, VectorParams, CollectionStatus
-
 
 # ============================================================================
 # TEST FIXTURES

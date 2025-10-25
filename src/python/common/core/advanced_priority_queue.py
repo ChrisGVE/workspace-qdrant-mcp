@@ -7,17 +7,18 @@ characteristics and system load.
 """
 
 import asyncio
-import time
 import heapq
 import threading
+import time
 from collections import defaultdict, deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from enum import Enum, IntEnum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
-from loguru import logger
+from typing import Any
+
 import psutil
+from loguru import logger
 
 
 class TaskPriority(IntEnum):
@@ -42,13 +43,13 @@ class ResourceType(Enum):
 class TaskMetrics:
     """Metrics for tracking task performance and resource usage."""
     created_at: float = field(default_factory=time.time)
-    started_at: Optional[float] = None
-    completed_at: Optional[float] = None
+    started_at: float | None = None
+    completed_at: float | None = None
     wait_time: float = 0.0
     execution_time: float = 0.0
     retry_count: int = 0
-    last_error: Optional[str] = None
-    resource_usage: Dict[ResourceType, float] = field(default_factory=dict)
+    last_error: str | None = None
+    resource_usage: dict[ResourceType, float] = field(default_factory=dict)
 
     def mark_started(self) -> None:
         """Mark task as started and calculate wait time."""
@@ -74,11 +75,11 @@ class PriorityTask:
     task_id: str
     priority: TaskPriority
     payload: Any
-    callback: Optional[Callable] = None
+    callback: Callable | None = None
 
     # Priority and fairness management
     original_priority: TaskPriority = field(init=False)
-    boosted_priority: Optional[TaskPriority] = None
+    boosted_priority: TaskPriority | None = None
     starvation_threshold: float = 300.0  # 5 minutes default
 
     # Resource requirements and constraints
@@ -88,11 +89,11 @@ class PriorityTask:
     requires_exclusive_access: bool = False
 
     # Metadata and tracking
-    file_path: Optional[Path] = None
-    file_size: Optional[int] = None
-    file_type: Optional[str] = None
-    depends_on: List[str] = field(default_factory=list)
-    blocks: List[str] = field(default_factory=list)
+    file_path: Path | None = None
+    file_size: int | None = None
+    file_type: str | None = None
+    depends_on: list[str] = field(default_factory=list)
+    blocks: list[str] = field(default_factory=list)
 
     # Metrics and monitoring
     metrics: TaskMetrics = field(default_factory=TaskMetrics)
@@ -150,7 +151,7 @@ class ResourceMonitor:
         self._last_io_counters = psutil.disk_io_counters()
         self._last_io_time = time.time()
 
-    def get_current_usage(self) -> Dict[ResourceType, float]:
+    def get_current_usage(self) -> dict[ResourceType, float]:
         """Get current system resource usage."""
         cpu_percent = psutil.cpu_percent(interval=0.1) / 100.0
         memory = psutil.virtual_memory()
@@ -180,7 +181,7 @@ class ResourceMonitor:
             ResourceType.IO_WRITE: io_write_mb_per_sec,
         }
 
-    def should_throttle(self, usage: Optional[Dict[ResourceType, float]] = None) -> Tuple[bool, List[ResourceType]]:
+    def should_throttle(self, usage: dict[ResourceType, float] | None = None) -> tuple[bool, list[ResourceType]]:
         """Check if system should throttle due to resource pressure."""
         if usage is None:
             usage = self.get_current_usage()
@@ -198,7 +199,7 @@ class ResourceMonitor:
 
         return len(throttle_reasons) > 0, throttle_reasons
 
-    def get_throttle_delay(self, throttle_reasons: List[ResourceType]) -> float:
+    def get_throttle_delay(self, throttle_reasons: list[ResourceType]) -> float:
         """Calculate throttle delay based on resource pressure."""
         if not throttle_reasons:
             return 0.0
@@ -237,7 +238,7 @@ class FairnesManager:
         self._priority_last_served[effective_priority] = time.time()
         self._total_tasks_served += 1
 
-    def check_starvation_and_boost(self, tasks: List[PriorityTask]) -> int:
+    def check_starvation_and_boost(self, tasks: list[PriorityTask]) -> int:
         """Check for task starvation and boost priorities as needed."""
         current_time = time.time()
         boosted_count = 0
@@ -255,7 +256,7 @@ class FairnesManager:
 
         return boosted_count
 
-    def get_fairness_stats(self) -> Dict[str, Any]:
+    def get_fairness_stats(self) -> dict[str, Any]:
         """Get current fairness statistics."""
         stats = {
             "total_tasks_served": self._total_tasks_served,
@@ -296,9 +297,9 @@ class AdvancedPriorityQueue:
         """Initialize advanced priority queue."""
 
         # Core queue and task management
-        self._heap: List[PriorityTask] = []
-        self._task_dict: Dict[str, PriorityTask] = {}
-        self._running_tasks: Dict[str, PriorityTask] = {}
+        self._heap: list[PriorityTask] = []
+        self._task_dict: dict[str, PriorityTask] = {}
+        self._running_tasks: dict[str, PriorityTask] = {}
         self._completed_tasks: deque = deque(maxlen=1000)  # Keep last 1000 for stats
 
         # Concurrency and resource limits
@@ -317,11 +318,11 @@ class AdvancedPriorityQueue:
         ) if enable_resource_monitoring else None
 
         # Dependency tracking
-        self._dependency_graph: Dict[str, Set[str]] = defaultdict(set)  # task_id -> dependencies
-        self._blocking_graph: Dict[str, Set[str]] = defaultdict(set)    # task_id -> blocked tasks
+        self._dependency_graph: dict[str, set[str]] = defaultdict(set)  # task_id -> dependencies
+        self._blocking_graph: dict[str, set[str]] = defaultdict(set)    # task_id -> blocked tasks
 
         # Background monitoring task
-        self._monitoring_task: Optional[asyncio.Task] = None
+        self._monitoring_task: asyncio.Task | None = None
         self._shutdown = False
 
         # Metrics and statistics
@@ -390,7 +391,7 @@ class AdvancedPriorityQueue:
             logger.debug(f"Added task {task.task_id} with priority {task.priority} to queue")
             return True
 
-    async def get(self) -> Optional[PriorityTask]:
+    async def get(self) -> PriorityTask | None:
         """
         Get the next task from the priority queue.
 
@@ -431,7 +432,7 @@ class AdvancedPriorityQueue:
                 logger.debug(f"Retrieved task {task.task_id} from queue (waited {task.metrics.wait_time:.1f}s)")
                 return task
 
-    def _get_next_ready_task(self) -> Optional[PriorityTask]:
+    def _get_next_ready_task(self) -> PriorityTask | None:
         """Get the next task that has all dependencies satisfied."""
         ready_tasks = []
 
@@ -463,7 +464,7 @@ class AdvancedPriorityQueue:
                 return False
         return True
 
-    def task_completed(self, task: PriorityTask, success: bool = True, error: Optional[str] = None) -> None:
+    def task_completed(self, task: PriorityTask, success: bool = True, error: str | None = None) -> None:
         """Mark a task as completed and update statistics."""
         with self._lock:
             # Remove from running tasks
@@ -520,7 +521,7 @@ class AdvancedPriorityQueue:
         if completed_task_id in self._blocking_graph:
             del self._blocking_graph[completed_task_id]
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get comprehensive queue statistics."""
         with self._lock:
             current_stats = self.stats.copy()
@@ -539,7 +540,7 @@ class AdvancedPriorityQueue:
 
             return current_stats
 
-    def get_queue_contents(self) -> List[Dict[str, Any]]:
+    def get_queue_contents(self) -> list[dict[str, Any]]:
         """Get information about all tasks currently in the queue."""
         with self._lock:
             return [

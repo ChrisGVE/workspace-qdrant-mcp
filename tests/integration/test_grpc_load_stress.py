@@ -26,15 +26,16 @@ Parent: #290 - Build MCP-daemon integration test framework
 """
 
 import asyncio
-import pytest
-import time
-import psutil
-import statistics
-from pathlib import Path
-from typing import List, Dict, Any
-from concurrent.futures import ThreadPoolExecutor, as_completed
 import json
+import statistics
 import tempfile
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any
+
+import psutil
+import pytest
 
 
 @pytest.fixture(scope="module")
@@ -253,7 +254,7 @@ class TestLargePayloadProcessing:
                 chunks_sent = 0
 
                 for offset in range(0, len(content), chunk_size):
-                    chunk = content[offset : offset + chunk_size]
+                    content[offset : offset + chunk_size]
                     await asyncio.sleep(0.001)  # Simulate chunk transmission
                     chunks_sent += 1
 
@@ -314,7 +315,7 @@ class TestRapidRequestSequences:
         burst_size = 100
         burst_count = 5
 
-        for burst_num in range(burst_count):
+        for _burst_num in range(burst_count):
             # Step 1: Send burst of requests with minimal delay
             start_time = time.time()
             tasks = []
@@ -535,7 +536,7 @@ class TestGracefulDegradation:
 
         # Step 4: Validate graceful degradation
         success_count = sum(1 for r in results if isinstance(r, dict) and r.get("success"))
-        error_count = len(results) - success_count
+        len(results) - success_count
 
         # Allow some failures under extreme stress
         success_rate = success_count / len(results)

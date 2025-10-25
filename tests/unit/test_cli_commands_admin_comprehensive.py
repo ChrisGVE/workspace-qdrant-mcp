@@ -9,13 +9,14 @@ engine lifecycle, and migration operations.
 import asyncio
 import json
 import os
-import pytest
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 import typer
 from typer.testing import CliRunner
 
@@ -28,14 +29,38 @@ os.environ["WQM_LOG_INIT"] = "false"
 
 try:
     from wqm_cli.cli.commands.admin import (
-        admin_app, system_status, config_management, start_engine, stop_engine,
-        restart_engine, list_collections, health_check, migration_report,
-        migration_history, validate_backup, rollback_config, backup_info,
-        cleanup_migration_history, _system_status, _watch_status, _collect_status_data,
-        _display_status_panel, _config_management, _start_engine, _stop_engine,
-        _restart_engine, _list_collections, _health_check, _migration_report,
-        _migration_history, _validate_backup, _rollback_config, _backup_info,
-        _cleanup_migration_history, _get_config_migrator, _get_report_generator
+        _backup_info,
+        _cleanup_migration_history,
+        _collect_status_data,
+        _config_management,
+        _display_status_panel,
+        _get_config_migrator,
+        _get_report_generator,
+        _health_check,
+        _list_collections,
+        _migration_history,
+        _migration_report,
+        _restart_engine,
+        _rollback_config,
+        _start_engine,
+        _stop_engine,
+        _system_status,
+        _validate_backup,
+        _watch_status,
+        admin_app,
+        backup_info,
+        cleanup_migration_history,
+        config_management,
+        health_check,
+        list_collections,
+        migration_history,
+        migration_report,
+        restart_engine,
+        rollback_config,
+        start_engine,
+        stop_engine,
+        system_status,
+        validate_backup,
     )
     ADMIN_COMMANDS_AVAILABLE = True
 except ImportError as e:
@@ -61,20 +86,15 @@ class TestAdminCommandsApp:
 
     def test_admin_app_commands_registered(self):
         """Test that expected admin commands are registered"""
-        expected_commands = [
-            "status", "config", "start-engine", "stop-engine", "restart-engine",
-            "collections", "health", "migration-report", "migration-history",
-            "validate-backup", "rollback-config", "backup-info", "cleanup-migration-history"
-        ]
 
         # Get registered commands
         if hasattr(admin_app, 'registered_commands'):
-            registered_commands = list(admin_app.registered_commands.keys())
+            list(admin_app.registered_commands.keys())
         elif hasattr(admin_app, 'commands'):
-            registered_commands = list(admin_app.commands.keys())
+            list(admin_app.commands.keys())
         else:
             # Fallback - check if commands are callable
-            registered_commands = []
+            pass
 
         # At least some core commands should be available
         core_commands = ["status", "config", "health", "collections"]
@@ -208,7 +228,7 @@ class TestSystemStatusCommand:
         with patch('wqm_cli.cli.commands.admin.Config', return_value=mock_config):
             with patch('wqm_cli.cli.commands.admin._collect_status_data', return_value=mock_status_data):
                 with patch('wqm_cli.cli.commands.admin._display_status_panel'):
-                    with patch('subprocess.run') as mock_subprocess:
+                    with patch('subprocess.run'):
                         with patch('asyncio.sleep', side_effect=[None, KeyboardInterrupt]):
                             with patch('builtins.print') as mock_print:
                                 await _watch_status(verbose=False)
@@ -759,7 +779,7 @@ class TestMigrationCommands:
         mock_migrator.get_migration_report.return_value = {"migration_id": "specific-id"}
 
         with patch('wqm_cli.cli.commands.admin._get_config_migrator', return_value=mock_migrator):
-            with patch('builtins.print') as mock_print:
+            with patch('builtins.print'):
                 await _migration_report(migration_id="specific-id", format="text", export=None, latest=False)
 
                 mock_migrator.get_migration_report.assert_called_with("specific-id")
@@ -789,7 +809,7 @@ class TestMigrationCommands:
                     assert any("exported to:" in call for call in print_calls)
 
                     # Check file was written
-                    with open(export_path, 'r') as f:
+                    with open(export_path) as f:
                         content = f.read()
                         assert content == "Formatted report text"
         finally:

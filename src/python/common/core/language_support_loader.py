@@ -42,8 +42,7 @@ Example:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -99,7 +98,7 @@ class LanguageSupportLoader:
             >>> print(f"Loaded {count} languages")
         """
         # Build comprehensive language info by combining multiple config sections
-        language_data: Dict[str, Dict[str, Any]] = {}
+        language_data: dict[str, dict[str, Any]] = {}
 
         # 1. Collect file extensions for each language
         for ext, lang_name in config.file_extensions.items():
@@ -224,7 +223,7 @@ class LanguageSupportLoader:
 
         return loaded_count
 
-    async def get_language(self, language_name: str) -> Optional[Dict[str, Any]]:
+    async def get_language(self, language_name: str) -> dict[str, Any] | None:
         """Query language information by name.
 
         Retrieves complete language information including LSP server details,
@@ -256,7 +255,7 @@ class LanguageSupportLoader:
             >>>     if info['lsp_absolute_path']:
             >>>         print(f"Custom path: {info['lsp_absolute_path']}")
         """
-        def _get_language_sync() -> Optional[Dict[str, Any]]:
+        def _get_language_sync() -> dict[str, Any] | None:
             """Synchronous database query."""
             with self.state_manager._lock:
                 cursor = self.state_manager.connection.cursor()
@@ -301,7 +300,7 @@ class LanguageSupportLoader:
 
         return _get_language_sync()
 
-    async def list_languages(self) -> List[Dict[str, Any]]:
+    async def list_languages(self) -> list[dict[str, Any]]:
         """List all languages in database.
 
         Retrieves all language records ordered by language name.
@@ -318,7 +317,7 @@ class LanguageSupportLoader:
             >>>     status = "missing LSP" if lang['lsp_missing'] else "has LSP"
             >>>     print(f"{lang['language_name']}: {status}")
         """
-        def _list_languages_sync() -> List[Dict[str, Any]]:
+        def _list_languages_sync() -> list[dict[str, Any]]:
             """Synchronous database query."""
             with self.state_manager._lock:
                 cursor = self.state_manager.connection.cursor()

@@ -7,18 +7,19 @@ network, file descriptors, threads, queue depths) and performance metrics
 usage stays within acceptable bounds and detects performance regressions.
 """
 
-import pytest
 import asyncio
 import time
-import psutil
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import Optional
+
+import psutil
+import pytest
 
 from tests.e2e.fixtures import (
-    SystemComponents,
     CLIHelper,
-    ResourceMonitor,
     ResourceMetrics,
+    ResourceMonitor,
+    SystemComponents,
 )
 
 

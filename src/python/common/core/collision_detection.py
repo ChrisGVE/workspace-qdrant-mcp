@@ -52,34 +52,22 @@ Performance Features:
 """
 
 import asyncio
-import hashlib
+import threading
 import time
+import weakref
 from collections import defaultdict, deque
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple, Any, AsyncContextManager, Callable
-from contextlib import asynccontextmanager
-import threading
-from concurrent.futures import ThreadPoolExecutor
-import weakref
+from typing import Any
 
 from loguru import logger
 from qdrant_client import QdrantClient
-from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 
 # Import components from previous subtasks
 from .collection_naming_validation import (
+    CollectionCategory,
     CollectionNamingValidator,
-    ValidationResult,
-    NamingConfiguration,
-    ValidationSeverity,
-    ConflictType,
-    CollectionCategory
-)
-from .metadata_schema import (
-    MultiTenantMetadataSchema,
-    WorkspaceScope,
-    AccessLevel
 )
 
 
@@ -115,17 +103,17 @@ class CollisionResult:
 
     has_collision: bool
     severity: CollisionSeverity
-    category: Optional[CollisionCategory] = None
+    category: CollisionCategory | None = None
 
     # Collision details
-    conflicting_collections: List[str] = field(default_factory=list)
-    collision_reason: Optional[str] = None
-    collision_metadata: Dict[str, Any] = field(default_factory=dict)
+    conflicting_collections: list[str] = field(default_factory=list)
+    collision_reason: str | None = None
+    collision_metadata: dict[str, Any] = field(default_factory=dict)
 
     # Resolution information
-    suggested_alternatives: List[str] = field(default_factory=list)
+    suggested_alternatives: list[str] = field(default_factory=list)
     auto_resolution_available: bool = False
-    resolution_strategy: Optional[str] = None
+    resolution_strategy: str | None = None
 
     # Performance and timing information
     detection_time_ms: float = 0.0
@@ -139,11 +127,11 @@ class CollisionRegistryEntry:
 
     collection_name: str
     category: CollectionCategory
-    project_context: Optional[str] = None
+    project_context: str | None = None
     creation_timestamp: float = field(default_factory=time.time)
     last_accessed: float = field(default_factory=time.time)
     access_count: int = 0
-    metadata_hash: Optional[str] = None
+    metadata_hash: str | None = None
 
     def update_access(self):
         """Update access tracking information."""
@@ -226,14 +214,14 @@ class CollisionRegistry:
         self.max_cache_size = max_cache_size
 
         # Core registry data structures
-        self._registry: Dict[str, CollisionRegistryEntry] = {}
-        self._category_index: Dict[CollisionCategory, Set[str]] = defaultdict(set)
-        self._project_index: Dict[str, Set[str]] = defaultdict(set)
+        self._registry: dict[str, CollisionRegistryEntry] = {}
+        self._category_index: dict[CollisionCategory, set[str]] = defaultdict(set)
+        self._project_index: dict[str, set[str]] = defaultdict(set)
 
         # Performance optimization components
         self._bloom_filter = BloomFilter()
         self._cache_order = deque()  # LRU cache ordering
-        self._similarity_cache: Dict[str, List[str]] = {}
+        self._similarity_cache: dict[str, list[str]] = {}
 
         # Thread safety
         self._lock = threading.RLock()
@@ -248,7 +236,7 @@ class CollisionRegistry:
 
         logger.info(f"Initialized collision registry with cache size: {max_cache_size}")
 
-    def add_collection(self, name: str, category: CollectionCategory, project_context: Optional[str] = None) -> bool:
+    def add_collection(self, name: str, category: CollectionCategory, project_context: str | None = None) -> bool:
         """
         Add a collection to the registry.
 
@@ -326,7 +314,7 @@ class CollisionRegistry:
 
             return exists
 
-    def get_similar_names(self, name: str, threshold: float = 0.8) -> List[str]:
+    def get_similar_names(self, name: str, threshold: float = 0.8) -> list[str]:
         """
         Find similar collection names using cached similarity analysis.
 
@@ -363,12 +351,12 @@ class CollisionRegistry:
 
             return similar_names
 
-    def get_by_category(self, category: CollectionCategory) -> Set[str]:
+    def get_by_category(self, category: CollectionCategory) -> set[str]:
         """Get all collection names in a specific category."""
         with self._lock:
             return self._category_index[category].copy()
 
-    def get_by_project(self, project_context: str) -> Set[str]:
+    def get_by_project(self, project_context: str) -> set[str]:
         """Get all collection names for a specific project."""
         with self._lock:
             return self._project_index[project_context].copy()
@@ -409,7 +397,7 @@ class CollisionRegistry:
             logger.debug(f"Removed collection from registry: {name}")
             return True
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get registry statistics and performance metrics."""
         with self._lock:
             cache_hit_rate = (self._stats['cache_hits'] / max(self._stats['total_lookups'], 1)) * 100
@@ -552,7 +540,7 @@ class NameSuggestionEngine:
         logger.info("Initialized name suggestion engine")
 
     async def generate_suggestions(self, collision_name: str, intended_category: CollectionCategory,
-                                 max_suggestions: int = 5) -> List[str]:
+                                 max_suggestions: int = 5) -> list[str]:
         """
         Generate intelligent name suggestions for a colliding collection name.
 
@@ -593,7 +581,7 @@ class NameSuggestionEngine:
         logger.debug(f"Generated {len(suggestions)} suggestions for {collision_name}")
         return suggestions
 
-    async def _suggest_with_suffixes(self, name: str, category: CollectionCategory) -> List[str]:
+    async def _suggest_with_suffixes(self, name: str, category: CollectionCategory) -> list[str]:
         """Generate suggestions by adding common suffixes."""
         suggestions = []
 
@@ -620,7 +608,7 @@ class NameSuggestionEngine:
 
         return suggestions
 
-    async def _suggest_with_prefixes(self, name: str, category: CollectionCategory) -> List[str]:
+    async def _suggest_with_prefixes(self, name: str, category: CollectionCategory) -> list[str]:
         """Generate suggestions by adding common prefixes."""
         suggestions = []
 
@@ -656,7 +644,7 @@ class NameSuggestionEngine:
 
         return suggestions
 
-    async def _suggest_with_numbers(self, name: str, category: CollectionCategory) -> List[str]:
+    async def _suggest_with_numbers(self, name: str, category: CollectionCategory) -> list[str]:
         """Generate suggestions by adding version numbers."""
         suggestions = []
 
@@ -678,7 +666,7 @@ class NameSuggestionEngine:
 
         return suggestions
 
-    async def _suggest_with_variations(self, name: str, category: CollectionCategory) -> List[str]:
+    async def _suggest_with_variations(self, name: str, category: CollectionCategory) -> list[str]:
         """Generate suggestions using name variations and abbreviations."""
         suggestions = []
 
@@ -696,13 +684,10 @@ class NameSuggestionEngine:
             # Remove prefixes for processing
             if name.startswith('__'):
                 base_name = name[2:]
-                prefix = '__'
             elif name.startswith('_'):
                 base_name = name[1:]
-                prefix = '_'
             else:
                 base_name = name
-                prefix = ''
 
             base_project = base_name
             collection_type = None
@@ -749,7 +734,7 @@ class NameSuggestionEngine:
 
         return suggestions
 
-    async def _suggest_category_specific(self, name: str, category: CollectionCategory) -> List[str]:
+    async def _suggest_category_specific(self, name: str, category: CollectionCategory) -> list[str]:
         """Generate category-specific name suggestions."""
         suggestions = []
 
@@ -781,7 +766,7 @@ class NameSuggestionEngine:
 
         return suggestions
 
-    async def _suggest_semantic_alternatives(self, name: str, category: CollectionCategory) -> List[str]:
+    async def _suggest_semantic_alternatives(self, name: str, category: CollectionCategory) -> list[str]:
         """Generate suggestions using semantic alternatives for common terms."""
         suggestions = []
 
@@ -815,9 +800,9 @@ class ConcurrentCreationGuard:
 
     def __init__(self):
         """Initialize the concurrent creation guard."""
-        self._creation_locks: Dict[str, asyncio.Lock] = {}
+        self._creation_locks: dict[str, asyncio.Lock] = {}
         self._global_lock = asyncio.Lock()
-        self._pending_creations: Set[str] = set()
+        self._pending_creations: set[str] = set()
 
         # Weak references to prevent memory leaks
         self._lock_refs: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
@@ -825,7 +810,7 @@ class ConcurrentCreationGuard:
         logger.info("Initialized concurrent creation guard")
 
     @asynccontextmanager
-    async def acquire_creation_lock(self, collection_name: str) -> AsyncContextManager[None]:
+    async def acquire_creation_lock(self, collection_name: str) -> AbstractAsyncContextManager[None]:
         """
         Acquire exclusive lock for collection creation.
 
@@ -876,7 +861,7 @@ class ConcurrentCreationGuard:
         normalized_name = collection_name.lower().strip()
         return normalized_name in self._pending_creations
 
-    def get_pending_creations(self) -> Set[str]:
+    def get_pending_creations(self) -> set[str]:
         """Get set of all pending collection creations."""
         return self._pending_creations.copy()
 
@@ -890,7 +875,7 @@ class CollisionDetector:
     prevention system for collection management.
     """
 
-    def __init__(self, qdrant_client: QdrantClient, naming_validator: Optional[CollectionNamingValidator] = None):
+    def __init__(self, qdrant_client: QdrantClient, naming_validator: CollectionNamingValidator | None = None):
         """
         Initialize the collision detector.
 
@@ -913,7 +898,7 @@ class CollisionDetector:
         # State tracking
         self._initialized = False
         self._last_refresh = 0.0
-        self._refresh_task: Optional[asyncio.Task] = None
+        self._refresh_task: asyncio.Task | None = None
 
         logger.info("Initialized collision detector")
 
@@ -939,8 +924,8 @@ class CollisionDetector:
             raise
 
     async def check_collection_collision(self, collection_name: str,
-                                       intended_category: Optional[CollectionCategory] = None,
-                                       project_context: Optional[str] = None) -> CollisionResult:
+                                       intended_category: CollectionCategory | None = None,
+                                       project_context: str | None = None) -> CollisionResult:
         """
         Comprehensive collision detection for a collection name.
 
@@ -1054,7 +1039,7 @@ class CollisionDetector:
 
     async def register_collection_creation(self, collection_name: str,
                                          category: CollectionCategory,
-                                         project_context: Optional[str] = None):
+                                         project_context: str | None = None):
         """
         Register a successful collection creation in the registry.
 
@@ -1080,7 +1065,7 @@ class CollisionDetector:
             logger.debug(f"Removed collection from registry: {normalized_name}")
 
     @asynccontextmanager
-    async def create_collection_guard(self, collection_name: str) -> AsyncContextManager[None]:
+    async def create_collection_guard(self, collection_name: str) -> AbstractAsyncContextManager[None]:
         """
         Context manager for safe collection creation with collision prevention.
 
@@ -1098,7 +1083,7 @@ class CollisionDetector:
 
             yield
 
-    async def get_collision_statistics(self) -> Dict[str, Any]:
+    async def get_collision_statistics(self) -> dict[str, Any]:
         """Get comprehensive collision detection statistics."""
         registry_stats = self.registry.get_statistics()
 

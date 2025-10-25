@@ -15,12 +15,11 @@ import json
 from unittest.mock import Mock, patch
 
 import pytest
-
 from workspace_qdrant_mcp.memory.token_counter import (
-    TokenCounter,
-    TokenUsage,
-    TokenizationMethod,
     RuleTokenInfo,
+    TokenCounter,
+    TokenizationMethod,
+    TokenUsage,
 )
 from workspace_qdrant_mcp.memory.types import (
     AuthorityLevel,
@@ -197,9 +196,9 @@ class TestTokenCounterInit:
         """Test initialization with tiktoken method."""
         mock_encoder = Mock()
         mock_encoding.return_value = mock_encoder
-        
+
         counter = TokenCounter(method=TokenizationMethod.TIKTOKEN)
-        
+
         assert counter.method == TokenizationMethod.TIKTOKEN
         mock_encoding.assert_called_once_with("gpt-4")
 
@@ -207,14 +206,14 @@ class TestTokenCounterInit:
         """Test fallback when tiktoken is not available."""
         with patch('tiktoken.encoding_for_model', side_effect=ImportError):
             counter = TokenCounter(method=TokenizationMethod.TIKTOKEN)
-            
+
             # Should fall back to SIMPLE method
             assert counter.method == TokenizationMethod.SIMPLE
 
     def test_anthropic_method_fallback(self):
         """Test fallback for Anthropic method (not yet implemented)."""
         counter = TokenCounter(method=TokenizationMethod.ANTHROPIC)
-        
+
         # Should fall back to SIMPLE method
         assert counter.method == TokenizationMethod.SIMPLE
 
@@ -238,7 +237,7 @@ class TestTokenCounting:
         )
 
         token_count = counter.count_rule_tokens(rule)
-        
+
         assert isinstance(token_count, int)
         assert token_count > 0
         # Should be roughly proportional to text length (simple method)
@@ -254,7 +253,7 @@ class TestTokenCounting:
         )
 
         token_count = counter.count_rule_tokens(rule)
-        
+
         assert isinstance(token_count, int)
         assert token_count > 0  # Should have some tokens even for minimal rule
 
@@ -270,7 +269,7 @@ class TestTokenCounting:
         )
 
         token_count = counter.count_rule_tokens(rule)
-        
+
         assert isinstance(token_count, int)
         assert token_count > 30  # Should be substantial for complex rule
 
@@ -295,7 +294,7 @@ class TestTokenCounting:
         ]
 
         usage = counter.calculate_usage(rules)
-        
+
         assert isinstance(usage, TokenUsage)
         assert usage.total_tokens > 0
         assert usage.rules_count == 3
@@ -308,22 +307,22 @@ class TestTokenCounting:
     def test_tiktoken_counting(self, mock_encode):
         """Test token counting with tiktoken method."""
         mock_encode.return_value = [1, 2, 3, 4, 5]  # 5 tokens
-        
+
         with patch('tiktoken.encoding_for_model') as mock_encoding:
             mock_encoder = Mock()
             mock_encoder.encode = mock_encode
             mock_encoding.return_value = mock_encoder
-            
+
             counter = TokenCounter(method=TokenizationMethod.TIKTOKEN)
-            
+
             rule = MemoryRule(
                 rule="Test rule",
                 category=MemoryCategory.BEHAVIOR,
                 authority=AuthorityLevel.DEFAULT,
             )
-            
+
             token_count = counter.count_rule_tokens(rule)
-            
+
             assert token_count > 0
             mock_encode.assert_called()
 
@@ -492,8 +491,8 @@ class TestRuleOptimization:
 
         # Test with context that should prioritize Python rules
         selected_rules, usage = counter.optimize_rules_for_context(
-            rules, 
-            max_tokens=100, 
+            rules,
+            max_tokens=100,
             context_scopes=["python", "backend"],
             preserve_absolute=True
         )
@@ -544,8 +543,8 @@ class TestContextOptimization:
         # Should include React rule and general rule, might exclude Django
         react_rules = [r for r in selected_rules if "React" in r.rule]
         general_rules = [r for r in selected_rules if "General" in r.rule]
-        django_rules = [r for r in selected_rules if "Django" in r.rule]
-        
+        [r for r in selected_rules if "Django" in r.rule]
+
         assert len(react_rules) >= 1  # Should include React rule
         assert len(general_rules) >= 1  # Should include general rule
 
@@ -608,7 +607,7 @@ class TestPerformance:
     def test_large_rule_set_performance(self, counter):
         """Test performance with large number of rules."""
         import time
-        
+
         # Create large set of rules
         rules = []
         for i in range(1000):
@@ -631,7 +630,7 @@ class TestPerformance:
     def test_optimization_performance(self, counter):
         """Test performance of rule optimization."""
         import time
-        
+
         # Create medium set of rules for optimization
         rules = []
         for i in range(100):
@@ -663,16 +662,16 @@ class TestErrorHandling:
     def test_none_rule_handling(self):
         """Test handling of None rules."""
         counter = TokenCounter()
-        
+
         with pytest.raises((ValueError, AttributeError)):
             counter.count_rule_tokens(None)
 
     def test_empty_rule_list(self):
         """Test handling of empty rule lists."""
         counter = TokenCounter()
-        
+
         usage = counter.calculate_usage([])
-        
+
         assert usage.total_tokens == 0
         assert usage.rules_count == 0
         assert usage.percentage == 0.0
@@ -680,7 +679,7 @@ class TestErrorHandling:
     def test_zero_max_tokens(self):
         """Test optimization with zero max tokens."""
         counter = TokenCounter()
-        
+
         rules = [
             MemoryRule(
                 rule="Test rule",
@@ -700,7 +699,7 @@ class TestErrorHandling:
     def test_negative_max_tokens(self):
         """Test optimization with negative max tokens."""
         counter = TokenCounter()
-        
+
         rules = [
             MemoryRule(
                 rule="Test rule",

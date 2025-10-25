@@ -9,24 +9,23 @@ This module provides comprehensive certificate validation including:
 - Security policy enforcement
 """
 
-import ssl
 import hashlib
-import socket
+import ssl
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Set, Tuple, Union
 from pathlib import Path
-from urllib.parse import urlparse
 
 import cryptography.x509
+
 try:
     from cryptography.x509.verification import PolicyBuilder, StoreBuilder
 except ImportError:
     # Fallback for newer cryptography versions
     from cryptography.x509.verification import PolicyBuilder
     StoreBuilder = None
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import rsa, ec
 import logging
+
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ class CertificateSecurityPolicy:
     def __init__(
         self,
         min_key_size: int = 2048,
-        allowed_signature_algorithms: Optional[Set[str]] = None,
+        allowed_signature_algorithms: set[str] | None = None,
         max_certificate_age_days: int = 365,
         require_san: bool = True,
         allow_self_signed: bool = False,
@@ -81,9 +80,9 @@ class EnhancedCertificateValidator:
 
     def __init__(
         self,
-        security_policy: Optional[CertificateSecurityPolicy] = None,
-        pinned_certificates: Optional[Dict[str, List[str]]] = None,
-        trusted_ca_paths: Optional[List[str]] = None,
+        security_policy: CertificateSecurityPolicy | None = None,
+        pinned_certificates: dict[str, list[str]] | None = None,
+        trusted_ca_paths: list[str] | None = None,
     ):
         """Initialize enhanced certificate validator.
 
@@ -95,12 +94,12 @@ class EnhancedCertificateValidator:
         self.security_policy = security_policy or CertificateSecurityPolicy()
         self.pinned_certificates = pinned_certificates or {}
         self.trusted_ca_paths = trusted_ca_paths or []
-        self._certificate_cache: Dict[str, Tuple[cryptography.x509.Certificate, datetime]] = {}
+        self._certificate_cache: dict[str, tuple[cryptography.x509.Certificate, datetime]] = {}
 
     def validate_certificate_chain(
         self,
         hostname: str,
-        certificate_chain: List[bytes],
+        certificate_chain: list[bytes],
         verify_hostname: bool = True,
     ) -> bool:
         """Validate complete certificate chain with enhanced security checks.
@@ -223,7 +222,7 @@ class EnhancedCertificateValidator:
         )
         return hashlib.sha256(pubkey_bytes).hexdigest()
 
-    def _validate_chain_cryptography(self, certificates: List[cryptography.x509.Certificate]) -> None:
+    def _validate_chain_cryptography(self, certificates: list[cryptography.x509.Certificate]) -> None:
         """Validate certificate chain using cryptography library."""
         if len(certificates) == 1 and not self.security_policy.allow_self_signed:
             # For self-signed certificates, check if allowed
@@ -356,7 +355,7 @@ class EnhancedCertificateValidator:
             if self.security_policy.require_ocsp_stapling:
                 raise CertificateValidationError("Certificate missing Authority Information Access extension")
 
-    def get_certificate_info(self, certificate: cryptography.x509.Certificate) -> Dict[str, str]:
+    def get_certificate_info(self, certificate: cryptography.x509.Certificate) -> dict[str, str]:
         """Get human-readable certificate information."""
         info = {
             'subject': certificate.subject.rfc4514_string(),
@@ -380,7 +379,7 @@ class EnhancedCertificateValidator:
 
 
 def create_secure_ssl_context(
-    validator: Optional[EnhancedCertificateValidator] = None,
+    validator: EnhancedCertificateValidator | None = None,
     protocol: int = ssl.PROTOCOL_TLS_CLIENT,
 ) -> ssl.SSLContext:
     """Create a secure SSL context with enhanced validation.

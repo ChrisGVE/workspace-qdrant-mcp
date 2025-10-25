@@ -15,7 +15,7 @@ import re
 import stat
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -29,7 +29,7 @@ def temp_config_dir():
 
 
 @pytest.fixture
-def sample_secrets() -> Dict[str, str]:
+def sample_secrets() -> dict[str, str]:
     """Sample secrets for testing."""
     return {
         "api_key": "sk-1234567890abcdef1234567890abcdef",
@@ -142,7 +142,7 @@ class TestAPIKeyExposurePrevention:
         message = re.sub(r'[a-zA-Z0-9]{32,}', '****', message)
         return message
 
-    def _sanitize_response_headers(self, headers: Dict[str, str]) -> Dict[str, str]:
+    def _sanitize_response_headers(self, headers: dict[str, str]) -> dict[str, str]:
         """Sanitize response headers for safe logging."""
         safe_headers = headers.copy()
         if "Authorization" in safe_headers:
@@ -152,7 +152,7 @@ class TestAPIKeyExposurePrevention:
                 safe_headers["Authorization"] = "Bearer ****"
         return safe_headers
 
-    def _format_debug_output(self, config: Dict[str, Any]) -> str:
+    def _format_debug_output(self, config: dict[str, Any]) -> str:
         """Format configuration for debug output with secrets masked."""
         safe_config = {}
         sensitive_keys = {"api_key", "password", "secret", "token", "key"}
@@ -214,7 +214,7 @@ class TestEnvironmentVariableSecurity:
         missing = self._check_required_env_vars(["API_KEY", "DATABASE_URL"])
         assert "API_KEY" in missing
 
-    def _sanitize_environment(self, env_vars: Dict[str, str]) -> Dict[str, str]:
+    def _sanitize_environment(self, env_vars: dict[str, str]) -> dict[str, str]:
         """Sanitize environment variables for safe display."""
         safe_env = {}
         sensitive_patterns = [
@@ -265,7 +265,7 @@ class TestConfigurationFileSecurity:
 
         # Verify permissions
         file_stat = config_file.stat()
-        permissions = stat.filemode(file_stat.st_mode)
+        stat.filemode(file_stat.st_mode)
 
         # Should be -rw------- (0o600)
         assert oct(file_stat.st_mode)[-3:] == "600"
@@ -301,7 +301,7 @@ class TestConfigurationFileSecurity:
         assert not is_valid
         assert len(errors) > 0
 
-    def _encrypt_config(self, config: Dict[str, str]) -> bytes:
+    def _encrypt_config(self, config: dict[str, str]) -> bytes:
         """Encrypt configuration data (mock implementation)."""
         # In production, use proper encryption (AES-256, etc.)
         import base64
@@ -439,7 +439,7 @@ class TestLoggingSanitization:
                 return True
         return SanitizingFilter()
 
-    def _sanitize_log_entry(self, entry: Dict[str, Any]) -> Dict[str, Any]:
+    def _sanitize_log_entry(self, entry: dict[str, Any]) -> dict[str, Any]:
         """Sanitize structured log entry."""
         sanitized = {}
         sensitive_keys = {"api_key", "password", "secret", "token"}
@@ -482,7 +482,6 @@ class TestMemoryDumpProtection:
         """Test that secrets don't persist in Python string pool."""
         # Create secret in a way that might pool
         secret1 = "secret_value_12345"
-        secret2 = "secret_" + "value_12345"
 
         # In Python, small strings are interned/pooled
         # For secrets, use bytes or arrays that can be zeroed
@@ -575,7 +574,7 @@ class TestSecretRotation:
         should_rotate = self._should_auto_rotate(secret_metadata)
         assert should_rotate is True
 
-    def _rotate_api_key(self, old_key: str, new_key: str) -> Dict[str, bool]:
+    def _rotate_api_key(self, old_key: str, new_key: str) -> dict[str, bool]:
         """Simulate API key rotation."""
         # In production:
         # 1. Validate new key
@@ -588,13 +587,13 @@ class TestSecretRotation:
             "new_key_active": True,
         }
 
-    def _is_secret_expired(self, metadata: Dict[str, str]) -> bool:
+    def _is_secret_expired(self, metadata: dict[str, str]) -> bool:
         """Check if secret is expired."""
         from datetime import datetime
         expires_at = datetime.fromisoformat(metadata["expires_at"])
         return datetime.now() > expires_at
 
-    def _should_auto_rotate(self, metadata: Dict[str, str]) -> bool:
+    def _should_auto_rotate(self, metadata: dict[str, str]) -> bool:
         """Determine if secret should be auto-rotated."""
         from datetime import datetime, timedelta
         expires_at = datetime.fromisoformat(metadata["expires_at"])
@@ -652,7 +651,7 @@ class TestAccessControl:
         }
         return action in permissions.get(role, [])
 
-    def _access_secret_with_audit(self, user: str, secret_id: str, action: str) -> Dict[str, Any]:
+    def _access_secret_with_audit(self, user: str, secret_id: str, action: str) -> dict[str, Any]:
         """Access secret and create audit log entry."""
         from datetime import datetime
 

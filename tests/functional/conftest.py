@@ -6,28 +6,30 @@ including test containers, mock services, and performance monitoring.
 """
 
 import asyncio
+import os
+import shutil
+import tempfile
+
+# Performance and monitoring
+import time
+from collections.abc import AsyncGenerator, Generator
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import httpx
+import psutil
 import pytest
 import pytest_asyncio
-import tempfile
-import shutil
-import os
-from typing import Dict, Any, AsyncGenerator, Generator
-from pathlib import Path
+import respx
+
+# Playwright for web UI testing
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 # Test containers and service mocking
 from testcontainers import compose
 from testcontainers.qdrant import QdrantContainer
-import httpx
-import respx
-
-# Playwright for web UI testing
-from playwright.async_api import async_playwright, Browser, BrowserContext, Page
-
-# Performance and monitoring
-import time
-import psutil
-from dataclasses import dataclass, field
-from contextlib import asynccontextmanager
 
 
 @dataclass

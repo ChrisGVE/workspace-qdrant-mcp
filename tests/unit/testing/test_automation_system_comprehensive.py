@@ -5,31 +5,31 @@ Tests automation orchestration, triggering, phase coordination, and
 comprehensive error handling scenarios.
 """
 
-import pytest
 import asyncio
-import tempfile
 import json
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from src.python.workspace_qdrant_mcp.testing.execution.automation import (
-    TestAutomationSystem,
-    AutomationConfig,
-    AutomationMode,
-    AutomationTrigger,
-    AutomationRun,
-    TriggerType
-)
-from src.python.workspace_qdrant_mcp.testing.execution.scheduler import (
-    TestExecutionScheduler,
-    ExecutionPriority,
-    ExecutionStatus
-)
+import pytest
 from src.python.workspace_qdrant_mcp.testing.analytics.engine import (
+    QualityReport,
     TestAnalyticsEngine,
     TestMetrics,
-    QualityReport
+)
+from src.python.workspace_qdrant_mcp.testing.execution.automation import (
+    AutomationConfig,
+    AutomationMode,
+    AutomationRun,
+    AutomationTrigger,
+    TestAutomationSystem,
+    TriggerType,
+)
+from src.python.workspace_qdrant_mcp.testing.execution.scheduler import (
+    ExecutionPriority,
+    ExecutionStatus,
+    TestExecutionScheduler,
 )
 
 

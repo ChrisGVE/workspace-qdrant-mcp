@@ -18,28 +18,28 @@ import asyncio
 import atexit
 import hashlib
 import json
-from loguru import logger
 import os
 import platform
 import shutil
 import signal
 import socket
-import subprocess
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Optional
 
-from ..utils.project_detection import DaemonIdentifier, ProjectDetector
-from .resource_manager import ResourceManager, ResourceLimits, get_resource_manager
+from loguru import logger
+
+from ..utils.project_detection import ProjectDetector
 from .project_config_manager import (
-    ProjectConfigManager, 
-    DaemonProjectConfig, 
-    ConfigScope,
-    get_project_config_manager
+    DaemonProjectConfig,
+    ProjectConfigManager,
+    get_project_config_manager,
 )
+from .resource_manager import ResourceLimits, get_resource_manager
 
 # logger imported from loguru
 
@@ -50,7 +50,7 @@ class DaemonConfig:
 
     project_name: str
     project_path: str
-    project_id: Optional[str] = None  # Unique project identifier for multi-instance support
+    project_id: str | None = None  # Unique project identifier for multi-instance support
     grpc_host: str = "127.0.0.1"
     grpc_port: int = 50051
     qdrant_url: str = "http://localhost:6333"
@@ -62,11 +62,11 @@ class DaemonConfig:
     restart_on_failure: bool = True
     max_restart_attempts: int = 3
     restart_backoff_base: float = 2.0
-    
+
     # Resource limits
-    resource_limits: Optional[ResourceLimits] = None
+    resource_limits: ResourceLimits | None = None
     enable_resource_monitoring: bool = True
-    
+
     @classmethod
     def from_project_config(cls, project_config: DaemonProjectConfig) -> "DaemonConfig":
         """Create DaemonConfig from DaemonProjectConfig."""
@@ -99,56 +99,56 @@ class DaemonConfig:
 class DaemonStatus:
     """Status information for a daemon instance."""
 
-    pid: Optional[int] = None
+    pid: int | None = None
     state: str = "stopped"  # stopped, starting, running, stopping, failed
-    start_time: Optional[datetime] = None
-    last_health_check: Optional[datetime] = None
+    start_time: datetime | None = None
+    last_health_check: datetime | None = None
     health_status: str = "unknown"  # healthy, unhealthy, unknown
     restart_count: int = 0
-    last_error: Optional[str] = None
+    last_error: str | None = None
     grpc_available: bool = False
 
 
 class PortManager:
     """
     Intelligent port allocation system for multiple daemon instances.
-    
+
     This class manages port allocation across multiple daemon instances with:
     - Conflict detection and automatic port selection
     - Port range configuration and scanning
     - Registry persistence across daemon restarts
     - Health checks on allocated ports before assignment
     """
-    
+
     # Class-level registry to track allocated ports
-    _allocated_ports: Set[int] = set()
-    _port_registry: Dict[int, Dict[str, Any]] = {}
-    _registry_file: Optional[Path] = None
-    
+    _allocated_ports: set[int] = set()
+    _port_registry: dict[int, dict[str, Any]] = {}
+    _registry_file: Path | None = None
+
     def __init__(self, port_range: tuple[int, int] = (50051, 51051)):
         """Initialize port manager with configurable port range.
-        
+
         Args:
             port_range: Tuple of (start_port, end_port) for allocation range
         """
         self.start_port, self.end_port = port_range
-        
+
         # Initialize registry file in temp directory
         if not self._registry_file:
             temp_dir = Path(tempfile.gettempdir())
             self._registry_file = temp_dir / "wqm_port_registry.json"
             self._load_registry()
-    
-    def allocate_port(self, project_id: str, preferred_port: Optional[int] = None) -> int:
+
+    def allocate_port(self, project_id: str, preferred_port: int | None = None) -> int:
         """Allocate an available port for a project.
-        
+
         Args:
             project_id: Unique project identifier
             preferred_port: Optional preferred port number
-            
+
         Returns:
             Allocated port number
-            
+
         Raises:
             RuntimeError: If no available ports found in range
         """
@@ -157,39 +157,39 @@ class PortManager:
         if existing_port and self._is_port_available(existing_port):
             logger.debug("Reusing existing port", project_id=project_id, port=existing_port)
             return existing_port
-        
+
         # Try preferred port first if specified
         if preferred_port and self._is_port_usable(preferred_port):
             self._register_port(preferred_port, project_id)
             return preferred_port
-        
+
         # Scan for available ports in range
         for port in range(self.start_port, self.end_port + 1):
             if self._is_port_usable(port):
                 self._register_port(port, project_id)
                 return port
-        
+
         # If no ports available, try to reclaim stale allocations
         self._cleanup_stale_allocations()
-        
+
         # Try again after cleanup
         for port in range(self.start_port, self.end_port + 1):
             if self._is_port_usable(port):
                 self._register_port(port, project_id)
                 return port
-        
+
         raise RuntimeError(
             f"No available ports in range {self.start_port}-{self.end_port} "
             f"for project {project_id}"
         )
-    
+
     def release_port(self, port: int, project_id: str) -> bool:
         """Release a port allocation.
-        
+
         Args:
             port: Port number to release
             project_id: Project identifier that allocated the port
-            
+
         Returns:
             True if port was released, False if not allocated to this project
         """
@@ -198,37 +198,37 @@ class PortManager:
             self._allocated_ports.discard(port)
             del self._port_registry[port]
             self._save_registry()
-            
+
             logger.debug("Released port", port=port, project_id=project_id)
             return True
-        
+
         return False
-    
-    def get_allocated_ports(self) -> Dict[int, Dict[str, Any]]:
+
+    def get_allocated_ports(self) -> dict[int, dict[str, Any]]:
         """Get all currently allocated ports and their information.
-        
+
         Returns:
             Dictionary mapping port numbers to allocation information
         """
         return self._port_registry.copy()
-    
+
     def is_port_allocated(self, port: int) -> bool:
         """Check if a port is currently allocated.
-        
+
         Args:
             port: Port number to check
-            
+
         Returns:
             True if port is allocated, False otherwise
         """
         return port in self._allocated_ports
-    
+
     def _is_port_available(self, port: int) -> bool:
         """Check if a port is available for binding.
-        
+
         Args:
             port: Port number to check
-            
+
         Returns:
             True if port is available, False if in use
         """
@@ -237,15 +237,15 @@ class PortManager:
                 sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
                 sock.bind(('127.0.0.1', port))
                 return True
-        except (socket.error, OSError):
+        except OSError:
             return False
-    
+
     def _is_port_usable(self, port: int) -> bool:
         """Check if a port is usable (available and not allocated).
-        
+
         Args:
             port: Port number to check
-            
+
         Returns:
             True if port can be used, False otherwise
         """
@@ -254,13 +254,13 @@ class PortManager:
             self._is_port_available(port) and
             self.start_port <= port <= self.end_port
         )
-    
-    def _get_project_port(self, project_id: str) -> Optional[int]:
+
+    def _get_project_port(self, project_id: str) -> int | None:
         """Get the currently allocated port for a project.
-        
+
         Args:
             project_id: Project identifier
-            
+
         Returns:
             Port number if allocated, None otherwise
         """
@@ -268,10 +268,10 @@ class PortManager:
             if info.get('project_id') == project_id:
                 return port
         return None
-    
+
     def _register_port(self, port: int, project_id: str) -> None:
         """Register a port allocation.
-        
+
         Args:
             port: Port number to register
             project_id: Project identifier
@@ -284,13 +284,13 @@ class PortManager:
             'host': '127.0.0.1',
         }
         self._save_registry()
-        
+
         logger.debug("Registered port", port=port, project_id=project_id)
-    
+
     def _cleanup_stale_allocations(self) -> None:
         """Clean up stale port allocations from dead processes."""
         stale_ports = []
-        
+
         for port, info in self._port_registry.items():
             # Check if the process that allocated this port is still running
             pid = info.get('pid')
@@ -301,59 +301,59 @@ class PortManager:
                 except (OSError, ProcessLookupError):
                     # Process doesn't exist, mark as stale
                     stale_ports.append(port)
-            
+
             # Also check if port is actually in use
             if not self._is_port_available(port):
                 # Port is in use by something else, but not necessarily stale
                 continue
-        
+
         # Remove stale allocations
         for port in stale_ports:
             project_id = self._port_registry[port].get('project_id', 'unknown')
             logger.info("Cleaning up stale port allocation", port=port, project_id=project_id)
-            
+
             self._allocated_ports.discard(port)
             del self._port_registry[port]
-        
+
         if stale_ports:
             self._save_registry()
-    
+
     def _load_registry(self) -> None:
         """Load port registry from persistent storage."""
         if self._registry_file and self._registry_file.exists():
             try:
-                with open(self._registry_file, 'r') as f:
+                with open(self._registry_file) as f:
                     data = json.load(f)
-                    
+
                 # Convert string keys back to integers
                 for port_str, info in data.items():
                     port = int(port_str)
                     self._allocated_ports.add(port)
                     self._port_registry[port] = info
-                    
+
                 logger.debug("Loaded port registry", registry_file=str(self._registry_file))
-                
+
             except (json.JSONDecodeError, ValueError, KeyError) as e:
                 logger.warning("Failed to load port registry", error=str(e))
                 # Start with clean registry if loading fails
                 self._allocated_ports.clear()
                 self._port_registry.clear()
-    
+
     def _save_registry(self) -> None:
         """Save port registry to persistent storage."""
         if self._registry_file:
             try:
                 # Convert integer keys to strings for JSON serialization
                 data = {str(port): info for port, info in self._port_registry.items()}
-                
+
                 with open(self._registry_file, 'w') as f:
                     json.dump(data, f, indent=2)
-                    
+
                 logger.debug("Saved port registry", registry_file=str(self._registry_file))
-                
+
             except (OSError, json.JSONEncodeError) as e:
                 logger.warning("Failed to save port registry", error=str(e))
-    
+
     @classmethod
     def get_instance(cls) -> "PortManager":
         """Get singleton instance of port manager."""
@@ -368,15 +368,15 @@ class DaemonInstance:
     def __init__(self, config: DaemonConfig):
         self.config = config
         self.status = DaemonStatus()
-        self.process: Optional[asyncio.subprocess.Process] = None
-        self.health_task: Optional[asyncio.Task] = None
+        self.process: asyncio.subprocess.Process | None = None
+        self.health_task: asyncio.Task | None = None
         self.shutdown_event = asyncio.Event()
-        self.log_handlers: List[Callable[[str], None]] = []
+        self.log_handlers: list[Callable[[str], None]] = []
         self.port_manager = PortManager.get_instance()
         self.resource_monitor = None  # Will be set during start()
-        self.config_manager: Optional[ProjectConfigManager] = None
-        self.project_config: Optional[DaemonProjectConfig] = None
-        
+        self.config_manager: ProjectConfigManager | None = None
+        self.project_config: DaemonProjectConfig | None = None
+
         # Generate or use provided project identifier
         if not config.project_id:
             detector = ProjectDetector()
@@ -387,7 +387,7 @@ class DaemonInstance:
         temp_prefix = f"daemon_{config.project_id}_"
         self.temp_dir = Path(tempfile.mkdtemp(prefix=temp_prefix))
         self.config_file = self.temp_dir / "daemon_config.json"
-        
+
         # Store project-specific PID file path
         self.pid_file = self.temp_dir / f"{config.project_id}.pid"
 
@@ -422,12 +422,12 @@ class DaemonInstance:
             try:
                 self.config_manager = get_project_config_manager(self.config.project_path)
                 self.project_config = self.config_manager.load_config(self.config.project_id)
-                
+
                 # Start configuration watching for hot-reload
                 if self.project_config.config_hot_reload:
                     self.config_manager.add_change_callback(self._on_config_change)
                     self.config_manager.start_watching()
-                
+
                 logger.info(
                     "Project configuration loaded",
                     project=self.config.project_name,
@@ -467,11 +467,11 @@ class DaemonInstance:
                 "--host", self.config.grpc_host,
                 "--pid-file", str(self.pid_file),
             ]
-            
+
             # Add project-id if available for multi-instance support
             if self.config.project_id:
                 daemon_args.extend(["--project-id", self.config.project_id])
-                
+
             self.process = await asyncio.create_subprocess_exec(
                 *daemon_args,
                 stdout=asyncio.subprocess.PIPE,
@@ -508,11 +508,11 @@ class DaemonInstance:
                             project=self.config.project_name,
                             project_id=self.config.project_id,
                         )
-                        
+
                         # Start performance monitoring
                         try:
                             from .performance_monitor import get_performance_monitor
-                            performance_monitor = await get_performance_monitor(self.config.project_id)
+                            await get_performance_monitor(self.config.project_id)
                             logger.info(
                                 "Performance monitoring started",
                                 project=self.config.project_name,
@@ -524,7 +524,7 @@ class DaemonInstance:
                                 project=self.config.project_name,
                                 error=str(e),
                             )
-                        
+
                     except Exception as e:
                         logger.warning(
                             "Failed to start resource monitoring",
@@ -556,7 +556,7 @@ class DaemonInstance:
             await self.stop()
             return False
 
-    async def stop(self, timeout: Optional[float] = None) -> bool:
+    async def stop(self, timeout: float | None = None) -> bool:
         """Stop the daemon process gracefully."""
         if self.status.state == "stopped":
             return True
@@ -618,7 +618,7 @@ class DaemonInstance:
                         project=self.config.project_name,
                         error=str(e),
                     )
-                
+
                 # Stop performance monitoring
                 try:
                     from .performance_monitor import stop_performance_monitor
@@ -795,7 +795,7 @@ class DaemonInstance:
         except ValueError:
             pass  # Handler not in list
 
-    async def get_status(self) -> Dict[str, Any]:
+    async def get_status(self) -> dict[str, Any]:
         """Get comprehensive status information including resource usage."""
         status_dict = {
             "config": asdict(self.config),
@@ -806,18 +806,18 @@ class DaemonInstance:
                 "return_code": self.process.returncode if self.process else None,
             },
         }
-        
+
         # Add resource information if monitoring is enabled
         if self.resource_monitor and self.config.project_id:
             try:
                 resource_manager = await get_resource_manager()
                 resource_usage = await resource_manager.get_project_usage(self.config.project_id)
-                
+
                 if resource_usage:
                     status_dict["resource_usage"] = asdict(resource_usage)
             except Exception as e:
                 status_dict["resource_error"] = str(e)
-        
+
         return status_dict
 
     def _on_config_change(self, new_config: DaemonProjectConfig) -> None:
@@ -827,16 +827,16 @@ class DaemonInstance:
             project=self.config.project_name,
             project_id=self.config.project_id,
         )
-        
+
         # Update stored project config
         self.project_config = new_config
-        
+
         # Apply configuration changes that can be updated at runtime
         try:
             # Update resource limits if monitoring is active
             if self.resource_monitor:
                 asyncio.create_task(self._update_resource_limits(new_config))
-            
+
             # Update health check interval if changed
             if new_config.health_check_interval != self.config.health_check_interval:
                 self.config.health_check_interval = new_config.health_check_interval
@@ -844,9 +844,9 @@ class DaemonInstance:
                     "Updated health check interval",
                     new_interval=new_config.health_check_interval,
                 )
-            
+
             logger.info("Configuration updated successfully")
-            
+
         except Exception as e:
             logger.error(
                 "Error applying configuration changes",
@@ -858,10 +858,10 @@ class DaemonInstance:
         """Update resource limits from new configuration."""
         try:
             resource_manager = await get_resource_manager()
-            
+
             # Unregister old limits
             await resource_manager.unregister_project(self.config.project_id)
-            
+
             # Register with new limits
             new_limits = ResourceLimits(
                 max_memory_mb=new_config.max_memory_mb,
@@ -870,19 +870,19 @@ class DaemonInstance:
                 processing_timeout=new_config.startup_timeout,
                 connection_timeout=new_config.startup_timeout
             )
-            
+
             self.resource_monitor = await resource_manager.register_project(
                 self.config.project_id,
                 new_limits
             )
-            
+
             logger.info(
                 "Resource limits updated",
                 project=self.config.project_name,
                 memory_mb=new_config.max_memory_mb,
                 cpu_percent=new_config.max_cpu_percent,
             )
-            
+
         except Exception as e:
             logger.error(
                 "Failed to update resource limits",
@@ -894,10 +894,10 @@ class DaemonInstance:
         """Write configuration file for the Rust daemon with project-specific settings."""
         # Create project-specific log file path
         log_file_path = self.temp_dir / f"{self.config.project_id}.log"
-        
+
         # Use project config if available, otherwise use daemon config
         config_source = self.project_config if self.project_config else self.config
-        
+
         config_data = {
             "project_name": config_source.project_name,
             "project_path": config_source.project_path,
@@ -923,7 +923,7 @@ class DaemonInstance:
                 "temp_directory": str(self.temp_dir),
             },
         }
-        
+
         # Add project-specific settings if available
         if self.project_config:
             config_data.update({
@@ -973,7 +973,7 @@ class DaemonInstance:
             config_file=str(self.config_file),
         )
 
-    async def _find_daemon_binary(self) -> Optional[Path]:
+    async def _find_daemon_binary(self) -> Path | None:
         """Find the daemon binary, building if necessary."""
         # Look for pre-built binary first
         project_root = Path(self.config.project_path).parent
@@ -1161,7 +1161,7 @@ class DaemonInstance:
             # Release allocated port
             if self.config.project_id and hasattr(self, 'port_manager'):
                 self.port_manager.release_port(self.config.grpc_port, self.config.project_id)
-            
+
             if self.temp_dir.exists():
                 shutil.rmtree(str(self.temp_dir))
                 logger.debug("Cleaned up temp directory", path=str(self.temp_dir))
@@ -1180,8 +1180,8 @@ class DaemonManager:
     _lock = asyncio.Lock()
 
     def __init__(self):
-        self.daemons: Dict[str, DaemonInstance] = {}
-        self.shutdown_handlers: List[Callable[[], None]] = []
+        self.daemons: dict[str, DaemonInstance] = {}
+        self.shutdown_handlers: list[Callable[[], None]] = []
         self._setup_signal_handlers()
         atexit.register(self._sync_shutdown)
 
@@ -1224,7 +1224,7 @@ class DaemonManager:
         self,
         project_name: str,
         project_path: str,
-        config_overrides: Optional[Dict[str, Any]] = None,
+        config_overrides: dict[str, Any] | None = None,
     ) -> DaemonInstance:
         """Get existing daemon or create a new one for the project."""
         daemon_key = self._get_daemon_key(project_name, project_path)
@@ -1258,7 +1258,7 @@ class DaemonManager:
         self,
         project_name: str,
         project_path: str,
-        config_overrides: Optional[Dict[str, Any]] = None,
+        config_overrides: dict[str, Any] | None = None,
     ) -> bool:
         """Start a daemon for the specified project."""
         daemon = await self.get_or_create_daemon(
@@ -1290,7 +1290,7 @@ class DaemonManager:
 
     async def get_daemon_status(
         self, project_name: str, project_path: str
-    ) -> Optional[Dict[str, Any]]:
+    ) -> dict[str, Any] | None:
         """Get status of a daemon."""
         daemon_key = self._get_daemon_key(project_name, project_path)
 
@@ -1299,14 +1299,14 @@ class DaemonManager:
 
         return await self.daemons[daemon_key].get_status()
 
-    async def list_daemons(self) -> Dict[str, Dict[str, Any]]:
+    async def list_daemons(self) -> dict[str, dict[str, Any]]:
         """List all active daemons with resource information."""
         results = {}
         for key, daemon in self.daemons.items():
             results[key] = await daemon.get_status()
         return results
 
-    async def health_check_all(self) -> Dict[str, bool]:
+    async def health_check_all(self) -> dict[str, bool]:
         """Perform health check on all daemons."""
         results = {}
 
@@ -1349,7 +1349,7 @@ class DaemonManager:
             logger.info("Resource manager cleaned up")
         except Exception as e:
             logger.error("Error cleaning up resource manager", error=str(e))
-        
+
         # Cleanup performance monitoring
         try:
             from .performance_monitor import cleanup_all_performance_monitors
@@ -1365,7 +1365,7 @@ class DaemonManager:
         """Add a shutdown handler."""
         self.shutdown_handlers.append(handler)
 
-    async def get_system_resource_status(self) -> Dict[str, Any]:
+    async def get_system_resource_status(self) -> dict[str, Any]:
         """Get comprehensive system resource status across all daemons."""
         try:
             resource_manager = await get_resource_manager()
@@ -1387,12 +1387,12 @@ class DaemonManager:
 
     def _get_available_port(self, project_id: str, project_path: str = ".", base_port: int = 50051) -> int:
         """Find an available port for a new daemon using intelligent allocation."""
-        
+
         # Use project ID hash to get preferred port
         id_hash = hashlib.md5(project_id.encode()).hexdigest()
         port_offset = int(id_hash[:4], 16) % 1000  # 0-999 offset
         preferred_port = base_port + port_offset
-        
+
         # Use PortManager for intelligent allocation
         port_manager = PortManager.get_instance()
         try:
@@ -1404,7 +1404,7 @@ class DaemonManager:
 
 
 # Module-level convenience functions
-_daemon_manager: Optional[DaemonManager] = None
+_daemon_manager: DaemonManager | None = None
 
 
 async def get_daemon_manager() -> DaemonManager:
@@ -1418,7 +1418,7 @@ async def get_daemon_manager() -> DaemonManager:
 async def ensure_daemon_running(
     project_name: str,
     project_path: str,
-    config_overrides: Optional[Dict[str, Any]] = None,
+    config_overrides: dict[str, Any] | None = None,
 ) -> DaemonInstance:
     """Ensure a daemon is running for the specified project."""
     manager = await get_daemon_manager()
@@ -1436,7 +1436,7 @@ async def ensure_daemon_running(
 
 async def get_daemon_for_project(
     project_name: str, project_path: str
-) -> Optional[DaemonInstance]:
+) -> DaemonInstance | None:
     """Get daemon instance for a project, if it exists."""
     manager = await get_daemon_manager()
     daemon_key = manager._get_daemon_key(project_name, project_path)

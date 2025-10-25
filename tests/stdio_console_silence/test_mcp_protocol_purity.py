@@ -19,7 +19,7 @@ import tempfile
 import time
 from pathlib import Path
 from threading import Thread
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -35,7 +35,7 @@ class MCPMessage:
     """Helper class for creating and validating MCP messages."""
 
     @staticmethod
-    def request(method: str, params: Optional[Dict] = None, msg_id: Optional[int] = None) -> Dict[str, Any]:
+    def request(method: str, params: dict | None = None, msg_id: int | None = None) -> dict[str, Any]:
         """Create a JSON-RPC request message."""
         message = {
             "jsonrpc": "2.0",
@@ -47,7 +47,7 @@ class MCPMessage:
         return message
 
     @staticmethod
-    def response(result: Any, msg_id: int = 1) -> Dict[str, Any]:
+    def response(result: Any, msg_id: int = 1) -> dict[str, Any]:
         """Create a JSON-RPC response message."""
         return {
             "jsonrpc": "2.0",
@@ -56,7 +56,7 @@ class MCPMessage:
         }
 
     @staticmethod
-    def error(code: int, message: str, msg_id: int = 1) -> Dict[str, Any]:
+    def error(code: int, message: str, msg_id: int = 1) -> dict[str, Any]:
         """Create a JSON-RPC error message."""
         return {
             "jsonrpc": "2.0",
@@ -68,7 +68,7 @@ class MCPMessage:
         }
 
     @staticmethod
-    def notification(method: str, params: Optional[Dict] = None) -> Dict[str, Any]:
+    def notification(method: str, params: dict | None = None) -> dict[str, Any]:
         """Create a JSON-RPC notification message."""
         message = {
             "jsonrpc": "2.0",
@@ -256,7 +256,7 @@ class TestMCPProtocolPurity:
 
         # Create test script that simulates MCP conversation
         test_script = tmp_path / "mcp_protocol_test.py"
-        test_script.write_text(f"""
+        test_script.write_text("""
 import os
 import sys
 import json
@@ -291,9 +291,9 @@ try:
         def run(self, transport):
             # Output valid JSON-RPC messages
             messages = [
-                {{"jsonrpc": "2.0", "method": "initialized", "id": 1}},
-                {{"jsonrpc": "2.0", "result": {{"status": "ready"}}, "id": 2}},
-                {{"jsonrpc": "2.0", "method": "tool_call", "params": {{"tool": "test"}}, "id": 3}},
+                {"jsonrpc": "2.0", "method": "initialized", "id": 1},
+                {"jsonrpc": "2.0", "result": {"status": "ready"}, "id": 2},
+                {"jsonrpc": "2.0", "method": "tool_call", "params": {"tool": "test"}, "id": 3},
             ]
             for msg in messages:
                 print(json.dumps(msg))
@@ -580,7 +580,7 @@ except Exception as e:
             if captured.out.strip():
                 line = captured.out.strip()
                 assert MCPMessage.is_valid_jsonrpc(line), \
-                       f"Unicode message not valid JSON-RPC"
+                       "Unicode message not valid JSON-RPC"
 
                 # Verify Unicode data was preserved
                 parsed = json.loads(line)

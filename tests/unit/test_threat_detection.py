@@ -11,21 +11,22 @@ Tests cover all components with edge cases and error conditions:
 """
 
 import asyncio
-import pytest
 import time
-from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, AsyncMock
 from collections import deque
+from datetime import datetime, timedelta
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 from src.python.common.security.threat_detection import (
-    ThreatDetectionEngine,
-    ThreatAnalyzer,
-    BehavioralAnalyzer,
     AnomalyDetector,
+    BehavioralAnalyzer,
     SecurityEvent,
+    ThreatAnalyzer,
     ThreatDetection,
+    ThreatDetectionEngine,
+    ThreatLevel,
     ThreatType,
-    ThreatLevel
 )
 
 

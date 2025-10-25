@@ -12,7 +12,7 @@ import hashlib
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Optional
 from uuid import uuid4
 
 from .models import (
@@ -85,7 +85,7 @@ class FailureAnalyzer:
         r"file handles",
     ]
 
-    def __init__(self, storage: Optional[TestResultStorage] = None):
+    def __init__(self, storage: TestResultStorage | None = None):
         """
         Initialize failure analyzer.
 
@@ -95,7 +95,7 @@ class FailureAnalyzer:
         self.storage = storage or TestResultStorage()
 
     def categorize_failure(
-        self, error_message: Optional[str], error_traceback: Optional[str]
+        self, error_message: str | None, error_traceback: str | None
     ) -> FailureCategory:
         """
         Categorize a failure based on error message and traceback.
@@ -128,7 +128,7 @@ class FailureAnalyzer:
         return FailureCategory.UNKNOWN
 
     def extract_error_signature(
-        self, error_message: Optional[str], error_traceback: Optional[str]
+        self, error_message: str | None, error_traceback: str | None
     ) -> str:
         """
         Extract a normalized error signature for pattern grouping.
@@ -225,7 +225,7 @@ class FailureAnalyzer:
 
     def analyze_test_case(
         self, test_case: TestCase
-    ) -> Optional[FlakinessMetrics]:
+    ) -> FlakinessMetrics | None:
         """
         Analyze a single test case across its execution history.
 
@@ -257,8 +257,8 @@ class FailureAnalyzer:
         pass_rate = (pass_count / total_runs * 100.0) if total_runs > 0 else 0.0
 
         # Analyze failures
-        failure_categories: Dict[str, int] = defaultdict(int)
-        error_signatures: List[str] = []
+        failure_categories: dict[str, int] = defaultdict(int)
+        error_signatures: list[str] = []
 
         for result in test_case.results:
             if result.status in (TestStatus.FAILED, TestStatus.ERROR):
@@ -273,7 +273,7 @@ class FailureAnalyzer:
                 error_signatures.append(signature)
 
         # Get most common error signatures (top 5)
-        signature_counts: Dict[str, int] = defaultdict(int)
+        signature_counts: dict[str, int] = defaultdict(int)
         for sig in error_signatures:
             signature_counts[sig] += 1
 
@@ -302,8 +302,8 @@ class FailureAnalyzer:
         )
 
     def detect_failure_patterns(
-        self, test_runs: List[TestRun]
-    ) -> List[FailurePattern]:
+        self, test_runs: list[TestRun]
+    ) -> list[FailurePattern]:
         """
         Detect common failure patterns across multiple test runs.
 
@@ -316,7 +316,7 @@ class FailureAnalyzer:
             List of FailurePattern objects sorted by occurrence count
         """
         # Collect all failures
-        pattern_data: Dict[str, Dict[str, Any]] = {}
+        pattern_data: dict[str, dict[str, Any]] = {}
 
         for run in test_runs:
             for suite in run.suites:
@@ -375,8 +375,8 @@ class FailureAnalyzer:
 
     def analyze_test_runs(
         self,
-        run_ids: Optional[List[str]] = None,
-        days: Optional[int] = None,
+        run_ids: list[str] | None = None,
+        days: int | None = None,
         min_flakiness_score: float = 5.0,
     ) -> FailureAnalysisReport:
         """
@@ -419,7 +419,7 @@ class FailureAnalyzer:
             )
 
         # Collect all test cases by name across runs
-        test_cases_by_name: Dict[str, List[TestCase]] = defaultdict(list)
+        test_cases_by_name: dict[str, list[TestCase]] = defaultdict(list)
 
         for run in test_runs:
             for suite in run.suites:
@@ -427,7 +427,7 @@ class FailureAnalyzer:
                     test_cases_by_name[case.name].append(case)
 
         # Merge results for each test case
-        merged_cases: List[TestCase] = []
+        merged_cases: list[TestCase] = []
         for name, cases in test_cases_by_name.items():
             # Merge all results into single test case
             merged = TestCase(
@@ -443,7 +443,7 @@ class FailureAnalyzer:
             merged_cases.append(merged)
 
         # Analyze each test case for flakiness
-        flaky_tests: List[FlakinessMetrics] = []
+        flaky_tests: list[FlakinessMetrics] = []
         for case in merged_cases:
             metrics = self.analyze_test_case(case)
             if metrics and metrics.flakiness_score >= min_flakiness_score:
@@ -456,7 +456,7 @@ class FailureAnalyzer:
         failure_patterns = self.detect_failure_patterns(test_runs)
 
         # Calculate category distribution
-        category_distribution: Dict[str, int] = defaultdict(int)
+        category_distribution: dict[str, int] = defaultdict(int)
         for pattern in failure_patterns:
             category_distribution[pattern.category.value] += pattern.occurrences
 
@@ -482,14 +482,14 @@ class FailureAnalyzer:
             failure_trend=failure_trend,
         )
 
-    def _matches_patterns(self, text: str, patterns: List[str]) -> bool:
+    def _matches_patterns(self, text: str, patterns: list[str]) -> bool:
         """Check if text matches any of the given regex patterns."""
         for pattern in patterns:
             if re.search(pattern, text, re.IGNORECASE):
                 return True
         return False
 
-    def _compute_failure_trend(self, test_runs: List[TestRun]) -> str:
+    def _compute_failure_trend(self, test_runs: list[TestRun]) -> str:
         """
         Compute failure trend based on recent vs older failures.
 
@@ -508,7 +508,7 @@ class FailureAnalyzer:
         recent_runs = sorted_runs[mid:]
 
         # Calculate average failure rate for each half
-        def avg_failure_rate(runs: List[TestRun]) -> float:
+        def avg_failure_rate(runs: list[TestRun]) -> float:
             if not runs:
                 return 0.0
             total_failed = sum(r.failed_tests + r.error_tests for r in runs)

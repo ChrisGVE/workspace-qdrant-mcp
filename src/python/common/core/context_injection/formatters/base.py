@@ -7,9 +7,7 @@ for formatting memory rules into LLM-specific formats.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from datetime import datetime
 from enum import Enum
-from typing import Dict, List, Optional
 
 from ...memory import AuthorityLevel, MemoryRule
 
@@ -69,7 +67,7 @@ class FormattedContext:
     token_count: int
     rules_included: int
     rules_skipped: int
-    metadata: Dict[str, any]
+    metadata: dict[str, any]
 
 
 class LLMToolAdapter(ABC):
@@ -92,9 +90,9 @@ class LLMToolAdapter(ABC):
     @abstractmethod
     def format_rules(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         token_budget: int,
-        options: Optional[Dict[str, any]] = None,
+        options: dict[str, any] | None = None,
     ) -> FormattedContext:
         """
         Format memory rules for this LLM tool.
@@ -151,8 +149,8 @@ class LLMToolAdapter(ABC):
         return int(words * 1.3 + punctuation * 0.5)
 
     def separate_by_authority(
-        self, rules: List[MemoryRule]
-    ) -> tuple[List[MemoryRule], List[MemoryRule]]:
+        self, rules: list[MemoryRule]
+    ) -> tuple[list[MemoryRule], list[MemoryRule]]:
         """
         Separate rules by authority level.
 
@@ -166,7 +164,7 @@ class LLMToolAdapter(ABC):
         default = [r for r in rules if r.authority == AuthorityLevel.DEFAULT]
         return absolute, default
 
-    def sort_by_priority(self, rules: List[MemoryRule]) -> List[MemoryRule]:
+    def sort_by_priority(self, rules: list[MemoryRule]) -> list[MemoryRule]:
         """
         Sort rules by priority (within same authority level).
 

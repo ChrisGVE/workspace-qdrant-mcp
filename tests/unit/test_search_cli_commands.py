@@ -22,8 +22,8 @@ mocking of daemon client and search responses.
 import json
 import tempfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from typing import Any, Dict, List
 
 import pytest
 from typer.testing import CliRunner

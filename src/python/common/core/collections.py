@@ -40,41 +40,37 @@ Example:
 """
 
 import asyncio
-import os
-
-from loguru import logger
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple
 
 import git
-
+from loguru import logger
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
 from .collection_naming import (
     CollectionNamingManager,
+    CollectionPermissionError,
     build_project_collection_name,
     build_system_memory_collection_name,
-    normalize_collection_name_component,
-    CollectionPermissionError
 )
 from .collection_types import (
-    CollectionTypeClassifier,
-    get_searchable_collections,
-    validate_collection_operation,
+    COLLECTION_TYPES_AVAILABLE,
     CollectionType,
-    COLLECTION_TYPES_AVAILABLE
+    CollectionTypeClassifier,
 )
-from .config import get_config, ConfigManager
+from .config import ConfigManager
 
 # Import LLM access control system
 try:
-    from .llm_access_control import validate_llm_collection_access, LLMAccessControlError
+    from .llm_access_control import (
+        LLMAccessControlError,
+        validate_llm_collection_access,
+    )
 except ImportError:
     # Fallback for direct imports when not used as a package
-    from llm_access_control import validate_llm_collection_access, LLMAccessControlError
+    from llm_access_control import LLMAccessControlError, validate_llm_collection_access
 
 # logger imported from loguru
 
@@ -172,7 +168,7 @@ class WorkspaceCollectionManager:
         self.config = config
         self._collections_cache: dict[str, CollectionConfig] | None = None
         self._project_info: dict | None = None  # Will be set during initialization
-        
+
         # Initialize collection type classifier and naming manager
         self.type_classifier = CollectionTypeClassifier()
         self.naming_manager = CollectionNamingManager(
@@ -180,7 +176,7 @@ class WorkspaceCollectionManager:
             valid_project_suffixes=config.get("workspace.collection_types", [])
         )
 
-    def _get_current_project_name(self) -> Optional[str]:
+    def _get_current_project_name(self) -> str | None:
         """
         Determine the current project name from working directory or git repository.
 
@@ -214,7 +210,7 @@ class WorkspaceCollectionManager:
             # Fallback to directory name
             current_dir = Path.cwd()
             project_name = current_dir.name
-            
+
             # Skip common subdirectory names and go to parent
             skip_dirs = {'src', 'lib', 'app', 'core', 'workspace_qdrant_mcp'}
             if project_name in skip_dirs and current_dir.parent != current_dir:
@@ -237,13 +233,13 @@ class WorkspaceCollectionManager:
                       for workspace collection filtering
         """
         project_names = []
-        
+
         # Try to get project info from stored data first
         if self._project_info:
             main_project = self._project_info.get('main_project')
             if main_project:
                 project_names.append(main_project)
-            
+
             subprojects = self._project_info.get('subprojects', [])
             project_names.extend(subprojects)
         else:
@@ -251,20 +247,20 @@ class WorkspaceCollectionManager:
             current_project = self._get_current_project_name()
             if current_project:
                 project_names.append(current_project)
-        
+
         # Remove duplicates and empty values
-        project_names = list(set(name for name in project_names if name))
-        
+        project_names = list({name for name in project_names if name})
+
         logger.debug("All project names for collection filtering: %s", project_names)
         return project_names
 
     def validate_collection_filtering(self) -> dict:
         """
         Validate and diagnose collection filtering configuration.
-        
+
         This method provides diagnostic information about the current
         collection filtering setup, useful for debugging issues.
-        
+
         Returns:
             Dict: Diagnostic information containing:
                 - project_info: Stored project information
@@ -280,7 +276,7 @@ class WorkspaceCollectionManager:
             all_names = [c.name for c in all_collections.collections]
             project_names = self._get_all_project_names()
             workspace_collections = self.list_workspace_collections()
-            
+
             # Test filtering for each collection
             filtering_results = {}
             for name in all_names:
@@ -288,7 +284,7 @@ class WorkspaceCollectionManager:
                     'is_workspace': self._is_workspace_collection(name),
                     'reason': self._get_filtering_reason(name)
                 }
-            
+
             return {
                 'project_info': self._project_info,
                 'project_names': project_names,
@@ -309,21 +305,21 @@ class WorkspaceCollectionManager:
         except Exception as e:
             logger.error("Failed to validate collection filtering: %s", e)
             return {'error': str(e)}
-    
+
     def _get_filtering_reason(self, collection_name: str) -> str:
         """
         Get the reason why a collection is included or excluded from workspace.
-        
+
         Args:
             collection_name: Name of the collection to check
-            
+
         Returns:
             str: Human-readable reason for the filtering decision
         """
         # Check exclusion criteria first
         if collection_name.endswith("-code"):
             return "Excluded: memexd daemon collection (ends with -code)"
-        
+
         # Check inclusion criteria
         if collection_name in self.config.get("workspace.global_collections", []):
             return "Included: global collection"
@@ -337,17 +333,17 @@ class WorkspaceCollectionManager:
         global_collections = self.config.get("workspace.global_collections", [])
         if not effective_collection_types and not global_collections:
             project_names = self._get_all_project_names()
-            
+
             for project_name in project_names:
                 if collection_name.startswith(f"{project_name}-"):
                     return f"Included: matches project '{project_name}' pattern"
                 if collection_name == project_name:
                     return f"Included: exact match with project '{project_name}'"
-            
+
             common_standalone = ["reference", "docs", "standards", "notes", "scratchbook", "memory", "knowledge"]
             if collection_name in common_standalone:
                 return "Included: common standalone collection"
-        
+
         return "Excluded: does not match any inclusion criteria"
 
     async def initialize_workspace_collections(
@@ -401,12 +397,12 @@ class WorkspaceCollectionManager:
             'main_project': project_name,
             'subprojects': subprojects or []
         }
-        
+
         logger.debug(
             "Setting project info for collection filtering: main_project=%s, subprojects=%s",
             project_name, subprojects
         )
-        
+
         collections_to_create = []
 
         if self.config.get("workspace.auto_create_collections", False):
@@ -525,7 +521,7 @@ class WorkspaceCollectionManager:
             except LLMAccessControlError as e:
                 logger.warning("LLM access control blocked collection creation: %s", str(e))
                 raise ValueError(f"Collection creation blocked: {str(e)}") from e
-            
+
             # Check if collection already exists
             existing_collections = self.client.get_collections()
             collection_names = {col.name for col in existing_collections.collections}
@@ -630,10 +626,10 @@ class WorkspaceCollectionManager:
 
             for collection in all_collections.collections:
                 collection_name = collection.name
-                
+
                 # Use new collection type system for classification and display names
                 collection_info = self.type_classifier.get_collection_info(collection_name)
-                
+
                 # Include all workspace collections (system, library, project, global)
                 # but exclude unknown/external collections
                 if collection_info.collection_type != CollectionType.UNKNOWN:
@@ -641,7 +637,7 @@ class WorkspaceCollectionManager:
                     workspace_collections.append(display_name)
 
             logger.info(
-                "Found %d workspace collections out of %d total collections", 
+                "Found %d workspace collections out of %d total collections",
                 len(workspace_collections), len(all_collection_names)
             )
             logger.debug("Workspace collections: %s", workspace_collections)
@@ -689,7 +685,7 @@ class WorkspaceCollectionManager:
             for collection_name in workspace_collections:
                 try:
                     info = self.client.get_collection(collection_name)
-                    
+
                     # Handle the new Qdrant API structure where vectors is a dict
                     vectors_config = info.config.params.vectors
                     if isinstance(vectors_config, dict):
@@ -700,14 +696,14 @@ class WorkspaceCollectionManager:
                         else:
                             # Fallback to the first available vector config
                             vector_params = next(iter(vectors_config.values()))
-                        
+
                         distance = vector_params.distance
                         vector_size = vector_params.size
                     else:
                         # Legacy API: vectors is directly a VectorParams object
                         distance = vectors_config.distance
                         vector_size = vectors_config.size
-                    
+
                     collection_info[collection_name] = {
                         "vectors_count": info.vectors_count,
                         "points_count": info.points_count,
@@ -774,15 +770,15 @@ class WorkspaceCollectionManager:
         """
         # Use CollectionNamingManager for classification
         collection_info = self.naming_manager.get_collection_info(collection_name)
-        
+
         # Include all workspace collection types (memory, library, project)
         if collection_info.collection_type in [
             CollectionType.MEMORY,
-            CollectionType.LIBRARY, 
+            CollectionType.LIBRARY,
             CollectionType.PROJECT
         ]:
             return True
-        
+
         # For legacy collections, apply the existing filtering logic
         if collection_info.collection_type == CollectionType.LEGACY:
             # Exclude memexd daemon collections (those ending with -code)
@@ -805,18 +801,18 @@ class WorkspaceCollectionManager:
             if not effective_collection_types and not global_collections:
                 # Get project information from stored project info or fallback to detection
                 project_names = self._get_all_project_names()
-                
+
                 # Check if collection matches any project naming pattern: {project_name}-{suffix}
                 for project_name in project_names:
                     if collection_name.startswith(f"{project_name}-"):
                         logger.debug("Collection %s matches project %s pattern", collection_name, project_name)
                         return True
-                    
+
                     # Also include standalone collections that match any project name exactly
                     if collection_name == project_name:
                         logger.debug("Collection %s matches project %s exactly", collection_name, project_name)
                         return True
-                
+
                 # Fallback to common standalone collections for workspace context
                 common_standalone_collections = ["reference", "docs", "standards", "notes", "scratchbook", "memory", "knowledge"]
                 if collection_name in common_standalone_collections:
@@ -844,7 +840,7 @@ class WorkspaceCollectionManager:
             # System collection display name -> actual name
             actual, readonly = manager.resolve_collection_name("user_preferences")
             # Returns: ("__user_preferences", False)
-            
+
             # Library collection display name -> actual name
             actual, readonly = manager.resolve_collection_name("library_docs")
             # Returns: ("_library_docs", True)
@@ -857,30 +853,30 @@ class WorkspaceCollectionManager:
         try:
             all_collections = self.client.get_collections()
             all_collection_names = [col.name for col in all_collections.collections]
-            
+
             if self.type_classifier and COLLECTION_TYPES_AVAILABLE:
                 # Use new collection type system for reverse mapping
-                
+
                 # Try system collection (__ prefix)
                 system_name = f"__{display_name}"
                 if system_name in all_collection_names:
                     collection_info = self.type_classifier.get_collection_info(system_name)
                     return system_name, collection_info.is_readonly
-                
+
                 # Try library collection (_ prefix)
                 library_name = f"_{display_name}"
                 if library_name in all_collection_names:
                     collection_info = self.type_classifier.get_collection_info(library_name)
                     return library_name, collection_info.is_readonly
-                
+
                 # Check if display name matches actual collection name directly
                 if display_name in all_collection_names:
                     collection_info = self.type_classifier.get_collection_info(display_name)
                     return display_name, collection_info.is_readonly
-                    
+
                 # Collection doesn't exist - return the display name as-is for error handling
                 return display_name, False
-                
+
             else:
                 # Fallback to legacy behavior
                 # First, check if this display name corresponds to a library collection
@@ -998,13 +994,13 @@ class WorkspaceCollectionManager:
         try:
             # Import metadata filtering if available
             try:
-                from .metadata_filtering import MetadataFilterManager, FilterCriteria
+                from .metadata_filtering import FilterCriteria, MetadataFilterManager
 
                 # Create metadata filter manager
-                filter_manager = MetadataFilterManager(self.client)
+                MetadataFilterManager(self.client)
 
                 # Create filter criteria for project
-                criteria = FilterCriteria(
+                FilterCriteria(
                     project_name=project_name,
                     include_global=True,
                     include_shared=True
@@ -1084,17 +1080,17 @@ class WorkspaceCollectionManager:
     def validate_collection_operation(self, display_name: str, operation: str) -> tuple[bool, str]:
         """
         Validate if an operation is allowed on a collection based on its type.
-        
+
         Args:
             display_name: The display name of the collection
             operation: The operation to validate ('read', 'write', 'delete', 'create')
-            
+
         Returns:
             Tuple[bool, str]: (is_valid, reason) where reason explains why if invalid
         """
         try:
             actual_name, is_readonly = self.resolve_collection_name(display_name)
-            
+
             if self.type_classifier and COLLECTION_TYPES_AVAILABLE:
                 # Use new collection type validation
                 from ..core.collection_types import validate_collection_operation
@@ -1104,15 +1100,15 @@ class WorkspaceCollectionManager:
                 valid_operations = {'read', 'write', 'delete', 'create'}
                 if operation not in valid_operations:
                     return False, f"Invalid operation '{operation}'. Must be one of: {valid_operations}"
-                
+
                 if operation == 'read':
                     return True, "Read operations are generally allowed"
-                    
+
                 if is_readonly and operation in ('write', 'delete'):
                     return False, f"Collection '{display_name}' is read-only via MCP"
-                    
+
                 return True, f"Operation '{operation}' is allowed on collection '{display_name}'"
-                
+
         except Exception as e:
             return False, f"Validation error: {e}"
 
@@ -1223,7 +1219,7 @@ class WorkspaceCollectionManager:
                 )
 
     async def _create_collection_with_metadata_support(
-        self, collection_config: CollectionConfig, project_context: Optional[dict] = None
+        self, collection_config: CollectionConfig, project_context: dict | None = None
     ) -> None:
         """
         Create a collection with metadata support for multi-tenant architecture.
@@ -1263,23 +1259,23 @@ class WorkspaceCollectionManager:
 class MemoryCollectionManager:
     """
     Manages memory collections with proper access controls and auto-creation.
-    
+
     This class handles both system memory collections (__memory_*) and project memory
     collections ({project}-memory) with appropriate access control enforcement:
-    
+
     - System memory collections: CLI-writable only, LLM read-only
     - Project memory collections: MCP read-write access
     - Memory collections cannot be deleted by LLM
     - Auto-creation functionality for missing memory collections
-    
+
     The manager integrates with the existing access control system and ensures
     that memory collections appear in appropriate search scopes.
     """
-    
+
     def __init__(self, workspace_client: QdrantClient, config: ConfigManager) -> None:
         """
         Initialize the memory collection manager.
-        
+
         Args:
             workspace_client: Configured Qdrant client instance
             config: Configuration object containing workspace and memory settings
@@ -1291,21 +1287,21 @@ class MemoryCollectionManager:
             valid_project_suffixes=config.get("workspace.collection_types", [])
         )
         self.type_classifier = CollectionTypeClassifier()
-        
+
         # Memory collection configuration
         self.memory_collection = config.get("memory_collection", "memory")
-    
+
     async def ensure_memory_collections_exist(self, project: str) -> dict:
         """
         Ensure both system and project memory collections exist.
-        
+
         Creates missing memory collections with proper access controls:
         - System memory: __{memory_collection_name} (CLI-only writable)
         - Project memory: {project}-{memory_collection_name} (MCP read-write)
-        
+
         Args:
             project: Project name for project-scoped memory collection
-            
+
         Returns:
             dict: Results of collection creation with keys:
                 - system_memory: Creation result for system memory collection (if created)
@@ -1316,13 +1312,13 @@ class MemoryCollectionManager:
             'existing': [],
             'created': []
         }
-        
+
         # Build collection names
         system_memory = build_system_memory_collection_name(self.memory_collection)
         project_memory = build_project_collection_name(project, self.memory_collection)
-        
+
         logger.info(f"Ensuring memory collections exist: system='{system_memory}', project='{project_memory}'")
-        
+
         # Check and create system memory collection if missing
         if not self.collection_exists(system_memory):
             logger.info(f"Creating system memory collection: {system_memory}")
@@ -1332,7 +1328,7 @@ class MemoryCollectionManager:
         else:
             results['existing'].append(system_memory)
             logger.debug(f"System memory collection already exists: {system_memory}")
-        
+
         # Check and create project memory collection if missing
         if not self.collection_exists(project_memory):
             logger.info(f"Creating project memory collection: {project_memory}")
@@ -1342,16 +1338,16 @@ class MemoryCollectionManager:
         else:
             results['existing'].append(project_memory)
             logger.debug(f"Project memory collection already exists: {project_memory}")
-        
+
         return results
-    
+
     def collection_exists(self, collection_name: str) -> bool:
         """
         Check if a collection exists in Qdrant.
-        
+
         Args:
             collection_name: Name of the collection to check
-            
+
         Returns:
             bool: True if collection exists, False otherwise
         """
@@ -1362,22 +1358,22 @@ class MemoryCollectionManager:
         except Exception as e:
             logger.error(f"Error checking collection existence for '{collection_name}': {e}")
             return False
-    
+
     def create_system_memory_collection(self, collection_name: str) -> dict:
         """
         Create a system memory collection with CLI-only write access.
-        
+
         System memory collections use the __ prefix and are configured as:
         - CLI-writable only (LLM cannot write)
         - LLM-readable for context retrieval
         - Not globally searchable (explicit access only)
-        
+
         Args:
             collection_name: Full collection name including __ prefix
-            
+
         Returns:
             dict: Creation result with collection info and access control settings
-            
+
         Raises:
             ValueError: If collection name doesn't follow system memory pattern
             ResponseHandlingException: If Qdrant creation fails
@@ -1385,14 +1381,14 @@ class MemoryCollectionManager:
         # Validate system memory collection name pattern
         if not collection_name.startswith("__"):
             raise ValueError(f"System memory collection must start with '__': {collection_name}")
-        
+
         # Validate against access control
         try:
             validate_llm_collection_access('create', collection_name, self.config)
         except LLMAccessControlError as e:
             # This is expected for system collections - CLI can create them
             logger.debug(f"LLM access control validation failed as expected for system collection: {e}")
-        
+
         try:
             # Create collection with standard memory configuration
             collection_config = CollectionConfig(
@@ -1403,9 +1399,9 @@ class MemoryCollectionManager:
                 vector_size=self._get_vector_size(),
                 enable_sparse_vectors=self.config.get("embedding.enable_sparse_vectors", True),
             )
-            
+
             self._create_memory_collection(collection_config)
-            
+
             result = {
                 'collection_name': collection_name,
                 'type': 'system_memory',
@@ -1419,29 +1415,29 @@ class MemoryCollectionManager:
                 'description': collection_config.description,
                 'status': 'created'
             }
-            
+
             logger.info(f"Successfully created system memory collection: {collection_name}")
             return result
-            
+
         except Exception as e:
             logger.error(f"Failed to create system memory collection '{collection_name}': {e}")
             raise
-    
+
     def create_project_memory_collection(self, collection_name: str) -> dict:
         """
         Create a project memory collection with MCP read-write access.
-        
+
         Project memory collections are configured as:
         - MCP read-write access (LLM can read and write)
         - Globally searchable for project context
         - Standard project collection permissions
-        
+
         Args:
             collection_name: Full collection name in project-memory format
-            
+
         Returns:
             dict: Creation result with collection info and access control settings
-            
+
         Raises:
             ValueError: If collection name doesn't follow project memory pattern
             ResponseHandlingException: If Qdrant creation fails
@@ -1449,10 +1445,10 @@ class MemoryCollectionManager:
         # Validate project memory collection name pattern
         if not collection_name.endswith("-memory"):
             raise ValueError(f"Project memory collection must end with '-memory': {collection_name}")
-        
+
         # Extract project name
         project_name = collection_name[:-7]  # Remove "-memory" suffix
-        
+
         try:
             # Create collection with standard memory configuration
             collection_config = CollectionConfig(
@@ -1463,9 +1459,9 @@ class MemoryCollectionManager:
                 vector_size=self._get_vector_size(),
                 enable_sparse_vectors=self.config.get("embedding.enable_sparse_vectors", True),
             )
-            
+
             self._create_memory_collection(collection_config)
-            
+
             result = {
                 'collection_name': collection_name,
                 'type': 'project_memory',
@@ -1481,26 +1477,26 @@ class MemoryCollectionManager:
                 'description': collection_config.description,
                 'status': 'created'
             }
-            
+
             logger.info(f"Successfully created project memory collection: {collection_name}")
             return result
-            
+
         except Exception as e:
             logger.error(f"Failed to create project memory collection '{collection_name}': {e}")
             raise
-    
+
     def _create_memory_collection(self, collection_config: CollectionConfig) -> None:
         """
         Create a memory collection with optimized settings.
-        
+
         Memory collections are optimized for:
         - Fast retrieval of contextual information
         - Efficient storage of user preferences and settings
         - Quick search across stored memory items
-        
+
         Args:
             collection_config: Complete configuration for the memory collection
-            
+
         Raises:
             ResponseHandlingException: If Qdrant API calls fail
         """
@@ -1532,7 +1528,7 @@ class MemoryCollectionManager:
                         ),
                     ),
                 )
-            
+
             # Apply memory-optimized collection settings
             self.workspace_client.update_collection(
                 collection_name=collection_config.name,
@@ -1546,28 +1542,28 @@ class MemoryCollectionManager:
                     full_scan_threshold=5000,  # Lower threshold for small collections
                 ),
             )
-            
+
         except Exception as e:
             logger.error(f"Failed to create memory collection '{collection_config.name}': {e}")
             raise
-    
+
     def get_memory_collections(self, project: str) -> dict:
         """
         Get information about memory collections for a project.
-        
+
         Args:
             project: Project name to get memory collections for
-            
+
         Returns:
             dict: Information about system and project memory collections
         """
         system_memory = build_system_memory_collection_name(self.memory_collection)
         project_memory = build_project_collection_name(project, self.memory_collection)
-        
+
         try:
             collections = self.workspace_client.get_collections()
             existing_names = {col.name for col in collections.collections}
-            
+
             return {
                 'system_memory': {
                     'name': system_memory,
@@ -1596,49 +1592,49 @@ class MemoryCollectionManager:
                     }
                 }
             }
-            
+
         except Exception as e:
             logger.error(f"Failed to get memory collection info for project '{project}': {e}")
             return {
                 'system_memory': {'name': system_memory, 'exists': False, 'error': str(e)},
                 'project_memory': {'name': project_memory, 'exists': False, 'error': str(e)}
             }
-    
+
     def validate_memory_collection_access(self, collection_name: str, operation: str) -> tuple[bool, str]:
         """
         Validate access to memory collections based on their type.
-        
+
         Args:
             collection_name: Name of the memory collection
             operation: Operation to validate ('read', 'write', 'delete')
-            
+
         Returns:
             tuple[bool, str]: (is_allowed, reason)
         """
         collection_info = self.type_classifier.get_collection_info(collection_name)
-        
+
         # Memory collections cannot be deleted by LLM regardless of type
         if operation == 'delete':
             return False, f"Memory collection '{collection_name}' cannot be deleted by LLM"
-        
+
         # System memory collections are read-only from LLM/MCP
         if collection_info.type == CollectionType.SYSTEM:
             if operation == 'write':
                 return False, f"System memory collection '{collection_name}' is CLI-writable only"
             elif operation == 'read':
-                return True, f"Read access allowed for system memory collection"
-        
+                return True, "Read access allowed for system memory collection"
+
         # Project memory collections allow read/write from MCP
         elif collection_info.type == CollectionType.PROJECT:
             if operation in ['read', 'write']:
                 return True, f"{operation.title()} access allowed for project memory collection"
-        
+
         return False, f"Unknown memory collection type for '{collection_name}'"
-    
+
     def _get_vector_size(self) -> int:
         """
         Get the vector dimension size for the currently configured embedding model.
-        
+
         Returns:
             int: Vector dimension size for the configured model
         """
@@ -1686,17 +1682,20 @@ class CollectionSelector:
         self.naming_manager = CollectionNamingManager()
 
         # Import multi-tenant components
-        from .multitenant_collections import WorkspaceCollectionRegistry, ProjectIsolationManager
+        from .multitenant_collections import (
+            ProjectIsolationManager,
+            WorkspaceCollectionRegistry,
+        )
         self.registry = WorkspaceCollectionRegistry()
         self.isolation_manager = ProjectIsolationManager()
 
     def select_collections_by_type(
         self,
         collection_type: str,
-        project_name: Optional[str] = None,
+        project_name: str | None = None,
         include_shared: bool = True,
-        workspace_types: Optional[List[str]] = None
-    ) -> Dict[str, List[str]]:
+        workspace_types: list[str] | None = None
+    ) -> dict[str, list[str]]:
         """
         Select collections based on type with multi-tenant support.
 
@@ -1764,10 +1763,10 @@ class CollectionSelector:
 
     def _select_memory_collections(
         self,
-        all_collections: List[Dict],
-        project_name: Optional[str],
+        all_collections: list[dict],
+        project_name: str | None,
         include_shared: bool
-    ) -> List[str]:
+    ) -> list[str]:
         """Select memory collections with project context."""
         memory_collections = []
 
@@ -1795,11 +1794,11 @@ class CollectionSelector:
 
     def _select_code_collections(
         self,
-        all_collections: List[Dict],
-        project_name: Optional[str],
-        workspace_types: Optional[List[str]],
+        all_collections: list[dict],
+        project_name: str | None,
+        workspace_types: list[str] | None,
         include_shared: bool
-    ) -> List[str]:
+    ) -> list[str]:
         """Select code collections with workspace type filtering."""
         code_collections = []
         target_types = workspace_types or list(self.registry.get_workspace_types())
@@ -1835,9 +1834,9 @@ class CollectionSelector:
 
     def _select_shared_collections(
         self,
-        all_collections: List[Dict],
-        workspace_types: Optional[List[str]]
-    ) -> List[str]:
+        all_collections: list[dict],
+        workspace_types: list[str] | None
+    ) -> list[str]:
         """Select shared collections across projects."""
         shared_collections = []
         target_types = workspace_types or list(self.registry.get_workspace_types())
@@ -1856,7 +1855,7 @@ class CollectionSelector:
 
         return shared_collections
 
-    def _is_memory_collection(self, collection_name: str, collection_info: Dict) -> bool:
+    def _is_memory_collection(self, collection_name: str, collection_info: dict) -> bool:
         """Check if collection is a memory collection."""
         # System memory collections
         if collection_name.startswith('__'):
@@ -1872,7 +1871,7 @@ class CollectionSelector:
 
         return False
 
-    def _is_legacy_code_collection(self, collection_name: str, collection_info: Dict) -> bool:
+    def _is_legacy_code_collection(self, collection_name: str, collection_info: dict) -> bool:
         """Check if collection is a legacy code collection."""
         # Skip reserved patterns
         if (collection_name.startswith('_') or
@@ -1891,8 +1890,8 @@ class CollectionSelector:
     def _apply_fallback_selection(
         self,
         collection_type: str,
-        project_name: Optional[str]
-    ) -> List[str]:
+        project_name: str | None
+    ) -> list[str]:
         """Apply fallback mechanism when no collections are found."""
         fallback_collections = []
 
@@ -1920,7 +1919,7 @@ class CollectionSelector:
                         fallback_collections.append(collection_name)
 
             logger.warning(
-                f"Applied fallback collection selection",
+                "Applied fallback collection selection",
                 collection_type=collection_type,
                 project_name=project_name,
                 fallback_count=len(fallback_collections)
@@ -1931,7 +1930,7 @@ class CollectionSelector:
 
         return fallback_collections
 
-    def _get_all_collections_with_metadata(self) -> List[Dict]:
+    def _get_all_collections_with_metadata(self) -> list[dict]:
         """Get all collections with their metadata information."""
         collections_with_metadata = []
 
@@ -1967,7 +1966,7 @@ class CollectionSelector:
 
         return collections_with_metadata
 
-    def _get_basic_collection_list(self) -> List[str]:
+    def _get_basic_collection_list(self) -> list[str]:
         """Get basic list of collection names with error handling."""
         try:
             collections = self.client.get_collections()
@@ -1976,11 +1975,11 @@ class CollectionSelector:
             logger.error(f"Failed to get basic collection list: {e}")
             return []
 
-    def _is_result_empty(self, result: Dict[str, List[str]]) -> bool:
+    def _is_result_empty(self, result: dict[str, list[str]]) -> bool:
         """Check if selection result is empty."""
         return all(not collections for collections in result.values())
 
-    def _get_empty_result_with_fallback(self, collection_type: str) -> Dict[str, List[str]]:
+    def _get_empty_result_with_fallback(self, collection_type: str) -> dict[str, list[str]]:
         """Get empty result structure with basic fallback."""
         return {
             'memory_collections': [],
@@ -1992,11 +1991,11 @@ class CollectionSelector:
 
     def get_searchable_collections(
         self,
-        project_name: Optional[str] = None,
-        workspace_types: Optional[List[str]] = None,
+        project_name: str | None = None,
+        workspace_types: list[str] | None = None,
         include_memory: bool = False,
         include_shared: bool = True
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Get collections suitable for search operations.
 
@@ -2063,8 +2062,8 @@ class CollectionSelector:
         self,
         collection_name: str,
         operation: str,
-        project_context: Optional[str] = None
-    ) -> Tuple[bool, str]:
+        project_context: str | None = None
+    ) -> tuple[bool, str]:
         """
         Validate access to a collection for a given operation.
 
@@ -2078,7 +2077,7 @@ class CollectionSelector:
         """
         try:
             # Use existing validation logic from managers
-            collection_info = self.naming_manager.get_collection_info(collection_name)
+            self.naming_manager.get_collection_info(collection_name)
 
             # Memory collections have special validation rules
             if self._is_memory_collection(collection_name, {}):

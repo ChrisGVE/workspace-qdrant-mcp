@@ -26,10 +26,8 @@ import concurrent.futures
 import re
 import threading
 import time
-from typing import List
 
 import pytest
-
 from common.observability.metrics import (
     Counter,
     Gauge,
@@ -67,7 +65,7 @@ class TestCounterMetrics:
         counter = Counter("accuracy_counter")
 
         # Test integer increments
-        for i in range(100):
+        for _i in range(100):
             counter.increment(1)
         assert counter.get_value() == 100
 
@@ -75,7 +73,7 @@ class TestCounterMetrics:
         counter = Counter("float_counter")
 
         # Test float increments
-        for i in range(100):
+        for _i in range(100):
             counter.increment(0.1)
 
         # Allow small floating point errors
@@ -173,7 +171,7 @@ class TestCounterMetrics:
         assert len(labeled_values) == 3
 
         # All values should be accessible
-        for label_key, value in labeled_values.items():
+        for _label_key, value in labeled_values.items():
             assert value > 0
 
 
@@ -452,8 +450,8 @@ class TestMetricsCollector:
 
         # Create metrics
         counter = collector.create_counter("new_counter", "New counter")
-        gauge = collector.create_gauge("new_gauge", "New gauge")
-        histogram = collector.create_histogram("new_histogram", "New histogram")
+        collector.create_gauge("new_gauge", "New gauge")
+        collector.create_histogram("new_histogram", "New histogram")
 
         # Verify they exist
         assert "new_counter" in collector.counters
@@ -737,7 +735,7 @@ class TestLoadConditions:
         iterations = 10000
 
         start_time = time.perf_counter()
-        for i in range(iterations):
+        for _i in range(iterations):
             collector.increment_counter("high_freq_counter")
         duration = time.perf_counter() - start_time
 

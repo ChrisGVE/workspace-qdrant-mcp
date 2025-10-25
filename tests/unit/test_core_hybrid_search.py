@@ -18,11 +18,11 @@ Execution pattern: uv run pytest tests/unit/test_core_hybrid_search.py --cov=src
 import asyncio
 import sys
 import time
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from unittest.mock import Mock, patch, AsyncMock, MagicMock, call
-from collections import defaultdict
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
@@ -34,11 +34,11 @@ sys.path.insert(0, str(src_path))
 try:
     from common.core.hybrid_search import (
         HybridSearchEngine,
+        MultiTenantResultAggregator,
         RRFFusionRanker,
-        WeightedSumFusionRanker,
         TenantAwareResult,
         TenantAwareResultDeduplicator,
-        MultiTenantResultAggregator
+        WeightedSumFusionRanker,
     )
     from qdrant_client import QdrantClient
     from qdrant_client.http import models
@@ -964,7 +964,7 @@ class TestEdgeCasesAndErrorConditions:
                                             enable_performance_monitoring=False
                                         )
 
-                                        result = await engine.hybrid_search(
+                                        await engine.hybrid_search(
                                             collection_name="test_collection",
                                             query_embeddings={"dense": [0.1, 0.2, 0.3]},
                                             limit=5,
@@ -1534,7 +1534,7 @@ class TestRRFFusionRankerAdvanced:
         sparse_results = [Mock(id="doc2", score=0.8, payload={})]
 
         # Fuse first to create results with RRF scores
-        fused_results = ranker.fuse(dense_results, sparse_results)
+        ranker.fuse(dense_results, sparse_results)
 
         # Now create different rankings for explanation
         different_dense = [Mock(id="doc3", score=0.7, payload={})]

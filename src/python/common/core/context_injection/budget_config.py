@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from threading import Lock
-from typing import Dict, Optional, Any
+from typing import Any
 
 import yaml
 from loguru import logger
@@ -44,11 +44,11 @@ class BudgetConfig:
     scope: BudgetScope
     name: str
     default_budget: int
-    max_budget: Optional[int] = None
+    max_budget: int | None = None
     min_budget: int = 1000
     enabled: bool = True
-    operation_budgets: Dict[str, int] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    operation_budgets: dict[str, int] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """Validate budget configuration."""
@@ -100,7 +100,7 @@ class BudgetConfigManager:
         manager.set_budget("claude", OperationType.USER_QUERY, 60000)
     """
 
-    def __init__(self, config_file: Optional[Path] = None):
+    def __init__(self, config_file: Path | None = None):
         """
         Initialize budget configuration manager.
 
@@ -108,9 +108,9 @@ class BudgetConfigManager:
             config_file: Optional YAML configuration file path
         """
         self._lock = Lock()
-        self._global_config: Optional[BudgetConfig] = None
-        self._tool_configs: Dict[str, BudgetConfig] = {}
-        self._operation_configs: Dict[str, BudgetConfig] = {}
+        self._global_config: BudgetConfig | None = None
+        self._tool_configs: dict[str, BudgetConfig] = {}
+        self._operation_configs: dict[str, BudgetConfig] = {}
 
         # Initialize with sensible defaults
         self._initialize_defaults()
@@ -183,8 +183,8 @@ class BudgetConfigManager:
 
     def get_budget(
         self,
-        tool_name: Optional[str] = None,
-        operation_type: Optional[OperationType] = None,
+        tool_name: str | None = None,
+        operation_type: OperationType | None = None,
     ) -> int:
         """
         Get token budget with hierarchical resolution.
@@ -230,8 +230,8 @@ class BudgetConfigManager:
 
     def set_budget(
         self,
-        tool_name: Optional[str] = None,
-        operation_type: Optional[OperationType] = None,
+        tool_name: str | None = None,
+        operation_type: OperationType | None = None,
         budget: int = 50000,
     ) -> None:
         """
@@ -311,7 +311,7 @@ class BudgetConfigManager:
                         f"Updated operation budget for {tool_name}.{operation_type.value}: {budget}"
                     )
 
-    def get_all_budgets(self) -> Dict[str, Any]:
+    def get_all_budgets(self) -> dict[str, Any]:
         """
         Get complete budget configuration hierarchy.
 
@@ -319,7 +319,7 @@ class BudgetConfigManager:
             Dictionary with global, tool, and operation budgets
         """
         with self._lock:
-            result: Dict[str, Any] = {}
+            result: dict[str, Any] = {}
 
             # Global budget
             if self._global_config:
@@ -374,7 +374,7 @@ class BudgetConfigManager:
             return
 
         try:
-            with open(config_file, "r", encoding="utf-8") as f:
+            with open(config_file, encoding="utf-8") as f:
                 config_data = yaml.safe_load(f)
 
             if not config_data or "token_budgets" not in config_data:
@@ -427,7 +427,7 @@ class BudgetConfigManager:
             IOError: If file cannot be written
         """
         with self._lock:
-            config_data: Dict[str, Any] = {"token_budgets": {}}
+            config_data: dict[str, Any] = {"token_budgets": {}}
 
             # Save global budget
             if self._global_config:
@@ -459,7 +459,7 @@ class BudgetConfigManager:
             logger.error(f"Error saving budget config to {config_file}: {e}")
             raise
 
-    def validate_budget(self, budget: int, tool_name: Optional[str] = None) -> bool:
+    def validate_budget(self, budget: int, tool_name: str | None = None) -> bool:
         """
         Validate budget against configured limits.
 
@@ -500,7 +500,7 @@ class BudgetConfigManager:
 
             return True
 
-    def get_config(self, tool_name: Optional[str] = None) -> Optional[BudgetConfig]:
+    def get_config(self, tool_name: str | None = None) -> BudgetConfig | None:
         """
         Get budget configuration object.
 

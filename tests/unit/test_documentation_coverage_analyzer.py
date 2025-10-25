@@ -1,24 +1,24 @@
 """Unit tests for the documentation coverage analyzer."""
 
-import tempfile
-import pytest
 import json
+import os
+import sys
+import tempfile
 from pathlib import Path
 
-import sys
-import os
+import pytest
 
 # Add the docs framework to the path for testing
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../docs/framework'))
 
-from validation.coverage_analyzer import (
-    DocumentationCoverageAnalyzer,
-    CoverageStats,
-    MemberCoverage,
-    FileCoverage,
-    ProjectCoverage
-)
 from generators.ast_parser import MemberType
+from validation.coverage_analyzer import (
+    CoverageStats,
+    DocumentationCoverageAnalyzer,
+    FileCoverage,
+    MemberCoverage,
+    ProjectCoverage,
+)
 
 
 class TestCoverageStats:

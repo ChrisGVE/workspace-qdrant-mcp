@@ -5,16 +5,18 @@ Comprehensive tests for recovery metrics tracking including MTTR/MTTF calculatio
 automated recovery detection, and statistical analysis.
 """
 
-import pytest
 import time
+
+import pytest
+
 from tests.framework.recovery_metrics import (
-    RecoveryTimeTracker,
-    RecoveryEvent,
-    RecoveryState,
-    RecoveryDetectionStrategy,
-    MTTRAnalysis,
     MTTFAnalysis,
+    MTTRAnalysis,
+    RecoveryDetectionStrategy,
+    RecoveryEvent,
     RecoveryMetricsReport,
+    RecoveryState,
+    RecoveryTimeTracker,
 )
 
 

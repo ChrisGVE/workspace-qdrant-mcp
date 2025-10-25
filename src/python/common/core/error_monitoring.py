@@ -38,12 +38,12 @@ Example:
 """
 
 import asyncio
-import json
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
@@ -72,11 +72,11 @@ class OverallHealthStatus:
     """Overall health status with details."""
 
     status: HealthStatus
-    checks: Dict[str, HealthStatus] = field(default_factory=dict)
-    details: Dict[str, Any] = field(default_factory=dict)
+    checks: dict[str, HealthStatus] = field(default_factory=dict)
+    details: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "status": self.status.value,
@@ -107,7 +107,7 @@ class MonitoringHook(ABC):
         self,
         name: str,
         value: float,
-        labels: Optional[Dict[str, str]] = None
+        labels: dict[str, str] | None = None
     ) -> None:
         """Emit a metric to the monitoring backend.
 
@@ -152,7 +152,7 @@ class LoggingHook(MonitoringHook):
         self,
         name: str,
         value: float,
-        labels: Optional[Dict[str, str]] = None
+        labels: dict[str, str] | None = None
     ) -> None:
         """Log metric."""
         logger.debug(
@@ -193,7 +193,7 @@ class WebhookHook(MonitoringHook):
         """
         self.webhook_url = webhook_url
         self.timeout = timeout
-        self._client: Optional[Any] = None
+        self._client: Any | None = None
 
     async def _get_client(self):
         """Get or create httpx async client."""
@@ -228,7 +228,7 @@ class WebhookHook(MonitoringHook):
         self,
         name: str,
         value: float,
-        labels: Optional[Dict[str, str]] = None
+        labels: dict[str, str] | None = None
     ) -> None:
         """Send metric to webhook."""
         client = await self._get_client()
@@ -285,7 +285,7 @@ class PrometheusHook(MonitoringHook):
     def __init__(self):
         """Initialize Prometheus hook."""
         self._available = False
-        self._metrics: Dict[str, Any] = {}
+        self._metrics: dict[str, Any] = {}
 
         try:
             from prometheus_client import Counter, Gauge, Histogram
@@ -336,7 +336,7 @@ class PrometheusHook(MonitoringHook):
         self,
         name: str,
         value: float,
-        labels: Optional[Dict[str, str]] = None
+        labels: dict[str, str] | None = None
     ) -> None:
         """Set Prometheus metric."""
         if not self._available:
@@ -373,7 +373,7 @@ class CloudWatchHook(MonitoringHook):
         """
         self.namespace = namespace
         self._available = False
-        self._client: Optional[Any] = None
+        self._client: Any | None = None
 
         try:
             import boto3
@@ -409,7 +409,7 @@ class CloudWatchHook(MonitoringHook):
         self,
         name: str,
         value: float,
-        labels: Optional[Dict[str, str]] = None
+        labels: dict[str, str] | None = None
     ) -> None:
         """Send metric to CloudWatch."""
         if not self._available or not self._client:
@@ -463,14 +463,14 @@ class ErrorMetricsCollector:
 
     def __init__(self):
         """Initialize metrics collector."""
-        self.hooks: List[MonitoringHook] = []
-        self._metrics: Dict[str, Any] = {
+        self.hooks: list[MonitoringHook] = []
+        self._metrics: dict[str, Any] = {
             "error_total": {},
             "error_rate": 0.0,
             "acknowledgment_times": [],
             "unacknowledged_errors": {}
         }
-        self._rate_task: Optional[asyncio.Task] = None
+        self._rate_task: asyncio.Task | None = None
 
     def register_hook(self, hook: MonitoringHook) -> bool:
         """Register a monitoring hook.
@@ -533,7 +533,7 @@ class ErrorMetricsCollector:
             except Exception as e:
                 logger.error(f"Hook {hook.__class__.__name__} failed to emit ack time: {e}")
 
-    def get_current_metrics(self) -> Dict[str, Any]:
+    def get_current_metrics(self) -> dict[str, Any]:
         """Get current metrics snapshot.
 
         Returns:
@@ -584,7 +584,7 @@ class HealthCheckManager:
             error_manager: ErrorMessageManager instance
         """
         self.error_manager = error_manager
-        self._custom_checks: Dict[str, Callable[[], HealthStatus]] = {}
+        self._custom_checks: dict[str, Callable[[], HealthStatus]] = {}
         self._initialized = False
 
     async def initialize(self) -> None:
@@ -667,8 +667,8 @@ class HealthCheckManager:
         Returns:
             OverallHealthStatus with all check results
         """
-        checks: Dict[str, HealthStatus] = {}
-        details: Dict[str, Any] = {}
+        checks: dict[str, HealthStatus] = {}
+        details: dict[str, Any] = {}
 
         # Standard checks
         try:

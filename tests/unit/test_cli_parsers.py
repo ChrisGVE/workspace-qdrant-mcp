@@ -10,7 +10,6 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
-
 from wqm_cli.cli.parsers.base import ParsedDocument
 from wqm_cli.cli.parsers.html_parser import HtmlParser
 from wqm_cli.cli.parsers.markdown_parser import MarkdownParser
@@ -806,7 +805,7 @@ class TestHtmlParser:
         </body>
         </html>
         """
-        
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             f.flush()
@@ -841,7 +840,7 @@ class TestHtmlParser:
         </body>
         </html>
         """
-        
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             f.flush()
@@ -876,7 +875,7 @@ class TestHtmlParser:
         </body>
         </html>
         """
-        
+
         with tempfile.NamedTemporaryFile(mode="w", suffix=".html", delete=False) as f:
             f.write(html_content)
             f.flush()
@@ -910,13 +909,13 @@ class TestHtmlParser:
         </body>
         </html>
         """
-        
+
         with tempfile.NamedTemporaryFile(mode="wb", suffix=".html", delete=False) as f:
             f.write(html_content.encode('utf-8'))
             f.flush()
 
             result = await parser.parse(f.name)
-            
+
             assert "café" in result.content
             assert "naïve" in result.content
             assert "résumé" in result.content
@@ -928,13 +927,13 @@ class TestHtmlParser:
     async def test_parse_options(self, parser):
         """Test various parsing options."""
         options = parser.get_parsing_options()
-        
+
         assert "remove_navigation" in options
         assert "remove_ads" in options
         assert "preserve_links" in options
         assert "preserve_headings" in options
         assert "extract_metadata" in options
-        
+
         # Check default values
         assert options["remove_navigation"]["default"] is True
         assert options["preserve_headings"]["default"] is True
@@ -946,7 +945,7 @@ class TestHtmlParser:
         with pytest.raises(FileNotFoundError):
             await parser.parse("/nonexistent/file.html")
 
-    @pytest.mark.asyncio  
+    @pytest.mark.asyncio
     async def test_unsupported_format_error(self, parser, tmp_path):
         """Test error handling for unsupported formats."""
         # Create a temporary file with unsupported extension
@@ -985,7 +984,7 @@ class TestPptxParser:
             with pytest.raises(FileNotFoundError):
                 await parser.parse("/nonexistent/file.pptx")
 
-    @pytest.mark.asyncio  
+    @pytest.mark.asyncio
     async def test_unsupported_format_error(self, parser, tmp_path):
         """Test error handling for unsupported formats."""
         test_file = tmp_path / "test.unsupported"
@@ -1006,14 +1005,14 @@ class TestPptxParser:
     async def test_parse_options(self, parser):
         """Test various parsing options."""
         options = parser.get_parsing_options()
-        
+
         assert "include_speaker_notes" in options
         assert "include_slide_numbers" in options
         assert "slide_separator" in options
         assert "extract_table_content" in options
         assert "extract_chart_titles" in options
         assert "include_hidden_slides" in options
-        
+
         # Check default values
         assert options["include_speaker_notes"]["default"] is True
         assert options["include_slide_numbers"]["default"] is True

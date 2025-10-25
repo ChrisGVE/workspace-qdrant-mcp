@@ -5,11 +5,11 @@ for all wqm CLI commands to ensure consistency across the interface.
 """
 
 import asyncio
+import platform
 import sys
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import Any
 
-import platform
 import typer
 import urllib3
 from qdrant_client import QdrantClient
@@ -66,7 +66,7 @@ def handle_async(coro, debug: bool = False):
 
 
 def format_table(
-    headers: List[str], rows: List[List[Any]], title: Optional[str] = None
+    headers: list[str], rows: list[list[Any]], title: str | None = None
 ) -> str:
     """Format data as a plain text table with aligned columns.
 
@@ -137,7 +137,7 @@ def confirm(prompt: str, default: bool = True) -> bool:
             raise typer.Exit(1)
 
 
-def prompt_input(prompt: str, default: Optional[str] = None) -> str:
+def prompt_input(prompt: str, default: str | None = None) -> str:
     """Get user input with optional default value.
 
     Args:
@@ -303,7 +303,7 @@ def warning_message(message: str) -> None:
 def show_service_restart_notification(reason: str = "configuration changes") -> None:
     """Show service restart notification with platform-appropriate commands."""
     platform_name = platform.system().lower()
-    
+
     # Platform-appropriate terminology
     if platform_name in ["darwin", "linux"]:
         service_term = "service"
@@ -311,9 +311,9 @@ def show_service_restart_notification(reason: str = "configuration changes") -> 
         service_term = "service"
     else:
         service_term = "service"
-    
+
     restart_cmd = "wqm service restart"
-    
+
     # Enhanced warning with clear restart instruction
     print("")
     warning_message(
@@ -326,20 +326,20 @@ def show_service_restart_notification(reason: str = "configuration changes") -> 
 def get_platform_service_commands() -> dict:
     """Get platform-appropriate service management commands."""
     platform_name = platform.system().lower()
-    
+
     commands = {
         "restart": "wqm service restart",
-        "start": "wqm service start", 
+        "start": "wqm service start",
         "stop": "wqm service stop",
         "status": "wqm service status",
         "logs": "wqm service logs"
     }
-    
+
     # Add platform-specific system service commands if needed
     if platform_name in ["darwin", "linux", "windows"]:
         commands["system_restart"] = "wqm service restart --system"
         commands["system_status"] = "wqm service status --system"
-    
+
     return commands
 
 
@@ -347,7 +347,7 @@ def show_service_restart_help() -> None:
     """Show comprehensive service restart help."""
     platform_name = platform.system().lower()
     commands = get_platform_service_commands()
-    
+
     print("Service Management Commands:")
     print("=" * 50)
     print(f"  Restart service: {commands['restart']}")
@@ -355,7 +355,7 @@ def show_service_restart_help() -> None:
     print(f"  Stop service:    {commands['stop']}")
     print(f"  Check status:    {commands['status']}")
     print(f"  View logs:       {commands['logs']}")
-    
+
     if platform_name in ["darwin", "linux", "windows"]:
         print("\nSystem Service Commands (requires elevated privileges):")
         print("-" * 50)
@@ -374,11 +374,11 @@ def requires_service_restart(config_key: str) -> bool:
     """Check if a configuration key requires service restart."""
     restart_required_keys = {
         "qdrant.url",
-        "qdrant.api_key", 
+        "qdrant.api_key",
         "qdrant.timeout",
         "qdrant.prefer_grpc",
         "embedding.model",
-        "embedding.enable_sparse_vectors", 
+        "embedding.enable_sparse_vectors",
         "embedding.chunk_size",
         "embedding.chunk_overlap",
         "embedding.batch_size",
@@ -397,39 +397,40 @@ def requires_service_restart(config_key: str) -> bool:
         "port",
         "debug"
     }
-    
-    return any(config_key.startswith(pattern.split('.')[0]) and 
-              (len(pattern.split('.')) == 1 or config_key == pattern) 
+
+    return any(config_key.startswith(pattern.split('.')[0]) and
+              (len(pattern.split('.')) == 1 or config_key == pattern)
               for pattern in restart_required_keys)
 
 
 def get_configured_client(config=None) -> QdrantClient:
     """Create a properly configured QdrantClient with SSL handling.
-    
+
     This function centralizes the client creation pattern used across CLI commands,
     handling SSL configuration for localhost connections and providing consistent
     error handling for connection failures.
-    
+
     Args:
         config: Optional Config object. If None, creates a new one.
-        
+
     Returns:
         Configured QdrantClient instance
-        
+
     Raises:
         CLIError: If client creation or connection fails
     """
     try:
         # Import here to avoid circular imports
+        import warnings
+
         from common.core.config import get_config_manager
         from common.core.ssl_config import get_ssl_manager
-        import warnings
-        
+
         if config is None:
             config = get_config_manager()
-            
+
         ssl_manager = get_ssl_manager()
-        
+
         # Create client with comprehensive SSL warning suppression for all URLs
         with warnings.catch_warnings():
             # Suppress all SSL-related warnings
@@ -437,7 +438,7 @@ def get_configured_client(config=None) -> QdrantClient:
             warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
             warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
             warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
-            
+
             from common.core.ssl_config import suppress_qdrant_ssl_warnings
             with suppress_qdrant_ssl_warnings():
                 # Build client parameters from config
@@ -449,13 +450,13 @@ def get_configured_client(config=None) -> QdrantClient:
                     timeout = int(timeout_val[:-1])
                 else:
                     timeout = timeout_val if isinstance(timeout_val, (int, float)) else 30
-                
+
                 client_params = {"url": url, "timeout": timeout}
                 if api_key:
                     client_params["api_key"] = api_key
-                
+
                 client = QdrantClient(**client_params)
-            
+
         # Test connection to ensure client is working
         try:
             with warnings.catch_warnings():
@@ -464,7 +465,7 @@ def get_configured_client(config=None) -> QdrantClient:
                 warnings.filterwarnings("ignore", message=".*insecure connection.*", category=urllib3.exceptions.InsecureRequestWarning)
                 warnings.filterwarnings("ignore", message=".*unverified HTTPS request.*", category=urllib3.exceptions.InsecureRequestWarning)
                 warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
-                
+
                 if ssl_manager.is_localhost_url(url):
                     with ssl_manager.for_localhost():
                         client.get_collections()
@@ -475,9 +476,9 @@ def get_configured_client(config=None) -> QdrantClient:
             raise CLIError(
                 f"Failed to connect to Qdrant server at {url}: {str(e)}"
             )
-            
+
         return client
-        
+
     except CLIError:
         raise
     except Exception as e:

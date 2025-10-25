@@ -9,8 +9,8 @@ import asyncio
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from unittest.mock import Mock, patch, AsyncMock, MagicMock, call
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 
@@ -23,7 +23,10 @@ try:
     from common.core.embeddings import EmbeddingService
     from common.core.hybrid_search import HybridSearchEngine, RRFFusionRanker
     from common.core.memory import MemoryManager
-    from common.core.sparse_vectors import create_named_sparse_vector, SparseVectorConfig
+    from common.core.sparse_vectors import (
+        SparseVectorConfig,
+        create_named_sparse_vector,
+    )
     CORE_AVAILABLE = True
 except ImportError as e:
     CORE_AVAILABLE = False

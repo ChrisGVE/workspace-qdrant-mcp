@@ -5,36 +5,38 @@ Comprehensive tests for chaos experiment scheduling, result correlation,
 and orchestration coordination.
 """
 
-import pytest
 import asyncio
 import time
+
+import pytest
+
+from tests.framework.cascading_failures import CascadeScenario, FailureNode, FailureType
 from tests.framework.chaos_orchestration import (
-    ChaosOrchestrator,
-    ChaosOrchestrationConfig,
-    ChaosExperimentScheduler,
-    ChaosResultCorrelator,
+    AlertSeverity,
     ChaosExperimentConfig,
     ChaosExperimentResult,
+    ChaosExperimentScheduler,
     ChaosExperimentType,
+    ChaosOrchestrationConfig,
+    ChaosOrchestrator,
+    ChaosResultCorrelator,
     ExperimentStatus,
     TriggerCondition,
-    AlertSeverity,
 )
-from tests.framework.resource_exhaustion import ResourceExhaustionScenario
 from tests.framework.network_instability import NetworkInstabilityScenario
-from tests.framework.cascading_failures import CascadeScenario, FailureNode, FailureType
-from tests.framework.recovery_metrics import (
-    RecoveryTimeTracker,
-    RecoveryEvent,
-    RecoveryState,
-    MTTRAnalysis,
-)
 from tests.framework.performance_degradation import (
+    PerformanceDegradation,
     PerformanceDegradationTracker,
     PerformanceMetricType,
-    PerformanceDegradation,
     PerformanceTrend,
 )
+from tests.framework.recovery_metrics import (
+    MTTRAnalysis,
+    RecoveryEvent,
+    RecoveryState,
+    RecoveryTimeTracker,
+)
+from tests.framework.resource_exhaustion import ResourceExhaustionScenario
 
 
 class TestChaosExperimentScheduler:
@@ -205,7 +207,7 @@ class TestChaosExperimentScheduler:
         scheduler.schedule_experiment(config)
 
         # Get experiment
-        exp = scheduler.get_next_experiment()
+        scheduler.get_next_experiment()
         assert len(scheduler.running_experiments) == 1
 
         # Complete experiment

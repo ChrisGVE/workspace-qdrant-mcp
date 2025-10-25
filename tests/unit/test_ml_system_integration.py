@@ -5,24 +5,25 @@ Tests the integration of all ML components including config, training pipeline,
 model registry, deployment manager, and monitoring system working together.
 """
 
-import pytest
-import tempfile
-import numpy as np
-from pathlib import Path
-from datetime import datetime
-from unittest.mock import Mock, patch
 import shutil
+import tempfile
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import Mock, patch
+
+import numpy as np
+import pytest
 
 from src.python.common.ml import (
-    MLConfig,
-    TrainingPipeline,
-    ModelRegistry,
     DeploymentManager,
-    ModelMonitor
+    MLConfig,
+    ModelMonitor,
+    ModelRegistry,
+    TrainingPipeline,
 )
-from src.python.common.ml.config.ml_config import MLModelConfig, ModelType, MLTaskType
-from src.python.common.ml.monitoring.model_monitor import PerformanceMetrics
+from src.python.common.ml.config.ml_config import MLModelConfig, MLTaskType, ModelType
 from src.python.common.ml.management.deployment_manager import DeploymentStage
+from src.python.common.ml.monitoring.model_monitor import PerformanceMetrics
 
 
 class TestMLSystemIntegration:
@@ -73,7 +74,7 @@ class TestMLSystemIntegration:
         X_train = np.random.rand(100, 4)
         y_train = np.random.randint(0, 2, 100)
         X_test = np.random.rand(20, 4)
-        y_test = np.random.randint(0, 2, 20)
+        np.random.randint(0, 2, 20)
 
         # 2. Create model config for training
         model_config = MLModelConfig(
@@ -92,8 +93,8 @@ class TestMLSystemIntegration:
             mock_model = RandomForestClassifier(n_estimators=10, max_depth=3, random_state=42)
             mock_model.fit(X_train, y_train)
 
-            from src.python.common.ml.pipeline.training_pipeline import TrainingResult
             from src.python.common.ml.config.ml_config import MLPerformanceMetrics
+            from src.python.common.ml.pipeline.training_pipeline import TrainingResult
 
             mock_metrics = MLPerformanceMetrics(
                 accuracy=0.95,
@@ -229,8 +230,9 @@ class TestMLSystemIntegration:
     def test_data_flow_between_components(self):
         """Test data flow between different ML components."""
         from sklearn.ensemble import RandomForestClassifier
-        from src.python.common.ml.pipeline.training_pipeline import TrainingResult
+
         from src.python.common.ml.config.ml_config import MLPerformanceMetrics
+        from src.python.common.ml.pipeline.training_pipeline import TrainingResult
 
         # Create a training result
         model = RandomForestClassifier(n_estimators=5, random_state=42)

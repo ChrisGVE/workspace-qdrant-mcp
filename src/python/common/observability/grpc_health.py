@@ -38,17 +38,17 @@ Example:
 
 import asyncio
 import time
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, AsyncIterator, Dict, List, Optional, Set
+from typing import Any
 
 import grpc
-from grpc import aio
 from grpc_health.v1 import health_pb2, health_pb2_grpc
 from loguru import logger
 
-from .health import HealthStatus, get_health_checker
+from .health import get_health_checker
 from .health_coordinator import get_health_coordinator
 from .metrics import metrics_instance
 
@@ -69,8 +69,8 @@ class ServiceHealth:
     service_name: str
     status: GrpcHealthStatus
     last_check: float
-    details: Dict[str, Any] = field(default_factory=dict)
-    watchers: Set[Any] = field(default_factory=set)
+    details: dict[str, Any] = field(default_factory=dict)
+    watchers: set[Any] = field(default_factory=set)
 
 
 class GrpcHealthService(health_pb2_grpc.HealthServicer):
@@ -108,11 +108,11 @@ class GrpcHealthService(health_pb2_grpc.HealthServicer):
         self.max_watchers_per_service = max_watchers_per_service
 
         # Service health tracking
-        self.service_health: Dict[str, ServiceHealth] = {}
+        self.service_health: dict[str, ServiceHealth] = {}
         self.global_health_status = GrpcHealthStatus.UNKNOWN
 
         # Background tasks
-        self.background_tasks: List[asyncio.Task] = []
+        self.background_tasks: list[asyncio.Task] = []
         self.shutdown_event = asyncio.Event()
 
         # Health monitoring integration
@@ -368,7 +368,7 @@ class GrpcHealthService(health_pb2_grpc.HealthServicer):
         self,
         service_name: str,
         healthy: bool,
-        details: Optional[Dict[str, Any]] = None
+        details: dict[str, Any] | None = None
     ) -> None:
         """
         Set health status for a specific service.
@@ -420,12 +420,12 @@ class GrpcHealthService(health_pb2_grpc.HealthServicer):
         # Update global health
         await self._update_global_health()
 
-    async def get_service_health_status(self, service_name: str) -> Optional[GrpcHealthStatus]:
+    async def get_service_health_status(self, service_name: str) -> GrpcHealthStatus | None:
         """Get current health status for a service."""
         service_health = self.service_health.get(service_name)
         return service_health.status if service_health else None
 
-    async def get_all_service_statuses(self) -> Dict[str, Dict[str, Any]]:
+    async def get_all_service_statuses(self) -> dict[str, dict[str, Any]]:
         """Get health status for all services."""
         statuses = {}
 
@@ -555,7 +555,7 @@ class GrpcHealthService(health_pb2_grpc.HealthServicer):
     async def _watch_global_health(self) -> AsyncIterator[health_pb2.HealthCheckResponse]:
         """Watch global health status changes."""
         # Create global watcher queue
-        global_watcher = asyncio.Queue(maxsize=100)
+        asyncio.Queue(maxsize=100)
 
         # Store reference for notifications (simplified)
         current_status = self.global_health_status
@@ -606,7 +606,7 @@ class GrpcHealthService(health_pb2_grpc.HealthServicer):
 
 
 # Global gRPC health service instance
-_grpc_health_service: Optional[GrpcHealthService] = None
+_grpc_health_service: GrpcHealthService | None = None
 
 
 async def get_grpc_health_service(**kwargs) -> GrpcHealthService:
@@ -631,7 +631,7 @@ async def shutdown_grpc_health_service():
 
 def add_grpc_health_service_to_server(
     server: grpc.aio.Server,
-    health_service: Optional[GrpcHealthService] = None
+    health_service: GrpcHealthService | None = None
 ) -> GrpcHealthService:
     """
     Add gRPC health service to a gRPC server.

@@ -6,30 +6,31 @@ health checks, rollback mechanisms, and monitoring with extensive edge cases
 and error conditions.
 """
 
-import pytest
-import tempfile
 import json
-import time
-import threading
-from pathlib import Path
-from datetime import datetime
-from unittest.mock import Mock, patch, MagicMock
 import shutil
+import tempfile
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from src.python.common.ml.config.ml_config import MLConfig
-from src.python.common.ml.management.model_registry import ModelRegistry, ModelMetadata
 from src.python.common.ml.management.deployment_manager import (
+    DeploymentConfig,
+    DeploymentError,
     DeploymentManager,
+    DeploymentMetrics,
+    DeploymentRecord,
     DeploymentStage,
     DeploymentStatus,
     DeploymentStrategy,
-    DeploymentConfig,
-    DeploymentMetrics,
-    DeploymentRecord,
-    DeploymentError,
     HealthCheckError,
-    RollbackError
+    RollbackError,
 )
+from src.python.common.ml.management.model_registry import ModelMetadata, ModelRegistry
 
 
 class TestDeploymentConfig:
@@ -694,7 +695,7 @@ class TestDeploymentEdgeCases:
         low_success_metrics = DeploymentMetrics(success_rate=0.90)
         self.deployment_manager.add_metrics_collector(lambda dep_id: low_success_metrics)
 
-        with patch.object(self.deployment_manager, 'rollback_deployment', return_value=True) as mock_rollback:
+        with patch.object(self.deployment_manager, 'rollback_deployment', return_value=True):
             self.deployment_manager._start_monitoring(deployment_id)
             time.sleep(2)  # Wait for monitoring thread
 
@@ -707,7 +708,7 @@ class TestDeploymentEdgeCases:
         self.deployment_manager.deployment_dir.chmod(0o444)
 
         try:
-            deployment_id = self.deployment_manager.deploy_model("test_model", DeploymentStage.STAGING)
+            self.deployment_manager.deploy_model("test_model", DeploymentStage.STAGING)
             # Should not raise exception even if save fails
             self.deployment_manager._save_deployments()
         finally:

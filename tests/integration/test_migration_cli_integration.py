@@ -13,7 +13,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from typer.testing import CliRunner
-
 from wqm_cli.cli.commands.admin import admin_app
 
 # Migration module not yet implemented - skipping tests

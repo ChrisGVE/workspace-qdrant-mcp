@@ -21,19 +21,19 @@ Features:
 """
 
 from .core.analytics_engine import AnalyticsEngine
-from .core.intelligence_framework import IntelligenceFramework
-from .core.predictive_analytics import PredictiveAnalytics
 from .core.anomaly_detector import AnomalyDetector
+from .core.intelligence_framework import IntelligenceFramework
 from .core.metrics_collector import MetricsCollector
-from .visualization.dashboard_generator import DashboardGenerator
+from .core.predictive_analytics import PredictiveAnalytics
 from .models.analytics_models import (
     AnalyticsMetrics,
-    SearchPattern,
+    AnomalyAlert,
     DocumentInsight,
     PerformanceMetric,
-    AnomalyAlert,
-    PredictionResult
+    PredictionResult,
+    SearchPattern,
 )
+from .visualization.dashboard_generator import DashboardGenerator
 
 __all__ = [
     "AnalyticsEngine",

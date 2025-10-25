@@ -8,7 +8,6 @@ text content from paragraphs, tables, headers, and footers while preserving
 document metadata and structure information.
 """
 
-import logging
 from pathlib import Path
 from typing import Any
 

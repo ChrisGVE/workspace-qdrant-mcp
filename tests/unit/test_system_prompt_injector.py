@@ -6,27 +6,28 @@ and integration with ClaudeCodeAdapter.
 """
 
 import asyncio
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
-import tempfile
+
 import pytest
 
-from src.python.common.core.context_injection.system_prompt_injector import (
-    SystemPromptInjector,
-    SystemPromptConfig,
-    InjectionMode,
-    generate_mcp_context,
-    generate_api_system_prompt,
-)
 from src.python.common.core.context_injection.rule_retrieval import (
     RuleFilter,
     RuleRetrievalResult,
 )
+from src.python.common.core.context_injection.system_prompt_injector import (
+    InjectionMode,
+    SystemPromptConfig,
+    SystemPromptInjector,
+    generate_api_system_prompt,
+    generate_mcp_context,
+)
 from src.python.common.core.memory import (
-    MemoryRule,
-    MemoryCategory,
     AuthorityLevel,
+    MemoryCategory,
+    MemoryRule,
 )
 
 

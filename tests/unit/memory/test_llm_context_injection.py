@@ -8,12 +8,11 @@ rule ordering, context size management, and injection performance.
 import asyncio
 import tempfile
 import time
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any
+from datetime import datetime, timedelta, timezone
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
 from common.memory.claude_integration import ClaudeCodeIntegration
 from common.memory.token_counter import TokenCounter, TokenUsage
 from common.memory.types import (
@@ -30,7 +29,7 @@ def create_test_rule(
     rule_text: str = "Test rule",
     category: MemoryCategory = MemoryCategory.BEHAVIOR,
     authority: AuthorityLevel = AuthorityLevel.DEFAULT,
-    scope: List[str] = None,
+    scope: list[str] = None,
     **kwargs
 ) -> MemoryRule:
     """
@@ -750,7 +749,7 @@ class TestContextInjectionIntegration:
             # Create many long rules
             rules = [
                 create_test_rule(
-                    rule_text=f"This is a very long rule with lots of text " * 20,
+                    rule_text="This is a very long rule with lots of text " * 20,
                     authority=AuthorityLevel.DEFAULT,
                     id=f"budget-{i}",
                     scope=[],

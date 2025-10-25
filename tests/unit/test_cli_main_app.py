@@ -17,7 +17,8 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
 from typer.testing import CliRunner
 
@@ -104,7 +105,7 @@ class TestMainCLIApp:
         """Test that debug flag enables verbose logging."""
         from wqm_cli.cli.main import app
 
-        result = self.runner.invoke(app, ["--debug", "admin", "--help"])
+        self.runner.invoke(app, ["--debug", "admin", "--help"])
 
         # Should have called setup_logging with verbose=True
         mock_setup_logging.assert_called()
@@ -122,7 +123,7 @@ class TestMainCLIApp:
         """Test that normal mode configures file-only logging."""
         from wqm_cli.cli.main import app
 
-        result = self.runner.invoke(app, ["admin", "--help"])
+        self.runner.invoke(app, ["admin", "--help"])
 
         # Should have called setup_logging with verbose=False and log_file
         mock_setup_logging.assert_called()
@@ -204,9 +205,10 @@ class TestVersionHandling:
 
     def test_show_version_function(self):
         """Test show_version function directly."""
-        from wqm_cli.cli.main import show_version
-        from io import StringIO
         import sys
+        from io import StringIO
+
+        from wqm_cli.cli.main import show_version
 
         # Capture stdout
         old_stdout = sys.stdout
@@ -236,9 +238,10 @@ class TestVersionHandling:
     @patch('wqm_cli.cli.main.Path')
     def test_show_version_with_path_error(self, mock_path):
         """Test show_version handles path errors gracefully."""
-        from wqm_cli.cli.main import show_version
-        from io import StringIO
         import sys
+        from io import StringIO
+
+        from wqm_cli.cli.main import show_version
 
         # Make Path operations fail
         mock_path.side_effect = Exception("Path error")
@@ -274,8 +277,8 @@ class TestAsyncCommandHandling:
 
     def test_handle_async_command_keyboard_interrupt(self):
         """Test async command handles KeyboardInterrupt."""
-        from wqm_cli.cli.main import handle_async_command
         import typer
+        from wqm_cli.cli.main import handle_async_command
 
         async def test_coro():
             raise KeyboardInterrupt()
@@ -286,8 +289,8 @@ class TestAsyncCommandHandling:
 
     def test_handle_async_command_exception(self):
         """Test async command handles general exceptions."""
-        from wqm_cli.cli.main import handle_async_command
         import typer
+        from wqm_cli.cli.main import handle_async_command
 
         async def test_coro():
             raise Exception("Test error")
@@ -298,10 +301,11 @@ class TestAsyncCommandHandling:
 
     def test_handle_async_command_debug_mode(self):
         """Test async command in debug mode shows more info."""
-        from wqm_cli.cli.main import handle_async_command
-        import typer
-        from io import StringIO
         import sys
+        from io import StringIO
+
+        import typer
+        from wqm_cli.cli.main import handle_async_command
 
         async def test_coro():
             raise Exception("Test error")
@@ -322,8 +326,8 @@ class TestAsyncCommandHandling:
     @patch('wqm_cli.cli.main.logger')
     def test_handle_async_command_keyboard_interrupt_with_debug(self, mock_logger):
         """Test KeyboardInterrupt handling in debug mode."""
-        from wqm_cli.cli.main import handle_async_command
         import typer
+        from wqm_cli.cli.main import handle_async_command
 
         async def test_coro():
             raise KeyboardInterrupt()
@@ -337,8 +341,8 @@ class TestAsyncCommandHandling:
     @patch('wqm_cli.cli.main.logger')
     def test_handle_async_command_exception_with_debug_logging(self, mock_logger):
         """Test exception handling with debug logging."""
-        from wqm_cli.cli.main import handle_async_command
         import typer
+        from wqm_cli.cli.main import handle_async_command
 
         async def test_coro():
             raise Exception("Test error")
@@ -464,8 +468,8 @@ class TestCLIErrorHandling:
 
     def test_typer_exit_handling(self):
         """Test that typer.Exit exceptions are handled correctly."""
-        from wqm_cli.cli.main import app
         import typer
+        from wqm_cli.cli.main import app
 
         # Test with version flag which calls typer.Exit
         result = CliRunner().invoke(app, ["--version"])
@@ -476,6 +480,7 @@ class TestCLIErrorHandling:
         with patch('wqm_cli.cli.main.typer', side_effect=ImportError("typer not found")):
             with pytest.raises(ImportError):
                 import importlib
+
                 import wqm_cli.cli.main
                 importlib.reload(wqm_cli.cli.main)
 
@@ -495,6 +500,6 @@ class TestCLIErrorHandling:
             from wqm_cli.cli.main import app
 
             # Should still be able to invoke app even if logging setup fails
-            result = CliRunner().invoke(app, ["--help"])
+            CliRunner().invoke(app, ["--help"])
             # The app might fail or succeed depending on error handling
             # We just ensure it doesn't crash the test

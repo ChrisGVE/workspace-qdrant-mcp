@@ -6,17 +6,14 @@ resolution metrics, and comprehensive report generation.
 """
 
 import json
-import pytest
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock
-from typer.testing import CliRunner
+from unittest.mock import AsyncMock, Mock, patch
 
-from wqm_cli.cli.commands.error_reporting import (
-    errors_app,
-    get_severity_color
-)
+import pytest
+from typer.testing import CliRunner
+from wqm_cli.cli.commands.error_reporting import errors_app, get_severity_color
 
 
 @pytest.fixture
@@ -139,10 +136,7 @@ class TestStatsCommand:
         mock_generator_class.return_value = mock_generator
 
         # Mock report data
-        from common.core.error_statistics import (
-            SummaryReport,
-            DetailedErrorStatistics
-        )
+        from common.core.error_statistics import DetailedErrorStatistics, SummaryReport
 
         mock_stats = DetailedErrorStatistics(
             total_count=10,
@@ -377,10 +371,7 @@ class TestResolutionCommand:
         mock_generator_class.return_value = mock_generator
 
         # Mock report data
-        from common.core.error_statistics import (
-            ResolutionReport,
-            ResolutionMetrics
-        )
+        from common.core.error_statistics import ResolutionMetrics, ResolutionReport
 
         mock_metrics = ResolutionMetrics(
             total_errors=100,
@@ -461,12 +452,12 @@ class TestReportCommand:
 
         # Mock report generation methods
         from common.core.error_statistics import (
-            SummaryReport,
-            TrendReport,
-            TopErrorsReport,
-            ResolutionReport,
             DetailedErrorStatistics,
-            ResolutionMetrics
+            ResolutionMetrics,
+            ResolutionReport,
+            SummaryReport,
+            TopErrorsReport,
+            TrendReport,
         )
 
         mock_generator.generate_summary_report = AsyncMock(
@@ -615,10 +606,7 @@ class TestOutputFormatting:
         mock_generator.close = AsyncMock()
         mock_generator_class.return_value = mock_generator
 
-        from common.core.error_statistics import (
-            SummaryReport,
-            DetailedErrorStatistics
-        )
+        from common.core.error_statistics import DetailedErrorStatistics, SummaryReport
 
         mock_stats = DetailedErrorStatistics(
             total_count=50,
@@ -650,10 +638,7 @@ class TestOutputFormatting:
         mock_generator.close = AsyncMock()
         mock_generator_class.return_value = mock_generator
 
-        from common.core.error_statistics import (
-            SummaryReport,
-            DetailedErrorStatistics
-        )
+        from common.core.error_statistics import DetailedErrorStatistics, SummaryReport
 
         mock_stats = DetailedErrorStatistics(
             total_count=10,

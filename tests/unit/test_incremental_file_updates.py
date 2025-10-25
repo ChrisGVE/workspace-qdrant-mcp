@@ -12,22 +12,23 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
 
 from src.python.common.core.incremental_file_updates import (
-    IncrementalUpdateSystem,
     ChangeDetector,
-    ChecksumCalculator,
-    ConflictResolver,
-    UpdateProcessor,
-    FileChecksum,
     ChangeRecord,
-    ConflictInfo,
-    UpdateOperation,
     ChangeType,
+    ChecksumCalculator,
+    ConflictInfo,
     ConflictResolutionStrategy,
-    UpdateStatus
+    ConflictResolver,
+    FileChecksum,
+    IncrementalUpdateSystem,
+    UpdateOperation,
+    UpdateProcessor,
+    UpdateStatus,
 )
 
 
@@ -125,7 +126,7 @@ class TestFileChecksum:
 
         assert checksum != "not a checksum"
         assert checksum != 123
-        assert checksum != None
+        assert checksum is not None
 
 
 class TestChangeRecord:
@@ -731,7 +732,7 @@ class TestUpdateProcessor:
     @pytest.mark.asyncio
     async def test_backup_creation(self, update_processor, temp_file):
         """Test backup creation functionality."""
-        change_record = ChangeRecord(
+        ChangeRecord(
             change_id="test_change",
             file_path=temp_file,
             change_type=ChangeType.MODIFIED,
@@ -744,7 +745,7 @@ class TestUpdateProcessor:
         assert os.path.exists(backup_path)
 
         # Verify backup content
-        with open(backup_path, 'r') as f:
+        with open(backup_path) as f:
             backup_content = f.read()
         assert backup_content == "Original content"
 
@@ -767,7 +768,7 @@ class TestUpdateProcessor:
         operation_id = operation.operation_id
 
         # Verify file was modified
-        with open(temp_file, 'r') as f:
+        with open(temp_file) as f:
             assert f.read() == "Modified content"
 
         # Rollback the operation
@@ -775,7 +776,7 @@ class TestUpdateProcessor:
         assert success is True
 
         # Verify file was restored
-        with open(temp_file, 'r') as f:
+        with open(temp_file) as f:
             assert f.read() == "Original content"
 
         # Verify operation status

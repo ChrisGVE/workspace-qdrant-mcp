@@ -13,13 +13,16 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 import asyncio
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, Mock, MagicMock, patch
-from typing import Any, Dict, List
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-
 from mcp.server.fastmcp import FastMCP
 
+# Import the module under test
+from python.workspace_qdrant_mcp.tools.memory import register_memory_tools
+
+from python.common.core.collection_naming import CollectionNamingManager
 from python.common.core.config import Config
 from python.common.core.memory import (
     AuthorityLevel,
@@ -30,10 +33,6 @@ from python.common.core.memory import (
     MemoryStats,
     parse_conversational_memory_update,
 )
-from python.common.core.collection_naming import CollectionNamingManager
-
-# Import the module under test
-from python.workspace_qdrant_mcp.tools.memory import register_memory_tools
 
 
 class TestMemoryToolsRegistration:
@@ -1277,7 +1276,7 @@ class TestMemoryToolsIntegration:
         assert 'get_memory_stats' in self.tools
 
         # Verify all tools are callable
-        for tool_name, tool_func in self.tools.items():
+        for _tool_name, tool_func in self.tools.items():
             assert callable(tool_func)
             assert asyncio.iscoroutinefunction(tool_func)
 

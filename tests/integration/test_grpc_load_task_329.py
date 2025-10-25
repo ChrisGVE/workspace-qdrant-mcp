@@ -16,14 +16,15 @@ Test Coverage (Task 329.5):
 """
 
 import asyncio
-import httpx
 import json
-import psutil
-import pytest
 import statistics
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Any
+
+import httpx
+import psutil
+import pytest
 from qdrant_client import QdrantClient
 
 
@@ -93,7 +94,7 @@ class TestgRPCCommunicationLoad:
             # Process in batches
             for batch_start in range(0, num_requests, concurrent_batch_size):
                 batch_end = min(batch_start + concurrent_batch_size, num_requests)
-                batch_size = batch_end - batch_start
+                batch_end - batch_start
 
                 print(f"   Batch {batch_start//concurrent_batch_size + 1}: "
                       f"Processing requests {batch_start}-{batch_end}...")
@@ -134,7 +135,7 @@ class TestgRPCCommunicationLoad:
             error_count = len(errors)
             success_rate = (success_count / num_requests) * 100
 
-            print(f"\n   📊 Load Test Results:")
+            print("\n   📊 Load Test Results:")
             print(f"   ✅ Successful requests: {success_count}/{num_requests} ({success_rate:.1f}%)")
             print(f"   ❌ Failed requests: {error_count}")
 
@@ -144,7 +145,7 @@ class TestgRPCCommunicationLoad:
                 p95_response = statistics.quantiles(response_times, n=20)[18] if len(response_times) > 20 else max(response_times)
                 p99_response = statistics.quantiles(response_times, n=100)[98] if len(response_times) > 100 else max(response_times)
 
-                print(f"   ⚡ Response Times:")
+                print("   ⚡ Response Times:")
                 print(f"      Average: {avg_response*1000:.2f}ms")
                 print(f"      P50: {p50_response*1000:.2f}ms")
                 print(f"      P95: {p95_response*1000:.2f}ms")
@@ -224,7 +225,7 @@ class TestgRPCCommunicationLoad:
             avg_response = statistics.mean(all_response_times)
             p95_response = statistics.quantiles(all_response_times, n=20)[18]
 
-            print(f"\n   📊 Search Load Results:")
+            print("\n   📊 Search Load Results:")
             print(f"   ✅ Completed queries: {len(all_response_times)}/{num_queries}")
             print(f"   ⚡ Average response: {avg_response*1000:.2f}ms")
             print(f"   ⚡ P95 response: {p95_response*1000:.2f}ms")
@@ -298,7 +299,7 @@ class TestgRPCCommunicationLoad:
                         else:
                             search_times.append(response_time)
 
-            print(f"\n   📊 Mixed Operations Results:")
+            print("\n   📊 Mixed Operations Results:")
             print(f"   Ingestion operations: {len(ingest_times)} successful")
             print(f"   Search operations: {len(search_times)} successful")
             print(f"   Errors: {len(errors)}")
@@ -438,9 +439,9 @@ class TestgRPCCommunicationLoad:
         client: httpx.AsyncClient,
         base_url: str,
         content: str,
-        metadata: Dict,
+        metadata: dict,
         collection: str
-    ) -> Tuple[bool, float]:
+    ) -> tuple[bool, float]:
         """Send ingestion request and measure response time."""
         start_time = time.time()
         try:
@@ -456,7 +457,7 @@ class TestgRPCCommunicationLoad:
             )
             elapsed = time.time() - start_time
             return (response.status_code == 200, elapsed)
-        except Exception as e:
+        except Exception:
             elapsed = time.time() - start_time
             return (False, elapsed)
 
@@ -466,7 +467,7 @@ class TestgRPCCommunicationLoad:
         base_url: str,
         query: str,
         collection: str
-    ) -> Tuple[bool, float]:
+    ) -> tuple[bool, float]:
         """Send search request and measure response time."""
         start_time = time.time()
         try:
@@ -481,7 +482,7 @@ class TestgRPCCommunicationLoad:
             )
             elapsed = time.time() - start_time
             return (response.status_code == 200, elapsed)
-        except Exception as e:
+        except Exception:
             elapsed = time.time() - start_time
             return (False, elapsed)
 

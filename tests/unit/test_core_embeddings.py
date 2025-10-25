@@ -7,13 +7,15 @@ embedding generation, text chunking, document processing, and error handling.
 
 import asyncio
 import hashlib
-import pytest
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import numpy as np
+import pytest
+
+from python.common.core.config import Config, EmbeddingConfig
 
 # Import the module under test
 from python.common.core.embeddings import EmbeddingService
-from python.common.core.config import Config, EmbeddingConfig
 
 
 class TestEmbeddingService:

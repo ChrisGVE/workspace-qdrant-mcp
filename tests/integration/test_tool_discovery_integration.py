@@ -17,22 +17,23 @@ Tests end-to-end workflows including:
 import asyncio
 import os
 import platform
-import pytest
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 from unittest.mock import Mock, patch
 
-from src.python.common.core.tool_discovery import ToolDiscovery
-from src.python.common.core.tool_database_integration import ToolDatabaseIntegration
-from src.python.common.core.tool_reporting import ToolReporter, MissingTool
-from src.python.common.core.sqlite_state_manager import SQLiteStateManager
+import pytest
+
 from src.python.common.core.language_support_models import (
-    LanguageSupportDatabaseConfig,
     LanguageDefinition,
+    LanguageSupportDatabaseConfig,
     LSPDefinition,
     TreeSitterDefinition,
 )
+from src.python.common.core.sqlite_state_manager import SQLiteStateManager
+from src.python.common.core.tool_database_integration import ToolDatabaseIntegration
+from src.python.common.core.tool_discovery import ToolDiscovery
+from src.python.common.core.tool_reporting import MissingTool, ToolReporter
 
 
 @pytest.fixture
@@ -719,7 +720,7 @@ async def test_database_transaction_integrity(state_manager, db_integration):
             state_manager.connection.commit()
 
     # Batch update
-    count = await db_integration.batch_update_lsp_paths(lsp_paths)
+    await db_integration.batch_update_lsp_paths(lsp_paths)
 
     # Verify all updates were committed
     with state_manager._lock:

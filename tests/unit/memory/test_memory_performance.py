@@ -22,28 +22,27 @@ Test Organization:
 - Include some integration tests with real Qdrant
 """
 
-import pytest
-import psutil
+import asyncio
 import gc
 import time
-import asyncio
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any
-from unittest.mock import Mock, AsyncMock, MagicMock, patch
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from qdrant_client.models import PointStruct, ScoredPoint
+from datetime import datetime, timedelta, timezone
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import psutil
+import pytest
+from common.core.collection_naming import CollectionNamingManager, CollectionType
 from common.core.memory import (
-    MemoryRule,
-    MemoryCategory,
     AuthorityLevel,
-    MemoryManager,
+    MemoryCategory,
     MemoryConflict,
+    MemoryManager,
+    MemoryRule,
     format_memory_rules_for_injection,
 )
-from common.core.collection_naming import CollectionNamingManager, CollectionType
 from common.core.sparse_vectors import BM25SparseEncoder
-
+from qdrant_client.models import PointStruct, ScoredPoint
 
 # ============================================================================
 # HELPER FUNCTIONS AND FIXTURES
@@ -71,7 +70,7 @@ def create_test_rule(
     )
 
 
-def create_large_rule_set(count: int, conflict_rate: float = 0.1) -> List[MemoryRule]:
+def create_large_rule_set(count: int, conflict_rate: float = 0.1) -> list[MemoryRule]:
     """
     Create a large set of test rules with optional conflicts.
 
@@ -128,7 +127,7 @@ class MockQdrantClient:
     """Mock Qdrant client optimized for performance testing."""
 
     def __init__(self):
-        self.storage: Dict[str, Dict[str, PointStruct]] = {}
+        self.storage: dict[str, dict[str, PointStruct]] = {}
         self.collections = set()
 
     def get_collections(self):
@@ -308,7 +307,7 @@ class TestRuleRetrievalPerformance:
 
             # Measure search time
             start_time = time.perf_counter()
-            results = await manager.search_memory_rules(query="test rule", limit=10)
+            await manager.search_memory_rules(query="test rule", limit=10)
             elapsed_ms = (time.perf_counter() - start_time) * 1000
 
             timings[count] = elapsed_ms
@@ -384,7 +383,7 @@ class TestConflictDetectionPerformance:
             rules = create_large_rule_set(count, conflict_rate=0.1)
 
             start_time = time.perf_counter()
-            conflicts = await manager.detect_conflicts(rules)
+            await manager.detect_conflicts(rules)
             elapsed_s = time.perf_counter() - start_time
 
             timings[count] = elapsed_s
@@ -418,7 +417,7 @@ class TestConflictDetectionPerformance:
         rules = create_large_rule_set(500, conflict_rate=0.5)
 
         start_time = time.perf_counter()
-        conflicts = await manager.detect_conflicts(rules)
+        await manager.detect_conflicts(rules)
         elapsed_s = time.perf_counter() - start_time
 
         # Should still complete in reasonable time even with many conflicts
@@ -820,13 +819,13 @@ class TestIntegrationPerformance:
         all_rules = await manager.list_memory_rules()
 
         # 2. Detect conflicts
-        conflicts = await manager.detect_conflicts(all_rules)
+        await manager.detect_conflicts(all_rules)
 
         # 3. Get stats
         stats = await manager.get_memory_stats()
 
         # 4. Format for injection
-        formatted = format_memory_rules_for_injection(all_rules)
+        format_memory_rules_for_injection(all_rules)
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
 

@@ -33,17 +33,17 @@ Example:
 import asyncio
 import json
 import logging
-from contextlib import asynccontextmanager
-from typing import Any, Dict, List, Optional, Union, Callable, Tuple, AsyncGenerator
-from unittest.mock import AsyncMock, Mock, patch
 import traceback
+from collections.abc import AsyncGenerator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from typing import Any, Optional, Union
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from fastmcp import FastMCP
 from fastmcp.tools import FunctionTool
-
 
 # Suppress logging during tests for clean output
 logging.getLogger("fastmcp").setLevel(logging.WARNING)
@@ -55,12 +55,12 @@ class MCPTestResult:
     """Result of an MCP protocol test operation."""
     success: bool
     tool_name: str
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
     response: Any
     execution_time_ms: float
-    error: Optional[str] = None
-    protocol_compliance: Optional[Dict[str, bool]] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    protocol_compliance: dict[str, bool] | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -68,11 +68,11 @@ class MCPToolTestCase:
     """Test case definition for MCP tool testing."""
     tool_name: str
     description: str
-    parameters: Dict[str, Any]
+    parameters: dict[str, Any]
     expected_response_type: type
-    expected_fields: List[str] = field(default_factory=list)
+    expected_fields: list[str] = field(default_factory=list)
     should_succeed: bool = True
-    validation_fn: Optional[Callable[[Any], bool]] = None
+    validation_fn: Callable[[Any], bool] | None = None
 
 
 class FastMCPTestServer:
@@ -94,8 +94,8 @@ class FastMCPTestServer:
         self.app = app
         self.name = name
         self.initialized = False
-        self._clients: List['FastMCPTestClient'] = []
-        self._setup_patches: List[Any] = []
+        self._clients: list[FastMCPTestClient] = []
+        self._setup_patches: list[Any] = []
 
     async def __aenter__(self) -> 'FastMCPTestServer':
         """Async context manager entry."""
@@ -175,7 +175,7 @@ class FastMCPTestServer:
         try:
             tools = await self.app.get_tools()
             tool_count = len(tools)
-        except Exception as e:
+        except Exception:
             # If get_tools fails, try alternate approach
             tool_count = 0
             if hasattr(self.app, '_tool_manager') and hasattr(self.app._tool_manager, '_tools'):
@@ -191,7 +191,7 @@ class FastMCPTestServer:
         self._clients.append(client)
         return client
 
-    def get_available_tools(self) -> List[str]:
+    def get_available_tools(self) -> list[str]:
         """Get list of available tool names."""
         try:
             # Use async method in sync context - this is for testing only
@@ -199,7 +199,7 @@ class FastMCPTestServer:
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 # Create a new task if loop is already running
-                task = asyncio.create_task(self.app.get_tools())
+                asyncio.create_task(self.app.get_tools())
                 # Note: This is a simplified approach for testing
                 # In real async context, this would be awaited properly
                 if hasattr(self.app, '_tool_manager') and hasattr(self.app._tool_manager, '_tools'):
@@ -213,7 +213,7 @@ class FastMCPTestServer:
                 return list(self.app._tool_manager._tools.keys())
         return []
 
-    async def get_tool(self, tool_name: str) -> Optional[FunctionTool]:
+    async def get_tool(self, tool_name: str) -> FunctionTool | None:
         """Get a specific tool by name."""
         try:
             # Try FastMCP API first (it's async)
@@ -222,7 +222,7 @@ class FastMCPTestServer:
             # Fallback to attribute access
             return getattr(self.app, tool_name, None)
 
-    def get_tool_sync(self, tool_name: str) -> Optional[FunctionTool]:
+    def get_tool_sync(self, tool_name: str) -> FunctionTool | None:
         """Get a specific tool by name (synchronous version for testing)."""
         try:
             # Try to use internal tool manager directly
@@ -253,7 +253,7 @@ class FastMCPTestClient:
         """
         self.server = server
         self.initialized = False
-        self._call_history: List[MCPTestResult] = []
+        self._call_history: list[MCPTestResult] = []
 
     async def initialize(self) -> None:
         """Initialize the test client."""
@@ -270,7 +270,7 @@ class FastMCPTestClient:
     async def call_tool(
         self,
         tool_name: str,
-        parameters: Dict[str, Any],
+        parameters: dict[str, Any],
         timeout_ms: float = 5000.0
     ) -> MCPTestResult:
         """
@@ -359,7 +359,7 @@ class FastMCPTestClient:
         self._call_history.append(result)
         return result
 
-    def _validate_response_protocol(self, response: Any) -> Dict[str, bool]:
+    def _validate_response_protocol(self, response: Any) -> dict[str, bool]:
         """
         Validate response against MCP protocol requirements.
 
@@ -388,7 +388,7 @@ class FastMCPTestClient:
 
         return compliance
 
-    def get_call_history(self) -> List[MCPTestResult]:
+    def get_call_history(self) -> list[MCPTestResult]:
         """Get history of all tool calls made by this client."""
         return self._call_history.copy()
 
@@ -413,9 +413,9 @@ class MCPProtocolTester:
             server: FastMCP test server to test against
         """
         self.server = server
-        self.results: List[MCPTestResult] = []
+        self.results: list[MCPTestResult] = []
 
-    async def run_comprehensive_tests(self) -> Dict[str, Any]:
+    async def run_comprehensive_tests(self) -> dict[str, Any]:
         """
         Run comprehensive MCP protocol compliance tests.
 
@@ -433,7 +433,7 @@ class MCPProtocolTester:
 
         # Calculate overall compliance score
         compliance_scores = []
-        for category, results in test_results.items():
+        for _category, results in test_results.items():
             if isinstance(results, dict) and "success_rate" in results:
                 compliance_scores.append(results["success_rate"])
 
@@ -447,7 +447,7 @@ class MCPProtocolTester:
 
         return test_results
 
-    async def test_tool_registration(self) -> Dict[str, Any]:
+    async def test_tool_registration(self) -> dict[str, Any]:
         """Test tool registration and discovery."""
         available_tools = self.server.get_available_tools()
 
@@ -489,7 +489,7 @@ class MCPProtocolTester:
             "test_results": tool_structure_tests
         }
 
-    async def test_tool_invocation(self) -> Dict[str, Any]:
+    async def test_tool_invocation(self) -> dict[str, Any]:
         """Test basic tool invocation without parameters."""
         client = await self.server.create_test_client()
 
@@ -522,7 +522,7 @@ class MCPProtocolTester:
             ]
         }
 
-    async def test_parameter_validation(self) -> Dict[str, Any]:
+    async def test_parameter_validation(self) -> dict[str, Any]:
         """Test parameter validation for tools."""
         client = await self.server.create_test_client()
 
@@ -584,7 +584,7 @@ class MCPProtocolTester:
             "test_results": test_results
         }
 
-    async def test_response_format(self) -> Dict[str, Any]:
+    async def test_response_format(self) -> dict[str, Any]:
         """Test MCP response format compliance."""
         client = await self.server.create_test_client()
 
@@ -625,7 +625,7 @@ class MCPProtocolTester:
             "test_results": test_results
         }
 
-    async def test_error_handling(self) -> Dict[str, Any]:
+    async def test_error_handling(self) -> dict[str, Any]:
         """Test error handling compliance."""
         client = await self.server.create_test_client()
 
@@ -668,7 +668,7 @@ class MCPProtocolTester:
             "test_results": test_results
         }
 
-    async def test_performance_baseline(self) -> Dict[str, Any]:
+    async def test_performance_baseline(self) -> dict[str, Any]:
         """Test performance baseline for MCP operations."""
         client = await self.server.create_test_client()
 
@@ -720,7 +720,7 @@ class MCPProtocolTester:
 
 
 @asynccontextmanager
-async def fastmcp_test_environment(app: FastMCP, name: str = "test-env") -> AsyncGenerator[Tuple[FastMCPTestServer, FastMCPTestClient], None]:
+async def fastmcp_test_environment(app: FastMCP, name: str = "test-env") -> AsyncGenerator[tuple[FastMCPTestServer, FastMCPTestClient], None]:
     """
     Async context manager for FastMCP testing environment.
 

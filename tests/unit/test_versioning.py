@@ -1,20 +1,20 @@
 """Comprehensive unit tests for versioning system with edge cases."""
 
-import pytest
-import tempfile
-import subprocess
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timedelta
 import json
 import shutil
+import subprocess
+import tempfile
+from datetime import datetime, timedelta
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
 
+import pytest
 from docs.framework.deployment.versioning import (
-    VersionManager,
     Version,
+    VersioningConfig,
     VersioningStrategy,
+    VersionManager,
     VersionStatus,
-    VersioningConfig
 )
 
 
@@ -504,8 +504,8 @@ class TestVersionManager:
 
     def test_list_versions_basic(self, version_manager, temp_source):
         """Test basic version listing."""
-        version1 = version_manager.create_version(temp_source, "1.0.0")
-        version2 = version_manager.create_version(temp_source, "2.0.0")
+        version_manager.create_version(temp_source, "1.0.0")
+        version_manager.create_version(temp_source, "2.0.0")
 
         versions = version_manager.list_versions()
 
@@ -576,7 +576,7 @@ class TestVersionManager:
         assert output_path.exists()
 
         # Verify exported data
-        with open(output_path, 'r') as f:
+        with open(output_path) as f:
             data = json.load(f)
 
         assert 'export_timestamp' in data
@@ -707,7 +707,7 @@ class TestVersionManager:
         """Test loading versions from existing storage."""
         # Create manager and add version
         manager1 = VersionManager(temp_storage)
-        version = manager1.create_version(temp_source, "1.0.0")
+        manager1.create_version(temp_source, "1.0.0")
 
         # Create new manager, should load existing version
         manager2 = VersionManager(temp_storage)
@@ -726,7 +726,7 @@ class TestVersionManager:
 
     def test_save_versions_error_handling(self, version_manager, temp_source):
         """Test version saving error handling."""
-        version = version_manager.create_version(temp_source)
+        version_manager.create_version(temp_source)
 
         # Mock file operations to fail
         with patch("builtins.open", side_effect=PermissionError("Access denied")):
@@ -790,11 +790,11 @@ class TestVersionManager:
     def test_edge_case_version_string_collision(self, version_manager, temp_source):
         """Test handling version string collision."""
         # Create version with explicit string
-        version1 = version_manager.create_version(temp_source, "1.0.0")
+        version_manager.create_version(temp_source, "1.0.0")
 
         # Creating another version with same string should be allowed
         # (in practice, this might be prevented by application logic)
-        version2 = version_manager.create_version(temp_source, "1.0.0")
+        version_manager.create_version(temp_source, "1.0.0")
 
         # The second version should overwrite the first in the dictionary
         assert len(version_manager._versions) == 1
@@ -803,7 +803,7 @@ class TestVersionManager:
         """Test version persistence across manager instances."""
         # Create version with first manager
         manager1 = VersionManager(temp_storage)
-        version = manager1.create_version(temp_source, "1.0.0", title="Persistent Version")
+        manager1.create_version(temp_source, "1.0.0", title="Persistent Version")
 
         # Create second manager, should load the version
         manager2 = VersionManager(temp_storage)

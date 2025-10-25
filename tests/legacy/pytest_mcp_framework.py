@@ -32,23 +32,23 @@ Example:
 import asyncio
 import json
 import logging
+import re
 import traceback
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union, Callable, Tuple, AsyncGenerator
 from enum import Enum
-import re
+from typing import Any, Optional, Union
 
 import pytest
 from fastmcp import FastMCP
-
 from tests.utils.fastmcp_test_infrastructure import (
-    FastMCPTestServer,
     FastMCPTestClient,
+    FastMCPTestServer,
     MCPTestResult,
     MCPToolTestCase,
-    fastmcp_test_environment
+    fastmcp_test_environment,
 )
 
 # Suppress logging during AI evaluation for clean output
@@ -74,19 +74,19 @@ class AIEvaluationResult:
 
     # Core evaluation results
     overall_score: float  # 0.0 to 1.0
-    criteria_scores: Dict[EvaluationCriteria, float] = field(default_factory=dict)
+    criteria_scores: dict[EvaluationCriteria, float] = field(default_factory=dict)
 
     # AI insights and analysis
-    ai_insights: List[str] = field(default_factory=list)
-    recommendations: List[str] = field(default_factory=list)
-    detected_issues: List[str] = field(default_factory=list)
-    strengths: List[str] = field(default_factory=list)
+    ai_insights: list[str] = field(default_factory=list)
+    recommendations: list[str] = field(default_factory=list)
+    detected_issues: list[str] = field(default_factory=list)
+    strengths: list[str] = field(default_factory=list)
 
     # Detailed analysis
-    response_quality: Optional[float] = None
-    error_analysis: Optional[str] = None
-    performance_analysis: Optional[str] = None
-    usability_assessment: Optional[str] = None
+    response_quality: float | None = None
+    error_analysis: str | None = None
+    performance_analysis: str | None = None
+    usability_assessment: str | None = None
 
     # Metadata
     evaluation_timestamp: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
@@ -99,7 +99,7 @@ class MCPToolEvaluation:
     """Comprehensive evaluation result for a single MCP tool."""
 
     tool_name: str
-    test_results: List[MCPTestResult]
+    test_results: list[MCPTestResult]
     ai_evaluation: AIEvaluationResult
 
     # Performance metrics
@@ -130,7 +130,7 @@ class AITestEvaluator:
     AI evaluation criteria and heuristics designed for MCP protocol compliance.
     """
 
-    def __init__(self, domain_knowledge: Optional[Dict[str, Any]] = None):
+    def __init__(self, domain_knowledge: dict[str, Any] | None = None):
         """
         Initialize AI test evaluator.
 
@@ -138,7 +138,7 @@ class AITestEvaluator:
             domain_knowledge: Optional domain-specific knowledge for evaluation
         """
         self.domain_knowledge = domain_knowledge or {}
-        self.evaluation_history: List[AIEvaluationResult] = []
+        self.evaluation_history: list[AIEvaluationResult] = []
 
         # Initialize evaluation rules and criteria
         self._initialize_evaluation_criteria()
@@ -188,7 +188,7 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        context: Optional[Dict[str, Any]] = None
+        context: dict[str, Any] | None = None
     ) -> AIEvaluationResult:
         """
         Evaluate a tool response using AI-powered analysis.
@@ -279,7 +279,7 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        context: Dict[str, Any]
+        context: dict[str, Any]
     ) -> float:
         """Evaluate tool functionality based on response and expected behavior."""
         if not test_result.success:
@@ -309,7 +309,7 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        context: Dict[str, Any]
+        context: dict[str, Any]
     ) -> float:
         """Evaluate tool performance based on execution time and efficiency."""
         tool_pattern = self.tool_patterns.get(tool_name, {})
@@ -332,7 +332,7 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        context: Dict[str, Any]
+        context: dict[str, Any]
     ) -> float:
         """Evaluate tool reliability based on success rate and error handling."""
         if test_result.success:
@@ -361,7 +361,7 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        context: Dict[str, Any]
+        context: dict[str, Any]
     ) -> float:
         """Evaluate tool usability based on response clarity and structure."""
         if not test_result.success:
@@ -392,7 +392,7 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        context: Dict[str, Any]
+        context: dict[str, Any]
     ) -> float:
         """Evaluate completeness of tool response."""
         if not test_result.success:
@@ -415,7 +415,7 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        context: Dict[str, Any]
+        context: dict[str, Any]
     ) -> float:
         """Evaluate accuracy of tool response."""
         if not test_result.success:
@@ -438,7 +438,7 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        context: Dict[str, Any]
+        context: dict[str, Any]
     ) -> float:
         """Evaluate consistency of tool behavior."""
         # For single test, evaluate internal consistency
@@ -463,9 +463,9 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        criteria_scores: Dict[EvaluationCriteria, float],
-        context: Dict[str, Any]
-    ) -> List[str]:
+        criteria_scores: dict[EvaluationCriteria, float],
+        context: dict[str, Any]
+    ) -> list[str]:
         """Generate AI insights about tool performance."""
         insights = []
 
@@ -497,9 +497,9 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        criteria_scores: Dict[EvaluationCriteria, float],
-        context: Dict[str, Any]
-    ) -> List[str]:
+        criteria_scores: dict[EvaluationCriteria, float],
+        context: dict[str, Any]
+    ) -> list[str]:
         """Generate AI recommendations for improvement."""
         recommendations = []
 
@@ -528,9 +528,9 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        criteria_scores: Dict[EvaluationCriteria, float],
-        context: Dict[str, Any]
-    ) -> List[str]:
+        criteria_scores: dict[EvaluationCriteria, float],
+        context: dict[str, Any]
+    ) -> list[str]:
         """Detect potential issues with tool behavior."""
         issues = []
 
@@ -561,9 +561,9 @@ class AITestEvaluator:
         self,
         tool_name: str,
         test_result: MCPTestResult,
-        criteria_scores: Dict[EvaluationCriteria, float],
-        context: Dict[str, Any]
-    ) -> List[str]:
+        criteria_scores: dict[EvaluationCriteria, float],
+        context: dict[str, Any]
+    ) -> list[str]:
         """Identify strengths in tool behavior."""
         strengths = []
 
@@ -591,7 +591,7 @@ class AITestEvaluator:
     def _calculate_confidence(
         self,
         test_result: MCPTestResult,
-        criteria_scores: Dict[EvaluationCriteria, float]
+        criteria_scores: dict[EvaluationCriteria, float]
     ) -> float:
         """Calculate AI confidence in evaluation."""
         base_confidence = 0.8
@@ -696,14 +696,14 @@ class MCPToolEvaluator:
             ai_evaluator: AI evaluation engine for intelligent analysis
         """
         self.ai_evaluator = ai_evaluator
-        self.evaluation_results: Dict[str, MCPToolEvaluation] = {}
+        self.evaluation_results: dict[str, MCPToolEvaluation] = {}
 
     async def evaluate_tool(
         self,
         server: FastMCPTestServer,
         tool_name: str,
-        test_cases: List[MCPToolTestCase],
-        context: Optional[Dict[str, Any]] = None
+        test_cases: list[MCPToolTestCase],
+        context: dict[str, Any] | None = None
     ) -> MCPToolEvaluation:
         """
         Evaluate a specific MCP tool using multiple test cases.
@@ -828,9 +828,9 @@ class MCPToolEvaluator:
     async def evaluate_multiple_tools(
         self,
         server: FastMCPTestServer,
-        tool_test_suite: Dict[str, List[MCPToolTestCase]],
-        context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, MCPToolEvaluation]:
+        tool_test_suite: dict[str, list[MCPToolTestCase]],
+        context: dict[str, Any] | None = None
+    ) -> dict[str, MCPToolEvaluation]:
         """
         Evaluate multiple MCP tools with their respective test suites.
 
@@ -865,7 +865,7 @@ class MCPToolEvaluator:
 
         return results
 
-    def get_evaluation_summary(self) -> Dict[str, Any]:
+    def get_evaluation_summary(self) -> dict[str, Any]:
         """Get summary of all tool evaluations."""
         if not self.evaluation_results:
             return {"message": "No evaluations performed"}
@@ -907,7 +907,7 @@ class IntelligentTestRunner:
     Provides automated test execution with AI-powered insights and recommendations.
     """
 
-    def __init__(self, ai_evaluator: Optional[AITestEvaluator] = None):
+    def __init__(self, ai_evaluator: AITestEvaluator | None = None):
         """
         Initialize intelligent test runner.
 
@@ -916,14 +916,14 @@ class IntelligentTestRunner:
         """
         self.ai_evaluator = ai_evaluator or AITestEvaluator()
         self.tool_evaluator = MCPToolEvaluator(self.ai_evaluator)
-        self.test_history: List[Dict[str, Any]] = []
+        self.test_history: list[dict[str, Any]] = []
 
     async def run_comprehensive_evaluation(
         self,
         app: FastMCP,
-        custom_test_cases: Optional[Dict[str, List[MCPToolTestCase]]] = None,
-        context: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        custom_test_cases: dict[str, list[MCPToolTestCase]] | None = None,
+        context: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """
         Run comprehensive evaluation of all MCP tools in the application.
 
@@ -1006,7 +1006,7 @@ class IntelligentTestRunner:
 
             return report
 
-    async def _generate_default_test_cases(self, available_tools: List[str]) -> Dict[str, List[MCPToolTestCase]]:
+    async def _generate_default_test_cases(self, available_tools: list[str]) -> dict[str, list[MCPToolTestCase]]:
         """Generate default test cases for available tools."""
         test_cases = {}
 
@@ -1075,8 +1075,8 @@ class IntelligentTestRunner:
 
     async def _generate_overall_recommendations(
         self,
-        evaluation_results: Dict[str, MCPToolEvaluation]
-    ) -> List[str]:
+        evaluation_results: dict[str, MCPToolEvaluation]
+    ) -> list[str]:
         """Generate overall recommendations for the MCP application."""
         recommendations = []
 
@@ -1117,8 +1117,8 @@ class IntelligentTestRunner:
 
     async def _assess_overall_quality(
         self,
-        evaluation_results: Dict[str, MCPToolEvaluation]
-    ) -> Dict[str, Any]:
+        evaluation_results: dict[str, MCPToolEvaluation]
+    ) -> dict[str, Any]:
         """Assess overall quality of the MCP application."""
         if not evaluation_results:
             return {"status": "no_data", "assessment": "No evaluation data available"}
@@ -1170,7 +1170,7 @@ class IntelligentTestRunner:
 async def ai_powered_mcp_testing(
     app: FastMCP,
     name: str = "ai-test-env",
-    ai_evaluator: Optional[AITestEvaluator] = None
+    ai_evaluator: AITestEvaluator | None = None
 ) -> AsyncGenerator[IntelligentTestRunner, None]:
     """
     Async context manager for AI-powered MCP testing environment.

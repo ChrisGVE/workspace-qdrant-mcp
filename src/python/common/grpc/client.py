@@ -8,10 +8,9 @@ integration with the MCP server's async architecture.
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
-from typing import Any, AsyncIterator, Dict, List, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
-import grpc
 from google.protobuf.empty_pb2 import Empty
 
 from .connection_manager import ConnectionConfig, GrpcConnectionManager
@@ -24,7 +23,6 @@ from .ingestion_pb2_grpc import IngestServiceStub
 from .types import (
     ExecuteQueryRequest,
     ExecuteQueryResponse,
-    HealthCheckRequest,
     HealthCheckResponse,
     ProcessDocumentRequest,
     ProcessDocumentResponse,
@@ -45,7 +43,7 @@ class AsyncIngestClient:
         self,
         host: str = "127.0.0.1",
         port: int = 50051,
-        connection_config: Optional[ConnectionConfig] = None,
+        connection_config: ConnectionConfig | None = None,
     ):
         """Initialize the async gRPC client.
 
@@ -91,8 +89,8 @@ class AsyncIngestClient:
         self,
         file_path: str,
         collection: str,
-        metadata: Optional[Dict[str, str]] = None,
-        document_id: Optional[str] = None,
+        metadata: dict[str, str] | None = None,
+        document_id: str | None = None,
         chunk_text: bool = True,
         timeout: float = 30.0,
     ) -> ProcessDocumentResponse:
@@ -137,7 +135,7 @@ class AsyncIngestClient:
     async def execute_query(
         self,
         query: str,
-        collections: Optional[List[str]] = None,
+        collections: list[str] | None = None,
         mode: str = "hybrid",
         limit: int = 10,
         score_threshold: float = 0.7,
@@ -210,15 +208,15 @@ class AsyncIngestClient:
         self,
         path: str,
         collection: str,
-        patterns: Optional[List[str]] = None,
-        ignore_patterns: Optional[List[str]] = None,
+        patterns: list[str] | None = None,
+        ignore_patterns: list[str] | None = None,
         auto_ingest: bool = True,
         recursive: bool = True,
         recursive_depth: int = -1,
         debounce_seconds: int = 5,
         update_frequency_ms: int = 1000,
-        watch_id: Optional[str] = None,
-    ) -> AsyncIterator[Dict[str, Any]]:
+        watch_id: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
         """
         Start watching a directory for file changes.
 
@@ -279,7 +277,7 @@ class AsyncIngestClient:
 
     async def stop_watching(
         self, watch_id: str, timeout: float = 10.0
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Stop watching a specific watch configuration.
 
@@ -314,7 +312,7 @@ class AsyncIngestClient:
         include_collection_stats: bool = True,
         include_watch_stats: bool = True,
         timeout: float = 10.0,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get statistics and health information about the ingestion engine.
 
@@ -384,7 +382,7 @@ class AsyncIngestClient:
 
         return await self.connection_manager.with_retry(_get_stats)
 
-    def get_connection_info(self) -> Dict[str, Any]:
+    def get_connection_info(self) -> dict[str, Any]:
         """Get information about the current gRPC connection."""
         return self.connection_manager.get_connection_info()
 
@@ -406,8 +404,8 @@ class AsyncIngestClient:
         self,
         update_interval_seconds: int = 5,
         include_history: bool = True,
-        collection_filter: Optional[str] = None,
-    ) -> AsyncIterator[Dict[str, Any]]:
+        collection_filter: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
         """
         Stream real-time processing status updates.
 
@@ -508,7 +506,7 @@ class AsyncIngestClient:
 
     async def stream_system_metrics(
         self, update_interval_seconds: int = 10, include_detailed_metrics: bool = True
-    ) -> AsyncIterator[Dict[str, Any]]:
+    ) -> AsyncIterator[dict[str, Any]]:
         """
         Stream real-time system metrics updates.
 
@@ -593,8 +591,8 @@ class AsyncIngestClient:
             yield metrics_update
 
     async def stream_queue_status(
-        self, update_interval_seconds: int = 3, collection_filter: Optional[str] = None
-    ) -> AsyncIterator[Dict[str, Any]]:
+        self, update_interval_seconds: int = 3, collection_filter: str | None = None
+    ) -> AsyncIterator[dict[str, Any]]:
         """
         Stream real-time queue status updates.
 

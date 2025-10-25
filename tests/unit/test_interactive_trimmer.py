@@ -8,7 +8,6 @@ budgets are exceeded. Focuses on core logic separate from CLI presentation.
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
 
 import pytest
 
@@ -31,7 +30,7 @@ from src.python.common.core.memory import (
 
 
 @pytest.fixture
-def sample_rules() -> List[MemoryRule]:
+def sample_rules() -> list[MemoryRule]:
     """Create sample rules for testing."""
     return [
         MemoryRule(
@@ -350,7 +349,7 @@ def test_get_comparison(trimmer):
     """Test getting before/after comparison."""
     # Make some manual changes
     trimmer.apply_auto_suggestions()
-    original_included = len(trimmer.get_selected_rules())
+    len(trimmer.get_selected_rules())
 
     # Make manual changes
     trimmer.toggle_rule("rule-1")
@@ -571,7 +570,7 @@ def test_session_persistence_format(trimmer, tmp_path):
     assert isinstance(data["strategy"], str)
 
     # Verify decisions format
-    for rule_id, decision in data["decisions"].items():
+    for _rule_id, decision in data["decisions"].items():
         assert "rule_id" in decision
         assert "decision" in decision
         assert "decision_type" in decision

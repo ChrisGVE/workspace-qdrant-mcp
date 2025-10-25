@@ -11,21 +11,21 @@ Task: #305.3
 """
 
 import asyncio
+import sqlite3
 import tempfile
 import time
 from pathlib import Path
-from typing import List
+
 import pytest
-import sqlite3
 
 from tests.framework.stress_orchestration import (
-    ResourceMonitor,
-    ResourceMetrics,
     MemoryLeakDetector,
     MemoryLeakReport,
+    ResourceMetrics,
+    ResourceMonitor,
     StabilityMetricsCollector,
-    StabilityTestManager,
     StabilityTestConfig,
+    StabilityTestManager,
     StabilityTestReport,
 )
 
@@ -49,7 +49,7 @@ def stability_manager(temp_db):
 def metrics_collector(temp_db):
     """Create StabilityMetricsCollector with temp database."""
     # Initialize tables via StabilityTestManager
-    manager = StabilityTestManager(temp_db)
+    StabilityTestManager(temp_db)
     return StabilityMetricsCollector(temp_db)
 
 

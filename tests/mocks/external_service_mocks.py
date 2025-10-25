@@ -9,7 +9,7 @@ import asyncio
 import json
 import random
 import time
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 from unittest.mock import AsyncMock, Mock
 from urllib.parse import urlparse
 
@@ -69,13 +69,13 @@ class ExternalServiceMock:
     def __init__(self,
                  service_name: str = "mock-service",
                  base_url: str = "https://api.mock-service.com",
-                 error_injector: Optional[ExternalServiceErrorInjector] = None):
+                 error_injector: ExternalServiceErrorInjector | None = None):
         self.service_name = service_name
         self.base_url = base_url
         self.error_injector = error_injector or ExternalServiceErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
         self.authenticated = False
-        self.api_key: Optional[str] = None
+        self.api_key: str | None = None
         self.rate_limit_remaining = 1000
         self.rate_limit_reset_time = time.time() + 3600
 
@@ -144,7 +144,7 @@ class ExternalServiceMock:
         elif error_type == "unsupported_media_type":
             raise ValueError("Unsupported media type")
 
-    async def _mock_authenticate(self, api_key: str, **kwargs) -> Dict[str, Any]:
+    async def _mock_authenticate(self, api_key: str, **kwargs) -> dict[str, Any]:
         """Mock service authentication."""
         await self._inject_service_error("authenticate", "/auth")
 
@@ -171,8 +171,8 @@ class ExternalServiceMock:
     async def _mock_make_request(self,
                                 method: str,
                                 endpoint: str,
-                                data: Optional[Dict[str, Any]] = None,
-                                headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
+                                data: dict[str, Any] | None = None,
+                                headers: dict[str, str] | None = None) -> dict[str, Any]:
         """Mock generic API request."""
         await self._inject_service_error("make_request", endpoint)
 
@@ -190,7 +190,7 @@ class ExternalServiceMock:
         # Generate response based on endpoint
         return self._generate_endpoint_response(method, endpoint, data)
 
-    async def _mock_get_resource(self, resource_id: str, resource_type: str = "item") -> Dict[str, Any]:
+    async def _mock_get_resource(self, resource_id: str, resource_type: str = "item") -> dict[str, Any]:
         """Mock getting a resource by ID."""
         endpoint = f"/{resource_type}s/{resource_id}"
         await self._inject_service_error("get_resource", endpoint)
@@ -219,7 +219,7 @@ class ExternalServiceMock:
 
     async def _mock_create_resource(self,
                                    resource_type: str,
-                                   data: Dict[str, Any]) -> Dict[str, Any]:
+                                   data: dict[str, Any]) -> dict[str, Any]:
         """Mock creating a new resource."""
         endpoint = f"/{resource_type}s"
         await self._inject_service_error("create_resource", endpoint)
@@ -247,7 +247,7 @@ class ExternalServiceMock:
     async def _mock_update_resource(self,
                                    resource_id: str,
                                    resource_type: str,
-                                   data: Dict[str, Any]) -> Dict[str, Any]:
+                                   data: dict[str, Any]) -> dict[str, Any]:
         """Mock updating an existing resource."""
         endpoint = f"/{resource_type}s/{resource_id}"
         await self._inject_service_error("update_resource", endpoint)
@@ -270,7 +270,7 @@ class ExternalServiceMock:
             "changes": data
         }
 
-    async def _mock_delete_resource(self, resource_id: str, resource_type: str) -> Dict[str, Any]:
+    async def _mock_delete_resource(self, resource_id: str, resource_type: str) -> dict[str, Any]:
         """Mock deleting a resource."""
         endpoint = f"/{resource_type}s/{resource_id}"
         await self._inject_service_error("delete_resource", endpoint)
@@ -291,7 +291,7 @@ class ExternalServiceMock:
             "deleted_at": "2024-01-01T12:00:00Z"
         }
 
-    async def _mock_health_check(self) -> Dict[str, Any]:
+    async def _mock_health_check(self) -> dict[str, Any]:
         """Mock service health check."""
         if self.error_injector.should_inject_error():
             error_type = self.error_injector.get_random_error()
@@ -314,7 +314,7 @@ class ExternalServiceMock:
     def _generate_endpoint_response(self,
                                    method: str,
                                    endpoint: str,
-                                   data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+                                   data: dict[str, Any] | None) -> dict[str, Any]:
         """Generate realistic response based on endpoint and method."""
         if endpoint.startswith("/search"):
             return self._generate_search_response(data)
@@ -327,7 +327,7 @@ class ExternalServiceMock:
         else:
             return self._generate_generic_response(method, endpoint, data)
 
-    def _generate_search_response(self, query_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def _generate_search_response(self, query_data: dict[str, Any] | None) -> dict[str, Any]:
         """Generate search API response."""
         query = query_data.get("query", "test") if query_data else "test"
         limit = query_data.get("limit", 10) if query_data else 10
@@ -350,7 +350,7 @@ class ExternalServiceMock:
             "has_more": len(results) == limit
         }
 
-    def _generate_analytics_response(self) -> Dict[str, Any]:
+    def _generate_analytics_response(self) -> dict[str, Any]:
         """Generate analytics API response."""
         return {
             "metrics": {
@@ -363,7 +363,7 @@ class ExternalServiceMock:
             "generated_at": "2024-01-01T12:00:00Z"
         }
 
-    def _generate_upload_response(self, upload_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def _generate_upload_response(self, upload_data: dict[str, Any] | None) -> dict[str, Any]:
         """Generate file upload API response."""
         file_name = upload_data.get("file_name", "unknown.txt") if upload_data else "unknown.txt"
         file_size = upload_data.get("file_size", random.randint(1024, 1048576)) if upload_data else random.randint(1024, 1048576)
@@ -377,7 +377,7 @@ class ExternalServiceMock:
             "uploaded_at": "2024-01-01T12:00:00Z"
         }
 
-    def _generate_webhook_response(self, method: str, webhook_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    def _generate_webhook_response(self, method: str, webhook_data: dict[str, Any] | None) -> dict[str, Any]:
         """Generate webhook API response."""
         if method == "POST":
             return {
@@ -396,7 +396,7 @@ class ExternalServiceMock:
     def _generate_generic_response(self,
                                   method: str,
                                   endpoint: str,
-                                  data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+                                  data: dict[str, Any] | None) -> dict[str, Any]:
         """Generate generic API response."""
         return {
             "message": f"{method} request to {endpoint} processed successfully",
@@ -406,7 +406,7 @@ class ExternalServiceMock:
             "service": self.service_name
         }
 
-    def get_operation_history(self) -> List[Dict[str, Any]]:
+    def get_operation_history(self) -> list[dict[str, Any]]:
         """Get history of service operations."""
         return self.operation_history.copy()
 
@@ -423,10 +423,10 @@ class ExternalServiceMock:
 class ThirdPartyAPIMock:
     """Mock for specific third-party API services."""
 
-    def __init__(self, api_type: str = "generic", error_injector: Optional[ExternalServiceErrorInjector] = None):
+    def __init__(self, api_type: str = "generic", error_injector: ExternalServiceErrorInjector | None = None):
         self.api_type = api_type
         self.error_injector = error_injector or ExternalServiceErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
 
         # Setup API-specific methods
         self._setup_api_methods()
@@ -471,7 +471,7 @@ class ThirdPartyAPIMock:
         """Setup generic API mock methods."""
         self.api_call = AsyncMock(side_effect=self._mock_generic_api_call)
 
-    async def _mock_openai_completion(self, prompt: str, model: str = "gpt-3.5-turbo", **kwargs) -> Dict[str, Any]:
+    async def _mock_openai_completion(self, prompt: str, model: str = "gpt-3.5-turbo", **kwargs) -> dict[str, Any]:
         """Mock OpenAI completion API."""
         if self.error_injector.should_inject_error():
             await self._raise_api_error("openai_completion")
@@ -499,7 +499,7 @@ class ThirdPartyAPIMock:
             }
         }
 
-    async def _mock_openai_embedding(self, text: str, model: str = "text-embedding-ada-002") -> Dict[str, Any]:
+    async def _mock_openai_embedding(self, text: str, model: str = "text-embedding-ada-002") -> dict[str, Any]:
         """Mock OpenAI embedding API."""
         if self.error_injector.should_inject_error():
             await self._raise_api_error("openai_embedding")
@@ -527,7 +527,7 @@ class ThirdPartyAPIMock:
             }
         }
 
-    async def _mock_openai_list_models(self) -> Dict[str, Any]:
+    async def _mock_openai_list_models(self) -> dict[str, Any]:
         """Mock OpenAI list models API."""
         return {
             "object": "list",
@@ -538,7 +538,7 @@ class ThirdPartyAPIMock:
             ]
         }
 
-    async def _mock_anthropic_message(self, messages: List[Dict[str, str]], model: str = "claude-3-sonnet-20240229") -> Dict[str, Any]:
+    async def _mock_anthropic_message(self, messages: list[dict[str, str]], model: str = "claude-3-sonnet-20240229") -> dict[str, Any]:
         """Mock Anthropic messages API."""
         if self.error_injector.should_inject_error():
             await self._raise_api_error("anthropic_message")
@@ -565,7 +565,7 @@ class ThirdPartyAPIMock:
             }
         }
 
-    async def _mock_anthropic_stream(self, messages: List[Dict[str, str]], model: str = "claude-3-sonnet-20240229"):
+    async def _mock_anthropic_stream(self, messages: list[dict[str, str]], model: str = "claude-3-sonnet-20240229"):
         """Mock Anthropic streaming API."""
         for i in range(5):  # Mock streaming chunks
             yield {
@@ -575,7 +575,7 @@ class ThirdPartyAPIMock:
             }
             await asyncio.sleep(0.1)
 
-    async def _mock_pinecone_upsert(self, vectors: List[Dict[str, Any]], namespace: str = "") -> Dict[str, Any]:
+    async def _mock_pinecone_upsert(self, vectors: list[dict[str, Any]], namespace: str = "") -> dict[str, Any]:
         """Mock Pinecone upsert API."""
         if self.error_injector.should_inject_error():
             await self._raise_api_error("pinecone_upsert")
@@ -590,7 +590,7 @@ class ThirdPartyAPIMock:
             "upserted_count": len(vectors)
         }
 
-    async def _mock_pinecone_query(self, vector: List[float], top_k: int = 10, namespace: str = "") -> Dict[str, Any]:
+    async def _mock_pinecone_query(self, vector: list[float], top_k: int = 10, namespace: str = "") -> dict[str, Any]:
         """Mock Pinecone query API."""
         if self.error_injector.should_inject_error():
             await self._raise_api_error("pinecone_query")
@@ -616,7 +616,7 @@ class ThirdPartyAPIMock:
             "namespace": namespace
         }
 
-    async def _mock_pinecone_delete(self, ids: List[str], namespace: str = "") -> Dict[str, Any]:
+    async def _mock_pinecone_delete(self, ids: list[str], namespace: str = "") -> dict[str, Any]:
         """Mock Pinecone delete API."""
         if self.error_injector.should_inject_error():
             await self._raise_api_error("pinecone_delete")
@@ -629,7 +629,7 @@ class ThirdPartyAPIMock:
 
         return {"deleted_count": len(ids)}
 
-    async def _mock_elasticsearch_index(self, index: str, doc_id: str, body: Dict[str, Any]) -> Dict[str, Any]:
+    async def _mock_elasticsearch_index(self, index: str, doc_id: str, body: dict[str, Any]) -> dict[str, Any]:
         """Mock Elasticsearch index API."""
         if self.error_injector.should_inject_error():
             await self._raise_api_error("elasticsearch_index")
@@ -647,7 +647,7 @@ class ThirdPartyAPIMock:
             "result": "created"
         }
 
-    async def _mock_elasticsearch_search(self, index: str, query: Dict[str, Any]) -> Dict[str, Any]:
+    async def _mock_elasticsearch_search(self, index: str, query: dict[str, Any]) -> dict[str, Any]:
         """Mock Elasticsearch search API."""
         if self.error_injector.should_inject_error():
             await self._raise_api_error("elasticsearch_search")
@@ -679,7 +679,7 @@ class ThirdPartyAPIMock:
             }
         }
 
-    async def _mock_elasticsearch_delete(self, index: str, doc_id: str) -> Dict[str, Any]:
+    async def _mock_elasticsearch_delete(self, index: str, doc_id: str) -> dict[str, Any]:
         """Mock Elasticsearch delete API."""
         return {
             "_index": index,
@@ -688,7 +688,7 @@ class ThirdPartyAPIMock:
             "result": "deleted"
         }
 
-    async def _mock_generic_api_call(self, endpoint: str, method: str = "GET", data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    async def _mock_generic_api_call(self, endpoint: str, method: str = "GET", data: dict[str, Any] | None = None) -> dict[str, Any]:
         """Mock generic API call."""
         if self.error_injector.should_inject_error():
             await self._raise_api_error("generic_api_call")
@@ -719,7 +719,7 @@ class ThirdPartyAPIMock:
         else:
             raise Exception(f"API error in {operation}")
 
-    def get_operation_history(self) -> List[Dict[str, Any]]:
+    def get_operation_history(self) -> list[dict[str, Any]]:
         """Get history of API operations."""
         return self.operation_history.copy()
 
@@ -734,7 +734,7 @@ class ServiceUnavailableMock:
 
     def __init__(self, service_name: str = "unavailable-service"):
         self.service_name = service_name
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
 
     def __getattr__(self, name: str):
         """Mock any method call to raise service unavailable error."""
@@ -749,7 +749,7 @@ class ServiceUnavailableMock:
 
         return unavailable_method
 
-    def get_operation_history(self) -> List[Dict[str, Any]]:
+    def get_operation_history(self) -> list[dict[str, Any]]:
         """Get history of failed operations."""
         return self.operation_history.copy()
 
@@ -763,7 +763,7 @@ def create_external_service_mock(
     api_type: str = "generic",
     with_error_injection: bool = False,
     error_probability: float = 0.1
-) -> Union[ExternalServiceMock, ThirdPartyAPIMock, ServiceUnavailableMock]:
+) -> ExternalServiceMock | ThirdPartyAPIMock | ServiceUnavailableMock:
     """
     Create an external service mock with optional error injection.
 

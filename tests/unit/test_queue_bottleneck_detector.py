@@ -6,21 +6,21 @@ and pipeline stages. Ensures accurate detection and appropriate recommendations.
 """
 
 import asyncio
-import pytest
 import sqlite3
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from src.python.common.core.queue_bottleneck_detector import (
     BottleneckDetector,
-    SlowOperation,
-    OperationBottleneck,
     CollectionBottleneck,
+    OperationBottleneck,
     ParserStats,
-    TenantBottleneck,
     PipelineAnalysis,
+    SlowOperation,
+    TenantBottleneck,
 )
 
 
@@ -251,7 +251,7 @@ class TestCollectionBottleneckDetection:
         bottlenecks = await detector.identify_slow_collections(time_window_minutes=60)
 
         # Should identify slow-collection as it has higher avg time
-        slow_collections = [b.collection_name for b in bottlenecks]
+        [b.collection_name for b in bottlenecks]
 
         # At least one collection should be identified as slow
         assert len(bottlenecks) >= 0  # May be 0 if not enough variation
@@ -569,7 +569,7 @@ class TestEdgeCases:
 
     async def test_all_items_slow(self, detector):
         """Test when all operations are slow."""
-        base_time = datetime.now(timezone.utc)
+        datetime.now(timezone.utc)
 
         for i in range(10):
             await detector.record_operation(

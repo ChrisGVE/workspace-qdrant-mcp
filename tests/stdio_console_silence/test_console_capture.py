@@ -23,7 +23,7 @@ import time
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from pathlib import Path
 from threading import Thread
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 from unittest.mock import patch
 
 import pytest
@@ -54,12 +54,12 @@ class TestConsoleCapture:
         monkeypatch.setenv("WQM_STDIO_MODE", "true")
 
         from workspace_qdrant_mcp.server import _detect_stdio_mode
-        assert _detect_stdio_mode() == True
+        assert _detect_stdio_mode()
 
         # Test command line detection
         monkeypatch.delenv("WQM_STDIO_MODE", raising=False)
         with patch.object(sys, 'argv', ['script.py', '--transport', 'stdio']):
-            assert _detect_stdio_mode() == True
+            assert _detect_stdio_mode()
 
     def test_stdio_server_startup_silence(self, capsys, monkeypatch):
         """Test that stdio server startup produces no console output."""
@@ -106,8 +106,8 @@ class TestConsoleCapture:
             from workspace_qdrant_mcp.server import _STDIO_MODE, _detect_stdio_mode
 
             # Verify stdio mode was detected
-            assert _detect_stdio_mode() == True
-            assert _STDIO_MODE == True
+            assert _detect_stdio_mode()
+            assert _STDIO_MODE
 
             # Capture any output during import
             captured = capsys.readouterr()
@@ -157,19 +157,20 @@ class TestConsoleCapture:
         monkeypatch.setenv("WQM_STDIO_MODE", "true")
 
         # Import to trigger warning suppression
-        import workspace_qdrant_mcp.server
         import warnings
 
+        import workspace_qdrant_mcp.server
+
         # Generate various types of warnings
-        warnings.warn("Test warning message", UserWarning)
-        warnings.warn("Deprecation warning", DeprecationWarning)
-        warnings.warn("Future warning", FutureWarning)
-        warnings.warn("Runtime warning", RuntimeWarning)
+        warnings.warn("Test warning message", UserWarning, stacklevel=2)
+        warnings.warn("Deprecation warning", DeprecationWarning, stacklevel=2)
+        warnings.warn("Future warning", FutureWarning, stacklevel=2)
+        warnings.warn("Runtime warning", RuntimeWarning, stacklevel=2)
 
         # Try to force warnings through
         with warnings.catch_warnings():
             warnings.simplefilter("always")
-            warnings.warn("Force warning", UserWarning)
+            warnings.warn("Force warning", UserWarning, stacklevel=2)
 
         # Capture output
         captured = capsys.readouterr()
@@ -353,7 +354,9 @@ class TestConsoleCapture:
 
                 # Import modules in order they would be imported during startup
                 import workspace_qdrant_mcp.server
-                from workspace_qdrant_mcp.stdio_server import run_lightweight_stdio_server
+                from workspace_qdrant_mcp.stdio_server import (
+                    run_lightweight_stdio_server,
+                )
 
                 # Capture startup output
                 captured = capsys.readouterr()
@@ -432,10 +435,10 @@ except Exception as e:
         with patch.object(sys, 'argv', ['script.py', '--help']):
 
             # Import should not set up stdio silencing
-            from workspace_qdrant_mcp.server import _detect_stdio_mode, _STDIO_MODE
+            from workspace_qdrant_mcp.server import _STDIO_MODE, _detect_stdio_mode
 
             # Verify CLI mode is not detected as stdio
-            assert _detect_stdio_mode() == False
+            assert not _detect_stdio_mode()
 
             # Normal logging should work in CLI mode
             logger = logging.getLogger("test_cli_logger")
@@ -444,7 +447,7 @@ except Exception as e:
             print("This print should work in CLI mode")
 
             # Capture output - should contain our messages
-            captured = capsys.readouterr()
+            capsys.readouterr()
 
             # In CLI mode, output should be preserved
             # Note: This test validates that CLI functionality is not broken

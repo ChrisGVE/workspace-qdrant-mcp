@@ -7,11 +7,11 @@ and sessions with persistence and real-time statistics.
 
 from collections import defaultdict
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from threading import Lock
-from typing import Dict, List, Optional, Any
+from typing import Any, Optional
 
 from loguru import logger
 
@@ -48,7 +48,7 @@ class OperationUsage:
     operation_id: str
     tokens_used: int
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -70,11 +70,11 @@ class ToolUsageStats:
 
     tool_name: str
     total_tokens: int = 0
-    operation_counts: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
-    operation_tokens: Dict[str, int] = field(default_factory=lambda: defaultdict(int))
-    first_operation_at: Optional[datetime] = None
-    last_operation_at: Optional[datetime] = None
-    operations: List[OperationUsage] = field(default_factory=list)
+    operation_counts: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    operation_tokens: dict[str, int] = field(default_factory=lambda: defaultdict(int))
+    first_operation_at: datetime | None = None
+    last_operation_at: datetime | None = None
+    operations: list[OperationUsage] = field(default_factory=list)
 
     def add_operation(self, operation: OperationUsage) -> None:
         """
@@ -140,8 +140,8 @@ class SessionUsageSnapshot:
     session_id: str
     timestamp: datetime
     total_tokens: int
-    tool_stats: Dict[str, ToolUsageStats]
-    recent_operations: List[OperationUsage] = field(default_factory=list)
+    tool_stats: dict[str, ToolUsageStats]
+    recent_operations: list[OperationUsage] = field(default_factory=list)
 
 
 class TokenUsageTracker:
@@ -164,7 +164,7 @@ class TokenUsageTracker:
 
     def __init__(
         self,
-        session_id: Optional[str] = None,
+        session_id: str | None = None,
         track_detailed_operations: bool = True,
         max_operations_per_tool: int = 1000,
     ):
@@ -182,7 +182,7 @@ class TokenUsageTracker:
 
         # Thread-safe data structures
         self._lock = Lock()
-        self._tool_stats: Dict[str, ToolUsageStats] = {}
+        self._tool_stats: dict[str, ToolUsageStats] = {}
         self._global_total_tokens = 0
         self._session_start = datetime.now(timezone.utc)
 
@@ -196,8 +196,8 @@ class TokenUsageTracker:
         tool_name: str,
         operation_type: OperationType,
         tokens_used: int,
-        operation_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        operation_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> OperationUsage:
         """
         Track a token-consuming operation.
@@ -259,8 +259,8 @@ class TokenUsageTracker:
         text: str,
         tool_name: str,
         operation_type: OperationType,
-        operation_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        operation_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
         use_tokenizer: bool = True,
     ) -> OperationUsage:
         """
@@ -295,8 +295,8 @@ class TokenUsageTracker:
         self,
         tool_name: str,
         operation_type: OperationType,
-        operation_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        operation_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ):
         """
         Context manager for automatic operation tracking.
@@ -337,7 +337,7 @@ class TokenUsageTracker:
                     metadata=metadata,
                 )
 
-    def get_tool_stats(self, tool_name: str) -> Optional[ToolUsageStats]:
+    def get_tool_stats(self, tool_name: str) -> ToolUsageStats | None:
         """
         Get usage statistics for a specific tool.
 
@@ -350,7 +350,7 @@ class TokenUsageTracker:
         with self._lock:
             return self._tool_stats.get(tool_name)
 
-    def get_all_tool_stats(self) -> Dict[str, ToolUsageStats]:
+    def get_all_tool_stats(self) -> dict[str, ToolUsageStats]:
         """
         Get usage statistics for all tools.
 
@@ -399,7 +399,7 @@ class TokenUsageTracker:
                 recent_operations=recent_ops,
             )
 
-    def get_usage_report(self) -> Dict[str, Any]:
+    def get_usage_report(self) -> dict[str, Any]:
         """
         Generate comprehensive usage report.
 
@@ -446,7 +446,7 @@ class TokenUsageTracker:
                 "detailed_tracking_enabled": self.track_detailed_operations,
             }
 
-    def reset_session(self, new_session_id: Optional[str] = None) -> None:
+    def reset_session(self, new_session_id: str | None = None) -> None:
         """
         Reset session tracking (clear all statistics).
 
@@ -462,7 +462,7 @@ class TokenUsageTracker:
 
         logger.info(f"Reset session tracking: {old_session_id} -> {self.session_id}")
 
-    def export_snapshot(self) -> Dict[str, Any]:
+    def export_snapshot(self) -> dict[str, Any]:
         """
         Export current state for persistence.
 
@@ -586,7 +586,7 @@ class GlobalUsageTracker:
             return
 
         self._initialized = True
-        self._sessions: Dict[str, TokenUsageTracker] = {}
+        self._sessions: dict[str, TokenUsageTracker] = {}
         self._global_total_tokens = 0
         self._creation_time = datetime.now(timezone.utc)
 
@@ -603,7 +603,7 @@ class GlobalUsageTracker:
             self._sessions[tracker.session_id] = tracker
             logger.debug(f"Registered session: {tracker.session_id}")
 
-    def get_session(self, session_id: str) -> Optional[TokenUsageTracker]:
+    def get_session(self, session_id: str) -> TokenUsageTracker | None:
         """
         Get session tracker by ID.
 
@@ -616,7 +616,7 @@ class GlobalUsageTracker:
         with self._lock:
             return self._sessions.get(session_id)
 
-    def get_all_sessions(self) -> Dict[str, TokenUsageTracker]:
+    def get_all_sessions(self) -> dict[str, TokenUsageTracker]:
         """
         Get all registered sessions.
 
@@ -626,7 +626,7 @@ class GlobalUsageTracker:
         with self._lock:
             return dict(self._sessions)
 
-    def get_global_report(self) -> Dict[str, Any]:
+    def get_global_report(self) -> dict[str, Any]:
         """
         Generate global usage report across all sessions.
 

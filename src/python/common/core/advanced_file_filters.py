@@ -1,4 +1,4 @@
-"""
+r"""
 Advanced File Filtering System for High-Performance File Watching
 
 This module provides sophisticated file filtering capabilities with regex patterns,
@@ -38,19 +38,18 @@ import mimetypes
 import re
 import time
 from collections import defaultdict, deque
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union, Callable, Pattern, Tuple
-import hashlib
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from re import Pattern
+from typing import Any
 
 from loguru import logger
 
 # Performance monitoring imports
 try:
+    from .performance_metrics import MetricType, PerformanceMetricsCollector
     from .performance_monitor import PerformanceMonitor
-    from .performance_metrics import PerformanceMetricsCollector, MetricType
     MONITORING_AVAILABLE = True
 except ImportError:
     MONITORING_AVAILABLE = False
@@ -107,7 +106,7 @@ class FilterStatistics:
             return 0.0
         return 1000.0 / self.avg_processing_time_ms
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert statistics to dictionary."""
         return {
             "total_files_checked": self.total_files_checked,
@@ -146,20 +145,20 @@ class FilterConfig:
     """Configuration for advanced file filtering."""
 
     # Pattern-based filtering
-    include_patterns: List[str] = field(default_factory=list)
-    exclude_patterns: List[str] = field(default_factory=list)
+    include_patterns: list[str] = field(default_factory=list)
+    exclude_patterns: list[str] = field(default_factory=list)
 
     # Size-based filtering
-    min_file_size: Optional[int] = None  # bytes
-    max_file_size: Optional[int] = None  # bytes
+    min_file_size: int | None = None  # bytes
+    max_file_size: int | None = None  # bytes
 
     # Content-based filtering
-    content_filters: List[str] = field(default_factory=list)
+    content_filters: list[str] = field(default_factory=list)
     content_sample_size: int = 4096  # bytes to sample for content detection
 
     # MIME type filtering
-    allowed_mime_types: Set[str] = field(default_factory=set)
-    blocked_mime_types: Set[str] = field(default_factory=set)
+    allowed_mime_types: set[str] = field(default_factory=set)
+    blocked_mime_types: set[str] = field(default_factory=set)
 
     # Performance settings
     regex_cache_size: int = 1000
@@ -186,9 +185,9 @@ class PatternCache:
 
     def __init__(self, max_size: int = 1000):
         self.max_size = max_size
-        self.patterns: Dict[str, Pattern] = {}
+        self.patterns: dict[str, Pattern] = {}
         self.access_order: deque = deque()
-        self.access_counts: Dict[str, int] = defaultdict(int)
+        self.access_counts: dict[str, int] = defaultdict(int)
 
     def get_pattern(self, pattern_str: str, case_sensitive: bool = True) -> Pattern:
         """Get compiled regex pattern with caching."""
@@ -236,7 +235,7 @@ class PatternCache:
         self.access_order.clear()
         self.access_counts.clear()
 
-    def get_stats(self) -> Dict[str, Any]:
+    def get_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         return {
             "cached_patterns": len(self.patterns),
@@ -258,7 +257,7 @@ class AdvancedFileFilter:
     high-throughput scenarios with comprehensive statistics tracking.
     """
 
-    def __init__(self, config: Union[FilterConfig, Dict[str, Any]]):
+    def __init__(self, config: FilterConfig | dict[str, Any]):
         """Initialize the advanced file filter.
 
         Args:
@@ -303,7 +302,7 @@ class AdvancedFileFilter:
         for pattern in all_patterns:
             self.pattern_cache.get_pattern(pattern, self.config.case_sensitive_patterns)
 
-    async def should_process_file(self, file_path: Union[str, Path]) -> Tuple[bool, str]:
+    async def should_process_file(self, file_path: str | Path) -> tuple[bool, str]:
         """
         Determine if a file should be processed based on all filtering criteria.
 
@@ -342,7 +341,7 @@ class AdvancedFileFilter:
                 if not await self._check_file_size(file_size):
                     self.statistics.size_rejections += 1
                     return await self._reject_file(f"size_limit_exceeded_{file_size}", start_time)
-            except (OSError, IOError):
+            except OSError:
                 return await self._reject_file("size_check_failed", start_time)
 
             # Pattern-based filtering
@@ -398,7 +397,7 @@ class AdvancedFileFilter:
 
         return True
 
-    async def _check_patterns(self, file_path: Path) -> Tuple[bool, str]:
+    async def _check_patterns(self, file_path: Path) -> tuple[bool, str]:
         """Check if file path matches include/exclude patterns."""
         file_str = str(file_path)
 
@@ -431,7 +430,7 @@ class AdvancedFileFilter:
         self.statistics.regex_cache_misses += 1
         return False, "no_include_pattern_match"
 
-    async def _check_mime_type(self, file_path: Path) -> Tuple[bool, str]:
+    async def _check_mime_type(self, file_path: Path) -> tuple[bool, str]:
         """Check MIME type against allowed/blocked lists."""
         try:
             mime_type, _ = mimetypes.guess_type(str(file_path))
@@ -464,7 +463,7 @@ class AdvancedFileFilter:
             logger.debug(f"MIME type detection failed for {file_path}: {e}")
             return True, "mime_detection_failed"
 
-    async def _check_content_filters(self, file_path: Path) -> Tuple[bool, str]:
+    async def _check_content_filters(self, file_path: Path) -> tuple[bool, str]:
         """Check file content against content filters."""
         if not self.config.content_filters:
             return True, "no_content_filters"
@@ -498,13 +497,13 @@ class AdvancedFileFilter:
     def _read_content_sample(self, file_path: Path) -> str:
         """Read a sample of file content for filtering (runs in thread pool)."""
         try:
-            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+            with open(file_path, encoding='utf-8', errors='ignore') as f:
                 return f.read(self.config.content_sample_size)
         except Exception as e:
             logger.debug(f"Failed to read content sample from {file_path}: {e}")
             return ""
 
-    async def _accept_file(self, start_time: float) -> Tuple[bool, str]:
+    async def _accept_file(self, start_time: float) -> tuple[bool, str]:
         """Record file acceptance and update statistics."""
         processing_time_ms = (time.perf_counter() - start_time) * 1000
         self.statistics.files_accepted += 1
@@ -515,7 +514,7 @@ class AdvancedFileFilter:
 
         return True, "accepted"
 
-    async def _reject_file(self, reason: str, start_time: float) -> Tuple[bool, str]:
+    async def _reject_file(self, reason: str, start_time: float) -> tuple[bool, str]:
         """Record file rejection and update statistics."""
         processing_time_ms = (time.perf_counter() - start_time) * 1000
         self.statistics.files_rejected += 1
@@ -535,7 +534,7 @@ class AdvancedFileFilter:
         self.statistics.reset()
         self.pattern_cache.clear()
 
-    def update_config(self, new_config: Union[FilterConfig, Dict[str, Any]]) -> None:
+    def update_config(self, new_config: FilterConfig | dict[str, Any]) -> None:
         """Update filter configuration."""
         if isinstance(new_config, dict):
             self.config = FilterConfig(**new_config)
@@ -548,7 +547,7 @@ class AdvancedFileFilter:
 
         logger.info("AdvancedFileFilter configuration updated")
 
-    def get_performance_report(self) -> Dict[str, Any]:
+    def get_performance_report(self) -> dict[str, Any]:
         """Get comprehensive performance report."""
         stats_dict = self.statistics.to_dict()
         cache_stats = self.pattern_cache.get_stats()

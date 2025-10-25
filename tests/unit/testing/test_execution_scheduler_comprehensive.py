@@ -5,24 +5,24 @@ Tests async execution, resource monitoring, retry logic, process management,
 and all error handling scenarios including timeouts and resource constraints.
 """
 
-import pytest
 import asyncio
+import json
+import signal
 import sqlite3
 import tempfile
-import json
+import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
-import threading
-import signal
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import pytest
 from src.python.workspace_qdrant_mcp.testing.execution.scheduler import (
-    TestExecutionScheduler,
-    TestExecution,
+    ExecutionConstraints,
+    ExecutionPriority,
     ExecutionResult,
     ExecutionStatus,
-    ExecutionPriority,
-    ExecutionConstraints
+    TestExecution,
+    TestExecutionScheduler,
 )
 
 
@@ -163,7 +163,7 @@ class TestTestExecutionScheduler:
 
     def test_scheduler_initialization(self, temp_db):
         """Test scheduler initialization."""
-        scheduler = TestExecutionScheduler(db_path=temp_db)
+        TestExecutionScheduler(db_path=temp_db)
 
         # Check database was created
         assert temp_db.exists()
@@ -1049,7 +1049,7 @@ class TestTestExecutionScheduler:
 
     def test_execution_with_environment_variables(self, scheduler, temp_dir):
         """Test execution with custom environment variables."""
-        execution_id = scheduler.schedule_test_execution(
+        scheduler.schedule_test_execution(
             test_pattern="test_*.py",
             command=["env"],
             working_directory=temp_dir,

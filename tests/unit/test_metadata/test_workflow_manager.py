@@ -5,25 +5,25 @@ This module tests the complete workflow orchestration including integration
 of all components and end-to-end processing scenarios.
 """
 
-import pytest
-import tempfile
 import asyncio
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
-from src.python.wqm_cli.cli.metadata.workflow_manager import (
-    WorkflowManager,
-    WorkflowConfig,
-    WorkflowResult,
-)
-from src.python.wqm_cli.cli.metadata.batch_processor import BatchResult
+import pytest
+
 from src.python.wqm_cli.cli.metadata.aggregator import DocumentMetadata
-from src.python.wqm_cli.cli.metadata.yaml_generator import YAMLConfig
-from src.python.wqm_cli.cli.metadata.batch_processor import BatchConfig
+from src.python.wqm_cli.cli.metadata.batch_processor import BatchConfig, BatchResult
 from src.python.wqm_cli.cli.metadata.exceptions import (
     MetadataError,
     WorkflowConfigurationError,
 )
+from src.python.wqm_cli.cli.metadata.workflow_manager import (
+    WorkflowConfig,
+    WorkflowManager,
+    WorkflowResult,
+)
+from src.python.wqm_cli.cli.metadata.yaml_generator import YAMLConfig
 from src.python.wqm_cli.cli.parsers.base import ParsedDocument
 
 
@@ -105,7 +105,9 @@ class TestWorkflowResult:
 
     def test_changed_documents_count(self, sample_batch_result):
         """Test changed documents count property."""
-        from src.python.wqm_cli.cli.metadata.incremental_tracker import DocumentChangeInfo
+        from src.python.wqm_cli.cli.metadata.incremental_tracker import (
+            DocumentChangeInfo,
+        )
 
         change_info = [
             DocumentChangeInfo("file1.txt", "hash1", change_type="modified"),
@@ -152,10 +154,10 @@ class TestWorkflowManager:
                 output_directory=Path(temp_dir),
                 verbose_logging=True,
             )
-            manager = WorkflowManager(config)
+            WorkflowManager(config)
 
             # Should create log file
-            log_file = Path(temp_dir) / "workflow.log"
+            Path(temp_dir) / "workflow.log"
             # Log file might not exist until first log message
 
     async def test_process_documents_basic(self):
@@ -191,7 +193,7 @@ class TestWorkflowManager:
                 with patch.object(manager.yaml_generator, 'generate_batch_yaml_files') as mock_yaml_batch:
                     mock_yaml_batch.return_value = [str(Path(temp_dir) / "doc.yaml")]
 
-                    with patch.object(manager.yaml_generator, 'generate_collection_yaml') as mock_yaml_collection:
+                    with patch.object(manager.yaml_generator, 'generate_collection_yaml'):
                         result = await manager.process_documents(["/test/doc.txt"])
 
                         assert isinstance(result, WorkflowResult)
@@ -227,7 +229,9 @@ class TestWorkflowManager:
                 processing_stats={"total_files": 1, "successful_count": 1},
             )
 
-            from src.python.wqm_cli.cli.metadata.incremental_tracker import DocumentChangeInfo
+            from src.python.wqm_cli.cli.metadata.incremental_tracker import (
+                DocumentChangeInfo,
+            )
             mock_changes = [
                 DocumentChangeInfo("/test/doc.txt", "test_hash", change_type="added")
             ]
@@ -395,7 +399,9 @@ class TestWorkflowManager:
             processing_stats={"total_files": 2, "successful_count": 1},
         )
 
-        from src.python.wqm_cli.cli.metadata.incremental_tracker import DocumentChangeInfo
+        from src.python.wqm_cli.cli.metadata.incremental_tracker import (
+            DocumentChangeInfo,
+        )
         change_info = [
             DocumentChangeInfo("/test/doc.txt", "hash", change_type="added"),
         ]

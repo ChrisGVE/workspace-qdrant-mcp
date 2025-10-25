@@ -36,13 +36,13 @@ Example:
 import fnmatch
 import os
 import platform
+import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from loguru import logger
-import re
 
 
 class ToolDiscovery:
@@ -61,9 +61,9 @@ class ToolDiscovery:
 
     def __init__(
         self,
-        config: Optional[Dict] = None,
+        config: dict | None = None,
         timeout: int = 5,
-        project_root: Optional[Path] = None,
+        project_root: Path | None = None,
     ):
         """Initialize tool discovery system.
 
@@ -76,7 +76,7 @@ class ToolDiscovery:
             project_root: Optional project root directory for local tool discovery
         """
         self.timeout = timeout
-        self.custom_paths: List[str] = []
+        self.custom_paths: list[str] = []
         self.project_root = project_root
 
         if config:
@@ -103,7 +103,7 @@ class ToolDiscovery:
             f"project_root={self.project_root}"
         )
 
-    def find_executable(self, name: str) -> Optional[str]:
+    def find_executable(self, name: str) -> str | None:
         """Find an executable in PATH or custom paths.
 
         Searches for the executable first in custom paths, then in system PATH.
@@ -159,7 +159,7 @@ class ToolDiscovery:
             logger.debug(f"Executable '{name}' not found in PATH or custom paths")
             return None
 
-    def scan_path_for_executables(self, pattern: str) -> List[str]:
+    def scan_path_for_executables(self, pattern: str) -> list[str]:
         """Scan PATH for executables matching a glob-style pattern.
 
         Searches both custom paths and system PATH for executables that
@@ -172,7 +172,7 @@ class ToolDiscovery:
         Returns:
             List of absolute paths to matching executables
         """
-        found_executables: List[str] = []
+        found_executables: list[str] = []
         seen_paths: set = set()
 
         # Collect all paths to search (custom + system PATH)
@@ -256,7 +256,7 @@ class ToolDiscovery:
         self,
         executable: str,
         version_flag: str = "--version"
-    ) -> Optional[str]:
+    ) -> str | None:
         """Get version information from an executable.
 
         Runs the executable with the specified version flag and attempts
@@ -321,7 +321,7 @@ class ToolDiscovery:
             logger.debug(f"Error getting version for '{executable}': {e}")
             return None
 
-    def discover_compilers(self) -> Dict[str, Optional[str]]:
+    def discover_compilers(self) -> dict[str, str | None]:
         """Discover available compilers on the system.
 
         Searches for common C/C++ and other language compilers in PATH
@@ -348,7 +348,7 @@ class ToolDiscovery:
         if platform.system() == "Windows":
             compiler_names.extend(["cl", "cl.exe"])
 
-        compilers: Dict[str, Optional[str]] = {}
+        compilers: dict[str, str | None] = {}
 
         logger.debug("Discovering compilers...")
 
@@ -375,7 +375,7 @@ class ToolDiscovery:
 
         return compilers
 
-    def discover_build_tools(self) -> Dict[str, Optional[str]]:
+    def discover_build_tools(self) -> dict[str, str | None]:
         """Discover available build tools on the system.
 
         Searches for common build tools, package managers, and version control
@@ -412,7 +412,7 @@ class ToolDiscovery:
         if platform.system() == "Windows":
             tool_names.extend(["nmake", "nmake.exe", "msbuild", "msbuild.exe"])
 
-        build_tools: Dict[str, Optional[str]] = {}
+        build_tools: dict[str, str | None] = {}
 
         logger.debug("Discovering build tools...")
 
@@ -439,7 +439,7 @@ class ToolDiscovery:
 
         return build_tools
 
-    def discover_project_tools(self, project_root: Path) -> Dict[str, Dict[str, Optional[str]]]:
+    def discover_project_tools(self, project_root: Path) -> dict[str, dict[str, str | None]]:
         """Discover all available tools for a project.
 
         Combines compiler and build tool discovery for a complete picture
@@ -466,7 +466,7 @@ class ToolDiscovery:
             # Restore original project root
             self.project_root = original_root
 
-    def _find_project_local_paths(self, project_root: Optional[Path] = None) -> List[Path]:
+    def _find_project_local_paths(self, project_root: Path | None = None) -> list[Path]:
         """Find project-local paths for tool discovery.
 
         Searches for common project-local tool directories such as:
@@ -480,7 +480,7 @@ class ToolDiscovery:
         Returns:
             List of paths to search for project-local tools
         """
-        local_paths: List[Path] = []
+        local_paths: list[Path] = []
         root = project_root or self.project_root
 
         if not root:
@@ -520,8 +520,8 @@ class ToolDiscovery:
         self,
         language_name: str,
         lsp_executable: str,
-        project_root: Optional[Path] = None,
-    ) -> Optional[str]:
+        project_root: Path | None = None,
+    ) -> str | None:
         """Find LSP server executable for a specific language.
 
         Searches for the LSP executable in the following order:
@@ -578,8 +578,8 @@ class ToolDiscovery:
     def discover_lsp_servers(
         self,
         language_config,
-        project_root: Optional[Path] = None,
-    ) -> Dict[str, Optional[str]]:
+        project_root: Path | None = None,
+    ) -> dict[str, str | None]:
         """Discover LSP servers for languages in configuration.
 
         Searches for LSP server executables for each language that has an
@@ -617,7 +617,7 @@ class ToolDiscovery:
                 "(LanguageSupportDatabaseConfig)"
             )
 
-        lsp_paths: Dict[str, Optional[str]] = {}
+        lsp_paths: dict[str, str | None] = {}
         found_count = 0
         missing_count = 0
 
@@ -669,7 +669,7 @@ class ToolDiscovery:
 
         return lsp_paths
 
-    def discover_tree_sitter_cli(self) -> Optional[Dict[str, Any]]:
+    def discover_tree_sitter_cli(self) -> dict[str, Any] | None:
         """Discover tree-sitter CLI executable.
 
         Searches for the tree-sitter CLI in custom paths and system PATH,
@@ -730,7 +730,7 @@ class ToolDiscovery:
             "found": True
         }
 
-    def _parse_tree_sitter_version(self, version_output: str) -> Optional[str]:
+    def _parse_tree_sitter_version(self, version_output: str) -> str | None:
         """Parse tree-sitter version string.
 
         Extracts version number from tree-sitter --version output.

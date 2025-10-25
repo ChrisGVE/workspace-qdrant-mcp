@@ -9,16 +9,17 @@ Tests Task 262 implementation including edge cases:
 - User workflow integration
 """
 
-import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
-from datetime import datetime, timezone, timedelta
 import hashlib
-import uuid
 
 # Import the modules we're testing
 import sys
+import uuid
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 # Add src/python to path for imports
 project_root = Path(__file__).parent.parent.parent
@@ -26,25 +27,26 @@ sys.path.insert(0, str(project_root / "src" / "python"))
 
 # Now we can import our modules
 try:
+    from qdrant_client.http import models
     from workspace_qdrant_mcp.version_management import (
-        VersionManager,
-        DocumentType,
-        FileFormat,
-        ConflictType,
-        ResolutionStrategy,
-        VersionInfo,
-        VersionConflict,
+        ArchiveEntry,
         ArchiveManager,
         ArchivePolicy,
         ArchiveStatus,
-        ArchiveEntry,
+        ConflictType,
+        DocumentType,
+        FileFormat,
+        ResolutionStrategy,
+        UserDecision,
+        UserPrompt,
+        VersionConflict,
+        VersionInfo,
+        VersionManager,
         WorkflowIntegrator,
         WorkflowStatus,
-        UserDecision,
-        UserPrompt
     )
+
     from python.common.core.client import QdrantWorkspaceClient
-    from qdrant_client.http import models
 except ImportError as e:
     pytest.skip(f"Could not import required modules: {e}", allow_module_level=True)
 
@@ -637,7 +639,7 @@ class TestEdgeCases:
 
         manager = VersionManager(self.mock_client)
 
-        new_version = VersionInfo(
+        VersionInfo(
             version_string="1.0.0",
             version_type="semantic",
             document_type=DocumentType.CODE_FILE,

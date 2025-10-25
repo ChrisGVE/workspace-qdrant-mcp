@@ -6,6 +6,24 @@ memory rules stored in Qdrant.
 """
 
 from .authority_filter import AuthorityFilter, FilteredRules, RuleHierarchy
+from .budget_config import (
+    BudgetConfig,
+    BudgetConfigManager,
+    BudgetScope,
+)
+from .budget_warning_system import (
+    BudgetThreshold,
+    BudgetWarningSystem,
+    ThrottleConfig,
+    WarningEvent,
+    WarningLevel,
+)
+from .claude_budget_manager import (
+    ClaudeBudgetAllocation,
+    ClaudeBudgetManager,
+    ClaudeModel,
+    SessionUsageStats,
+)
 from .claude_code_detector import (
     ClaudeCodeDetector,
     ClaudeCodeSession,
@@ -15,86 +33,71 @@ from .claude_code_detector import (
     get_claude_code_session,
     is_claude_code_session,
 )
+from .claude_md_injector import (
+    ClaudeMdInjector,
+    ClaudeMdLocation,
+    inject_claude_md_content,
+)
+from .comment_injector import (
+    CommentInjector,
+    ConflictResolution,
+    ConflictType,
+    InjectedComment,
+    PlacementStrategy,
+    RuleConflict,
+)
+from .context_switcher import (
+    ContextSwitcher,
+    SwitchValidationResult,
+)
 from .copilot_detector import (
     CopilotDetector,
     CopilotSession,
     CopilotSessionType,
+    get_code_comment_prefix,
     get_copilot_session,
     is_copilot_session,
-    get_code_comment_prefix,
+)
+from .formatters import (
+    ClaudeCodeAdapter,
+    FormatManager,
+    FormattedContext,
+    FormatType,
+    GitHubCodexAdapter,
+    GoogleGeminiAdapter,
+    LLMToolAdapter,
+    ToolCapabilities,
+)
+from .interactive_trimmer import (
+    BudgetVisualization,
+    InteractiveTrimmer,
+    RuleDisplay,
+    TrimDecision,
+    TrimDecisionType,
+    TrimSession,
+)
+from .live_refresh import (
+    LiveRefreshManager,
+    RefreshMode,
+    RefreshResult,
+    RefreshState,
+    RefreshThrottleConfig,
+    start_live_refresh,
+)
+from .llm_override_config import (
+    LLMOverrideConfig,
+    LLMOverrideManager,
+    clear_llm_override_cli,
+    set_llm_override_cli,
+    show_llm_override_cli,
 )
 from .llm_tool_detector import (
     LLMToolDetector,
     LLMToolType,
     UnifiedLLMSession,
     get_active_llm_tool,
-    is_llm_tool_active,
     get_llm_formatter,
-)
-from .llm_override_config import (
-    LLMOverrideConfig,
-    LLMOverrideManager,
-    set_llm_override_cli,
-    clear_llm_override_cli,
-    show_llm_override_cli,
-)
-from .comment_injector import (
-    CommentInjector,
-    PlacementStrategy,
-    ConflictResolution,
-    ConflictType,
-    RuleConflict,
-    InjectedComment,
-)
-from .claude_md_injector import (
-    ClaudeMdInjector,
-    ClaudeMdLocation,
-    inject_claude_md_content,
-)
-from .system_prompt_injector import (
-    SystemPromptInjector,
-    SystemPromptConfig,
-    InjectionMode,
-    generate_mcp_context,
-    generate_api_system_prompt,
-)
-from .session_trigger import (
-    SessionTrigger,
-    TriggerPhase,
-    TriggerPriority,
-    TriggerResult,
-    TriggerContext,
-    TriggerManager,
-    ClaudeMdFileTrigger,
-    SystemPromptTrigger,
-    CleanupTrigger,
-    CustomCallbackTrigger,
-    OnDemandRefreshTrigger,
-    PostUpdateTrigger,
-    ToolAwareTrigger,
-    TriggerEvent,
-    TriggerHealthMetrics,
-    TriggerRetryPolicy,
-    TriggerEventLogger,
-    TriggerHealthMonitor,
-    prepare_claude_code_session,
-    cleanup_claude_code_session,
-    refresh_claude_code_context,
-)
-from .formatters import (
-    ClaudeCodeAdapter,
-    FormatManager,
-    FormatType,
-    FormattedContext,
-    GitHubCodexAdapter,
-    GoogleGeminiAdapter,
-    LLMToolAdapter,
-    ToolCapabilities,
-)
-from .project_context import (
-    ProjectContext,
-    ProjectContextDetector,
-    ProjectRuleApplicator,
+    is_llm_tool_active,
 )
 from .performance_optimization import (
     BatchProcessor,
@@ -102,7 +105,48 @@ from .performance_optimization import (
     RuleCache,
     RuleIndex,
 )
+from .project_context import (
+    ProjectContext,
+    ProjectContextDetector,
+    ProjectRuleApplicator,
+)
+from .rule_prioritizer import (
+    PrioritizationResult,
+    PrioritizationStrategy,
+    RulePrioritizer,
+    RulePriorityScore,
+)
 from .rule_retrieval import RuleFilter, RuleRetrieval, RuleRetrievalResult
+from .session_trigger import (
+    ClaudeMdFileTrigger,
+    CleanupTrigger,
+    CustomCallbackTrigger,
+    OnDemandRefreshTrigger,
+    PostUpdateTrigger,
+    SessionTrigger,
+    SystemPromptTrigger,
+    ToolAwareTrigger,
+    TriggerContext,
+    TriggerEvent,
+    TriggerEventLogger,
+    TriggerHealthMetrics,
+    TriggerHealthMonitor,
+    TriggerManager,
+    TriggerPhase,
+    TriggerPriority,
+    TriggerResult,
+    TriggerRetryPolicy,
+    cleanup_claude_code_session,
+    prepare_claude_code_session,
+    refresh_claude_code_context,
+)
+from .system_prompt_injector import (
+    InjectionMode,
+    SystemPromptConfig,
+    SystemPromptInjector,
+    generate_api_system_prompt,
+    generate_mcp_context,
+)
 from .token_budget import (
     AllocationStrategy,
     BudgetAllocation,
@@ -114,12 +158,6 @@ from .token_budget import (
     TokenizerFactory,
     TokenizerType,
 )
-from .claude_budget_manager import (
-    ClaudeBudgetManager,
-    ClaudeBudgetAllocation,
-    ClaudeModel,
-    SessionUsageStats,
-)
 from .token_usage_tracker import (
     GlobalUsageTracker,
     OperationType,
@@ -128,47 +166,9 @@ from .token_usage_tracker import (
     TokenUsageTracker,
     ToolUsageStats,
 )
-from .budget_warning_system import (
-    BudgetWarningSystem,
-    WarningLevel,
-    WarningEvent,
-    BudgetThreshold,
-    ThrottleConfig,
-)
-from .live_refresh import (
-    LiveRefreshManager,
-    RefreshMode,
-    RefreshThrottleConfig,
-    RefreshState,
-    RefreshResult,
-    start_live_refresh,
-)
-from .rule_prioritizer import (
-    PrioritizationResult,
-    PrioritizationStrategy,
-    RulePrioritizer,
-    RulePriorityScore,
-)
-from .interactive_trimmer import (
-    BudgetVisualization,
-    InteractiveTrimmer,
-    RuleDisplay,
-    TrimDecision,
-    TrimDecisionType,
-    TrimSession,
-)
-from .budget_config import (
-    BudgetConfig,
-    BudgetConfigManager,
-    BudgetScope,
-)
 from .tool_token_manager import (
     ToolTokenLimits,
     ToolTokenManager,
-)
-from .context_switcher import (
-    ContextSwitcher,
-    SwitchValidationResult,
 )
 
 __all__ = [

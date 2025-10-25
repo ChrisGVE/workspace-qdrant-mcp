@@ -7,16 +7,16 @@ concurrent processing, deduplication, and comprehensive error handling.
 """
 
 import asyncio
-import logging
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from common.grpc.daemon_client import with_daemon_client
 from loguru import logger
 
-from common.grpc.daemon_client import get_daemon_client, with_daemon_client
 from .parsers import (
     CodeParser,
     DocumentParser,
@@ -208,7 +208,7 @@ class DocumentIngestionEngine:
                 async def check_collection(daemon_client):
                     response = await daemon_client.list_collections()
                     return [c.name for c in response.collections]
-                
+
                 available_collections = await with_daemon_client(check_collection)
                 if collection not in available_collections:
                     return IngestionResult(
@@ -404,7 +404,7 @@ class DocumentIngestionEngine:
                         )
 
                     response = await with_daemon_client(process_document)
-                    
+
                     if not response.success:
                         raise RuntimeError(response.error_message)
 

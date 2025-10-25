@@ -7,12 +7,13 @@ and OS-standard log directory usage with 100% coverage.
 
 import os
 import sys
-import pytest
-from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 # Import modules under test
-from src.python.common.logging.loguru_config import setup_logging, _is_mcp_stdio_mode
+from src.python.common.logging.loguru_config import _is_mcp_stdio_mode, setup_logging
 
 
 class TestSetupLogging:
@@ -193,87 +194,87 @@ class TestIsMcpStdioMode:
     def test_wqm_stdio_mode_true(self):
         """Test MCP stdio mode detection with WQM_STDIO_MODE=true."""
         with patch.dict(os.environ, {"WQM_STDIO_MODE": "true"}):
-            assert _is_mcp_stdio_mode() == True
+            assert _is_mcp_stdio_mode()
 
     def test_wqm_stdio_mode_true_uppercase(self):
         """Test MCP stdio mode detection with WQM_STDIO_MODE=TRUE."""
         with patch.dict(os.environ, {"WQM_STDIO_MODE": "TRUE"}):
-            assert _is_mcp_stdio_mode() == True
+            assert _is_mcp_stdio_mode()
 
     def test_wqm_stdio_mode_false(self):
         """Test MCP stdio mode detection with WQM_STDIO_MODE=false."""
         with patch.dict(os.environ, {"WQM_STDIO_MODE": "false"}, clear=True):
             with patch('sys.stdout.isatty', return_value=True):
                 with patch('sys.stdin.isatty', return_value=True):
-                    assert _is_mcp_stdio_mode() == False
+                    assert not _is_mcp_stdio_mode()
 
     def test_mcp_quiet_mode_true(self):
         """Test MCP stdio mode detection with MCP_QUIET_MODE=true."""
         with patch.dict(os.environ, {"MCP_QUIET_MODE": "true"}):
-            assert _is_mcp_stdio_mode() == True
+            assert _is_mcp_stdio_mode()
 
     def test_mcp_quiet_mode_false(self):
         """Test MCP stdio mode detection with MCP_QUIET_MODE=false."""
         with patch.dict(os.environ, {"MCP_QUIET_MODE": "false"}, clear=True):
             with patch('sys.stdout.isatty', return_value=True):
                 with patch('sys.stdin.isatty', return_value=True):
-                    assert _is_mcp_stdio_mode() == False
+                    assert not _is_mcp_stdio_mode()
 
     def test_no_tty_no_term(self):
         """Test MCP stdio mode detection with no TTY and no TERM."""
         with patch.dict(os.environ, {}, clear=True):
             with patch('sys.stdout.isatty', return_value=False):
                 with patch('sys.stdin.isatty', return_value=False):
-                    assert _is_mcp_stdio_mode() == True
+                    assert _is_mcp_stdio_mode()
 
     def test_has_tty(self):
         """Test MCP stdio mode detection with TTY available."""
         with patch.dict(os.environ, {}, clear=True):
             with patch('sys.stdout.isatty', return_value=True):
                 with patch('sys.stdin.isatty', return_value=True):
-                    assert _is_mcp_stdio_mode() == False
+                    assert not _is_mcp_stdio_mode()
 
     def test_has_term_env(self):
         """Test MCP stdio mode detection with TERM environment variable."""
         with patch.dict(os.environ, {"TERM": "xterm"}, clear=True):
             with patch('sys.stdout.isatty', return_value=False):
                 with patch('sys.stdin.isatty', return_value=False):
-                    assert _is_mcp_stdio_mode() == False
+                    assert not _is_mcp_stdio_mode()
 
     def test_stdout_tty_stdin_not_tty(self):
         """Test MCP stdio mode detection with mixed TTY availability."""
         with patch.dict(os.environ, {}, clear=True):
             with patch('sys.stdout.isatty', return_value=True):
                 with patch('sys.stdin.isatty', return_value=False):
-                    assert _is_mcp_stdio_mode() == False
+                    assert not _is_mcp_stdio_mode()
 
     def test_stdout_not_tty_stdin_tty(self):
         """Test MCP stdio mode detection with mixed TTY availability."""
         with patch.dict(os.environ, {}, clear=True):
             with patch('sys.stdout.isatty', return_value=False):
                 with patch('sys.stdin.isatty', return_value=True):
-                    assert _is_mcp_stdio_mode() == False
+                    assert not _is_mcp_stdio_mode()
 
     def test_priority_order_wqm_over_tty(self):
         """Test that WQM_STDIO_MODE takes priority over TTY detection."""
         with patch.dict(os.environ, {"WQM_STDIO_MODE": "true"}):
             with patch('sys.stdout.isatty', return_value=True):
                 with patch('sys.stdin.isatty', return_value=True):
-                    assert _is_mcp_stdio_mode() == True
+                    assert _is_mcp_stdio_mode()
 
     def test_priority_order_mcp_quiet_over_tty(self):
         """Test that MCP_QUIET_MODE takes priority over TTY detection."""
         with patch.dict(os.environ, {"MCP_QUIET_MODE": "true"}):
             with patch('sys.stdout.isatty', return_value=True):
                 with patch('sys.stdin.isatty', return_value=True):
-                    assert _is_mcp_stdio_mode() == True
+                    assert _is_mcp_stdio_mode()
 
     def test_empty_env_vars(self):
         """Test behavior with empty environment variables."""
         with patch.dict(os.environ, {"WQM_STDIO_MODE": "", "MCP_QUIET_MODE": ""}, clear=True):
             with patch('sys.stdout.isatty', return_value=True):
                 with patch('sys.stdin.isatty', return_value=True):
-                    assert _is_mcp_stdio_mode() == False
+                    assert not _is_mcp_stdio_mode()
 
     def test_case_insensitive_env_vars(self):
         """Test case insensitive handling of environment variables."""
@@ -377,7 +378,7 @@ class TestIntegrationScenarios:
 
     def test_error_handling_with_os_directories(self):
         """Test error handling when OS directories operations fail."""
-        with patch('src.python.common.logging.loguru_config.logger') as mock_logger:
+        with patch('src.python.common.logging.loguru_config.logger'):
             with patch('src.python.common.logging.loguru_config.OSDirectories') as mock_os_dirs_class:
                 mock_os_dirs = Mock()
                 mock_os_dirs.ensure_directories.side_effect = Exception("Directory creation failed")

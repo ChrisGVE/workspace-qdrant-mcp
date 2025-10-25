@@ -24,20 +24,20 @@ Features Validated:
 
 import asyncio
 import json
-import pytest
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
+import pytest
 
 from tests.e2e.utils import (
-    HealthChecker,
-    WorkflowTimer,
-    TestDataGenerator,
     ComponentController,
-    assert_within_threshold
+    HealthChecker,
+    TestDataGenerator,
+    WorkflowTimer,
+    assert_within_threshold,
 )
-
 
 # Test configuration
 PARTIAL_STARTUP_CONFIG = {
@@ -272,7 +272,7 @@ class TestDegradedModeOperations:
 
         # Simulate queued operations
         operations_queued = 5
-        for i in range(operations_queued):
+        for _i in range(operations_queued):
             await asyncio.sleep(0.2)  # Simulate operation queuing
 
         timer.checkpoint("operations_queued")
@@ -407,7 +407,7 @@ class TestCrashStateRecovery:
         timer.checkpoint("qdrant_crashed")
 
         # Simulate operations during outage (queued)
-        for i in range(5):
+        for _i in range(5):
             await asyncio.sleep(0.3)  # Operations queued
 
         timer.checkpoint("operations_queued")
@@ -598,7 +598,7 @@ class TestCorruptedConfigurationHandling:
             "http://localhost:99999",  # Invalid port
         ]
 
-        for invalid_url in invalid_urls:
+        for _invalid_url in invalid_urls:
             # In real implementation, would validate URL
             await asyncio.sleep(0.3)
             # Would log error: f"Invalid Qdrant URL: {invalid_url}"
@@ -801,7 +801,7 @@ class TestRecoveryModeNotifications:
             {"level": "INFO", "message": "Recovery complete"},
         ]
 
-        for log in log_messages:
+        for _log in log_messages:
             await asyncio.sleep(0.1)
             # Verify log contains:
             # - Timestamp
@@ -933,7 +933,7 @@ class TestComprehensiveRecoveryScenarios:
         resource_tracker.capture_current()
 
         # Validate timing
-        summary = timer.get_summary()
+        timer.get_summary()
 
         crash_detection_time = timer.get_duration("crash_detected") - timer.get_duration("total_failure")
         cleanup_time = timer.get_duration("cleanup_complete") - timer.get_duration("crash_detected")

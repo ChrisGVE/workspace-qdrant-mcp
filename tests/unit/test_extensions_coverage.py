@@ -4,12 +4,13 @@ Extensions and remaining modules coverage test file.
 Targets remaining uncovered modules for rapid coverage scaling to 20%+.
 """
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
-import tempfile
 import os
 import sys
+import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 
 class TestExtensionsCoverage:
@@ -383,7 +384,7 @@ class TestExtensionsCoverage:
 
         # Count total Python files in src
         total_py_files = 0
-        for root, dirs, files in os.walk(src_path):
+        for _root, dirs, files in os.walk(src_path):
             # Skip test directories and __pycache__
             dirs[:] = [d for d in dirs if not d.startswith('__pycache__') and not d.startswith('test')]
 

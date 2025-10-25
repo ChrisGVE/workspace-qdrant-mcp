@@ -39,12 +39,11 @@ Example:
 """
 
 import fnmatch
-import os
-from loguru import logger
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 
 import yaml
+from loguru import logger
 
 # logger imported from loguru
 
@@ -59,10 +58,10 @@ class PatternManager:
 
     def __init__(
         self,
-        custom_include_patterns: Optional[List[str]] = None,
-        custom_exclude_patterns: Optional[List[str]] = None,
-        custom_project_indicators: Optional[Dict[str, Any]] = None,
-        patterns_base_dir: Optional[Union[str, Path]] = None
+        custom_include_patterns: list[str] | None = None,
+        custom_exclude_patterns: list[str] | None = None,
+        custom_project_indicators: dict[str, Any] | None = None,
+        patterns_base_dir: str | Path | None = None
     ):
         """
         Initialize PatternManager with optional custom patterns.
@@ -87,13 +86,13 @@ class PatternManager:
             self.patterns_dir = project_root / "patterns"
 
         # Initialize pattern storage
-        self._include_patterns: Dict[str, List[Dict[str, Any]]] = {}
-        self._exclude_patterns: Dict[str, List[Dict[str, Any]]] = {}
-        self._project_indicators: Dict[str, Dict[str, Any]] = {}
-        self._language_extensions: Dict[str, List[str]] = {}
+        self._include_patterns: dict[str, list[dict[str, Any]]] = {}
+        self._exclude_patterns: dict[str, list[dict[str, Any]]] = {}
+        self._project_indicators: dict[str, dict[str, Any]] = {}
+        self._language_extensions: dict[str, list[str]] = {}
 
         # Pattern matching cache for performance
-        self._pattern_cache: Dict[str, bool] = {}
+        self._pattern_cache: dict[str, bool] = {}
         self._cache_size_limit = 10000
 
         # Load patterns on initialization
@@ -226,7 +225,7 @@ class PatternManager:
             logger.error(f"Failed to load language extensions: {e}")
             self._language_extensions = {}
 
-    def should_include(self, file_path: Union[str, Path]) -> Tuple[bool, str]:
+    def should_include(self, file_path: str | Path) -> tuple[bool, str]:
         """
         Determine if a file should be included based on patterns.
 
@@ -268,7 +267,7 @@ class PatternManager:
         self._cache_result(cache_key, False)
         return False, "no_include_pattern_match"
 
-    def should_exclude(self, file_path: Union[str, Path]) -> Tuple[bool, str]:
+    def should_exclude(self, file_path: str | Path) -> tuple[bool, str]:
         """
         Determine if a file should be excluded based on patterns.
 
@@ -310,7 +309,7 @@ class PatternManager:
         self._cache_result(cache_key, False)
         return False, "no_exclude_pattern_match"
 
-    def detect_ecosystem(self, project_path: Union[str, Path]) -> List[str]:
+    def detect_ecosystem(self, project_path: str | Path) -> list[str]:
         """
         Detect project ecosystem(s) based on indicator files.
 
@@ -340,7 +339,7 @@ class PatternManager:
         logger.debug(f"Detected ecosystems for {project_path}: {detected_ecosystems}")
         return detected_ecosystems
 
-    def get_language_info(self, file_path: Union[str, Path]) -> Optional[Dict[str, Any]]:
+    def get_language_info(self, file_path: str | Path) -> dict[str, Any] | None:
         """
         Get language information for a file based on its extension.
 
@@ -407,7 +406,7 @@ class PatternManager:
             logger.debug(f"Pattern matching error for '{pattern}' against '{path}': {e}")
             return False
 
-    def _check_ecosystem_indicators(self, project_path: Path, indicators: Dict[str, Any]) -> bool:
+    def _check_ecosystem_indicators(self, project_path: Path, indicators: dict[str, Any]) -> bool:
         """
         Check if a project matches ecosystem indicators.
 
@@ -466,7 +465,7 @@ class PatternManager:
         self._pattern_cache.clear()
         logger.debug("PatternManager cache cleared")
 
-    def get_statistics(self) -> Dict[str, Any]:
+    def get_statistics(self) -> dict[str, Any]:
         """Get statistics about loaded patterns and cache performance."""
         return {
             "include_patterns": {

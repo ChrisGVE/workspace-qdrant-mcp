@@ -6,10 +6,14 @@ Qdrant instances for testing and prevents data contamination between tests.
 """
 
 import asyncio
+
 import pytest
 from qdrant_client.http import models
 
-from tests.utils.testcontainers_qdrant import IsolatedQdrantContainer, isolated_qdrant_instance
+from tests.utils.testcontainers_qdrant import (
+    IsolatedQdrantContainer,
+    isolated_qdrant_instance,
+)
 
 
 @pytest.mark.requires_docker

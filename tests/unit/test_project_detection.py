@@ -18,7 +18,6 @@ from unittest.mock import MagicMock, patch
 import git
 import pytest
 from git.exc import GitError
-
 from workspace_qdrant_mcp.utils.project_detection import ProjectDetector
 
 
@@ -521,9 +520,9 @@ class TestProjectDetector:
 
 # Import additional functions for testing
 from common.utils.project_detection import (
-    calculate_tenant_id,
-    _sanitize_remote_url,
     _generate_path_hash_tenant_id,
+    _sanitize_remote_url,
+    calculate_tenant_id,
 )
 
 

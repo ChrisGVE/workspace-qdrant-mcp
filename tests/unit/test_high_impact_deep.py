@@ -9,8 +9,8 @@ import asyncio
 import os
 import sys
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from unittest.mock import Mock, patch, AsyncMock, MagicMock, call, mock_open
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, mock_open, patch
 
 import pytest
 
@@ -20,10 +20,10 @@ sys.path.insert(0, str(src_path))
 
 # Test imports
 try:
-    from common.utils.project_detection import ProjectDetector, detect_project_structure
-    from common.core.config import Config, load_config
     from common.core.collections import WorkspaceCollectionManager
-    from common.utils.os_directories import get_user_home, get_config_dir, get_data_dir
+    from common.core.config import Config, load_config
+    from common.utils.os_directories import get_config_dir, get_data_dir, get_user_home
+    from common.utils.project_detection import ProjectDetector, detect_project_structure
     HIGH_IMPACT_AVAILABLE = True
 except ImportError as e:
     HIGH_IMPACT_AVAILABLE = False
@@ -350,7 +350,6 @@ embedding:
     def test_config_update_method(self):
         """Test config update functionality."""
         config = Config()
-        original_url = config.qdrant_client_config.url
 
         updates = {
             "qdrant_client_config": {

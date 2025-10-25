@@ -31,10 +31,10 @@ import json
 import statistics
 import sys
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
-from enum import Enum
 from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import Any, Optional
 
 
 class ComparisonResult(Enum):
@@ -54,9 +54,9 @@ class BenchmarkComparison:
     current_mean: float
     percent_change: float
     result: ComparisonResult
-    p_value: Optional[float] = None
-    baseline_stddev: Optional[float] = None
-    current_stddev: Optional[float] = None
+    p_value: float | None = None
+    baseline_stddev: float | None = None
+    current_stddev: float | None = None
 
 
 @dataclass
@@ -64,9 +64,9 @@ class RegressionReport:
     """Summary of regression detection results."""
 
     total_benchmarks: int
-    regressions: List[BenchmarkComparison]
-    improvements: List[BenchmarkComparison]
-    stable: List[BenchmarkComparison]
+    regressions: list[BenchmarkComparison]
+    improvements: list[BenchmarkComparison]
+    stable: list[BenchmarkComparison]
     timestamp: datetime
     baseline_path: str
     current_path: str
@@ -78,10 +78,10 @@ class StatisticalTests:
 
     @staticmethod
     def welch_t_test(
-        baseline_data: List[float],
-        current_data: List[float],
+        baseline_data: list[float],
+        current_data: list[float],
         alpha: float = 0.05,
-    ) -> Tuple[bool, float]:
+    ) -> tuple[bool, float]:
         """
         Perform Welch's t-test for independent samples.
 
@@ -142,10 +142,10 @@ class StatisticalTests:
 
     @staticmethod
     def mann_whitney_u_test(
-        baseline_data: List[float],
-        current_data: List[float],
+        baseline_data: list[float],
+        current_data: list[float],
         alpha: float = 0.05,
-    ) -> Tuple[bool, float]:
+    ) -> tuple[bool, float]:
         """
         Simplified Mann-Whitney U test implementation.
 
@@ -234,7 +234,7 @@ class RegressionDetector:
 
     def __init__(
         self,
-        baseline_path: Optional[str] = None,
+        baseline_path: str | None = None,
         use_statistical_test: bool = True,
         test_method: str = "welch",
     ):
@@ -247,18 +247,18 @@ class RegressionDetector:
             test_method: Statistical test to use ('welch' or 'mann_whitney')
         """
         self.baseline_path = baseline_path
-        self.baseline_data: Dict[str, Any] = {}
-        self.current_data: Dict[str, Any] = {}
+        self.baseline_data: dict[str, Any] = {}
+        self.current_data: dict[str, Any] = {}
         self.use_statistical_test = use_statistical_test
         self.test_method = test_method
 
-    def load_baseline(self, path: Optional[str] = None) -> None:
+    def load_baseline(self, path: str | None = None) -> None:
         """Load baseline benchmark results from JSON file."""
         baseline_file = Path(path or self.baseline_path)
         if not baseline_file.exists():
             raise FileNotFoundError(f"Baseline file not found: {baseline_file}")
 
-        with open(baseline_file, "r") as f:
+        with open(baseline_file) as f:
             self.baseline_data = json.load(f)
 
     def load_current_results(self, path: str) -> None:
@@ -267,12 +267,12 @@ class RegressionDetector:
         if not current_file.exists():
             raise FileNotFoundError(f"Current results file not found: {current_file}")
 
-        with open(current_file, "r") as f:
+        with open(current_file) as f:
             self.current_data = json.load(f)
 
     def _parse_pytest_benchmark_format(
-        self, data: Dict[str, Any]
-    ) -> Dict[str, Dict[str, Any]]:
+        self, data: dict[str, Any]
+    ) -> dict[str, dict[str, Any]]:
         """
         Parse pytest-benchmark JSON format.
 
@@ -299,7 +299,7 @@ class RegressionDetector:
         self,
         threshold_percent: float = 5.0,
         significance_level: float = 0.05,
-    ) -> List[BenchmarkComparison]:
+    ) -> list[BenchmarkComparison]:
         """
         Detect performance regressions.
 

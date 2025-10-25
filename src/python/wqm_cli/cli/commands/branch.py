@@ -23,24 +23,20 @@ Example usage:
 import asyncio
 import json as json_module
 from collections import defaultdict
-from pathlib import Path
-from typing import Dict, List, Optional, Set
 
 import typer
+from common.core.client import QdrantWorkspaceClient
+from common.core.collection_naming import build_project_collection_name
+from common.core.config import get_config
+from common.utils.git_utils import get_current_branch
 from loguru import logger
 from qdrant_client.models import (
     FieldCondition,
     Filter,
     FilterSelector,
     MatchValue,
-    PointIdsList,
 )
 from tabulate import tabulate
-
-from common.core.client import QdrantWorkspaceClient
-from common.core.collection_naming import build_project_collection_name
-from common.core.config import get_config
-from common.utils.git_utils import get_current_branch
 
 # Create Typer app for branch commands
 branch_app = typer.Typer(
@@ -63,7 +59,7 @@ def get_project_collection(project_id: str) -> str:
 
 async def find_documents_by_branch(
     client: QdrantWorkspaceClient, collection: str, branch: str
-) -> List[str]:
+) -> list[str]:
     """
     Find all document IDs for a specific branch in a collection.
 
@@ -121,7 +117,7 @@ async def find_documents_by_branch(
 
 async def get_all_branches(
     client: QdrantWorkspaceClient, collection: str
-) -> Dict[str, int]:
+) -> dict[str, int]:
     """
     Get all unique branches in a collection with document counts.
 
@@ -133,7 +129,7 @@ async def get_all_branches(
         Dictionary mapping branch names to document counts
     """
     try:
-        branch_counts: Dict[str, int] = defaultdict(int)
+        branch_counts: dict[str, int] = defaultdict(int)
         offset = None
         batch_size = 100
 
@@ -224,7 +220,7 @@ async def _delete_branch(project: str, branch: str, force: bool, dry_run: bool):
         typer.echo(f"Deleting documents from branch '{branch}' in collection '{collection}'")
 
         # Initialize client
-        config = get_config()
+        get_config()
         client = QdrantWorkspaceClient()
         await client.initialize()
 
@@ -349,7 +345,7 @@ async def _rename_branch(
         )
 
         # Initialize client
-        config = get_config()
+        get_config()
         client = QdrantWorkspaceClient()
         await client.initialize()
 
@@ -472,7 +468,7 @@ async def _list_branches(project: str, format: str, show_current: bool):
             typer.echo(f"Listing branches in collection '{collection}'")
 
         # Initialize client
-        config = get_config()
+        get_config()
         client = QdrantWorkspaceClient()
         await client.initialize()
 

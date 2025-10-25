@@ -51,7 +51,7 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Optional, Set
+from typing import Any
 from urllib.parse import urlparse
 
 import git
@@ -86,10 +86,10 @@ class DaemonIdentifier:
     """
 
     # Class-level registry to track active identifiers
-    _active_identifiers: Set[str] = set()
-    _identifier_registry: Dict[str, Dict[str, Any]] = {}
+    _active_identifiers: set[str] = set()
+    _identifier_registry: dict[str, dict[str, Any]] = {}
 
-    def __init__(self, project_name: str, project_path: str, suffix: Optional[str] = None):
+    def __init__(self, project_name: str, project_path: str, suffix: str | None = None):
         """Initialize daemon identifier with project information.
 
         Args:
@@ -157,7 +157,7 @@ class DaemonIdentifier:
 
         return self._identifier
 
-    def get_identifier(self) -> Optional[str]:
+    def get_identifier(self) -> str | None:
         """Get the current identifier without generating a new one.
 
         Returns:
@@ -165,7 +165,7 @@ class DaemonIdentifier:
         """
         return self._identifier
 
-    def get_path_hash(self) -> Optional[str]:
+    def get_path_hash(self) -> str | None:
         """Get the path hash component of the identifier.
 
         Returns:
@@ -195,7 +195,7 @@ class DaemonIdentifier:
         # Check if it's a valid identifier for this project path
         parts = identifier.split('_')
         if len(parts) >= 2:
-            name_part = parts[0]
+            parts[0]
             hash_part = parts[1]
 
             # Verify the hash matches our project path
@@ -264,7 +264,7 @@ class DaemonIdentifier:
             }
 
     @classmethod
-    def get_active_identifiers(cls) -> Set[str]:
+    def get_active_identifiers(cls) -> set[str]:
         """Get all currently active daemon identifiers.
 
         Returns:
@@ -273,7 +273,7 @@ class DaemonIdentifier:
         return cls._active_identifiers.copy()
 
     @classmethod
-    def get_identifier_info(cls, identifier: str) -> Optional[Dict[str, Any]]:
+    def get_identifier_info(cls, identifier: str) -> dict[str, Any] | None:
         """Get information about a registered identifier.
 
         Args:
@@ -348,7 +348,7 @@ class ProjectDetector:
     def __init__(
         self,
         github_user: str | None = None,
-        pattern_manager: Optional[PatternManager] = None
+        pattern_manager: PatternManager | None = None
     ) -> None:
         """Initialize the project detector with optional GitHub user filtering.
 
@@ -720,7 +720,7 @@ class ProjectDetector:
                 "error": str(e),
             }
 
-    def create_daemon_identifier(self, path: str = ".", suffix: Optional[str] = None) -> DaemonIdentifier:
+    def create_daemon_identifier(self, path: str = ".", suffix: str | None = None) -> DaemonIdentifier:
         """Create a DaemonIdentifier for the project at the specified path.
 
         Args:

@@ -14,10 +14,10 @@ Key features:
 
 import json
 import logging
-from pathlib import Path
-from typing import Optional, Dict, Any, List
-from dataclasses import dataclass, asdict, field
 import threading
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -26,16 +26,16 @@ logger = logging.getLogger(__name__)
 class GrammarConfig:
     """Configuration for tree-sitter grammar management."""
 
-    grammar_directories: List[str] = field(default_factory=lambda: [])
+    grammar_directories: list[str] = field(default_factory=lambda: [])
     """Custom directories to search for grammars"""
 
-    installation_directory: Optional[str] = None
+    installation_directory: str | None = None
     """Directory for installing new grammars (defaults to ~/.config/tree-sitter/grammars)"""
 
-    c_compiler: Optional[str] = None
+    c_compiler: str | None = None
     """Preferred C compiler (e.g., 'gcc', 'clang')"""
 
-    cpp_compiler: Optional[str] = None
+    cpp_compiler: str | None = None
     """Preferred C++ compiler (e.g., 'g++', 'clang++')"""
 
     auto_compile: bool = True
@@ -50,18 +50,18 @@ class GrammarConfig:
     keep_build_artifacts: bool = False
     """Keep intermediate build files after compilation"""
 
-    default_clone_depth: Optional[int] = None
+    default_clone_depth: int | None = None
     """Default git clone depth (None for full clone)"""
 
-    custom_compiler_flags: Dict[str, List[str]] = field(default_factory=dict)
+    custom_compiler_flags: dict[str, list[str]] = field(default_factory=dict)
     """Custom compiler flags by compiler name"""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert configuration to dictionary."""
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "GrammarConfig":
+    def from_dict(cls, data: dict[str, Any]) -> "GrammarConfig":
         """Create configuration from dictionary."""
         # Filter only known fields to handle future additions gracefully
         known_fields = {f.name for f in cls.__dataclass_fields__.values()}
@@ -80,7 +80,7 @@ class ConfigManager:
     DEFAULT_CONFIG_DIR = Path.home() / ".config" / "tree-sitter"
     DEFAULT_CONFIG_FILE = "config.json"
 
-    def __init__(self, config_dir: Optional[Path] = None):
+    def __init__(self, config_dir: Path | None = None):
         """
         Initialize configuration manager.
 
@@ -115,7 +115,7 @@ class ConfigManager:
                 if not self.config_file.exists():
                     return GrammarConfig()
 
-                with open(self.config_file, 'r') as f:
+                with open(self.config_file) as f:
                     data = json.load(f)
 
                 config = GrammarConfig.from_dict(data)
@@ -156,7 +156,7 @@ class ConfigManager:
                 logger.error(f"Failed to save configuration: {e}")
                 if temp_file.exists():
                     temp_file.unlink()
-                raise IOError(f"Failed to save configuration: {e}")
+                raise OSError(f"Failed to save configuration: {e}")
 
     def update(self, **kwargs) -> GrammarConfig:
         """
@@ -228,8 +228,8 @@ class ConfigManager:
 
     def set_compiler(
         self,
-        c_compiler: Optional[str] = None,
-        cpp_compiler: Optional[str] = None
+        c_compiler: str | None = None,
+        cpp_compiler: str | None = None
     ) -> GrammarConfig:
         """
         Set preferred compilers.
@@ -276,7 +276,7 @@ class ConfigManager:
         # Default location
         return self.config_dir / "grammars"
 
-    def get_grammar_search_paths(self) -> List[Path]:
+    def get_grammar_search_paths(self) -> list[Path]:
         """
         Get all grammar search paths.
 
@@ -307,7 +307,7 @@ class ConfigManager:
         self.save(config)
         logger.info(f"Created default configuration at {self.config_file}")
 
-    def get_compiler_flags(self, compiler_name: str) -> List[str]:
+    def get_compiler_flags(self, compiler_name: str) -> list[str]:
         """
         Get custom compiler flags for a specific compiler.
 
@@ -320,7 +320,7 @@ class ConfigManager:
         config = self.load()
         return config.custom_compiler_flags.get(compiler_name, [])
 
-    def set_compiler_flags(self, compiler_name: str, flags: List[str]) -> GrammarConfig:
+    def set_compiler_flags(self, compiler_name: str, flags: list[str]) -> GrammarConfig:
         """
         Set custom compiler flags.
 
@@ -363,7 +363,7 @@ class ConfigManager:
             ValueError: If import file is invalid
         """
         try:
-            with open(input_file, 'r') as f:
+            with open(input_file) as f:
                 data = json.load(f)
 
             config = GrammarConfig.from_dict(data)

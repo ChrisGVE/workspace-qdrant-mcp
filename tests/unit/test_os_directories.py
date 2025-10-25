@@ -11,7 +11,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from workspace_qdrant_mcp.utils.os_directories import OSDirectories
 
 

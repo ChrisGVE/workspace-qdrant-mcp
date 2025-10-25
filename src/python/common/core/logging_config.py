@@ -5,16 +5,11 @@ This module provides comprehensive logging setup with structured JSON output,
 performance monitoring, and integration with observability platforms.
 """
 
-import json
-from loguru import logger
 import logging.config
-import os
 import sys
 import time
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, Optional
-
+from typing import Any
 
 
 class PerformanceLogger:
@@ -52,7 +47,7 @@ class PerformanceLogger:
 perf_logger = PerformanceLogger()
 
 
-def setup_logging(log_level: str = "INFO", log_file: Optional[str] = None) -> None:
+def setup_logging(log_level: str = "INFO", log_file: str | None = None) -> None:
     """
     Set up comprehensive logging configuration.
 
@@ -107,7 +102,7 @@ def setup_logging(log_level: str = "INFO", log_file: Optional[str] = None) -> No
 class ContextTimer:
     """Context manager for timing operations."""
 
-    def __init__(self, operation: str, logger: Optional[Any] = None, **kwargs):
+    def __init__(self, operation: str, logger: Any | None = None, **kwargs):
         self.operation = operation
         self.logger = logger or perf_logger
         self.kwargs = kwargs

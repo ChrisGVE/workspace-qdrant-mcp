@@ -29,21 +29,21 @@ Features Validated:
 import asyncio
 import json
 import os
-import pytest
 import signal
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from unittest.mock import Mock, patch, MagicMock
+from typing import Any, Optional
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 from tests.e2e.utils import (
+    ComponentController,
     HealthChecker,
-    WorkflowTimer,
     TestDataGenerator,
-    ComponentController
+    WorkflowTimer,
 )
-
 
 # Failure simulation test configuration
 FAILURE_SIMULATION_CONFIG = {
@@ -522,7 +522,7 @@ class TestSQLiteDatabaseFailure:
 
         # Simulate database lock
         database_locked = True
-        lock_timeout = FAILURE_SIMULATION_CONFIG["failure_scenarios"]["sqlite_lock"]["timeout"]
+        FAILURE_SIMULATION_CONFIG["failure_scenarios"]["sqlite_lock"]["timeout"]
 
         assert database_locked, "Database should be locked"
 
@@ -591,7 +591,6 @@ class TestSQLiteDatabaseFailure:
 
         # Simulate transaction
         transaction_started = True
-        writes_performed = 5
 
         # Simulate failure
         failure_occurred = True
@@ -820,7 +819,6 @@ class TestDiskSpaceExhaustion:
         # Simulate space freed
         await asyncio.sleep(5)
         space_freed = True
-        available_mb = 500
 
         auto_resume = True
         operations_processed = True
@@ -856,7 +854,7 @@ class TestComprehensiveFailureScenarios:
         timer.start()
 
         await component_lifecycle_manager.start_all()
-        workspace = temp_project_workspace["path"]
+        temp_project_workspace["path"]
 
         # Simulate Qdrant failure
         qdrant_failed = True
@@ -951,7 +949,6 @@ class TestComprehensiveFailureScenarios:
             test_file.write_text(TestDataGenerator.create_python_module(f"module_{i}"))
 
         await asyncio.sleep(2)
-        high_load = True
         timer.checkpoint("high_load_active")
 
         # Simulate failure under load

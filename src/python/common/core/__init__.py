@@ -2,7 +2,7 @@
 
 from .client import QdrantWorkspaceClient
 from .collections import WorkspaceCollectionManager
-from .config import get_config, ConfigManager
+from .config import ConfigManager, get_config
 from .embeddings import EmbeddingService
 from .hybrid_search import HybridSearchEngine, RRFFusionRanker
 from .incremental_processor import (
@@ -17,6 +17,14 @@ from .incremental_processor import (
     TransactionManager,
     create_incremental_processor,
 )
+from .priority_queue_manager import (
+    MCPActivityLevel,
+    PriorityQueueManager,
+    ProcessingContextManager,
+    ProcessingMode,
+    QueueHealthStatus,
+    ResourceConfiguration,
+)
 from .sparse_vectors import (
     BM25SparseEncoder,
     create_named_sparse_vector,
@@ -29,14 +37,6 @@ from .sqlite_state_manager import (
     ProcessingPriority,
     SQLiteStateManager,
     WatchFolderConfig,
-)
-from .priority_queue_manager import (
-    PriorityQueueManager,
-    MCPActivityLevel,
-    ProcessingMode,
-    QueueHealthStatus,
-    ProcessingContextManager,
-    ResourceConfiguration,
 )
 
 __all__ = [

@@ -7,17 +7,17 @@ components: Qdrant, daemon, MCP server, and CLI.
 
 import asyncio
 import os
+import signal
 import subprocess
 import time
-import psutil
-import signal
-from pathlib import Path
-from typing import Dict, Any, Optional, List
-from dataclasses import dataclass
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional
 
-import pytest
 import httpx
+import psutil
+import pytest
 
 from tests.shared.testcontainers_utils import IsolatedQdrantContainer
 
@@ -28,8 +28,8 @@ class SystemComponents:
 
     qdrant: IsolatedQdrantContainer
     qdrant_url: str
-    daemon_process: Optional[subprocess.Popen]
-    mcp_server_process: Optional[subprocess.Popen]
+    daemon_process: subprocess.Popen | None
+    mcp_server_process: subprocess.Popen | None
     state_db_path: Path
     workspace_path: Path
     config_path: Path
@@ -55,8 +55,8 @@ class DaemonManager:
         self.qdrant_url = qdrant_url
         self.state_db_path = state_db_path
         self.log_level = log_level
-        self.process: Optional[subprocess.Popen] = None
-        self.pid: Optional[int] = None
+        self.process: subprocess.Popen | None = None
+        self.pid: int | None = None
 
     def start(self, timeout: int = 30) -> subprocess.Popen:
         """
@@ -148,7 +148,7 @@ class DaemonManager:
         except psutil.NoSuchProcess:
             return False
 
-    def get_metrics(self) -> Optional[ResourceMetrics]:
+    def get_metrics(self) -> ResourceMetrics | None:
         """
         Get current resource metrics for daemon.
 
@@ -187,8 +187,8 @@ class MCPServerManager:
         self.state_db_path = state_db_path
         self.host = host
         self.port = port
-        self.process: Optional[subprocess.Popen] = None
-        self.pid: Optional[int] = None
+        self.process: subprocess.Popen | None = None
+        self.pid: int | None = None
         self.base_url = f"http://{host}:{port}"
 
     def start(self, timeout: int = 30) -> subprocess.Popen:
@@ -290,7 +290,7 @@ class MCPServerManager:
         except psutil.NoSuchProcess:
             return False
 
-    def get_metrics(self) -> Optional[ResourceMetrics]:
+    def get_metrics(self) -> ResourceMetrics | None:
         """
         Get current resource metrics for MCP server.
 
@@ -324,10 +324,10 @@ class CLIHelper:
 
     def run_command(
         self,
-        command: List[str],
+        command: list[str],
         timeout: int = 30,
         check: bool = False,
-        env: Optional[Dict[str, str]] = None,
+        env: dict[str, str] | None = None,
     ) -> subprocess.CompletedProcess:
         """
         Run a wqm CLI command.
@@ -364,9 +364,9 @@ class ResourceMonitor:
     """Monitor system resource usage during tests."""
 
     def __init__(self):
-        self.metrics_history: List[ResourceMetrics] = []
+        self.metrics_history: list[ResourceMetrics] = []
         self.monitoring = False
-        self._monitor_task: Optional[asyncio.Task] = None
+        self._monitor_task: asyncio.Task | None = None
 
     async def start_monitoring(
         self, components: SystemComponents, interval: float = 1.0
@@ -416,7 +416,7 @@ class ResourceMonitor:
             await self._monitor_task
             self._monitor_task = None
 
-    def get_summary(self) -> Dict[str, Any]:
+    def get_summary(self) -> dict[str, Any]:
         """
         Get summary statistics of collected metrics.
 
@@ -427,7 +427,7 @@ class ResourceMonitor:
             return {}
 
         # Group by process name
-        by_process: Dict[str, List[ResourceMetrics]] = {}
+        by_process: dict[str, list[ResourceMetrics]] = {}
         for metrics in self.metrics_history:
             process_name = metrics.process_name
             if process_name not in by_process:
@@ -573,7 +573,7 @@ async def resource_monitor() -> ResourceMonitor:
 
 
 @pytest.fixture
-def performance_baseline() -> Dict[str, float]:
+def performance_baseline() -> dict[str, float]:
     """
     Provide baseline performance expectations for validation.
 

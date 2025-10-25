@@ -16,13 +16,14 @@ Test Coverage (Task 329.6):
 """
 
 import asyncio
-import httpx
 import json
-import pytest
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
+
+import httpx
+import pytest
 from qdrant_client import QdrantClient
 
 
@@ -103,11 +104,11 @@ class TestDaemonUnavailabilityScenarios:
 
             if response.status_code == 200:
                 result = response.json()
-                print(f"   ✅ Content stored (fallback mode)")
+                print("   ✅ Content stored (fallback mode)")
 
                 # Check for fallback indicators
                 if "fallback_mode" in result or "warning" in result or "mode" in result:
-                    print(f"   ✅ Fallback mode indicated in response")
+                    print("   ✅ Fallback mode indicated in response")
                     if "fallback_mode" in result:
                         print(f"   ⚠️  Fallback mode: {result['fallback_mode']}")
                     if "warning" in result:
@@ -119,7 +120,7 @@ class TestDaemonUnavailabilityScenarios:
                 try:
                     collection_info = qdrant_client.get_collection(unavailability_test_collection)
                     if collection_info.points_count > 0:
-                        print(f"   ✅ Content stored in Qdrant via fallback")
+                        print("   ✅ Content stored in Qdrant via fallback")
                 except Exception as e:
                     print(f"   ⚠️  Qdrant verification: {e}")
             else:
@@ -387,7 +388,7 @@ class TestDaemonUnavailabilityScenarios:
             max_time = max(response_times)
             min_time = min(response_times)
 
-            print(f"\n   📊 Fallback Mode Performance:")
+            print("\n   📊 Fallback Mode Performance:")
             print(f"   Average response: {avg_time*1000:.2f}ms")
             print(f"   Min response: {min_time*1000:.2f}ms")
             print(f"   Max response: {max_time*1000:.2f}ms")

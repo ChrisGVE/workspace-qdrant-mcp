@@ -8,13 +8,11 @@ for accurate tokenization using tiktoken and transformers libraries.
 
 import asyncio
 import hashlib
-import time
 from collections import defaultdict
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from functools import lru_cache
 from threading import Lock
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from cachetools import LRUCache, TTLCache
 
@@ -57,10 +55,10 @@ class BudgetAllocation:
     absolute_tokens: int
     default_tokens: int
     overhead_tokens: int
-    rules_included: List[MemoryRule]
-    rules_skipped: List[MemoryRule]
+    rules_included: list[MemoryRule]
+    rules_skipped: list[MemoryRule]
     compression_applied: bool
-    allocation_stats: Dict[str, Any]
+    allocation_stats: dict[str, Any]
 
 
 @dataclass
@@ -134,8 +132,8 @@ class TokenizerFactory:
     _cache: LRUCache = LRUCache(maxsize=10)
 
     # Library availability flags (checked once)
-    _tiktoken_available: Optional[bool] = None
-    _transformers_available: Optional[bool] = None
+    _tiktoken_available: bool | None = None
+    _transformers_available: bool | None = None
 
     @classmethod
     def is_tiktoken_available(cls) -> bool:
@@ -329,7 +327,7 @@ class TokenCountCache:
         content = f"{tool_name}:{text}"
         return hashlib.md5(content.encode("utf-8")).hexdigest()
 
-    def get(self, text: str, tool_name: str) -> Optional[int]:
+    def get(self, text: str, tool_name: str) -> int | None:
         """
         Get cached token count.
 
@@ -434,11 +432,11 @@ class TokenCounter:
     }
 
     # Global cache instance (shared across all counters)
-    _cache: Optional[TokenCountCache] = None
+    _cache: TokenCountCache | None = None
     _cache_lock = Lock()
 
     @classmethod
-    def get_cache(cls) -> Optional[TokenCountCache]:
+    def get_cache(cls) -> TokenCountCache | None:
         """
         Get global token count cache.
 
@@ -478,7 +476,7 @@ class TokenCounter:
                 cls._cache.clear()
 
     @classmethod
-    def get_cache_statistics(cls) -> Optional[CacheStatistics]:
+    def get_cache_statistics(cls) -> CacheStatistics | None:
         """
         Get cache statistics.
 
@@ -614,11 +612,11 @@ class TokenCounter:
 
     @staticmethod
     def batch_count_tokens(
-        texts: List[str],
+        texts: list[str],
         tool_name: str,
         use_tokenizer: bool = True,
         use_cache: bool = True,
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Count tokens for multiple texts in batch.
 
@@ -694,11 +692,11 @@ class TokenCounter:
 
     @staticmethod
     async def async_batch_count_tokens(
-        texts: List[str],
+        texts: list[str],
         tool_name: str,
         use_tokenizer: bool = True,
         use_cache: bool = True,
-    ) -> List[int]:
+    ) -> list[int]:
         """
         Asynchronously count tokens for multiple texts concurrently.
 
@@ -729,7 +727,7 @@ class TokenCounter:
     def count_tokens_with_model(
         text: str,
         model_name: str,
-        tokenizer_type: Optional[TokenizerType] = None,
+        tokenizer_type: TokenizerType | None = None,
     ) -> int:
         """
         Count tokens for a specific model using explicit tokenizer type.
@@ -823,7 +821,7 @@ class TokenBudgetManager:
 
     def allocate_budget(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         total_budget: int,
         tool_name: str,
     ) -> BudgetAllocation:
@@ -925,10 +923,10 @@ class TokenBudgetManager:
 
     def _allocate_to_default_rules(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         budget: int,
         tool_name: str,
-    ) -> List[MemoryRule]:
+    ) -> list[MemoryRule]:
         """
         Allocate budget to default rules based on strategy.
 
@@ -949,10 +947,10 @@ class TokenBudgetManager:
 
     def _priority_based_allocation(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         budget: int,
         tool_name: str,
-    ) -> List[MemoryRule]:
+    ) -> list[MemoryRule]:
         """
         Allocate by priority (highest priority first).
 
@@ -991,10 +989,10 @@ class TokenBudgetManager:
 
     def _round_robin_allocation(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         budget: int,
         tool_name: str,
-    ) -> List[MemoryRule]:
+    ) -> list[MemoryRule]:
         """
         Distribute tokens equally across categories.
 
@@ -1026,10 +1024,10 @@ class TokenBudgetManager:
 
     def _equal_allocation(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         budget: int,
         tool_name: str,
-    ) -> List[MemoryRule]:
+    ) -> list[MemoryRule]:
         """
         Fixed token allocation per rule.
 
@@ -1059,10 +1057,10 @@ class TokenBudgetManager:
 
     def _truncate_rules(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         budget: int,
         tool_name: str,
-    ) -> List[MemoryRule]:
+    ) -> list[MemoryRule]:
         """
         Truncate rules to fit within budget.
 

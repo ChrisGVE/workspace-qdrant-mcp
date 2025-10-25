@@ -5,14 +5,13 @@ This module provides integration with Claude Code for automatic memory rule inje
 and session initialization with memory-driven LLM behavior.
 """
 
-import json
 import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
-from .token_counter import TokenCounter, TokenUsage
+from .token_counter import TokenCounter
 from .types import (
     AuthorityLevel,
     ClaudeCodeSession,

@@ -7,23 +7,19 @@ Task 251: Advanced CLI features with comprehensive error handling.
 """
 
 import os
+import subprocess
 import sys
 import traceback
-from typing import Dict, List, Optional, Union, Any, Callable, Type
-from pathlib import Path
+from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
-import time
-import subprocess
+from typing import Any
 
 import typer
 from rich.console import Console
 from rich.panel import Panel
-from rich.table import Table
-from rich.text import Text
 from rich.prompt import Confirm, Prompt
-from loguru import logger
 
 console = Console()
 
@@ -54,12 +50,12 @@ class ErrorCategory(str, Enum):
 class ErrorContext:
     """Context information for errors."""
     command: str
-    subcommand: Optional[str] = None
-    arguments: List[str] = None
-    flags: Dict[str, Any] = None
+    subcommand: str | None = None
+    arguments: list[str] = None
+    flags: dict[str, Any] = None
     working_dir: str = None
-    config_file: Optional[str] = None
-    environment: Dict[str, str] = None
+    config_file: str | None = None
+    environment: dict[str, str] = None
 
     def __post_init__(self):
         """Initialize default values."""
@@ -78,7 +74,7 @@ class RecoveryAction:
     """A suggested recovery action."""
     action: str
     description: str
-    command: Optional[str] = None
+    command: str | None = None
     auto_applicable: bool = False
     requires_confirmation: bool = True
 
@@ -91,10 +87,10 @@ class WqmError:
     category: ErrorCategory
     severity: ErrorSeverity
     context: ErrorContext
-    original_exception: Optional[Exception] = None
-    recovery_actions: List[RecoveryAction] = None
-    related_commands: List[str] = None
-    documentation_links: List[str] = None
+    original_exception: Exception | None = None
+    recovery_actions: list[RecoveryAction] = None
+    related_commands: list[str] = None
+    documentation_links: list[str] = None
 
     def __post_init__(self):
         """Initialize default values."""
@@ -113,10 +109,10 @@ class ErrorHandler:
         """Initialize error handler."""
         self.error_patterns = self._initialize_error_patterns()
         self.recovery_strategies = self._initialize_recovery_strategies()
-        self.last_errors: List[WqmError] = []
+        self.last_errors: list[WqmError] = []
         self.error_history_limit = 10
 
-    def _initialize_error_patterns(self) -> Dict[str, Callable]:
+    def _initialize_error_patterns(self) -> dict[str, Callable]:
         """Initialize error pattern matchers."""
         return {
             "connection_refused": self._handle_connection_refused,
@@ -131,7 +127,7 @@ class ErrorHandler:
             "malformed_input": self._handle_malformed_input,
         }
 
-    def _initialize_recovery_strategies(self) -> Dict[ErrorCategory, List[RecoveryAction]]:
+    def _initialize_recovery_strategies(self) -> dict[ErrorCategory, list[RecoveryAction]]:
         """Initialize recovery strategies by category."""
         return {
             ErrorCategory.CONNECTION: [
@@ -693,7 +689,7 @@ class ErrorHandler:
 
         # Show manual actions
         if manual_actions:
-            console.print(f"\n🛠️  [bold]Manual Actions:[/bold]")
+            console.print("\n🛠️  [bold]Manual Actions:[/bold]")
 
             for i, action in enumerate(manual_actions, 1):
                 console.print(f"  {i}. [yellow]{action.description}[/yellow]")
@@ -719,7 +715,7 @@ class ErrorHandler:
 
         console.print()
 
-    def _execute_manual_actions(self, actions: List[RecoveryAction]) -> None:
+    def _execute_manual_actions(self, actions: list[RecoveryAction]) -> None:
         """Execute manual recovery actions based on user selection."""
         while True:
             try:
@@ -762,7 +758,7 @@ class ErrorHandler:
                 console.print("[red]Invalid selection[/red]")
 
     @contextmanager
-    def error_context(self, command: str, subcommand: Optional[str] = None, **kwargs):
+    def error_context(self, command: str, subcommand: str | None = None, **kwargs):
         """Context manager for handling errors within a command."""
         context = ErrorContext(
             command=command,
@@ -776,7 +772,7 @@ class ErrorHandler:
             self.handle_exception(e, context)
             raise typer.Exit(1)
 
-    def get_error_history(self) -> List[WqmError]:
+    def get_error_history(self) -> list[WqmError]:
         """Get recent error history."""
         return self.last_errors.copy()
 
@@ -789,7 +785,7 @@ class ErrorHandler:
 error_handler = ErrorHandler()
 
 
-def handle_cli_error(exception: Exception, context: Optional[ErrorContext] = None, show_traceback: bool = False) -> None:
+def handle_cli_error(exception: Exception, context: ErrorContext | None = None, show_traceback: bool = False) -> None:
     """Convenience function for handling CLI errors."""
     if context is None:
         context = ErrorContext(command="unknown")

@@ -54,7 +54,7 @@ Dependencies:
 """
 
 import os
-from typing import Dict, Any
+from typing import Any
 
 __version__ = "0.3.0"
 

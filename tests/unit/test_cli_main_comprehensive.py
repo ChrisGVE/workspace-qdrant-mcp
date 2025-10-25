@@ -7,12 +7,13 @@ Focuses on argument parsing, version handling, command routing, and error handli
 
 import asyncio
 import os
-import pytest
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 import typer
 from typer.testing import CliRunner
 
@@ -24,9 +25,7 @@ os.environ["WQM_CLI_MODE"] = "true"
 os.environ["WQM_LOG_INIT"] = "false"
 
 try:
-    from wqm_cli.cli.main import (
-        app, cli, main, show_version, handle_async_command
-    )
+    from wqm_cli.cli.main import app, cli, handle_async_command, main, show_version
     CLI_MAIN_AVAILABLE = True
 except ImportError as e:
     CLI_MAIN_AVAILABLE = False
@@ -65,40 +64,40 @@ class TestCliMainModule:
         """Test basic version flag functionality"""
         with patch('wqm_cli.cli.main.show_version') as mock_show:
             with pytest.raises(typer.Exit):
-                result = runner.invoke(app, ["--version"])
+                runner.invoke(app, ["--version"])
             mock_show.assert_called_once_with(verbose=False)
 
     def test_version_flag_verbose(self, runner):
         """Test verbose version flag"""
         with patch('wqm_cli.cli.main.show_version') as mock_show:
             with pytest.raises(typer.Exit):
-                result = runner.invoke(app, ["--version", "--verbose"])
+                runner.invoke(app, ["--version", "--verbose"])
             mock_show.assert_called_once_with(verbose=True)
 
     def test_version_flag_short(self, runner):
         """Test short version flag"""
         with patch('wqm_cli.cli.main.show_version') as mock_show:
             with pytest.raises(typer.Exit):
-                result = runner.invoke(app, ["-v"])
+                runner.invoke(app, ["-v"])
             mock_show.assert_called_once_with(verbose=False)
 
     def test_version_flag_debug(self, runner):
         """Test version flag with debug"""
         with patch('wqm_cli.cli.main.show_version') as mock_show:
             with pytest.raises(typer.Exit):
-                result = runner.invoke(app, ["--version", "--debug"])
+                runner.invoke(app, ["--version", "--debug"])
             mock_show.assert_called_once_with(verbose=True)
 
     def test_no_command_shows_help(self, runner):
         """Test that no command shows help"""
         with pytest.raises(typer.Exit):
-            result = runner.invoke(app, [])
+            runner.invoke(app, [])
 
     def test_debug_flag_logging_configuration(self, runner):
         """Test debug flag configures logging properly"""
         with patch('wqm_cli.cli.main.setup_logging') as mock_setup:
             with patch('logging.disable') as mock_disable:
-                result = runner.invoke(app, ["--debug", "admin", "status"])
+                runner.invoke(app, ["--debug", "admin", "status"])
 
                 # Should re-enable logging and setup verbose logging
                 mock_disable.assert_called_with(0)  # logging.NOTSET = 0
@@ -107,8 +106,8 @@ class TestCliMainModule:
     def test_normal_mode_file_logging(self, runner):
         """Test normal mode configures file-only logging"""
         with patch('wqm_cli.cli.main.setup_logging') as mock_setup:
-            with patch('pathlib.Path.mkdir') as mock_mkdir:
-                result = runner.invoke(app, ["admin", "status"])
+            with patch('pathlib.Path.mkdir'):
+                runner.invoke(app, ["admin", "status"])
 
                 # Should setup file logging without console output
                 mock_setup.assert_called()
@@ -123,7 +122,7 @@ class TestCliMainModule:
             config_file.flush()
 
             with patch('wqm_cli.cli.main.logger') as mock_logger:
-                result = runner.invoke(app, ["--config", config_file.name, "--debug", "admin", "status"])
+                runner.invoke(app, ["--config", config_file.name, "--debug", "admin", "status"])
 
                 # Should log the custom config path in debug mode
                 mock_logger.debug.assert_called()
@@ -240,7 +239,7 @@ class TestCliMainModule:
 
             with patch('builtins.print') as mock_print:
                 with pytest.raises(typer.Exit):
-                    result = runner.invoke(app, [])
+                    runner.invoke(app, [])
 
                 mock_print.assert_called_with("Help text")
 
@@ -272,10 +271,11 @@ class TestCliMainModule:
         try:
             sys.argv = ["wqm", "--version"]
 
-            with patch('builtins.print') as mock_print:
+            with patch('builtins.print'):
                 with pytest.raises(SystemExit):
                     # Re-import to trigger the early version check
                     import importlib
+
                     import wqm_cli.cli.main
                     importlib.reload(wqm_cli.cli.main)
         finally:
@@ -292,6 +292,7 @@ class TestCliMainModule:
                     with pytest.raises(SystemExit):
                         # Re-import to trigger the early version check
                         import importlib
+
                         import wqm_cli.cli.main
                         importlib.reload(wqm_cli.cli.main)
 
@@ -315,6 +316,7 @@ class TestCliMainModule:
                 with patch('builtins.print'):
                     with pytest.raises(SystemExit):
                         import importlib
+
                         import wqm_cli.cli.main
                         importlib.reload(wqm_cli.cli.main)
 
@@ -326,17 +328,12 @@ class TestCliMainModule:
     def test_subcommand_apps_registered(self):
         """Test that all expected subcommand apps are registered"""
         # Check that main subcommands are registered
-        expected_commands = [
-            "init", "memory", "admin", "config", "ingest", "search",
-            "library", "lsp", "service", "watch", "observability", "status"
-        ]
 
         # Get registered commands
-        registered_commands = []
         if hasattr(app, 'registered_commands'):
-            registered_commands = list(app.registered_commands.keys())
+            list(app.registered_commands.keys())
         elif hasattr(app, 'commands'):
-            registered_commands = list(app.commands.keys())
+            list(app.commands.keys())
 
         # At least some core commands should be registered
         core_commands = ["admin", "memory", "search"]
@@ -359,9 +356,9 @@ class TestCliMainModule:
         # Test with non-existent config file
         non_existent_path = "/non/existent/config.yaml"
 
-        with patch('wqm_cli.cli.main.logger') as mock_logger:
+        with patch('wqm_cli.cli.main.logger'):
             # Should not fail, just log if in debug mode
-            result = runner.invoke(app, ["--config", non_existent_path, "--debug", "admin", "status"])
+            runner.invoke(app, ["--config", non_existent_path, "--debug", "admin", "status"])
 
             # Config loading is TODO, so this mainly tests argument parsing
             assert "--config" in [opt.name for opt in app.params if hasattr(opt, 'name')]
@@ -414,7 +411,7 @@ class TestCliMainEdgeCases:
         """Test multiple version flags together"""
         with patch('wqm_cli.cli.main.show_version') as mock_show:
             with pytest.raises(typer.Exit):
-                result = runner.invoke(app, ["-v", "--version", "--verbose"])
+                runner.invoke(app, ["-v", "--version", "--verbose"])
 
             # Should call show_version with verbose=True due to --verbose flag
             mock_show.assert_called_once_with(verbose=True)
@@ -424,7 +421,7 @@ class TestCliMainEdgeCases:
         # Test conflicting or unusual flag combinations
         with patch('wqm_cli.cli.main.show_version') as mock_show:
             with pytest.raises(typer.Exit):
-                result = runner.invoke(app, ["--version", "--config", "/tmp/test", "--debug"])
+                runner.invoke(app, ["--version", "--config", "/tmp/test", "--debug"])
 
             # Version should still work even with other flags
             mock_show.assert_called_once_with(verbose=True)  # debug implies verbose
@@ -434,7 +431,7 @@ class TestCliMainEdgeCases:
         long_path = "/very/long/path/" + "a" * 1000 + "/config.yaml"
 
         with patch('wqm_cli.cli.main.logger') as mock_logger:
-            result = runner.invoke(app, ["--config", long_path, "--debug", "admin", "status"])
+            runner.invoke(app, ["--config", long_path, "--debug", "admin", "status"])
 
             # Should handle long paths gracefully
             if mock_logger.debug.called:
@@ -447,7 +444,7 @@ class TestCliMainEdgeCases:
         special_path = "/tmp/config with spaces & special!chars.yaml"
 
         with patch('wqm_cli.cli.main.logger') as mock_logger:
-            result = runner.invoke(app, ["--config", special_path, "--debug", "admin", "status"])
+            runner.invoke(app, ["--config", special_path, "--debug", "admin", "status"])
 
             # Should handle special characters in paths
             if mock_logger.debug.called:

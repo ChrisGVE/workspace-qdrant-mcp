@@ -4,23 +4,23 @@ Unit tests for HTTP server.
 Tests all endpoints, session management, error handling, and daemon integration.
 """
 
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
-from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from workspace_qdrant_mcp.http_server import (
-    app,
-    SessionManager,
-    SessionInfo,
-    SuccessResponse,
-    HealthResponse,
-)
+import pytest
 from common.grpc.daemon_client import (
-    DaemonUnavailableError,
     DaemonTimeoutError,
+    DaemonUnavailableError,
 )
 from common.grpc.generated import workspace_daemon_pb2 as pb2
+from fastapi.testclient import TestClient
+from workspace_qdrant_mcp.http_server import (
+    HealthResponse,
+    SessionInfo,
+    SessionManager,
+    SuccessResponse,
+    app,
+)
 
 
 @pytest.fixture

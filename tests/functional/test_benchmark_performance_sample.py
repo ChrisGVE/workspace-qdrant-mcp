@@ -8,18 +8,19 @@ These tests demonstrate benchmark testing patterns for:
 - Regression detection
 """
 
-import pytest
-import numpy as np
-from typing import List, Dict, Any
-import time
 import asyncio
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
-import httpx
 import json
-from pathlib import Path
-import psutil
 import os
+import time
+from pathlib import Path
+from typing import Any
+
+import httpx
+import numpy as np
+import psutil
+import pytest
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, PointStruct, VectorParams
 
 
 @pytest.mark.benchmark
@@ -261,7 +262,7 @@ class TestAPIResponseBenchmarks:
 
         # Note: This might return an error if method not implemented
         # The benchmark will still measure the response time
-        result = benchmark(asyncio.run, search_operation())
+        benchmark(asyncio.run, search_operation())
 
         # Tag with query length for analysis
         benchmark.extra_info["query_length"] = query_length
@@ -470,7 +471,7 @@ class TestPerformanceRegressionDetection:
             times = []
 
             # Perform 50 operations and track timing
-            for i in range(50):
+            for _i in range(50):
                 start_time = time.time()
 
                 qdrant_client.search(

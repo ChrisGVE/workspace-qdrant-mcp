@@ -20,11 +20,12 @@ import asyncio
 import json
 import os
 import platform
+import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
 import pytest
-import sys
 from typer.testing import CliRunner
 
 # Add the project root to sys.path for imports

@@ -9,7 +9,7 @@ import json
 import subprocess
 import sys
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 import pytest
 
@@ -235,7 +235,7 @@ class TestBanditIntegration:
                 high_severity = [
                     f for f in findings if f.get("issue_severity", "") == "HIGH"
                 ]
-                medium_severity = [
+                [
                     f for f in findings if f.get("issue_severity", "") == "MEDIUM"
                 ]
 
@@ -317,7 +317,7 @@ json = {paths}
 
         try:
             # Generate baseline
-            result = subprocess.run(
+            subprocess.run(
                 [
                     "bandit",
                     "-r",
@@ -524,7 +524,7 @@ class TestCodeReviewAutomation:
             """Score security review compliance."""
 
             def __init__(self):
-                self.checks: List[Dict[str, any]] = []
+                self.checks: list[dict[str, any]] = []
 
             def add_check(
                 self, category: str, item: str, passed: bool, severity: str
@@ -582,7 +582,7 @@ class TestCodeReviewAutomation:
             """Aggregate findings from multiple security tools."""
 
             def __init__(self):
-                self.findings: List[Dict[str, any]] = []
+                self.findings: list[dict[str, any]] = []
 
             def add_finding(
                 self,
@@ -603,7 +603,7 @@ class TestCodeReviewAutomation:
                     }
                 )
 
-            def get_summary(self) -> Dict[str, int]:
+            def get_summary(self) -> dict[str, int]:
                 """Get summary of findings by severity."""
                 summary = {"critical": 0, "high": 0, "medium": 0, "low": 0}
                 for finding in self.findings:
@@ -612,7 +612,7 @@ class TestCodeReviewAutomation:
                         summary[severity] += 1
                 return summary
 
-            def get_findings_by_tool(self, tool: str) -> List[Dict[str, any]]:
+            def get_findings_by_tool(self, tool: str) -> list[dict[str, any]]:
                 """Get findings from specific tool."""
                 return [f for f in self.findings if f["tool"] == tool]
 
@@ -794,28 +794,28 @@ class TestSecurityReporting:
             """Generate comprehensive security reports."""
 
             def __init__(self):
-                self.semgrep_findings: List[Dict] = []
-                self.bandit_findings: List[Dict] = []
-                self.clippy_findings: List[Dict] = []
-                self.dependency_vulns: List[Dict] = []
+                self.semgrep_findings: list[dict] = []
+                self.bandit_findings: list[dict] = []
+                self.clippy_findings: list[dict] = []
+                self.dependency_vulns: list[dict] = []
 
-            def add_semgrep_finding(self, finding: Dict):
+            def add_semgrep_finding(self, finding: dict):
                 """Add semgrep finding."""
                 self.semgrep_findings.append(finding)
 
-            def add_bandit_finding(self, finding: Dict):
+            def add_bandit_finding(self, finding: dict):
                 """Add bandit finding."""
                 self.bandit_findings.append(finding)
 
-            def add_clippy_finding(self, finding: Dict):
+            def add_clippy_finding(self, finding: dict):
                 """Add clippy finding."""
                 self.clippy_findings.append(finding)
 
-            def add_dependency_vuln(self, vuln: Dict):
+            def add_dependency_vuln(self, vuln: dict):
                 """Add dependency vulnerability."""
                 self.dependency_vulns.append(vuln)
 
-            def generate_report(self) -> Dict:
+            def generate_report(self) -> dict:
                 """Generate comprehensive report."""
                 total_findings = (
                     len(self.semgrep_findings)
@@ -893,7 +893,7 @@ class TestSecurityReporting:
                 },
             }
 
-            def get_recommendation(self, finding_type: str) -> Optional[Dict]:
+            def get_recommendation(self, finding_type: str) -> dict | None:
                 """Get recommendation for finding type."""
                 return self.RECOMMENDATIONS.get(finding_type)
 
@@ -914,9 +914,9 @@ class TestSecurityReporting:
             """Analyze security trends over time."""
 
             def __init__(self):
-                self.historical_scans: List[Dict] = []
+                self.historical_scans: list[dict] = []
 
-            def add_scan_result(self, date: str, findings: int, severity_breakdown: Dict):
+            def add_scan_result(self, date: str, findings: int, severity_breakdown: dict):
                 """Add scan result."""
                 self.historical_scans.append(
                     {

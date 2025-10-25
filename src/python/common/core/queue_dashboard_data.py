@@ -58,21 +58,20 @@ Example:
 
 import asyncio
 import json
-from collections import defaultdict, deque
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
-from .queue_statistics import QueueStatisticsCollector
-from .queue_performance_metrics import QueuePerformanceCollector
-from .queue_health import QueueHealthCalculator, HealthStatus
-from .queue_trend_analysis import HistoricalTrendAnalyzer
-from .queue_bottleneck_detector import BottleneckDetector
-from .queue_backpressure import BackpressureDetector
 from .error_message_manager import ErrorMessageManager
+from .queue_backpressure import BackpressureDetector
+from .queue_bottleneck_detector import BottleneckDetector
+from .queue_health import HealthStatus, QueueHealthCalculator
+from .queue_performance_metrics import QueuePerformanceCollector
+from .queue_statistics import QueueStatisticsCollector
+from .queue_trend_analysis import HistoricalTrendAnalyzer
 
 
 class WidgetType(str, Enum):
@@ -104,12 +103,12 @@ class DashboardWidget:
     widget_id: str
     widget_type: WidgetType
     title: str
-    data: Dict[str, Any]
-    config: Dict[str, Any] = field(default_factory=dict)
-    position: Optional[Tuple[int, int, int, int]] = None  # (x, y, width, height)
+    data: dict[str, Any]
+    config: dict[str, Any] = field(default_factory=dict)
+    position: tuple[int, int, int, int] | None = None  # (x, y, width, height)
     refresh_interval: int = 30  # seconds
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "widget_id": self.widget_id,
@@ -139,12 +138,12 @@ class DashboardLayout:
         preset_name: Name of layout preset (overview, performance, errors)
     """
 
-    widgets: List[DashboardWidget]
+    widgets: list[DashboardWidget]
     refresh_interval: int = 30  # seconds
-    layout_config: Dict[str, Any] = field(default_factory=dict)
+    layout_config: dict[str, Any] = field(default_factory=dict)
     preset_name: str = "overview"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "widgets": [w.to_dict() for w in self.widgets],
@@ -164,7 +163,7 @@ class QueueDashboardDataProvider:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
+        db_path: str | None = None,
         cache_ttl_seconds: int = 30,
         enable_trend_analysis: bool = True,
         enable_bottleneck_detection: bool = True
@@ -184,16 +183,16 @@ class QueueDashboardDataProvider:
         self.enable_bottleneck_detection = enable_bottleneck_detection
 
         # Monitoring components
-        self.stats_collector: Optional[QueueStatisticsCollector] = None
-        self.performance_collector: Optional[QueuePerformanceCollector] = None
-        self.health_calculator: Optional[QueueHealthCalculator] = None
-        self.trend_analyzer: Optional[HistoricalTrendAnalyzer] = None
-        self.bottleneck_detector: Optional[BottleneckDetector] = None
-        self.backpressure_detector: Optional[BackpressureDetector] = None
-        self.error_manager: Optional[ErrorMessageManager] = None
+        self.stats_collector: QueueStatisticsCollector | None = None
+        self.performance_collector: QueuePerformanceCollector | None = None
+        self.health_calculator: QueueHealthCalculator | None = None
+        self.trend_analyzer: HistoricalTrendAnalyzer | None = None
+        self.bottleneck_detector: BottleneckDetector | None = None
+        self.backpressure_detector: BackpressureDetector | None = None
+        self.error_manager: ErrorMessageManager | None = None
 
         # Widget data cache
-        self._widget_cache: Dict[str, Tuple[datetime, DashboardWidget]] = {}
+        self._widget_cache: dict[str, tuple[datetime, DashboardWidget]] = {}
         self._lock = asyncio.Lock()
         self._initialized = False
 
@@ -348,7 +347,7 @@ class QueueDashboardDataProvider:
             (6, 4, 6, 4),  # Resource usage
         ]
 
-        for widget, position in zip(perf_charts, positions):
+        for widget, position in zip(perf_charts, positions, strict=False):
             widget.position = position
             widgets.append(widget)
 
@@ -464,7 +463,7 @@ class QueueDashboardDataProvider:
 
         return await generators[widget_id]()
 
-    async def get_overview_widgets(self) -> List[DashboardWidget]:
+    async def get_overview_widgets(self) -> list[DashboardWidget]:
         """
         Get overview status card widgets.
 
@@ -478,7 +477,7 @@ class QueueDashboardDataProvider:
             await self._get_success_rate_gauge()
         ]
 
-    async def get_performance_charts(self) -> List[DashboardWidget]:
+    async def get_performance_charts(self) -> list[DashboardWidget]:
         """
         Get performance chart widgets.
 
@@ -532,7 +531,7 @@ class QueueDashboardDataProvider:
             }
         )
 
-    async def get_realtime_metrics(self) -> Dict[str, Any]:
+    async def get_realtime_metrics(self) -> dict[str, Any]:
         """
         Get real-time metrics for streaming updates.
 
@@ -1096,7 +1095,7 @@ class QueueDashboardDataProvider:
         self,
         metric_name: str,
         points: int = 20
-    ) -> List[float]:
+    ) -> list[float]:
         """
         Get sparkline data for a metric.
 
@@ -1137,7 +1136,7 @@ class QueueDashboardDataProvider:
         self,
         metric_name: str,
         hours: int = 24
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Get time-series data for chart.
 

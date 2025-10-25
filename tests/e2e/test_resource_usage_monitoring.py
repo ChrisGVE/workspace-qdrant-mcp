@@ -29,20 +29,20 @@ Features Validated:
 
 import asyncio
 import json
-import pytest
-import psutil
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Tuple
+from typing import Any
+
+import psutil
+import pytest
 
 from tests.e2e.utils import (
     HealthChecker,
-    WorkflowTimer,
     TestDataGenerator,
-    assert_within_threshold
+    WorkflowTimer,
+    assert_within_threshold,
 )
-
 
 # Resource monitoring test configuration
 RESOURCE_MONITORING_CONFIG = {
@@ -112,8 +112,6 @@ class TestMemoryUsageTracking:
         await asyncio.sleep(5)
         resource_tracker.capture_current()
 
-        baseline = resource_tracker.baseline
-        current = resource_tracker.current
 
         # In real implementation, would measure per-component:
         # daemon_memory = get_process_memory("daemon")
@@ -296,7 +294,7 @@ class TestCPUUtilization:
 
         # Sample CPU usage
         cpu_samples = []
-        for i in range(10):
+        for _i in range(10):
             cpu_percent = psutil.cpu_percent(interval=1)
             cpu_samples.append(cpu_percent)
 
@@ -373,7 +371,6 @@ class TestCPUUtilization:
         workspace = temp_project_workspace["path"]
 
         # Generate heavy workload: 50 large documents simultaneously
-        tasks = []
 
         for i in range(50):
             test_file = workspace / f"large_doc_{i}.py"
@@ -420,7 +417,7 @@ class TestDiskSpaceConsumption:
         timer.start()
 
         workspace = temp_project_workspace["path"]
-        db_file = workspace / "state.db"
+        workspace / "state.db"
 
         # Simulate database with initial size
         initial_size_mb = 1

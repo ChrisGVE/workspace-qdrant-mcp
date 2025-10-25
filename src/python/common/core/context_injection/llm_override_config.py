@@ -19,7 +19,6 @@ import os
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
@@ -40,10 +39,10 @@ class LLMOverrideConfig:
     """
 
     enabled: bool = False
-    tool_type: Optional[LLMToolType] = None
-    reason: Optional[str] = None
-    set_at: Optional[str] = None  # ISO format datetime string
-    set_by: Optional[str] = None
+    tool_type: LLMToolType | None = None
+    reason: str | None = None
+    set_at: str | None = None  # ISO format datetime string
+    set_by: str | None = None
 
     def to_dict(self) -> dict:
         """
@@ -134,7 +133,7 @@ class LLMOverrideManager:
             logger.debug(f"Created config directory: {config_dir}")
 
     @classmethod
-    def _read_from_env(cls) -> Optional[LLMOverrideConfig]:
+    def _read_from_env(cls) -> LLMOverrideConfig | None:
         """
         Read override configuration from environment variable.
 
@@ -166,7 +165,7 @@ class LLMOverrideManager:
             return None
 
     @classmethod
-    def _read_from_file(cls) -> Optional[LLMOverrideConfig]:
+    def _read_from_file(cls) -> LLMOverrideConfig | None:
         """
         Read override configuration from JSON file.
 
@@ -178,7 +177,7 @@ class LLMOverrideManager:
             return None
 
         try:
-            with open(config_path, "r") as f:
+            with open(config_path) as f:
                 data = json.load(f)
             config = LLMOverrideConfig.from_dict(data)
             logger.debug(f"Read override from file: {config_path}")
@@ -213,7 +212,7 @@ class LLMOverrideManager:
             raise
 
     @classmethod
-    def get_override(cls) -> Optional[LLMOverrideConfig]:
+    def get_override(cls) -> LLMOverrideConfig | None:
         """
         Get the current override configuration.
 

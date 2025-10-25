@@ -42,10 +42,10 @@ import os
 import subprocess
 import sys
 import time
+import traceback
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Any, Optional
-import traceback
+from typing import Any, Optional
 
 # Configure logging
 logging.basicConfig(
@@ -86,7 +86,7 @@ class PerformanceTestRunner:
             'max_p95_response_ms': 1000,
         }
 
-    async def run_all_tests(self, test_config: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def run_all_tests(self, test_config: dict[str, Any] = None) -> dict[str, Any]:
         """Run all performance test suites."""
 
         logger.info("🚀 Starting comprehensive performance test execution")
@@ -137,7 +137,7 @@ class PerformanceTestRunner:
 
         return overall_results
 
-    async def _run_test_suite(self, suite_name: str, test_file: str, test_config: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def _run_test_suite(self, suite_name: str, test_file: str, test_config: dict[str, Any] = None) -> dict[str, Any]:
         """Run a specific test suite."""
 
         test_path = self.performance_dir / test_file
@@ -213,7 +213,7 @@ class PerformanceTestRunner:
                 'command': ' '.join(cmd)
             }
 
-    def _generate_test_summary(self, test_results: Dict[str, Any]) -> Dict[str, Any]:
+    def _generate_test_summary(self, test_results: dict[str, Any]) -> dict[str, Any]:
         """Generate summary statistics from test results."""
 
         total_suites = len(test_results)
@@ -231,25 +231,25 @@ class PerformanceTestRunner:
             'total_duration_minutes': total_duration / 60,
         }
 
-    async def run_benchmark_tests_only(self) -> Dict[str, Any]:
+    async def run_benchmark_tests_only(self) -> dict[str, Any]:
         """Run only benchmark tests for quick validation."""
 
         logger.info("⚡ Running benchmark tests only")
         return await self._run_test_suite('benchmark', self.test_suites['benchmark'])
 
-    async def run_load_tests_only(self) -> Dict[str, Any]:
+    async def run_load_tests_only(self) -> dict[str, Any]:
         """Run only load testing with k6."""
 
         logger.info("🔥 Running load tests only")
         return await self._run_test_suite('load', self.test_suites['load'])
 
-    async def run_memory_tests_only(self) -> Dict[str, Any]:
+    async def run_memory_tests_only(self) -> dict[str, Any]:
         """Run only memory profiling tests."""
 
         logger.info("💾 Running memory tests only")
         return await self._run_test_suite('memory', self.test_suites['memory'])
 
-    async def establish_baseline(self) -> Dict[str, Any]:
+    async def establish_baseline(self) -> dict[str, Any]:
         """Establish performance baselines."""
 
         logger.info("📊 Establishing performance baselines")
@@ -275,7 +275,7 @@ class PerformanceTestRunner:
 
         return baseline_results
 
-    async def run_regression_test(self, baseline_file: Optional[Path] = None) -> Dict[str, Any]:
+    async def run_regression_test(self, baseline_file: Path | None = None) -> dict[str, Any]:
         """Run regression test against baseline."""
 
         logger.info("🔍 Running regression analysis")
@@ -306,7 +306,7 @@ class PerformanceTestRunner:
 
         return regression_analysis
 
-    def _compare_with_baseline(self, baseline: Dict[str, Any], current: Dict[str, Any]) -> Dict[str, Any]:
+    def _compare_with_baseline(self, baseline: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
         """Compare current results with baseline."""
 
         comparison = {
@@ -358,7 +358,7 @@ class PerformanceTestRunner:
 
         return comparison
 
-    async def monitor_real_time(self, duration_seconds: int = 3600) -> Dict[str, Any]:
+    async def monitor_real_time(self, duration_seconds: int = 3600) -> dict[str, Any]:
         """Run real-time performance monitoring."""
 
         logger.info(f"📡 Starting real-time monitoring for {duration_seconds} seconds")
@@ -415,7 +415,7 @@ class PerformanceTestRunner:
 
         return monitoring_data
 
-    async def _run_monitoring_sample(self) -> Dict[str, Any]:
+    async def _run_monitoring_sample(self) -> dict[str, Any]:
         """Run a lightweight performance sample for monitoring."""
 
         # Run a subset of performance tests suitable for monitoring
@@ -453,7 +453,7 @@ class PerformanceTestRunner:
                 'cpu_percent': 0,
             }
 
-    def _check_performance_alerts(self, sample: Dict[str, Any]) -> List[Dict[str, Any]]:
+    def _check_performance_alerts(self, sample: dict[str, Any]) -> list[dict[str, Any]]:
         """Check sample against performance thresholds and generate alerts."""
 
         alerts = []
@@ -492,7 +492,7 @@ class PerformanceTestRunner:
 
         return alerts
 
-    def _generate_monitoring_summary(self, samples: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _generate_monitoring_summary(self, samples: list[dict[str, Any]]) -> dict[str, Any]:
         """Generate summary from monitoring samples."""
 
         if not samples:
@@ -523,7 +523,7 @@ class PerformanceTestRunner:
                 'error': 'No successful samples'
             }
 
-    def generate_performance_report(self, results_file: Optional[Path] = None) -> str:
+    def generate_performance_report(self, results_file: Path | None = None) -> str:
         """Generate human-readable performance report."""
 
         if results_file is None:
@@ -545,7 +545,7 @@ class PerformanceTestRunner:
 
         # Executive summary
         summary = results.get('summary', {})
-        report.append(f"\n🎯 Executive Summary:")
+        report.append("\n🎯 Executive Summary:")
         report.append(f"   Overall status: {'✅ PASS' if results.get('success', False) else '❌ FAIL'}")
         report.append(f"   Test suites executed: {summary.get('total_test_suites', 0)}")
         report.append(f"   Success rate: {summary.get('success_rate', 0):.1f}%")
@@ -553,7 +553,7 @@ class PerformanceTestRunner:
         report.append(f"   Test timestamp: {results.get('start_time', 'Unknown')}")
 
         # Test suite details
-        report.append(f"\n📋 Test Suite Results:")
+        report.append("\n📋 Test Suite Results:")
         for suite_name, suite_results in results.get('test_suites', {}).items():
             status = "✅" if suite_results.get('success', False) else "❌"
             duration = suite_results.get('duration_seconds', 0)
@@ -563,25 +563,25 @@ class PerformanceTestRunner:
                 report.append(f"     Error: {suite_results['error']}")
 
         # Performance insights
-        report.append(f"\n💡 Performance Insights:")
+        report.append("\n💡 Performance Insights:")
         if results.get('success', False):
-            report.append(f"   - All performance tests completed successfully")
-            report.append(f"   - System performance within acceptable limits")
-            report.append(f"   - No critical performance regressions detected")
+            report.append("   - All performance tests completed successfully")
+            report.append("   - System performance within acceptable limits")
+            report.append("   - No critical performance regressions detected")
         else:
-            report.append(f"   - Performance issues detected requiring attention")
-            report.append(f"   - Review individual test suite results for details")
+            report.append("   - Performance issues detected requiring attention")
+            report.append("   - Review individual test suite results for details")
 
         # Recommendations
-        report.append(f"\n🎯 Recommendations:")
+        report.append("\n🎯 Recommendations:")
         if summary.get('success_rate', 0) >= 95:
-            report.append(f"   - Performance is excellent, maintain current standards")
+            report.append("   - Performance is excellent, maintain current standards")
         elif summary.get('success_rate', 0) >= 80:
-            report.append(f"   - Good performance with room for improvement")
-            report.append(f"   - Focus on failed test suites for optimization")
+            report.append("   - Good performance with room for improvement")
+            report.append("   - Focus on failed test suites for optimization")
         else:
-            report.append(f"   - Significant performance issues require immediate attention")
-            report.append(f"   - Conduct detailed analysis of all failed test suites")
+            report.append("   - Significant performance issues require immediate attention")
+            report.append("   - Conduct detailed analysis of all failed test suites")
 
         report.append("\n" + "=" * 60)
 
@@ -670,18 +670,18 @@ Examples:
             elif args.regression_test:
                 # Run regression test
                 results = await runner.run_regression_test(args.baseline)
-                print(f"\n🔍 Regression Analysis:")
+                print("\n🔍 Regression Analysis:")
                 if results.get('regression_detected', False):
                     print(f"❌ Performance regressions detected: {len(results.get('regressions', []))}")
                     for regression in results.get('regressions', []):
                         print(f"   - {regression['metric']}: {regression['change_percent']:+.1f}% change")
                 else:
-                    print(f"✅ No significant performance regressions detected")
+                    print("✅ No significant performance regressions detected")
 
             elif args.monitor:
                 # Real-time monitoring
                 results = await runner.monitor_real_time(args.duration)
-                print(f"\n📡 Monitoring completed:")
+                print("\n📡 Monitoring completed:")
                 print(f"   Samples collected: {len(results.get('samples', []))}")
                 print(f"   Alerts generated: {len(results.get('alerts', []))}")
 

@@ -6,24 +6,25 @@ and all related collection management functionality with 100% coverage.
 """
 
 import asyncio
-import pytest
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
-from typing import List, Dict, Any, Optional
 
+import pytest
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
 from qdrant_client.http.exceptions import ResponseHandlingException
 
-# Import modules under test
-from src.python.common.core.collections import (
-    WorkspaceCollectionManager,
-    MemoryCollectionManager,
-    CollectionSelector,
-    CollectionConfig,
-)
-from src.python.common.core.config import Config
 from src.python.common.core.collection_naming import CollectionNamingManager
 from src.python.common.core.collection_types import CollectionTypeClassifier
+
+# Import modules under test
+from src.python.common.core.collections import (
+    CollectionConfig,
+    CollectionSelector,
+    MemoryCollectionManager,
+    WorkspaceCollectionManager,
+)
+from src.python.common.core.config import Config
 
 
 class TestCollectionConfig:
@@ -47,7 +48,7 @@ class TestCollectionConfig:
         assert config.project_name == "test-project"
         assert config.vector_size == 768
         assert config.distance_metric == "Euclidean"
-        assert config.enable_sparse_vectors == False
+        assert not config.enable_sparse_vectors
 
     def test_collection_config_defaults(self):
         """Test CollectionConfig with default values."""
@@ -60,7 +61,7 @@ class TestCollectionConfig:
         assert config.project_name is None
         assert config.vector_size == 384
         assert config.distance_metric == "Cosine"
-        assert config.enable_sparse_vectors == True
+        assert config.enable_sparse_vectors
 
 
 class TestWorkspaceCollectionManager:
@@ -346,7 +347,10 @@ class TestWorkspaceCollectionManager:
         manager.type_classifier = Mock()
 
         def mock_get_collection_info(name):
-            from src.python.common.core.collection_types import CollectionType, CollectionInfo
+            from src.python.common.core.collection_types import (
+                CollectionInfo,
+                CollectionType,
+            )
             if name == "external-code":
                 return CollectionInfo(collection_type=CollectionType.UNKNOWN)
             return CollectionInfo(collection_type=CollectionType.PROJECT)
@@ -440,7 +444,10 @@ class TestWorkspaceCollectionManager:
         manager.naming_manager = Mock()
 
         def mock_get_collection_info(name):
-            from src.python.common.core.collection_types import CollectionType, CollectionInfo
+            from src.python.common.core.collection_types import (
+                CollectionInfo,
+                CollectionType,
+            )
             if name == "memory":
                 return CollectionInfo(collection_type=CollectionType.MEMORY)
             elif name.startswith("_"):
@@ -455,35 +462,38 @@ class TestWorkspaceCollectionManager:
         manager.naming_manager.get_collection_info.side_effect = mock_get_collection_info
 
         # Test memory collection
-        assert manager._is_workspace_collection("memory") == True
+        assert manager._is_workspace_collection("memory")
 
         # Test library collection
-        assert manager._is_workspace_collection("_library") == True
+        assert manager._is_workspace_collection("_library")
 
         # Test project collection
-        assert manager._is_workspace_collection("project-docs") == True
+        assert manager._is_workspace_collection("project-docs")
 
         # Test unknown collection
-        assert manager._is_workspace_collection("unknown") == False
+        assert not manager._is_workspace_collection("unknown")
 
     def test_is_workspace_collection_legacy_filtering(self, manager):
         """Test legacy workspace collection filtering."""
         manager.naming_manager = Mock()
 
         def mock_get_collection_info(name):
-            from src.python.common.core.collection_types import CollectionType, CollectionInfo
+            from src.python.common.core.collection_types import (
+                CollectionInfo,
+                CollectionType,
+            )
             return CollectionInfo(collection_type=CollectionType.LEGACY)
 
         manager.naming_manager.get_collection_info.side_effect = mock_get_collection_info
 
         # Test memexd exclusion
-        assert manager._is_workspace_collection("memexd-code") == False
+        assert not manager._is_workspace_collection("memexd-code")
 
         # Test global collection inclusion
-        assert manager._is_workspace_collection("global1") == True
+        assert manager._is_workspace_collection("global1")
 
         # Test suffix-based inclusion
-        assert manager._is_workspace_collection("project-docs") == True
+        assert manager._is_workspace_collection("project-docs")
 
     def test_is_workspace_collection_no_config_project_patterns(self, manager, mock_config):
         """Test workspace collection filtering with project patterns."""
@@ -494,16 +504,19 @@ class TestWorkspaceCollectionManager:
         manager.naming_manager = Mock()
 
         def mock_get_collection_info(name):
-            from src.python.common.core.collection_types import CollectionType, CollectionInfo
+            from src.python.common.core.collection_types import (
+                CollectionInfo,
+                CollectionType,
+            )
             return CollectionInfo(collection_type=CollectionType.LEGACY)
 
         manager.naming_manager.get_collection_info.side_effect = mock_get_collection_info
 
         # Test project pattern matching
-        assert manager._is_workspace_collection("myproject-docs") == True
-        assert manager._is_workspace_collection("myproject") == True
-        assert manager._is_workspace_collection("notes") == True  # Common standalone
-        assert manager._is_workspace_collection("unrelated") == False
+        assert manager._is_workspace_collection("myproject-docs")
+        assert manager._is_workspace_collection("myproject")
+        assert manager._is_workspace_collection("notes")  # Common standalone
+        assert not manager._is_workspace_collection("unrelated")
 
     def test_resolve_collection_name(self, manager, mock_client):
         """Test resolving display names to actual collection names."""
@@ -536,17 +549,17 @@ class TestWorkspaceCollectionManager:
         # Test system collection resolution
         actual, readonly = manager.resolve_collection_name("system_collection")
         assert actual == "__system_collection"
-        assert readonly == False
+        assert not readonly
 
         # Test library collection resolution
         actual, readonly = manager.resolve_collection_name("library_collection")
         assert actual == "_library_collection"
-        assert readonly == True
+        assert readonly
 
         # Test regular collection resolution
         actual, readonly = manager.resolve_collection_name("regular_collection")
         assert actual == "regular_collection"
-        assert readonly == False
+        assert not readonly
 
     def test_resolve_collection_name_not_found(self, manager, mock_client):
         """Test resolving non-existent collection name."""
@@ -558,7 +571,7 @@ class TestWorkspaceCollectionManager:
 
         actual, readonly = manager.resolve_collection_name("non_existent")
         assert actual == "non_existent"
-        assert readonly == False
+        assert not readonly
 
     def test_resolve_collection_name_fallback(self, manager, mock_client):
         """Test fallback behavior when type classifier unavailable."""
@@ -579,7 +592,7 @@ class TestWorkspaceCollectionManager:
 
         actual, readonly = manager.resolve_collection_name("library_collection")
         assert actual == "_library_collection"
-        assert readonly == True
+        assert readonly
 
     def test_validate_mcp_write_access_allowed(self, manager):
         """Test MCP write access validation - allowed case."""
@@ -590,8 +603,11 @@ class TestWorkspaceCollectionManager:
 
     def test_validate_mcp_write_access_blocked_library(self, manager):
         """Test MCP write access validation - blocked library collection."""
+        from src.python.common.core.collection_types import (
+            CollectionInfo,
+            CollectionType,
+        )
         from src.python.common.core.collections import CollectionPermissionError
-        from src.python.common.core.collection_types import CollectionType, CollectionInfo
 
         manager.resolve_collection_name = Mock(return_value=("_library", True))
 
@@ -605,8 +621,11 @@ class TestWorkspaceCollectionManager:
 
     def test_validate_mcp_write_access_blocked_other(self, manager):
         """Test MCP write access validation - blocked other collection."""
+        from src.python.common.core.collection_types import (
+            CollectionInfo,
+            CollectionType,
+        )
         from src.python.common.core.collections import CollectionPermissionError
-        from src.python.common.core.collection_types import CollectionType, CollectionInfo
 
         manager.resolve_collection_name = Mock(return_value=("readonly-collection", True))
 
@@ -656,8 +675,8 @@ class TestWorkspaceCollectionManager:
     def test_list_collections_for_project(self, manager):
         """Test listing collections for specific project."""
         # Mock metadata filtering import
-        with patch('src.python.common.core.collections.MetadataFilterManager') as mock_filter_mgr:
-            with patch('src.python.common.core.collections.FilterCriteria') as mock_criteria:
+        with patch('src.python.common.core.collections.MetadataFilterManager'):
+            with patch('src.python.common.core.collections.FilterCriteria'):
                 # Mock collections
                 collection1 = Mock()
                 collection1.name = "project1-docs"
@@ -690,20 +709,20 @@ class TestWorkspaceCollectionManager:
     def test_collection_belongs_to_project(self, manager, mock_config):
         """Test checking if collection belongs to project."""
         # Test project prefix pattern
-        assert manager._collection_belongs_to_project("myproject-docs", "myproject") == True
+        assert manager._collection_belongs_to_project("myproject-docs", "myproject")
 
         # Test global collection
-        assert manager._collection_belongs_to_project("global1", "myproject") == True
+        assert manager._collection_belongs_to_project("global1", "myproject")
 
         # Test system collections
-        assert manager._collection_belongs_to_project("__system", "myproject") == True
-        assert manager._collection_belongs_to_project("_library", "myproject") == True
+        assert manager._collection_belongs_to_project("__system", "myproject")
+        assert manager._collection_belongs_to_project("_library", "myproject")
 
         # Test exact project match
-        assert manager._collection_belongs_to_project("myproject", "myproject") == True
+        assert manager._collection_belongs_to_project("myproject", "myproject")
 
         # Test unrelated collection
-        assert manager._collection_belongs_to_project("other-docs", "myproject") == False
+        assert not manager._collection_belongs_to_project("other-docs", "myproject")
 
     def test_list_collections_for_project_legacy(self, manager, mock_client):
         """Test legacy project filtering method."""
@@ -738,7 +757,7 @@ class TestWorkspaceCollectionManager:
 
                 is_valid, reason = manager.validate_collection_operation("test", "read")
 
-                assert is_valid == True
+                assert is_valid
                 assert reason == "Operation allowed"
 
     def test_validate_collection_operation_fallback(self, manager):
@@ -751,16 +770,16 @@ class TestWorkspaceCollectionManager:
 
             # Test valid operation
             is_valid, reason = manager.validate_collection_operation("test", "read")
-            assert is_valid == True
+            assert is_valid
 
             # Test invalid operation
             is_valid, reason = manager.validate_collection_operation("test", "invalid")
-            assert is_valid == False
+            assert not is_valid
 
             # Test readonly collection
             manager.resolve_collection_name = Mock(return_value=("readonly", True))
             is_valid, reason = manager.validate_collection_operation("readonly", "write")
-            assert is_valid == False
+            assert not is_valid
 
     def test_get_vector_size(self, manager):
         """Test getting vector size for different models."""
@@ -787,7 +806,7 @@ class TestWorkspaceCollectionManager:
 
         # Mock executor for async operations
         with patch('asyncio.get_event_loop') as mock_loop:
-            mock_executor = Mock()
+            Mock()
             mock_loop.return_value.run_in_executor = AsyncMock()
 
             await manager._optimize_metadata_indexing(collections)
@@ -895,15 +914,15 @@ class TestMemoryCollectionManager:
         collections_response.collections = [collection1]
         mock_client.get_collections.return_value = collections_response
 
-        assert memory_manager.collection_exists("existing-collection") == True
-        assert memory_manager.collection_exists("non-existent") == False
+        assert memory_manager.collection_exists("existing-collection")
+        assert not memory_manager.collection_exists("non-existent")
 
     def test_collection_exists_error(self, memory_manager, mock_client):
         """Test collection exists check with error."""
         mock_client.get_collections.side_effect = Exception("Connection error")
 
         result = memory_manager.collection_exists("any-collection")
-        assert result == False
+        assert not result
 
     @patch('src.python.common.core.collections.validate_llm_collection_access')
     def test_create_system_memory_collection(self, mock_validate, memory_manager, mock_client):
@@ -920,8 +939,8 @@ class TestMemoryCollectionManager:
 
         assert result["collection_name"] == "__test_memory"
         assert result["type"] == "system_memory"
-        assert result["access_control"]["cli_writable"] == True
-        assert result["access_control"]["llm_writable"] == False
+        assert result["access_control"]["cli_writable"]
+        assert not result["access_control"]["llm_writable"]
         assert result["status"] == "created"
 
     def test_create_system_memory_collection_invalid_name(self, memory_manager):
@@ -939,7 +958,7 @@ class TestMemoryCollectionManager:
         assert result["collection_name"] == "test-project-memory"
         assert result["type"] == "project_memory"
         assert result["project_name"] == "test-project"
-        assert result["access_control"]["mcp_writable"] == True
+        assert result["access_control"]["mcp_writable"]
         assert result["status"] == "created"
 
     def test_create_project_memory_collection_invalid_name(self, memory_manager):
@@ -995,10 +1014,10 @@ class TestMemoryCollectionManager:
 
         assert result["system_memory"]["name"] == "__memory"
         assert result["system_memory"]["display_name"] == "memory"
-        assert result["system_memory"]["exists"] == True
+        assert result["system_memory"]["exists"]
 
         assert result["project_memory"]["name"] == "test-project-memory"
-        assert result["project_memory"]["exists"] == True
+        assert result["project_memory"]["exists"]
         assert result["project_memory"]["project_name"] == "test-project"
 
     def test_get_memory_collections_error(self, memory_manager, mock_client):
@@ -1016,12 +1035,15 @@ class TestMemoryCollectionManager:
 
         is_allowed, reason = memory_manager.validate_memory_collection_access("test-memory", "delete")
 
-        assert is_allowed == False
+        assert not is_allowed
         assert "cannot be deleted by LLM" in reason
 
     def test_validate_memory_collection_access_system_write_blocked(self, memory_manager):
         """Test system memory collection write access blocked."""
-        from src.python.common.core.collection_types import CollectionType, CollectionInfo
+        from src.python.common.core.collection_types import (
+            CollectionInfo,
+            CollectionType,
+        )
 
         memory_manager.type_classifier = Mock()
         collection_info = Mock()
@@ -1030,12 +1052,15 @@ class TestMemoryCollectionManager:
 
         is_allowed, reason = memory_manager.validate_memory_collection_access("__system_memory", "write")
 
-        assert is_allowed == False
+        assert not is_allowed
         assert "CLI-writable only" in reason
 
     def test_validate_memory_collection_access_system_read_allowed(self, memory_manager):
         """Test system memory collection read access allowed."""
-        from src.python.common.core.collection_types import CollectionType, CollectionInfo
+        from src.python.common.core.collection_types import (
+            CollectionInfo,
+            CollectionType,
+        )
 
         memory_manager.type_classifier = Mock()
         collection_info = Mock()
@@ -1044,12 +1069,15 @@ class TestMemoryCollectionManager:
 
         is_allowed, reason = memory_manager.validate_memory_collection_access("__system_memory", "read")
 
-        assert is_allowed == True
+        assert is_allowed
         assert "Read access allowed" in reason
 
     def test_validate_memory_collection_access_project_allowed(self, memory_manager):
         """Test project memory collection access allowed."""
-        from src.python.common.core.collection_types import CollectionType, CollectionInfo
+        from src.python.common.core.collection_types import (
+            CollectionInfo,
+            CollectionType,
+        )
 
         memory_manager.type_classifier = Mock()
         collection_info = Mock()
@@ -1058,7 +1086,7 @@ class TestMemoryCollectionManager:
 
         is_allowed, reason = memory_manager.validate_memory_collection_access("project-memory", "write")
 
-        assert is_allowed == True
+        assert is_allowed
         assert "Write access allowed" in reason
 
     def test_get_vector_size_memory_manager(self, memory_manager):
@@ -1239,16 +1267,16 @@ class TestCollectionSelector:
     def test_is_memory_collection(self, selector):
         """Test memory collection identification."""
         # System memory
-        assert selector._is_memory_collection("__system_memory", {}) == True
+        assert selector._is_memory_collection("__system_memory", {})
 
         # Legacy memory
-        assert selector._is_memory_collection("memory", {}) == True
+        assert selector._is_memory_collection("memory", {})
 
         # Metadata-based memory
-        assert selector._is_memory_collection("custom", {"collection_type": "memory"}) == True
+        assert selector._is_memory_collection("custom", {"collection_type": "memory"})
 
         # Not memory
-        assert selector._is_memory_collection("docs", {}) == False
+        assert not selector._is_memory_collection("docs", {})
 
     def test_is_legacy_code_collection(self, selector):
         """Test legacy code collection identification."""
@@ -1258,22 +1286,22 @@ class TestCollectionSelector:
         selector.registry.get_workspace_types.return_value = ["docs", "notes"]
 
         # Library collection (excluded)
-        assert selector._is_legacy_code_collection("_library", {}) == False
+        assert not selector._is_legacy_code_collection("_library", {})
 
         # Reserved name (excluded)
-        assert selector._is_legacy_code_collection("reserved", {}) == False
+        assert not selector._is_legacy_code_collection("reserved", {})
 
         # Memory collection (excluded)
-        assert selector._is_legacy_code_collection("memory", {}) == False
+        assert not selector._is_legacy_code_collection("memory", {})
 
         # Known workspace type
-        assert selector._is_legacy_code_collection("docs", {}) == True
+        assert selector._is_legacy_code_collection("docs", {})
 
         # Other legacy collection
-        assert selector._is_legacy_code_collection("other", {"collection_type": "legacy"}) == True
+        assert selector._is_legacy_code_collection("other", {"collection_type": "legacy"})
 
         # System/memory type (excluded)
-        assert selector._is_legacy_code_collection("other", {"collection_type": "memory"}) == False
+        assert not selector._is_legacy_code_collection("other", {"collection_type": "memory"})
 
     def test_apply_fallback_selection_memory(self, selector):
         """Test fallback selection for memory collections."""
@@ -1376,14 +1404,14 @@ class TestCollectionSelector:
             "code_collections": [],
             "shared_collections": [],
         }
-        assert selector._is_result_empty(empty_result) == True
+        assert selector._is_result_empty(empty_result)
 
         non_empty_result = {
             "memory_collections": ["memory"],
             "code_collections": [],
             "shared_collections": [],
         }
-        assert selector._is_result_empty(non_empty_result) == False
+        assert not selector._is_result_empty(non_empty_result)
 
     def test_get_empty_result_with_fallback(self, selector):
         """Test getting empty result with fallback."""
@@ -1439,13 +1467,13 @@ class TestCollectionSelector:
         selector.registry.is_searchable.return_value = True
 
         # System collections not searchable
-        assert selector._is_memory_collection_searchable("__system") == False
+        assert not selector._is_memory_collection_searchable("__system")
 
         # Legacy memory searchable
-        assert selector._is_memory_collection_searchable("memory") == True
+        assert selector._is_memory_collection_searchable("memory")
 
         # Registry-based searchability
-        assert selector._is_memory_collection_searchable("custom_memory") == True
+        assert selector._is_memory_collection_searchable("custom_memory")
 
     def test_validate_collection_access_memory(self, selector):
         """Test collection access validation for memory collections."""
@@ -1455,7 +1483,7 @@ class TestCollectionSelector:
 
         is_allowed, reason = selector.validate_collection_access("memory", "read")
 
-        assert is_allowed == True
+        assert is_allowed
         assert reason == "Allowed"
 
     def test_validate_collection_access_code(self, selector):
@@ -1466,7 +1494,7 @@ class TestCollectionSelector:
 
         is_allowed, reason = selector.validate_collection_access("docs", "write")
 
-        assert is_allowed == True
+        assert is_allowed
         assert reason == "Allowed"
 
     def test_validate_collection_access_error(self, selector):
@@ -1475,7 +1503,7 @@ class TestCollectionSelector:
 
         is_allowed, reason = selector.validate_collection_access("collection", "read")
 
-        assert is_allowed == False
+        assert not is_allowed
         assert "Validation error" in reason
 
 

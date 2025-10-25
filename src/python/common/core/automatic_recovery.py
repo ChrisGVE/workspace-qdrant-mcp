@@ -46,12 +46,13 @@ import shutil
 import sqlite3
 import time
 import uuid
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 from weakref import WeakSet
 
 from loguru import logger
@@ -59,13 +60,19 @@ from loguru import logger
 from .component_coordination import (
     ComponentCoordinator,
     ComponentType,
-    ComponentStatus,
-    ComponentHealth,
-    ProcessingQueueType,
 )
-from .component_lifecycle import ComponentLifecycleManager, ComponentState, LifecyclePhase
-from .graceful_degradation import DegradationManager, DegradationMode, CircuitBreakerState
-from .lsp_health_monitor import LspHealthMonitor, HealthStatus, NotificationLevel, UserNotification
+from .component_lifecycle import (
+    ComponentLifecycleManager,
+)
+from .graceful_degradation import (
+    CircuitBreakerState,
+    DegradationManager,
+)
+from .lsp_health_monitor import (
+    LspHealthMonitor,
+    NotificationLevel,
+    UserNotification,
+)
 
 
 class RecoveryStrategy(Enum):
@@ -137,7 +144,7 @@ class RecoveryAction:
     action_type: str
     component_id: str
     description: str
-    parameters: Dict[str, Any] = field(default_factory=dict)
+    parameters: dict[str, Any] = field(default_factory=dict)
     timeout_seconds: float = 60.0
     retry_count: int = 0
     max_retries: int = 3
@@ -152,12 +159,12 @@ class RecoveryAttempt:
     trigger: RecoveryTrigger
     strategy: RecoveryStrategy
     phase: RecoveryPhase
-    actions: List[RecoveryAction]
+    actions: list[RecoveryAction]
     start_time: datetime
-    end_time: Optional[datetime] = None
+    end_time: datetime | None = None
     success: bool = False
-    error_message: Optional[str] = None
-    metrics: Dict[str, Any] = field(default_factory=dict)
+    error_message: str | None = None
+    metrics: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         if isinstance(self.start_time, str):
@@ -171,7 +178,7 @@ class ComponentDependency:
     """Component dependency definition."""
 
     component: ComponentType
-    depends_on: Set[ComponentType]
+    depends_on: set[ComponentType]
     startup_delay: float = 5.0  # Delay after dependency starts
     health_check_required: bool = True
 
@@ -264,11 +271,11 @@ class RecoveryManager:
 
     def __init__(
         self,
-        lifecycle_manager: Optional[ComponentLifecycleManager] = None,
-        health_monitor: Optional[LspHealthMonitor] = None,
-        degradation_manager: Optional[DegradationManager] = None,
-        coordinator: Optional[ComponentCoordinator] = None,
-        config: Optional[Dict[str, Any]] = None
+        lifecycle_manager: ComponentLifecycleManager | None = None,
+        health_monitor: LspHealthMonitor | None = None,
+        degradation_manager: DegradationManager | None = None,
+        coordinator: ComponentCoordinator | None = None,
+        config: dict[str, Any] | None = None
     ):
         """
         Initialize recovery manager.
@@ -287,12 +294,12 @@ class RecoveryManager:
         self.config = config or {}
 
         # Recovery state
-        self.active_recoveries: Dict[str, RecoveryAttempt] = {}
-        self.recovery_history: List[RecoveryAttempt] = []
-        self.recovery_configs: Dict[ComponentType, RecoveryConfig] = {}
+        self.active_recoveries: dict[str, RecoveryAttempt] = {}
+        self.recovery_history: list[RecoveryAttempt] = []
+        self.recovery_configs: dict[ComponentType, RecoveryConfig] = {}
 
         # Monitoring and detection
-        self.failure_patterns: Dict[str, List[datetime]] = {}
+        self.failure_patterns: dict[str, list[datetime]] = {}
         self.recovery_statistics = {
             "total_attempts": 0,
             "successful_recoveries": 0,
@@ -302,7 +309,7 @@ class RecoveryManager:
         }
 
         # Background tasks
-        self.monitoring_tasks: List[asyncio.Task] = []
+        self.monitoring_tasks: list[asyncio.Task] = []
         self.shutdown_event = asyncio.Event()
 
         # State persistence
@@ -1205,7 +1212,7 @@ class RecoveryManager:
         logger.info("All components started successfully")
         return True
 
-    def _get_component_start_order(self) -> List[ComponentType]:
+    def _get_component_start_order(self) -> list[ComponentType]:
         """Get component startup order based on dependencies."""
         order = []
         remaining = set(ComponentType)
@@ -1305,7 +1312,7 @@ class RecoveryManager:
             logger.error(f"Failed to check component health for {component_type.value}: {e}")
             return False
 
-    async def _cleanup_paths(self, paths: List[str], component_id: str) -> bool:
+    async def _cleanup_paths(self, paths: list[str], component_id: str) -> bool:
         """Clean up specified file paths."""
         files_removed = 0
 
@@ -1581,11 +1588,11 @@ class RecoveryManager:
         operation_id: str,
         cleanup_type: CleanupType,
         target_path: str,
-        component_id: Optional[str],
+        component_id: str | None,
         success: bool,
         files_removed: int,
         bytes_freed: int,
-        error_message: Optional[str] = None
+        error_message: str | None = None
     ):
         """Record cleanup operation in database."""
         try:
@@ -1673,7 +1680,7 @@ class RecoveryManager:
                                 await self._trigger_automatic_recovery(
                                     component_type,
                                     RecoveryTrigger.DEGRADATION_MODE_CHANGE,
-                                    f"Critical degradation mode triggered recovery"
+                                    "Critical degradation mode triggered recovery"
                                 )
 
                 except Exception as e:
@@ -1720,7 +1727,7 @@ class RecoveryManager:
     async def trigger_component_recovery(
         self,
         component_type: ComponentType,
-        strategy: Optional[RecoveryStrategy] = None,
+        strategy: RecoveryStrategy | None = None,
         reason: str = "Manual trigger"
     ) -> str:
         """
@@ -1766,7 +1773,7 @@ class RecoveryManager:
         logger.info(f"Manual recovery triggered for {component_type.value} with strategy {strategy.value}")
         return attempt_id
 
-    async def get_recovery_status(self, attempt_id: str) -> Optional[Dict[str, Any]]:
+    async def get_recovery_status(self, attempt_id: str) -> dict[str, Any] | None:
         """
         Get status of a recovery attempt.
 
@@ -1788,7 +1795,7 @@ class RecoveryManager:
 
         return None
 
-    def _attempt_to_dict(self, attempt: RecoveryAttempt) -> Dict[str, Any]:
+    def _attempt_to_dict(self, attempt: RecoveryAttempt) -> dict[str, Any]:
         """Convert recovery attempt to dictionary."""
         return {
             "attempt_id": attempt.attempt_id,
@@ -1813,7 +1820,7 @@ class RecoveryManager:
             "metrics": attempt.metrics
         }
 
-    async def get_active_recoveries(self) -> List[Dict[str, Any]]:
+    async def get_active_recoveries(self) -> list[dict[str, Any]]:
         """
         Get all active recovery attempts.
 
@@ -1822,7 +1829,7 @@ class RecoveryManager:
         """
         return [self._attempt_to_dict(attempt) for attempt in self.active_recoveries.values()]
 
-    async def get_recovery_history(self, limit: int = 50) -> List[Dict[str, Any]]:
+    async def get_recovery_history(self, limit: int = 50) -> list[dict[str, Any]]:
         """
         Get recovery history.
 
@@ -1835,7 +1842,7 @@ class RecoveryManager:
         recent_history = self.recovery_history[-limit:] if limit > 0 else self.recovery_history
         return [self._attempt_to_dict(attempt) for attempt in recent_history]
 
-    def get_recovery_statistics(self) -> Dict[str, Any]:
+    def get_recovery_statistics(self) -> dict[str, Any]:
         """
         Get recovery statistics.
 
@@ -2039,15 +2046,15 @@ class RecoveryManager:
 
 
 # Global recovery manager instance
-_recovery_manager: Optional[RecoveryManager] = None
+_recovery_manager: RecoveryManager | None = None
 
 
 async def get_recovery_manager(
-    lifecycle_manager: Optional[ComponentLifecycleManager] = None,
-    health_monitor: Optional[LspHealthMonitor] = None,
-    degradation_manager: Optional[DegradationManager] = None,
-    coordinator: Optional[ComponentCoordinator] = None,
-    config: Optional[Dict[str, Any]] = None
+    lifecycle_manager: ComponentLifecycleManager | None = None,
+    health_monitor: LspHealthMonitor | None = None,
+    degradation_manager: DegradationManager | None = None,
+    coordinator: ComponentCoordinator | None = None,
+    config: dict[str, Any] | None = None
 ) -> RecoveryManager:
     """Get or create global recovery manager instance."""
     global _recovery_manager

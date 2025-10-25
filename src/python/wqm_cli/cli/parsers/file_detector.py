@@ -5,17 +5,15 @@ File type detection and validation system.
 
 This module provides comprehensive file type detection using multiple methods:
 - MIME type detection using python-magic
-- Magic number checking for binary file format validation  
+- Magic number checking for binary file format validation
 - Extension-based fallback detection
 - Content analysis for text files
 
 Supports all implemented parsers in the workspace-qdrant-mcp system.
 """
 
-import logging
 import mimetypes
 from pathlib import Path
-from typing import Optional, Union
 
 try:
     import magic
@@ -152,7 +150,7 @@ class FileDetector:
                 "python-magic not available, falling back to extension-based detection"
             )
 
-    def detect_file_type(self, file_path: Union[str, Path]) -> tuple[str, str, float]:
+    def detect_file_type(self, file_path: str | Path) -> tuple[str, str, float]:
         """
         Detect file type and determine appropriate parser.
 
@@ -239,7 +237,7 @@ class FileDetector:
         # Final fallback
         return "application/octet-stream", 0.1
 
-    def _check_magic_numbers(self, file_path: Path) -> tuple[Optional[str], float]:
+    def _check_magic_numbers(self, file_path: Path) -> tuple[str | None, float]:
         """
         Check file magic numbers for format identification.
 
@@ -344,7 +342,7 @@ class FileDetector:
         except Exception:
             return False
 
-    def _get_parser_type(self, mime_type: str, file_path: Path) -> Optional[str]:
+    def _get_parser_type(self, mime_type: str, file_path: Path) -> str | None:
         """
         Determine appropriate parser type for MIME type.
 
@@ -397,7 +395,7 @@ class FileDetector:
         """
         return sorted(MIME_TO_PARSER.keys())
 
-    def is_supported_file(self, file_path: Union[str, Path]) -> bool:
+    def is_supported_file(self, file_path: str | Path) -> bool:
         """
         Check if file is supported by any parser.
 
@@ -418,7 +416,7 @@ class FileDetector:
 _default_detector = FileDetector()
 
 
-def detect_file_type(file_path: Union[str, Path]) -> tuple[str, str, float]:
+def detect_file_type(file_path: str | Path) -> tuple[str, str, float]:
     """
     Detect file type using default detector instance.
 
@@ -431,7 +429,7 @@ def detect_file_type(file_path: Union[str, Path]) -> tuple[str, str, float]:
     return _default_detector.detect_file_type(file_path)
 
 
-def is_supported_file(file_path: Union[str, Path]) -> bool:
+def is_supported_file(file_path: str | Path) -> bool:
     """
     Check if file is supported using default detector instance.
 

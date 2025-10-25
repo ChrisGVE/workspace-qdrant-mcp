@@ -18,12 +18,13 @@ Coverage includes:
 """
 
 import asyncio
-import pytest
 import sqlite3
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
+
+import pytest
 
 from src.python.common.core.sqlite_state_manager import SQLiteStateManager
 

@@ -42,15 +42,17 @@ import asyncio
 import json
 import logging
 import os
-import sys
 import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from loguru import logger
 
 import typer
+from common.core.client import QdrantWorkspaceClient
+from common.core.config import get_config
+from common.utils.config_validator import ConfigValidator
+from loguru import logger
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
@@ -58,10 +60,6 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 from rich.text import Text
-
-from common.core.client import QdrantWorkspaceClient
-from common.core.config import get_config
-from common.utils.config_validator import ConfigValidator
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

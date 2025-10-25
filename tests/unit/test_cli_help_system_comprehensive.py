@@ -7,13 +7,13 @@ contextual help, and edge cases for malformed input and error conditions.
 Task 251: Comprehensive unit tests for unified CLI interface enhancements.
 """
 
-import pytest
-from unittest.mock import Mock, patch, call
-from typing import List, Optional
-
-import sys
 import os
+import sys
 from pathlib import Path
+from typing import Optional
+from unittest.mock import Mock, call, patch
+
+import pytest
 
 # Add src paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
@@ -23,15 +23,15 @@ os.environ["WQM_CLI_MODE"] = "true"
 os.environ["WQM_LOG_INIT"] = "false"
 
 try:
-    from wqm_cli.cli.help_system import (
-        InteractiveHelpSystem,
-        HelpLevel,
-        CommandInfo,
-        help_system,
-        help_app,
-        create_help_app
-    )
     from rich.console import Console
+    from wqm_cli.cli.help_system import (
+        CommandInfo,
+        HelpLevel,
+        InteractiveHelpSystem,
+        create_help_app,
+        help_app,
+        help_system,
+    )
     HELP_SYSTEM_AVAILABLE = True
 except ImportError as e:
     HELP_SYSTEM_AVAILABLE = False
@@ -140,7 +140,7 @@ class TestInteractiveHelpSystem:
         """Test suggestion similarity scores are reasonable."""
         suggestions = help_sys.suggest_commands("config", limit=5)
 
-        for command, score in suggestions:
+        for _command, score in suggestions:
             assert 0.0 <= score <= 1.0
             assert isinstance(score, float)
 

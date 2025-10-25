@@ -23,89 +23,100 @@ import asyncio
 import logging
 import os
 import time
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from pathlib import Path
-from typing import Dict, List, Optional, Any, AsyncIterator, Iterator
-from datetime import datetime
+from typing import Any
 
 import grpc.aio
 from google.protobuf.empty_pb2 import Empty
 
-from .connection_manager import ConnectionConfig, GrpcConnectionManager
+from .connection_manager import ConnectionConfig
 from .generated import workspace_daemon_pb2 as pb2
 from .generated import workspace_daemon_pb2_grpc as pb2_grpc
 
 # Legacy IngestService protocol imports
 from .ingestion_pb2 import (
+    # Memory operations
+    AddMemoryRuleRequest,
+    AddMemoryRuleResponse,
+    CollectionInfo,
+    ConfigureWatchRequest,
+    ConfigureWatchResponse,
+    DeleteDocumentRequest,
+    DeleteDocumentResponse,
+    DeleteMemoryRuleRequest,
+    DeleteMemoryRuleResponse,
+    # Search operations
+    ExecuteQueryRequest,
+    ExecuteQueryResponse,
+    GetCollectionInfoRequest,
+    GetDocumentRequest,
+    GetDocumentResponse,
+    GetProcessingStatusRequest,
+    # Status and monitoring
+    GetStatsRequest,
+    GetStatsResponse,
+    HealthResponse,
+    ListCollectionsRequest,
+    ListCollectionsResponse,
+    # Document management
+    ListDocumentsRequest,
+    ListDocumentsResponse,
+    ListMemoryRulesRequest,
+    ListMemoryRulesResponse,
+    ListWatchesRequest,
+    ListWatchesResponse,
+    # Configuration management
+    LoadConfigurationRequest,
+    LoadConfigurationResponse,
     # Document processing
     ProcessDocumentRequest,
     ProcessDocumentResponse,
-    ProcessFolderRequest,
     ProcessFolderProgress,
+    ProcessFolderRequest,
+    ProcessingStatusResponse,
+    SaveConfigurationRequest,
+    SaveConfigurationResponse,
+    SearchMemoryRulesRequest,
+    SearchMemoryRulesResponse,
+    SearchMode,
     # File watching
     StartWatchingRequest,
     StopWatchingRequest,
     StopWatchingResponse,
-    ConfigureWatchRequest,
-    ConfigureWatchResponse,
-    ListWatchesRequest,
-    ListWatchesResponse,
-    WatchingUpdate,
-    WatchStatus,
-    # Search operations
-    ExecuteQueryRequest,
-    ExecuteQueryResponse,
-    SearchMode,
-    # Collection operations
-    ListCollectionsRequest,
-    ListCollectionsResponse,
-    GetCollectionInfoRequest,
-    CollectionInfo,
-    CreateCollectionRequest as LegacyCreateCollectionRequest,
-    CreateCollectionResponse as LegacyCreateCollectionResponse,
-    DeleteCollectionRequest as LegacyDeleteCollectionRequest,
-    DeleteCollectionResponse as LegacyDeleteCollectionResponse,
-    # Document management
-    ListDocumentsRequest,
-    ListDocumentsResponse,
-    GetDocumentRequest,
-    GetDocumentResponse,
-    DeleteDocumentRequest,
-    DeleteDocumentResponse,
-    # Configuration management
-    LoadConfigurationRequest,
-    LoadConfigurationResponse,
-    SaveConfigurationRequest,
-    SaveConfigurationResponse,
+    SystemStatusResponse,
     ValidateConfigurationRequest,
     ValidateConfigurationResponse,
-    # Memory operations
-    AddMemoryRuleRequest,
-    AddMemoryRuleResponse,
-    ListMemoryRulesRequest,
-    ListMemoryRulesResponse,
-    DeleteMemoryRuleRequest,
-    DeleteMemoryRuleResponse,
-    SearchMemoryRulesRequest,
-    SearchMemoryRulesResponse,
-    # Status and monitoring
-    GetStatsRequest,
-    GetStatsResponse,
-    GetProcessingStatusRequest,
-    ProcessingStatusResponse,
-    SystemStatusResponse,
-    HealthResponse,
-    HealthStatus,
+    WatchingUpdate,
+    WatchStatus,
+)
+from .ingestion_pb2 import (
+    CreateCollectionRequest as LegacyCreateCollectionRequest,
+)
+from .ingestion_pb2 import (
+    CreateCollectionResponse as LegacyCreateCollectionResponse,
+)
+from .ingestion_pb2 import (
+    DeleteCollectionRequest as LegacyDeleteCollectionRequest,
+)
+from .ingestion_pb2 import (
+    DeleteCollectionResponse as LegacyDeleteCollectionResponse,
 )
 from .ingestion_pb2_grpc import IngestServiceStub
 
 # LLM access control system
 try:
-    from ..core.llm_access_control import validate_llm_collection_access, LLMAccessControlError
+    from ..core.llm_access_control import (
+        LLMAccessControlError,
+        validate_llm_collection_access,
+    )
 except ImportError:
     # Fallback for direct imports when not used as a package
     try:
-        from llm_access_control import validate_llm_collection_access, LLMAccessControlError
+        from llm_access_control import (
+            LLMAccessControlError,
+            validate_llm_collection_access,
+        )
     except ImportError:
         # Define no-op fallbacks if LLM access control not available
         def validate_llm_collection_access(operation, collection, config):
@@ -163,9 +174,9 @@ class DaemonClient:
         self,
         host: str = "localhost",
         port: int = 50051,
-        connection_config: Optional[ConnectionConfig] = None,
-        project_path: Optional[str] = None,
-        config_manager: Optional[Any] = None
+        connection_config: ConnectionConfig | None = None,
+        project_path: str | None = None,
+        config_manager: Any | None = None
     ):
         """
         Initialize daemon client.
@@ -202,15 +213,15 @@ class DaemonClient:
         self.project_path = project_path or os.getcwd()
         self.config_manager = config_manager
 
-        self._channel: Optional[grpc.aio.Channel] = None
+        self._channel: grpc.aio.Channel | None = None
 
         # New protocol stubs
-        self._system_stub: Optional[pb2_grpc.SystemServiceStub] = None
-        self._collection_stub: Optional[pb2_grpc.CollectionServiceStub] = None
-        self._document_stub: Optional[pb2_grpc.DocumentServiceStub] = None
+        self._system_stub: pb2_grpc.SystemServiceStub | None = None
+        self._collection_stub: pb2_grpc.CollectionServiceStub | None = None
+        self._document_stub: pb2_grpc.DocumentServiceStub | None = None
 
         # Legacy protocol stub
-        self._ingest_stub: Optional[IngestServiceStub] = None
+        self._ingest_stub: IngestServiceStub | None = None
 
         self._started = False
         self._shutdown = False
@@ -219,10 +230,10 @@ class DaemonClient:
         # Circuit breaker state
         self._circuit_breaker_failures = 0
         self._circuit_breaker_state = "closed"  # closed, open, half-open
-        self._circuit_breaker_last_failure: Optional[float] = None
+        self._circuit_breaker_last_failure: float | None = None
 
         # Service discovery state
-        self._discovered_endpoint: Optional[str] = None
+        self._discovered_endpoint: str | None = None
 
         logger.info(
             f"DaemonClient initialized: address={self.config.address}, "
@@ -505,8 +516,8 @@ class DaemonClient:
     async def send_refresh_signal(
         self,
         queue_type: pb2.QueueType,
-        lsp_languages: Optional[List[str]] = None,
-        grammar_languages: Optional[List[str]] = None,
+        lsp_languages: list[str] | None = None,
+        grammar_languages: list[str] | None = None,
         timeout: float = 5.0
     ):
         """
@@ -546,8 +557,8 @@ class DaemonClient:
     async def notify_server_status(
         self,
         state: pb2.ServerState,
-        project_name: Optional[str] = None,
-        project_root: Optional[str] = None,
+        project_name: str | None = None,
+        project_root: str | None = None,
         timeout: float = 5.0
     ):
         """
@@ -618,7 +629,7 @@ class DaemonClient:
         self,
         collection_name: str,
         project_id: str,
-        config: Optional[pb2.CollectionConfig] = None,
+        config: pb2.CollectionConfig | None = None,
         timeout: float = 30.0
     ) -> pb2.CreateCollectionResponse:
         """
@@ -670,7 +681,7 @@ class DaemonClient:
         self,
         collection_name: str,
         project_id: str,
-        config: Optional[pb2.CollectionConfig] = None,
+        config: pb2.CollectionConfig | None = None,
         timeout: float = 30.0
     ) -> pb2.CreateCollectionResponse:
         """
@@ -842,8 +853,8 @@ class DaemonClient:
         content: str,
         collection_basename: str,
         tenant_id: str,
-        document_id: Optional[str] = None,
-        metadata: Optional[Dict[str, str]] = None,
+        document_id: str | None = None,
+        metadata: dict[str, str] | None = None,
         chunk_text: bool = True,
         timeout: float = 60.0
     ) -> pb2.IngestTextResponse:
@@ -895,8 +906,8 @@ class DaemonClient:
         self,
         document_id: str,
         content: str,
-        collection_name: Optional[str] = None,
-        metadata: Optional[Dict[str, str]] = None,
+        collection_name: str | None = None,
+        metadata: dict[str, str] | None = None,
         timeout: float = 60.0
     ) -> pb2.UpdateTextResponse:
         """
@@ -977,8 +988,8 @@ class DaemonClient:
         self,
         file_path: str,
         collection: str,
-        metadata: Optional[Dict[str, str]] = None,
-        document_id: Optional[str] = None,
+        metadata: dict[str, str] | None = None,
+        document_id: str | None = None,
         chunk_text: bool = True,
     ) -> ProcessDocumentResponse:
         """Process a single document via legacy IngestService."""
@@ -1006,12 +1017,12 @@ class DaemonClient:
         self,
         folder_path: str,
         collection: str,
-        include_patterns: Optional[List[str]] = None,
-        ignore_patterns: Optional[List[str]] = None,
+        include_patterns: list[str] | None = None,
+        ignore_patterns: list[str] | None = None,
         recursive: bool = True,
         max_depth: int = 5,
         dry_run: bool = False,
-        metadata: Optional[Dict[str, str]] = None,
+        metadata: dict[str, str] | None = None,
     ) -> AsyncIterator[ProcessFolderProgress]:
         """Process all documents in a folder via legacy IngestService."""
         self._ensure_connected()
@@ -1042,14 +1053,14 @@ class DaemonClient:
         self,
         path: str,
         collection: str,
-        patterns: Optional[List[str]] = None,
-        ignore_patterns: Optional[List[str]] = None,
+        patterns: list[str] | None = None,
+        ignore_patterns: list[str] | None = None,
         auto_ingest: bool = True,
         recursive: bool = True,
         recursive_depth: int = -1,
         debounce_seconds: int = 5,
         update_frequency_ms: int = 1000,
-        watch_id: Optional[str] = None,
+        watch_id: str | None = None,
     ) -> AsyncIterator[WatchingUpdate]:
         """Start watching a folder for changes via legacy IngestService."""
         self._ensure_connected()
@@ -1085,13 +1096,13 @@ class DaemonClient:
     async def configure_watch(
         self,
         watch_id: str,
-        status: Optional[WatchStatus] = None,
-        patterns: Optional[List[str]] = None,
-        ignore_patterns: Optional[List[str]] = None,
-        auto_ingest: Optional[bool] = None,
-        recursive: Optional[bool] = None,
-        recursive_depth: Optional[int] = None,
-        debounce_seconds: Optional[int] = None,
+        status: WatchStatus | None = None,
+        patterns: list[str] | None = None,
+        ignore_patterns: list[str] | None = None,
+        auto_ingest: bool | None = None,
+        recursive: bool | None = None,
+        recursive_depth: int | None = None,
+        debounce_seconds: int | None = None,
     ) -> ConfigureWatchResponse:
         """Configure an existing watch via legacy IngestService."""
         self._ensure_connected()
@@ -1112,7 +1123,7 @@ class DaemonClient:
     async def execute_query(
         self,
         query: str,
-        collections: Optional[List[str]] = None,
+        collections: list[str] | None = None,
         mode: SearchMode = SearchMode.SEARCH_MODE_HYBRID,
         limit: int = 10,
         score_threshold: float = 0.7,
@@ -1155,7 +1166,7 @@ class DaemonClient:
         self,
         collection_name: str,
         description: str = "",
-        metadata: Optional[Dict[str, str]] = None,
+        metadata: dict[str, str] | None = None,
     ) -> LegacyCreateCollectionResponse:
         """Create a new collection via legacy IngestService (deprecated)."""
         self._ensure_connected()
@@ -1260,7 +1271,7 @@ class DaemonClient:
         return await self._ingest_stub.DeleteDocument(request)
 
     async def load_configuration(
-        self, config_path: Optional[str] = None
+        self, config_path: str | None = None
     ) -> LoadConfigurationResponse:
         """Load configuration from daemon via legacy IngestService."""
         self._ensure_connected()
@@ -1292,9 +1303,9 @@ class DaemonClient:
         category: str,
         name: str,
         rule_text: str,
-        authority: Optional[str] = None,
-        scope: Optional[List[str]] = None,
-        source: Optional[str] = None,
+        authority: str | None = None,
+        scope: list[str] | None = None,
+        source: str | None = None,
     ) -> AddMemoryRuleResponse:
         """Add a memory rule via legacy IngestService."""
         self._ensure_connected()
@@ -1312,8 +1323,8 @@ class DaemonClient:
 
     async def list_memory_rules(
         self,
-        category: Optional[str] = None,
-        authority: Optional[str] = None,
+        category: str | None = None,
+        authority: str | None = None,
         limit: int = 100,
         offset: int = 0,
     ) -> ListMemoryRulesResponse:
@@ -1335,8 +1346,8 @@ class DaemonClient:
     async def search_memory_rules(
         self,
         query: str,
-        category: Optional[str] = None,
-        authority: Optional[str] = None,
+        category: str | None = None,
+        authority: str | None = None,
         limit: int = 10,
     ) -> SearchMemoryRulesResponse:
         """Search memory rules via legacy IngestService."""
@@ -1401,7 +1412,7 @@ class DaemonClient:
                 "For more help: wqm admin diagnostics"
             )
 
-    def get_connection_info(self) -> Dict[str, Any]:
+    def get_connection_info(self) -> dict[str, Any]:
         """
         Get connection information and client state.
 
@@ -1440,12 +1451,12 @@ class DaemonClient:
 # Global client instance and helper functions (backward compatibility)
 # =========================================================================
 
-_daemon_client: Optional[DaemonClient] = None
+_daemon_client: DaemonClient | None = None
 
 
 def get_daemon_client(
     config_manager=None,
-    project_path: Optional[str] = None
+    project_path: str | None = None
 ) -> DaemonClient:
     """
     Get the global daemon client instance with optional project context.
@@ -1471,7 +1482,7 @@ def get_daemon_client(
 async def with_daemon_client(
     operation,
     config_manager=None,
-    project_path: Optional[str] = None
+    project_path: str | None = None
 ):
     """
     Execute an operation with a connected daemon client.

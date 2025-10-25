@@ -44,7 +44,6 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -62,15 +61,21 @@ from src.python.common.core.queue_backpressure import (
     BackpressureDetector,
     BackpressureSeverity,
 )
-from src.python.common.core.queue_health import HealthStatus, QueueHealthStatus, QueueHealthCalculator
+from src.python.common.core.queue_health import (
+    HealthStatus,
+    QueueHealthCalculator,
+    QueueHealthStatus,
+)
 from src.python.common.core.queue_performance_metrics import (
     LatencyMetrics,
     MetricsAggregator,
     QueuePerformanceCollector,
     ThroughputMetrics,
 )
-from src.python.common.core.queue_statistics import QueueStatistics, QueueStatisticsCollector
-
+from src.python.common.core.queue_statistics import (
+    QueueStatistics,
+    QueueStatisticsCollector,
+)
 
 # =============================================================================
 # FIXTURES
@@ -100,7 +105,7 @@ async def alert_system(temp_db):
     )
 
     if schema_path.exists():
-        with open(schema_path, "r") as f:
+        with open(schema_path) as f:
             schema_sql = f.read()
         conn.executescript(schema_sql)
         conn.commit()

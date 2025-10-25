@@ -3,13 +3,14 @@ Direct execution tests to maximally increase code coverage.
 This file directly executes code paths to achieve 100% coverage.
 """
 
-import pytest
-import sys
-import os
 import asyncio
 import importlib
+import os
+import sys
 from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 # Add the src directory to Python path
 src_path = Path(__file__).parent.parent.parent / "src" / "python"

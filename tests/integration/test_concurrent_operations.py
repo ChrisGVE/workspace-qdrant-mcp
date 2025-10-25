@@ -27,15 +27,16 @@ Parent: #290 - Build MCP-daemon integration test framework
 """
 
 import asyncio
-import pytest
-import time
-import threading
-from pathlib import Path
-from typing import Dict, Any, List
 import json
 import tempfile
-from unittest.mock import Mock, patch, AsyncMock
+import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 
 @pytest.fixture(scope="module")
@@ -469,7 +470,6 @@ class TestResourceContention:
         self, docker_services, conflict_tracker
     ):
         """Test Qdrant handling concurrent upserts to same collection."""
-        collection_name = "concurrent-upserts"
         points_written = []
 
         # Step 1: Simulate concurrent Qdrant upserts

@@ -1,24 +1,20 @@
 """Unit tests for analytics storage system."""
 
-import pytest
-import tempfile
-import sqlite3
 import json
+import os
+import sqlite3
+import sys
+import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
-import sys
-import os
+import pytest
 
 # Add docs framework to path for testing
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../docs/framework'))
 
-from analytics.storage import (
-    AnalyticsStorage,
-    AnalyticsEvent,
-    AnalyticsStats
-)
+from analytics.storage import AnalyticsEvent, AnalyticsStats, AnalyticsStorage
 
 
 class TestAnalyticsEvent:
@@ -492,7 +488,7 @@ class TestAnalyticsStorage:
         assert export_path.exists()
 
         # Verify exported data
-        with open(export_path, 'r', encoding='utf-8') as f:
+        with open(export_path, encoding='utf-8') as f:
             data = json.load(f)
 
         assert "export_timestamp" in data
@@ -520,7 +516,7 @@ class TestAnalyticsStorage:
         result = self.storage.export_data(export_path, start_date, end_date)
         assert result is True
 
-        with open(export_path, 'r', encoding='utf-8') as f:
+        with open(export_path, encoding='utf-8') as f:
             data = json.load(f)
 
         assert data["event_count"] == 1  # Only one event in date range

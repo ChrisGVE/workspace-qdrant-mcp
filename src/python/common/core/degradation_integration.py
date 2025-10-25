@@ -37,22 +37,14 @@ Example:
     ```
 """
 
-import asyncio
-import json
-import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union, Callable
+from typing import Any
 
 from loguru import logger
 
-from .graceful_degradation import (
-    DegradationManager,
-    DegradationMode,
-    FeatureType,
-    CircuitBreakerState
-)
-from .component_coordination import ComponentType, ComponentStatus
+from .graceful_degradation import DegradationManager, DegradationMode, FeatureType
 
 
 @dataclass
@@ -62,10 +54,10 @@ class DegradedOperation:
     success: bool
     result: Any
     is_fallback: bool = False
-    degradation_mode: Optional[DegradationMode] = None
-    available_features: List[FeatureType] = None
-    user_message: Optional[str] = None
-    suggested_actions: List[str] = None
+    degradation_mode: DegradationMode | None = None
+    available_features: list[FeatureType] = None
+    user_message: str | None = None
+    suggested_actions: list[str] = None
 
     def __post_init__(self):
         if self.available_features is None:
@@ -86,7 +78,7 @@ class DegradationAwareMCPServer:
         self,
         degradation_manager: DegradationManager,
         base_server: Any = None,
-        config: Optional[Dict[str, Any]] = None
+        config: dict[str, Any] | None = None
     ):
         """
         Initialize degradation-aware MCP server.
@@ -110,7 +102,7 @@ class DegradationAwareMCPServer:
     async def search_with_degradation(
         self,
         query: str,
-        options: Optional[Dict[str, Any]] = None
+        options: dict[str, Any] | None = None
     ) -> DegradedOperation:
         """
         Perform search with automatic degradation handling.
@@ -239,7 +231,7 @@ class DegradationAwareMCPServer:
     async def ingest_document_with_degradation(
         self,
         file_path: str,
-        options: Optional[Dict[str, Any]] = None
+        options: dict[str, Any] | None = None
     ) -> DegradedOperation:
         """
         Perform document ingestion with degradation handling.
@@ -403,8 +395,8 @@ class DegradationAwareMCPServer:
     async def _attempt_hybrid_search(
         self,
         query: str,
-        options: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        options: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Attempt hybrid search through base server."""
         try:
             if hasattr(self.base_server, 'hybrid_search'):
@@ -420,8 +412,8 @@ class DegradationAwareMCPServer:
     async def _attempt_semantic_search(
         self,
         query: str,
-        options: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        options: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Attempt semantic search through base server."""
         try:
             if hasattr(self.base_server, 'semantic_search'):
@@ -438,8 +430,8 @@ class DegradationAwareMCPServer:
     async def _attempt_keyword_search(
         self,
         query: str,
-        options: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        options: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Attempt keyword search through base server."""
         try:
             if hasattr(self.base_server, 'keyword_search'):
@@ -456,8 +448,8 @@ class DegradationAwareMCPServer:
     async def _attempt_document_ingestion(
         self,
         file_path: str,
-        options: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
+        options: dict[str, Any]
+    ) -> dict[str, Any] | None:
         """Attempt document ingestion through base server."""
         try:
             if hasattr(self.base_server, 'ingest_document'):
@@ -498,8 +490,8 @@ class DegradationAwareCLI:
     async def execute_command_with_degradation(
         self,
         command: str,
-        args: List[str],
-        options: Optional[Dict[str, Any]] = None
+        args: list[str],
+        options: dict[str, Any] | None = None
     ) -> DegradedOperation:
         """
         Execute CLI command with degradation handling.
@@ -552,8 +544,8 @@ class DegradationAwareCLI:
     async def _execute_offline_command(
         self,
         command: str,
-        args: List[str],
-        options: Dict[str, Any]
+        args: list[str],
+        options: dict[str, Any]
     ) -> DegradedOperation:
         """Execute command in offline CLI mode."""
         # Only allow file-based operations
@@ -590,8 +582,8 @@ class DegradationAwareCLI:
     async def _execute_limited_command(
         self,
         command: str,
-        args: List[str],
-        options: Dict[str, Any]
+        args: list[str],
+        options: dict[str, Any]
     ) -> DegradedOperation:
         """Execute command in limited functionality mode."""
         # Read-only operations allowed
@@ -606,7 +598,7 @@ class DegradationAwareCLI:
                 result={"error": f"Command '{command}' not available in read-only mode"},
                 is_fallback=True,
                 degradation_mode=self.degradation_manager.current_mode,
-                user_message=f"Write operations are disabled",
+                user_message="Write operations are disabled",
                 suggested_actions=[
                     "System is in read-only mode",
                     "Use read operations only",
@@ -622,8 +614,8 @@ class DegradationAwareCLI:
     async def _execute_full_command(
         self,
         command: str,
-        args: List[str],
-        options: Dict[str, Any]
+        args: list[str],
+        options: dict[str, Any]
     ) -> DegradedOperation:
         """Execute command with full functionality."""
         return await self._execute_basic_command(command, args, options)
@@ -631,8 +623,8 @@ class DegradationAwareCLI:
     async def _execute_basic_command(
         self,
         command: str,
-        args: List[str],
-        options: Dict[str, Any]
+        args: list[str],
+        options: dict[str, Any]
     ) -> DegradedOperation:
         """Execute basic command implementation."""
         try:
@@ -737,9 +729,9 @@ class DegradationMiddleware:
 
     def degradation_aware(
         self,
-        required_features: List[FeatureType],
-        fallback_function: Optional[Callable] = None,
-        component_id: Optional[str] = None
+        required_features: list[FeatureType],
+        fallback_function: Callable | None = None,
+        component_id: str | None = None
     ):
         """
         Decorator to make a function degradation-aware.
@@ -814,8 +806,8 @@ class DegradationMiddleware:
 # Utility functions for integration
 def create_degradation_aware_mcp_tools(
     degradation_manager: DegradationManager,
-    base_tools: Dict[str, Callable]
-) -> Dict[str, Callable]:
+    base_tools: dict[str, Callable]
+) -> dict[str, Callable]:
     """
     Create degradation-aware versions of MCP tools.
 
@@ -853,7 +845,7 @@ def create_degradation_aware_mcp_tools(
 
 async def create_degradation_status_report(
     degradation_manager: DegradationManager
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Create comprehensive degradation status report.
 
@@ -905,7 +897,7 @@ def _get_impact_summary(degradation_manager: DegradationManager) -> str:
         return f"Significant impact: {len(unavailable_features)} features unavailable"
 
 
-def _get_recommended_actions(mode: DegradationMode) -> List[str]:
+def _get_recommended_actions(mode: DegradationMode) -> list[str]:
     """Get recommended actions for degradation mode."""
     actions_map = {
         DegradationMode.NORMAL: ["No action required", "Monitor system health"],

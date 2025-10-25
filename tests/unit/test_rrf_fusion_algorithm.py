@@ -14,7 +14,6 @@ Execution: uv run pytest tests/unit/test_rrf_fusion_algorithm.py -v
 
 import sys
 from pathlib import Path
-from typing import List
 from unittest.mock import Mock
 
 import pytest
@@ -258,7 +257,7 @@ class TestRRFBasicFusion:
 
         # Should have all unique documents
         assert len(fused) == 10
-        fused_ids = set([r.id for r in fused])
+        fused_ids = {r.id for r in fused}
         assert len(fused_ids) == 10
 
     def test_complete_overlap(self):
@@ -281,7 +280,7 @@ class TestRRFBasicFusion:
 
         # Should have only 3 unique documents
         assert len(fused) == 3
-        fused_ids = set([r.id for r in fused])
+        fused_ids = {r.id for r in fused}
         assert fused_ids == {"doc_1", "doc_2", "doc_3"}
 
     def test_partial_overlap(self):
@@ -293,7 +292,7 @@ class TestRRFBasicFusion:
         fused = ranker.fuse(dense_results, sparse_results)
 
         # Should have 5 dense + 5 sparse - 2 overlap = 8 unique documents
-        fused_ids = set([r.id for r in fused])
+        fused_ids = {r.id for r in fused}
         assert len(fused_ids) == 8
 
 
@@ -538,7 +537,7 @@ class TestRRFDuplicateHandling:
 
         # Should only have 2 unique documents
         assert len(fused) == 2
-        fused_ids = set([r.id for r in fused])
+        fused_ids = {r.id for r in fused}
         assert fused_ids == {"doc_1", "doc_2"}
 
 
@@ -647,9 +646,9 @@ class TestRRFQualityVerification:
         # Dense-only recall: 3/6 = 0.5
         # Fusion recall: 6/6 = 1.0
 
-        fused_ids = set([r.id for r in fused])
-        dense_ids = set([r.id for r in dense_results])
-        sparse_ids = set([r.id for r in sparse_results])
+        fused_ids = {r.id for r in fused}
+        dense_ids = {r.id for r in dense_results}
+        sparse_ids = {r.id for r in sparse_results}
 
         # Fusion should include all documents
         assert len(fused_ids) > len(dense_ids)
@@ -664,9 +663,9 @@ class TestRRFQualityVerification:
 
         fused = ranker.fuse(dense_results, sparse_results)
 
-        fused_ids = set([r.id for r in fused])
-        dense_ids = set([r.id for r in dense_results])
-        sparse_ids = set([r.id for r in sparse_results])
+        fused_ids = {r.id for r in fused}
+        dense_ids = {r.id for r in dense_results}
+        sparse_ids = {r.id for r in sparse_results}
 
         # Fusion should include all documents
         assert len(fused_ids) > len(sparse_ids)
@@ -713,7 +712,7 @@ class TestRRFQualityVerification:
         fused = ranker.fuse(dense_results, sparse_results)
 
         # Should have diverse results: 3 dense-only + 2 sparse-only + 1 overlap = 5 unique
-        fused_ids = set([r.id for r in fused])
+        fused_ids = {r.id for r in fused}
         assert len(fused_ids) == 5
 
         # Top 5 should include diverse sources

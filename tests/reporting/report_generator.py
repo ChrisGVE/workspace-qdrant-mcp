@@ -9,7 +9,7 @@ import base64
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -36,8 +36,8 @@ class ReportGenerator:
 
     def __init__(
         self,
-        storage: Optional[TestResultStorage] = None,
-        template_dir: Optional[Path] = None,
+        storage: TestResultStorage | None = None,
+        template_dir: Path | None = None,
     ):
         """
         Initialize report generator.
@@ -69,12 +69,12 @@ class ReportGenerator:
     def generate_html_report(
         self,
         run_id: str,
-        output_path: Optional[Union[str, Path]] = None,
+        output_path: str | Path | None = None,
         include_charts: bool = True,
         include_trends: bool = True,
         include_failure_analysis: bool = True,
         template_name: str = "report.html",
-        custom_context: Optional[Dict[str, Any]] = None,
+        custom_context: dict[str, Any] | None = None,
     ) -> str:
         """
         Generate HTML test report.
@@ -126,12 +126,12 @@ class ReportGenerator:
     def generate_pdf_report(
         self,
         run_id: str,
-        output_path: Union[str, Path],
+        output_path: str | Path,
         include_charts: bool = True,
         include_trends: bool = True,
         include_failure_analysis: bool = True,
         template_name: str = "report.html",
-        custom_context: Optional[Dict[str, Any]] = None,
+        custom_context: dict[str, Any] | None = None,
     ) -> Path:
         """
         Generate PDF test report.
@@ -184,10 +184,10 @@ class ReportGenerator:
     def generate_dashboard_report(
         self,
         run_id: str,
-        output_path: Optional[Union[str, Path]] = None,
-        time_windows: Optional[List[int]] = None,
+        output_path: str | Path | None = None,
+        time_windows: list[int] | None = None,
         template_name: str = "dashboard.html",
-        custom_context: Optional[Dict[str, Any]] = None,
+        custom_context: dict[str, Any] | None = None,
     ) -> str:
         """
         Generate executive dashboard HTML report.
@@ -268,7 +268,7 @@ class ReportGenerator:
         include_charts: bool = True,
         include_trends: bool = True,
         include_failure_analysis: bool = True,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Build template context from test run data.
 
@@ -353,7 +353,7 @@ class ReportGenerator:
 
         return context
 
-    def _generate_chart_data(self, test_run: TestRun) -> Dict[str, Any]:
+    def _generate_chart_data(self, test_run: TestRun) -> dict[str, Any]:
         """
         Generate data for charts.
 
@@ -441,7 +441,7 @@ class ReportGenerator:
 
         return charts
 
-    def _generate_trend_data(self, days: int = 30) -> Dict[str, Any]:
+    def _generate_trend_data(self, days: int = 30) -> dict[str, Any]:
         """
         Generate trend analysis data.
 
@@ -490,7 +490,7 @@ class ReportGenerator:
 
         return {"success_rate_trend": trend_chart}
 
-    def _generate_coverage_summary(self, coverage) -> Dict[str, Any]:
+    def _generate_coverage_summary(self, coverage) -> dict[str, Any]:
         """
         Generate summary statistics for coverage.
 
@@ -542,7 +542,7 @@ class ReportGenerator:
 
         return summary
 
-    def _generate_coverage_charts(self, coverage) -> Dict[str, Any]:
+    def _generate_coverage_charts(self, coverage) -> dict[str, Any]:
         """
         Generate charts for coverage visualization.
 
@@ -664,7 +664,7 @@ class ReportGenerator:
 
         return charts
 
-    def _generate_failure_analysis_charts(self, failure_report) -> Dict[str, Any]:
+    def _generate_failure_analysis_charts(self, failure_report) -> dict[str, Any]:
         """
         Generate charts for failure analysis visualization.
 
@@ -823,9 +823,9 @@ class ReportGenerator:
 # Convenience function for quick report generation
 def generate_test_report(
     run_id: str,
-    output_path: Union[str, Path],
+    output_path: str | Path,
     format: str = "html",
-    storage_path: Optional[Path] = None,
+    storage_path: Path | None = None,
 ) -> Path:
     """
     Quick helper to generate a test report.
@@ -850,5 +850,5 @@ def generate_test_report(
     if format.lower() == "pdf":
         return generator.generate_pdf_report(run_id, output_path)
     else:
-        html = generator.generate_html_report(run_id, output_path)
+        generator.generate_html_report(run_id, output_path)
         return Path(output_path)

@@ -9,15 +9,13 @@ Tests the collection alias management functionality including:
 """
 
 import asyncio
-import pytest
-from pathlib import Path
 from datetime import datetime, timezone
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from src.python.common.core.collection_aliases import (
-    CollectionAlias,
-    AliasManager
-)
+import pytest
+
+from src.python.common.core.collection_aliases import AliasManager, CollectionAlias
 from src.python.common.core.sqlite_state_manager import SQLiteStateManager
 
 
@@ -268,7 +266,7 @@ class TestAliasManager:
         ])
 
         # This should trigger cache refresh
-        result = await alias_manager.resolve_collection_name("_old1")
+        await alias_manager.resolve_collection_name("_old1")
 
         # Verify list_aliases was called to refresh cache
         alias_manager.list_aliases.assert_called_once()

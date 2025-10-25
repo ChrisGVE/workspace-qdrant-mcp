@@ -13,19 +13,21 @@ Test coverage:
 """
 
 import asyncio
-import tempfile
-from pathlib import Path
-from typing import Any, Dict, List, Optional
-from unittest.mock import Mock, patch, MagicMock, AsyncMock, call
-import pytest
 
 # Ensure proper imports from the project structure
 import sys
+import tempfile
+from pathlib import Path
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
+
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src" / "python"))
-from common.utils.admin_cli import WorkspaceQdrantAdmin
-from common.core.config import Config
 from common.core.client import QdrantWorkspaceClient
+from common.core.config import Config
+from common.utils.admin_cli import WorkspaceQdrantAdmin
 from common.utils.project_detection import ProjectDetector
 
 
@@ -49,7 +51,7 @@ class TestWorkspaceQdrantAdmin:
         admin = WorkspaceQdrantAdmin()
 
         assert admin.config is not None
-        assert admin.dry_run == False
+        assert not admin.dry_run
         assert admin.project_scope is None
 
     def test_init_with_config(self):
@@ -62,7 +64,7 @@ class TestWorkspaceQdrantAdmin:
         """Test initialization with dry run enabled."""
         admin = WorkspaceQdrantAdmin(dry_run=True)
 
-        assert admin.dry_run == True
+        assert admin.dry_run
 
     def test_init_with_project_scope(self):
         """Test initialization with project scope."""
@@ -79,7 +81,7 @@ class TestWorkspaceQdrantAdmin:
         )
 
         assert admin.config == self.mock_config
-        assert admin.dry_run == True
+        assert admin.dry_run
         assert admin.project_scope == "test-project"
 
     @patch('common.utils.admin_cli.Config')
@@ -171,7 +173,7 @@ class TestWorkspaceQdrantAdmin:
         admin = WorkspaceQdrantAdmin(config=self.mock_config)
 
         async with admin as admin_instance:
-            collections = await admin_instance.list_collections(include_stats=True)
+            await admin_instance.list_collections(include_stats=True)
 
             # Should include stats for each collection
             mock_client_instance.get_collection_info.assert_called_with("project1-docs")
@@ -230,7 +232,7 @@ class TestWorkspaceQdrantAdmin:
         admin = WorkspaceQdrantAdmin(config=self.mock_config, dry_run=False)
 
         async with admin as admin_instance:
-            result = await admin_instance.delete_collection("test-collection")
+            await admin_instance.delete_collection("test-collection")
 
             mock_client_instance.delete_collection.assert_called_once_with("test-collection")
 
@@ -291,7 +293,7 @@ class TestWorkspaceQdrantAdmin:
         admin = WorkspaceQdrantAdmin(config=self.mock_config)
 
         async with admin as admin_instance:
-            results = await admin_instance.search_documents(
+            await admin_instance.search_documents(
                 "test query",
                 collection="specific-collection"
             )
@@ -355,13 +357,12 @@ class TestWorkspaceQdrantAdmin:
         mock_detector_instance.get_project_name.return_value = "test-project"
 
         # Mock collection list for project
-        mock_collections = ["test-project-docs", "test-project-code"]
         mock_client_instance.list_collections.return_value = ["test-project-docs", "test-project-code", "other-project-docs"]
 
         admin = WorkspaceQdrantAdmin(config=self.mock_config, dry_run=True)
 
         async with admin as admin_instance:
-            result = await admin_instance.reset_project()
+            await admin_instance.reset_project()
 
             # Should not actually delete collections in dry run
             mock_client_instance.delete_collection.assert_not_called()
@@ -385,7 +386,7 @@ class TestWorkspaceQdrantAdmin:
         admin = WorkspaceQdrantAdmin(config=self.mock_config, dry_run=False)
 
         async with admin as admin_instance:
-            result = await admin_instance.reset_project()
+            await admin_instance.reset_project()
 
             # Should delete project collections
             expected_calls = [
@@ -428,7 +429,7 @@ class TestWorkspaceQdrantAdmin:
                 return True
 
             # Test valid collection
-            assert validate_collection_scope("allowed-project-docs") == True
+            assert validate_collection_scope("allowed-project-docs")
 
             # Test invalid collection
             with pytest.raises(ValueError, match="not within project scope"):
@@ -515,10 +516,10 @@ class TestWorkspaceQdrantAdmin:
     def test_dry_run_property(self):
         """Test dry run property behavior."""
         admin = WorkspaceQdrantAdmin(dry_run=True)
-        assert admin.dry_run == True
+        assert admin.dry_run
 
         admin = WorkspaceQdrantAdmin(dry_run=False)
-        assert admin.dry_run == False
+        assert not admin.dry_run
 
     def test_project_scope_property(self):
         """Test project scope property behavior."""

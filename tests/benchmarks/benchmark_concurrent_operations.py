@@ -30,16 +30,15 @@ import statistics
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, List, Any
-import pytest
+from typing import Any
 
+import pytest
+from common.core.embeddings import EmbeddingService
+from common.core.hybrid_search import HybridSearchEngine
+from common.core.ssl_config import suppress_qdrant_ssl_warnings
 from qdrant_client import QdrantClient
 from qdrant_client.http import models
-
 from wqm_cli.cli.parsers import CodeParser, MarkdownParser, TextParser
-from common.core.hybrid_search import HybridSearchEngine
-from common.core.embeddings import EmbeddingService
-from common.core.ssl_config import suppress_qdrant_ssl_warnings
 
 
 class ConcurrentTestDataGenerator:
@@ -48,7 +47,7 @@ class ConcurrentTestDataGenerator:
     @staticmethod
     def generate_test_files(
         num_files: int, size_kb: int, extension: str, tmp_dir: Path
-    ) -> List[Path]:
+    ) -> list[Path]:
         """Create test files for concurrent ingestion."""
         files = []
         content_generators = {
@@ -92,7 +91,7 @@ class ConcurrentBenchmarkMetrics:
         return concurrent_time / expected_time if expected_time > 0 else float("inf")
 
     @staticmethod
-    def calculate_percentiles(data: List[float]) -> Dict[str, float]:
+    def calculate_percentiles(data: list[float]) -> dict[str, float]:
         """Calculate percentile metrics from timing data."""
         if not data:
             return {}

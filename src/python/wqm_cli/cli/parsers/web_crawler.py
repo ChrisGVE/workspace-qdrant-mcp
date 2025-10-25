@@ -10,14 +10,12 @@ security layers to protect against malicious content and ensure safe operation.
 
 import asyncio
 import hashlib
-import logging
-import mimetypes
 import re
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
-from urllib.parse import urljoin, urlparse, urlunparse
+from typing import Any
+from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 try:
@@ -43,7 +41,6 @@ try:
 except ImportError:
     MAGIC_AVAILABLE = False
 
-from .exceptions import ParsingError
 from .html_parser import HtmlParser
 
 # logger imported from loguru
@@ -59,8 +56,8 @@ class SecurityConfig:
         self.max_url_length = 2048
 
         # Domain control
-        self.domain_allowlist: Set[str] = set()
-        self.domain_blocklist: Set[str] = {"localhost", "127.0.0.1", "0.0.0.0"}
+        self.domain_allowlist: set[str] = set()
+        self.domain_blocklist: set[str] = {"localhost", "127.0.0.1", "0.0.0.0"}
 
         # Content security
         self.max_content_size = 50 * 1024 * 1024  # 50MB
@@ -97,15 +94,15 @@ class CrawlResult:
     def __init__(self, url: str, success: bool = False):
         self.url = url
         self.success = success
-        self.content: Optional[str] = None
-        self.content_type: Optional[str] = None
-        self.status_code: Optional[int] = None
-        self.headers: Dict[str, str] = {}
-        self.metadata: Dict[str, Any] = {}
-        self.security_warnings: List[str] = []
-        self.file_path: Optional[Path] = None
+        self.content: str | None = None
+        self.content_type: str | None = None
+        self.status_code: int | None = None
+        self.headers: dict[str, str] = {}
+        self.metadata: dict[str, Any] = {}
+        self.security_warnings: list[str] = []
+        self.file_path: Path | None = None
         self.timestamp = time.time()
-        self.error: Optional[str] = None
+        self.error: str | None = None
 
 
 class SecurityScanner:
@@ -138,7 +135,7 @@ class SecurityScanner:
 
     async def scan_content(
         self, content: str, content_type: str
-    ) -> Tuple[bool, List[str]]:
+    ) -> tuple[bool, list[str]]:
         """Scan content for security threats.
 
         Returns:
@@ -193,7 +190,7 @@ class SecurityScanner:
         base_type = content_type.split(";")[0].strip().lower()
         return base_type in safe_types
 
-    async def scan_url(self, url: str) -> Tuple[bool, List[str]]:
+    async def scan_url(self, url: str) -> tuple[bool, list[str]]:
         """Scan URL for security issues."""
         warnings = []
         parsed = urlparse(url)
@@ -222,7 +219,7 @@ class SecurityScanner:
 class SecureWebCrawler:
     """Secure web crawler with comprehensive security hardening."""
 
-    def __init__(self, config: Optional[SecurityConfig] = None):
+    def __init__(self, config: SecurityConfig | None = None):
         if not AIOHTTP_AVAILABLE:
             raise RuntimeError(
                 "Web crawling requires 'aiohttp' and 'aiofiles'. "
@@ -240,13 +237,13 @@ class SecureWebCrawler:
         self.html_parser = HtmlParser()
 
         # Tracking
-        self.visited_urls: Set[str] = set()
-        self.domain_request_counts: Dict[str, int] = {}
-        self.last_request_times: Dict[str, float] = {}
-        self.robots_cache: Dict[str, RobotFileParser] = {}
+        self.visited_urls: set[str] = set()
+        self.domain_request_counts: dict[str, int] = {}
+        self.last_request_times: dict[str, float] = {}
+        self.robots_cache: dict[str, RobotFileParser] = {}
 
         # Session will be created when needed
-        self._session: Optional[ClientSession] = None
+        self._session: ClientSession | None = None
 
     async def __aenter__(self):
         await self._ensure_session()
@@ -326,7 +323,7 @@ class SecureWebCrawler:
 
         return result
 
-    async def crawl_recursive(self, start_url: str, **options) -> List[CrawlResult]:
+    async def crawl_recursive(self, start_url: str, **options) -> list[CrawlResult]:
         """Crawl recursively from a starting URL.
 
         Args:
@@ -542,7 +539,7 @@ class SecureWebCrawler:
                 content_bytes = b""
                 async for chunk in response.content.iter_chunked(8192):
                     if len(content_bytes) + len(chunk) > max_content_size:
-                        result.error = f"Content size limit exceeded during download"
+                        result.error = "Content size limit exceeded during download"
                         return
                     content_bytes += chunk
 
@@ -647,7 +644,7 @@ class SecureWebCrawler:
             logger.error(f"Failed to process content for {result.url}: {e}")
             result.security_warnings.append(f"Content processing failed: {e}")
 
-    async def _extract_links(self, content: str, base_url: str) -> List[str]:
+    async def _extract_links(self, content: str, base_url: str) -> list[str]:
         """Extract links from HTML content."""
         links = []
 
@@ -674,7 +671,7 @@ class SecureWebCrawler:
 
 
 def create_security_config(
-    domain_allowlist: Optional[List[str]] = None,
+    domain_allowlist: list[str] | None = None,
     max_pages: int = 100,
     max_depth: int = 2,
     request_delay: float = 1.0,

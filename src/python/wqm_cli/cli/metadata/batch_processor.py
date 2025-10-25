@@ -8,16 +8,17 @@ parallel processing for large document collections.
 
 import asyncio
 import time
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Union, Callable, Tuple
+from typing import Any
 
 from loguru import logger
 
-from ..parsers.base import ParsedDocument, DocumentParser
+from ..parsers.base import DocumentParser
 from ..parsers.file_detector import detect_file_type
 from ..parsers.progress import ProgressTracker, create_progress_tracker
-from .aggregator import MetadataAggregator, DocumentMetadata
+from .aggregator import DocumentMetadata, MetadataAggregator
 from .exceptions import BatchProcessingError
 
 
@@ -32,7 +33,7 @@ class BatchConfig:
         continue_on_error: bool = True,
         progress_reporting: bool = True,
         parallel_processing: bool = True,
-        max_memory_usage_mb: Optional[int] = None,
+        max_memory_usage_mb: int | None = None,
         retry_failed: bool = True,
         max_retries: int = 2,
     ):
@@ -66,9 +67,9 @@ class BatchResult:
 
     def __init__(
         self,
-        successful_documents: List[DocumentMetadata],
-        failed_documents: List[Tuple[str, str]],  # (file_path, error_message)
-        processing_stats: Dict[str, Any],
+        successful_documents: list[DocumentMetadata],
+        failed_documents: list[tuple[str, str]],  # (file_path, error_message)
+        processing_stats: dict[str, Any],
     ):
         """
         Initialize batch result.
@@ -116,8 +117,8 @@ class BatchProcessor:
 
     def __init__(
         self,
-        metadata_aggregator: Optional[MetadataAggregator] = None,
-        config: Optional[BatchConfig] = None,
+        metadata_aggregator: MetadataAggregator | None = None,
+        config: BatchConfig | None = None,
     ):
         """
         Initialize batch processor.
@@ -128,22 +129,22 @@ class BatchProcessor:
         """
         self.metadata_aggregator = metadata_aggregator or MetadataAggregator()
         self.config = config or BatchConfig()
-        self._parsers: Dict[str, DocumentParser] = {}
+        self._parsers: dict[str, DocumentParser] = {}
         self._load_parsers()
 
     def _load_parsers(self) -> None:
         """Load available document parsers."""
         try:
             # Import parsers dynamically to avoid circular imports
-            from ..parsers.pdf_parser import PDFParser
-            from ..parsers.epub_parser import EPUBParser
-            from ..parsers.mobi_parser import MOBIParser
-            from ..parsers.web_parser import WebParser
-            from ..parsers.text_parser import TextParser
-            from ..parsers.markdown_parser import MarkdownParser
-            from ..parsers.html_parser import HTMLParser
             from ..parsers.docx_parser import DOCXParser
+            from ..parsers.epub_parser import EPUBParser
+            from ..parsers.html_parser import HTMLParser
+            from ..parsers.markdown_parser import MarkdownParser
+            from ..parsers.mobi_parser import MOBIParser
+            from ..parsers.pdf_parser import PDFParser
             from ..parsers.pptx_parser import PPTXParser
+            from ..parsers.text_parser import TextParser
+            from ..parsers.web_parser import WebParser
 
             # Register parsers
             parsers = [
@@ -169,10 +170,10 @@ class BatchProcessor:
 
     async def process_documents(
         self,
-        file_paths: List[Union[str, Path]],
-        project_name: Optional[str] = None,
+        file_paths: list[str | Path],
+        project_name: str | None = None,
         collection_type: str = "documents",
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> BatchResult:
         """
         Process multiple documents in batches.
@@ -279,11 +280,11 @@ class BatchProcessor:
 
     async def _process_batch(
         self,
-        file_paths: List[Path],
-        project_name: Optional[str],
+        file_paths: list[Path],
+        project_name: str | None,
         collection_type: str,
-        progress_tracker: Optional[ProgressTracker],
-    ) -> Tuple[List[DocumentMetadata], List[Tuple[str, str]]]:
+        progress_tracker: ProgressTracker | None,
+    ) -> tuple[list[DocumentMetadata], list[tuple[str, str]]]:
         """
         Process a single batch of documents.
 
@@ -355,9 +356,9 @@ class BatchProcessor:
     def _process_single_document(
         self,
         file_path: Path,
-        project_name: Optional[str],
+        project_name: str | None,
         collection_type: str,
-    ) -> Optional[DocumentMetadata]:
+    ) -> DocumentMetadata | None:
         """
         Process a single document.
 
@@ -404,7 +405,7 @@ class BatchProcessor:
             logger.error(f"Failed to process document {file_path}: {e}")
             raise
 
-    def _get_parser_for_file(self, file_path: Path) -> Optional[DocumentParser]:
+    def _get_parser_for_file(self, file_path: Path) -> DocumentParser | None:
         """
         Get appropriate parser for file.
 
@@ -443,7 +444,7 @@ class BatchProcessor:
 
         return None
 
-    def _filter_valid_paths(self, file_paths: List[Union[str, Path]]) -> List[Path]:
+    def _filter_valid_paths(self, file_paths: list[str | Path]) -> list[Path]:
         """
         Filter valid file paths for processing.
 
@@ -480,10 +481,10 @@ class BatchProcessor:
 
     async def _retry_failed_documents(
         self,
-        failed_paths: List[str],
-        project_name: Optional[str],
+        failed_paths: list[str],
+        project_name: str | None,
         collection_type: str,
-    ) -> Tuple[List[DocumentMetadata], List[Tuple[str, str]]]:
+    ) -> tuple[list[DocumentMetadata], list[tuple[str, str]]]:
         """
         Retry processing failed documents.
 
@@ -546,7 +547,7 @@ class BatchProcessor:
         except Exception as e:
             logger.warning(f"Memory check failed: {e}")
 
-    def get_processing_statistics(self) -> Dict[str, Any]:
+    def get_processing_statistics(self) -> dict[str, Any]:
         """
         Get current processing statistics.
 

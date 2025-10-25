@@ -1,25 +1,21 @@
 """Unit tests for analytics collector system."""
 
-import pytest
+import os
+import sys
 import tempfile
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
 
-import sys
-import os
+import pytest
 
 # Add docs framework to path for testing
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../docs/framework'))
 
-from analytics.collector import (
-    AnalyticsCollector,
-    EventType,
-    TrackingConfig
-)
-from analytics.storage import AnalyticsStorage, AnalyticsEvent
+from analytics.collector import AnalyticsCollector, EventType, TrackingConfig
+from analytics.storage import AnalyticsEvent, AnalyticsStorage
 
 
 class TestTrackingConfig:

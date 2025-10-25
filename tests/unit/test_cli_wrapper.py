@@ -12,9 +12,10 @@ Test coverage:
 
 import os
 import sys
-import pytest
-from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
 
 # Add the project root to sys.path for imports
 project_root = Path(__file__).parent.parent.parent
@@ -65,6 +66,7 @@ class TestCLIWrapper:
 
         # Import wrapper module - should not override existing values
         import importlib
+
         import wqm_cli.cli_wrapper
         importlib.reload(wqm_cli.cli_wrapper)
 
@@ -158,6 +160,7 @@ class TestCLIWrapper:
     def test_logging_import_and_usage(self, mock_logger):
         """Test that loguru logger is imported and available."""
         import importlib
+
         import wqm_cli.cli_wrapper
         importlib.reload(wqm_cli.cli_wrapper)
 
@@ -188,6 +191,7 @@ class TestCLIWrapperIntegration:
 
         # Import wrapper which sets WQM_LOG_INIT=false
         import importlib
+
         import wqm_cli.cli_wrapper
         importlib.reload(wqm_cli.cli_wrapper)
 
@@ -203,6 +207,7 @@ class TestCLIWrapperIntegration:
 
         # Import wrapper which should set environment variables
         import importlib
+
         import wqm_cli.cli_wrapper
         importlib.reload(wqm_cli.cli_wrapper)
 
@@ -221,6 +226,7 @@ class TestCLIWrapperErrorScenarios:
             # Import should fail if setup_logging fails
             with pytest.raises(ImportError):
                 import importlib
+
                 import wqm_cli.cli_wrapper
                 importlib.reload(wqm_cli.cli_wrapper)
 
@@ -243,6 +249,7 @@ class TestCLIWrapperErrorScenarios:
 
         # Import should still work and set defaults
         import importlib
+
         import wqm_cli.cli_wrapper
         importlib.reload(wqm_cli.cli_wrapper)
 
@@ -259,6 +266,7 @@ class TestCLIWrapperErrorScenarios:
 
         # Import wrapper
         import importlib
+
         import wqm_cli.cli_wrapper
         importlib.reload(wqm_cli.cli_wrapper)
 

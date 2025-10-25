@@ -20,12 +20,13 @@ Focus on:
 - Return value structure validation
 """
 
-import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
-from typing import Dict, Any, List
-import sys
 import os
+import sys
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 # Add the source directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/python'))
@@ -120,7 +121,7 @@ class TestMCPToolBasicFunction:
         # Verify result structure
         assert isinstance(result, dict)
         assert "connected" in result
-        assert result["connected"] == True
+        assert result["connected"]
         assert "current_project" in result
         assert result["current_project"] == "test-project"
 
@@ -207,7 +208,7 @@ class TestMCPToolBasicFunction:
 
         # Verify result structure
         assert isinstance(result, dict)
-        assert result.get("success") == True
+        assert result.get("success")
 
     @pytest.mark.asyncio
     async def test_add_document_tool_basic(self):
@@ -233,7 +234,7 @@ class TestMCPToolBasicFunction:
 
         # Verify result structure
         assert isinstance(result, dict)
-        assert result.get("success") == True or "document_id" in result
+        assert result.get("success") or "document_id" in result
 
     @pytest.mark.asyncio
     async def test_update_scratchbook_tool_basic(self):
@@ -257,7 +258,7 @@ class TestMCPToolBasicFunction:
 
         # Verify result structure
         assert isinstance(result, dict)
-        assert result.get("success") == True or "note_id" in result
+        assert result.get("success") or "note_id" in result
 
 
 class TestParameterValidation:
@@ -403,7 +404,7 @@ class TestIntegrationPoints:
             # First tool should succeed
             result1 = await server_module.workspace_status()
             assert isinstance(result1, dict)
-            assert result1.get("connected") == True
+            assert result1.get("connected")
 
             # Second tool should fail gracefully
             result2 = await server_module.search_workspace_tool(query="test")

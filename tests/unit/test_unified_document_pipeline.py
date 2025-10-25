@@ -20,23 +20,24 @@ Test Coverage Goals:
 import asyncio
 import gc
 import hashlib
-import pytest
+import sys
 import tempfile
-from pathlib import Path
-from unittest.mock import Mock, AsyncMock, MagicMock, patch, call
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
-import sys
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 from common.core.unified_document_pipeline import (
-    UnifiedDocumentPipeline,
-    ProcessingResult,
-    PipelineStats,
-    detect_file_type,
     ParsingError,
-    UnsupportedFileFormatError
+    PipelineStats,
+    ProcessingResult,
+    UnifiedDocumentPipeline,
+    UnsupportedFileFormatError,
+    detect_file_type,
 )
 
 

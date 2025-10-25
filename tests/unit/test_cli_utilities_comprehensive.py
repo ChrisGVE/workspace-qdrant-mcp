@@ -12,14 +12,15 @@ Tests all CLI utility modules for 100% coverage, including:
 """
 
 import asyncio
+import json
 import os
-import pytest
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
-import json
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 
 # Add src paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
@@ -36,8 +37,8 @@ except ImportError as e:
     print(f"Warning: wqm_cli.cli.ingestion_engine not available: {e}")
 
 try:
-    from wqm_cli.cli.health import HealthChecker
     from wqm_cli.cli.diagnostics import DiagnosticsCollector
+    from wqm_cli.cli.health import HealthChecker
     HEALTH_DIAGNOSTICS_AVAILABLE = True
 except ImportError as e:
     HEALTH_DIAGNOSTICS_AVAILABLE = False
@@ -59,7 +60,9 @@ except ImportError as e:
 
 try:
     from wqm_cli.cli.formatting import (
-        format_search_results, format_collection_info, format_status_table
+        format_collection_info,
+        format_search_results,
+        format_status_table,
     )
     FORMATTING_AVAILABLE = True
 except ImportError as e:
@@ -82,8 +85,12 @@ except ImportError as e:
 
 try:
     from wqm_cli.cli.utils import (
-        get_configured_client, handle_async, create_command_app,
-        success_message, error_message, warning_message
+        create_command_app,
+        error_message,
+        get_configured_client,
+        handle_async,
+        success_message,
+        warning_message,
     )
     CLI_UTILS_AVAILABLE = True
 except ImportError as e:
@@ -377,7 +384,7 @@ class TestObservability:
         """Test performance tracking"""
         manager = ObservabilityManager()
 
-        async with manager.track_performance("test_operation") as tracker:
+        async with manager.track_performance("test_operation"):
             # Simulate some work
             await asyncio.sleep(0.01)
 

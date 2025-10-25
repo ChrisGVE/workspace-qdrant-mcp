@@ -310,7 +310,7 @@ class CodeFileGenerator(BaseGenerator):
 
         # Standard imports
         import_lines = [
-            "from typing import Any, Optional, List, Dict",
+            "from typing import Any, Optional, Dict",
             "from dataclasses import dataclass, field",
             "import json",
             "from pathlib import Path",
@@ -327,7 +327,7 @@ class CodeFileGenerator(BaseGenerator):
         lines.append("\n")
 
         # Generate classes
-        for i in range(num_classes):
+        for _i in range(num_classes):
             class_name = f"{self._random_string(8, string.ascii_uppercase[:10]).capitalize()}Handler"
             symbols.append(class_name)
 
@@ -340,7 +340,7 @@ class CodeFileGenerator(BaseGenerator):
             lines.append("\n")
 
         # Generate standalone functions
-        for i in range(num_functions):
+        for _i in range(num_functions):
             func_name = f"process_{self._random_string(6, string.ascii_lowercase)}"
             symbols.append(func_name)
 
@@ -389,7 +389,7 @@ class CodeFileGenerator(BaseGenerator):
         lines.append("\n")
 
         # Generate functions
-        for i in range(num_functions):
+        for _i in range(num_functions):
             func_name = f"handle{self._random_string(6, string.ascii_uppercase[:10]).capitalize()}"
             symbols.append(func_name)
 
@@ -398,8 +398,8 @@ class CodeFileGenerator(BaseGenerator):
             else:
                 lines.append(f"export function {func_name}(data) {{")
 
-            lines.append(f"  const result = processData(data);")
-            lines.append(f"  return result;")
+            lines.append("  const result = processData(data);")
+            lines.append("  return result;")
             lines.append("}\n")
 
         content = "\n".join(lines)
@@ -430,7 +430,7 @@ class CodeFileGenerator(BaseGenerator):
         lines.append("\n")
 
         # Generate structs
-        for i in range(num_structs):
+        for _i in range(num_structs):
             struct_name = f"{self._random_string(6, string.ascii_uppercase[:10]).capitalize()}Data"
             symbols.append(struct_name)
 
@@ -442,7 +442,7 @@ class CodeFileGenerator(BaseGenerator):
             lines.append("}\n")
 
         # Generate functions
-        for i in range(num_functions):
+        for _i in range(num_functions):
             func_name = f"process_{self._random_string(6, string.ascii_lowercase)}"
             symbols.append(func_name)
 
@@ -491,7 +491,7 @@ class CodeFileGenerator(BaseGenerator):
         # Additional methods based on complexity
         num_methods = {"simple": 1, "moderate": 3, "complex": 5}[complexity]
 
-        for i in range(num_methods):
+        for _i in range(num_methods):
             method_name = f"process_{self._random_string(6, string.ascii_lowercase)}"
             lines.append(f"    def {method_name}(self, input_data: Any) -> Optional[Dict[str, Any]]:")
             if include_docstrings:
@@ -521,7 +521,7 @@ class CodeFileGenerator(BaseGenerator):
             if self.faker:
                 lines.append(f"    {self.faker.sentence()}")
             else:
-                lines.append(f"    Process data and return results.")
+                lines.append("    Process data and return results.")
             lines.append('    """')
 
         lines.append("    results = []")
@@ -785,7 +785,7 @@ class ProjectStructureGenerator(BaseGenerator):
 
     def _create_javascript_files(self, project_path: Path, count: int):
         """Create JavaScript source files."""
-        for i in range(count):
+        for _i in range(count):
             code_file = self.code_gen.generate_javascript_module(
                 num_functions=self.random.randint(3, 6)
             )
@@ -795,7 +795,7 @@ class ProjectStructureGenerator(BaseGenerator):
 
     def _create_documentation_files(self, project_path: Path, count: int):
         """Create documentation files."""
-        for i in range(count):
+        for _i in range(count):
             doc = self.doc_gen.generate_document(size="small", doc_type="documentation")
             (project_path / "docs" / doc.filename).write_text(doc.content)
 

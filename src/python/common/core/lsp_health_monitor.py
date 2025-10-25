@@ -20,36 +20,29 @@ Features:
 """
 
 import asyncio
-import json
-from loguru import logger
-import os
 import time
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
 from enum import Enum
-from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 from weakref import WeakSet
 
+from loguru import logger
 
-from .error_handling import WorkspaceError, ErrorCategory, ErrorSeverity
 from .lsp_client import (
     AsyncioLspClient,
-    ConnectionState,
     CircuitBreakerState,
     LspError,
-    LspTimeoutError,
-    ServerCapabilities,
 )
-from .priority_queue_manager import PriorityQueueManager, MCPActivityLevel
+from .priority_queue_manager import PriorityQueueManager
 
 # logger imported from loguru
 
 
 class HealthStatus(Enum):
     """LSP server health status indicators"""
-    
+
     HEALTHY = "healthy"           # Server is working normally
     DEGRADED = "degraded"         # Server has issues but is functional
     UNHEALTHY = "unhealthy"       # Server has significant problems
@@ -60,7 +53,7 @@ class HealthStatus(Enum):
 
 class RecoveryStrategy(Enum):
     """Recovery strategies for failed LSP servers"""
-    
+
     IMMEDIATE = "immediate"       # Attempt immediate reconnection
     BACKOFF = "backoff"          # Use progressive backoff
     CIRCUIT_BREAKER = "circuit_breaker"  # Use circuit breaker pattern
@@ -70,7 +63,7 @@ class RecoveryStrategy(Enum):
 
 class NotificationLevel(Enum):
     """Notification levels for user communication"""
-    
+
     INFO = "info"               # Informational notifications
     WARNING = "warning"         # Warning notifications
     ERROR = "error"            # Error notifications
@@ -80,26 +73,26 @@ class NotificationLevel(Enum):
 @dataclass
 class HealthCheckConfig:
     """Configuration for health check behavior"""
-    
+
     # Health check intervals
     check_interval: float = 30.0            # Regular health check interval
     fast_check_interval: float = 5.0        # Fast check when issues detected
     capability_check_interval: float = 300.0  # Capability validation interval
-    
+
     # Timeout settings
     health_check_timeout: float = 10.0      # Health check request timeout
     recovery_timeout: float = 60.0          # Recovery attempt timeout
-    
+
     # Failure thresholds
     consecutive_failures_threshold: int = 3  # Failures before marking unhealthy
     recovery_success_threshold: int = 2      # Successes needed to mark healthy
-    
+
     # Recovery settings
     max_recovery_attempts: int = 5          # Maximum recovery attempts
     base_backoff_delay: float = 1.0        # Base delay for backoff
     max_backoff_delay: float = 300.0       # Maximum backoff delay
     backoff_multiplier: float = 2.0        # Backoff multiplier
-    
+
     # Feature flags
     enable_capability_validation: bool = True
     enable_auto_recovery: bool = True
@@ -110,15 +103,15 @@ class HealthCheckConfig:
 @dataclass
 class HealthCheckResult:
     """Result of a health check operation"""
-    
+
     timestamp: float
     status: HealthStatus
     response_time_ms: float
     capabilities_valid: bool = True
-    error_message: Optional[str] = None
-    error_details: Optional[Dict[str, Any]] = None
-    
-    def to_dict(self) -> Dict[str, Any]:
+    error_message: str | None = None
+    error_details: dict[str, Any] | None = None
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for logging and storage"""
         return {
             "timestamp": self.timestamp,
@@ -133,10 +126,10 @@ class HealthCheckResult:
 @dataclass
 class ServerHealthInfo:
     """Health information for an LSP server"""
-    
+
     server_name: str
     client: AsyncioLspClient
-    last_check: Optional[HealthCheckResult] = None
+    last_check: HealthCheckResult | None = None
     consecutive_failures: int = 0
     consecutive_successes: int = 0
     total_checks: int = 0
@@ -144,34 +137,34 @@ class ServerHealthInfo:
     last_recovery_attempt: float = 0.0
     recovery_attempts: int = 0
     current_backoff_delay: float = 1.0
-    
+
     # Capability tracking
     last_capabilities_check: float = 0.0
     capabilities_valid: bool = True
-    supported_features: Set[str] = field(default_factory=set)
-    
+    supported_features: set[str] = field(default_factory=set)
+
     # Statistics
     average_response_time: float = 0.0
     uptime_percentage: float = 100.0
-    health_history: List[HealthCheckResult] = field(default_factory=list)
-    
+    health_history: list[HealthCheckResult] = field(default_factory=list)
+
     @property
     def current_status(self) -> HealthStatus:
         """Get current health status"""
         if self.last_check is None:
             return HealthStatus.UNKNOWN
         return self.last_check.status
-    
+
     @property
     def is_healthy(self) -> bool:
         """Check if server is considered healthy"""
         return self.current_status in (HealthStatus.HEALTHY, HealthStatus.DEGRADED)
-    
+
     def add_check_result(self, result: HealthCheckResult) -> None:
         """Add a health check result and update statistics"""
         self.last_check = result
         self.total_checks += 1
-        
+
         # Update consecutive counters
         if result.status == HealthStatus.HEALTHY:
             self.consecutive_successes += 1
@@ -180,7 +173,7 @@ class ServerHealthInfo:
             self.consecutive_failures += 1
             self.consecutive_successes = 0
             self.total_failures += 1
-        
+
         # Update response time average
         if self.average_response_time == 0.0:
             self.average_response_time = result.response_time_ms
@@ -189,10 +182,10 @@ class ServerHealthInfo:
                 (self.average_response_time * (self.total_checks - 1) + result.response_time_ms)
                 / self.total_checks
             )
-        
+
         # Update uptime percentage
         self.uptime_percentage = ((self.total_checks - self.total_failures) / self.total_checks) * 100
-        
+
         # Maintain health history (keep last 100 results)
         self.health_history.append(result)
         if len(self.health_history) > 100:
@@ -202,16 +195,16 @@ class ServerHealthInfo:
 @dataclass
 class UserNotification:
     """User notification for LSP health issues"""
-    
+
     timestamp: float
     level: NotificationLevel
     title: str
     message: str
     server_name: str
-    troubleshooting_steps: List[str] = field(default_factory=list)
+    troubleshooting_steps: list[str] = field(default_factory=list)
     auto_recovery_attempted: bool = False
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for external systems"""
         return {
             "timestamp": self.timestamp,
@@ -227,7 +220,7 @@ class UserNotification:
 class LspHealthMonitor:
     """
     Comprehensive LSP server health monitoring and recovery system.
-    
+
     This monitor provides:
     - Periodic health checks with configurable intervals
     - Automatic recovery with progressive backoff
@@ -235,40 +228,40 @@ class LspHealthMonitor:
     - User notifications with troubleshooting guidance
     - Capability detection and graceful degradation
     """
-    
+
     def __init__(
         self,
-        config: Optional[HealthCheckConfig] = None,
-        priority_queue_manager: Optional[PriorityQueueManager] = None,
+        config: HealthCheckConfig | None = None,
+        priority_queue_manager: PriorityQueueManager | None = None,
     ):
         self._config = config or HealthCheckConfig()
         self._priority_queue_manager = priority_queue_manager
-        
+
         # Server tracking
-        self._servers: Dict[str, ServerHealthInfo] = {}
-        self._monitoring_tasks: Dict[str, asyncio.Task] = {}
+        self._servers: dict[str, ServerHealthInfo] = {}
+        self._monitoring_tasks: dict[str, asyncio.Task] = {}
         self._shutdown_event = asyncio.Event()
-        
+
         # Notification handlers
         self._notification_handlers: WeakSet[Callable[[UserNotification], None]] = WeakSet()
-        
+
         # Fallback capabilities
-        self._fallback_modes: Dict[str, bool] = {}
-        self._degraded_features: Set[str] = set()
-        
+        self._fallback_modes: dict[str, bool] = {}
+        self._degraded_features: set[str] = set()
+
         # Statistics
         self._start_time = time.time()
         self._total_notifications_sent = 0
         self._successful_recoveries = 0
         self._failed_recoveries = 0
-        
+
         logger.info(
             "LSP health monitor initialized",
             check_interval=self._config.check_interval,
             auto_recovery=self._config.enable_auto_recovery,
             fallback_mode=self._config.enable_fallback_mode,
         )
-    
+
     def register_server(
         self,
         server_name: str,
@@ -277,7 +270,7 @@ class LspHealthMonitor:
     ) -> None:
         """
         Register an LSP server for health monitoring.
-        
+
         Args:
             server_name: Unique name for the server
             client: AsyncioLspClient instance
@@ -288,28 +281,28 @@ class LspHealthMonitor:
                 "LSP server already registered, updating",
                 server_name=server_name,
             )
-        
+
         server_info = ServerHealthInfo(
             server_name=server_name,
             client=client,
         )
-        
+
         self._servers[server_name] = server_info
         self._fallback_modes[server_name] = False
-        
+
         logger.info(
             "LSP server registered for health monitoring",
             server_name=server_name,
             auto_start=auto_start_monitoring,
         )
-        
+
         if auto_start_monitoring:
             self.start_monitoring(server_name)
-    
+
     def unregister_server(self, server_name: str) -> None:
         """
         Unregister an LSP server from health monitoring.
-        
+
         Args:
             server_name: Name of the server to unregister
         """
@@ -317,42 +310,42 @@ class LspHealthMonitor:
         if server_name in self._monitoring_tasks:
             self._monitoring_tasks[server_name].cancel()
             del self._monitoring_tasks[server_name]
-        
+
         # Remove server info
         if server_name in self._servers:
             del self._servers[server_name]
-        
+
         if server_name in self._fallback_modes:
             del self._fallback_modes[server_name]
-        
+
         logger.info("LSP server unregistered", server_name=server_name)
-    
+
     def start_monitoring(self, server_name: str) -> None:
         """
         Start health monitoring for a specific server.
-        
+
         Args:
             server_name: Name of the server to monitor
         """
         if server_name not in self._servers:
             raise ValueError(f"Server '{server_name}' not registered")
-        
+
         if server_name in self._monitoring_tasks:
             logger.warning("Monitoring already started", server_name=server_name)
             return
-        
+
         task = asyncio.create_task(
             self._monitoring_loop(server_name),
             name=f"lsp_monitor_{server_name}",
         )
         self._monitoring_tasks[server_name] = task
-        
+
         logger.info("Started LSP health monitoring", server_name=server_name)
-    
+
     def stop_monitoring(self, server_name: str) -> None:
         """
         Stop health monitoring for a specific server.
-        
+
         Args:
             server_name: Name of the server to stop monitoring
         """
@@ -360,38 +353,38 @@ class LspHealthMonitor:
             self._monitoring_tasks[server_name].cancel()
             del self._monitoring_tasks[server_name]
             logger.info("Stopped LSP health monitoring", server_name=server_name)
-    
+
     async def shutdown(self) -> None:
         """Shutdown the health monitor and all monitoring tasks"""
         logger.info("Shutting down LSP health monitor")
-        
+
         self._shutdown_event.set()
-        
+
         # Cancel all monitoring tasks
         tasks = list(self._monitoring_tasks.values())
         for task in tasks:
             task.cancel()
-        
+
         # Wait for tasks to complete
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         self._monitoring_tasks.clear()
         logger.info("LSP health monitor shutdown complete")
-    
+
     def register_notification_handler(
         self,
         handler: Callable[[UserNotification], None],
     ) -> None:
         """
         Register a handler for user notifications.
-        
+
         Args:
             handler: Function to handle notifications
         """
         self._notification_handlers.add(handler)
         logger.debug("Notification handler registered")
-    
+
     async def perform_health_check(
         self,
         server_name: str,
@@ -399,21 +392,21 @@ class LspHealthMonitor:
     ) -> HealthCheckResult:
         """
         Perform a health check on a specific LSP server.
-        
+
         Args:
             server_name: Name of the server to check
             include_capabilities: Whether to validate capabilities
-            
+
         Returns:
             HealthCheckResult with check details
         """
         if server_name not in self._servers:
             raise ValueError(f"Server '{server_name}' not registered")
-        
+
         server_info = self._servers[server_name]
         client = server_info.client
         start_time = time.time()
-        
+
         try:
             # Check connection state first
             if not client.is_connected():
@@ -424,7 +417,7 @@ class LspHealthMonitor:
                     capabilities_valid=False,
                     error_message="LSP client not connected",
                 )
-            
+
             # Check circuit breaker state
             if client.is_circuit_open:
                 return HealthCheckResult(
@@ -434,7 +427,7 @@ class LspHealthMonitor:
                     capabilities_valid=False,
                     error_message="LSP client circuit breaker is open",
                 )
-            
+
             # Perform a lightweight health check using workspace/symbol
             # This is a good test as it exercises the server without being too heavy
             try:
@@ -443,12 +436,12 @@ class LspHealthMonitor:
                     timeout=self._config.health_check_timeout,
                 )
                 response_time = (time.time() - start_time) * 1000  # Convert to ms
-                
+
                 # Validate capabilities if requested
                 capabilities_valid = True
                 if include_capabilities:
                     capabilities_valid = await self._validate_capabilities(server_name)
-                
+
                 # Determine status based on response time and capabilities
                 if response_time > 5000:  # 5 seconds is very slow
                     status = HealthStatus.DEGRADED
@@ -456,14 +449,14 @@ class LspHealthMonitor:
                     status = HealthStatus.DEGRADED
                 else:
                     status = HealthStatus.HEALTHY
-                
+
                 return HealthCheckResult(
                     timestamp=start_time,
                     status=status,
                     response_time_ms=response_time,
                     capabilities_valid=capabilities_valid,
                 )
-                
+
             except asyncio.TimeoutError:
                 return HealthCheckResult(
                     timestamp=start_time,
@@ -472,7 +465,7 @@ class LspHealthMonitor:
                     capabilities_valid=False,
                     error_message="Health check timed out",
                 )
-            
+
         except LspError as e:
             response_time = (time.time() - start_time) * 1000
             return HealthCheckResult(
@@ -483,7 +476,7 @@ class LspHealthMonitor:
                 error_message=str(e),
                 error_details={"category": e.category.value, "retryable": e.retryable},
             )
-        
+
         except Exception as e:
             response_time = (time.time() - start_time) * 1000
             return HealthCheckResult(
@@ -494,26 +487,26 @@ class LspHealthMonitor:
                 error_message=f"Unexpected error during health check: {e}",
                 error_details={"exception_type": type(e).__name__},
             )
-    
+
     async def _validate_capabilities(self, server_name: str) -> bool:
         """
         Validate that the LSP server capabilities are as expected.
-        
+
         Args:
             server_name: Name of the server to validate
-            
+
         Returns:
             True if capabilities are valid, False otherwise
         """
         server_info = self._servers[server_name]
         client = server_info.client
-        
+
         if not client.server_capabilities:
             return False
-        
+
         try:
             capabilities = client.server_capabilities
-            
+
             # Check essential capabilities
             essential_features = {
                 "hover": capabilities.supports_hover(),
@@ -522,21 +515,21 @@ class LspHealthMonitor:
                 "document_symbol": capabilities.supports_document_symbol(),
                 "workspace_symbol": capabilities.supports_workspace_symbol(),
             }
-            
+
             # Update supported features
             server_info.supported_features = {
-                feature for feature, supported in essential_features.items() 
+                feature for feature, supported in essential_features.items()
                 if supported
             }
-            
+
             # At least hover and definition should be supported for basic functionality
             basic_functionality = essential_features["hover"] or essential_features["definition"]
-            
+
             server_info.last_capabilities_check = time.time()
             server_info.capabilities_valid = basic_functionality
-            
+
             return basic_functionality
-            
+
         except Exception as e:
             logger.warning(
                 "Capability validation failed",
@@ -544,27 +537,27 @@ class LspHealthMonitor:
                 error=str(e),
             )
             return False
-    
+
     async def attempt_recovery(
         self,
         server_name: str,
-        strategy: Optional[RecoveryStrategy] = None,
+        strategy: RecoveryStrategy | None = None,
     ) -> bool:
         """
         Attempt to recover a failed LSP server.
-        
+
         Args:
             server_name: Name of the server to recover
             strategy: Recovery strategy to use (auto-selected if None)
-            
+
         Returns:
             True if recovery was successful, False otherwise
         """
         if server_name not in self._servers:
             raise ValueError(f"Server '{server_name}' not registered")
-        
+
         server_info = self._servers[server_name]
-        
+
         # Don't attempt recovery if auto-recovery is disabled
         if not self._config.enable_auto_recovery:
             logger.info(
@@ -572,7 +565,7 @@ class LspHealthMonitor:
                 server_name=server_name,
             )
             return False
-        
+
         # Check if we've exceeded max recovery attempts
         if server_info.recovery_attempts >= self._config.max_recovery_attempts:
             logger.warning(
@@ -582,24 +575,24 @@ class LspHealthMonitor:
             )
             await self._enable_fallback_mode(server_name)
             return False
-        
+
         # Determine recovery strategy
         if strategy is None:
             strategy = self._determine_recovery_strategy(server_name)
-        
+
         logger.info(
             "Attempting LSP server recovery",
             server_name=server_name,
             strategy=strategy.value,
             attempt=server_info.recovery_attempts + 1,
         )
-        
+
         server_info.recovery_attempts += 1
         server_info.last_recovery_attempt = time.time()
-        
+
         try:
             success = False
-            
+
             if strategy == RecoveryStrategy.IMMEDIATE:
                 success = await self._immediate_recovery(server_name)
             elif strategy == RecoveryStrategy.BACKOFF:
@@ -608,12 +601,12 @@ class LspHealthMonitor:
                 success = await self._circuit_breaker_recovery(server_name)
             elif strategy == RecoveryStrategy.FALLBACK:
                 success = await self._enable_fallback_mode(server_name)
-            
+
             if success:
                 self._successful_recoveries += 1
                 server_info.recovery_attempts = 0
                 server_info.current_backoff_delay = self._config.base_backoff_delay
-                
+
                 # Send success notification
                 await self._send_notification(UserNotification(
                     timestamp=time.time(),
@@ -623,7 +616,7 @@ class LspHealthMonitor:
                     server_name=server_name,
                     auto_recovery_attempted=True,
                 ))
-                
+
                 logger.info(
                     "LSP server recovery successful",
                     server_name=server_name,
@@ -631,22 +624,22 @@ class LspHealthMonitor:
                 )
             else:
                 self._failed_recoveries += 1
-                
+
                 # Calculate next backoff delay
                 server_info.current_backoff_delay = min(
                     server_info.current_backoff_delay * self._config.backoff_multiplier,
                     self._config.max_backoff_delay,
                 )
-                
+
                 logger.warning(
                     "LSP server recovery failed",
                     server_name=server_name,
                     strategy=strategy.value,
                     next_backoff=server_info.current_backoff_delay,
                 )
-            
+
             return success
-            
+
         except Exception as e:
             self._failed_recoveries += 1
             logger.error(
@@ -656,56 +649,56 @@ class LspHealthMonitor:
                 error=str(e),
             )
             return False
-    
+
     def _determine_recovery_strategy(self, server_name: str) -> RecoveryStrategy:
         """
         Determine the best recovery strategy for a server based on its state.
-        
+
         Args:
             server_name: Name of the server
-            
+
         Returns:
             Recommended recovery strategy
         """
         server_info = self._servers[server_name]
         client = server_info.client
-        
+
         # If circuit breaker is open, use circuit breaker recovery
         if client.is_circuit_open:
             return RecoveryStrategy.CIRCUIT_BREAKER
-        
+
         # If we've had multiple failures, use backoff
         if server_info.consecutive_failures >= 3:
             return RecoveryStrategy.BACKOFF
-        
+
         # If this is the first recovery attempt, try immediate
         if server_info.recovery_attempts == 0:
             return RecoveryStrategy.IMMEDIATE
-        
+
         # Default to backoff for subsequent attempts
         return RecoveryStrategy.BACKOFF
-    
+
     async def _immediate_recovery(self, server_name: str) -> bool:
         """
         Attempt immediate recovery by reconnecting the LSP server.
-        
+
         Args:
             server_name: Name of the server to recover
-            
+
         Returns:
             True if recovery was successful
         """
         server_info = self._servers[server_name]
         client = server_info.client
-        
+
         try:
             # Disconnect if still connected
             if client.is_connected():
                 await client.disconnect()
-            
+
             # Wait a moment before reconnecting
             await asyncio.sleep(1.0)
-            
+
             # Attempt to reconnect using the last known connection method
             # This is a simplified approach - in practice, you'd need to store
             # the connection parameters and use the appropriate method
@@ -716,14 +709,14 @@ class LspHealthMonitor:
                     server_name=server_name,
                 )
                 return False
-            
+
             # For TCP connections, attempt reconnection
             # This is simplified - you'd need actual host/port info
             # await client.connect_tcp()
-            
+
             # For now, return False as we need more connection info
             return False
-            
+
         except Exception as e:
             logger.error(
                 "Immediate recovery failed",
@@ -731,90 +724,90 @@ class LspHealthMonitor:
                 error=str(e),
             )
             return False
-    
+
     async def _backoff_recovery(self, server_name: str) -> bool:
         """
         Attempt recovery with progressive backoff delay.
-        
+
         Args:
             server_name: Name of the server to recover
-            
+
         Returns:
             True if recovery was successful
         """
         server_info = self._servers[server_name]
-        
+
         # Wait for backoff delay
         logger.info(
             "Waiting for backoff delay before recovery",
             server_name=server_name,
             delay=server_info.current_backoff_delay,
         )
-        
+
         await asyncio.sleep(server_info.current_backoff_delay)
-        
+
         # Then attempt immediate recovery
         return await self._immediate_recovery(server_name)
-    
+
     async def _circuit_breaker_recovery(self, server_name: str) -> bool:
         """
         Attempt recovery by waiting for circuit breaker to transition to half-open.
-        
+
         Args:
             server_name: Name of the server to recover
-            
+
         Returns:
             True if recovery was successful
         """
         server_info = self._servers[server_name]
         client = server_info.client
-        
+
         # Wait for circuit breaker timeout
         # The client will automatically transition to half-open
         max_wait = self._config.recovery_timeout
         start_time = time.time()
-        
+
         while time.time() - start_time < max_wait:
             if client.circuit_breaker_state != CircuitBreakerState.OPEN:
                 # Circuit breaker is no longer open, attempt a health check
                 result = await self.perform_health_check(server_name)
                 return result.status == HealthStatus.HEALTHY
-            
+
             await asyncio.sleep(5.0)  # Check every 5 seconds
-        
+
         logger.warning(
             "Circuit breaker recovery timed out",
             server_name=server_name,
             timeout=max_wait,
         )
         return False
-    
+
     async def _enable_fallback_mode(self, server_name: str) -> bool:
         """
         Enable fallback mode for a server.
-        
+
         Args:
             server_name: Name of the server
-            
+
         Returns:
             Always returns True as fallback is always available
         """
         if not self._config.enable_fallback_mode:
             return False
-        
+
         self._fallback_modes[server_name] = True
-        
+
         # Determine which features to disable
         server_info = self._servers[server_name]
         lost_features = server_info.supported_features.copy()
         self._degraded_features.update(lost_features)
-        
+
         logger.warning(
             "Enabled fallback mode for LSP server",
             server_name=server_name,
             lost_features=list(lost_features),
         )
-        
+
         # Send fallback notification
         await self._send_notification(UserNotification(
             timestamp=time.time(),
@@ -831,26 +824,26 @@ class LspHealthMonitor:
                 "Try restarting the LSP server manually",
             ],
         ))
-        
+
         return True
-    
+
     async def _monitoring_loop(self, server_name: str) -> None:
         """
         Main monitoring loop for a specific LSP server.
-        
+
         Args:
             server_name: Name of the server to monitor
         """
         logger.info("Starting LSP monitoring loop", server_name=server_name)
         server_info = self._servers[server_name]
-        
+
         # Initial capability check
         if self._config.enable_capability_validation:
             await self._validate_capabilities(server_name)
-        
+
         check_interval = self._config.check_interval
         last_capability_check = time.time()
-        
+
         try:
             while not self._shutdown_event.is_set():
                 try:
@@ -859,19 +852,19 @@ class LspHealthMonitor:
                         self._config.enable_capability_validation and
                         time.time() - last_capability_check >= self._config.capability_check_interval
                     )
-                    
+
                     if include_capabilities:
                         last_capability_check = time.time()
-                    
+
                     # Perform health check
                     result = await self.perform_health_check(
                         server_name,
                         include_capabilities=include_capabilities,
                     )
-                    
+
                     # Update server info
                     server_info.add_check_result(result)
-                    
+
                     # Log health status
                     logger.debug(
                         "LSP health check completed",
@@ -880,19 +873,19 @@ class LspHealthMonitor:
                         response_time_ms=result.response_time_ms,
                         capabilities_valid=result.capabilities_valid,
                     )
-                    
+
                     # Handle health status changes
                     await self._handle_health_status_change(server_name, result)
-                    
+
                     # Adjust check interval based on health status
                     if result.status in (HealthStatus.UNHEALTHY, HealthStatus.FAILED):
                         check_interval = self._config.fast_check_interval
                     else:
                         check_interval = self._config.check_interval
-                    
+
                     # Wait for next check
                     await asyncio.sleep(check_interval)
-                    
+
                 except asyncio.CancelledError:
                     break
                 except Exception as e:
@@ -903,12 +896,12 @@ class LspHealthMonitor:
                     )
                     # Use fast check interval after errors
                     await asyncio.sleep(self._config.fast_check_interval)
-                    
+
         except asyncio.CancelledError:
             pass
         finally:
             logger.info("LSP monitoring loop ended", server_name=server_name)
-    
+
     async def _handle_health_status_change(
         self,
         server_name: str,
@@ -916,14 +909,14 @@ class LspHealthMonitor:
     ) -> None:
         """
         Handle health status changes and trigger appropriate actions.
-        
+
         Args:
             server_name: Name of the server
             result: Latest health check result
         """
         server_info = self._servers[server_name]
         current_status = result.status
-        
+
         # Handle unhealthy states
         if current_status in (HealthStatus.UNHEALTHY, HealthStatus.FAILED, HealthStatus.DISCONNECTED):
             # Check if we need to attempt recovery
@@ -938,24 +931,24 @@ class LspHealthMonitor:
                     server_name=server_name,
                     troubleshooting_steps=self._get_troubleshooting_steps(server_name, result),
                 ))
-                
+
                 # Attempt recovery
                 if self._config.enable_auto_recovery:
                     recovery_successful = await self.attempt_recovery(server_name)
                     if not recovery_successful and server_info.recovery_attempts >= self._config.max_recovery_attempts:
                         # Enable fallback mode after max attempts
                         await self._enable_fallback_mode(server_name)
-        
+
         # Handle recovery to healthy state
         elif current_status == HealthStatus.HEALTHY:
             if server_info.consecutive_successes >= self._config.recovery_success_threshold:
                 # Disable fallback mode if it was enabled
                 if self._fallback_modes.get(server_name, False):
                     self._fallback_modes[server_name] = False
-                    
+
                     # Remove degraded features
                     self._degraded_features -= server_info.supported_features
-                    
+
                     # Send recovery notification
                     await self._send_notification(UserNotification(
                         timestamp=time.time(),
@@ -965,11 +958,11 @@ class LspHealthMonitor:
                                f"All features have been restored.",
                         server_name=server_name,
                     ))
-        
+
         # Update priority queue manager if available
         if self._priority_queue_manager:
             await self._update_priority_queue_health(server_name, current_status)
-    
+
     async def _update_priority_queue_health(
         self,
         server_name: str,
@@ -977,7 +970,7 @@ class LspHealthMonitor:
     ) -> None:
         """
         Update priority queue manager with LSP server health information.
-        
+
         Args:
             server_name: Name of the LSP server
             status: Current health status
@@ -985,39 +978,39 @@ class LspHealthMonitor:
         try:
             # Determine MCP activity level based on LSP health
             if status == HealthStatus.HEALTHY:
-                activity_level = MCPActivityLevel.MODERATE
+                pass
             elif status == HealthStatus.DEGRADED:
-                activity_level = MCPActivityLevel.LOW
+                pass
             else:
-                activity_level = MCPActivityLevel.INACTIVE
-            
+                pass
+
             # This would be implemented if PriorityQueueManager had a method to update LSP health
             # await self._priority_queue_manager.update_lsp_health(server_name, status, activity_level)
-            
+
         except Exception as e:
             logger.warning(
                 "Failed to update priority queue with LSP health",
                 server_name=server_name,
                 error=str(e),
             )
-    
+
     def _get_troubleshooting_steps(
         self,
         server_name: str,
         result: HealthCheckResult,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Generate troubleshooting steps based on the health check result.
-        
+
         Args:
             server_name: Name of the server
             result: Health check result
-            
+
         Returns:
             List of troubleshooting steps
         """
         steps = []
-        
+
         if result.status == HealthStatus.DISCONNECTED:
             steps.extend([
                 f"Check if the LSP server '{server_name}' process is running",
@@ -1040,7 +1033,7 @@ class LspHealthMonitor:
                 "Consider updating or reinstalling the LSP server",
                 "Check for conflicts with other language servers",
             ])
-        
+
         # Add capability-specific troubleshooting
         if not result.capabilities_valid:
             steps.extend([
@@ -1048,7 +1041,7 @@ class LspHealthMonitor:
                 "Check server version compatibility",
                 "Review server initialization parameters",
             ])
-        
+
         # Add performance-related troubleshooting
         if result.response_time_ms > 1000:
             steps.extend([
@@ -1057,21 +1050,21 @@ class LspHealthMonitor:
                 "Consider increasing server timeout settings",
                 "Check for I/O bottlenecks in workspace directory",
             ])
-        
+
         return steps
-    
+
     async def _send_notification(self, notification: UserNotification) -> None:
         """
         Send a user notification through all registered handlers.
-        
+
         Args:
             notification: Notification to send
         """
         if not self._config.enable_user_notifications:
             return
-        
+
         self._total_notifications_sent += 1
-        
+
         # Log the notification
         log_level = logging.WARNING if notification.level in (NotificationLevel.WARNING, NotificationLevel.ERROR) else logging.INFO
         logger.log(
@@ -1082,7 +1075,7 @@ class LspHealthMonitor:
             server_name=notification.server_name,
             notification_level=notification.level.value,
         )
-        
+
         # Send to registered handlers
         for handler in list(self._notification_handlers):
             try:
@@ -1096,77 +1089,77 @@ class LspHealthMonitor:
                     handler=str(handler),
                     error=str(e),
                 )
-    
-    def get_server_health(self, server_name: str) -> Optional[ServerHealthInfo]:
+
+    def get_server_health(self, server_name: str) -> ServerHealthInfo | None:
         """
         Get health information for a specific server.
-        
+
         Args:
             server_name: Name of the server
-            
+
         Returns:
             ServerHealthInfo if server exists, None otherwise
         """
         return self._servers.get(server_name)
-    
-    def get_all_servers_health(self) -> Dict[str, ServerHealthInfo]:
+
+    def get_all_servers_health(self) -> dict[str, ServerHealthInfo]:
         """
         Get health information for all monitored servers.
-        
+
         Returns:
             Dictionary mapping server names to health info
         """
         return self._servers.copy()
-    
+
     def is_feature_available(self, feature: str) -> bool:
         """
         Check if a specific LSP feature is available across all servers.
-        
+
         Args:
             feature: Feature name to check
-            
+
         Returns:
             True if feature is available on at least one healthy server
         """
         if feature in self._degraded_features:
             return False
-        
+
         for server_info in self._servers.values():
             if server_info.is_healthy and feature in server_info.supported_features:
                 return True
-        
+
         return False
-    
-    def get_available_features(self) -> Set[str]:
+
+    def get_available_features(self) -> set[str]:
         """
         Get all LSP features currently available.
-        
+
         Returns:
             Set of available feature names
         """
         available_features = set()
-        
+
         for server_info in self._servers.values():
             if server_info.is_healthy:
                 available_features.update(server_info.supported_features)
-        
+
         # Remove degraded features
         available_features -= self._degraded_features
-        
+
         return available_features
-    
-    def get_health_statistics(self) -> Dict[str, Any]:
+
+    def get_health_statistics(self) -> dict[str, Any]:
         """
         Get comprehensive health statistics for the monitor.
-        
+
         Returns:
             Dictionary with health statistics
         """
         total_servers = len(self._servers)
         healthy_servers = sum(1 for info in self._servers.values() if info.is_healthy)
-        
+
         uptime = time.time() - self._start_time
-        
+
         return {
             "monitor_uptime_seconds": uptime,
             "total_servers": total_servers,
@@ -1196,12 +1189,12 @@ class LspHealthMonitor:
                 for name, info in self._servers.items()
             },
         }
-    
+
     @asynccontextmanager
     async def monitoring_context(self):
         """
         Async context manager for health monitoring lifecycle.
-        
+
         Usage:
             async with monitor.monitoring_context():
                 # Health monitoring is active
@@ -1212,7 +1205,7 @@ class LspHealthMonitor:
         for server_name in self._servers:
             if server_name not in self._monitoring_tasks:
                 self.start_monitoring(server_name)
-        
+
         try:
             yield self
         finally:

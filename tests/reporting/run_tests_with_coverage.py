@@ -43,7 +43,7 @@ class CoverageTestRunner:
 
     def __init__(
         self,
-        project_root: Optional[Path] = None,
+        project_root: Path | None = None,
         threshold_preset: str = "default",
     ):
         """
@@ -67,7 +67,7 @@ class CoverageTestRunner:
         self.storage = TestResultStorage()
         self.aggregator = TestResultAggregator(self.storage)
 
-    def run_python_tests_with_coverage(self) -> Optional[Path]:
+    def run_python_tests_with_coverage(self) -> Path | None:
         """
         Run Python tests with coverage.py.
 
@@ -112,7 +112,7 @@ class CoverageTestRunner:
             print(f"Error running Python tests: {e}")
             return None
 
-    def run_rust_tests_with_coverage(self) -> Optional[Path]:
+    def run_rust_tests_with_coverage(self) -> Path | None:
         """
         Run Rust tests with tarpaulin.
 
@@ -180,7 +180,7 @@ class CoverageTestRunner:
             return None
 
     def parse_coverage_data(
-        self, python_coverage: Optional[Path], rust_coverage: Optional[Path]
+        self, python_coverage: Path | None, rust_coverage: Path | None
     ):
         """
         Parse coverage data from Python and/or Rust.
@@ -250,7 +250,7 @@ class CoverageTestRunner:
 
         return result
 
-    def generate_report(self, test_run, output_path: Optional[Path] = None):
+    def generate_report(self, test_run, output_path: Path | None = None):
         """
         Generate HTML report.
 
@@ -282,7 +282,7 @@ class CoverageTestRunner:
         self,
         python_only: bool = False,
         rust_only: bool = False,
-        output_path: Optional[Path] = None,
+        output_path: Path | None = None,
         skip_threshold_check: bool = False,
     ) -> int:
         """

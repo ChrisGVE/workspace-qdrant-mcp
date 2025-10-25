@@ -6,13 +6,14 @@ watch folder configuration, system status queries, daemon control operations,
 and configuration updates.
 """
 
-import pytest
 import time
 from pathlib import Path
 
+import pytest
+
 from tests.e2e.fixtures import (
-    SystemComponents,
     CLIHelper,
+    SystemComponents,
 )
 
 
@@ -464,7 +465,7 @@ class TestAdminRobustness:
     ):
         """Test executing many commands in rapid succession."""
         # Execute commands rapidly
-        for i in range(10):
+        for _i in range(10):
             result = cli_helper.run_command(["status", "--quiet"])
             assert result is not None
 

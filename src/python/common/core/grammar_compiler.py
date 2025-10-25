@@ -16,14 +16,13 @@ Key features:
 
 import logging
 import platform
-import subprocess
 import shutil
-from pathlib import Path
-from typing import Optional, Tuple, List, Dict, TYPE_CHECKING
+import subprocess
 from dataclasses import dataclass
-import os
+from pathlib import Path
+from typing import TYPE_CHECKING, Optional
 
-from .grammar_dependencies import DependencyResolver, CompilerRequirement
+from .grammar_dependencies import DependencyResolver
 
 if TYPE_CHECKING:
     from rich.progress import Progress, TaskID
@@ -41,13 +40,13 @@ class CompilerInfo:
     path: str
     """Full path to compiler executable"""
 
-    version: Optional[str] = None
+    version: str | None = None
     """Compiler version string"""
 
     is_cpp: bool = False
     """Whether this is a C++ compiler"""
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """Convert to dictionary for serialization."""
         return {
             "name": self.name,
@@ -67,16 +66,16 @@ class CompilationResult:
     grammar_name: str
     """Name of the grammar"""
 
-    output_path: Optional[Path] = None
+    output_path: Path | None = None
     """Path to compiled library file (.so/.dll/.dylib)"""
 
     message: str = ""
     """Human-readable status message"""
 
-    error: Optional[str] = None
+    error: str | None = None
     """Error message if compilation failed"""
 
-    warnings: List[str] = None
+    warnings: list[str] = None
     """Compilation warnings"""
 
     def __post_init__(self):
@@ -103,9 +102,9 @@ class CompilerDetector:
     def __init__(self):
         """Initialize compiler detector."""
         self.system = platform.system()
-        self._cache: Dict[str, Optional[CompilerInfo]] = {}
+        self._cache: dict[str, CompilerInfo | None] = {}
 
-    def detect_c_compiler(self) -> Optional[CompilerInfo]:
+    def detect_c_compiler(self) -> CompilerInfo | None:
         """
         Detect available C compiler.
 
@@ -129,7 +128,7 @@ class CompilerDetector:
         self._cache["c"] = None
         return None
 
-    def detect_cpp_compiler(self) -> Optional[CompilerInfo]:
+    def detect_cpp_compiler(self) -> CompilerInfo | None:
         """
         Detect available C++ compiler.
 
@@ -153,7 +152,7 @@ class CompilerDetector:
         self._cache["cpp"] = None
         return None
 
-    def _try_compiler(self, name: str, is_cpp: bool = False) -> Optional[CompilerInfo]:
+    def _try_compiler(self, name: str, is_cpp: bool = False) -> CompilerInfo | None:
         """
         Try to detect a specific compiler.
 
@@ -181,7 +180,7 @@ class CompilerDetector:
             is_cpp=is_cpp
         )
 
-    def _get_compiler_version(self, name: str, path: str) -> Optional[str]:
+    def _get_compiler_version(self, name: str, path: str) -> str | None:
         """
         Get compiler version string.
 
@@ -237,8 +236,8 @@ class GrammarCompiler:
 
     def __init__(
         self,
-        c_compiler: Optional[CompilerInfo] = None,
-        cpp_compiler: Optional[CompilerInfo] = None
+        c_compiler: CompilerInfo | None = None,
+        cpp_compiler: CompilerInfo | None = None
     ):
         """
         Initialize grammar compiler.
@@ -262,7 +261,7 @@ class GrammarCompiler:
     def compile(
         self,
         grammar_path: Path,
-        output_dir: Optional[Path] = None,
+        output_dir: Path | None = None,
         progress: Optional["Progress"] = None,
         progress_task: Optional["TaskID"] = None
     ) -> CompilationResult:
@@ -289,7 +288,7 @@ class GrammarCompiler:
         """
         # Update progress
         if progress and progress_task is not None:
-            progress.update(progress_task, description=f"Analyzing dependencies...")
+            progress.update(progress_task, description="Analyzing dependencies...")
 
         # Analyze dependencies
         analysis = self.dependency_resolver.analyze_grammar(grammar_path)
@@ -308,7 +307,7 @@ class GrammarCompiler:
 
         # Update progress
         if progress and progress_task is not None:
-            progress.update(progress_task, description=f"Validating compilers...")
+            progress.update(progress_task, description="Validating compilers...")
 
         # Validate dependencies with available compilers
         valid, errors = self.dependency_resolver.validate_dependencies(
@@ -418,7 +417,6 @@ class GrammarCompiler:
         Returns:
             Formatted error message with suggestions
         """
-        from .grammar_dependencies import DependencyAnalysis
 
         base_msg = f"Compilation failed for grammar '{analysis.grammar_name}'"
 
@@ -471,18 +469,18 @@ class GrammarCompiler:
             parts.append(f"\nCompiler output:\n{stderr_display}")
 
         if suggestions:
-            parts.append(f"\nPossible solutions:\n" + "\n".join(f"  • {s}" for s in suggestions))
+            parts.append("\nPossible solutions:\n" + "\n".join(f"  • {s}" for s in suggestions))
         else:
             parts.append(
-                f"\nSuggestions:\n"
-                f"  • Regenerate grammar: tree-sitter generate\n"
-                f"  • Check compiler installation and version\n"
-                f"  • Verify all source files are present"
+                "\nSuggestions:\n"
+                "  • Regenerate grammar: tree-sitter generate\n"
+                "  • Check compiler installation and version\n"
+                "  • Verify all source files are present"
             )
 
         return "\n".join(parts)
 
-    def _extract_warnings(self, stderr: Optional[str]) -> List[str]:
+    def _extract_warnings(self, stderr: str | None) -> list[str]:
         """
         Extract compiler warnings from stderr.
 
@@ -504,7 +502,7 @@ class GrammarCompiler:
 
         return warnings
 
-    def _detect_scanner(self, src_dir: Path) -> Tuple[bool, Optional[Path], bool]:
+    def _detect_scanner(self, src_dir: Path) -> tuple[bool, Path | None, bool]:
         """
         Detect external scanner file.
 
@@ -531,7 +529,7 @@ class GrammarCompiler:
     def _compile_grammar(
         self,
         grammar_name: str,
-        source_files: List[Path],
+        source_files: list[Path],
         output_dir: Path,
         needs_cpp: bool,
         progress: Optional["Progress"] = None,
@@ -606,7 +604,7 @@ class GrammarCompiler:
 
         # Update progress before running compilation
         if progress and progress_task is not None:
-            progress.update(progress_task, description=f"Running compiler...")
+            progress.update(progress_task, description="Running compiler...")
 
         # Run compilation
         result = subprocess.run(

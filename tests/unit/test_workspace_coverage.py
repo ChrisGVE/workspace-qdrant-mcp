@@ -4,11 +4,12 @@ Workspace modules coverage test file.
 Targets src/python/workspace_qdrant_mcp/ modules for rapid coverage scaling.
 """
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
-import tempfile
 import os
+import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 
 class TestWorkspaceCoverage:
@@ -185,8 +186,9 @@ class TestWorkspaceCoverage:
     def test_workspace_tools_directory_scan(self):
         """Test scanning workspace tools directory."""
         try:
-            import src.python.workspace_qdrant_mcp.tools as tools_package
             import os
+
+            import src.python.workspace_qdrant_mcp.tools as tools_package
 
             # Get the directory path
             tools_dir = os.path.dirname(tools_package.__file__)
@@ -202,8 +204,9 @@ class TestWorkspaceCoverage:
     def test_workspace_core_directory_scan(self):
         """Test scanning workspace core directory."""
         try:
-            import src.python.workspace_qdrant_mcp.core as core_package
             import os
+
+            import src.python.workspace_qdrant_mcp.core as core_package
 
             # Get the directory path
             core_dir = os.path.dirname(core_package.__file__)

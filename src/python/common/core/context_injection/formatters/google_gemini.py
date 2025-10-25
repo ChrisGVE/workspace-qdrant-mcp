@@ -5,7 +5,6 @@ This module provides system instruction format optimized for Google Gemini's
 instruction following and larger context window.
 """
 
-from typing import Dict, List, Optional
 
 from ...memory import MemoryRule
 from .base import FormattedContext, FormatType, LLMToolAdapter, ToolCapabilities
@@ -34,9 +33,9 @@ class GoogleGeminiAdapter(LLMToolAdapter):
 
     def format_rules(
         self,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         token_budget: int,
-        options: Optional[Dict[str, any]] = None,
+        options: dict[str, any] | None = None,
     ) -> FormattedContext:
         """
         Format rules as system instructions for Google Gemini.

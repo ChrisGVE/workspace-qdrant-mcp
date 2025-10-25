@@ -34,16 +34,15 @@ Interpreting Results:
 import asyncio
 import gc
 import tracemalloc
-from typing import Dict, List, Any
+from typing import Any
 
 import psutil
 import pytest
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
-
 from common.core.embeddings import EmbeddingService
 from common.core.hybrid_search import HybridSearchEngine
 from common.core.ssl_config import suppress_qdrant_ssl_warnings
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
 
 
 class MemoryProfiler:
@@ -71,7 +70,7 @@ class MemoryProfiler:
         self.start_rss = self.process.memory_info().rss
         self.peak_rss = self.start_rss
 
-    def snapshot(self) -> Dict[str, float]:
+    def snapshot(self) -> dict[str, float]:
         """Take a memory snapshot and return metrics."""
         current_rss = self.process.memory_info().rss
         self.peak_rss = max(self.peak_rss, current_rss)
@@ -92,7 +91,7 @@ class MemoryProfiler:
             'allocation_count': len(top_stats),
         }
 
-    def stop(self) -> Dict[str, float]:
+    def stop(self) -> dict[str, float]:
         """Stop profiling and return final metrics."""
         metrics = self.snapshot()
         tracemalloc.stop()
@@ -107,7 +106,7 @@ class TestDataGenerator:
     """Generates test documents for memory profiling."""
 
     @staticmethod
-    def generate_text_document(size_kb: int, doc_id: int) -> Dict[str, Any]:
+    def generate_text_document(size_kb: int, doc_id: int) -> dict[str, Any]:
         """Generate a text document of specified size."""
         lines = []
         target_bytes = size_kb * 1024
@@ -134,7 +133,7 @@ class TestDataGenerator:
         }
 
     @staticmethod
-    def generate_batch_documents(count: int, size_kb: int = 10) -> List[Dict[str, Any]]:
+    def generate_batch_documents(count: int, size_kb: int = 10) -> list[dict[str, Any]]:
         """Generate a batch of documents."""
         return [
             TestDataGenerator.generate_text_document(size_kb, i)
@@ -198,7 +197,7 @@ async def embedding_service():
 def ingest_document_with_embeddings(
     client: QdrantClient,
     embedding_service: EmbeddingService,
-    doc: Dict[str, Any],
+    doc: dict[str, Any],
     point_id: int,
     collection_name: str = "memory_test_collection"
 ):
@@ -452,11 +451,11 @@ def test_connection_pooling_memory(benchmark):
 
         # Create multiple client instances
         clients = []
-        for i in range(10):
+        for _i in range(10):
             client = QdrantClient(host="localhost", port=6333)
             clients.append(client)
 
-        metrics = profiler.snapshot()
+        profiler.snapshot()
 
         # Cleanup
         del clients

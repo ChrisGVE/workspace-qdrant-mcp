@@ -48,14 +48,10 @@ Example:
 
 import asyncio
 import os
-import sqlite3
-import threading
-import time
 from collections import deque
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
@@ -66,8 +62,8 @@ except ImportError:
     logger.warning("psutil not available, resource monitoring will be limited")
     PSUTIL_AVAILABLE = False
 
-from .queue_connection import QueueConnectionPool, ConnectionConfig
-from .queue_statistics import QueueStatisticsCollector, QueueStatistics
+from .queue_connection import ConnectionConfig, QueueConnectionPool
+from .queue_statistics import QueueStatistics, QueueStatisticsCollector
 
 
 @dataclass
@@ -90,11 +86,11 @@ class ResourceMetrics:
     memory_percent: float = 0.0
     db_connections: int = 0
     thread_count: int = 0
-    file_descriptors: Optional[int] = None
-    disk_io_read_mb: Optional[float] = None
-    disk_io_write_mb: Optional[float] = None
+    file_descriptors: int | None = None
+    disk_io_read_mb: float | None = None
+    disk_io_write_mb: float | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "cpu_percent": round(self.cpu_percent, 2),
@@ -122,7 +118,7 @@ class ResourceSnapshot:
     metrics: ResourceMetrics
     queue_stats: QueueStatistics
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "timestamp": self.timestamp.isoformat(),
@@ -147,7 +143,7 @@ class ResourceCorrelation:
     correlation_coefficient: float
     sample_size: int
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "resource_metric": self.resource_metric,
@@ -190,7 +186,7 @@ class ResourceBottleneck:
     queue_impact: str
     recommendation: str
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "resource_type": self.resource_type,
@@ -212,8 +208,8 @@ class QueueResourceMonitor:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        connection_config: Optional[ConnectionConfig] = None,
+        db_path: str | None = None,
+        connection_config: ConnectionConfig | None = None,
         snapshot_retention: int = 200,
         monitoring_interval: int = 30,
         cpu_warning_threshold: float = 70.0,
@@ -246,14 +242,14 @@ class QueueResourceMonitor:
         )
 
         self._initialized = False
-        self._process: Optional['psutil.Process'] = None
+        self._process: psutil.Process | None = None
 
         # Snapshot storage with sliding window
         self._snapshots: deque[ResourceSnapshot] = deque(maxlen=snapshot_retention)
         self._lock = asyncio.Lock()
 
         # Background monitoring
-        self._monitoring_task: Optional[asyncio.Task] = None
+        self._monitoring_task: asyncio.Task | None = None
         self._monitoring_interval = monitoring_interval
         self._shutdown_event = asyncio.Event()
 
@@ -379,7 +375,7 @@ class QueueResourceMonitor:
 
         return snapshot
 
-    async def get_resource_history(self, minutes: int = 60) -> List[ResourceSnapshot]:
+    async def get_resource_history(self, minutes: int = 60) -> list[ResourceSnapshot]:
         """
         Get historical resource snapshots.
 
@@ -397,7 +393,7 @@ class QueueResourceMonitor:
                 if snapshot.timestamp.timestamp() >= cutoff_time
             ]
 
-    async def correlate_with_queue_performance(self) -> List[ResourceCorrelation]:
+    async def correlate_with_queue_performance(self) -> list[ResourceCorrelation]:
         """
         Correlate resource metrics with queue performance metrics.
 
@@ -475,7 +471,7 @@ class QueueResourceMonitor:
 
         return correlations
 
-    def _pearson_correlation(self, x: List[float], y: List[float]) -> float:
+    def _pearson_correlation(self, x: list[float], y: list[float]) -> float:
         """
         Calculate Pearson correlation coefficient.
 
@@ -508,7 +504,7 @@ class QueueResourceMonitor:
 
         return numerator / denominator
 
-    async def detect_resource_bottleneck(self) -> Optional[ResourceBottleneck]:
+    async def detect_resource_bottleneck(self) -> ResourceBottleneck | None:
         """
         Detect resource bottlenecks affecting queue performance.
 
@@ -562,7 +558,7 @@ class QueueResourceMonitor:
                     current_value=resources.memory_mb,
                     threshold_value=self.memory_warning_mb,
                     severity="warning",
-                    queue_impact=f"Low processing rate with elevated memory usage",
+                    queue_impact="Low processing rate with elevated memory usage",
                     recommendation="Monitor memory usage and check for memory leaks"
                 )
 

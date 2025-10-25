@@ -6,20 +6,21 @@ behavior for testing different scenarios.
 """
 
 import asyncio
-import pytest
 from unittest.mock import Mock
 
+import pytest
+
 from tests.mocks import (
-    create_realistic_qdrant_mock,
+    ErrorModeManager,
+    FailureScenarios,
+    create_basic_external_service,
+    create_basic_lsp_server,
     create_failing_qdrant_mock,
     create_filesystem_mock,
     create_realistic_daemon_communication,
-    create_realistic_network_client,
-    create_basic_lsp_server,
     create_realistic_embedding_service,
-    create_basic_external_service,
-    ErrorModeManager,
-    FailureScenarios
+    create_realistic_network_client,
+    create_realistic_qdrant_mock,
 )
 
 

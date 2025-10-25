@@ -7,11 +7,11 @@ system state, including version compatibility validation.
 
 import json
 import time
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 from common.core.error_handling import IncompatibleVersionError
 
@@ -38,25 +38,25 @@ class BackupMetadata:
     timestamp: float  # Unix timestamp when backup was created
 
     # Optional collection information
-    collections: Optional[Union[List[str], Dict[str, int]]] = None  # Collection names or counts
-    total_documents: Optional[int] = None  # Total number of documents across all collections
+    collections: list[str] | dict[str, int] | None = None  # Collection names or counts
+    total_documents: int | None = None  # Total number of documents across all collections
 
     # Optional system information
-    database_version: Optional[str] = None  # SQLite or database version
-    python_version: Optional[str] = None  # Python version used
+    database_version: str | None = None  # SQLite or database version
+    python_version: str | None = None  # Python version used
 
     # Optional operational context
     during_operations: bool = False  # Whether backup was created during active operations
     partial_backup: bool = False  # Whether this is a partial/selective backup
-    selected_collections: Optional[List[str]] = None  # Collections included in partial backup
+    selected_collections: list[str] | None = None  # Collections included in partial backup
 
     # Additional metadata
-    description: Optional[str] = None  # Human-readable description
-    created_by: Optional[str] = None  # User or system that created the backup
-    backup_path: Optional[str] = None  # Path where backup is stored
-    additional_metadata: Dict[str, Any] = field(default_factory=dict)  # Custom metadata
+    description: str | None = None  # Human-readable description
+    created_by: str | None = None  # User or system that created the backup
+    backup_path: str | None = None  # Path where backup is stored
+    additional_metadata: dict[str, Any] = field(default_factory=dict)  # Custom metadata
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert metadata to dictionary for JSON serialization.
 
@@ -74,7 +74,7 @@ class BackupMetadata:
         return result
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "BackupMetadata":
+    def from_dict(cls, data: dict[str, Any]) -> "BackupMetadata":
         """
         Create BackupMetadata from dictionary (e.g., loaded from JSON).
 
@@ -105,7 +105,7 @@ class BackupMetadata:
 
         return cls(**metadata_fields)
 
-    def save_to_file(self, file_path: Union[str, Path]) -> None:
+    def save_to_file(self, file_path: str | Path) -> None:
         """
         Save metadata to JSON file.
 
@@ -117,7 +117,7 @@ class BackupMetadata:
         path.write_text(json.dumps(self.to_dict(), indent=2))
 
     @classmethod
-    def load_from_file(cls, file_path: Union[str, Path]) -> "BackupMetadata":
+    def load_from_file(cls, file_path: str | Path) -> "BackupMetadata":
         """
         Load metadata from JSON file.
 
@@ -410,11 +410,11 @@ class BackupManager:
 
     def create_backup_metadata(
         self,
-        collections: Optional[Union[List[str], Dict[str, int]]] = None,
-        total_documents: Optional[int] = None,
+        collections: list[str] | dict[str, int] | None = None,
+        total_documents: int | None = None,
         partial_backup: bool = False,
-        selected_collections: Optional[List[str]] = None,
-        description: Optional[str] = None,
+        selected_collections: list[str] | None = None,
+        description: str | None = None,
         **additional_metadata
     ) -> BackupMetadata:
         """
@@ -447,7 +447,7 @@ class BackupManager:
 
         return metadata
 
-    def prepare_backup_directory(self, backup_path: Union[str, Path]) -> Path:
+    def prepare_backup_directory(self, backup_path: str | Path) -> Path:
         """
         Prepare backup directory structure.
 
@@ -491,7 +491,7 @@ class BackupManager:
     def save_backup_manifest(
         self,
         metadata: BackupMetadata,
-        backup_path: Union[str, Path]
+        backup_path: str | Path
     ) -> None:
         """
         Save backup manifest to backup directory.
@@ -516,7 +516,7 @@ class BackupManager:
                 cause=e
             )
 
-    def validate_backup_directory(self, backup_path: Union[str, Path]) -> bool:
+    def validate_backup_directory(self, backup_path: str | Path) -> bool:
         """
         Validate that backup directory has required structure.
 
@@ -545,7 +545,7 @@ class BackupManager:
 
         return True
 
-    def load_backup_manifest(self, backup_path: Union[str, Path]) -> BackupMetadata:
+    def load_backup_manifest(self, backup_path: str | Path) -> BackupMetadata:
         """
         Load backup manifest from backup directory.
 
@@ -599,7 +599,7 @@ class RestoreManager:
 
     def validate_backup(
         self,
-        backup_path: Union[str, Path],
+        backup_path: str | Path,
         allow_downgrade: bool = False
     ) -> BackupMetadata:
         """
@@ -642,8 +642,8 @@ class RestoreManager:
 
     def get_backup_info(
         self,
-        backup_path: Union[str, Path]
-    ) -> Dict[str, Any]:
+        backup_path: str | Path
+    ) -> dict[str, Any]:
         """
         Get backup information without validation.
 
@@ -674,7 +674,7 @@ class RestoreManager:
 
     def check_compatibility(
         self,
-        backup_path: Union[str, Path]
+        backup_path: str | Path
     ) -> tuple[CompatibilityStatus, str]:
         """
         Check version compatibility without raising exception.
@@ -702,8 +702,8 @@ class RestoreManager:
 
     def list_backup_contents(
         self,
-        backup_path: Union[str, Path]
-    ) -> Dict[str, List[str]]:
+        backup_path: str | Path
+    ) -> dict[str, list[str]]:
         """
         List contents of backup directory.
 
@@ -745,10 +745,10 @@ class RestoreManager:
 
     def prepare_restore(
         self,
-        backup_path: Union[str, Path],
+        backup_path: str | Path,
         allow_downgrade: bool = False,
         dry_run: bool = False
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Prepare for restore operation with validation.
 

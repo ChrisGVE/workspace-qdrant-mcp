@@ -19,7 +19,7 @@ Detection Priority:
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from loguru import logger
 
@@ -63,11 +63,11 @@ class UnifiedLLMSession:
     tool_type: LLMToolType
     is_active: bool
     detection_method: str
-    session_id: Optional[str] = None
-    ide_name: Optional[str] = None
-    workspace_path: Optional[Path] = None
-    capabilities: Optional[ToolCapabilities] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    session_id: str | None = None
+    ide_name: str | None = None
+    workspace_path: Path | None = None
+    capabilities: ToolCapabilities | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class LLMToolDetector:
@@ -96,7 +96,7 @@ class LLMToolDetector:
     See LLMOverrideManager for configuration details.
     """
 
-    _format_manager: Optional[FormatManager] = None
+    _format_manager: FormatManager | None = None
 
     @classmethod
     def _get_format_manager(cls) -> FormatManager:
@@ -199,7 +199,7 @@ class LLMToolDetector:
         return session.is_active
 
     @classmethod
-    def get_active_tool_type(cls) -> Optional[LLMToolType]:
+    def get_active_tool_type(cls) -> LLMToolType | None:
         """
         Get the type of currently active LLM tool.
 
@@ -212,7 +212,7 @@ class LLMToolDetector:
         return None
 
     @classmethod
-    def get_formatter(cls) -> Optional[LLMToolAdapter]:
+    def get_formatter(cls) -> LLMToolAdapter | None:
         """
         Get the appropriate formatter for the currently active LLM tool.
 
@@ -472,7 +472,7 @@ def is_llm_tool_active() -> bool:
     return LLMToolDetector.is_active()
 
 
-def get_llm_formatter() -> Optional[LLMToolAdapter]:
+def get_llm_formatter() -> LLMToolAdapter | None:
     """
     Get the formatter for the currently active LLM tool.
 

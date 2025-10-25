@@ -6,13 +6,12 @@ providing specific error handling for different failure modes during metadata
 extraction, YAML generation, batch processing, and incremental updates.
 """
 
-from typing import Optional, Any, List
 
 
 class MetadataError(Exception):
     """Base exception for metadata workflow system errors."""
 
-    def __init__(self, message: str, details: Optional[dict] = None) -> None:
+    def __init__(self, message: str, details: dict | None = None) -> None:
         """
         Initialize metadata error.
 
@@ -30,9 +29,9 @@ class AggregationError(MetadataError):
     def __init__(
         self,
         message: str,
-        parser_type: Optional[str] = None,
-        file_path: Optional[str] = None,
-        details: Optional[dict] = None,
+        parser_type: str | None = None,
+        file_path: str | None = None,
+        details: dict | None = None,
     ) -> None:
         """
         Initialize aggregation error.
@@ -54,8 +53,8 @@ class YAMLGenerationError(MetadataError):
     def __init__(
         self,
         message: str,
-        serialization_errors: Optional[List[str]] = None,
-        details: Optional[dict] = None,
+        serialization_errors: list[str] | None = None,
+        details: dict | None = None,
     ) -> None:
         """
         Initialize YAML generation error.
@@ -75,9 +74,9 @@ class BatchProcessingError(MetadataError):
     def __init__(
         self,
         message: str,
-        failed_documents: Optional[List[str]] = None,
-        partial_results: Optional[dict] = None,
-        details: Optional[dict] = None,
+        failed_documents: list[str] | None = None,
+        partial_results: dict | None = None,
+        details: dict | None = None,
     ) -> None:
         """
         Initialize batch processing error.
@@ -99,8 +98,8 @@ class IncrementalTrackingError(MetadataError):
     def __init__(
         self,
         message: str,
-        storage_error: Optional[str] = None,
-        details: Optional[dict] = None,
+        storage_error: str | None = None,
+        details: dict | None = None,
     ) -> None:
         """
         Initialize incremental tracking error.
@@ -120,8 +119,8 @@ class WorkflowConfigurationError(MetadataError):
     def __init__(
         self,
         message: str,
-        invalid_config: Optional[dict] = None,
-        details: Optional[dict] = None,
+        invalid_config: dict | None = None,
+        details: dict | None = None,
     ) -> None:
         """
         Initialize workflow configuration error.

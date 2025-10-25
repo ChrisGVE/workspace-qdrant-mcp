@@ -3,17 +3,18 @@ Comprehensive test coverage for server.py - 100% coverage goal.
 Fixed version that properly tests the async functions directly.
 """
 
-import pytest
 import asyncio
-import sys
 import os
 import stat
 import subprocess
-from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock, call
-from typing import Dict, Any, List
+import sys
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 
 # Add source path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "python"))
@@ -23,12 +24,12 @@ from workspace_qdrant_mcp.server import (
     _detect_stdio_mode,
     get_project_name,
     initialize_components,
-    store,
-    search,
+    main,
     manage,
     retrieve,
     run_server,
-    main
+    search,
+    store,
 )
 
 
@@ -38,7 +39,7 @@ class TestStdioDetection:
     def test_detect_stdio_mode_explicit_true(self):
         """Test explicit WQM_STDIO_MODE=true."""
         with patch.dict(os.environ, {"WQM_STDIO_MODE": "true"}):
-            assert _detect_stdio_mode() == True
+            assert _detect_stdio_mode()
 
     def test_detect_stdio_mode_explicit_false(self):
         """Test explicit WQM_STDIO_MODE=false."""
@@ -50,7 +51,7 @@ class TestStdioDetection:
     def test_detect_stdio_mode_cli_mode_true(self):
         """Test WQM_CLI_MODE=true overrides."""
         with patch.dict(os.environ, {"WQM_CLI_MODE": "true"}):
-            assert _detect_stdio_mode() == False
+            assert not _detect_stdio_mode()
 
     def test_detect_stdio_mode_pipe(self):
         """Test pipe detection."""
@@ -59,7 +60,7 @@ class TestStdioDetection:
 
         with patch('os.fstat', return_value=mock_stat):
             with patch('sys.stdin.fileno', return_value=0):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
     def test_detect_stdio_mode_regular_file(self):
         """Test regular file detection."""
@@ -68,30 +69,30 @@ class TestStdioDetection:
 
         with patch('os.fstat', return_value=mock_stat):
             with patch('sys.stdin.fileno', return_value=0):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
     def test_detect_stdio_mode_os_error(self):
         """Test handling of OS errors."""
         with patch('os.fstat', side_effect=OSError("No file descriptor")):
             with patch.object(sys, 'argv', ['test']):
-                assert _detect_stdio_mode() == False
+                assert not _detect_stdio_mode()
 
     def test_detect_stdio_mode_argv_stdio(self):
         """Test argv containing 'stdio'."""
         with patch.object(sys, 'argv', ['program', 'stdio']):
-            assert _detect_stdio_mode() == True
+            assert _detect_stdio_mode()
 
     def test_detect_stdio_mode_argv_mcp(self):
         """Test argv containing 'mcp'."""
         with patch.object(sys, 'argv', ['program', 'mcp']):
-            assert _detect_stdio_mode() == True
+            assert _detect_stdio_mode()
 
     def test_detect_stdio_mode_default_false(self):
         """Test default case returns False."""
         with patch.dict(os.environ, {}, clear=True):
             with patch('os.fstat', side_effect=OSError()):
                 with patch.object(sys, 'argv', ['program']):
-                    assert _detect_stdio_mode() == False
+                    assert not _detect_stdio_mode()
 
 
 class TestProjectNameDetection:
@@ -201,7 +202,7 @@ class TestCollectionManagement:
 
         from workspace_qdrant_mcp.server import ensure_collection_exists
         result = await ensure_collection_exists("test-collection")
-        assert result == True
+        assert result
         mock_client.get_collection.assert_called_once_with("test-collection")
 
     @pytest.mark.asyncio
@@ -216,7 +217,7 @@ class TestCollectionManagement:
 
         from workspace_qdrant_mcp.server import ensure_collection_exists
         result = await ensure_collection_exists("new-collection")
-        assert result == True
+        assert result
         mock_client.create_collection.assert_called_once()
 
     @pytest.mark.asyncio
@@ -231,7 +232,7 @@ class TestCollectionManagement:
 
         from workspace_qdrant_mcp.server import ensure_collection_exists
         result = await ensure_collection_exists("fail-collection")
-        assert result == False
+        assert not result
 
 
 class TestCollectionNaming:
@@ -302,7 +303,7 @@ class TestStoreFunction:
                         title="Test Document"
                     )
 
-                    assert result["success"] == True
+                    assert result["success"]
                     assert "document_id" in result
                     assert result["collection"] == "test-documents"
                     assert result["title"] == "Test Document"
@@ -333,7 +334,7 @@ class TestStoreFunction:
                         source="user_input"
                     )
 
-                    assert result["success"] == True
+                    assert result["success"]
                     # Check that metadata was included in the call
                     call_args = mock_client.upsert.call_args
                     points = call_args[1]["points"]  # keyword arguments
@@ -356,7 +357,7 @@ class TestStoreFunction:
 
                 result = await store(content="Test content")
 
-                assert result["success"] == False
+                assert not result["success"]
                 assert "Failed to create/access collection" in result["error"]
 
     @pytest.mark.asyncio
@@ -379,7 +380,7 @@ class TestStoreFunction:
 
                     result = await store(content="Test content")
 
-                    assert result["success"] == False
+                    assert not result["success"]
                     assert "Upsert failed" in result["error"]
 
 

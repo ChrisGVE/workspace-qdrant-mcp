@@ -4,26 +4,15 @@ This module provides management for readonly library collections
 (prefixed with _) that are used for reference materials and documents.
 """
 
-import asyncio
-from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 import typer
-
 from common.core.collection_naming import CollectionNameError, validate_collection_name
 from common.core.config import get_config_manager
-from common.grpc.daemon_client import get_daemon_client, with_daemon_client
-from loguru import logger
+from common.grpc.daemon_client import with_daemon_client
+
 from ..utils import (
-    confirm,
     create_command_app,
-    error_message,
-    force_option,
     handle_async,
-    json_output_option,
-    success_message,
-    verbose_option,
-    warning_message,
 )
 
 # logger imported from loguru
@@ -33,9 +22,9 @@ from ..utils import (
 library_app = create_command_app(
     name="library",
     help_text="""Library collection management.
-    
+
 Manage readonly library collections for reference materials.
-    
+
 Examples:
     wqm library list                    # Show all library collections
     wqm library create technical-docs   # Create new library collection
@@ -135,12 +124,12 @@ async def _list_libraries(stats: bool, sort_by: str, format: str):
     """List all library collections."""
     try:
         config = get_config_manager()
-        
+
         async def _operation(client):
             # Get all collections
             response = await client.list_collections(include_stats=stats)
             return response.collections
-            
+
         all_collections = await with_daemon_client(_operation, config)
 
         # Filter for library collections (start with _)
@@ -268,15 +257,15 @@ async def _create_library(
             raise typer.Exit(1)
 
         config = get_config_manager()
-        
+
         async def _operation(client):
             # Check if collection already exists
             response = await client.list_collections(include_stats=False)
             existing_names = [col.name for col in response.collections]
-            
+
             if collection_name in existing_names:
                 return None  # Signal that collection exists
-            
+
             # Create the collection with metadata
             metadata = {}
             if description:
@@ -285,15 +274,15 @@ async def _create_library(
                 metadata["tags"] = ",".join(tags)
             metadata["vector_size"] = str(vector_size)
             metadata["distance_metric"] = distance_metric.upper()
-            
+
             return await client.create_collection(
                 collection_name=collection_name,
                 description=description or "",
                 metadata=metadata
             )
-            
+
         result = await with_daemon_client(_operation, config)
-        
+
         if result is None:
             print(f"Error: Library collection '{display_name}' already exists")
             raise typer.Exit(1)
@@ -338,26 +327,26 @@ async def _remove_library(name: str, force: bool, backup: bool):
             display_name = name[1:]
 
         config = get_config_manager()
-        
+
         async def _operation(client):
             # Check if collection exists and get info
             response = await client.list_collections(include_stats=False)
             existing_names = [col.name for col in response.collections]
-            
+
             if collection_name not in existing_names:
                 return None, None  # Signal that collection doesn't exist
-            
+
             # Get collection info for confirmation
             try:
                 info = await client.get_collection_info(collection_name)
                 doc_count = info.points_count
             except Exception:
                 doc_count = "unknown"
-                
+
             return collection_name, doc_count
-            
+
         collection_exists, doc_count = await with_daemon_client(_operation, config)
-        
+
         if collection_exists is None:
             print(f"Error: Library collection '{display_name}' not found")
             raise typer.Exit(1)
@@ -380,10 +369,10 @@ async def _remove_library(name: str, force: bool, backup: bool):
 
         # Delete the collection
         print(f"Removing library '{display_name}'...")
-        
+
         async def _delete_operation(client):
             return await client.delete_collection(collection_name, confirm=True)
-            
+
         await with_daemon_client(_delete_operation, config)
 
         print(f"Library collection '{display_name}' removed successfully")
@@ -410,7 +399,7 @@ async def _library_status(name: str | None, detailed: bool, health_check: bool):
                     return await client.get_collection_info(collection_name)
                 except Exception as e:
                     return None, str(e)
-                    
+
             result = await with_daemon_client(_operation, config)
 
             if isinstance(result, tuple):
@@ -420,7 +409,7 @@ async def _library_status(name: str | None, detailed: bool, health_check: bool):
                 info = result
                 print(f"{display_name} Status:")
                 print(f"Collection Name: {collection_name}")
-                print(f"Status: active")
+                print("Status: active")
                 print(f"Documents: {info.points_count}")
                 print(f"Vectors: {info.points_count}")
                 print(f"Indexed Points: {info.indexed_points_count if hasattr(info, 'indexed_points_count') else info.points_count}")
@@ -457,18 +446,18 @@ async def _library_info(name: str, show_samples: bool, show_schema: bool):
         async def _operation(client):
             # Get collection info with sample documents if requested
             info = await client.get_collection_info(
-                collection_name, 
+                collection_name,
                 include_sample_documents=show_samples
             )
             return info
-            
+
         info = await with_daemon_client(_operation, config)
 
         # Basic information
         print("Library Details:")
         print(f"Name: {display_name}")
         print(f"Full Name: {collection_name}")
-        print(f"Status: active")
+        print("Status: active")
         print(f"Documents: {info.points_count:,}")
         print(f"Vectors: {info.points_count:,}")
         print(f"Indexed: {info.indexed_points_count if hasattr(info, 'indexed_points_count') else info.points_count:,}")

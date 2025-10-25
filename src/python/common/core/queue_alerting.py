@@ -59,6 +59,7 @@ import asyncio
 import json
 import os
 import smtplib
+import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -66,14 +67,13 @@ from datetime import datetime, timezone
 from email.mime.text import MIMEText
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
-import sqlite3
 import httpx
 from loguru import logger
 
 from .queue_backpressure import BackpressureDetector, BackpressureSeverity
-from .queue_health import QueueHealthCalculator, HealthStatus
+from .queue_health import HealthStatus, QueueHealthCalculator
 from .queue_performance_metrics import QueuePerformanceCollector
 from .queue_statistics import QueueStatisticsCollector
 
@@ -122,7 +122,7 @@ class AlertThreshold:
     severity: AlertSeverity = AlertSeverity.WARNING
     enabled: bool = True
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "metric_name": self.metric_name,
@@ -133,7 +133,7 @@ class AlertThreshold:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AlertThreshold":
+    def from_dict(cls, data: dict[str, Any]) -> "AlertThreshold":
         """Create from dictionary."""
         return cls(
             metric_name=data["metric_name"],
@@ -161,15 +161,15 @@ class AlertRule:
     """
 
     rule_name: str
-    thresholds: List[AlertThreshold]
-    recipients: List[str] = field(default_factory=list)
+    thresholds: list[AlertThreshold]
+    recipients: list[str] = field(default_factory=list)
     description: str = ""
     condition_logic: ConditionLogic = ConditionLogic.AND
     cooldown_minutes: int = 15
     enabled: bool = True
     rule_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "rule_id": self.rule_id,
@@ -183,7 +183,7 @@ class AlertRule:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AlertRule":
+    def from_dict(cls, data: dict[str, Any]) -> "AlertRule":
         """Create from dictionary."""
         return cls(
             rule_id=data["rule_id"],
@@ -222,17 +222,17 @@ class AlertNotification:
     rule_name: str
     severity: AlertSeverity
     message: str
-    metric_name: Optional[str] = None
-    metric_value: Optional[float] = None
-    threshold_value: Optional[float] = None
-    threshold_operator: Optional[str] = None
-    details: Dict[str, Any] = field(default_factory=dict)
+    metric_name: str | None = None
+    metric_value: float | None = None
+    threshold_value: float | None = None
+    threshold_operator: str | None = None
+    details: dict[str, Any] = field(default_factory=dict)
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     acknowledged: bool = False
-    acknowledged_at: Optional[datetime] = None
-    acknowledged_by: Optional[str] = None
+    acknowledged_at: datetime | None = None
+    acknowledged_by: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "alert_id": self.alert_id,
@@ -297,8 +297,8 @@ class EmailNotifier(NotificationChannel):
         self,
         smtp_host: str,
         smtp_port: int = 587,
-        smtp_user: Optional[str] = None,
-        smtp_password: Optional[str] = None,
+        smtp_user: str | None = None,
+        smtp_password: str | None = None,
         from_addr: str = "alerts@workspace-qdrant.local",
         use_tls: bool = True,
     ):
@@ -476,7 +476,7 @@ class SlackNotifier(NotificationChannel):
                 response = await client.post(self.webhook_url, json=payload)
                 response.raise_for_status()
 
-            logger.info(f"Sent Slack alert")
+            logger.info("Sent Slack alert")
             return True
 
         except Exception as e:
@@ -538,7 +538,7 @@ class PagerDutyNotifier(NotificationChannel):
                 response = await client.post(self.api_url, json=payload)
                 response.raise_for_status()
 
-            logger.info(f"Sent PagerDuty alert")
+            logger.info("Sent PagerDuty alert")
             return True
 
         except Exception as e:
@@ -556,11 +556,11 @@ class QueueAlertingSystem:
 
     def __init__(
         self,
-        db_path: Optional[str] = None,
-        stats_collector: Optional[QueueStatisticsCollector] = None,
-        performance_collector: Optional[QueuePerformanceCollector] = None,
-        health_calculator: Optional[QueueHealthCalculator] = None,
-        backpressure_detector: Optional[BackpressureDetector] = None,
+        db_path: str | None = None,
+        stats_collector: QueueStatisticsCollector | None = None,
+        performance_collector: QueuePerformanceCollector | None = None,
+        health_calculator: QueueHealthCalculator | None = None,
+        backpressure_detector: BackpressureDetector | None = None,
         max_retry_attempts: int = 3,
         retry_delay_seconds: int = 30,
     ):
@@ -588,11 +588,11 @@ class QueueAlertingSystem:
         self.retry_delay_seconds = retry_delay_seconds
 
         self._initialized = False
-        self._db: Optional[sqlite3.Connection] = None
+        self._db: sqlite3.Connection | None = None
         self._lock = asyncio.Lock()
 
         # Notification channels
-        self._channels: Dict[str, NotificationChannel] = {
+        self._channels: dict[str, NotificationChannel] = {
             "log": LogNotifier(),
         }
 
@@ -619,7 +619,7 @@ class QueueAlertingSystem:
         schema_path = Path(__file__).parent / "alert_history_schema.sql"
         if schema_path.exists():
             def _load_schema():
-                with open(schema_path, "r") as f:
+                with open(schema_path) as f:
                     schema_sql = f.read()
                 self._db.executescript(schema_sql)
                 self._db.commit()
@@ -791,7 +791,7 @@ class QueueAlertingSystem:
 
         return deleted
 
-    async def get_alert_rules(self, enabled_only: bool = False) -> List[AlertRule]:
+    async def get_alert_rules(self, enabled_only: bool = False) -> list[AlertRule]:
         """
         Get all alert rules.
 
@@ -832,7 +832,7 @@ class QueueAlertingSystem:
 
         return rules
 
-    async def evaluate_rules(self, queue_type: str = "ingestion_queue") -> List[AlertNotification]:
+    async def evaluate_rules(self, queue_type: str = "ingestion_queue") -> list[AlertNotification]:
         """
         Evaluate all enabled alert rules and generate notifications.
 
@@ -871,7 +871,7 @@ class QueueAlertingSystem:
     async def send_notification(
         self,
         notification: AlertNotification,
-        recipients: Optional[List[str]] = None,
+        recipients: list[str] | None = None,
     ) -> bool:
         """
         Send notification to configured recipients.
@@ -909,7 +909,7 @@ class QueueAlertingSystem:
         return success
 
     async def acknowledge_alert(
-        self, alert_id: str, acknowledged_by: Optional[str] = None
+        self, alert_id: str, acknowledged_by: str | None = None
     ) -> bool:
         """
         Acknowledge an alert.
@@ -946,7 +946,7 @@ class QueueAlertingSystem:
 
         return acknowledged
 
-    async def get_active_alerts(self) -> List[AlertNotification]:
+    async def get_active_alerts(self) -> list[AlertNotification]:
         """
         Get all active (unacknowledged) alerts.
 
@@ -968,7 +968,7 @@ class QueueAlertingSystem:
         rows = await loop.run_in_executor(None, _get_active)
         return [self._row_to_notification(row) for row in rows]
 
-    async def get_alert_history(self, hours: int = 24) -> List[AlertNotification]:
+    async def get_alert_history(self, hours: int = 24) -> list[AlertNotification]:
         """
         Get alert history for specified time period.
 
@@ -1019,7 +1019,7 @@ class QueueAlertingSystem:
 
     async def _evaluate_rule(
         self, rule: AlertRule, queue_type: str
-    ) -> tuple[bool, Optional[AlertNotification]]:
+    ) -> tuple[bool, AlertNotification | None]:
         """Evaluate a single rule against current metrics."""
         # Fetch current metrics
         metrics = await self._fetch_metrics(queue_type)
@@ -1116,7 +1116,7 @@ class QueueAlertingSystem:
             return False
 
     def _format_alert_message(
-        self, rule: AlertRule, triggered_thresholds: List[tuple]
+        self, rule: AlertRule, triggered_thresholds: list[tuple]
     ) -> str:
         """Format alert message from triggered thresholds."""
         if len(triggered_thresholds) == 1:
@@ -1129,7 +1129,7 @@ class QueueAlertingSystem:
             metric_names = [t.metric_name for t, _ in triggered_thresholds]
             return f"Multiple thresholds triggered: {', '.join(metric_names)}"
 
-    async def _fetch_metrics(self, queue_type: str) -> Dict[str, float]:
+    async def _fetch_metrics(self, queue_type: str) -> dict[str, float]:
         """Fetch current metrics from monitoring modules."""
         metrics = {}
 
@@ -1265,7 +1265,7 @@ class QueueAlertingSystem:
         self,
         notification: AlertNotification,
         channel: NotificationChannel,
-        address: Optional[str] = None,
+        address: str | None = None,
     ) -> bool:
         """Send notification with retry logic."""
         delivery_id = str(uuid.uuid4())

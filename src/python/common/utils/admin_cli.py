@@ -55,7 +55,7 @@ import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from ..core.client import QdrantWorkspaceClient
 from ..core.config import Config
@@ -151,7 +151,7 @@ class WorkspaceQdrantAdmin:
         async with self.get_client() as client:
             try:
                 collection_names = client.list_collections()
-                
+
                 # Convert to dictionary format expected by the rest of the method
                 collections = [{"name": name} for name in collection_names]
 

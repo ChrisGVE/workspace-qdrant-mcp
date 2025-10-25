@@ -4,26 +4,26 @@ Test infrastructure verification for memory rules testing.
 Validates that all fixtures, utilities, and base classes work correctly.
 """
 
-import pytest
 from datetime import datetime, timezone
 
+import pytest
 from common.core.memory import (
-    MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
     AgentDefinition,
+    AuthorityLevel,
+    MemoryCategory,
     MemoryConflict,
+    MemoryRule,
 )
 
-from tests.unit.memory.test_rules_base import BaseMemoryRuleTest
 from tests.unit.memory.rule_test_utils import (
+    ConflictSimulator,
     MemoryRuleGenerator,
     MemoryRuleValidator,
-    ConflictSimulator,
     assert_rule_has_field,
-    assert_rules_have_same_scope,
     assert_rule_replaces,
+    assert_rules_have_same_scope,
 )
+from tests.unit.memory.test_rules_base import BaseMemoryRuleTest
 
 
 @pytest.mark.memory_rules

@@ -5,13 +5,14 @@ Provides fixtures specific to daemon component testing including
 gRPC mocking, Rust process management, and daemon lifecycle control.
 """
 
-import pytest
 import asyncio
-from typing import Optional, Dict, Any
+from typing import Any, Optional
+
+import pytest
 
 
 @pytest.fixture
-def daemon_config() -> Dict[str, Any]:
+def daemon_config() -> dict[str, Any]:
     """Provide test configuration for daemon."""
     return {
         "grpc": {
@@ -55,7 +56,7 @@ async def mock_daemon_client():
             await asyncio.sleep(0.01)
             self.connected = False
 
-        async def process_file(self, file_path: str) -> Dict[str, Any]:
+        async def process_file(self, file_path: str) -> dict[str, Any]:
             """Mock file processing."""
             self.processed_files.append(file_path)
             return {
@@ -65,7 +66,7 @@ async def mock_daemon_client():
                 "processing_time_ms": 100,
             }
 
-        async def get_status(self) -> Dict[str, Any]:
+        async def get_status(self) -> dict[str, Any]:
             """Mock status retrieval."""
             return self.status
 
@@ -88,10 +89,10 @@ def daemon_process_manager():
         """Manages daemon process lifecycle for testing."""
 
         def __init__(self):
-            self.process: Optional[Any] = None
+            self.process: Any | None = None
             self.is_running = False
 
-        async def start(self, config: Optional[Dict[str, Any]] = None):
+        async def start(self, config: dict[str, Any] | None = None):
             """Start daemon process (mocked for now)."""
             # TODO: Implement actual daemon process start when Rust daemon is ready
             await asyncio.sleep(0.1)  # Simulate startup
@@ -108,7 +109,7 @@ def daemon_process_manager():
             """Get daemon gRPC port."""
             return 50051
 
-        def get_pid(self) -> Optional[int]:
+        def get_pid(self) -> int | None:
             """Get daemon process ID."""
             return None if not self.is_running else 12345
 
@@ -120,7 +121,7 @@ def daemon_process_manager():
 
 
 @pytest.fixture
-def grpc_channel_config() -> Dict[str, Any]:
+def grpc_channel_config() -> dict[str, Any]:
     """Provide gRPC channel configuration for testing."""
     return {
         "target": "localhost:50051",

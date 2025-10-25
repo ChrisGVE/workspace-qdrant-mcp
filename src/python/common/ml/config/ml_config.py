@@ -6,17 +6,17 @@ and model deployment. All configuration is accessed through get_config()
 functions matching the Rust pattern.
 """
 
-import os
-from typing import Any, Dict, List, Optional, Union
-from pathlib import Path
-import yaml
+from typing import Any
 
 # Import lua-style configuration functions
 from ...core.config import (
-    get_config_string, get_config_bool, get_config_int, get_config_float,
-    get_config_list, get_config_dict
+    get_config_bool,
+    get_config_dict,
+    get_config_float,
+    get_config_int,
+    get_config_list,
+    get_config_string,
 )
-
 
 # =============================================================================
 # LUA-STYLE ML CONFIGURATION ACCESS FUNCTIONS
@@ -33,18 +33,18 @@ def get_ml_task_type() -> str:
     return get_config_string("ml.task.type", "classification")
 
 
-def get_ml_hyperparameters() -> Dict[str, Any]:
+def get_ml_hyperparameters() -> dict[str, Any]:
     """Get ML model hyperparameters using lua-style configuration access."""
     return get_config_dict("ml.model.hyperparameters", {})
 
 
-def get_ml_feature_selection_method() -> Optional[str]:
+def get_ml_feature_selection_method() -> str | None:
     """Get ML feature selection method using lua-style configuration access."""
     method = get_config_string("ml.features.selection_method", "")
     return method if method else None
 
 
-def get_ml_max_features() -> Optional[int]:
+def get_ml_max_features() -> int | None:
     """Get ML max features using lua-style configuration access."""
     max_features = get_config_int("ml.features.max_features", 0)
     return max_features if max_features > 0 else None
@@ -212,7 +212,7 @@ def get_ml_automl_metric() -> str:
     return get_config_string("ml.automl.metric", "accuracy")
 
 
-def get_ml_automl_algorithms() -> List[str]:
+def get_ml_automl_algorithms() -> list[str]:
     """Get ML AutoML algorithms list using lua-style configuration access."""
     return get_config_list("ml.automl.algorithms", [
         "random_forest", "gradient_boosting", "logistic_regression"
@@ -281,7 +281,7 @@ def validate_ml_experiment_tracking_backend(backend: str) -> bool:
     return backend in valid_backends
 
 
-def validate_ml_config() -> List[str]:
+def validate_ml_config() -> list[str]:
     """Validate complete ML configuration and return any issues."""
     issues = []
 
@@ -390,7 +390,7 @@ def validate_ml_config() -> List[str]:
 # UTILITY FUNCTIONS
 # =============================================================================
 
-def get_ml_config_summary() -> Dict[str, Any]:
+def get_ml_config_summary() -> dict[str, Any]:
     """Get a summary of current ML configuration."""
     return {
         "model": {

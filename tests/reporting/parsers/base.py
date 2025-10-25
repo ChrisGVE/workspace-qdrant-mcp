@@ -15,7 +15,7 @@ class BaseParser(ABC):
     """Base class for test result parsers."""
 
     @abstractmethod
-    def parse(self, source: Union[str, Path, dict]) -> TestRun:
+    def parse(self, source: str | Path | dict) -> TestRun:
         """
         Parse test results from a source into a TestRun object.
 
@@ -34,7 +34,7 @@ class BaseParser(ABC):
         """
         pass
 
-    def _ensure_path(self, source: Union[str, Path]) -> Path:
+    def _ensure_path(self, source: str | Path) -> Path:
         """
         Convert source to Path and verify it exists.
 

@@ -14,26 +14,25 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import List
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from tests.security.fixtures.malicious_payloads import (
-    COMMAND_INJECTION_PAYLOADS,
-    FILE_UPLOAD_PAYLOADS,
-    PATH_TRAVERSAL_PAYLOADS,
-    REDOS_PAYLOADS,
-    SQL_INJECTION_PAYLOADS,
-    SPECIAL_CHAR_PAYLOADS,
-    XSS_PAYLOADS,
-)
 from src.python.common.core.sqlite_state_manager import (
     FileProcessingRecord,
     FileProcessingStatus,
     ProcessingPriority,
     SQLiteStateManager,
     WatchFolderConfig,
+)
+from tests.security.fixtures.malicious_payloads import (
+    COMMAND_INJECTION_PAYLOADS,
+    FILE_UPLOAD_PAYLOADS,
+    PATH_TRAVERSAL_PAYLOADS,
+    REDOS_PAYLOADS,
+    SPECIAL_CHAR_PAYLOADS,
+    SQL_INJECTION_PAYLOADS,
+    XSS_PAYLOADS,
 )
 
 
@@ -252,7 +251,7 @@ class TestFileUploadSecurity:
         max_file_size = 100 * 1024 * 1024  # 100MB reasonable limit
 
         # Simulate large file
-        large_size = 1024 * 1024 * 1024  # 1GB
+        1024 * 1024 * 1024  # 1GB
         file_info = FILE_UPLOAD_PAYLOADS["large_file"]
 
         # System should have file size checks

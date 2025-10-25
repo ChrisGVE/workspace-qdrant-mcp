@@ -19,24 +19,25 @@ Features:
 """
 
 import asyncio
+import hashlib
 import json
-import time
 import smtplib
-import aiohttp
+import statistics
+import time
 from collections import defaultdict, deque
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from email.mime.text import MIMEText as MimeText
 from email.mime.multipart import MIMEMultipart as MimeMultipart
+from email.mime.text import MIMEText as MimeText
 from enum import Enum
-from typing import Dict, List, Optional, Set, Any, Callable, Union
 from pathlib import Path
-import statistics
-import hashlib
+from typing import Any
 
+import aiohttp
 from loguru import logger
 
-from .threat_detection import ThreatDetection, ThreatLevel, ThreatType, SecurityEvent
+from .threat_detection import SecurityEvent, ThreatDetection, ThreatLevel, ThreatType
 
 
 class AlertLevel(Enum):
@@ -72,11 +73,11 @@ class SecurityAlert:
     description: str
     source: str
     timestamp: datetime = field(default_factory=datetime.utcnow)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
     acknowledged: bool = False
     escalated: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert alert to dictionary format."""
         return {
             'alert_id': self.alert_id,
@@ -96,12 +97,12 @@ class SecurityMetric:
     """Represents a security metric data point."""
 
     metric_type: MetricType
-    value: Union[int, float]
+    value: int | float
     timestamp: datetime
-    tags: Dict[str, str] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    tags: dict[str, str] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert metric to dictionary format."""
         return {
             'metric_type': self.metric_type.value,
@@ -123,8 +124,8 @@ class SecurityMetrics:
             retention_period: How long to retain metric data
         """
         self.retention_period = retention_period
-        self.metrics: Dict[MetricType, deque] = defaultdict(lambda: deque(maxlen=10000))
-        self.aggregated_metrics: Dict[str, Dict[str, Any]] = {}
+        self.metrics: dict[MetricType, deque] = defaultdict(lambda: deque(maxlen=10000))
+        self.aggregated_metrics: dict[str, dict[str, Any]] = {}
         self._lock = asyncio.Lock()
 
     async def record_metric(self, metric: SecurityMetric) -> None:
@@ -140,7 +141,7 @@ class SecurityMetrics:
 
     async def get_metric_summary(self,
                                 metric_type: MetricType,
-                                time_window: timedelta = timedelta(hours=1)) -> Dict[str, Any]:
+                                time_window: timedelta = timedelta(hours=1)) -> dict[str, Any]:
         """
         Get summary statistics for a metric type.
 
@@ -195,7 +196,7 @@ class SecurityMetrics:
             return summary
 
     async def get_all_metric_summaries(self,
-                                     time_window: timedelta = timedelta(hours=1)) -> Dict[str, Dict[str, Any]]:
+                                     time_window: timedelta = timedelta(hours=1)) -> dict[str, dict[str, Any]]:
         """Get summary for all metric types."""
         summaries = {}
         for metric_type in MetricType:
@@ -206,7 +207,7 @@ class SecurityMetrics:
         """Remove metrics older than retention period."""
         cutoff_time = datetime.utcnow() - self.retention_period
 
-        for metric_type, metric_deque in self.metrics.items():
+        for _metric_type, metric_deque in self.metrics.items():
             # Remove old metrics from the left
             while metric_deque and metric_deque[0].timestamp < cutoff_time:
                 metric_deque.popleft()
@@ -215,7 +216,7 @@ class SecurityMetrics:
 class AlertingSystem:
     """Manages alert generation, routing, and notification."""
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize alerting system.
 
@@ -223,13 +224,13 @@ class AlertingSystem:
             config: Configuration dictionary
         """
         self.config = config or {}
-        self.alerts: Dict[str, SecurityAlert] = {}
-        self.alert_rules: List[Dict[str, Any]] = []
-        self.notification_handlers: List[Callable] = []
+        self.alerts: dict[str, SecurityAlert] = {}
+        self.alert_rules: list[dict[str, Any]] = []
+        self.notification_handlers: list[Callable] = []
         self.alert_history: deque = deque(maxlen=10000)
 
         # Alert suppression
-        self.suppressed_alerts: Dict[str, datetime] = {}
+        self.suppressed_alerts: dict[str, datetime] = {}
         self.suppression_duration = timedelta(minutes=self.config.get('suppression_minutes', 10))
 
         # Email configuration
@@ -238,7 +239,7 @@ class AlertingSystem:
         # Webhook configuration
         self.webhook_config = self.config.get('webhooks', {})
 
-    def add_alert_rule(self, rule: Dict[str, Any]) -> None:
+    def add_alert_rule(self, rule: dict[str, Any]) -> None:
         """
         Add an alert rule.
 
@@ -256,8 +257,8 @@ class AlertingSystem:
         """Register a custom notification handler."""
         self.notification_handlers.append(handler)
 
-    async def evaluate_alert_rules(self, metrics: Dict[str, Dict[str, Any]],
-                                 threats: List[ThreatDetection]) -> List[SecurityAlert]:
+    async def evaluate_alert_rules(self, metrics: dict[str, dict[str, Any]],
+                                 threats: list[ThreatDetection]) -> list[SecurityAlert]:
         """
         Evaluate alert rules against current metrics and threats.
 
@@ -284,7 +285,7 @@ class AlertingSystem:
 
         return generated_alerts
 
-    async def _create_threat_alert(self, threat: ThreatDetection) -> Optional[SecurityAlert]:
+    async def _create_threat_alert(self, threat: ThreatDetection) -> SecurityAlert | None:
         """Create alert from threat detection."""
         alert_level_mapping = {
             ThreatLevel.LOW: AlertLevel.WARNING,
@@ -311,8 +312,8 @@ class AlertingSystem:
             }
         )
 
-    async def _evaluate_metric_rule(self, rule: Dict[str, Any],
-                                  metrics: Dict[str, Dict[str, Any]]) -> Optional[SecurityAlert]:
+    async def _evaluate_metric_rule(self, rule: dict[str, Any],
+                                  metrics: dict[str, dict[str, Any]]) -> SecurityAlert | None:
         """Evaluate a single metric-based alert rule."""
         try:
             condition = rule['condition']
@@ -335,7 +336,7 @@ class AlertingSystem:
 
         return None
 
-    def _evaluate_condition(self, condition: str, metrics: Dict[str, Dict[str, Any]]) -> bool:
+    def _evaluate_condition(self, condition: str, metrics: dict[str, dict[str, Any]]) -> bool:
         """Evaluate alert condition against metrics."""
         try:
             # Simple condition parser - can be extended for complex expressions
@@ -516,7 +517,7 @@ Please review and take appropriate action.
 
         return False
 
-    def get_active_alerts(self, alert_level: Optional[AlertLevel] = None) -> List[SecurityAlert]:
+    def get_active_alerts(self, alert_level: AlertLevel | None = None) -> list[SecurityAlert]:
         """Get currently active (unacknowledged) alerts."""
         active = [alert for alert in self.alerts.values() if not alert.acknowledged]
 
@@ -529,7 +530,7 @@ Please review and take appropriate action.
 class SecurityEventLogger:
     """Centralized security event logging."""
 
-    def __init__(self, log_file: Optional[Path] = None):
+    def __init__(self, log_file: Path | None = None):
         """
         Initialize security event logger.
 
@@ -595,7 +596,7 @@ class SecurityEventLogger:
             except Exception as e:
                 logger.error(f"Failed to write threat log: {e}")
 
-    def get_recent_events(self, limit: int = 100) -> List[Dict[str, Any]]:
+    def get_recent_events(self, limit: int = 100) -> list[dict[str, Any]]:
         """Get recent security events from buffer."""
         return list(self.event_buffer)[-limit:]
 
@@ -603,7 +604,7 @@ class SecurityEventLogger:
 class SecurityMonitor:
     """Main security monitoring coordinator."""
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: dict[str, Any] | None = None):
         """
         Initialize security monitor.
 
@@ -624,9 +625,9 @@ class SecurityMonitor:
         )
 
         # Monitoring state
-        self.active_threats: List[ThreatDetection] = []
+        self.active_threats: list[ThreatDetection] = []
         self.monitoring_active = False
-        self.monitor_task: Optional[asyncio.Task] = None
+        self.monitor_task: asyncio.Task | None = None
 
         # Performance tracking
         self.last_check_time = datetime.utcnow()
@@ -763,7 +764,7 @@ class SecurityMonitor:
 
         self.last_check_time = current_time
 
-    async def get_security_dashboard_data(self) -> Dict[str, Any]:
+    async def get_security_dashboard_data(self) -> dict[str, Any]:
         """Get comprehensive security dashboard data."""
         current_time = datetime.utcnow()
 
@@ -813,7 +814,7 @@ class SecurityMonitor:
             'recent_events': recent_events[-10:]  # Last 10 events for dashboard
         }
 
-    def get_system_health(self) -> Dict[str, Any]:
+    def get_system_health(self) -> dict[str, Any]:
         """Get security monitoring system health status."""
         return {
             'monitoring_active': self.monitoring_active,

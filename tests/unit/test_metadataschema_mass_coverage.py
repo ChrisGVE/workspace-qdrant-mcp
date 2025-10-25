@@ -3,13 +3,14 @@ Comprehensive test coverage for src/python/common/core/metadata_schema.py
 Generated for achieving full test coverage of workspace-qdrant-mcp codebase.
 """
 
-import pytest
 import asyncio
-import sys
-from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
-import tempfile
 import json
+import sys
+import tempfile
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 # Add source path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))

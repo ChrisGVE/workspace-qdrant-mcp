@@ -9,19 +9,19 @@ This module tests:
 """
 
 import asyncio
-import pytest
 import sqlite3
 import tempfile
 import threading
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Tuple
+
+import pytest
 
 from src.python.common.core.sqlite_state_manager import (
-    SQLiteStateManager,
     FileProcessingStatus,
     ProcessingPriority,
+    SQLiteStateManager,
     WatchFolderConfig,
 )
 
@@ -68,7 +68,7 @@ class TestConcurrentAccess:
         await manager.save_watch_folder_config(config)
 
         # Function for concurrent reads
-        async def read_watch_config(reader_id: int, results: List):
+        async def read_watch_config(reader_id: int, results: list):
             await asyncio.sleep(0.01)  # Small delay to ensure overlap
             config = await manager.get_watch_folder_config("test-watch")
             results.append((reader_id, config is not None, config.watch_id if config else None))
@@ -80,7 +80,7 @@ class TestConcurrentAccess:
 
         # Verify all readers succeeded
         assert len(results) == 10
-        for reader_id, success, watch_id in results:
+        for _reader_id, success, watch_id in results:
             assert success is True
             assert watch_id == "test-watch"
 
@@ -126,7 +126,7 @@ class TestConcurrentAccess:
 
         # Verify reads succeeded
         assert len(read_results) == 50  # 5 readers × 10 reads each
-        for reader_id, count in read_results:
+        for _reader_id, count in read_results:
             assert count >= 0  # Should read successfully
 
         await manager.close()

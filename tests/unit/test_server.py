@@ -15,11 +15,18 @@ import sys
 import tempfile
 import uuid
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from unittest.mock import Mock, patch, AsyncMock, MagicMock, call, mock_open
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, mock_open, patch
 
 import pytest
-from qdrant_client.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+from qdrant_client.models import (
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PointStruct,
+    VectorParams,
+)
 
 # Add the src directory to Python path for imports
 src_path = Path(__file__).parent.parent.parent / "src" / "python"
@@ -240,10 +247,9 @@ class TestComponentInitialization:
     @patch('workspace_qdrant_mcp.server.QdrantClient')
     async def test_initialize_components_default_url(self, mock_qdrant):
         """Test component initialization with default URL."""
-        from workspace_qdrant_mcp.server import initialize_components
-
         # Clear any existing instances
         import workspace_qdrant_mcp.server as server_module
+        from workspace_qdrant_mcp.server import initialize_components
         server_module.qdrant_client = None
         server_module.embedding_model = None
 
@@ -523,7 +529,7 @@ class TestSearchToolFunctionality:
 
         filters = {"author": "test-user", "document_type": "note"}
 
-        result = await server_module.search.fn(
+        await server_module.search.fn(
             query="test query",
             collection="test-collection",
             filters=filters

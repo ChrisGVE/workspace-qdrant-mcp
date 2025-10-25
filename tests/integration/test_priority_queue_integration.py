@@ -7,24 +7,24 @@ retry logic, and end-to-end workflows.
 """
 
 import asyncio
-import pytest
 import tempfile
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import List
+
+import pytest
 
 from src.python.common.core.priority_queue_manager import (
-    PriorityQueueManager,
     MCPActivityLevel,
+    PriorityQueueManager,
+    ProcessingJob,
     ProcessingMode,
     ProcessingPriority,
-    ProcessingJob,
-)
-from src.python.common.core.sqlite_state_manager import (
-    SQLiteStateManager,
-    FileProcessingStatus,
 )
 from src.python.common.core.queue_client import SQLiteQueueClient
+from src.python.common.core.sqlite_state_manager import (
+    FileProcessingStatus,
+    SQLiteStateManager,
+)
 
 
 @pytest.fixture
@@ -168,7 +168,7 @@ async def test_priority_calculations(queue_manager, test_file, test_project_root
     queue_manager.set_current_branch("main")
 
     # Test 1: User triggered should get high priority
-    queue_id_1 = await queue_manager.enqueue_file(
+    await queue_manager.enqueue_file(
         file_path=test_file,
         collection="test-collection",
         user_triggered=True,
@@ -183,7 +183,7 @@ async def test_priority_calculations(queue_manager, test_file, test_project_root
     await queue_manager.queue_client.clear_queue()
 
     # Test 2: Non-user triggered should get lower priority
-    queue_id_2 = await queue_manager.enqueue_file(
+    await queue_manager.enqueue_file(
         file_path=test_file,
         collection="test-collection",
         user_triggered=False,
@@ -202,7 +202,7 @@ async def test_priority_calculations(queue_manager, test_file, test_project_root
     # Test 3: Simulate MCP activity
     queue_manager.mcp_activity.activity_level = MCPActivityLevel.HIGH
 
-    queue_id_3 = await queue_manager.enqueue_file(
+    await queue_manager.enqueue_file(
         file_path=test_file,
         collection="test-collection",
         user_triggered=False,

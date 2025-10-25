@@ -29,19 +29,19 @@ Example:
 """
 
 import time
-from typing import Any, Dict, Optional
+from typing import Any
 
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
-
-from .health import HealthStatus, health_checker_instance
 from loguru import logger
+
+from .health import health_checker_instance
 from .metrics import metrics_instance
 
 # logger imported from loguru
 
 
-async def health_check_basic() -> Dict[str, Any]:
+async def health_check_basic() -> dict[str, Any]:
     """Basic health check endpoint for load balancers."""
     try:
         health_status = await health_checker_instance.get_health_status()
@@ -78,7 +78,7 @@ async def health_check_basic() -> Dict[str, Any]:
         }
 
 
-async def health_check_detailed() -> Dict[str, Any]:
+async def health_check_detailed() -> dict[str, Any]:
     """Detailed health check with component information."""
     try:
         health_status = await health_checker_instance.get_health_status()
@@ -118,14 +118,14 @@ async def metrics_prometheus() -> str:
     except Exception as e:
         logger.error("Prometheus metrics export failed", error=str(e), exc_info=True)
         # Return error metric in Prometheus format
-        return f"""# Metrics export error
+        return """# Metrics export error
 # TYPE metrics_export_errors_total counter
 metrics_export_errors_total 1
 # EOF
 """
 
 
-async def metrics_json() -> Dict[str, Any]:
+async def metrics_json() -> dict[str, Any]:
     """JSON-format metrics for custom dashboards."""
     try:
         # Update system metrics before export
@@ -160,7 +160,7 @@ async def metrics_json() -> Dict[str, Any]:
         }
 
 
-async def system_diagnostics() -> Dict[str, Any]:
+async def system_diagnostics() -> dict[str, Any]:
     """Comprehensive system diagnostics endpoint."""
     try:
         # Get detailed diagnostics from health checker
@@ -326,7 +326,7 @@ def add_observability_routes(app: FastAPI, prefix: str = "") -> None:
                 "metrics_endpoint_requests_total", format="prometheus", status="error"
             )
 
-            error_response = f"""# Metrics endpoint error
+            error_response = """# Metrics endpoint error
 # TYPE metrics_endpoint_errors_total counter
 metrics_endpoint_errors_total 1
 """

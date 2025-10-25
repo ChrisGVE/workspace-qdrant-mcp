@@ -6,20 +6,19 @@ with support for model lineage tracking, performance comparison, and automated
 deployment workflows with extensive validation and error handling.
 """
 
-import os
-import json
-import pickle
-import sqlite3
 import hashlib
+import json
 import logging
-from typing import Any, Dict, List, Optional, Union, Tuple
-from pathlib import Path
-from dataclasses import dataclass, field, asdict
-from datetime import datetime
-from contextlib import contextmanager
+import pickle
 import shutil
+import sqlite3
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
 
-from ..config.ml_config import MLConfig, MLPerformanceMetrics, MLModelConfig
+from ..config.ml_config import MLConfig
 from ..pipeline.training_pipeline import TrainingResult
 
 
@@ -29,22 +28,22 @@ class ModelMetadata:
     model_id: str
     name: str
     version: str
-    description: Optional[str] = None
+    description: str | None = None
     created_at: datetime = field(default_factory=datetime.now)
     updated_at: datetime = field(default_factory=datetime.now)
-    tags: Dict[str, str] = field(default_factory=dict)
+    tags: dict[str, str] = field(default_factory=dict)
     stage: str = "development"  # development, staging, production, archived
     model_type: str = ""
     task_type: str = ""
-    metrics: Dict[str, float] = field(default_factory=dict)
-    hyperparameters: Dict[str, Any] = field(default_factory=dict)
-    feature_names: List[str] = field(default_factory=list)
+    metrics: dict[str, float] = field(default_factory=dict)
+    hyperparameters: dict[str, Any] = field(default_factory=dict)
+    feature_names: list[str] = field(default_factory=list)
     model_size_bytes: int = 0
     model_hash: str = ""
-    parent_run_id: Optional[str] = None
-    experiment_name: Optional[str] = None
+    parent_run_id: str | None = None
+    experiment_name: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert metadata to dictionary."""
         data = asdict(self)
         # Convert datetime objects to ISO format strings
@@ -53,7 +52,7 @@ class ModelMetadata:
         return data
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'ModelMetadata':
+    def from_dict(cls, data: dict[str, Any]) -> 'ModelMetadata':
         """Create metadata from dictionary."""
         # Convert ISO format strings back to datetime objects
         if isinstance(data.get('created_at'), str):
@@ -70,7 +69,7 @@ class ModelVersion:
     version: str
     metadata: ModelMetadata
     model_path: Path
-    artifacts_path: Optional[Path] = None
+    artifacts_path: Path | None = None
 
 
 class ModelRegistryError(Exception):
@@ -251,11 +250,11 @@ class ModelRegistry:
         self,
         training_result: TrainingResult,
         name: str,
-        version: Optional[str] = None,
-        description: Optional[str] = None,
-        tags: Optional[Dict[str, str]] = None,
+        version: str | None = None,
+        description: str | None = None,
+        tags: dict[str, str] | None = None,
         stage: str = "development",
-        experiment_name: Optional[str] = None
+        experiment_name: str | None = None
     ) -> str:
         """
         Register a trained model in the registry.
@@ -362,8 +361,8 @@ class ModelRegistry:
     def get_model_by_name(
         self,
         name: str,
-        version: Optional[str] = None,
-        stage: Optional[str] = None
+        version: str | None = None,
+        stage: str | None = None
     ) -> ModelVersion:
         """
         Retrieve a model by name and optional version/stage.
@@ -425,11 +424,11 @@ class ModelRegistry:
 
     def list_models(
         self,
-        name_pattern: Optional[str] = None,
-        stage: Optional[str] = None,
-        tags: Optional[Dict[str, str]] = None,
+        name_pattern: str | None = None,
+        stage: str | None = None,
+        tags: dict[str, str] | None = None,
         limit: int = 100
-    ) -> List[ModelMetadata]:
+    ) -> list[ModelMetadata]:
         """
         List models with optional filtering.
 
@@ -570,9 +569,9 @@ class ModelRegistry:
 
     def compare_models(
         self,
-        model_ids: List[str],
-        metrics: Optional[List[str]] = None
-    ) -> Dict[str, Dict[str, Any]]:
+        model_ids: list[str],
+        metrics: list[str] | None = None
+    ) -> dict[str, dict[str, Any]]:
         """
         Compare multiple models by their metrics and metadata.
 
@@ -626,9 +625,9 @@ class ModelRegistry:
         self,
         name: str,
         metric: str,
-        stage: Optional[str] = None,
+        stage: str | None = None,
         maximize: bool = True
-    ) -> Optional[ModelVersion]:
+    ) -> ModelVersion | None:
         """
         Get the best model by a specific metric.
 
@@ -853,7 +852,7 @@ class ModelRegistry:
 
             conn.commit()
 
-    def _get_metadata(self, model_id: str) -> Optional[ModelMetadata]:
+    def _get_metadata(self, model_id: str) -> ModelMetadata | None:
         """Retrieve model metadata from database."""
         with self._get_db_connection() as conn:
             cursor = conn.cursor()
@@ -914,7 +913,7 @@ class ModelRegistry:
         keep_latest: int = 5,
         keep_production: bool = True,
         dry_run: bool = False
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Clean up old model versions.
 
@@ -972,7 +971,7 @@ class ModelRegistry:
         except Exception as e:
             raise ModelRegistryError(f"Failed to cleanup old models: {str(e)}")
 
-    def get_registry_stats(self) -> Dict[str, Any]:
+    def get_registry_stats(self) -> dict[str, Any]:
         """Get registry statistics."""
         try:
             with self._get_db_connection() as conn:

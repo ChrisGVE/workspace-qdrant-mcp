@@ -16,7 +16,8 @@ import os
 import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
 from typer.testing import CliRunner
 
@@ -78,8 +79,8 @@ class TestCLIUtilities:
 
     def test_handle_async_keyboard_interrupt(self):
         """Test handle_async with KeyboardInterrupt."""
-        from wqm_cli.cli.utils import handle_async
         import typer
+        from wqm_cli.cli.utils import handle_async
 
         async def interrupt_coro():
             raise KeyboardInterrupt()
@@ -90,8 +91,8 @@ class TestCLIUtilities:
 
     def test_handle_async_general_exception(self):
         """Test handle_async with general exception."""
-        from wqm_cli.cli.utils import handle_async
         import typer
+        from wqm_cli.cli.utils import handle_async
 
         async def error_coro():
             raise Exception("Test error")
@@ -112,8 +113,8 @@ class TestCLIUtilities:
 
     def test_handle_async_command_with_debug(self):
         """Test handle_async_command with debug mode."""
-        from wqm_cli.cli.utils import handle_async_command
         import typer
+        from wqm_cli.cli.utils import handle_async_command
 
         async def error_coro():
             raise Exception("Debug test error")
@@ -239,7 +240,7 @@ class TestCLIMessageHelpers:
 
     def test_message_helpers_return_values(self):
         """Test message helpers return appropriate values."""
-        from wqm_cli.cli.utils import success_message, error_message, warning_message
+        from wqm_cli.cli.utils import error_message, success_message, warning_message
 
         # These functions should not raise exceptions
         success_message("Test success")
@@ -273,7 +274,7 @@ class TestCLIClientHelpers:
         config_path = str(Path(self.temp_dir) / "custom.yaml")
 
         try:
-            client = get_configured_client(config_path=config_path)
+            get_configured_client(config_path=config_path)
             # Should attempt to use custom config
         except Exception:
             # May fail due to missing dependencies, that's expected in unit tests
@@ -305,7 +306,7 @@ class TestCLIFormatting:
             ]
 
             # Should not raise an exception
-            result = format_table_data(data)
+            format_table_data(data)
 
         except ImportError:
             # Formatting helpers may not exist
@@ -319,7 +320,7 @@ class TestCLIFormatting:
             data = {"key": "value", "number": 42}
 
             # Should not raise an exception
-            result = format_json_output(data)
+            format_json_output(data)
 
         except ImportError:
             # JSON formatting helper may not exist
@@ -337,7 +338,7 @@ class TestCLIFormatting:
             }
 
             # Should not raise an exception
-            result = format_status_display(status_data)
+            format_status_display(status_data)
 
         except ImportError:
             # Status formatting may not exist
@@ -356,7 +357,7 @@ class TestCLIValidation:
             config_path = str(Path(self.temp_dir) / "config.yaml")
             Path(config_path).touch()  # Create file
 
-            is_valid = validate_config_path(config_path)
+            validate_config_path(config_path)
             # Should validate existing file
 
         except ImportError:
@@ -560,10 +561,10 @@ class TestCLIUtilityIntegration:
         try:
             from wqm_cli.cli.utils import (
                 create_command_app,
+                error_message,
                 handle_async,
-                verbose_option,
                 success_message,
-                error_message
+                verbose_option,
             )
 
             # All imports should succeed
@@ -573,7 +574,7 @@ class TestCLIUtilityIntegration:
             assert callable(success_message)
             assert callable(error_message)
 
-        except ImportError as e:
+        except ImportError:
             # Some utilities may not exist, that's okay
             pass
 

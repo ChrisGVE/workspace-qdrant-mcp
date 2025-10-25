@@ -7,19 +7,19 @@ token limits, and tiktoken integration.
 Task 324.5 - Token Usage Tracking Comprehensive Tests
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta
-from unittest.mock import Mock, patch, MagicMock
 import sys
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, Mock, patch
 
+import pytest
 from common.memory import (
+    AuthorityLevel,
+    MemoryCategory,
+    MemoryRule,
     TokenCounter,
     TokenUsage,
-    MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
 )
-from common.memory.token_counter import TokenizationMethod, RuleTokenInfo
+from common.memory.token_counter import RuleTokenInfo, TokenizationMethod
 
 
 class TestTokenCountingAccuracy:
@@ -620,6 +620,7 @@ class TestTiktokenIntegration:
             with patch.dict('sys.modules', {'tiktoken': None}):
                 # Re-import the token_counter module to trigger the import error
                 import importlib
+
                 from common.memory import token_counter
                 importlib.reload(token_counter)
 
@@ -634,6 +635,7 @@ class TestTiktokenIntegration:
                 sys.modules['tiktoken'] = tiktoken_backup
             # Reload token_counter to restore normal state
             import importlib
+
             from common.memory import token_counter
             importlib.reload(token_counter)
 
@@ -734,7 +736,7 @@ class TestTiktokenIntegration:
             mock_encoder.encode = Mock(return_value=[1, 2, 3])
             mock_encoding.return_value = mock_encoder
 
-            counter = TokenCounter(method=TokenizationMethod.TIKTOKEN)
+            TokenCounter(method=TokenizationMethod.TIKTOKEN)
 
             # Should have called encoding_for_model with correct model
             mock_encoding.assert_called_once_with("gpt-3.5-turbo")

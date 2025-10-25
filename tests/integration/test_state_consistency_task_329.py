@@ -25,7 +25,7 @@ import logging
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any
 
 import httpx
 import pytest
@@ -533,7 +533,7 @@ class TestProjectIdConsistency:
                     all_results.append((project, len(results)))
 
             logger.info(
-                f"✅ Multi-project isolation test\n"
+                "✅ Multi-project isolation test\n"
                 + "\n".join([f"   {proj}: {count} results" for proj, count in all_results])
             )
 
@@ -607,7 +607,7 @@ class TestMetadataConsistency:
 
 # Test report generation
 def generate_state_consistency_test_report(
-    test_results: Dict[str, Any], output_path: Path = None
+    test_results: dict[str, Any], output_path: Path = None
 ) -> str:
     """Generate comprehensive state consistency test report."""
     if output_path is None:

@@ -3,18 +3,25 @@ Final test to achieve exactly 100% coverage of server.py by executing all missin
 This test manually exercises the code paths that are wrapped by FastMCP decorators.
 """
 
-import pytest
 import asyncio
-import sys
 import os
 import stat
 import subprocess
-from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock, call
-from typing import Dict, Any, List
+import sys
 import uuid
 from datetime import datetime, timezone
-from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue, SearchParams
+from pathlib import Path
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
+from qdrant_client.models import (
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PointStruct,
+    SearchParams,
+)
 
 # Add source path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src" / "python"))
@@ -29,38 +36,38 @@ class TestServer100Percent:
 
         # Cover all branches
         with patch.dict(os.environ, {"WQM_STDIO_MODE": "true"}):
-            assert _detect_stdio_mode() == True
+            assert _detect_stdio_mode()
 
         with patch.dict(os.environ, {"WQM_CLI_MODE": "true"}):
-            assert _detect_stdio_mode() == False
+            assert not _detect_stdio_mode()
 
         # Test pipe detection
         mock_stat = Mock()
         mock_stat.st_mode = stat.S_IFIFO
         with patch('os.fstat', return_value=mock_stat):
             with patch('sys.stdin.fileno', return_value=0):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
         # Test regular file
         mock_stat.st_mode = stat.S_IFREG
         with patch('os.fstat', return_value=mock_stat):
             with patch('sys.stdin.fileno', return_value=0):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
         # Test exception handling
         with patch('os.fstat', side_effect=OSError()):
             with patch.object(sys, 'argv', ['program', 'stdio']):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
         with patch('os.fstat', side_effect=AttributeError()):
             with patch.object(sys, 'argv', ['program', 'mcp']):
-                assert _detect_stdio_mode() == True
+                assert _detect_stdio_mode()
 
         # Test default case
         with patch.dict(os.environ, {}, clear=True):
             with patch('os.fstat', side_effect=OSError()):
                 with patch.object(sys, 'argv', ['program']):
-                    assert _detect_stdio_mode() == False
+                    assert not _detect_stdio_mode()
 
     def test_project_name_complete(self):
         """Test all project name detection paths."""
@@ -92,8 +99,8 @@ class TestServer100Percent:
     @pytest.mark.asyncio
     async def test_initialize_components_complete(self):
         """Test all initialization paths."""
-        from workspace_qdrant_mcp.server import initialize_components
         import workspace_qdrant_mcp.server as server_module
+        from workspace_qdrant_mcp.server import initialize_components
 
         # Test first initialization
         server_module.qdrant_client = None
@@ -119,8 +126,8 @@ class TestServer100Percent:
     @pytest.mark.asyncio
     async def test_generate_embeddings_complete(self):
         """Test generate_embeddings function."""
-        from workspace_qdrant_mcp.server import generate_embeddings
         import workspace_qdrant_mcp.server as server_module
+        from workspace_qdrant_mcp.server import generate_embeddings
 
         mock_embed = Mock()
         mock_result = Mock()
@@ -142,8 +149,8 @@ class TestServer100Percent:
     @pytest.mark.asyncio
     async def test_ensure_collection_exists_complete(self):
         """Test ensure_collection_exists function."""
-        from workspace_qdrant_mcp.server import ensure_collection_exists
         import workspace_qdrant_mcp.server as server_module
+        from workspace_qdrant_mcp.server import ensure_collection_exists
 
         mock_client = Mock()
         server_module.qdrant_client = mock_client
@@ -151,18 +158,18 @@ class TestServer100Percent:
         # Test exists
         mock_client.get_collection.return_value = Mock()
         result = await ensure_collection_exists("test")
-        assert result == True
+        assert result
 
         # Test create success
         mock_client.get_collection.side_effect = Exception("Not found")
         mock_client.create_collection.return_value = True
         result = await ensure_collection_exists("new")
-        assert result == True
+        assert result
 
         # Test create failure
         mock_client.create_collection.side_effect = Exception("Failed")
         result = await ensure_collection_exists("fail")
-        assert result == False
+        assert not result
 
     def test_determine_collection_name_complete(self):
         """Test all collection naming paths."""
@@ -217,8 +224,10 @@ class TestServer100Percent:
         """Test the MCP function logic by simulating their execution."""
         import workspace_qdrant_mcp.server as server_module
         from workspace_qdrant_mcp.server import (
-            determine_collection_name, ensure_collection_exists,
-            generate_embeddings, get_project_name
+            determine_collection_name,
+            ensure_collection_exists,
+            generate_embeddings,
+            get_project_name,
         )
 
         # Setup comprehensive mocks
@@ -265,8 +274,11 @@ class TestServer100Percent:
         """Simulate the store function to exercise all its code paths."""
         import workspace_qdrant_mcp.server as server_module
         from workspace_qdrant_mcp.server import (
-            initialize_components, determine_collection_name,
-            ensure_collection_exists, generate_embeddings, get_project_name
+            determine_collection_name,
+            ensure_collection_exists,
+            generate_embeddings,
+            get_project_name,
+            initialize_components,
         )
 
         # Simulate store function body - lines 268-335
@@ -368,7 +380,7 @@ class TestServer100Percent:
                     collection_name=target_collection,
                     points=[point]
                 )
-            except Exception as e:
+            except Exception:
                 pass  # Handle errors
 
         # Test collection creation failure path
@@ -380,7 +392,9 @@ class TestServer100Percent:
         """Simulate the search function to exercise all its code paths."""
         import workspace_qdrant_mcp.server as server_module
         from workspace_qdrant_mcp.server import (
-            initialize_components, get_project_name, generate_embeddings
+            generate_embeddings,
+            get_project_name,
+            initialize_components,
         )
 
         # Simulate search function body - lines 375-519
@@ -502,10 +516,12 @@ class TestServer100Percent:
     async def _simulate_manage_function(self):
         """Simulate the manage function to exercise all its code paths."""
         import workspace_qdrant_mcp.server as server_module
+        from qdrant_client.models import Distance, VectorParams
         from workspace_qdrant_mcp.server import (
-            initialize_components, get_project_name, ensure_collection_exists
+            ensure_collection_exists,
+            get_project_name,
+            initialize_components,
         )
-        from qdrant_client.models import VectorParams, Distance
 
         # Simulate manage function body - lines 555-723
         await initialize_components()
@@ -614,7 +630,7 @@ class TestServer100Percent:
                 collection_name = case["name"]
                 if collection_name:
                     try:
-                        info = server_module.qdrant_client.get_collection(collection_name)
+                        server_module.qdrant_client.get_collection(collection_name)
                     except Exception:
                         pass
 
@@ -627,7 +643,7 @@ class TestServer100Percent:
                     total_documents = sum(c.vectors_count for c in collections_response.collections)
                     project_collections = [c for c in collections_response.collections if c.name.startswith(project)]
 
-                    status = {
+                    {
                         "project_name": project,
                         "total_collections": total_collections,
                         "project_collections": len(project_collections),
@@ -674,8 +690,8 @@ class TestServer100Percent:
     async def _simulate_retrieve_function(self):
         """Simulate the retrieve function to exercise all its code paths."""
         import workspace_qdrant_mcp.server as server_module
-        from workspace_qdrant_mcp.server import initialize_components, get_project_name
-        from qdrant_client.models import Filter, FieldCondition, MatchValue
+        from qdrant_client.models import FieldCondition, Filter, MatchValue
+        from workspace_qdrant_mcp.server import get_project_name, initialize_components
 
         # Simulate retrieve function body - lines 755-868
         await initialize_components()
@@ -814,8 +830,8 @@ class TestServer100Percent:
 
     def test_main_function_complete(self):
         """Test main entry point."""
-        from workspace_qdrant_mcp.server import main
         import workspace_qdrant_mcp.server as server_module
+        from workspace_qdrant_mcp.server import main
 
         with patch.object(server_module, 'typer') as mock_typer:
             mock_typer.run = Mock()

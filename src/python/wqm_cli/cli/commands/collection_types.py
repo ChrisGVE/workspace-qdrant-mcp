@@ -13,25 +13,20 @@ Usage:
 
 import json
 import sqlite3
-from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 
 import typer
-from loguru import logger
-from rich.console import Console
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.table import Table
-
 from common.core.collection_migration import CollectionMigrator
 from common.core.collection_type_config import (
-    CollectionTypeConfig,
     DeletionMode,
     get_all_type_configs,
     get_type_config,
 )
 from common.core.collection_types import CollectionType, CollectionTypeClassifier
+from loguru import logger
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
 
 from ..utils import (
     confirm,
@@ -42,7 +37,6 @@ from ..utils import (
     get_configured_client,
     handle_async,
     info_message,
-    json_output_option,
     success_message,
     verbose_option,
     warning_message,
@@ -160,7 +154,7 @@ def validate_types(
         "--format",
         help="Output format: table or json",
     ),
-    severity: Optional[str] = typer.Option(
+    severity: str | None = typer.Option(
         None,
         "--severity",
         help="Filter by severity: error, warning, info",
@@ -209,7 +203,7 @@ async def _list_types(format: str, verbose: bool) -> None:
         collections = collections_response.collections if hasattr(collections_response, "collections") else []
 
         # Group by type
-        by_type: Dict[CollectionType, List[str]] = {
+        by_type: dict[CollectionType, list[str]] = {
             CollectionType.SYSTEM: [],
             CollectionType.LIBRARY: [],
             CollectionType.PROJECT: [],
@@ -483,11 +477,11 @@ async def _migrate_type(collection_name: str, target_type_str: str, dry_run: boo
         raise typer.Exit(1)
 
 
-async def _validate_types(format: str, severity: Optional[str]) -> None:
+async def _validate_types(format: str, severity: str | None) -> None:
     """Implementation of validate-types command."""
     try:
         client = get_configured_client()
-        classifier = CollectionTypeClassifier()
+        CollectionTypeClassifier()
 
         # Get all collections
         collections_response = client.get_collections()
@@ -667,7 +661,7 @@ async def _deletion_status(format: str, verbose: bool, trigger_cleanup: bool) ->
             console.print(modes_table)
 
             # Queue status
-            console.print(f"\n[bold]Deletion Queue Status:[/bold]")
+            console.print("\n[bold]Deletion Queue Status:[/bold]")
             console.print(f"  Cumulative deletions pending: {deletion_stats['cumulative_pending']}")
             console.print(f"  Batch cleanup schedule: {deletion_stats['batch_cleanup_schedule']}")
 
@@ -676,11 +670,11 @@ async def _deletion_status(format: str, verbose: bool, trigger_cleanup: bool) ->
                 info_message("This will be available when deletion tracking system is fully integrated")
 
             if verbose:
-                console.print(f"\n[bold]Cumulative Deletion Types:[/bold]")
+                console.print("\n[bold]Cumulative Deletion Types:[/bold]")
                 for type_name in deletion_stats["cumulative_types"]:
                     console.print(f"  • {type_name.upper()}")
 
-                console.print(f"\n[bold]Dynamic Deletion Types:[/bold]")
+                console.print("\n[bold]Dynamic Deletion Types:[/bold]")
                 for type_name in deletion_stats["dynamic_types"]:
                     console.print(f"  • {type_name.upper()}")
 

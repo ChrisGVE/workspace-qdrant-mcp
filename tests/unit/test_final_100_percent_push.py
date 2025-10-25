@@ -3,16 +3,17 @@ FINAL 100% COVERAGE PUSH
 This test will systematically execute every line of code to achieve 100% coverage.
 """
 
-import pytest
-import importlib
-import sys
-import os
 import ast
+import importlib
 import inspect
-from unittest.mock import patch, Mock, MagicMock, mock_open, AsyncMock
-from pathlib import Path
 import json
 import logging
+import os
+import sys
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, Mock, mock_open, patch
+
+import pytest
 
 
 class CodeExecutor:
@@ -78,7 +79,7 @@ class TestFinal100PercentPush:
             src_path = Path("src")
             python_files = []
 
-            for root, dirs, files in os.walk(src_path):
+            for root, _dirs, files in os.walk(src_path):
                 for file in files:
                     if file.endswith('.py') and not file.startswith('__'):
                         file_path = Path(root) / file
@@ -156,7 +157,7 @@ class TestFinal100PercentPush:
                 self._execute_class_with_variations(attr)
             elif inspect.isfunction(attr) or inspect.ismethod(attr):
                 self._execute_function_with_variations(attr)
-            elif hasattr(attr, '__call__'):
+            elif callable(attr):
                 self._execute_callable_with_variations(attr)
         except Exception:
             pass
@@ -352,18 +353,18 @@ class TestFinal100PercentPush:
 
             # Find all Python files and force import
             src_path = Path("src")
-            for root, dirs, files in os.walk(src_path):
+            for root, _dirs, files in os.walk(src_path):
                 for file in files:
                     if file.endswith('.py') and not file.startswith('__'):
                         file_path = Path(root) / file
 
                         try:
                             # Read and compile the file
-                            with open(file_path, 'r', encoding='utf-8') as f:
+                            with open(file_path, encoding='utf-8') as f:
                                 content = f.read()
 
                             # Compile to check syntax and execute imports
-                            compiled = compile(content, str(file_path), 'exec')
+                            compile(content, str(file_path), 'exec')
 
                             # Convert to module name and import
                             relative_path = file_path.relative_to(src_path)

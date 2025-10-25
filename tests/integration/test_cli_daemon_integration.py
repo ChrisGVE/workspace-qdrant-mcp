@@ -24,13 +24,14 @@ Test Coverage (7 subtasks):
 import asyncio
 import json
 import os
-import pytest
 import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 
 @pytest.fixture
@@ -65,7 +66,6 @@ async def daemon_manager(temp_workspace):
 
     Provides utilities for starting, stopping, and checking daemon status.
     """
-    daemon_pid = None
 
     class DaemonManager:
         def __init__(self, workspace):
@@ -185,7 +185,7 @@ class TestDaemonLifecycleControl:
         """Test restarting daemon via 'wqm service restart' command."""
         # Start daemon
         start_result = await daemon_manager.start_daemon()
-        original_pid = start_result["pid"]
+        start_result["pid"]
 
         # Restart (stop then start)
         await daemon_manager.stop_daemon()

@@ -41,19 +41,16 @@ Example:
 import asyncio
 import json
 import time
-from dataclasses import asdict
-from datetime import datetime, timezone, timedelta
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from datetime import datetime, timezone
+from typing import Any
 
-import aiohttp
-from aiohttp import web, WSMsgType
+from aiohttp import WSMsgType, web
 from loguru import logger
 
-from .health_coordinator import get_health_coordinator, HealthCoordinator
-from .enhanced_alerting import get_alerting_manager, AlertingManager
-from .grpc_health import get_grpc_health_service, GrpcHealthService
-from .health import get_health_checker, HealthChecker
+from .enhanced_alerting import AlertingManager, get_alerting_manager
+from .grpc_health import GrpcHealthService, get_grpc_health_service
+from .health import HealthChecker, get_health_checker
+from .health_coordinator import HealthCoordinator, get_health_coordinator
 from .metrics import metrics_instance
 
 
@@ -90,25 +87,25 @@ class HealthDashboard:
         self.update_interval_seconds = update_interval_seconds
 
         # Web server
-        self.app: Optional[web.Application] = None
-        self.runner: Optional[web.AppRunner] = None
-        self.site: Optional[web.TCPSite] = None
+        self.app: web.Application | None = None
+        self.runner: web.AppRunner | None = None
+        self.site: web.TCPSite | None = None
 
         # Health monitoring components
-        self.health_coordinator: Optional[HealthCoordinator] = None
-        self.alerting_manager: Optional[AlertingManager] = None
-        self.grpc_health_service: Optional[GrpcHealthService] = None
-        self.health_checker: Optional[HealthChecker] = None
+        self.health_coordinator: HealthCoordinator | None = None
+        self.alerting_manager: AlertingManager | None = None
+        self.grpc_health_service: GrpcHealthService | None = None
+        self.health_checker: HealthChecker | None = None
 
         # WebSocket connections
-        self.websocket_connections: Set[web.WebSocketResponse] = set()
+        self.websocket_connections: set[web.WebSocketResponse] = set()
 
         # Background tasks
-        self.background_tasks: List[asyncio.Task] = []
+        self.background_tasks: list[asyncio.Task] = []
         self.shutdown_event = asyncio.Event()
 
         # Dashboard state
-        self.last_dashboard_data: Optional[Dict[str, Any]] = None
+        self.last_dashboard_data: dict[str, Any] | None = None
         self.dashboard_access_count = 0
 
         logger.info(
@@ -166,7 +163,7 @@ class HealthDashboard:
             )
 
             logger.info(
-                f"Health Dashboard started",
+                "Health Dashboard started",
                 url=f"http://{self.host}:{self.port}{self.dashboard_path}",
                 websocket_enabled=self.enable_websocket
             )
@@ -503,7 +500,7 @@ class HealthDashboard:
 
         return ws
 
-    async def _handle_websocket_message(self, ws: web.WebSocketResponse, data: Dict[str, Any]) -> None:
+    async def _handle_websocket_message(self, ws: web.WebSocketResponse, data: dict[str, Any]) -> None:
         """Handle incoming WebSocket messages."""
         message_type = data.get("type")
 
@@ -566,7 +563,7 @@ class HealthDashboard:
                 logger.error(f"WebSocket update loop error: {e}")
                 await asyncio.sleep(self.update_interval_seconds)
 
-    def _should_send_update(self, new_data: Dict[str, Any]) -> bool:
+    def _should_send_update(self, new_data: dict[str, Any]) -> bool:
         """Determine if dashboard update should be sent."""
         if not self.last_dashboard_data:
             return True
@@ -1479,7 +1476,7 @@ body {
 
 
 # Global health dashboard instance
-_health_dashboard: Optional[HealthDashboard] = None
+_health_dashboard: HealthDashboard | None = None
 
 
 async def get_health_dashboard(**kwargs) -> HealthDashboard:

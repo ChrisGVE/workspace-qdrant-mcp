@@ -35,34 +35,29 @@ Example:
 """
 
 import asyncio
-import json
 import time
-import traceback
 from collections import defaultdict, deque
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 
 import numpy as np
 from loguru import logger
 
-from .health import HealthChecker, HealthStatus, ComponentHealth, get_health_checker
-from .metrics import metrics_instance
 from ..core.component_coordination import (
     ComponentCoordinator,
     ComponentType,
-    ComponentStatus,
-    ComponentHealth as CoordComponentHealth,
     get_component_coordinator,
 )
 from ..core.component_lifecycle import (
     ComponentLifecycleManager,
-    ComponentState,
-    LifecyclePhase,
     get_lifecycle_manager,
 )
+from .health import HealthChecker, HealthStatus, get_health_checker
+from .metrics import metrics_instance
 
 
 class AlertSeverity(Enum):
@@ -92,11 +87,11 @@ class ComponentHealthMetrics:
     health_status: HealthStatus
     response_time_ms: float
     error_rate: float
-    resource_usage: Dict[str, float]
-    dependency_health: Dict[str, bool]
+    resource_usage: dict[str, float]
+    dependency_health: dict[str, bool]
     uptime_seconds: float
-    last_restart: Optional[datetime] = None
-    performance_metrics: Dict[str, float] = field(default_factory=dict)
+    last_restart: datetime | None = None
+    performance_metrics: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -109,10 +104,10 @@ class HealthAlert:
     message: str
     description: str
     timestamp: datetime
-    metrics: Dict[str, Any] = field(default_factory=dict)
+    metrics: dict[str, Any] = field(default_factory=dict)
     auto_recovery_attempted: bool = False
     resolved: bool = False
-    resolution_time: Optional[datetime] = None
+    resolution_time: datetime | None = None
 
 
 @dataclass
@@ -123,9 +118,9 @@ class HealthTrendAnalysis:
     trend: HealthTrend
     confidence: float  # 0.0 to 1.0
     analysis_period_hours: float
-    key_indicators: List[str]
-    predictions: Dict[str, Any] = field(default_factory=dict)
-    recommendations: List[str] = field(default_factory=list)
+    key_indicators: list[str]
+    predictions: dict[str, Any] = field(default_factory=dict)
+    recommendations: list[str] = field(default_factory=list)
 
 
 class HealthCoordinator:
@@ -164,8 +159,8 @@ class HealthCoordinator:
     def __init__(
         self,
         db_path: str = "workspace_state.db",
-        project_name: Optional[str] = None,
-        project_path: Optional[str] = None,
+        project_name: str | None = None,
+        project_path: str | None = None,
         enable_auto_recovery: bool = True,
         trend_analysis_window_hours: float = 24.0
     ):
@@ -186,30 +181,30 @@ class HealthCoordinator:
         self.trend_analysis_window_hours = trend_analysis_window_hours
 
         # Core health monitoring components
-        self.health_checker: Optional[HealthChecker] = None
-        self.component_coordinator: Optional[ComponentCoordinator] = None
-        self.lifecycle_manager: Optional[ComponentLifecycleManager] = None
+        self.health_checker: HealthChecker | None = None
+        self.component_coordinator: ComponentCoordinator | None = None
+        self.lifecycle_manager: ComponentLifecycleManager | None = None
 
         # Health monitoring state
-        self.component_health_history: Dict[ComponentType, deque] = {
+        self.component_health_history: dict[ComponentType, deque] = {
             comp_type: deque(maxlen=1000) for comp_type in ComponentType
         }
-        self.active_alerts: Dict[str, HealthAlert] = {}
-        self.alert_callbacks: List[Callable[[HealthAlert], None]] = []
-        self.monitoring_tasks: List[asyncio.Task] = []
+        self.active_alerts: dict[str, HealthAlert] = {}
+        self.alert_callbacks: list[Callable[[HealthAlert], None]] = []
+        self.monitoring_tasks: list[asyncio.Task] = []
 
         # Trend analysis
-        self.trend_analysis_cache: Dict[ComponentType, HealthTrendAnalysis] = {}
-        self.last_trend_analysis: Optional[datetime] = None
+        self.trend_analysis_cache: dict[ComponentType, HealthTrendAnalysis] = {}
+        self.last_trend_analysis: datetime | None = None
 
         # Recovery automation
-        self.recovery_attempts: Dict[ComponentType, int] = defaultdict(int)
+        self.recovery_attempts: dict[ComponentType, int] = defaultdict(int)
         self.max_recovery_attempts = 3
         self.recovery_cooldown_minutes = 5.0
-        self.last_recovery_attempt: Dict[ComponentType, datetime] = {}
+        self.last_recovery_attempt: dict[ComponentType, datetime] = {}
 
         # Performance correlation tracking
-        self.performance_correlations: Dict[str, float] = {}
+        self.performance_correlations: dict[str, float] = {}
 
         logger.info(
             "Health Coordinator initialized",
@@ -293,7 +288,7 @@ class HealthCoordinator:
 
         logger.info("Health monitoring stopped")
 
-    async def get_unified_health_status(self) -> Dict[str, Any]:
+    async def get_unified_health_status(self) -> dict[str, Any]:
         """
         Get unified health status across all components.
 
@@ -361,7 +356,7 @@ class HealthCoordinator:
                 "active_alerts": {},
             }
 
-    async def get_health_dashboard_data(self) -> Dict[str, Any]:
+    async def get_health_dashboard_data(self) -> dict[str, Any]:
         """
         Get comprehensive health dashboard data.
 
@@ -562,7 +557,7 @@ class HealthCoordinator:
                 component_type=component_type,
                 severity=AlertSeverity.WARNING,
                 message=f"High response time: {health_metrics.response_time_ms:.1f}ms",
-                description=f"Component response time exceeds threshold",
+                description="Component response time exceeds threshold",
                 timestamp=datetime.now(timezone.utc),
                 metrics={"response_time_ms": health_metrics.response_time_ms}
             ))
@@ -573,7 +568,7 @@ class HealthCoordinator:
                 component_type=component_type,
                 severity=AlertSeverity.CRITICAL,
                 message=f"High error rate: {health_metrics.error_rate:.1%}",
-                description=f"Component error rate exceeds threshold",
+                description="Component error rate exceeds threshold",
                 timestamp=datetime.now(timezone.utc),
                 metrics={"error_rate": health_metrics.error_rate}
             ))
@@ -585,7 +580,7 @@ class HealthCoordinator:
                 component_type=component_type,
                 severity=AlertSeverity.CRITICAL,
                 message=f"Component unhealthy: {component_type.value}",
-                description=f"Component health check failed",
+                description="Component health check failed",
                 timestamp=datetime.now(timezone.utc),
                 metrics=asdict(health_metrics)
             ))
@@ -601,7 +596,7 @@ class HealthCoordinator:
                 component_type=component_type,
                 severity=AlertSeverity.WARNING,
                 message=f"Dependency failures: {', '.join(failed_dependencies)}",
-                description=f"Component dependencies are unhealthy",
+                description="Component dependencies are unhealthy",
                 timestamp=datetime.now(timezone.utc),
                 metrics={"failed_dependencies": failed_dependencies}
             ))
@@ -691,7 +686,7 @@ class HealthCoordinator:
                     component_type=component_type,
                     severity=AlertSeverity.INFO,
                     message=f"Automated recovery successful for {component_type.value}",
-                    description=f"Component restart completed successfully",
+                    description="Component restart completed successfully",
                     timestamp=datetime.now(timezone.utc),
                     auto_recovery_attempted=True,
                     resolved=True,
@@ -732,7 +727,7 @@ class HealthCoordinator:
     async def _analyze_component_trend(
         self,
         component_type: ComponentType
-    ) -> Optional[HealthTrendAnalysis]:
+    ) -> HealthTrendAnalysis | None:
         """Analyze health trend for a specific component."""
         history = self.component_health_history[component_type]
 
@@ -903,7 +898,7 @@ class HealthCoordinator:
         except Exception as e:
             logger.error(f"Performance correlation analysis failed: {e}")
 
-    async def _get_trend_summary(self) -> Dict[str, Any]:
+    async def _get_trend_summary(self) -> dict[str, Any]:
         """Get summary of trend analysis for all components."""
         trend_summary = {}
 
@@ -917,7 +912,7 @@ class HealthCoordinator:
 
         return trend_summary
 
-    def _get_alert_summary(self) -> Dict[str, Any]:
+    def _get_alert_summary(self) -> dict[str, Any]:
         """Get summary of active alerts."""
         alert_summary = {
             "total_alerts": len(self.active_alerts),
@@ -962,7 +957,7 @@ class HealthCoordinator:
 
         return alert_summary
 
-    async def _get_dependency_health_matrix(self) -> Dict[str, Any]:
+    async def _get_dependency_health_matrix(self) -> dict[str, Any]:
         """Get health status matrix for component dependencies."""
         matrix = {}
 
@@ -981,7 +976,7 @@ class HealthCoordinator:
 
         return matrix
 
-    async def _get_visualization_data(self) -> Dict[str, Any]:
+    async def _get_visualization_data(self) -> dict[str, Any]:
         """Get data formatted for health dashboard visualizations."""
         visualization_data = {
             "component_status_chart": {},
@@ -1031,7 +1026,7 @@ class HealthCoordinator:
 
         return visualization_data
 
-    async def _get_health_timeline(self) -> List[Dict[str, Any]]:
+    async def _get_health_timeline(self) -> list[dict[str, Any]]:
         """Get health timeline for the last 24 hours."""
         timeline = []
         current_time = time.time()
@@ -1055,7 +1050,7 @@ class HealthCoordinator:
 
         return timeline
 
-    async def _get_recovery_actions_summary(self) -> Dict[str, Any]:
+    async def _get_recovery_actions_summary(self) -> dict[str, Any]:
         """Get summary of recovery actions and their effectiveness."""
         recovery_summary = {
             "total_attempts": sum(self.recovery_attempts.values()),
@@ -1078,13 +1073,13 @@ class HealthCoordinator:
 
 
 # Global health coordinator instance
-_health_coordinator: Optional[HealthCoordinator] = None
+_health_coordinator: HealthCoordinator | None = None
 
 
 async def get_health_coordinator(
     db_path: str = "workspace_state.db",
-    project_name: Optional[str] = None,
-    project_path: Optional[str] = None,
+    project_name: str | None = None,
+    project_path: str | None = None,
     **kwargs
 ) -> HealthCoordinator:
     """Get or create global health coordinator instance."""

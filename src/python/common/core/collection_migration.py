@@ -58,26 +58,22 @@ Usage:
     ```
 """
 
-import asyncio
 import json
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from loguru import logger
 from qdrant_client import QdrantClient
-from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
-from qdrant_client.http.models import CollectionInfo as QdrantCollectionInfo
+from qdrant_client.http.exceptions import UnexpectedResponse
 
 from .collection_type_config import (
     CollectionTypeConfig,
     get_type_config,
-    get_all_type_configs,
-    MetadataFieldSpec,
 )
-from .collection_types import CollectionType, CollectionTypeClassifier, CollectionInfo
+from .collection_types import CollectionType, CollectionTypeClassifier
 from .collision_detection import CollisionDetector
 
 
@@ -101,10 +97,10 @@ class MigrationStrategy(Enum):
 class ValidationIssue:
     """Represents a single validation issue."""
 
-    field_name: Optional[str]
+    field_name: str | None
     severity: ValidationSeverity
     message: str
-    suggested_fix: Optional[str] = None
+    suggested_fix: str | None = None
 
 
 @dataclass
@@ -118,28 +114,28 @@ class ValidationResult:
 
     collection_name: str
     is_valid: bool
-    detected_type: Optional[CollectionType] = None
-    issues: List[ValidationIssue] = field(default_factory=list)
-    metadata_present: Dict[str, bool] = field(default_factory=dict)
-    metadata_values: Dict[str, Any] = field(default_factory=dict)
+    detected_type: CollectionType | None = None
+    issues: list[ValidationIssue] = field(default_factory=list)
+    metadata_present: dict[str, bool] = field(default_factory=dict)
+    metadata_values: dict[str, Any] = field(default_factory=dict)
     validation_time_ms: float = 0.0
 
     @property
-    def errors(self) -> List[ValidationIssue]:
+    def errors(self) -> list[ValidationIssue]:
         """Get only error-level issues."""
         return [i for i in self.issues if i.severity == ValidationSeverity.ERROR]
 
     @property
-    def warnings(self) -> List[ValidationIssue]:
+    def warnings(self) -> list[ValidationIssue]:
         """Get only warning-level issues."""
         return [i for i in self.issues if i.severity == ValidationSeverity.WARNING]
 
     @property
-    def infos(self) -> List[ValidationIssue]:
+    def infos(self) -> list[ValidationIssue]:
         """Get only info-level issues."""
         return [i for i in self.issues if i.severity == ValidationSeverity.INFO]
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "collection_name": self.collection_name,
@@ -171,11 +167,11 @@ class DetectionResult:
     collection_name: str
     detected_type: CollectionType
     confidence: float  # 0.0 to 1.0
-    alternative_types: List[Tuple[CollectionType, float]] = field(default_factory=list)
+    alternative_types: list[tuple[CollectionType, float]] = field(default_factory=list)
     detection_reason: str = ""
     requires_manual_intervention: bool = False
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "collection_name": self.collection_name,
@@ -194,7 +190,7 @@ class MigrationBackup:
     """Backup data for migration rollback."""
 
     collection_name: str
-    original_metadata: Dict[str, Any]
+    original_metadata: dict[str, Any]
     backup_timestamp: str
     backup_id: str
 
@@ -212,13 +208,13 @@ class MigrationResult:
     success: bool
     target_type: CollectionType
     dry_run: bool = False
-    changes_applied: List[str] = field(default_factory=list)
-    conflicts_detected: List[str] = field(default_factory=list)
+    changes_applied: list[str] = field(default_factory=list)
+    conflicts_detected: list[str] = field(default_factory=list)
     migration_time_ms: float = 0.0
-    backup: Optional[MigrationBackup] = None
-    error_message: Optional[str] = None
+    backup: MigrationBackup | None = None
+    error_message: str | None = None
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "collection_name": self.collection_name,
@@ -258,16 +254,16 @@ class MigrationReport:
     total_collections: int
     valid_collections: int
     invalid_collections: int
-    collections_by_type: Dict[str, List[str]] = field(default_factory=dict)
-    collections_needing_migration: List[str] = field(default_factory=list)
-    problematic_collections: List[str] = field(default_factory=list)
-    recommendations: List[MigrationRecommendation] = field(default_factory=list)
+    collections_by_type: dict[str, list[str]] = field(default_factory=dict)
+    collections_needing_migration: list[str] = field(default_factory=list)
+    problematic_collections: list[str] = field(default_factory=list)
+    recommendations: list[MigrationRecommendation] = field(default_factory=list)
     generation_time: str = field(
         default_factory=lambda: datetime.now(timezone.utc).isoformat()
     )
     estimated_total_time_ms: float = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "total_collections": self.total_collections,
@@ -308,7 +304,7 @@ class CollectionMigrator:
     def __init__(
         self,
         qdrant_client: QdrantClient,
-        collision_detector: Optional[CollisionDetector] = None,
+        collision_detector: CollisionDetector | None = None,
     ):
         """
         Initialize the collection migrator.
@@ -322,8 +318,8 @@ class CollectionMigrator:
         self.collision_detector = collision_detector
 
         # Migration state tracking
-        self._backups: Dict[str, MigrationBackup] = {}
-        self._migration_history: List[MigrationResult] = []
+        self._backups: dict[str, MigrationBackup] = {}
+        self._migration_history: list[MigrationResult] = []
         self._initialized = False
 
         # Configuration
@@ -371,14 +367,14 @@ class CollectionMigrator:
         # Detect collection type
         detected_type = self.classifier.classify_collection_type(collection_name)
 
-        issues: List[ValidationIssue] = []
-        metadata_present: Dict[str, bool] = {}
-        metadata_values: Dict[str, Any] = {}
+        issues: list[ValidationIssue] = []
+        metadata_present: dict[str, bool] = {}
+        metadata_values: dict[str, Any] = {}
 
         # Check if collection exists in Qdrant
         try:
             # Get collection info from Qdrant
-            qdrant_collection = self.qdrant_client.get_collection(collection_name)
+            self.qdrant_client.get_collection(collection_name)
 
             # Extract metadata from collection config
             # Note: Qdrant doesn't store custom metadata in collection info,
@@ -438,7 +434,7 @@ class CollectionMigrator:
                             )
                         )
 
-                except ValueError as e:
+                except ValueError:
                     issues.append(
                         ValidationIssue(
                             field_name=None,
@@ -517,7 +513,7 @@ class CollectionMigrator:
 
         # Calculate confidence based on pattern matching strength
         confidence = 0.0
-        alternatives: List[Tuple[CollectionType, float]] = []
+        alternatives: list[tuple[CollectionType, float]] = []
         detection_reason = ""
 
         if detected_type == CollectionType.SYSTEM:
@@ -617,9 +613,9 @@ class CollectionMigrator:
             f"{collection_name} -> {target_type.value}"
         )
 
-        changes_applied: List[str] = []
-        conflicts: List[str] = []
-        backup: Optional[MigrationBackup] = None
+        changes_applied: list[str] = []
+        conflicts: list[str] = []
+        backup: MigrationBackup | None = None
 
         try:
             # Step 1: Validate collection exists
@@ -772,7 +768,7 @@ class CollectionMigrator:
             )
 
     async def generate_migration_report(
-        self, collections: Optional[List[str]] = None
+        self, collections: list[str] | None = None
     ) -> MigrationReport:
         """
         Generate comprehensive migration analysis report.
@@ -801,12 +797,12 @@ class CollectionMigrator:
         total_collections = len(collections)
         valid_collections = 0
         invalid_collections = 0
-        collections_by_type: Dict[str, List[str]] = {
+        collections_by_type: dict[str, list[str]] = {
             t.value: [] for t in CollectionType
         }
-        collections_needing_migration: List[str] = []
-        problematic_collections: List[str] = []
-        recommendations: List[MigrationRecommendation] = []
+        collections_needing_migration: list[str] = []
+        problematic_collections: list[str] = []
+        recommendations: list[MigrationRecommendation] = []
         total_estimated_time = 0.0
 
         # Analyze each collection
@@ -927,7 +923,7 @@ class CollectionMigrator:
         collection_name: str,
         target_type: CollectionType,
         config: CollectionTypeConfig,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Calculate metadata changes needed for migration.
 
@@ -939,7 +935,7 @@ class CollectionMigrator:
         Returns:
             List of changes to apply
         """
-        changes: List[str] = []
+        changes: list[str] = []
 
         # Add required metadata fields
         for field_spec in config.required_metadata_fields:

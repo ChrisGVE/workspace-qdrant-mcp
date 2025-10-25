@@ -1,8 +1,9 @@
 """Basic server functionality tests - minimal server testing."""
 
 import sys
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, Mock
 
 
 class TestServerModule:

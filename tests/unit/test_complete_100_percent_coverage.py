@@ -3,19 +3,20 @@ Comprehensive 100% coverage test suite.
 Systematically test EVERY module and EVERY function to reach 100% coverage.
 """
 
-import pytest
-import sys
-import os
 import asyncio
-import json
-import tempfile
-import subprocess
-from pathlib import Path
-from unittest.mock import Mock, patch, AsyncMock, MagicMock, PropertyMock
 import importlib
-from typing import Any, Dict, List, Optional
+import json
+import os
+import subprocess
+import sys
+import tempfile
 import threading
 import time
+from pathlib import Path
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, PropertyMock, patch
+
+import pytest
 
 # Add the src directory to Python path
 src_path = Path(__file__).parent.parent.parent / "src" / "python"
@@ -493,7 +494,7 @@ class Test100PercentCoverage:
                                         parser = attr()
 
                                         # Test with all test files
-                                        for file_type, file_path in test_files.items():
+                                        for _file_type, file_path in test_files.items():
                                             for method_name in ['parse', 'parse_file', 'extract_text', 'detect']:
                                                 if hasattr(parser, method_name):
                                                     try:

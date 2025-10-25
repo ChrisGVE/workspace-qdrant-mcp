@@ -21,29 +21,28 @@ Test Coverage:
 
 import asyncio
 import gc
-import psutil
 import sqlite3
 import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any
 from unittest.mock import patch
 
+import psutil
 import pytest
 
-from src.python.common.core.queue_client import (
-    SQLiteQueueClient,
-    QueueOperation,
-)
 from src.python.common.core.priority_queue_manager import (
-    PriorityQueueManager,
     MCPActivityLevel,
+    PriorityQueueManager,
     ProcessingMode,
 )
-from src.python.common.core.sqlite_state_manager import SQLiteStateManager
+from src.python.common.core.queue_client import (
+    QueueOperation,
+    SQLiteQueueClient,
+)
 from src.python.common.core.queue_connection import ConnectionConfig
-
+from src.python.common.core.sqlite_state_manager import SQLiteStateManager
 
 # =============================================================================
 # FIXTURES
@@ -82,7 +81,7 @@ async def initialized_db(temp_db):
         / "core"
         / "queue_schema.sql"
     )
-    with open(queue_schema_path, "r") as f:
+    with open(queue_schema_path) as f:
         conn.executescript(f.read())
 
     # Load error messages schema
@@ -94,7 +93,7 @@ async def initialized_db(temp_db):
         / "core"
         / "error_messages_schema.sql"
     )
-    with open(error_schema_path, "r") as f:
+    with open(error_schema_path) as f:
         conn.executescript(f.read())
 
     conn.commit()
@@ -192,7 +191,7 @@ async def test_high_volume_enqueue_performance(queue_client, large_file_set):
     throughput = len(large_file_set) / elapsed
     assert throughput > 10.0, f"Enqueue throughput too low: {throughput:.2f} files/sec"
 
-    print(f"\nEnqueue Performance:")
+    print("\nEnqueue Performance:")
     print(f"  Total files: {len(large_file_set)}")
     print(f"  Time: {elapsed:.2f}s")
     print(f"  Throughput: {throughput:.2f} files/sec")
@@ -220,7 +219,7 @@ async def test_batch_enqueue_performance(queue_client, large_file_set):
     throughput = successful / elapsed
     assert throughput > 20.0, f"Batch enqueue throughput too low: {throughput:.2f} files/sec"
 
-    print(f"\nBatch Enqueue Performance:")
+    print("\nBatch Enqueue Performance:")
     print(f"  Total files: {successful}")
     print(f"  Time: {elapsed:.2f}s")
     print(f"  Throughput: {throughput:.2f} files/sec")
@@ -256,7 +255,7 @@ async def test_dequeue_performance(queue_client, large_file_set):
     throughput = total_dequeued / elapsed
     assert throughput > 50.0, f"Dequeue throughput too low: {throughput:.2f} files/sec"
 
-    print(f"\nDequeue Performance:")
+    print("\nDequeue Performance:")
     print(f"  Total files: {total_dequeued}")
     print(f"  Time: {elapsed:.2f}s")
     print(f"  Throughput: {throughput:.2f} files/sec")
@@ -286,7 +285,7 @@ async def test_priority_queue_sorting_performance(queue_client, large_file_set):
     priorities = [item.priority for item in all_items]
     assert priorities == sorted(priorities, reverse=True)
 
-    print(f"\nPriority Sorting Performance:")
+    print("\nPriority Sorting Performance:")
     print(f"  Total files: {len(all_items)}")
     print(f"  Sort time: {elapsed * 1000:.2f}ms")
 
@@ -309,7 +308,6 @@ async def test_concurrent_worker_simulation(queue_client, large_file_set):
 
     # Simulate workers
     num_workers = 5
-    processed_counts = []
 
     async def worker(worker_id):
         count = 0
@@ -344,7 +342,7 @@ async def test_concurrent_worker_simulation(queue_client, large_file_set):
     assert depth == 0
 
     throughput = total_processed / elapsed
-    print(f"\nConcurrent Workers Performance:")
+    print("\nConcurrent Workers Performance:")
     print(f"  Workers: {num_workers}")
     print(f"  Total processed: {total_processed}")
     print(f"  Time: {elapsed:.2f}s")
@@ -399,7 +397,7 @@ async def test_concurrent_enqueue_and_process(queue_client, tmp_path):
 
     assert processed_count == files_to_create
 
-    print(f"\nConcurrent Enqueue/Process:")
+    print("\nConcurrent Enqueue/Process:")
     print(f"  Files: {files_to_create}")
     print(f"  Time: {elapsed:.2f}s")
     print(f"  Throughput: {processed_count / elapsed:.2f} files/sec")
@@ -446,7 +444,7 @@ async def test_memory_usage_under_load(queue_client, large_file_set, memory_trac
     # Memory should not grow excessively
     assert stats["delta_mb"] < 100, f"Memory delta too high: {stats['delta_mb']:.2f}MB"
 
-    print(f"\nMemory Usage:")
+    print("\nMemory Usage:")
     print(f"  Initial: {stats['initial_mb']:.2f}MB")
     print(f"  Peak: {stats['peak_mb']:.2f}MB")
     print(f"  Final: {stats['final_mb']:.2f}MB")
@@ -460,7 +458,7 @@ async def test_connection_pool_under_load(queue_client, large_file_set):
 
     async def concurrent_operation(file_path):
         # Each operation does enqueue → dequeue → complete
-        queue_id = await queue_client.enqueue_file(
+        await queue_client.enqueue_file(
             file_path=file_path,
             collection="pool-test",
             priority=5,
@@ -485,8 +483,8 @@ async def test_connection_pool_under_load(queue_client, large_file_set):
     depth = await queue_client.get_queue_depth()
     assert depth == 0
 
-    print(f"\nConnection Pool Performance:")
-    print(f"  Operations: 50")
+    print("\nConnection Pool Performance:")
+    print("  Operations: 50")
     print(f"  Time: {elapsed:.2f}s")
     print(f"  Avg latency: {elapsed * 1000 / 50:.2f}ms")
 
@@ -523,7 +521,7 @@ async def test_rapid_priority_updates(queue_client, large_file_set):
     updates_count = 50 * 10
     throughput = updates_count / elapsed
 
-    print(f"\nPriority Update Stress Test:")
+    print("\nPriority Update Stress Test:")
     print(f"  Total updates: {updates_count}")
     print(f"  Time: {elapsed:.2f}s")
     print(f"  Throughput: {throughput:.2f} updates/sec")
@@ -569,7 +567,7 @@ async def test_error_handling_under_load(queue_client, large_file_set):
 
     elapsed = time.time() - start_time
 
-    print(f"\nError Handling Stress Test:")
+    print("\nError Handling Stress Test:")
     print(f"  Total items: {len(large_file_set)}")
     print(f"  Errors: {error_count}")
     print(f"  Successes: {success_count}")
@@ -615,7 +613,7 @@ async def test_queue_depth_scaling(queue_client, tmp_path):
             "dequeue_ms": dequeue_time * 1000,
         })
 
-    print(f"\nQueue Depth Scaling:")
+    print("\nQueue Depth Scaling:")
     for result in results:
         print(
             f"  Depth {result['depth']:3d}: "
@@ -676,7 +674,7 @@ async def test_end_to_end_throughput(queue_client, large_file_set):
 
     throughput = len(large_file_set) / total_time
 
-    print(f"\nEnd-to-End Throughput:")
+    print("\nEnd-to-End Throughput:")
     print(f"  Total files: {len(large_file_set)}")
     print(f"  Enqueue time: {enqueue_elapsed:.2f}s")
     print(f"  Process time: {process_elapsed:.2f}s")

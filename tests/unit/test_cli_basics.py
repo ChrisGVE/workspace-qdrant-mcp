@@ -1,8 +1,9 @@
 """Basic CLI functionality tests - minimal CLI testing without complex execution."""
 
 import sys
+from unittest.mock import MagicMock, Mock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock, Mock
 
 
 class TestCLIModuleImports:
@@ -170,7 +171,7 @@ class TestCLIDataStructures:
         assert os.path.exists(tmp_path)
 
         # Test file reading
-        with open(tmp_path, 'r') as file:
+        with open(tmp_path) as file:
             content = file.read()
             assert content == "test content"
 

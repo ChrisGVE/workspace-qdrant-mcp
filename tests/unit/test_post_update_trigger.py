@@ -9,19 +9,20 @@ Tests the post-update trigger functionality including:
 """
 
 import asyncio
-import pytest
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
 
 from src.python.common.core.context_injection.session_trigger import (
     PostUpdateTrigger,
+    TriggerContext,
     TriggerManager,
     TriggerPhase,
     TriggerPriority,
-    TriggerContext,
 )
-from src.python.common.memory.types import MemoryRule, MemoryCategory, AuthorityLevel
+from src.python.common.memory.types import AuthorityLevel, MemoryCategory, MemoryRule
 
 
 @pytest.fixture

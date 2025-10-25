@@ -8,6 +8,7 @@ Uses OS-standard log directories following platform conventions.
 import os
 import sys
 from pathlib import Path
+
 from loguru import logger
 
 from ..utils.os_directories import OSDirectories

@@ -13,7 +13,7 @@ Provides health indicators and trend directions for executive dashboards.
 
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from .models import TestRun
 from .storage import TestResultStorage
@@ -44,7 +44,7 @@ class TrendAnalyzer:
     flakiness, and benchmark performance over configurable time windows.
     """
 
-    def __init__(self, storage: Optional[TestResultStorage] = None):
+    def __init__(self, storage: TestResultStorage | None = None):
         """
         Initialize trend analyzer.
 
@@ -55,7 +55,7 @@ class TrendAnalyzer:
 
     def analyze_success_rate_trend(
         self, days: int = 30, min_runs: int = 3
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Analyze success rate trend over time.
 
@@ -126,7 +126,7 @@ class TrendAnalyzer:
 
     def analyze_execution_time_trend(
         self, days: int = 30, min_runs: int = 3
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Analyze test execution time trend over time.
 
@@ -211,7 +211,7 @@ class TrendAnalyzer:
 
     def analyze_coverage_trend(
         self, days: int = 30, min_runs: int = 3
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Analyze code coverage trend over time.
 
@@ -311,7 +311,7 @@ class TrendAnalyzer:
 
     def analyze_flakiness_trend(
         self, days: int = 30, min_runs: int = 5
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Analyze test flakiness trend over time.
 
@@ -387,7 +387,7 @@ class TrendAnalyzer:
 
     def analyze_benchmark_performance_trend(
         self, benchmark_name: str, metric: str = "avg_ms", days: int = 30
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Analyze performance trend for a specific benchmark.
 
@@ -503,7 +503,7 @@ class TrendAnalyzer:
             return HealthStatus.CRITICAL
 
     def _calculate_trend_direction(
-        self, values: List[float], lower_is_better: bool = False
+        self, values: list[float], lower_is_better: bool = False
     ) -> TrendDirection:
         """
         Calculate trend direction from a series of values.
@@ -529,7 +529,7 @@ class TrendAnalyzer:
         # Calculate slope: (n*Σxy - Σx*Σy) / (n*Σx² - (Σx)²)
         sum_x = sum(x)
         sum_y = sum(y)
-        sum_xy = sum(xi * yi for xi, yi in zip(x, y))
+        sum_xy = sum(xi * yi for xi, yi in zip(x, y, strict=False))
         sum_x2 = sum(xi * xi for xi in x)
 
         denominator = n * sum_x2 - sum_x * sum_x
@@ -553,8 +553,8 @@ class TrendAnalyzer:
             return TrendDirection.IMPROVING if lower_is_better else TrendDirection.DECLINING
 
     def get_action_items(
-        self, health_status: HealthStatus, trends: Dict[str, Any]
-    ) -> List[str]:
+        self, health_status: HealthStatus, trends: dict[str, Any]
+    ) -> list[str]:
         """
         Generate action items based on health status and trends.
 

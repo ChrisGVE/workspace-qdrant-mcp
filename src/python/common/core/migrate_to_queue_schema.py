@@ -21,9 +21,8 @@ import argparse
 import json
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
 
 # Priority mapping: old 1-4 scale → new 0-10 scale
 PRIORITY_MAPPING = {
@@ -54,8 +53,8 @@ class QueueSchemaMigrator:
         self.db_path = Path(db_path)
         self.dry_run = dry_run
         self.create_backup = create_backup
-        self.conn: Optional[sqlite3.Connection] = None
-        self.backup_path: Optional[Path] = None
+        self.conn: sqlite3.Connection | None = None
+        self.backup_path: Path | None = None
 
         # Migration statistics
         self.stats = {
@@ -219,7 +218,7 @@ class QueueSchemaMigrator:
         if not schema_file.exists():
             raise MigrationError(f"Schema file not found: {schema_file}")
 
-        with open(schema_file, 'r') as f:
+        with open(schema_file) as f:
             schema_sql = f.read()
 
         # Execute schema (split by semicolons and filter comments)
@@ -229,7 +228,7 @@ class QueueSchemaMigrator:
             if stmt.strip() and not stmt.strip().startswith('--')
         ]
 
-        for i, stmt in enumerate(statements, 1):
+        for _i, stmt in enumerate(statements, 1):
             if not stmt:
                 continue
             try:
@@ -324,7 +323,7 @@ class QueueSchemaMigrator:
         )
         if cursor.fetchone():
             cursor = self.conn.execute("SELECT DISTINCT collection FROM watch_folders")
-            watched_collections = set(row['collection'] for row in cursor.fetchall())
+            watched_collections = {row['collection'] for row in cursor.fetchall()}
         else:
             watched_collections = set()
 
@@ -430,7 +429,7 @@ class QueueSchemaMigrator:
 
         print(f"   ✅ Migrated {self.stats['queue_items_migrated']} queue items")
 
-    def _extract_metadata_fields(self, metadata_json: Optional[str]) -> Dict[str, str]:
+    def _extract_metadata_fields(self, metadata_json: str | None) -> dict[str, str]:
         """Extract tenant_id and branch from metadata JSON."""
         if not metadata_json:
             return {'tenant_id': 'default', 'branch': 'main'}
@@ -448,7 +447,7 @@ class QueueSchemaMigrator:
         """Scale priority from old 1-4 range to new 0-10 range."""
         return PRIORITY_MAPPING.get(old_priority, 5)
 
-    def _find_error_for_file(self, file_path: str) -> Optional[int]:
+    def _find_error_for_file(self, file_path: str) -> int | None:
         """Find most recent error message ID for a file."""
         cursor = self.conn.execute("""
             SELECT id FROM messages

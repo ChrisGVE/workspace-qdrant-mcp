@@ -12,7 +12,6 @@ from datetime import datetime
 from uuid import uuid4
 
 import pytest
-
 from workspace_qdrant_mcp.memory.types import (
     AgentCapability,
     AgentDefinition,

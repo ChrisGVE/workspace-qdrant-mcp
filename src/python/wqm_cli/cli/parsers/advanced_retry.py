@@ -9,9 +9,10 @@ and intelligent retry condition detection.
 import asyncio
 import random
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Type, Union
+from typing import Any
 from urllib.parse import urlparse
 
 import aiohttp
@@ -48,7 +49,7 @@ class RetryConfig:
     jitter: bool = True  # Add random jitter to prevent thundering herd
 
     # Retry conditions
-    retry_status_codes: Set[int] = field(default_factory=lambda: {
+    retry_status_codes: set[int] = field(default_factory=lambda: {
         429,  # Too Many Requests
         500,  # Internal Server Error
         502,  # Bad Gateway
@@ -61,7 +62,7 @@ class RetryConfig:
         524,  # Cloudflare A Timeout Occurred
     })
 
-    retry_exceptions: Set[Type[Exception]] = field(default_factory=lambda: {
+    retry_exceptions: set[type[Exception]] = field(default_factory=lambda: {
         aiohttp.ClientConnectorError,
         aiohttp.ClientTimeoutError,
         aiohttp.ClientOSError,
@@ -81,8 +82,8 @@ class RetryAttempt:
     attempt: int
     delay: float
     reason: RetryReason
-    error: Optional[Exception] = None
-    status_code: Optional[int] = None
+    error: Exception | None = None
+    status_code: int | None = None
     timestamp: float = field(default_factory=time.time)
 
 
@@ -103,7 +104,7 @@ class CircuitBreaker:
 
     def __init__(self, config: RetryConfig):
         self.config = config
-        self.domain_stats: Dict[str, CircuitBreakerStats] = {}
+        self.domain_stats: dict[str, CircuitBreakerStats] = {}
 
     def get_domain_stats(self, domain: str) -> CircuitBreakerStats:
         """Get circuit breaker stats for a domain."""
@@ -151,7 +152,7 @@ class CircuitBreaker:
             # Reset failure count on success
             stats.failure_count = 0
 
-    def record_failure(self, url: str, error: Exception, status_code: Optional[int] = None) -> None:
+    def record_failure(self, url: str, error: Exception, status_code: int | None = None) -> None:
         """Record failed request."""
         domain = urlparse(url).netloc
         stats = self.get_domain_stats(domain)
@@ -179,12 +180,12 @@ class CircuitBreaker:
 class AdvancedRetryHandler:
     """Advanced retry handler with exponential backoff and circuit breaker."""
 
-    def __init__(self, config: Optional[RetryConfig] = None):
+    def __init__(self, config: RetryConfig | None = None):
         self.config = config or RetryConfig()
         self.circuit_breaker = CircuitBreaker(self.config)
-        self.retry_history: Dict[str, List[RetryAttempt]] = {}
+        self.retry_history: dict[str, list[RetryAttempt]] = {}
 
-    def should_retry(self, error: Exception, status_code: Optional[int] = None, attempt: int = 0) -> Tuple[bool, RetryReason]:
+    def should_retry(self, error: Exception, status_code: int | None = None, attempt: int = 0) -> tuple[bool, RetryReason]:
         """Determine if request should be retried."""
         if attempt >= self.config.max_retries:
             return False, RetryReason.NETWORK_ERROR
@@ -305,7 +306,7 @@ class AdvancedRetryHandler:
 
         raise last_error or Exception("Max retries exceeded")
 
-    def get_retry_stats(self, url: Optional[str] = None) -> Dict[str, Any]:
+    def get_retry_stats(self, url: str | None = None) -> dict[str, Any]:
         """Get retry statistics."""
         stats = {
             'circuit_breaker_stats': {},
@@ -344,7 +345,7 @@ class AdvancedRetryHandler:
 
         return stats
 
-    def reset_stats(self, url: Optional[str] = None) -> None:
+    def reset_stats(self, url: str | None = None) -> None:
         """Reset retry statistics."""
         if url:
             domain = urlparse(url).netloc

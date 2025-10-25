@@ -9,23 +9,21 @@ This server complements the MCP stdio server by enabling Claude Code hooks
 to trigger memory ingestion, track active sessions, and manage daemon state.
 """
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import Dict, Literal, Optional, Any
 from dataclasses import dataclass
-
-from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from datetime import datetime
+from typing import Any, Literal
 
 from common.grpc.daemon_client import (
     DaemonClient,
-    DaemonUnavailableError,
     DaemonTimeoutError,
+    DaemonUnavailableError,
 )
 from common.grpc.generated import workspace_daemon_pb2 as pb2
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -55,8 +53,8 @@ class HookRequest(BaseModel):
     """Generic request for hook endpoints."""
     session_id: str = Field(..., description="Active session identifier")
     project_dir: str = Field(..., description="Project directory path")
-    tool_name: Optional[str] = Field(None, description="Name of tool being used")
-    data: Optional[Dict[str, Any]] = Field(None, description="Additional hook data")
+    tool_name: str | None = Field(None, description="Name of tool being used")
+    data: dict[str, Any] | None = Field(None, description="Additional hook data")
 
 
 class HealthResponse(BaseModel):
@@ -73,7 +71,7 @@ class SuccessResponse(BaseModel):
     """Generic success response."""
     success: bool
     message: str
-    session_id: Optional[str] = None
+    session_id: str | None = None
 
 
 # =============================================================================
@@ -97,14 +95,14 @@ class SessionManager:
     lifecycle events, and triggers memory ingestion when sessions start.
     """
 
-    def __init__(self, daemon_client: Optional[DaemonClient] = None):
+    def __init__(self, daemon_client: DaemonClient | None = None):
         """
         Initialize session manager.
 
         Args:
             daemon_client: Optional DaemonClient instance (created if None)
         """
-        self.active_sessions: Dict[str, SessionInfo] = {}
+        self.active_sessions: dict[str, SessionInfo] = {}
         self.daemon_client = daemon_client
         self._start_time = datetime.now()
 
@@ -229,8 +227,8 @@ class SessionManager:
 # =============================================================================
 
 # Global session manager (initialized in lifespan)
-session_manager: Optional[SessionManager] = None
-daemon_client: Optional[DaemonClient] = None
+session_manager: SessionManager | None = None
+daemon_client: DaemonClient | None = None
 
 
 @asynccontextmanager

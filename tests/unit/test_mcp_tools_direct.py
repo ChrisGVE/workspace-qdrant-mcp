@@ -13,14 +13,16 @@ Focus on the core MCP tools:
 - hybrid search: hybrid_search_advanced_tool
 """
 
-import pytest
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
-from typing import Dict, Any, List
+import os
 
 # Direct imports for testing
 import sys
-import os
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
+
+import pytest
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../src/python'))
 
 # Import server module for testing individual functions
@@ -67,7 +69,7 @@ class TestDirectMCPTools:
             assert "collections" in result
 
             # Verify expected values
-            assert result["connected"] == True
+            assert result["connected"]
             assert result["current_project"] == "test-project"
             assert isinstance(result["collections"], (list, dict))
 
@@ -83,7 +85,7 @@ class TestDirectMCPTools:
 
             assert isinstance(result, dict)
             assert "connected" in result
-            assert result["connected"] == False
+            assert not result["connected"]
             assert "error" in result
 
     @pytest.mark.asyncio
@@ -92,7 +94,7 @@ class TestDirectMCPTools:
 
         with patch.object(server_module, 'get_client') as mock_get_client, \
              patch.object(server_module, 'detect_project') as mock_project, \
-             patch.object(server_module, 'create_naming_manager') as mock_naming:
+             patch.object(server_module, 'create_naming_manager'):
 
             # Setup mocks
             mock_project.return_value = "test-project"
@@ -145,7 +147,7 @@ class TestDirectMCPTools:
 
             # Verify result
             assert isinstance(result, dict)
-            assert result.get("success") == True
+            assert result.get("success")
             assert collection_name in str(result)
 
     @pytest.mark.asyncio
@@ -225,7 +227,7 @@ class TestDirectMCPTools:
 
             # Verify result
             assert isinstance(result, dict)
-            assert result.get("success") == True or "document_id" in result
+            assert result.get("success") or "document_id" in result
 
             # Verify document was added to Qdrant
             mock_qdrant.upsert.assert_called_once()
@@ -262,7 +264,7 @@ class TestDirectMCPTools:
 
             # Verify result
             assert isinstance(result, dict)
-            assert "note_id" in result or result.get("success") == True
+            assert "note_id" in result or result.get("success")
 
     @pytest.mark.asyncio
     async def test_search_scratchbook_tool_direct(self):
@@ -362,7 +364,7 @@ class TestDirectMCPTools:
 
             # Verify result
             assert isinstance(result, dict)
-            assert result.get("success") == True
+            assert result.get("success")
 
             # Verify collection was deleted
             mock_qdrant.delete_collection.assert_called_once_with(collection_name)
@@ -495,7 +497,7 @@ class TestErrorHandling:
             result = await server_module.workspace_status()
 
             assert isinstance(result, dict)
-            assert result.get("connected") == False
+            assert not result.get("connected")
 
     @pytest.mark.asyncio
     async def test_embedding_model_unavailable(self):
@@ -561,7 +563,7 @@ class TestIntegrationMocking:
                 mock_qdrant.create_collection = AsyncMock(return_value=True)
                 mock_get_client.return_value = mock_qdrant
 
-                result = await server_module.create_collection(
+                await server_module.create_collection(
                     collection_name="test-collection",
                     dimension=384
                 )
@@ -585,7 +587,7 @@ class TestIntegrationMocking:
                 mock_qdrant.search.return_value = []
                 mock_get_client.return_value = mock_qdrant
 
-                result = await server_module.search_workspace_tool(query="test query")
+                await server_module.search_workspace_tool(query="test query")
 
                 # Verify embedding was generated
                 mock_model.embed_query.assert_called_once_with("test query")

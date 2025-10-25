@@ -7,9 +7,9 @@ Shared steps used across multiple feature files.
 import asyncio
 import time
 from pathlib import Path
-from pytest_bdd import given, when, then, parsers
-import pytest
 
+import pytest
+from pytest_bdd import given, parsers, then, when
 
 # Background steps
 

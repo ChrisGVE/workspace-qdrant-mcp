@@ -5,14 +5,15 @@ These tests validate the testcontainers infrastructure setup without
 requiring Docker to be running, focusing on configuration and imports.
 """
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
 
 from tests.utils.testcontainers_qdrant import (
     IsolatedQdrantContainer,
     QdrantContainerManager,
+    create_test_config,
     get_container_manager,
-    create_test_config
 )
 
 
@@ -98,14 +99,14 @@ class TestTestcontainersSetup:
     def test_fixture_imports(self):
         """Test that all fixtures can be imported."""
         from tests.conftest import (
+            containerized_qdrant_instance,
+            isolated_qdrant_client,
+            isolated_qdrant_container,
             qdrant_container_manager,
             session_qdrant_container,
-            isolated_qdrant_container,
-            shared_qdrant_container,
-            isolated_qdrant_client,
             shared_qdrant_client,
+            shared_qdrant_container,
             test_config,
-            containerized_qdrant_instance
         )
 
         # All fixtures should be callable (they're fixture functions)
@@ -140,10 +141,10 @@ class TestTestcontainersSetup:
 
     def test_async_context_manager_import(self):
         """Test async context manager can be imported."""
-        from tests.utils.testcontainers_qdrant import isolated_qdrant_instance
-
         # Should be an async generator function
         import inspect
+
+        from tests.utils.testcontainers_qdrant import isolated_qdrant_instance
         assert inspect.isfunction(isolated_qdrant_instance)
 
     def test_container_configuration_validation(self):

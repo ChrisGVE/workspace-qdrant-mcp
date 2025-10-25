@@ -6,16 +6,17 @@ hybrid search pipeline, query processing, embedding generation, Qdrant search
 execution, result ranking, and response formatting.
 """
 
-import pytest
 import asyncio
 import time
-import httpx
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import Any
+
+import httpx
+import pytest
 
 from tests.e2e.fixtures import (
-    SystemComponents,
     CLIHelper,
+    SystemComponents,
 )
 
 
@@ -604,7 +605,7 @@ class TestSearchRobustness:
         await asyncio.sleep(3)
 
         # Execute many searches
-        for i in range(10):
+        for _i in range(10):
             result = cli_helper.run_command(
                 ["search", "stability testing", "--collection", "test-search-stability"],
                 timeout=10,

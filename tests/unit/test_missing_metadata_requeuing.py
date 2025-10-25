@@ -568,7 +568,7 @@ class TestRequeuingEdgeCases:
             tracker.state_manager, 'enqueue', new_callable=AsyncMock
         ) as mock_enqueue:
             # Don't specify priority, should use default of 5
-            result = await tracker.requeue_when_tools_available(
+            await tracker.requeue_when_tools_available(
                 tool_type="lsp",
                 language="python"
             )

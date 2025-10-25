@@ -49,20 +49,19 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
-from loguru import logger
 
 import typer
-from rich.console import Console
-from rich.panel import Panel
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.table import Table
-from rich.text import Text
-
 from common.core.client import QdrantWorkspaceClient
 from common.core.config import get_config_manager
 from common.core.embeddings import EmbeddingService
 from common.utils.config_validator import ConfigValidator
 from common.utils.project_detection import ProjectDetector
+from loguru import logger
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.table import Table
+from rich.text import Text
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -264,7 +263,6 @@ class DiagnosticTool:
     def _collect_system_info(self) -> dict[str, Any]:
         """Collect system information."""
         import platform
-        import sys
 
         return {
             "platform": platform.system(),
@@ -458,12 +456,13 @@ class DiagnosticTool:
             progress.add_task("qdrant", total=None)
 
             try:
-                from qdrant_client import QdrantClient
                 import warnings
+
                 import urllib3
 
                 # Test basic connection with SSL warning suppression
                 from common.core.ssl_config import suppress_qdrant_ssl_warnings
+                from qdrant_client import QdrantClient
                 with suppress_qdrant_ssl_warnings():
                     client = QdrantClient(**self.config.qdrant_client_config)
 
@@ -476,7 +475,7 @@ class DiagnosticTool:
                         warnings.filterwarnings("ignore", message=".*SSL.*", category=UserWarning)
                         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
                         return client.get_collections()
-                
+
                 collections = await asyncio.get_event_loop().run_in_executor(
                     None, get_collections_with_suppression
                 )

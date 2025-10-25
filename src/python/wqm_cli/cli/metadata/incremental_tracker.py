@@ -6,12 +6,11 @@ tracking document modifications over time and enabling efficient processing
 of only changed documents in large collections.
 """
 
-import hashlib
 import json
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Set, Tuple, Union
+from typing import Any
 
 from loguru import logger
 
@@ -26,8 +25,8 @@ class DocumentChangeInfo:
         self,
         file_path: str,
         current_hash: str,
-        previous_hash: Optional[str] = None,
-        last_modified: Optional[str] = None,
+        previous_hash: str | None = None,
+        last_modified: str | None = None,
         change_type: str = "unknown",
     ):
         """
@@ -67,7 +66,7 @@ class DocumentChangeInfo:
         """Check if document is deleted."""
         return self.change_type == "deleted"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary representation."""
         return {
             "file_path": self.file_path,
@@ -90,8 +89,8 @@ class IncrementalTracker:
 
     def __init__(
         self,
-        storage_path: Optional[Union[str, Path]] = None,
-        project_name: Optional[str] = None,
+        storage_path: str | Path | None = None,
+        project_name: str | None = None,
     ):
         """
         Initialize incremental tracker.
@@ -175,8 +174,8 @@ class IncrementalTracker:
 
     def detect_changes(
         self,
-        document_metadata_list: List[DocumentMetadata],
-    ) -> List[DocumentChangeInfo]:
+        document_metadata_list: list[DocumentMetadata],
+    ) -> list[DocumentChangeInfo]:
         """
         Detect changes in a list of documents.
 
@@ -264,13 +263,13 @@ class IncrementalTracker:
 
         except Exception as e:
             raise IncrementalTrackingError(
-                f"Failed to detect document changes",
+                "Failed to detect document changes",
                 storage_error=str(e),
             ) from e
 
     def update_tracking_data(
         self,
-        document_metadata_list: List[DocumentMetadata],
+        document_metadata_list: list[DocumentMetadata],
     ) -> None:
         """
         Update tracking data for processed documents.
@@ -327,14 +326,14 @@ class IncrementalTracker:
 
         except Exception as e:
             raise IncrementalTrackingError(
-                f"Failed to update tracking data",
+                "Failed to update tracking data",
                 storage_error=str(e),
             ) from e
 
     def get_changed_documents(
         self,
-        document_metadata_list: List[DocumentMetadata],
-    ) -> List[DocumentMetadata]:
+        document_metadata_list: list[DocumentMetadata],
+    ) -> list[DocumentMetadata]:
         """
         Get only changed documents from a list.
 
@@ -364,11 +363,11 @@ class IncrementalTracker:
 
         except Exception as e:
             raise IncrementalTrackingError(
-                f"Failed to filter changed documents",
+                "Failed to filter changed documents",
                 storage_error=str(e),
             ) from e
 
-    def get_change_summary(self) -> Dict[str, Any]:
+    def get_change_summary(self) -> dict[str, Any]:
         """
         Get summary of recent changes.
 
@@ -421,7 +420,7 @@ class IncrementalTracker:
 
         except Exception as e:
             raise IncrementalTrackingError(
-                f"Failed to generate change summary",
+                "Failed to generate change summary",
                 storage_error=str(e),
             ) from e
 
@@ -441,16 +440,16 @@ class IncrementalTracker:
         try:
             with sqlite3.connect(self.storage_path) as conn:
                 # Find deleted documents older than specified days
-                deleted_records = conn.execute("""
+                deleted_records = conn.execute(f"""
                     SELECT dt.file_path
                     FROM document_tracking dt
                     WHERE NOT EXISTS (
                         SELECT 1 FROM change_history ch
                         WHERE ch.file_path = dt.file_path
                         AND ch.change_type != 'deleted'
-                        AND datetime(ch.detected_at) > datetime('now', '-{} days')
+                        AND datetime(ch.detected_at) > datetime('now', '-{days_old} days')
                     )
-                """.format(days_old)).fetchall()
+                """).fetchall()
 
                 deleted_paths = [record[0] for record in deleted_records]
 
@@ -482,11 +481,11 @@ class IncrementalTracker:
 
         except Exception as e:
             raise IncrementalTrackingError(
-                f"Failed to cleanup deleted documents",
+                "Failed to cleanup deleted documents",
                 storage_error=str(e),
             ) from e
 
-    def _get_all_tracking_data(self) -> Dict[str, Dict[str, Any]]:
+    def _get_all_tracking_data(self) -> dict[str, dict[str, Any]]:
         """
         Get all current tracking data.
 
@@ -514,7 +513,7 @@ class IncrementalTracker:
                 for row in rows
             }
 
-    def _record_change_history(self, changes: List[DocumentChangeInfo]) -> None:
+    def _record_change_history(self, changes: list[DocumentChangeInfo]) -> None:
         """
         Record changes in the change history table.
 
@@ -541,7 +540,7 @@ class IncrementalTracker:
 
             conn.commit()
 
-    def export_tracking_data(self, output_path: Union[str, Path]) -> None:
+    def export_tracking_data(self, output_path: str | Path) -> None:
         """
         Export tracking data to JSON file.
 
@@ -572,7 +571,7 @@ class IncrementalTracker:
                 storage_error=str(e),
             ) from e
 
-    def import_tracking_data(self, input_path: Union[str, Path]) -> None:
+    def import_tracking_data(self, input_path: str | Path) -> None:
         """
         Import tracking data from JSON file.
 
@@ -583,7 +582,7 @@ class IncrementalTracker:
             IncrementalTrackingError: If import fails
         """
         try:
-            with open(input_path, "r", encoding="utf-8") as f:
+            with open(input_path, encoding="utf-8") as f:
                 import_data = json.load(f)
 
             documents = import_data.get("documents", {})

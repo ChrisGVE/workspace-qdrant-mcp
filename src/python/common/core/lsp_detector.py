@@ -5,20 +5,18 @@ This module provides comprehensive LSP server detection capabilities,
 including PATH scanning, extension mapping, and caching mechanisms.
 """
 
-import asyncio
-from loguru import logger
-import os
-import platform
 import shutil
 import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Tuple, Union
+from typing import Optional
+
+from loguru import logger
 
 # Import configuration management
 try:
-    from .lsp_config import get_default_config, get_default_cache, LSPCacheEntry
+    from .lsp_config import LSPCacheEntry, get_default_cache, get_default_config
 except ImportError:
     # Fallback if config module is not available
     get_default_config = None
@@ -38,13 +36,13 @@ except ImportError:
 @dataclass
 class LSPServerInfo:
     """Information about a detected LSP server."""
-    
+
     name: str
     binary_path: str
-    version: Optional[str] = None
-    supported_extensions: List[str] = field(default_factory=list)
+    version: str | None = None
+    supported_extensions: list[str] = field(default_factory=list)
     priority: int = 0  # Higher priority = preferred for conflicting extensions
-    capabilities: Set[str] = field(default_factory=set)
+    capabilities: set[str] = field(default_factory=set)
     detection_time: float = field(default_factory=time.time)
 
 
@@ -52,14 +50,14 @@ class LSPServerInfo:
 class LSPDetectionResult:
     """Result of LSP detection scan."""
 
-    detected_lsps: Dict[str, LSPServerInfo] = field(default_factory=dict)
+    detected_lsps: dict[str, LSPServerInfo] = field(default_factory=dict)
     scan_time: float = field(default_factory=time.time)
     scan_duration: float = 0.0
-    errors: List[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
     # Ecosystem-aware detection metadata
-    detected_ecosystems: List[str] = field(default_factory=list)
-    ecosystem_lsp_recommendations: Dict[str, List[str]] = field(default_factory=dict)
-    project_path: Optional[str] = None
+    detected_ecosystems: list[str] = field(default_factory=list)
+    ecosystem_lsp_recommendations: dict[str, list[str]] = field(default_factory=dict)
+    project_path: str | None = None
 
 
 class LSPDetector:
@@ -67,7 +65,7 @@ class LSPDetector:
     Core LSP detection system that scans PATH for available LSP servers
     and maintains mappings to file extensions.
     """
-    
+
     # Essential extensions that should always be watched regardless of LSP availability
     ESSENTIAL_EXTENSIONS = [
         '.md', '.txt', '.rst', '.adoc',  # Documentation
@@ -78,7 +76,7 @@ class LSPDetector:
         '.dockerfile', 'Dockerfile', 'docker-compose.yml', 'docker-compose.yaml',  # Docker
         '.gitignore', '.gitattributes', 'LICENSE', 'README*',  # Project files
     ]
-    
+
     # Build tool and configuration file patterns
     BUILD_TOOL_EXTENSIONS = {
         'make': ['.mk', 'Makefile', 'makefile', 'GNUmakefile'],
@@ -94,8 +92,8 @@ class LSPDetector:
         'go-modules': ['go.mod', 'go.sum'],
         'deno': ['deno.json', 'deno.jsonc'],
     }
-    
-    # Containerization and infrastructure patterns  
+
+    # Containerization and infrastructure patterns
     INFRASTRUCTURE_EXTENSIONS = {
         'docker': ['Dockerfile*', 'docker-compose*.yml', 'docker-compose*.yaml', '.dockerignore'],
         'kubernetes': ['*.k8s.yaml', '*.k8s.yml', 'kustomization.yaml', 'kustomization.yml'],
@@ -104,7 +102,7 @@ class LSPDetector:
         'vagrant': ['Vagrantfile'],
         'helm': ['Chart.yaml', 'Chart.yml', 'values.yaml', 'values.yml'],
     }
-    
+
     # Fallback extensions for common languages when no LSP is available
     LANGUAGE_FALLBACKS = {
         'python': ['.py', '.pyi', '.pyx', '.pxd', '.pyw'],
@@ -138,7 +136,7 @@ class LSPDetector:
         'v': ['.v'],
         'odin': ['.odin'],
     }
-    
+
     # Comprehensive mapping of LSP servers to file extensions
     LSP_EXTENSION_MAP = {
         'rust-analyzer': {
@@ -214,8 +212,8 @@ class LSPDetector:
             'capabilities': {'hover', 'completion', 'diagnostics'}
         }
     }
-    
-    def __init__(self, cache_ttl: int = 300, detection_timeout: float = 5.0, config_file: Optional[str] = None, pattern_manager: Optional['PatternManager'] = None):
+
+    def __init__(self, cache_ttl: int = 300, detection_timeout: float = 5.0, config_file: str | None = None, pattern_manager: Optional['PatternManager'] = None):
         """
         Initialize LSP detector.
 
@@ -228,7 +226,7 @@ class LSPDetector:
         # Initialize with defaults
         self.cache_ttl = cache_ttl
         self.detection_timeout = detection_timeout
-        self._cached_result: Optional[LSPDetectionResult] = None
+        self._cached_result: LSPDetectionResult | None = None
         self._last_scan_time: float = 0.0
 
         # Initialize pattern manager for ecosystem-aware detection
@@ -259,22 +257,22 @@ class LSPDetector:
             except Exception as e:
                 logger.warning(f"Failed to initialize LSP configuration: {e}")
                 # Continue with defaults
-    
+
     def _is_cache_valid(self) -> bool:
         """Check if cached detection result is still valid."""
         if self._cached_result is None:
             return False
         return (time.time() - self._last_scan_time) < self.cache_ttl
-    
-    def _load_from_persistent_cache(self) -> Optional[LSPDetectionResult]:
+
+    def _load_from_persistent_cache(self) -> LSPDetectionResult | None:
         """Load detection result from persistent cache if valid."""
         if not self.cache:
             return None
-        
+
         try:
             result = LSPDetectionResult()
             valid_entries = 0
-            
+
             for lsp_name in self.LSP_EXTENSION_MAP.keys():
                 cache_entry = self.cache.get(lsp_name, self.cache_ttl)
                 if cache_entry:
@@ -289,25 +287,25 @@ class LSPDetector:
                     )
                     result.detected_lsps[lsp_name] = server_info
                     valid_entries += 1
-            
+
             if valid_entries > 0:
                 result.scan_time = time.time()
                 result.scan_duration = 0.0  # From cache
                 logger.debug(f"Loaded {valid_entries} LSPs from persistent cache")
                 return result
-            
+
         except Exception as e:
             logger.warning(f"Failed to load from persistent cache: {e}")
-        
+
         return None
 
-    def _check_binary_exists(self, binary_name: str) -> Optional[str]:
+    def _check_binary_exists(self, binary_name: str) -> str | None:
         """
         Check if a binary exists in PATH using subprocess with timeout.
-        
+
         Args:
             binary_name: Name of the binary to check
-            
+
         Returns:
             Full path to binary if found, None otherwise
         """
@@ -321,15 +319,15 @@ class LSPDetector:
         except Exception as e:
             logger.debug(f"Error checking binary {binary_name}: {e}")
             return None
-    
-    def _get_lsp_version(self, binary_path: str, lsp_name: str) -> Optional[str]:
+
+    def _get_lsp_version(self, binary_path: str, lsp_name: str) -> str | None:
         """
         Attempt to get version information from LSP binary.
-        
+
         Args:
             binary_path: Full path to the LSP binary
             lsp_name: Name of the LSP server
-            
+
         Returns:
             Version string if available, None otherwise
         """
@@ -347,9 +345,9 @@ class LSPDetector:
             'ocaml-lsp': ['--version'],
             'haskell-language-server': ['--version']
         }
-        
+
         version_args = version_args_map.get(lsp_name, ['--version'])
-        
+
         try:
             result = subprocess.run(
                 [binary_path] + version_args,
@@ -357,7 +355,7 @@ class LSPDetector:
                 text=True,
                 timeout=self.detection_timeout
             )
-            
+
             if result.returncode == 0:
                 # Extract version from output (usually first line)
                 version_output = result.stdout.strip().split('\n')[0]
@@ -366,15 +364,15 @@ class LSPDetector:
             else:
                 logger.debug(f"Version check failed for {lsp_name}: {result.stderr}")
                 return None
-                
+
         except subprocess.TimeoutExpired:
             logger.debug(f"Version check timed out for {lsp_name}")
             return None
         except Exception as e:
             logger.debug(f"Error getting version for {lsp_name}: {e}")
             return None
-    
-    def scan_available_lsps(self, force_refresh: bool = False, project_path: Optional[Union[str, Path]] = None) -> LSPDetectionResult:
+
+    def scan_available_lsps(self, force_refresh: bool = False, project_path: str | Path | None = None) -> LSPDetectionResult:
         """
         Scan PATH for available LSP servers, using persistent cache when available.
 
@@ -389,7 +387,7 @@ class LSPDetector:
         if not force_refresh and self._is_cache_valid():
             logger.debug("Using cached LSP detection result")
             return self._cached_result
-        
+
         # Check persistent cache if available
         if not force_refresh and self.cache is not None:
             cached_result = self._load_from_persistent_cache()
@@ -398,23 +396,23 @@ class LSPDetector:
                 self._cached_result = cached_result
                 self._last_scan_time = time.time()
                 return cached_result
-        
+
         logger.info("Scanning for available LSP servers...")
         start_time = time.time()
-        
+
         result = LSPDetectionResult()
-        
+
         for lsp_name, lsp_info in self.LSP_EXTENSION_MAP.items():
             # Check if LSP is enabled in configuration
             if self.config and not self.config.is_lsp_enabled(lsp_name):
                 logger.debug(f"LSP {lsp_name} is disabled in configuration, skipping")
                 continue
-            
+
             # Check for custom binary path first
             custom_path = None
             if self.config:
                 custom_path = self.config.get_lsp_binary_path(lsp_name)
-            
+
             binary_path = None
             if custom_path:
                 # Use custom path if configured
@@ -429,11 +427,11 @@ class LSPDetector:
                     binary_path = self._check_binary_exists(binary_name)
                     if binary_path:
                         break  # Found this LSP, no need to check other names
-            
+
             if binary_path:
                 # Get version information
                 version = self._get_lsp_version(binary_path, lsp_name)
-                
+
                 # Create LSPServerInfo
                 server_info = LSPServerInfo(
                     name=lsp_name,
@@ -443,10 +441,10 @@ class LSPDetector:
                     priority=lsp_info['priority'],
                     capabilities=lsp_info['capabilities'].copy()
                 )
-                
+
                 result.detected_lsps[lsp_name] = server_info
                 logger.info(f"Detected LSP: {lsp_name} at {binary_path}")
-                
+
                 # Store in persistent cache if available
                 if self.cache and LSPCacheEntry:
                     cache_entry = LSPCacheEntry(
@@ -458,7 +456,7 @@ class LSPDetector:
                         capabilities=lsp_info['capabilities'].copy()
                     )
                     self.cache.set(lsp_name, cache_entry)
-        
+
         result.scan_duration = time.time() - start_time
 
         # Add ecosystem-aware information if project path is provided
@@ -474,170 +472,170 @@ class LSPDetector:
 
         logger.info(f"LSP scan completed in {result.scan_duration:.2f}s, found {len(result.detected_lsps)} LSPs")
         return result
-    
-    def get_supported_extensions(self, force_refresh: bool = False, include_fallbacks: Optional[bool] = None) -> List[str]:
+
+    def get_supported_extensions(self, force_refresh: bool = False, include_fallbacks: bool | None = None) -> list[str]:
         """
         Get list of file extensions supported by detected LSP servers.
-        
+
         Args:
             force_refresh: Force rescan of LSP servers
             include_fallbacks: Include fallback extensions and build tools (uses config default if None)
-            
+
         Returns:
             List of file extensions (including the dot)
         """
         detection_result = self.scan_available_lsps(force_refresh)
-        
+
         # Use configuration values if not explicitly specified
         if include_fallbacks is None:
             include_fallbacks = True  # Default
             if self.config:
                 include_fallbacks = self.config.include_fallbacks
-        
+
         include_build_tools = True
         include_infrastructure = True
         if self.config:
             include_build_tools = self.config.include_build_tools
             include_infrastructure = self.config.include_infrastructure
-        
+
         # Start with essential extensions
         extensions = set(self.ESSENTIAL_EXTENSIONS)
-        
+
         # Add extensions from detected LSPs
         for lsp_info in detection_result.detected_lsps.values():
             extensions.update(lsp_info.supported_extensions)
-        
+
         if include_fallbacks:
             # Add fallback extensions for languages without detected LSPs
             detected_extensions = set()
             for lsp_info in detection_result.detected_lsps.values():
                 detected_extensions.update(lsp_info.supported_extensions)
-            
+
             # Add fallbacks for languages that don't have LSPs detected
-            for language, fallback_exts in self.LANGUAGE_FALLBACKS.items():
+            for _language, fallback_exts in self.LANGUAGE_FALLBACKS.items():
                 # Check if any fallback extension is already covered by LSPs
                 if not any(ext in detected_extensions for ext in fallback_exts):
                     extensions.update(fallback_exts)
-            
+
             # Add build tool extensions if enabled
             if include_build_tools:
                 for tool_exts in self.BUILD_TOOL_EXTENSIONS.values():
                     extensions.update(tool_exts)
-            
+
             # Add infrastructure extensions if enabled
             if include_infrastructure:
                 for infra_exts in self.INFRASTRUCTURE_EXTENSIONS.values():
                     extensions.update(infra_exts)
-        
-        return sorted(list(extensions))
-    
-    def get_lsp_for_extension(self, extension: str) -> Optional[LSPServerInfo]:
+
+        return sorted(extensions)
+
+    def get_lsp_for_extension(self, extension: str) -> LSPServerInfo | None:
         """
         Get the best LSP server for a given file extension.
-        
+
         Args:
             extension: File extension (including the dot)
-            
+
         Returns:
             LSPServerInfo for the best LSP, or None if no LSP supports this extension
         """
         detection_result = self.scan_available_lsps()
-        
+
         # Find all LSPs that support this extension
         candidates = []
         for lsp_info in detection_result.detected_lsps.values():
             if extension in lsp_info.supported_extensions:
                 candidates.append(lsp_info)
-        
+
         if not candidates:
             return None
-        
+
         # Return the LSP with highest priority
         return max(candidates, key=lambda lsp: lsp.priority)
-    
-    def get_extension_lsp_map(self) -> Dict[str, LSPServerInfo]:
+
+    def get_extension_lsp_map(self) -> dict[str, LSPServerInfo]:
         """
         Get mapping of file extensions to their best LSP servers.
-        
+
         Returns:
             Dictionary mapping extensions to LSPServerInfo objects
         """
         detection_result = self.scan_available_lsps()
         extension_map = {}
-        
+
         # Build mapping with priority-based selection
         for lsp_info in detection_result.detected_lsps.values():
             for extension in lsp_info.supported_extensions:
                 current_lsp = extension_map.get(extension)
                 if current_lsp is None or lsp_info.priority > current_lsp.priority:
                     extension_map[extension] = lsp_info
-        
+
         return extension_map
-    
+
     def is_lsp_available(self, lsp_name: str) -> bool:
         """
         Check if a specific LSP server is available.
-        
+
         Args:
             lsp_name: Name of the LSP server to check
-            
+
         Returns:
             True if the LSP is available, False otherwise
         """
         detection_result = self.scan_available_lsps()
         return lsp_name in detection_result.detected_lsps
-    
+
     def clear_cache(self) -> None:
         """Clear the cached detection result."""
         self._cached_result = None
         self._last_scan_time = 0.0
         logger.debug("LSP detection cache cleared")
-    
-    def get_fallback_extensions_for_language(self, language: str) -> List[str]:
+
+    def get_fallback_extensions_for_language(self, language: str) -> list[str]:
         """
         Get fallback extensions for a specific language.
-        
+
         Args:
             language: Language name (e.g., 'python', 'javascript')
-            
+
         Returns:
             List of fallback extensions for the language
         """
         return self.LANGUAGE_FALLBACKS.get(language, [])
-    
-    def get_build_tool_extensions(self) -> List[str]:
+
+    def get_build_tool_extensions(self) -> list[str]:
         """
         Get all build tool and configuration file extensions.
-        
+
         Returns:
             List of build tool related extensions
         """
         extensions = set()
         for tool_exts in self.BUILD_TOOL_EXTENSIONS.values():
             extensions.update(tool_exts)
-        return sorted(list(extensions))
-    
-    def get_infrastructure_extensions(self) -> List[str]:
+        return sorted(extensions)
+
+    def get_infrastructure_extensions(self) -> list[str]:
         """
         Get all infrastructure and containerization file extensions.
-        
+
         Returns:
             List of infrastructure related extensions
         """
         extensions = set()
         for infra_exts in self.INFRASTRUCTURE_EXTENSIONS.values():
             extensions.update(infra_exts)
-        return sorted(list(extensions))
-    
-    def get_extensions_by_category(self) -> Dict[str, List[str]]:
+        return sorted(extensions)
+
+    def get_extensions_by_category(self) -> dict[str, list[str]]:
         """
         Get extensions organized by category.
-        
+
         Returns:
             Dictionary with categories as keys and extension lists as values
         """
         detection_result = self.scan_available_lsps()
-        
+
         categories = {
             'lsp_supported': [],
             'essential': list(self.ESSENTIAL_EXTENSIONS),
@@ -645,34 +643,34 @@ class LSPDetector:
             'infrastructure': self.get_infrastructure_extensions(),
             'language_fallbacks': []
         }
-        
+
         # Get LSP supported extensions
         for lsp_info in detection_result.detected_lsps.values():
             categories['lsp_supported'].extend(lsp_info.supported_extensions)
-        categories['lsp_supported'] = sorted(list(set(categories['lsp_supported'])))
-        
+        categories['lsp_supported'] = sorted(set(categories['lsp_supported']))
+
         # Get fallback extensions for languages without LSPs
         detected_extensions = set(categories['lsp_supported'])
-        for language, fallback_exts in self.LANGUAGE_FALLBACKS.items():
+        for _language, fallback_exts in self.LANGUAGE_FALLBACKS.items():
             if not any(ext in detected_extensions for ext in fallback_exts):
                 categories['language_fallbacks'].extend(fallback_exts)
-        categories['language_fallbacks'] = sorted(list(set(categories['language_fallbacks'])))
-        
+        categories['language_fallbacks'] = sorted(set(categories['language_fallbacks']))
+
         return categories
-    
-    def get_priority_ordered_lsps(self) -> List[Tuple[str, LSPServerInfo]]:
+
+    def get_priority_ordered_lsps(self) -> list[tuple[str, LSPServerInfo]]:
         """
         Get detected LSPs ordered by priority (highest first).
-        
+
         Returns:
             List of tuples containing (lsp_name, LSPServerInfo) ordered by priority
         """
         detection_result = self.scan_available_lsps()
-        
+
         lsp_list = [(name, info) for name, info in detection_result.detected_lsps.items()]
         return sorted(lsp_list, key=lambda x: x[1].priority, reverse=True)
-    
-    def get_detection_summary(self) -> Dict[str, any]:
+
+    def get_detection_summary(self) -> dict[str, any]:
         """
         Get a comprehensive summary of the current LSP detection state.
 
@@ -717,7 +715,7 @@ class LSPDetector:
         return summary
 
 
-    def _detect_project_ecosystems(self, project_path: Union[str, Path]) -> List[str]:
+    def _detect_project_ecosystems(self, project_path: str | Path) -> list[str]:
         """
         Detect project ecosystems using the pattern manager.
 
@@ -739,7 +737,7 @@ class LSPDetector:
             logger.warning(f"Failed to detect ecosystems for {project_path}: {e}")
             return []
 
-    def _generate_ecosystem_recommendations(self, ecosystems: List[str], detected_lsps: Dict[str, LSPServerInfo]) -> Dict[str, List[str]]:
+    def _generate_ecosystem_recommendations(self, ecosystems: list[str], detected_lsps: dict[str, LSPServerInfo]) -> dict[str, list[str]]:
         """
         Generate LSP recommendations based on detected ecosystems.
 
@@ -792,7 +790,7 @@ class LSPDetector:
 
         return recommendations
 
-    def get_ecosystem_aware_lsps(self, project_path: Union[str, Path], force_refresh: bool = False) -> LSPDetectionResult:
+    def get_ecosystem_aware_lsps(self, project_path: str | Path, force_refresh: bool = False) -> LSPDetectionResult:
         """
         Get LSP detection results with ecosystem-aware recommendations.
 
@@ -805,7 +803,7 @@ class LSPDetector:
         """
         return self.scan_available_lsps(force_refresh=force_refresh, project_path=project_path)
 
-    def get_recommended_lsps_for_project(self, project_path: Union[str, Path]) -> Dict[str, LSPServerInfo]:
+    def get_recommended_lsps_for_project(self, project_path: str | Path) -> dict[str, LSPServerInfo]:
         """
         Get recommended LSP servers for a specific project.
 
@@ -819,7 +817,7 @@ class LSPDetector:
         recommended_lsps = {}
 
         # Add LSPs recommended by ecosystem analysis
-        for ecosystem, lsp_names in detection_result.ecosystem_lsp_recommendations.items():
+        for _ecosystem, lsp_names in detection_result.ecosystem_lsp_recommendations.items():
             for lsp_name in lsp_names:
                 if lsp_name in detection_result.detected_lsps:
                     recommended_lsps[lsp_name] = detection_result.detected_lsps[lsp_name]
@@ -834,7 +832,7 @@ class LSPDetector:
         logger.info(f"Recommended LSPs for {project_path}: {list(recommended_lsps.keys())}")
         return recommended_lsps
 
-    def get_lsp_for_extension_with_context(self, extension: str, project_path: Optional[Union[str, Path]] = None) -> Optional[LSPServerInfo]:
+    def get_lsp_for_extension_with_context(self, extension: str, project_path: str | Path | None = None) -> LSPServerInfo | None:
         """
         Get the best LSP server for a file extension with project context.
 
@@ -862,7 +860,7 @@ class LSPDetector:
 
 
 # Global instance for convenient access
-_default_detector: Optional[LSPDetector] = None
+_default_detector: LSPDetector | None = None
 
 
 def get_default_detector() -> LSPDetector:
@@ -878,21 +876,21 @@ def scan_lsps() -> LSPDetectionResult:
     return get_default_detector().scan_available_lsps()
 
 
-def get_supported_extensions() -> List[str]:
+def get_supported_extensions() -> list[str]:
     """Convenience function to get supported extensions from default detector."""
     return get_default_detector().get_supported_extensions()
 
 
-def scan_lsps_for_project(project_path: Union[str, Path]) -> LSPDetectionResult:
+def scan_lsps_for_project(project_path: str | Path) -> LSPDetectionResult:
     """Convenience function to scan LSPs with ecosystem awareness for a project."""
     return get_default_detector().get_ecosystem_aware_lsps(project_path)
 
 
-def get_recommended_lsps(project_path: Union[str, Path]) -> Dict[str, LSPServerInfo]:
+def get_recommended_lsps(project_path: str | Path) -> dict[str, LSPServerInfo]:
     """Convenience function to get recommended LSPs for a project."""
     return get_default_detector().get_recommended_lsps_for_project(project_path)
 
 
-def get_lsp_with_context(extension: str, project_path: Optional[Union[str, Path]] = None) -> Optional[LSPServerInfo]:
+def get_lsp_with_context(extension: str, project_path: str | Path | None = None) -> LSPServerInfo | None:
     """Convenience function to get LSP for extension with project context."""
     return get_default_detector().get_lsp_for_extension_with_context(extension, project_path)

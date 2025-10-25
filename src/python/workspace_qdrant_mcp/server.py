@@ -75,30 +75,31 @@ Write Path Architecture (First Principle 10):
     See: FIRST-PRINCIPLES.md (Principle 10), Task 375.6 validation report
 """
 
-import asyncio
-import atexit
-import hashlib
 import logging
 import os
-import signal
 import subprocess
+
+# CRITICAL: Complete stdio silence must be set up before ANY other imports
+# This prevents ALL console output in MCP stdio mode for protocol compliance
+import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 from urllib.parse import urlparse
 
 import typer
 from fastmcp import FastMCP
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
-    Distance, VectorParams, PointStruct, Filter, FieldCondition,
-    MatchValue, SearchParams, UpdateStatus, CollectionInfo
+    Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
+    PointStruct,
+    VectorParams,
 )
 
-# CRITICAL: Complete stdio silence must be set up before ANY other imports
-# This prevents ALL console output in MCP stdio mode for protocol compliance
-import sys
 
 def _detect_stdio_mode() -> bool:
     """Detect MCP stdio mode with comprehensive checks."""
@@ -134,18 +135,18 @@ if _detect_stdio_mode():
     logging.disable(logging.CRITICAL)
 
 # Import project detection and branch utilities after stdio setup
-from common.utils.project_detection import calculate_tenant_id
-from common.utils.git_utils import get_current_branch
 from common.core.collection_naming import build_project_collection_name
 from common.grpc.daemon_client import DaemonClient, DaemonConnectionError
+from common.utils.git_utils import get_current_branch
+from common.utils.project_detection import calculate_tenant_id
 
 # Initialize the FastMCP app
 app = FastMCP("Workspace Qdrant MCP")
 
 # Global components
-qdrant_client: Optional[QdrantClient] = None
+qdrant_client: QdrantClient | None = None
 embedding_model = None
-daemon_client: Optional[DaemonClient] = None
+daemon_client: DaemonClient | None = None
 project_cache = {}
 
 # Collection basename mapping for Rust daemon validation
@@ -213,7 +214,7 @@ def get_project_name() -> str:
     # Fallback to directory name
     return Path.cwd().name
 
-def get_project_collection(project_path: Optional[Path] = None) -> str:
+def get_project_collection(project_path: Path | None = None) -> str:
     """
     Get the project collection name for a given project path.
 
@@ -355,7 +356,7 @@ def determine_collection_name(
     # Use new single-collection architecture
     return get_project_collection()
 
-async def generate_embeddings(text: str) -> List[float]:
+async def generate_embeddings(text: str) -> list[float]:
     """Generate embeddings for text."""
     if not embedding_model:
         await initialize_components()
@@ -365,10 +366,10 @@ async def generate_embeddings(text: str) -> List[float]:
     return embeddings[0].tolist()
 
 def build_metadata_filters(
-    filters: Dict[str, Any] = None,
+    filters: dict[str, Any] = None,
     branch: str = None,
     file_type: str = None
-) -> Optional[Filter]:
+) -> Filter | None:
     """
     Build Qdrant filter with branch and file_type conditions.
 
@@ -404,14 +405,14 @@ def build_metadata_filters(
 async def store(
     content: str,
     title: str = None,
-    metadata: Dict[str, Any] = None,
+    metadata: dict[str, Any] = None,
     collection: str = None,
     source: str = "user_input",
     document_type: str = "text",
     file_path: str = None,
     url: str = None,
     project_name: str = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Store any type of content in the vector database.
 
@@ -567,11 +568,11 @@ async def search(
     mode: str = "hybrid",
     limit: int = 10,
     score_threshold: float = 0.3,
-    filters: Dict[str, Any] = None,
+    filters: dict[str, Any] = None,
     branch: str = None,
     file_type: str = None,
     workspace_type: str = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Search across collections with hybrid semantic + keyword matching.
 
@@ -741,8 +742,8 @@ async def manage(
     collection: str = None,
     name: str = None,
     project_name: str = None,
-    config: Dict[str, Any] = None
-) -> Dict[str, Any]:
+    config: dict[str, Any] = None
+) -> dict[str, Any]:
     """
     Manage collections, system status, and configuration.
 
@@ -1038,12 +1039,12 @@ async def manage(
 async def retrieve(
     document_id: str = None,
     collection: str = None,
-    metadata: Dict[str, Any] = None,
+    metadata: dict[str, Any] = None,
     limit: int = 10,
     project_name: str = None,
     branch: str = None,
     file_type: str = None
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Retrieve documents directly by ID or metadata without search ranking.
 

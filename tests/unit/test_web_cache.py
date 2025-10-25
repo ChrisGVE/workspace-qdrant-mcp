@@ -20,7 +20,6 @@ from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
 from workspace_qdrant_mcp.web.cache import (
     CacheConfig,
     CacheEntry,
@@ -152,7 +151,7 @@ class TestContentHasher:
         """Test exception handling in similarity hash generation."""
         with patch.object(ContentHasher, 'hash_content', side_effect=Exception("Test error")):
             # Should still work with fallback
-            result = ContentHasher.similarity_hash("test content")
+            ContentHasher.similarity_hash("test content")
             mock_logger.warning.assert_called()
 
 
@@ -234,7 +233,7 @@ class TestDuplicateDetector:
         assert len(duplicates) > 0
 
         # Find the duplicate group
-        for hash_key, urls in duplicates.items():
+        for _hash_key, urls in duplicates.items():
             if "http://example.com/1" in urls:
                 assert "http://example.com/2" in urls
                 assert len(urls) == 2

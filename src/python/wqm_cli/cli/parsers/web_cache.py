@@ -6,12 +6,11 @@ including response caching, content deduplication, and HTTP cache validation.
 """
 
 import hashlib
-import json
 import pickle
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 from urllib.parse import urlparse, urlunparse
 
 import aiofiles
@@ -23,13 +22,13 @@ class CacheEntry:
     """Single cache entry with metadata."""
     url: str
     content: str
-    headers: Dict[str, str]
+    headers: dict[str, str]
     status_code: int
     timestamp: float
     ttl: float  # Time to live in seconds
-    etag: Optional[str] = None
-    last_modified: Optional[str] = None
-    content_hash: Optional[str] = None
+    etag: str | None = None
+    last_modified: str | None = None
+    content_hash: str | None = None
     access_count: int = 0
     last_access: float = field(default_factory=time.time)
 
@@ -62,7 +61,7 @@ class CacheConfig:
 
     # Cache persistence
     enable_disk_cache: bool = True
-    cache_directory: Optional[Path] = None
+    cache_directory: Path | None = None
     cache_filename: str = "web_cache.pkl"
 
     # Content fingerprinting
@@ -97,13 +96,13 @@ class ContentFingerprinter:
 class WebCache:
     """Web content cache with TTL, ETag support, and content fingerprinting."""
 
-    def __init__(self, config: Optional[CacheConfig] = None):
+    def __init__(self, config: CacheConfig | None = None):
         self.config = config or CacheConfig()
         self.fingerprinter = ContentFingerprinter(self.config.fingerprint_algorithm)
 
         # In-memory cache
-        self._cache: Dict[str, CacheEntry] = {}
-        self._content_fingerprints: Dict[str, Set[str]] = {}  # fingerprint -> urls
+        self._cache: dict[str, CacheEntry] = {}
+        self._content_fingerprints: dict[str, set[str]] = {}  # fingerprint -> urls
         self._last_cleanup = time.time()
 
         # Initialize cache directory
@@ -130,7 +129,7 @@ class WebCache:
         ))
         return normalized
 
-    def _calculate_ttl_from_headers(self, headers: Dict[str, str]) -> float:
+    def _calculate_ttl_from_headers(self, headers: dict[str, str]) -> float:
         """Calculate TTL from HTTP headers."""
         # Check Cache-Control header
         cache_control = headers.get('cache-control', '').lower()
@@ -211,7 +210,7 @@ class WebCache:
             self._content_fingerprints[content_hash] = set()
         self._content_fingerprints[content_hash].add(url)
 
-    def get_cache_key(self, url: str, method: str = "GET", headers: Optional[Dict[str, str]] = None) -> str:
+    def get_cache_key(self, url: str, method: str = "GET", headers: dict[str, str] | None = None) -> str:
         """Generate cache key for request."""
         normalized_url = self._normalize_url(url)
 
@@ -227,7 +226,7 @@ class WebCache:
         cache_key = "|".join(key_parts)
         return cache_key
 
-    def get(self, url: str, method: str = "GET", headers: Optional[Dict[str, str]] = None) -> Optional[CacheEntry]:
+    def get(self, url: str, method: str = "GET", headers: dict[str, str] | None = None) -> CacheEntry | None:
         """Get cached response."""
         cache_key = self.get_cache_key(url, method, headers)
 
@@ -247,10 +246,10 @@ class WebCache:
         self,
         url: str,
         content: str,
-        headers: Dict[str, str],
+        headers: dict[str, str],
         status_code: int,
         method: str = "GET",
-        request_headers: Optional[Dict[str, str]] = None
+        request_headers: dict[str, str] | None = None
     ) -> bool:
         """Store response in cache."""
         # Check content size limits
@@ -303,7 +302,7 @@ class WebCache:
         logger.debug(f"Cached response for {url} (TTL: {ttl}s)")
         return True
 
-    def get_conditional_headers(self, url: str, method: str = "GET", headers: Optional[Dict[str, str]] = None) -> Dict[str, str]:
+    def get_conditional_headers(self, url: str, method: str = "GET", headers: dict[str, str] | None = None) -> dict[str, str]:
         """Get conditional headers for cache validation."""
         entry = self.get(url, method, headers)
         if not entry or not entry.can_revalidate():
@@ -317,7 +316,7 @@ class WebCache:
 
         return conditional_headers
 
-    def handle_304_response(self, url: str, method: str = "GET", headers: Optional[Dict[str, str]] = None) -> Optional[CacheEntry]:
+    def handle_304_response(self, url: str, method: str = "GET", headers: dict[str, str] | None = None) -> CacheEntry | None:
         """Handle 304 Not Modified response by refreshing cache entry."""
         cache_key = self.get_cache_key(url, method, headers)
         if cache_key in self._cache:
@@ -330,7 +329,7 @@ class WebCache:
             return entry
         return None
 
-    def find_duplicate_content(self, content: str) -> List[str]:
+    def find_duplicate_content(self, content: str) -> list[str]:
         """Find URLs with duplicate content."""
         if not self.config.enable_content_fingerprinting:
             return []
@@ -343,7 +342,7 @@ class WebCache:
 
         return []
 
-    def get_cache_stats(self) -> Dict[str, Any]:
+    def get_cache_stats(self) -> dict[str, Any]:
         """Get cache statistics."""
         total_size = sum(len(entry.content) for entry in self._cache.values())
 
@@ -429,7 +428,7 @@ class WebCache:
             self._cache = {}
             self._content_fingerprints = {}
 
-    def clear_cache(self, url_pattern: Optional[str] = None) -> int:
+    def clear_cache(self, url_pattern: str | None = None) -> int:
         """Clear cache entries, optionally matching a pattern."""
         if url_pattern is None:
             # Clear all

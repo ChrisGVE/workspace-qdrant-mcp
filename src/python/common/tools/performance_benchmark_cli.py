@@ -26,26 +26,23 @@ Usage Examples:
 Task 233.6: CLI benchmarking tools for baseline comparison and automated monitoring.
 """
 
-import argparse
 import asyncio
 import json
 import sys
 import time
-from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict, List, Optional
+from datetime import datetime
 
 import click
 from loguru import logger
 from qdrant_client import QdrantClient
 
+from ..core.hybrid_search import HybridSearchEngine
+
 # Import our performance monitoring components
 from ..core.performance_monitoring import (
     MetadataFilteringPerformanceMonitor,
-    PerformanceBaseline,
-    PerformanceBenchmarkResult
+    PerformanceBenchmarkResult,
 )
-from ..core.hybrid_search import HybridSearchEngine
 from ..core.ssl_config import suppress_qdrant_ssl_warnings
 
 
@@ -55,8 +52,8 @@ class PerformanceBenchmarkCLI:
     def __init__(
         self,
         qdrant_url: str = "http://localhost:6333",
-        qdrant_api_key: Optional[str] = None,
-        baseline_config: Optional[Dict] = None
+        qdrant_api_key: str | None = None,
+        baseline_config: dict | None = None
     ):
         """Initialize CLI with Qdrant connection and baseline configuration."""
         self.qdrant_url = qdrant_url
@@ -86,7 +83,7 @@ class PerformanceBenchmarkCLI:
                    qdrant_url=qdrant_url,
                    baseline_response_time=self.performance_monitor.baseline.target_response_time)
 
-    def generate_synthetic_test_data(self, count: int = 50, complexity_range: tuple = (1, 10)) -> List[Dict]:
+    def generate_synthetic_test_data(self, count: int = 50, complexity_range: tuple = (1, 10)) -> list[dict]:
         """Generate synthetic test data for benchmarking."""
         import random
 
@@ -126,7 +123,7 @@ class PerformanceBenchmarkCLI:
         collection_name: str,
         query_count: int = 50,
         iterations: int = 10,
-        output_file: Optional[str] = None
+        output_file: str | None = None
     ) -> PerformanceBenchmarkResult:
         """Run comprehensive performance benchmark."""
         click.echo(f"🚀 Starting performance benchmark: {collection_name}")
@@ -158,7 +155,7 @@ class PerformanceBenchmarkCLI:
         collection_name: str,
         tenant_count: int = 3,
         queries_per_tenant: int = 10,
-        output_file: Optional[str] = None
+        output_file: str | None = None
     ) -> PerformanceBenchmarkResult:
         """Run multi-tenant isolation benchmark."""
         click.echo(f"🏢 Starting multi-tenant benchmark: {collection_name}")
@@ -205,20 +202,20 @@ class PerformanceBenchmarkCLI:
         click.echo("="*60)
 
         # Response Time Results
-        click.echo(f"\n⏱️  RESPONSE TIME ANALYSIS")
+        click.echo("\n⏱️  RESPONSE TIME ANALYSIS")
         click.echo(f"   Average:     {result.avg_response_time:.2f}ms")
         click.echo(f"   P50:         {result.p50_response_time:.2f}ms")
         click.echo(f"   P95:         {result.p95_response_time:.2f}ms")
         click.echo(f"   P99:         {result.p99_response_time:.2f}ms")
 
         # Baseline Comparison
-        click.echo(f"\n📏 BASELINE COMPARISON")
+        click.echo("\n📏 BASELINE COMPARISON")
         click.echo(f"   Target (2.18ms):     {'✅ PASS' if result.avg_response_time <= baseline.target_response_time else '❌ FAIL'} ({result.avg_response_time:.2f}ms)")
         click.echo(f"   Acceptable (3.0ms):  {'✅ PASS' if result.avg_response_time <= baseline.acceptable_response_time else '❌ FAIL'}")
 
         # Accuracy Results
         if result.avg_precision > 0:
-            click.echo(f"\n🎯 ACCURACY ANALYSIS")
+            click.echo("\n🎯 ACCURACY ANALYSIS")
             click.echo(f"   Precision:   {result.avg_precision:.1f}% (target: {baseline.target_precision:.1f}%)")
             click.echo(f"   Recall:      {result.avg_recall:.1f}% (target: {baseline.target_recall:.1f}%)")
             click.echo(f"   F1 Score:    {result.avg_f1_score:.1f}%")
@@ -230,7 +227,7 @@ class PerformanceBenchmarkCLI:
         click.echo(f"\n🚦 OVERALL STATUS: {status}")
 
         # Test Configuration
-        click.echo(f"\n⚙️  TEST CONFIGURATION")
+        click.echo("\n⚙️  TEST CONFIGURATION")
         for key, value in result.test_config.items():
             click.echo(f"   {key}: {value}")
 
@@ -246,7 +243,7 @@ class PerformanceBenchmarkCLI:
         click.echo("="*60)
 
         # Isolation Results
-        click.echo(f"\n🔒 TENANT ISOLATION")
+        click.echo("\n🔒 TENANT ISOLATION")
         enforcement_rate = isolation_info.get("enforcement_rate", 0)
         violations = isolation_info.get("violations", 0)
         total_queries = isolation_info.get("total_queries", 0)
@@ -257,7 +254,7 @@ class PerformanceBenchmarkCLI:
         click.echo(f"   Isolation Status:  {'✅ PASS' if violations == 0 else '❌ FAIL'}")
 
         # Performance Results
-        click.echo(f"\n⏱️  MULTI-TENANT PERFORMANCE")
+        click.echo("\n⏱️  MULTI-TENANT PERFORMANCE")
         click.echo(f"   Average Response:  {result.avg_response_time:.2f}ms")
         click.echo(f"   P95 Response:      {result.p95_response_time:.2f}ms")
 
@@ -321,7 +318,7 @@ class PerformanceBenchmarkCLI:
         dashboard_data = self.performance_monitor.dashboard.get_real_time_dashboard()
 
         # Generate report
-        report = {
+        {
             "report_generated": datetime.now().isoformat(),
             "qdrant_connection": {
                 "url": self.qdrant_url,

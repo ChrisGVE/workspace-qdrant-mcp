@@ -37,19 +37,21 @@ Example:
 import asyncio
 import hashlib
 import json
+
 # Use unified logging system to prevent console interference in MCP mode
 import re
-import subprocess
-from loguru import logger
 import sqlite3
+import subprocess
 import threading
 import time
 from contextlib import asynccontextmanager
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
+
+from loguru import logger
 
 from ..utils.os_directories import OSDirectories
 
@@ -97,22 +99,22 @@ class FileProcessingRecord:
     priority: ProcessingPriority = ProcessingPriority.NORMAL
     created_at: datetime = None
     updated_at: datetime = None
-    started_at: Optional[datetime] = None
-    completed_at: Optional[datetime] = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
     retry_count: int = 0
     max_retries: int = 3
-    error_message: Optional[str] = None
-    file_size: Optional[int] = None
-    file_hash: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-    document_id: Optional[str] = None  # For multi-component testing
+    error_message: str | None = None
+    file_size: int | None = None
+    file_hash: str | None = None
+    metadata: dict[str, Any] | None = None
+    document_id: str | None = None  # For multi-component testing
     # LSP-specific fields
-    language_id: Optional[str] = None
+    language_id: str | None = None
     lsp_extracted: bool = False
     symbols_count: int = 0
-    lsp_server_id: Optional[int] = None
-    last_lsp_analysis: Optional[datetime] = None
-    lsp_metadata: Optional[Dict[str, Any]] = None
+    lsp_server_id: int | None = None
+    last_lsp_analysis: datetime | None = None
+    lsp_metadata: dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.created_at is None:
@@ -128,8 +130,8 @@ class WatchFolderConfig:
     watch_id: str
     path: str
     collection: str
-    patterns: List[str]
-    ignore_patterns: List[str]
+    patterns: list[str]
+    ignore_patterns: list[str]
     auto_ingest: bool = True
     recursive: bool = True
     recursive_depth: int = 10
@@ -137,8 +139,8 @@ class WatchFolderConfig:
     enabled: bool = True
     created_at: datetime = None
     updated_at: datetime = None
-    last_scan: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]] = None
+    last_scan: datetime | None = None
+    metadata: dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.created_at is None:
@@ -156,9 +158,9 @@ class ProcessingQueueItem:
     collection: str
     priority: ProcessingPriority
     created_at: datetime = None
-    scheduled_at: Optional[datetime] = None
+    scheduled_at: datetime | None = None
     attempts: int = 0
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.created_at is None:
@@ -171,16 +173,16 @@ class ProcessingQueueItem:
 class ProjectRecord:
     """Record for tracking LSP-enabled projects."""
 
-    id: Optional[int]
+    id: int | None
     name: str
     root_path: str
     collection_name: str
-    project_id: Optional[str] = None  # 12-char hex hash from root_path
+    project_id: str | None = None  # 12-char hex hash from root_path
     lsp_enabled: bool = False
-    last_scan: Optional[datetime] = None
+    last_scan: datetime | None = None
     created_at: datetime = None
     updated_at: datetime = None
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.created_at is None:
@@ -193,16 +195,16 @@ class ProjectRecord:
 class LSPServerRecord:
     """Record for tracking LSP servers."""
 
-    id: Optional[int]
+    id: int | None
     language: str
     server_path: str
-    version: Optional[str] = None
-    capabilities: Optional[Dict[str, Any]] = None
+    version: str | None = None
+    capabilities: dict[str, Any] | None = None
     status: LSPServerStatus = LSPServerStatus.INACTIVE
-    last_health_check: Optional[datetime] = None
+    last_health_check: datetime | None = None
     created_at: datetime = None
     updated_at: datetime = None
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.created_at is None:
@@ -242,7 +244,7 @@ class SQLiteStateManager:
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
-    def __init__(self, db_path: Optional[str] = None):
+    def __init__(self, db_path: str | None = None):
         """
         Initialize SQLite state manager with OS-standard state directory.
 
@@ -262,10 +264,10 @@ class SQLiteStateManager:
             self.db_path = Path(db_path)
             logger.warning(f"Using legacy database path: {self.db_path}. Consider migrating to OS-standard location.")
 
-        self.connection: Optional[sqlite3.Connection] = None
+        self.connection: sqlite3.Connection | None = None
         self._lock = threading.RLock()
         self._shutdown_event = asyncio.Event()
-        self._maintenance_task: Optional[asyncio.Task] = None
+        self._maintenance_task: asyncio.Task | None = None
         self._initialized = False
 
     async def initialize(self) -> bool:
@@ -1122,7 +1124,7 @@ class SQLiteStateManager:
         except Exception as e:
             logger.error(f"Error during maintenance: {e}")
 
-    def _serialize_json(self, data: Any) -> Optional[str]:
+    def _serialize_json(self, data: Any) -> str | None:
         """Serialize data to JSON string."""
         if data is None:
             return None
@@ -1132,7 +1134,7 @@ class SQLiteStateManager:
             logger.warning(f"Failed to serialize data to JSON: {e}")
             return None
 
-    def _deserialize_json(self, data: Optional[str]) -> Any:
+    def _deserialize_json(self, data: str | None) -> Any:
         """Deserialize JSON string to data."""
         if not data:
             return None
@@ -1240,7 +1242,7 @@ class SQLiteStateManager:
         priority: int,
         tenant_id: str,
         branch: str,
-        metadata: Optional[Dict] = None,
+        metadata: dict | None = None,
     ) -> str:
         """
         Enqueue a file to the ingestion queue.
@@ -1335,9 +1337,9 @@ class SQLiteStateManager:
     async def dequeue(
         self,
         batch_size: int = 10,
-        tenant_id: Optional[str] = None,
-        branch: Optional[str] = None,
-    ) -> List[ProcessingQueueItem]:
+        tenant_id: str | None = None,
+        branch: str | None = None,
+    ) -> list[ProcessingQueueItem]:
         """
         Retrieve items from ingestion queue by priority (DESC) and scheduled_at (ASC).
 
@@ -1413,8 +1415,8 @@ class SQLiteStateManager:
 
     async def get_queue_depth(
         self,
-        tenant_id: Optional[str] = None,
-        branch: Optional[str] = None,
+        tenant_id: str | None = None,
+        branch: str | None = None,
     ) -> int:
         """
         Get the current depth (count) of the ingestion queue.
@@ -1494,9 +1496,9 @@ class SQLiteStateManager:
         self,
         file_path: str,
         status: str,
-        collection_name: Optional[str] = None,
-        document_id: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        collection_name: str | None = None,
+        document_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Update processing state for multi-component testing."""
         try:
@@ -1545,8 +1547,8 @@ class SQLiteStateManager:
             return False
 
     async def get_processing_states(
-        self, filter_params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, filter_params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Get processing states with optional filtering."""
         try:
             with self._lock:
@@ -1594,7 +1596,7 @@ class SQLiteStateManager:
         query: str,
         results_count: int,
         source: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Record search operation for multi-component tracking."""
         try:
@@ -1622,8 +1624,8 @@ class SQLiteStateManager:
             return False
 
     async def get_search_history(
-        self, limit: Optional[int] = None
-    ) -> List[Dict[str, Any]]:
+        self, limit: int | None = None
+    ) -> list[dict[str, Any]]:
         """Get search history."""
         try:
             with self._lock:
@@ -1659,7 +1661,7 @@ class SQLiteStateManager:
             return []
 
     async def store_memory_rule(
-        self, rule_id: str, rule_data: Dict[str, Any]
+        self, rule_id: str, rule_data: dict[str, Any]
     ) -> bool:
         """Store memory rule."""
         try:
@@ -1678,7 +1680,7 @@ class SQLiteStateManager:
             logger.error(f"Failed to store memory rule {rule_id}: {e}")
             return False
 
-    async def get_memory_rules(self) -> List[Dict[str, Any]]:
+    async def get_memory_rules(self) -> list[dict[str, Any]]:
         """Get all memory rules."""
         try:
             with self._lock:
@@ -1701,7 +1703,7 @@ class SQLiteStateManager:
             logger.error(f"Failed to get memory rules: {e}")
             return []
 
-    async def record_event(self, event: Dict[str, Any]) -> bool:
+    async def record_event(self, event: dict[str, Any]) -> bool:
         """Record event for multi-component tracking."""
         try:
             async with self.transaction() as conn:
@@ -1726,8 +1728,8 @@ class SQLiteStateManager:
             return False
 
     async def get_events(
-        self, filter_params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, filter_params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Get events with optional filtering."""
         try:
             with self._lock:
@@ -1769,7 +1771,7 @@ class SQLiteStateManager:
             return []
 
     async def record_configuration_change(
-        self, config_data: Dict[str, Any], source: str, timestamp: Optional[float] = None
+        self, config_data: dict[str, Any], source: str, timestamp: float | None = None
     ) -> bool:
         """Record configuration change."""
         try:
@@ -1792,7 +1794,7 @@ class SQLiteStateManager:
             logger.error(f"Failed to record configuration change: {e}")
             return False
 
-    async def get_configuration_history(self) -> List[Dict[str, Any]]:
+    async def get_configuration_history(self) -> list[dict[str, Any]]:
         """Get configuration history."""
         try:
             with self._lock:
@@ -1819,7 +1821,7 @@ class SQLiteStateManager:
         error_type: str,
         error_message: str,
         source: str,
-        metadata: Optional[Dict[str, Any]] = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Record error."""
         try:
@@ -1844,8 +1846,8 @@ class SQLiteStateManager:
             return False
 
     async def get_errors(
-        self, filter_params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, filter_params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Get errors with optional filtering."""
         try:
             with self._lock:
@@ -1881,7 +1883,7 @@ class SQLiteStateManager:
             logger.error(f"Failed to get errors: {e}")
             return []
 
-    async def record_performance_metric(self, metric: Dict[str, Any]) -> bool:
+    async def record_performance_metric(self, metric: dict[str, Any]) -> bool:
         """Record performance metric."""
         try:
             async with self.transaction() as conn:
@@ -1904,8 +1906,8 @@ class SQLiteStateManager:
             return False
 
     async def get_performance_metrics(
-        self, filter_params: Optional[Dict[str, Any]] = None
-    ) -> List[Dict[str, Any]]:
+        self, filter_params: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
         """Get performance metrics with optional filtering."""
         try:
             with self._lock:
@@ -1940,7 +1942,7 @@ class SQLiteStateManager:
             logger.error(f"Failed to get performance metrics: {e}")
             return []
 
-    async def record_resource_usage(self, usage_data: Dict[str, Any]) -> bool:
+    async def record_resource_usage(self, usage_data: dict[str, Any]) -> bool:
         """Record resource usage."""
         try:
             async with self.transaction() as conn:
@@ -1961,7 +1963,7 @@ class SQLiteStateManager:
             logger.error(f"Failed to record resource usage: {e}")
             return False
 
-    async def get_resource_usage_history(self) -> List[Dict[str, Any]]:
+    async def get_resource_usage_history(self) -> list[dict[str, Any]]:
         """Get resource usage history."""
         try:
             with self._lock:
@@ -1990,9 +1992,9 @@ class SQLiteStateManager:
         file_path: str,
         collection: str,
         priority: ProcessingPriority = ProcessingPriority.NORMAL,
-        file_size: Optional[int] = None,
-        file_hash: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        file_size: int | None = None,
+        file_hash: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Mark a file as starting processing with atomic transaction."""
         try:
@@ -2034,9 +2036,9 @@ class SQLiteStateManager:
         self,
         file_path: str,
         success: bool,
-        error_message: Optional[str] = None,
-        processing_time_ms: Optional[int] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        error_message: str | None = None,
+        processing_time_ms: int | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> bool:
         """Mark a file as completed (success or failure) with atomic transaction."""
         try:
@@ -2118,7 +2120,7 @@ class SQLiteStateManager:
 
     async def get_file_processing_status(
         self, file_path: str
-    ) -> Optional[FileProcessingRecord]:
+    ) -> FileProcessingRecord | None:
         """Get current processing status for a file."""
         try:
             with self._lock:
@@ -2174,9 +2176,9 @@ class SQLiteStateManager:
     async def get_files_by_status(
         self,
         status: FileProcessingStatus,
-        collection: Optional[str] = None,
-        limit: Optional[int] = None,
-    ) -> List[FileProcessingRecord]:
+        collection: str | None = None,
+        limit: int | None = None,
+    ) -> list[FileProcessingRecord]:
         """Get files with a specific processing status."""
         try:
             with self._lock:
@@ -2244,7 +2246,7 @@ class SQLiteStateManager:
             return []
 
     async def retry_failed_file(
-        self, file_path: str, max_retries: Optional[int] = None
+        self, file_path: str, max_retries: int | None = None
     ) -> bool:
         """Mark a failed file for retry."""
         try:
@@ -2343,7 +2345,7 @@ class SQLiteStateManager:
 
     async def get_watch_folder_config(
         self, watch_id: str
-    ) -> Optional[WatchFolderConfig]:
+    ) -> WatchFolderConfig | None:
         """Get watch folder configuration."""
         try:
             with self._lock:
@@ -2394,7 +2396,7 @@ class SQLiteStateManager:
 
     async def get_all_watch_folder_configs(
         self, enabled_only: bool = True
-    ) -> List[WatchFolderConfig]:
+    ) -> list[WatchFolderConfig]:
         """Get all watch folder configurations."""
         try:
             with self._lock:
@@ -2493,8 +2495,8 @@ class SQLiteStateManager:
         file_path: str,
         collection: str,
         priority: ProcessingPriority = ProcessingPriority.NORMAL,
-        scheduled_at: Optional[datetime] = None,
-        metadata: Optional[Dict[str, Any]] = None,
+        scheduled_at: datetime | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> str:
         """Add file to processing queue with priority."""
         try:
@@ -2543,7 +2545,7 @@ class SQLiteStateManager:
 
     async def list_watch_folders(
         self, enabled_only: bool = True
-    ) -> List[WatchFolderConfig]:
+    ) -> list[WatchFolderConfig]:
         """List all watch folder configs (alias for get_all_watch_folder_configs)."""
         return await self.get_all_watch_folder_configs(enabled_only=enabled_only)
 

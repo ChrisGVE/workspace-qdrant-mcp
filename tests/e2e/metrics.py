@@ -34,17 +34,18 @@ Usage:
 
 import asyncio
 import json
-import psutil
 import statistics
 import time
 from collections import defaultdict
-from dataclasses import dataclass, asdict
+from collections.abc import Callable
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List, Optional, Any, Callable
-from contextlib import contextmanager
-import numpy as np
+from typing import Any, Optional
 
+import numpy as np
+import psutil
 
 # ============================================================================
 # Data Classes
@@ -67,7 +68,7 @@ class LatencyMetrics:
     std_dev: float
 
     @classmethod
-    def from_measurements(cls, measurements: List[float]) -> 'LatencyMetrics':
+    def from_measurements(cls, measurements: list[float]) -> 'LatencyMetrics':
         """Calculate latency metrics from measurements."""
         if not measurements:
             return cls(0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -103,9 +104,9 @@ class ThroughputMetrics:
     @classmethod
     def from_operations(
         cls,
-        operations: List[float],
+        operations: list[float],
         duration: float,
-        batch_sizes: Optional[List[int]] = None
+        batch_sizes: list[int] | None = None
     ) -> 'ThroughputMetrics':
         """Calculate throughput metrics from operations."""
         if not operations or duration <= 0:
@@ -157,7 +158,7 @@ class ResourceMetrics:
     network_received_mb: float
 
     @classmethod
-    def from_samples(cls, samples: List[Dict[str, Any]]) -> 'ResourceMetrics':
+    def from_samples(cls, samples: list[dict[str, Any]]) -> 'ResourceMetrics':
         """Calculate resource metrics from samples."""
         if not samples:
             return cls(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -187,15 +188,15 @@ class ErrorMetrics:
     total_operations: int
     total_errors: int
     error_rate: float
-    error_types: Dict[str, int]
-    first_error_time: Optional[float]
-    last_error_time: Optional[float]
+    error_types: dict[str, int]
+    first_error_time: float | None
+    last_error_time: float | None
 
     @classmethod
     def from_errors(
         cls,
         total_ops: int,
-        errors: List[Dict[str, Any]]
+        errors: list[dict[str, Any]]
     ) -> 'ErrorMetrics':
         """Calculate error metrics from error records."""
         error_count = len(errors)
@@ -242,22 +243,22 @@ class MetricsCollector:
         self.start_time = time.time()
 
         # Timing measurements
-        self.operation_timings: Dict[str, List[float]] = defaultdict(list)
-        self.operation_timestamps: Dict[str, List[float]] = defaultdict(list)
+        self.operation_timings: dict[str, list[float]] = defaultdict(list)
+        self.operation_timestamps: dict[str, list[float]] = defaultdict(list)
 
         # Throughput measurements
-        self.operation_counts: Dict[str, int] = defaultdict(int)
-        self.batch_sizes: Dict[str, List[int]] = defaultdict(list)
+        self.operation_counts: dict[str, int] = defaultdict(int)
+        self.batch_sizes: dict[str, list[int]] = defaultdict(list)
 
         # Resource samples
-        self.resource_samples: List[Dict[str, Any]] = []
-        self._resource_monitor_task: Optional[asyncio.Task] = None
+        self.resource_samples: list[dict[str, Any]] = []
+        self._resource_monitor_task: asyncio.Task | None = None
 
         # Error tracking
-        self.errors: List[Dict[str, Any]] = []
+        self.errors: list[dict[str, Any]] = []
 
         # Custom metrics
-        self.custom_metrics: Dict[str, Any] = {}
+        self.custom_metrics: dict[str, Any] = {}
 
     @contextmanager
     def measure(self, operation_name: str):
@@ -288,7 +289,7 @@ class MetricsCollector:
         duration: float,
         batch_size: int = 1,
         success: bool = True,
-        error: Optional[Exception] = None
+        error: Exception | None = None
     ):
         """
         Manually record an operation.
@@ -388,7 +389,7 @@ class PerformanceReport:
         self.resource_metrics = self._calculate_resource_metrics()
         self.error_metrics = self._calculate_error_metrics()
 
-    def _calculate_latency_metrics(self) -> Dict[str, LatencyMetrics]:
+    def _calculate_latency_metrics(self) -> dict[str, LatencyMetrics]:
         """Calculate latency metrics for all operations."""
         metrics = {}
         for op_name, timings in self.collector.operation_timings.items():
@@ -398,7 +399,7 @@ class PerformanceReport:
                 metrics[op_name] = LatencyMetrics.from_measurements(timings_ms)
         return metrics
 
-    def _calculate_throughput_metrics(self) -> Dict[str, ThroughputMetrics]:
+    def _calculate_throughput_metrics(self) -> dict[str, ThroughputMetrics]:
         """Calculate throughput metrics for all operations."""
         metrics = {}
         for op_name, timestamps in self.collector.operation_timestamps.items():
@@ -412,7 +413,7 @@ class PerformanceReport:
                 )
         return metrics
 
-    def _calculate_resource_metrics(self) -> Optional[ResourceMetrics]:
+    def _calculate_resource_metrics(self) -> ResourceMetrics | None:
         """Calculate resource utilization metrics."""
         if not self.collector.resource_samples:
             return None
@@ -482,7 +483,7 @@ class PerformanceReport:
 
         return "\n".join(lines)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Export metrics as dictionary."""
         return {
             'workflow_name': self.workflow_name,
@@ -499,7 +500,7 @@ class PerformanceReport:
             'errors': asdict(self.error_metrics)
         }
 
-    def to_json(self, filepath: Optional[Path] = None) -> str:
+    def to_json(self, filepath: Path | None = None) -> str:
         """
         Export metrics as JSON.
 
@@ -518,9 +519,9 @@ class PerformanceReport:
 
     def check_regression(
         self,
-        baseline: Dict[str, Any],
-        thresholds: Optional[Dict[str, float]] = None
-    ) -> Dict[str, List[str]]:
+        baseline: dict[str, Any],
+        thresholds: dict[str, float] | None = None
+    ) -> dict[str, list[str]]:
         """
         Check for performance regressions against baseline.
 

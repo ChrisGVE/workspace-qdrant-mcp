@@ -7,11 +7,12 @@ with TokenUsageTracker and ClaudeBudgetManager.
 """
 
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from threading import Lock
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any
 
 from loguru import logger
 
@@ -82,14 +83,14 @@ class WarningEvent:
 
     timestamp: datetime
     level: WarningLevel
-    tool_name: Optional[str]
+    tool_name: str | None
     current_usage: int
     budget_limit: int
     utilization_percentage: float
     message: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert event to dictionary for serialization."""
         return {
             "timestamp": self.timestamp.isoformat(),
@@ -138,10 +139,10 @@ class BudgetWarningSystem:
 
     def __init__(
         self,
-        global_budget_limit: Optional[int] = None,
-        per_tool_limits: Optional[Dict[str, int]] = None,
-        thresholds: Optional[List[BudgetThreshold]] = None,
-        throttle_config: Optional[ThrottleConfig] = None,
+        global_budget_limit: int | None = None,
+        per_tool_limits: dict[str, int] | None = None,
+        thresholds: list[BudgetThreshold] | None = None,
+        throttle_config: ThrottleConfig | None = None,
         enable_logging: bool = True,
         enable_cli_output: bool = False,
     ):
@@ -179,13 +180,13 @@ class BudgetWarningSystem:
 
         # Thread-safe state
         self._lock = Lock()
-        self._warning_history: List[WarningEvent] = []
-        self._triggered_thresholds: Dict[str, Set[WarningLevel]] = defaultdict(set)
-        self._last_warning_times: Dict[str, Dict[WarningLevel, datetime]] = (
+        self._warning_history: list[WarningEvent] = []
+        self._triggered_thresholds: dict[str, set[WarningLevel]] = defaultdict(set)
+        self._last_warning_times: dict[str, dict[WarningLevel, datetime]] = (
             defaultdict(dict)
         )
-        self._warning_callbacks: List[WarningCallback] = []
-        self._warnings_this_minute: List[datetime] = []
+        self._warning_callbacks: list[WarningCallback] = []
+        self._warnings_this_minute: list[datetime] = []
 
         logger.debug(
             f"Initialized BudgetWarningSystem "
@@ -219,8 +220,8 @@ class BudgetWarningSystem:
                 logger.debug(f"Unregistered warning callback: {callback.__name__}")
 
     def check_usage_tracker(
-        self, tracker: TokenUsageTracker, tool_name: Optional[str] = None
-    ) -> List[WarningEvent]:
+        self, tracker: TokenUsageTracker, tool_name: str | None = None
+    ) -> list[WarningEvent]:
         """
         Check TokenUsageTracker for budget threshold violations.
 
@@ -260,7 +261,7 @@ class BudgetWarningSystem:
 
     def check_claude_budget_manager(
         self, manager: ClaudeBudgetManager
-    ) -> List[WarningEvent]:
+    ) -> list[WarningEvent]:
         """
         Check ClaudeBudgetManager for session budget violations.
 
@@ -286,10 +287,10 @@ class BudgetWarningSystem:
 
     def get_warning_history(
         self,
-        tool_name: Optional[str] = None,
-        level: Optional[WarningLevel] = None,
-        since: Optional[datetime] = None,
-    ) -> List[WarningEvent]:
+        tool_name: str | None = None,
+        level: WarningLevel | None = None,
+        since: datetime | None = None,
+    ) -> list[WarningEvent]:
         """
         Get warning event history with optional filtering.
 
@@ -314,7 +315,7 @@ class BudgetWarningSystem:
 
         return events
 
-    def get_warning_summary(self) -> Dict[str, Any]:
+    def get_warning_summary(self) -> dict[str, Any]:
         """
         Generate summary of warning activity.
 
@@ -357,7 +358,7 @@ class BudgetWarningSystem:
                 "callbacks_registered": len(self._warning_callbacks),
             }
 
-    def clear_history(self, tool_name: Optional[str] = None) -> int:
+    def clear_history(self, tool_name: str | None = None) -> int:
         """
         Clear warning history.
 
@@ -393,7 +394,7 @@ class BudgetWarningSystem:
 
     def _check_tool_usage(
         self, tool_name: str, stats: ToolUsageStats, limit: int
-    ) -> List[WarningEvent]:
+    ) -> list[WarningEvent]:
         """
         Check tool usage against budget limit.
 
@@ -413,7 +414,7 @@ class BudgetWarningSystem:
 
     def _check_session_usage(
         self, tool_name: str, stats: SessionUsageStats, limit: int
-    ) -> List[WarningEvent]:
+    ) -> list[WarningEvent]:
         """
         Check session usage against budget limit.
 
@@ -433,7 +434,7 @@ class BudgetWarningSystem:
             tool_name, stats.total_tokens_used, limit, utilization
         )
 
-    def _check_global_usage(self, total_tokens: int, limit: int) -> List[WarningEvent]:
+    def _check_global_usage(self, total_tokens: int, limit: int) -> list[WarningEvent]:
         """
         Check global usage against budget limit.
 
@@ -452,11 +453,11 @@ class BudgetWarningSystem:
 
     def _check_thresholds(
         self,
-        tool_name: Optional[str],
+        tool_name: str | None,
         current_usage: int,
         limit: int,
         utilization: float,
-    ) -> List[WarningEvent]:
+    ) -> list[WarningEvent]:
         """
         Check usage against configured thresholds.
 
@@ -510,7 +511,7 @@ class BudgetWarningSystem:
     def _create_warning_event(
         self,
         level: WarningLevel,
-        tool_name: Optional[str],
+        tool_name: str | None,
         current_usage: int,
         limit: int,
         utilization: float,

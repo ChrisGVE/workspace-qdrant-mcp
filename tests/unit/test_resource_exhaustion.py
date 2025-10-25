@@ -9,19 +9,20 @@ import asyncio
 import tempfile
 import time
 from pathlib import Path
-import pytest
+
 import psutil
+import pytest
 
 from tests.framework.resource_exhaustion import (
-    ResourceExhaustionSimulator,
-    ResourceExhaustionScenario,
-    MemoryPressureSimulator,
+    SAFETY_MAX_CPU_PERCENT,
+    SAFETY_MAX_MEMORY_PERCENT,
     CPUSaturationSimulator,
     DiskIOSaturationSimulator,
+    MemoryPressureSimulator,
     NetworkBandwidthLimiter,
+    ResourceExhaustionScenario,
+    ResourceExhaustionSimulator,
     ResourceType,
-    SAFETY_MAX_MEMORY_PERCENT,
-    SAFETY_MAX_CPU_PERCENT,
 )
 
 

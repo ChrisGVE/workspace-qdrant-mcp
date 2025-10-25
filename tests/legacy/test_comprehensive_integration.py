@@ -21,8 +21,8 @@ import json
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -30,7 +30,7 @@ import pytest
 from tests.utils.fastmcp_test_infrastructure import (
     FastMCPTestClient,
     MCPProtocolTester,
-    fastmcp_test_environment
+    fastmcp_test_environment,
 )
 from tests.utils.testcontainers_qdrant import isolated_qdrant_instance
 
@@ -143,7 +143,6 @@ class IntegrationTestClass:
             print("  📥 Step 1: CLI document ingestion...")
 
             # Mock file detector (simplified for integration test)
-            file_type = "markdown"
 
             # Simulate CLI add command
             add_result = await app.add_document_tool(
@@ -187,7 +186,7 @@ class IntegrationTestClass:
             assert "content" in get_result
             assert "metadata" in get_result
             assert get_result["id"] == document_id
-            print(f"    ✅ Document retrieved successfully")
+            print("    ✅ Document retrieved successfully")
 
             # Step 4: Test scratchbook integration
             print("  📝 Step 4: Scratchbook integration...")
@@ -198,7 +197,7 @@ class IntegrationTestClass:
             )
 
             assert scratchbook_result.get("success", False)
-            print(f"    ✅ Scratchbook updated")
+            print("    ✅ Scratchbook updated")
 
             # Step 5: Validate workflow state consistency
             print("  🔄 Step 5: Workflow state consistency...")
@@ -206,7 +205,7 @@ class IntegrationTestClass:
             status_result = await app.workspace_status()
             assert status_result.get("connected", False)
             assert "collections" in status_result or not status_result.get("error")
-            print(f"    ✅ Workspace status consistent")
+            print("    ✅ Workspace status consistent")
 
             return {
                 "add_result": add_result,
@@ -410,11 +409,11 @@ class TestFastMCPProtocolCompliance:
 
         # Get registered tools
         if hasattr(app, '_tools'):
-            tools = app._tools
+            pass
         elif hasattr(app, 'tools'):
-            tools = app.tools
+            pass
         else:
-            tools = {}
+            pass
 
         # Verify minimum expected tools are registered
         expected_tools = {
@@ -727,7 +726,7 @@ class TestGRPCCommunication:
 
             try:
                 await mock_grpc_client.health_check()
-                assert False, "Should have raised exception"
+                raise AssertionError("Should have raised exception")
             except Exception as e:
                 assert "Connection failed" in str(e)
                 print("    ✅ gRPC error handling working")

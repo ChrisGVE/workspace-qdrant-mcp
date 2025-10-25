@@ -7,17 +7,18 @@ and incremental tracking) into a unified, easy-to-use interface.
 """
 
 import asyncio
+from collections.abc import Callable
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Union, Callable
+from typing import Any
 
 from loguru import logger
 
-from .aggregator import MetadataAggregator, DocumentMetadata
-from .batch_processor import BatchProcessor, BatchConfig, BatchResult
-from .incremental_tracker import IncrementalTracker, DocumentChangeInfo
-from .yaml_generator import YAMLGenerator, YAMLConfig
-from .exceptions import WorkflowConfigurationError, MetadataError
 from ..parsers.base import ParsedDocument
+from .aggregator import DocumentMetadata, MetadataAggregator
+from .batch_processor import BatchConfig, BatchProcessor, BatchResult
+from .exceptions import MetadataError, WorkflowConfigurationError
+from .incremental_tracker import DocumentChangeInfo, IncrementalTracker
+from .yaml_generator import YAMLConfig, YAMLGenerator
 
 
 class WorkflowConfig:
@@ -26,26 +27,26 @@ class WorkflowConfig:
     def __init__(
         self,
         # Output configuration
-        output_directory: Optional[Union[str, Path]] = None,
+        output_directory: str | Path | None = None,
         generate_individual_yamls: bool = True,
         generate_collection_yaml: bool = True,
         collection_name: str = "document_collection",
 
         # Processing configuration
-        project_name: Optional[str] = None,
+        project_name: str | None = None,
         collection_type: str = "documents",
         incremental_updates: bool = True,
 
         # Component configurations
-        batch_config: Optional[BatchConfig] = None,
-        yaml_config: Optional[YAMLConfig] = None,
+        batch_config: BatchConfig | None = None,
+        yaml_config: YAMLConfig | None = None,
 
         # Tracking configuration
-        tracking_storage_path: Optional[Union[str, Path]] = None,
+        tracking_storage_path: str | Path | None = None,
         cleanup_old_tracking: bool = True,
 
         # Progress and logging
-        progress_callback: Optional[Callable[[int, int], None]] = None,
+        progress_callback: Callable[[int, int], None] | None = None,
         verbose_logging: bool = False,
     ):
         """
@@ -100,10 +101,10 @@ class WorkflowResult:
     def __init__(
         self,
         batch_result: BatchResult,
-        change_info: Optional[List[DocumentChangeInfo]] = None,
-        yaml_files: Optional[List[str]] = None,
-        collection_yaml_path: Optional[str] = None,
-        workflow_stats: Optional[Dict[str, Any]] = None,
+        change_info: list[DocumentChangeInfo] | None = None,
+        yaml_files: list[str] | None = None,
+        collection_yaml_path: str | None = None,
+        workflow_stats: dict[str, Any] | None = None,
     ):
         """
         Initialize workflow result.
@@ -156,7 +157,7 @@ class WorkflowManager:
     and YAML generation with comprehensive error handling and progress reporting.
     """
 
-    def __init__(self, config: Optional[WorkflowConfig] = None):
+    def __init__(self, config: WorkflowConfig | None = None):
         """
         Initialize workflow manager.
 
@@ -174,7 +175,7 @@ class WorkflowManager:
         self.yaml_generator = YAMLGenerator(config=self.config.yaml_config)
 
         # Initialize incremental tracker if enabled
-        self.incremental_tracker: Optional[IncrementalTracker] = None
+        self.incremental_tracker: IncrementalTracker | None = None
         if self.config.incremental_updates:
             self.incremental_tracker = IncrementalTracker(
                 storage_path=self.config.tracking_storage_path,
@@ -192,7 +193,7 @@ class WorkflowManager:
 
     async def process_documents(
         self,
-        file_paths: List[Union[str, Path]],
+        file_paths: list[str | Path],
     ) -> WorkflowResult:
         """
         Process documents through complete metadata workflow.
@@ -310,9 +311,9 @@ class WorkflowManager:
 
     async def process_directory(
         self,
-        directory_path: Union[str, Path],
+        directory_path: str | Path,
         recursive: bool = True,
-        file_patterns: Optional[List[str]] = None,
+        file_patterns: list[str] | None = None,
     ) -> WorkflowResult:
         """
         Process all documents in a directory.
@@ -361,8 +362,8 @@ class WorkflowManager:
         self,
         directory: Path,
         recursive: bool,
-        file_patterns: Optional[List[str]],
-    ) -> List[Path]:
+        file_patterns: list[str] | None,
+    ) -> list[Path]:
         """Find files in directory matching patterns."""
         file_paths = []
 
@@ -393,10 +394,10 @@ class WorkflowManager:
     def _generate_workflow_stats(
         self,
         batch_result: BatchResult,
-        change_info: List[DocumentChangeInfo],
-        yaml_files: List[str],
+        change_info: list[DocumentChangeInfo],
+        yaml_files: list[str],
         processing_time: float,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Generate workflow execution statistics."""
         # Count change types
         change_counts = {
@@ -443,8 +444,8 @@ class WorkflowManager:
     async def _generate_summary_report(
         self,
         batch_result: BatchResult,
-        change_info: List[DocumentChangeInfo],
-        workflow_stats: Dict[str, Any],
+        change_info: list[DocumentChangeInfo],
+        workflow_stats: dict[str, Any],
     ) -> None:
         """Generate and save workflow summary report."""
         try:
@@ -494,7 +495,7 @@ class WorkflowManager:
                 parsed_document=summary_doc,
             )
 
-            summary_yaml = self.yaml_generator.generate_yaml(
+            self.yaml_generator.generate_yaml(
                 summary_metadata,
                 output_path=report_path,
             )
@@ -504,7 +505,7 @@ class WorkflowManager:
         except Exception as e:
             logger.warning(f"Failed to generate summary report: {e}")
 
-    def get_workflow_status(self) -> Dict[str, Any]:
+    def get_workflow_status(self) -> dict[str, Any]:
         """
         Get current workflow manager status.
 

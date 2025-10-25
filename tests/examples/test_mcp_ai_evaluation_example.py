@@ -13,17 +13,17 @@ Examples include:
     - Error handling and edge case testing with AI analysis
 """
 
-import pytest
-from typing import Dict, Any
+from typing import Any
 
+import pytest
 from tests.utils.pytest_mcp_framework import (
     MCPToolTestCase,
     ai_powered_mcp_testing,
     assert_ai_score_above,
-    assert_tool_functional,
+    assert_no_critical_issues,
     assert_performance_acceptable,
     assert_reliability_high,
-    assert_no_critical_issues
+    assert_tool_functional,
 )
 
 
@@ -150,7 +150,7 @@ class TestWorkspaceToolsAIEvaluation:
             assert avg_time <= 1000, f"Search tool too slow: {avg_time}ms (target: <1000ms)"
 
             # Check for performance insights
-            performance_insights = [
+            [
                 insight for insight in search_evaluation["ai_insights"]
                 if "performance" in insight.lower()
             ]
@@ -363,11 +363,11 @@ class TestWorkspaceToolsAIEvaluation:
         )
 
         # Verify custom validation was applied
-        for tool_name, tool_result in report["evaluation_results"].items():
+        for _tool_name, tool_result in report["evaluation_results"].items():
             # Custom validation failures should be reflected in the results
             if tool_result["test_summary"]["failed_tests"] > 0:
                 # Should have insights about validation failures
-                validation_insights = [
+                [
                     insight for insight in tool_result["ai_insights"]
                     if "validation" in insight.lower()
                 ]

@@ -3,15 +3,16 @@ Real comprehensive test coverage for src/python/common/core/component_isolation.
 This test file actually exercises code to achieve real coverage improvements.
 """
 
-import pytest
 import asyncio
-import sys
-import os
-import tempfile
 import json
+import os
+import sys
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock, call
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 
 # Add source path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
@@ -100,13 +101,13 @@ class TestRealFunctionality:
                         with patch('builtins.open', Mock()), \
                              patch('pathlib.Path.exists', return_value=True), \
                              patch('os.path.exists', return_value=True):
-                            result = await func()
+                            await func()
                             # Function executed without error
                             assert True
                     except TypeError:
                         # Try with parameters
                         try:
-                            result = await func('test_param')
+                            await func('test_param')
                             assert True
                         except:
                             # Function requires specific parameters - that's ok
@@ -133,7 +134,7 @@ class TestRealFunctionality:
                              patch('json.loads', side_effect=ValueError):
 
                             try:
-                                result = func(invalid_input)
+                                func(invalid_input)
                                 # Function handled invalid input gracefully
                             except (ValueError, TypeError, AttributeError, FileNotFoundError):
                                 # Expected error - error handling is working
@@ -171,11 +172,11 @@ class TestRealFunctionality:
 
                             # Try different parameter combinations
                             try:
-                                result = func(test_data)
+                                func(test_data)
                                 # Function processed data successfully
                             except TypeError:
                                 try:
-                                    result = func(**test_data)
+                                    func(**test_data)
                                     # Function processed data successfully
                                 except:
                                     # Function signature doesn't match - that's ok
@@ -212,7 +213,7 @@ class TestIntegrationScenarios:
                                     attr = getattr(instance, attr_name)
                                     if callable(attr):
                                         try:
-                                            result = attr()
+                                            attr()
                                             # Method executed successfully
                                         except:
                                             # Method may require parameters
@@ -281,7 +282,7 @@ class TestEdgeCases:
                     try:
                         with patch('builtins.open', Mock()), \
                              patch('os.path.exists', return_value=True):
-                            result = func(boundary_value)
+                            func(boundary_value)
                             # Function handled boundary value
                     except:
                         # Function may not accept this type/value
@@ -308,7 +309,7 @@ class TestEdgeCases:
                     with patch('builtins.open', Mock()), \
                          patch('json.loads', return_value=large_data), \
                          patch('time.time', return_value=1234567890):
-                        result = func(large_data)
+                        func(large_data)
                         # Function handled large data successfully
                 except:
                     # Function may not be designed for this data

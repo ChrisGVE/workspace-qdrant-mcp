@@ -44,18 +44,17 @@ Example:
 """
 
 import asyncio
-import json
 import smtplib
 import ssl
 import time
 from collections import defaultdict, deque
-from dataclasses import asdict, dataclass, field
-from datetime import datetime, timezone, timedelta
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Set, Union
-from urllib.parse import urljoin
+from typing import Any
 
 import aiohttp
 from loguru import logger
@@ -91,14 +90,14 @@ class AlertChannelConfig:
 
     channel_type: AlertChannel
     endpoint: str
-    severities: List[str]
+    severities: list[str]
     enabled: bool = True
     rate_limit_per_hour: int = 100
     retry_attempts: int = 3
     retry_delay_seconds: float = 30.0
     timeout_seconds: float = 30.0
-    headers: Dict[str, str] = field(default_factory=dict)
-    auth_config: Dict[str, str] = field(default_factory=dict)
+    headers: dict[str, str] = field(default_factory=dict)
+    auth_config: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -107,7 +106,7 @@ class EscalationPolicy:
 
     policy_id: str
     name: str
-    escalation_levels: List[Dict[str, Any]]
+    escalation_levels: list[dict[str, Any]]
     escalation_interval_minutes: float = 15.0
     max_escalations: int = 3
     enabled: bool = True
@@ -122,7 +121,7 @@ class AlertCorrelationRule:
     component_pattern: str
     time_window_minutes: float = 5.0
     max_alerts_per_group: int = 10
-    correlation_fields: List[str] = field(default_factory=lambda: ["component", "severity"])
+    correlation_fields: list[str] = field(default_factory=lambda: ["component", "severity"])
 
 
 @dataclass
@@ -137,13 +136,13 @@ class ProcessedAlert:
     component: str
     timestamp: datetime
     status: AlertStatus = AlertStatus.PENDING
-    delivery_attempts: Dict[AlertChannel, int] = field(default_factory=dict)
-    delivery_status: Dict[AlertChannel, bool] = field(default_factory=dict)
+    delivery_attempts: dict[AlertChannel, int] = field(default_factory=dict)
+    delivery_status: dict[AlertChannel, bool] = field(default_factory=dict)
     escalation_level: int = 0
-    acknowledgment_time: Optional[datetime] = None
-    resolution_time: Optional[datetime] = None
-    correlation_group_id: Optional[str] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    acknowledgment_time: datetime | None = None
+    resolution_time: datetime | None = None
+    correlation_group_id: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -151,7 +150,7 @@ class AlertGroup:
     """Correlated alert group."""
 
     group_id: str
-    alerts: List[ProcessedAlert]
+    alerts: list[ProcessedAlert]
     first_alert_time: datetime
     last_alert_time: datetime
     correlation_rule: AlertCorrelationRule
@@ -189,24 +188,24 @@ class AlertingManager:
         self.alert_retention_hours = alert_retention_hours
 
         # Alert channels configuration
-        self.alert_channels: Dict[str, AlertChannelConfig] = {}
-        self.escalation_policies: Dict[str, EscalationPolicy] = {}
-        self.correlation_rules: Dict[str, AlertCorrelationRule] = {}
+        self.alert_channels: dict[str, AlertChannelConfig] = {}
+        self.escalation_policies: dict[str, EscalationPolicy] = {}
+        self.correlation_rules: dict[str, AlertCorrelationRule] = {}
 
         # Alert processing state
-        self.processed_alerts: Dict[str, ProcessedAlert] = {}
-        self.alert_groups: Dict[str, AlertGroup] = {}
-        self.rate_limit_counters: Dict[str, deque] = defaultdict(lambda: deque(maxlen=1000))
+        self.processed_alerts: dict[str, ProcessedAlert] = {}
+        self.alert_groups: dict[str, AlertGroup] = {}
+        self.rate_limit_counters: dict[str, deque] = defaultdict(lambda: deque(maxlen=1000))
 
         # Background tasks
-        self.background_tasks: List[asyncio.Task] = []
+        self.background_tasks: list[asyncio.Task] = []
         self.shutdown_event = asyncio.Event()
 
         # HTTP session for webhook delivery
-        self.http_session: Optional[aiohttp.ClientSession] = None
+        self.http_session: aiohttp.ClientSession | None = None
 
         # Custom alert handlers
-        self.custom_handlers: Dict[str, Callable] = {}
+        self.custom_handlers: dict[str, Callable] = {}
 
         logger.info(
             "Enhanced Alerting Manager initialized",
@@ -267,13 +266,13 @@ class AlertingManager:
 
     async def send_alert(
         self,
-        severity: Union[str, AlertSeverity],
+        severity: str | AlertSeverity,
         title: str,
         message: str,
         component: str,
         auto_recovery: bool = False,
-        metadata: Optional[Dict[str, Any]] = None,
-        escalation_policy: Optional[str] = None
+        metadata: dict[str, Any] | None = None,
+        escalation_policy: str | None = None
     ) -> str:
         """
         Send an alert through the alerting system.
@@ -414,11 +413,11 @@ class AlertingManager:
     def add_email_channel(
         self,
         email_address: str,
-        severities: List[str],
+        severities: list[str],
         smtp_server: str = "localhost",
         smtp_port: int = 587,
-        username: Optional[str] = None,
-        password: Optional[str] = None,
+        username: str | None = None,
+        password: str | None = None,
         use_tls: bool = True
     ) -> str:
         """Add email alert channel."""
@@ -445,8 +444,8 @@ class AlertingManager:
     def add_webhook_channel(
         self,
         webhook_url: str,
-        severities: List[str],
-        headers: Optional[Dict[str, str]] = None
+        severities: list[str],
+        headers: dict[str, str] | None = None
     ) -> str:
         """Add webhook alert channel."""
         channel_id = f"webhook_{hash(webhook_url)}"
@@ -466,8 +465,8 @@ class AlertingManager:
     def add_slack_channel(
         self,
         webhook_url: str,
-        severities: List[str],
-        channel: Optional[str] = None
+        severities: list[str],
+        channel: str | None = None
     ) -> str:
         """Add Slack alert channel."""
         channel_id = f"slack_{hash(webhook_url)}"
@@ -489,7 +488,7 @@ class AlertingManager:
         self,
         handler_name: str,
         handler_func: Callable[[ProcessedAlert], bool],
-        severities: List[str]
+        severities: list[str]
     ) -> str:
         """Add custom alert handler."""
         channel_id = f"custom_{handler_name}"
@@ -661,8 +660,8 @@ class AlertingManager:
         msg: MIMEMultipart,
         smtp_server: str,
         smtp_port: int,
-        username: Optional[str],
-        password: Optional[str],
+        username: str | None,
+        password: str | None,
         use_tls: bool
     ) -> None:
         """Send email using blocking SMTP (to be run in executor)."""
@@ -847,7 +846,7 @@ class AlertingManager:
         except Exception as e:
             logger.error(f"Escalation processing failed for {alert.alert_id}: {e}")
 
-    async def _trigger_paging(self, alert: ProcessedAlert, escalation_config: Dict[str, Any]) -> None:
+    async def _trigger_paging(self, alert: ProcessedAlert, escalation_config: dict[str, Any]) -> None:
         """Trigger paging for escalated alert."""
         # Implementation would depend on paging service (PagerDuty, OpsGenie, etc.)
         logger.warning(f"Paging triggered for escalated alert: {alert.alert_id}")
@@ -882,7 +881,7 @@ class AlertingManager:
         self,
         alert: ProcessedAlert,
         rule: AlertCorrelationRule
-    ) -> Optional[str]:
+    ) -> str | None:
         """Find existing alert group or create new one."""
         current_time = datetime.now(timezone.utc)
 
@@ -1008,7 +1007,7 @@ class AlertingManager:
 
                 if alerts_to_remove or groups_to_remove:
                     logger.debug(
-                        f"Cleaned up old alerts and groups",
+                        "Cleaned up old alerts and groups",
                         alerts_removed=len(alerts_to_remove),
                         groups_removed=len(groups_to_remove)
                     )
@@ -1043,7 +1042,7 @@ class AlertingManager:
 
 
 # Global alerting manager instance
-_alerting_manager: Optional[AlertingManager] = None
+_alerting_manager: AlertingManager | None = None
 
 
 async def get_alerting_manager(**kwargs) -> AlertingManager:

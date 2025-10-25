@@ -39,18 +39,16 @@ Example:
     ```
 """
 
-import asyncio
-from loguru import logger
 import os
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any
+
+from loguru import logger
 
 from ..core.client import QdrantWorkspaceClient
 from ..core.config import AutoIngestionConfig
 from ..utils.project_detection import ProjectDetector, calculate_tenant_id
-from ..utils.git_utils import get_current_branch
-from ..utils.file_type_classifier import determine_file_type
 
 # Import WatchToolsManager only when needed to prevent circular imports
 # This will be imported in the constructor when actually used
@@ -106,11 +104,11 @@ class ProjectPatterns:
     """
 
     @classmethod
-    def get_common_doc_patterns(cls) -> List[str]:
+    def get_common_doc_patterns(cls) -> list[str]:
         """Get common documentation file patterns."""
         if PATTERN_MANAGER_AVAILABLE:
             try:
-                pattern_manager = PatternManager()
+                PatternManager()
                 # TODO: In future, get these from PatternManager's document patterns
                 # Return standard patterns
                 return [
@@ -127,11 +125,11 @@ class ProjectPatterns:
         ]
 
     @classmethod
-    def get_source_patterns_for_language(cls, language: str) -> List[str]:
+    def get_source_patterns_for_language(cls, language: str) -> list[str]:
         """Get source file patterns for a specific language."""
         if PATTERN_MANAGER_AVAILABLE:
             try:
-                pattern_manager = PatternManager()
+                PatternManager()
                 # TODO: In future, get language-specific patterns from PatternManager
                 # Return standard patterns from fallback
                 pass
@@ -162,11 +160,11 @@ class ProjectPatterns:
         return source_patterns.get(language, [])
 
     @classmethod
-    def get_all_source_patterns(cls) -> Dict[str, List[str]]:
+    def get_all_source_patterns(cls) -> dict[str, list[str]]:
         """Get all source patterns by language."""
         if PATTERN_MANAGER_AVAILABLE:
             try:
-                pattern_manager = PatternManager()
+                PatternManager()
                 # TODO: In future, get all language patterns from PatternManager
                 # For now, build from individual language queries
                 pass
@@ -183,12 +181,12 @@ class ProjectPatterns:
 
     # Standard properties
     @property
-    def COMMON_DOC_PATTERNS(self) -> List[str]:
+    def COMMON_DOC_PATTERNS(self) -> list[str]:
         """Get common documentation patterns."""
         return self.get_common_doc_patterns()
 
     @property
-    def SOURCE_PATTERNS(self) -> Dict[str, List[str]]:
+    def SOURCE_PATTERNS(self) -> dict[str, list[str]]:
         """Get all source patterns."""
         return self.get_all_source_patterns()
 
@@ -279,8 +277,8 @@ class ProjectPatterns:
 
     @staticmethod
     def get_patterns_for_project(
-        project_info: Dict[str, Any], config: AutoIngestionConfig
-    ) -> List[str]:
+        project_info: dict[str, Any], config: AutoIngestionConfig
+    ) -> list[str]:
         """Get file patterns for a project based on its type and configuration.
 
         Args:
@@ -350,7 +348,7 @@ class AutoIngestionManager:
         self,
         workspace_client: QdrantWorkspaceClient,
         watch_manager: Any,  # WatchToolsManager type hint causes circular import
-        config: Optional[AutoIngestionConfig] = None,
+        config: AutoIngestionConfig | None = None,
     ):
         """Initialize the auto-ingestion manager.
 
@@ -371,7 +369,7 @@ class AutoIngestionManager:
             self.config.ingest_config_files,
         )
 
-    async def setup_project_watches(self, project_path: Optional[str] = None) -> Dict[str, Any]:
+    async def setup_project_watches(self, project_path: str | None = None) -> dict[str, Any]:
         """Set up automatic file watches for the current or specified project.
 
         This method implements Task 374.6 single-collection-per-project architecture:
@@ -497,8 +495,8 @@ class AutoIngestionManager:
         }
 
     async def _create_project_watch(
-        self, project_info: Dict[str, Any], collection: str, project_path: str
-    ) -> Dict[str, Any]:
+        self, project_info: dict[str, Any], collection: str, project_path: str
+    ) -> dict[str, Any]:
         """Create a watch for the main project.
 
         Note: Metadata enrichment (file_type, branch, project_id) happens at actual
@@ -540,11 +538,11 @@ class AutoIngestionManager:
 
     async def _create_subproject_watch(
         self,
-        project_info: Dict[str, Any],
+        project_info: dict[str, Any],
         subproject: str,
         collection: str,
         base_path: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Create a watch for a subproject.
 
         Subprojects share the same collection as the main project (Task 374.6).

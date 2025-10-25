@@ -46,20 +46,16 @@ Example:
 
 import asyncio
 import json
-import sqlite3
-import time
 import uuid
-from contextlib import asynccontextmanager
-from dataclasses import asdict, dataclass
-from datetime import datetime, timezone, timedelta
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any
 
 from loguru import logger
 
 # Import base SQLite state manager
-from common.core.sqlite_state_manager import SQLiteStateManager, DatabaseTransaction
+from common.core.sqlite_state_manager import DatabaseTransaction, SQLiteStateManager
 
 
 class ComponentType(Enum):
@@ -123,19 +119,19 @@ class ComponentRecord:
     instance_id: str
     status: ComponentStatus
     health: ComponentHealth
-    version: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
-    endpoints: Optional[Dict[str, str]] = None
-    capabilities: Optional[List[str]] = None
-    dependencies: Optional[List[str]] = None
-    resources: Optional[Dict[str, Any]] = None
-    last_heartbeat: Optional[datetime] = None
-    started_at: Optional[datetime] = None
-    stopped_at: Optional[datetime] = None
+    version: str | None = None
+    config: dict[str, Any] | None = None
+    endpoints: dict[str, str] | None = None
+    capabilities: list[str] | None = None
+    dependencies: list[str] | None = None
+    resources: dict[str, Any] | None = None
+    last_heartbeat: datetime | None = None
+    started_at: datetime | None = None
+    stopped_at: datetime | None = None
     restart_count: int = 0
     failure_count: int = 0
     recovery_attempts: int = 0
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
     created_at: datetime = None
     updated_at: datetime = None
 
@@ -156,15 +152,15 @@ class CommunicationRecord:
     channel: CommunicationChannel
     message_type: str
     status: str  # pending, sent, received, failed, timeout
-    request_data: Optional[Dict[str, Any]] = None
-    response_data: Optional[Dict[str, Any]] = None
-    latency_ms: Optional[float] = None
-    error_message: Optional[str] = None
+    request_data: dict[str, Any] | None = None
+    response_data: dict[str, Any] | None = None
+    latency_ms: float | None = None
+    error_message: str | None = None
     retry_count: int = 0
-    timeout_at: Optional[datetime] = None
-    sent_at: Optional[datetime] = None
-    received_at: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]] = None
+    timeout_at: datetime | None = None
+    sent_at: datetime | None = None
+    received_at: datetime | None = None
+    metadata: dict[str, Any] | None = None
     created_at: datetime = None
 
     def __post_init__(self):
@@ -181,12 +177,12 @@ class HealthMetric:
     metric_name: str
     metric_value: float
     metric_unit: str
-    threshold_warning: Optional[float] = None
-    threshold_critical: Optional[float] = None
+    threshold_warning: float | None = None
+    threshold_critical: float | None = None
     is_alert: bool = False
-    alert_level: Optional[str] = None
+    alert_level: str | None = None
     recorded_at: datetime = None
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.recorded_at is None:
@@ -201,18 +197,18 @@ class ComponentQueueItem:
     component_id: str
     queue_type: ProcessingQueueType
     priority: int  # 1=highest, 10=lowest
-    payload: Dict[str, Any]
+    payload: dict[str, Any]
     status: str  # pending, processing, completed, failed, cancelled
-    assigned_worker: Optional[str] = None
-    processing_started: Optional[datetime] = None
-    processing_completed: Optional[datetime] = None
+    assigned_worker: str | None = None
+    processing_started: datetime | None = None
+    processing_completed: datetime | None = None
     retry_count: int = 0
     max_retries: int = 3
-    error_message: Optional[str] = None
-    dependencies: Optional[List[str]] = None
-    timeout_seconds: Optional[int] = None
-    scheduled_at: Optional[datetime] = None
-    metadata: Optional[Dict[str, Any]] = None
+    error_message: str | None = None
+    dependencies: list[str] | None = None
+    timeout_seconds: int | None = None
+    scheduled_at: datetime | None = None
+    metadata: dict[str, Any] | None = None
     created_at: datetime = None
 
     def __post_init__(self):
@@ -244,9 +240,9 @@ class ComponentCoordinator(SQLiteStateManager):
             db_path: Path to SQLite database file
         """
         super().__init__(db_path)
-        self._coordination_tasks: List[asyncio.Task] = []
-        self._component_registry: Dict[str, ComponentRecord] = {}
-        self._communication_channels: Dict[str, List[str]] = {}
+        self._coordination_tasks: list[asyncio.Task] = []
+        self._component_registry: dict[str, ComponentRecord] = {}
+        self._communication_channels: dict[str, list[str]] = {}
 
     async def initialize(self) -> bool:
         """
@@ -404,11 +400,11 @@ class ComponentCoordinator(SQLiteStateManager):
         self,
         component_type: ComponentType,
         instance_id: str,
-        config: Optional[Dict[str, Any]] = None,
-        endpoints: Optional[Dict[str, str]] = None,
-        capabilities: Optional[List[str]] = None,
-        dependencies: Optional[List[str]] = None,
-        version: Optional[str] = None
+        config: dict[str, Any] | None = None,
+        endpoints: dict[str, str] | None = None,
+        capabilities: list[str] | None = None,
+        dependencies: list[str] | None = None,
+        version: str | None = None
     ) -> str:
         """
         Register a component in the coordination system.
@@ -485,8 +481,8 @@ class ComponentCoordinator(SQLiteStateManager):
         self,
         component_id: str,
         status: ComponentStatus,
-        health: Optional[ComponentHealth] = None,
-        metadata: Optional[Dict[str, Any]] = None
+        health: ComponentHealth | None = None,
+        metadata: dict[str, Any] | None = None
     ) -> bool:
         """
         Update component status and health.
@@ -588,7 +584,7 @@ class ComponentCoordinator(SQLiteStateManager):
         self,
         component_id: str,
         health_status: ComponentHealth,
-        metrics: Optional[Dict[str, float]] = None
+        metrics: dict[str, float] | None = None
     ) -> bool:
         """
         Update component health status and optionally record metrics.
@@ -627,8 +623,8 @@ class ComponentCoordinator(SQLiteStateManager):
         metric_name: str,
         metric_value: float,
         metric_unit: str,
-        threshold_warning: Optional[float] = None,
-        threshold_critical: Optional[float] = None
+        threshold_warning: float | None = None,
+        threshold_critical: float | None = None
     ) -> str:
         """Record a health metric for a component."""
         metric_id = str(uuid.uuid4())
@@ -697,7 +693,7 @@ class ComponentCoordinator(SQLiteStateManager):
         }
         return unit_map.get(metric_name, "value")
 
-    async def get_component_status(self, component_id: Optional[str] = None) -> Dict[str, Any]:
+    async def get_component_status(self, component_id: str | None = None) -> dict[str, Any]:
         """
         Get component status information.
 
@@ -760,11 +756,11 @@ class ComponentCoordinator(SQLiteStateManager):
         self,
         component_id: str,
         queue_type: ProcessingQueueType,
-        payload: Dict[str, Any],
+        payload: dict[str, Any],
         priority: int = 5,
-        dependencies: Optional[List[str]] = None,
-        timeout_seconds: Optional[int] = None,
-        scheduled_at: Optional[datetime] = None
+        dependencies: list[str] | None = None,
+        timeout_seconds: int | None = None,
+        scheduled_at: datetime | None = None
     ) -> str:
         """
         Add an item to a component's processing queue.
@@ -831,9 +827,9 @@ class ComponentCoordinator(SQLiteStateManager):
     async def get_next_queue_item(
         self,
         component_id: str,
-        queue_type: Optional[ProcessingQueueType] = None,
-        worker_id: Optional[str] = None
-    ) -> Optional[Dict[str, Any]]:
+        queue_type: ProcessingQueueType | None = None,
+        worker_id: str | None = None
+    ) -> dict[str, Any] | None:
         """
         Get the next item from a component's processing queue.
 
@@ -919,8 +915,8 @@ class ComponentCoordinator(SQLiteStateManager):
         self,
         queue_item_id: str,
         success: bool = True,
-        error_message: Optional[str] = None,
-        result_metadata: Optional[Dict[str, Any]] = None
+        error_message: str | None = None,
+        result_metadata: dict[str, Any] | None = None
     ) -> bool:
         """
         Mark a queue item as completed.
@@ -962,9 +958,9 @@ class ComponentCoordinator(SQLiteStateManager):
 
     async def get_queue_status(
         self,
-        component_id: Optional[str] = None,
-        queue_type: Optional[ProcessingQueueType] = None
-    ) -> Dict[str, Any]:
+        component_id: str | None = None,
+        queue_type: ProcessingQueueType | None = None
+    ) -> dict[str, Any]:
         """
         Get processing queue status information.
 
@@ -1169,7 +1165,7 @@ class ComponentCoordinator(SQLiteStateManager):
         self,
         component_id: str,
         failure_type: str,
-        failure_details: Dict[str, Any]
+        failure_details: dict[str, Any]
     ):
         """Log a component failure for recovery tracking."""
         try:
@@ -1226,7 +1222,7 @@ class ComponentCoordinator(SQLiteStateManager):
 
 
 # Global component coordinator instance
-_component_coordinator: Optional[ComponentCoordinator] = None
+_component_coordinator: ComponentCoordinator | None = None
 
 
 async def get_component_coordinator(db_path: str = "workspace_state.db") -> ComponentCoordinator:

@@ -5,6 +5,7 @@ Basic tests covering core functionality.
 """
 
 import pytest
+
 from src.python.common.core.queue_health import (
     HealthIndicator,
     HealthStatus,
@@ -201,6 +202,7 @@ class TestHealthCalculatorBasics:
         """Test health status determination from score."""
         # Create a minimal calculator to test internal methods
         from unittest.mock import AsyncMock
+
         from src.python.common.core.queue_statistics import QueueStatisticsCollector
 
         mock_collector = AsyncMock(spec=QueueStatisticsCollector)
@@ -214,6 +216,7 @@ class TestHealthCalculatorBasics:
     def test_register_custom_check_validation(self):
         """Test custom health check registration validation."""
         from unittest.mock import AsyncMock
+
         from src.python.common.core.queue_statistics import QueueStatisticsCollector
 
         mock_collector = AsyncMock(spec=QueueStatisticsCollector)

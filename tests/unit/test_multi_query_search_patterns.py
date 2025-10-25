@@ -17,10 +17,10 @@ dense semantic vectors, and sparse keyword vectors.
 
 import asyncio
 import sys
-from pathlib import Path
-from typing import Dict, List, Any, Optional
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
 import pytest
 from qdrant_client.http import models
@@ -30,11 +30,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 from common.core.hybrid_search import (
     HybridSearchEngine,
+    MultiTenantResultAggregator,
     RRFFusionRanker,
     TenantAwareResult,
-    MultiTenantResultAggregator
 )
-
 
 # Test Data Models
 
@@ -43,8 +42,8 @@ class QueryPattern:
     """Represents a complex query pattern for testing."""
     query_id: str
     query_text: str
-    query_embeddings: Dict
-    filters: Optional[models.Filter] = None
+    query_embeddings: dict
+    filters: models.Filter | None = None
     expected_min_results: int = 0
     expected_max_results: int = 100
 
@@ -53,9 +52,9 @@ class QueryPattern:
 class BatchQueryResult:
     """Result from batch query execution."""
     query_id: str
-    results: List
+    results: list
     execution_time_ms: float
-    error: Optional[str] = None
+    error: str | None = None
 
 
 # Fixtures
@@ -185,7 +184,7 @@ class TestBatchQueries:
 
         # Validate results
         assert len(results) == 3
-        for i, result in enumerate(results):
+        for _i, result in enumerate(results):
             assert "fused_results" in result
             assert len(result["fused_results"]) > 0
 

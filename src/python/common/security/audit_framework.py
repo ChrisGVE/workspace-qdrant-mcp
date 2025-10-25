@@ -17,23 +17,22 @@ Features:
 """
 
 import asyncio
+import csv
 import hashlib
 import json
 import sqlite3
+import uuid
 from collections import defaultdict, deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
-from typing import Dict, List, Optional, Set, Any, Union, Tuple
-import uuid
-import csv
-from contextlib import asynccontextmanager
+from typing import Any
 
 from loguru import logger
 
-from .threat_detection import ThreatDetection, SecurityEvent
 from .security_monitor import SecurityAlert
+from .threat_detection import SecurityEvent, ThreatDetection
 
 
 class AuditLevel(Enum):
@@ -88,15 +87,15 @@ class AuditEvent:
     timestamp: datetime
     event_type: AuditEventType
     audit_level: AuditLevel
-    user_id: Optional[str]
-    source_ip: Optional[str]
-    resource: Optional[str]
+    user_id: str | None
+    source_ip: str | None
+    resource: str | None
     action: str
     outcome: str
-    details: Dict[str, Any] = field(default_factory=dict)
-    session_id: Optional[str] = None
-    trace_id: Optional[str] = None
-    compliance_tags: Set[ComplianceFramework] = field(default_factory=set)
+    details: dict[str, Any] = field(default_factory=dict)
+    session_id: str | None = None
+    trace_id: str | None = None
+    compliance_tags: set[ComplianceFramework] = field(default_factory=set)
 
     def __post_init__(self):
         """Post-initialization validation and processing."""
@@ -160,7 +159,7 @@ class AuditEvent:
         hash_string = json.dumps(hash_data, sort_keys=True)
         self.integrity_hash = hashlib.sha256(hash_string.encode()).hexdigest()
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert audit event to dictionary format."""
         return {
             'event_id': self.event_id,
@@ -200,7 +199,7 @@ class ComplianceRule:
     requirement: str
     check_function: str  # Name of method to call
     severity: AuditLevel
-    remediation_advice: List[str] = field(default_factory=list)
+    remediation_advice: list[str] = field(default_factory=list)
     enabled: bool = True
 
 
@@ -208,7 +207,7 @@ class AuditLogger:
     """Core audit logging system with tamper-evident storage."""
 
     def __init__(self,
-                 database_path: Optional[Path] = None,
+                 database_path: Path | None = None,
                  max_memory_events: int = 10000,
                  retention_days: int = 2555):  # 7 years default
         """
@@ -227,8 +226,8 @@ class AuditLogger:
         self.event_buffer: deque = deque(maxlen=max_memory_events)
 
         # Event correlation tracking
-        self.session_events: Dict[str, List[str]] = defaultdict(list)
-        self.trace_events: Dict[str, List[str]] = defaultdict(list)
+        self.session_events: dict[str, list[str]] = defaultdict(list)
+        self.trace_events: dict[str, list[str]] = defaultdict(list)
 
         # Initialize database
         self._initialize_database()
@@ -361,12 +360,12 @@ class AuditLogger:
             logger.error(f"Failed to persist audit event: {e}")
 
     async def query_events(self,
-                          start_time: Optional[datetime] = None,
-                          end_time: Optional[datetime] = None,
-                          event_type: Optional[AuditEventType] = None,
-                          user_id: Optional[str] = None,
-                          compliance_framework: Optional[ComplianceFramework] = None,
-                          limit: int = 1000) -> List[AuditEvent]:
+                          start_time: datetime | None = None,
+                          end_time: datetime | None = None,
+                          event_type: AuditEventType | None = None,
+                          user_id: str | None = None,
+                          compliance_framework: ComplianceFramework | None = None,
+                          limit: int = 1000) -> list[AuditEvent]:
         """
         Query audit events with filtering.
 
@@ -456,7 +455,7 @@ class AuditLogger:
         event.integrity_hash = row['integrity_hash']
         return event
 
-    async def verify_audit_trail_integrity(self) -> Dict[str, Any]:
+    async def verify_audit_trail_integrity(self) -> dict[str, Any]:
         """Verify the integrity of the audit trail."""
         async with self._lock:
             try:
@@ -478,7 +477,7 @@ class AuditLogger:
                     # Verify each event's integrity hash
                     for row in rows:
                         event_id = row[0]
-                        stored_hash = row[1]
+                        row[1]
 
                         # Get full event and verify
                         cursor.execute("""
@@ -509,7 +508,7 @@ class AuditLogger:
                     'verification_timestamp': datetime.utcnow().isoformat()
                 }
 
-    async def get_session_events(self, session_id: str) -> List[AuditEvent]:
+    async def get_session_events(self, session_id: str) -> list[AuditEvent]:
         """Get all events for a specific session."""
         return await self.query_events(
             user_id=None,  # Don't filter by user
@@ -561,7 +560,7 @@ class ComplianceReporter:
         self.audit_logger = audit_logger
         self.compliance_rules = self._load_compliance_rules()
 
-    def _load_compliance_rules(self) -> Dict[ComplianceFramework, List[ComplianceRule]]:
+    def _load_compliance_rules(self) -> dict[ComplianceFramework, list[ComplianceRule]]:
         """Load compliance rules for different frameworks."""
         rules = defaultdict(list)
 
@@ -639,7 +638,7 @@ class ComplianceReporter:
                                        framework: ComplianceFramework,
                                        start_date: datetime,
                                        end_date: datetime,
-                                       output_format: str = "json") -> Dict[str, Any]:
+                                       output_format: str = "json") -> dict[str, Any]:
         """
         Generate compliance report for specific framework.
 
@@ -692,7 +691,7 @@ class ComplianceReporter:
 
     async def _evaluate_compliance_rule(self,
                                       rule: ComplianceRule,
-                                      events: List[AuditEvent]) -> Dict[str, Any]:
+                                      events: list[AuditEvent]) -> dict[str, Any]:
         """Evaluate a single compliance rule against audit events."""
         try:
             # Get the check function
@@ -722,7 +721,7 @@ class ComplianceReporter:
 
     async def check_data_access_logging(self,
                                       rule: ComplianceRule,
-                                      events: List[AuditEvent]) -> Dict[str, Any]:
+                                      events: list[AuditEvent]) -> dict[str, Any]:
         """Check that data access events are properly logged."""
         data_access_events = [
             e for e in events
@@ -758,7 +757,7 @@ class ComplianceReporter:
 
     async def check_configuration_changes(self,
                                         rule: ComplianceRule,
-                                        events: List[AuditEvent]) -> Dict[str, Any]:
+                                        events: list[AuditEvent]) -> dict[str, Any]:
         """Check that configuration changes are properly controlled."""
         config_events = [
             e for e in events
@@ -795,7 +794,7 @@ class ComplianceReporter:
 
     async def check_access_control_logging(self,
                                          rule: ComplianceRule,
-                                         events: List[AuditEvent]) -> Dict[str, Any]:
+                                         events: list[AuditEvent]) -> dict[str, Any]:
         """Check that access control events are properly logged."""
         auth_events = [
             e for e in events
@@ -829,7 +828,7 @@ class ComplianceReporter:
 
     async def check_data_subject_requests(self,
                                         rule: ComplianceRule,
-                                        events: List[AuditEvent]) -> Dict[str, Any]:
+                                        events: list[AuditEvent]) -> dict[str, Any]:
         """Check GDPR data subject request handling."""
         # Look for events related to data subject requests
         dsr_events = [
@@ -869,7 +868,7 @@ class ComplianceReporter:
             }
         }
 
-    def _generate_recommendations(self, rule_results: List[Dict[str, Any]]) -> List[str]:
+    def _generate_recommendations(self, rule_results: list[dict[str, Any]]) -> list[str]:
         """Generate recommendations based on rule evaluation results."""
         recommendations = []
 
@@ -895,7 +894,7 @@ class ComplianceReporter:
                                 start_date: datetime,
                                 end_date: datetime,
                                 format: str = "csv",
-                                output_path: Optional[Path] = None) -> Path:
+                                output_path: Path | None = None) -> Path:
         """
         Export audit trail for external review.
 
@@ -928,7 +927,7 @@ class ComplianceReporter:
         logger.info(f"Exported {len(events)} audit events to {output_path}")
         return output_path
 
-    async def _export_csv(self, events: List[AuditEvent], output_path: Path) -> None:
+    async def _export_csv(self, events: list[AuditEvent], output_path: Path) -> None:
         """Export events to CSV format."""
         with open(output_path, 'w', newline='') as csvfile:
             fieldnames = [
@@ -948,7 +947,7 @@ class ComplianceReporter:
                 row.pop('details', None)
                 writer.writerow(row)
 
-    async def _export_json(self, events: List[AuditEvent], output_path: Path) -> None:
+    async def _export_json(self, events: list[AuditEvent], output_path: Path) -> None:
         """Export events to JSON format."""
         event_data = [event.to_dict() for event in events]
         export_data = {
@@ -965,7 +964,7 @@ class AuditTrail:
     """High-level audit trail management combining logging and compliance."""
 
     def __init__(self,
-                 database_path: Optional[Path] = None,
+                 database_path: Path | None = None,
                  retention_days: int = 2555):
         """
         Initialize audit trail system.
@@ -982,8 +981,8 @@ class AuditTrail:
         self.compliance_reporter = ComplianceReporter(self.audit_logger)
 
         # Integration with security components
-        self.threat_callbacks: List[Callable] = []
-        self.alert_callbacks: List[Callable] = []
+        self.threat_callbacks: list[Callable] = []
+        self.alert_callbacks: list[Callable] = []
 
     async def log_security_event(self, security_event: SecurityEvent) -> None:
         """Log a security event from the threat detection system."""
@@ -1062,7 +1061,7 @@ class AuditTrail:
 
         await self.audit_logger.log_event(audit_event)
 
-    async def generate_compliance_dashboard(self) -> Dict[str, Any]:
+    async def generate_compliance_dashboard(self) -> dict[str, Any]:
         """Generate comprehensive compliance dashboard data."""
         end_date = datetime.utcnow()
         start_date = end_date - timedelta(days=30)  # Last 30 days

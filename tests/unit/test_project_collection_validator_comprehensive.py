@@ -11,17 +11,20 @@ Test coverage:
 - Comprehensive validation scenarios
 """
 
-import pytest
-from typing import Set
-from unittest.mock import Mock, patch
-
 # Ensure proper imports from the project structure
 import sys
 from pathlib import Path
+from unittest.mock import Mock, patch
+
+import pytest
+
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src" / "python"))
 
-from common.utils.project_collection_validator import ProjectCollectionValidator, CollectionNamingRule
+from common.utils.project_collection_validator import (
+    CollectionNamingRule,
+    ProjectCollectionValidator,
+)
 
 
 class TestCollectionNamingRule:
@@ -40,7 +43,7 @@ class TestCollectionNamingRule:
         assert rule.pattern == r'^[a-z]+$'
         assert rule.description == "Simple pattern"
         assert rule.scope == 'global'
-        assert rule.required_suffix == False
+        assert not rule.required_suffix
         assert rule.allowed_types == {'docs', 'notes'}
 
 
@@ -81,23 +84,23 @@ class TestProjectCollectionValidator:
         # Check basic naming pattern rule
         basic_rule = rules[0]
         assert basic_rule.scope == 'both'
-        assert basic_rule.required_suffix == False
+        assert not basic_rule.required_suffix
 
         # Check project collection pattern rule
         project_rule = rules[1]
         assert project_rule.scope == 'project'
-        assert project_rule.required_suffix == True
+        assert project_rule.required_suffix
 
         # Check global collection pattern rule
         global_rule = rules[2]
         assert global_rule.scope == 'global'
-        assert global_rule.required_suffix == False
+        assert not global_rule.required_suffix
 
     def test_validate_collection_name_empty(self):
         """Test validation of empty collection name."""
         result = self.validator.validate_collection_name("")
 
-        assert result['valid'] == False
+        assert not result['valid']
         assert any("cannot be empty" in error for error in result['errors'])
 
     def test_validate_collection_name_uppercase(self):
@@ -110,14 +113,14 @@ class TestProjectCollectionValidator:
         """Test validation of reserved collection names."""
         result = self.validator.validate_collection_name("system")
 
-        assert result['valid'] == False
+        assert not result['valid']
         assert any("reserved collection name" in error for error in result['errors'])
 
     def test_validate_collection_name_too_short(self):
         """Test validation of collection name that's too short."""
         result = self.validator.validate_collection_name("x")
 
-        assert result['valid'] == False
+        assert not result['valid']
         assert any("at least 2 characters" in error for error in result['errors'])
 
     def test_validate_collection_name_too_long(self):
@@ -125,7 +128,7 @@ class TestProjectCollectionValidator:
         long_name = "a" * 65
         result = self.validator.validate_collection_name(long_name)
 
-        assert result['valid'] == False
+        assert not result['valid']
         assert any("64 characters or less" in error for error in result['errors'])
 
     def test_validate_collection_name_valid_project_collection(self):
@@ -136,7 +139,7 @@ class TestProjectCollectionValidator:
             collection_type="docs"
         )
 
-        assert result['valid'] == True
+        assert result['valid']
         assert result['detected_pattern'] == 'project'
         assert len(result['errors']) == 0
 
@@ -144,7 +147,7 @@ class TestProjectCollectionValidator:
         """Test validation of valid global collection."""
         result = self.validator.validate_collection_name("docs")
 
-        assert result['valid'] == True
+        assert result['valid']
         assert result['detected_pattern'] == 'global'
         assert len(result['errors']) == 0
 
@@ -152,7 +155,7 @@ class TestProjectCollectionValidator:
         """Test validation of collection name with invalid pattern."""
         result = self.validator.validate_collection_name("invalid@collection")
 
-        assert result['valid'] == False
+        assert not result['valid']
         assert any("does not match any valid naming pattern" in error for error in result['errors'])
 
     def test_validate_collection_name_project_mismatch(self):
@@ -163,7 +166,7 @@ class TestProjectCollectionValidator:
             collection_type="docs"
         )
 
-        assert result['valid'] == False
+        assert not result['valid']
         assert any("does not match expected project" in error for error in result['errors'])
 
     def test_validate_collection_name_type_mismatch(self):
@@ -209,7 +212,7 @@ class TestProjectCollectionValidator:
             collection_type="test-data"
         )
 
-        assert result['valid'] == True
+        assert result['valid']
         assert result['detected_pattern'] == 'project'
 
     def test_validate_project_collection_global_type_warning(self):
@@ -239,14 +242,14 @@ class TestProjectCollectionValidator:
         """Test validation of standard global collection type."""
         result = self.validator.validate_collection_name("reference")
 
-        assert result['valid'] == True
+        assert result['valid']
         assert result['detected_pattern'] == 'global'
 
     def test_validate_global_collection_non_standard_type(self):
         """Test validation of non-standard global collection type."""
         result = self.validator.validate_collection_name("customglobal")
 
-        assert result['valid'] == True
+        assert result['valid']
         assert any("not a standard global collection type" in warning for warning in result['warnings'])
 
     def test_validate_global_collection_with_expected_type(self):
@@ -432,7 +435,7 @@ class TestProjectCollectionValidator:
         """Test validation of minimum valid collection name length."""
         result = self.validator.validate_collection_name("ab")
 
-        assert result['valid'] == True
+        assert result['valid']
         assert len(result['errors']) == 0
 
     def test_validate_collection_name_maximum_valid_length(self):
@@ -440,7 +443,7 @@ class TestProjectCollectionValidator:
         max_name = "a" * 64
         result = self.validator.validate_collection_name(max_name)
 
-        assert result['valid'] == True
+        assert result['valid']
         assert len(result['errors']) == 0
 
     def test_detect_naming_pattern_complex_project_name(self):
@@ -456,7 +459,7 @@ class TestProjectCollectionValidator:
             collection_type="docs"
         )
 
-        assert result['valid'] == True
+        assert result['valid']
         assert result['detected_pattern'] == 'project'
 
     def test_collection_constants_immutability(self):
@@ -511,7 +514,7 @@ class TestProjectCollectionValidator:
     def test_logging_calls(self, mock_logger):
         """Test that appropriate logging calls are made."""
         # Test project collection validation logging
-        result = self.validator.validate_collection_name(
+        self.validator.validate_collection_name(
             "my-project-docs",
             project_name="my-project",
             collection_type="docs"
@@ -525,7 +528,7 @@ class TestProjectCollectionValidator:
     @patch('common.utils.project_collection_validator.logger')
     def test_logging_global_collection(self, mock_logger):
         """Test logging for global collection validation."""
-        result = self.validator.validate_collection_name("docs")
+        self.validator.validate_collection_name("docs")
 
         # Should log debug message for global collection validation
         mock_logger.debug.assert_called()

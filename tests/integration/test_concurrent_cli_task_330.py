@@ -22,13 +22,13 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 
 import pytest
 
 
 def run_wqm_command(
-    command: list, env: Optional[Dict] = None, timeout: int = 30
+    command: list, env: dict | None = None, timeout: int = 30
 ) -> subprocess.CompletedProcess:
     """Run wqm CLI command via subprocess."""
     full_command = ["uv", "run", "wqm"] + command
@@ -525,7 +525,7 @@ class TestHighConcurrentLoad:
 
     def test_high_load_stability(self, test_workspace):
         """Test system remains stable under high concurrent load."""
-        files = test_workspace["files"]
+        test_workspace["files"]
 
         def random_operation(op_id):
             """Execute random operations."""

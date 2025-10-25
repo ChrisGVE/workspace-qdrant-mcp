@@ -38,27 +38,24 @@ Example:
 import asyncio
 import gc
 import hashlib
-import json
-import psutil
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union, Callable
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager
+from typing import Any
 
+import psutil
 from loguru import logger
 
 try:
-    from .lsp_metadata_extractor import LspMetadataExtractor, FileMetadata
+    from .lsp_metadata_extractor import FileMetadata, LspMetadataExtractor
 except ImportError:
     LspMetadataExtractor = None
     FileMetadata = None
 
 try:
-    from .performance_monitor import PerformanceMonitor, PerformanceAlert
-    from .performance_metrics import PerformanceMetricsCollector, MetricType
+    from .performance_metrics import MetricType, PerformanceMetricsCollector
+    from .performance_monitor import PerformanceAlert, PerformanceMonitor
 except ImportError:
     PerformanceMonitor = None
     PerformanceAlert = None
@@ -88,13 +85,21 @@ try:
         sys.path.insert(0, str(parsers_path.parent.parent))
 
     from wqm_cli.cli.parsers import (
-        CodeParser, DocumentParser, DocxParser, EpubParser,
-        HtmlParser, MarkdownParser, MobiParser, PDFParser,
-        PptxParser, TextParser, WebParser
+        CodeParser,
+        DocumentParser,
+        DocxParser,
+        EpubParser,
+        HtmlParser,
+        MarkdownParser,
+        MobiParser,
+        PDFParser,
+        PptxParser,
+        TextParser,
+        WebParser,
     )
-    from wqm_cli.cli.parsers.file_detector import detect_file_type
     from wqm_cli.cli.parsers.base import ParsedDocument
     from wqm_cli.cli.parsers.exceptions import ParsingError, UnsupportedFileFormatError
+    from wqm_cli.cli.parsers.file_detector import detect_file_type
 
     PARSERS_AVAILABLE = True
 except ImportError as e:
@@ -180,11 +185,11 @@ class ProcessingResult:
 
     file_path: str
     success: bool
-    document: Optional[ParsedDocument] = None
-    lsp_metadata: Optional[FileMetadata] = None
-    error: Optional[str] = None
+    document: ParsedDocument | None = None
+    lsp_metadata: FileMetadata | None = None
+    error: str | None = None
     processing_time: float = 0.0
-    parser_used: Optional[str] = None
+    parser_used: str | None = None
     chunks_generated: int = 0
     memory_usage_mb: float = 0.0
 
@@ -216,8 +221,8 @@ class PipelineStats:
     lsp_failures: int = 0
 
     # Error tracking
-    errors_by_type: Dict[str, int] = field(default_factory=dict)
-    errors_by_format: Dict[str, int] = field(default_factory=dict)
+    errors_by_type: dict[str, int] = field(default_factory=dict)
+    errors_by_format: dict[str, int] = field(default_factory=dict)
 
     # Memory pressure events
     memory_pressure_events: int = 0
@@ -263,19 +268,19 @@ class UnifiedDocumentPipeline:
         self.lsp_timeout = lsp_timeout
 
         # Core components
-        self.lsp_extractor: Optional[LspMetadataExtractor] = None
-        self.performance_monitor: Optional[PerformanceMonitor] = None
+        self.lsp_extractor: LspMetadataExtractor | None = None
+        self.performance_monitor: PerformanceMonitor | None = None
         self.degradation_manager = GracefulDegradationManager()
         self.recovery_manager = AutomaticRecovery()
 
         # Document parsers with LSP integration
-        self.parsers: List[DocumentParser] = []
+        self.parsers: list[DocumentParser] = []
 
         # Processing state
         self.is_initialized = False
-        self.content_hashes: Set[str] = set()
-        self.processing_semaphore: Optional[asyncio.Semaphore] = None
-        self.memory_monitor_task: Optional[asyncio.Task] = None
+        self.content_hashes: set[str] = set()
+        self.processing_semaphore: asyncio.Semaphore | None = None
+        self.memory_monitor_task: asyncio.Task | None = None
 
         # Statistics
         self.stats = PipelineStats()
@@ -353,13 +358,13 @@ class UnifiedDocumentPipeline:
 
     async def process_documents(
         self,
-        file_paths: List[Union[str, Path]],
+        file_paths: list[str | Path],
         collection: str,
-        batch_size: Optional[int] = None,
-        progress_callback: Optional[Callable] = None,
+        batch_size: int | None = None,
+        progress_callback: Callable | None = None,
         enable_deduplication: bool = True,
         dry_run: bool = False,
-    ) -> List[ProcessingResult]:
+    ) -> list[ProcessingResult]:
         """
         Process multiple documents with automatic format detection.
 
@@ -394,7 +399,7 @@ class UnifiedDocumentPipeline:
 
         logger.info(f"Processing {len(file_paths)} documents in batches of {batch_size}")
 
-        results: List[ProcessingResult] = []
+        results: list[ProcessingResult] = []
 
         try:
             # Process files in batches
@@ -435,11 +440,11 @@ class UnifiedDocumentPipeline:
 
     async def _process_batch(
         self,
-        file_paths: List[Path],
+        file_paths: list[Path],
         collection: str,
         enable_deduplication: bool,
         dry_run: bool,
-    ) -> List[ProcessingResult]:
+    ) -> list[ProcessingResult]:
         """Process a batch of files concurrently."""
         tasks = []
 
@@ -560,7 +565,7 @@ class UnifiedDocumentPipeline:
 
     async def _safe_parse_document(
         self, parser: DocumentParser, file_path: Path
-    ) -> Optional[ParsedDocument]:
+    ) -> ParsedDocument | None:
         """Safely parse a document with error handling."""
         try:
             # Add timeout for parsing operations
@@ -578,7 +583,7 @@ class UnifiedDocumentPipeline:
             logger.error(f"Unexpected parsing error for {file_path}: {e}")
             return None
 
-    async def _extract_lsp_metadata(self, file_path: Path) -> Optional[FileMetadata]:
+    async def _extract_lsp_metadata(self, file_path: Path) -> FileMetadata | None:
         """Extract LSP metadata with timeout and error handling."""
         if not self.lsp_extractor:
             return None
@@ -595,7 +600,7 @@ class UnifiedDocumentPipeline:
             logger.debug(f"LSP extraction failed for {file_path}: {e}")
             return None
 
-    def _find_parser(self, file_path: Path, file_type: str) -> Optional[DocumentParser]:
+    def _find_parser(self, file_path: Path, file_type: str) -> DocumentParser | None:
         """Find the most appropriate parser for a file."""
         for parser in self.parsers:
             if parser.can_parse(file_path):
@@ -677,7 +682,7 @@ class UnifiedDocumentPipeline:
             self.stats.average_processing_time = total_time / self.stats.successful_files
             self.stats.throughput_docs_per_minute = (self.stats.successful_files / total_time) * 60
 
-    def get_performance_metrics(self) -> Dict[str, Any]:
+    def get_performance_metrics(self) -> dict[str, Any]:
         """Get comprehensive performance metrics."""
         return {
             "processing_stats": {
@@ -745,10 +750,10 @@ class UnifiedDocumentPipeline:
 
 # Convenience functions for common use cases
 async def process_directory_unified(
-    directory_path: Union[str, Path],
+    directory_path: str | Path,
     collection: str,
     **kwargs
-) -> List[ProcessingResult]:
+) -> list[ProcessingResult]:
     """
     Convenience function to process all files in a directory.
 
@@ -776,7 +781,7 @@ async def process_directory_unified(
 
 
 async def validate_pipeline_performance(
-    test_files: List[Path],
+    test_files: list[Path],
     target_throughput: float = 1000.0,  # docs per minute
     memory_limit: int = 500,  # MB
 ) -> bool:
@@ -795,7 +800,7 @@ async def validate_pipeline_performance(
         memory_limit_mb=memory_limit,
         enable_performance_monitoring=True
     ) as pipeline:
-        results = await pipeline.process_documents(
+        await pipeline.process_documents(
             test_files, "test-collection", dry_run=True
         )
 

@@ -4,11 +4,12 @@ Common utils and tools coverage test file.
 Targets src/python/common/ utils and tools modules for rapid coverage scaling.
 """
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
-import tempfile
 import os
+import tempfile
 from pathlib import Path
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
 
 
 class TestCommonUtilsCoverage:
@@ -217,8 +218,9 @@ class TestCommonUtilsCoverage:
 
     def test_common_core_directory_scan(self):
         """Test scanning common core directory for modules."""
-        import src.python.common.core as core_package
         import os
+
+        import src.python.common.core as core_package
 
         # Get the directory path
         core_dir = os.path.dirname(core_package.__file__)

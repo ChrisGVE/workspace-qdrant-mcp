@@ -48,29 +48,21 @@ Integration with Metadata Schema:
 """
 
 import re
-import hashlib
 from dataclasses import dataclass
 from enum import Enum
-from typing import Dict, List, Optional, Set, Tuple, Any, Union
-from loguru import logger
 
-# Import metadata schema components from subtask 249.1
-from .metadata_schema import (
-    MultiTenantMetadataSchema,
-    CollectionCategory,
-    WorkspaceScope,
-    AccessLevel,
-    METADATA_SCHEMA_VERSION
-)
+from loguru import logger
 
 # Import existing collection naming components for integration
 from .collection_naming import (
     CollectionNamingManager,
-    CollectionNameInfo,
-    NamingValidationResult as LegacyNamingValidationResult,
-    CollectionType as LegacyCollectionType,
-    CollectionNameError,
-    normalize_collection_name_component
+    normalize_collection_name_component,
+)
+
+# Import metadata schema components from subtask 249.1
+from .metadata_schema import (
+    CollectionCategory,
+    MultiTenantMetadataSchema,
 )
 
 
@@ -109,24 +101,24 @@ class ValidationResult:
     severity: ValidationSeverity
 
     # Error and message details
-    error_message: Optional[str] = None
-    warning_message: Optional[str] = None
-    info_message: Optional[str] = None
+    error_message: str | None = None
+    warning_message: str | None = None
+    info_message: str | None = None
 
     # Helpful suggestions and alternatives
-    suggested_names: Optional[List[str]] = None
-    suggested_category: Optional[CollectionCategory] = None
-    correction_hint: Optional[str] = None
+    suggested_names: list[str] | None = None
+    suggested_category: CollectionCategory | None = None
+    correction_hint: str | None = None
 
     # Technical details about the conflict/issue
-    conflict_type: Optional[ConflictType] = None
-    conflicting_collections: Optional[List[str]] = None
-    violated_rules: Optional[List[str]] = None
+    conflict_type: ConflictType | None = None
+    conflicting_collections: list[str] | None = None
+    violated_rules: list[str] | None = None
 
     # Metadata about the proposed name
-    detected_category: Optional[CollectionCategory] = None
-    detected_pattern: Optional[str] = None
-    proposed_metadata: Optional[MultiTenantMetadataSchema] = None
+    detected_category: CollectionCategory | None = None
+    detected_pattern: str | None = None
+    proposed_metadata: MultiTenantMetadataSchema | None = None
 
 
 @dataclass
@@ -141,10 +133,10 @@ class NamingConfiguration:
     # Memory collection configuration
     memory_collection_name: str = "memory"
     allow_custom_memory_names: bool = False
-    custom_memory_patterns: Optional[List[str]] = None
+    custom_memory_patterns: list[str] | None = None
 
     # Project collection configuration
-    valid_project_suffixes: Optional[Set[str]] = None
+    valid_project_suffixes: set[str] | None = None
     enforce_project_pattern: bool = True
 
     # System and library configuration
@@ -158,7 +150,7 @@ class NamingConfiguration:
     max_suggestions: int = 5
 
     # Reserved names (additional to built-in ones)
-    additional_reserved_names: Optional[Set[str]] = None
+    additional_reserved_names: set[str] | None = None
 
 
 class PatternValidator:
@@ -460,7 +452,7 @@ class ConflictDetector:
         if config.additional_reserved_names:
             self.reserved_names.update(config.additional_reserved_names)
 
-    def detect_conflicts(self, name: str, existing_collections: List[str], intended_category: Optional[CollectionCategory] = None) -> ValidationResult:
+    def detect_conflicts(self, name: str, existing_collections: list[str], intended_category: CollectionCategory | None = None) -> ValidationResult:
         """
         Detect naming conflicts with existing collections and reserved names.
 
@@ -513,7 +505,7 @@ class ConflictDetector:
             severity=ValidationSeverity.SUCCESS
         )
 
-    def _check_memory_conflicts(self, name: str, existing_collections: List[str]) -> Optional[ValidationResult]:
+    def _check_memory_conflicts(self, name: str, existing_collections: list[str]) -> ValidationResult | None:
         """Check for conflicts with memory collection naming."""
 
         # If proposing the configured memory collection name
@@ -546,7 +538,7 @@ class ConflictDetector:
 
         return None
 
-    def _check_category_conflicts(self, name: str, existing_collections: List[str], intended_category: Optional[CollectionCategory]) -> Optional[ValidationResult]:
+    def _check_category_conflicts(self, name: str, existing_collections: list[str], intended_category: CollectionCategory | None) -> ValidationResult | None:
         """Check for conflicts across collection categories."""
 
         conflicts = []
@@ -581,7 +573,7 @@ class ConflictDetector:
 
         return None
 
-    def _check_prefix_abuse(self, name: str, intended_category: Optional[CollectionCategory]) -> Optional[ValidationResult]:
+    def _check_prefix_abuse(self, name: str, intended_category: CollectionCategory | None) -> ValidationResult | None:
         """Check for misuse of reserved prefixes."""
 
         # Check system prefix abuse
@@ -618,7 +610,7 @@ class CollectionNamingValidator:
     and conflict detection across all collection categories.
     """
 
-    def __init__(self, config: Optional[NamingConfiguration] = None):
+    def __init__(self, config: NamingConfiguration | None = None):
         """
         Initialize the collection naming validator.
 
@@ -634,7 +626,7 @@ class CollectionNamingValidator:
 
         logger.info(f"CollectionNamingValidator initialized with memory collection: {self.config.memory_collection_name}")
 
-    def validate_name(self, name: str, intended_category: Optional[CollectionCategory] = None, existing_collections: Optional[List[str]] = None) -> ValidationResult:
+    def validate_name(self, name: str, intended_category: CollectionCategory | None = None, existing_collections: list[str] | None = None) -> ValidationResult:
         """
         Validate a collection name comprehensively.
 
@@ -702,7 +694,7 @@ class CollectionNamingValidator:
 
         return pattern_result
 
-    def check_conflicts(self, name: str, existing_collections: List[str], intended_category: Optional[CollectionCategory] = None) -> ValidationResult:
+    def check_conflicts(self, name: str, existing_collections: list[str], intended_category: CollectionCategory | None = None) -> ValidationResult:
         """
         Check for naming conflicts with existing collections.
 
@@ -716,7 +708,7 @@ class CollectionNamingValidator:
         """
         return self.conflict_detector.detect_conflicts(name, existing_collections, intended_category)
 
-    def get_name_suggestions(self, invalid_name: str, intended_category: Optional[CollectionCategory] = None, count: int = 5) -> List[str]:
+    def get_name_suggestions(self, invalid_name: str, intended_category: CollectionCategory | None = None, count: int = 5) -> list[str]:
         """
         Get suggested valid names based on an invalid name.
 
@@ -889,7 +881,7 @@ def create_naming_validator(memory_collection_name: str = "memory", **kwargs) ->
     return CollectionNamingValidator(config)
 
 
-def validate_collection_name_with_metadata(name: str, category: Optional[CollectionCategory] = None, existing_collections: Optional[List[str]] = None) -> ValidationResult:
+def validate_collection_name_with_metadata(name: str, category: CollectionCategory | None = None, existing_collections: list[str] | None = None) -> ValidationResult:
     """
     Validate a collection name and return metadata-enhanced result.
 
@@ -905,7 +897,7 @@ def validate_collection_name_with_metadata(name: str, category: Optional[Collect
     return validator.validate_name(name, category, existing_collections)
 
 
-def check_collection_conflicts(name: str, existing_collections: List[str]) -> ValidationResult:
+def check_collection_conflicts(name: str, existing_collections: list[str]) -> ValidationResult:
     """
     Check for collection naming conflicts.
 

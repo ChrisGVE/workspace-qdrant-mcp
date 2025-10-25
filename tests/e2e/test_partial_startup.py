@@ -6,17 +6,18 @@ and degraded configurations. Verifies fallback behaviors, compatibility handling
 and graceful degradation when not all components are available.
 """
 
-import pytest
-import time
 import subprocess
+import time
 from pathlib import Path
 from typing import Optional
 
+import pytest
+
 from tests.e2e.fixtures import (
-    SystemComponents,
     CLIHelper,
     DaemonManager,
     MCPServerManager,
+    SystemComponents,
 )
 
 

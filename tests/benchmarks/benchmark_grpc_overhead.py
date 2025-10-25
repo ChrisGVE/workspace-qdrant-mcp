@@ -25,13 +25,11 @@ Run with:
 
 import asyncio
 import time
-from typing import Dict, List
-import pytest
 
+import pytest
 from common.grpc.daemon_client import DaemonClient
 from common.grpc.generated import workspace_daemon_pb2 as pb2
 from google.protobuf.empty_pb2 import Empty
-
 
 # Payload size configurations
 PAYLOAD_SIZES = {
@@ -63,7 +61,7 @@ class PayloadGenerator:
         return content[:size_bytes].ljust(size_bytes, ' ')
 
     @staticmethod
-    def generate_metadata(num_fields: int = 10) -> Dict[str, str]:
+    def generate_metadata(num_fields: int = 10) -> dict[str, str]:
         """
         Generate metadata dictionary with specified number of fields.
 

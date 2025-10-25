@@ -8,7 +8,6 @@ text content from slides including titles, bullet points, speaker notes, and emb
 text while preserving presentation metadata and structure information.
 """
 
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 

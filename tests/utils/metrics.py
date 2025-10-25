@@ -130,7 +130,7 @@ class RecallPrecisionMeter:
             )
 
         # Calculate basic metrics
-        found_relevant = set(r.document_id for r in search_results) & expected_results
+        found_relevant = {r.document_id for r in search_results} & expected_results
 
         precision = len(found_relevant) / len(search_results) if search_results else 0.0
         recall = (
@@ -148,7 +148,7 @@ class RecallPrecisionMeter:
 
         for k in [1, 3, 5, 10, 20]:
             if k <= len(search_results):
-                results_at_k = set(r.document_id for r in search_results[:k])
+                results_at_k = {r.document_id for r in search_results[:k]}
                 relevant_at_k = results_at_k & expected_results
 
                 precision_at_k[k] = len(relevant_at_k) / k
@@ -220,7 +220,7 @@ class RecallPrecisionMeter:
 
         # Use binary relevance if no scores provided
         if relevance_scores is None:
-            relevance_scores = {doc_id: 1.0 for doc_id in relevant_docs}
+            relevance_scores = dict.fromkeys(relevant_docs, 1.0)
 
         # Calculate DCG
         dcg = 0.0

@@ -2,7 +2,6 @@
 
 import pytest
 from typer.testing import CliRunner
-
 from wqm_cli.cli.commands.init import init_app
 
 
@@ -26,13 +25,13 @@ class TestInitCommand:
         """Test bash completion script generation."""
         result = self.runner.invoke(init_app, ["bash"])
         assert result.exit_code == 0
-        
+
         # Check that it generates a bash completion script
         output = result.stdout
         assert "_wqm_completion()" in output
         assert "COMP_WORDS" in output
         assert "COMPREPLY" in output
-        
+
         # Ensure it's properly formatted (no trailing newlines etc.)
         assert output.endswith("complete -o default -F _wqm_completion wqm")
 
@@ -40,7 +39,7 @@ class TestInitCommand:
         """Test zsh completion script generation."""
         result = self.runner.invoke(init_app, ["zsh"])
         assert result.exit_code == 0
-        
+
         # Check that it generates a zsh completion script
         output = result.stdout
         assert "#compdef wqm" in output
@@ -51,7 +50,7 @@ class TestInitCommand:
         """Test fish completion script generation."""
         result = self.runner.invoke(init_app, ["fish"])
         assert result.exit_code == 0
-        
+
         # Check that it generates a fish completion script
         output = result.stdout
         assert "complete --command wqm" in output
@@ -61,7 +60,7 @@ class TestInitCommand:
         """Test completion generation with custom program name."""
         result = self.runner.invoke(init_app, ["bash", "--prog-name", "my-wqm"])
         assert result.exit_code == 0
-        
+
         output = result.stdout
         assert "_MY-WQM_COMPLETE" in output  # Note: Typer uses the exact prog_name format
         assert "complete -o default -F _my_wqm_completion my-wqm" in output
@@ -70,7 +69,7 @@ class TestInitCommand:
         """Test the detailed help command."""
         result = self.runner.invoke(init_app, ["help"])
         assert result.exit_code == 0
-        
+
         output = result.stdout
         assert "Shell Completion Setup for wqm" in output
         assert 'eval "$(wqm init bash)"' in output
@@ -81,7 +80,7 @@ class TestInitCommand:
         """Test that running init with no arguments shows help."""
         result = self.runner.invoke(init_app, [])
         assert result.exit_code != 0  # Should fail with no_args_is_help=True
-        
+
         # Should show the command list in stderr/help output
         help_output = result.stdout
         assert "bash" in help_output or result.stderr and "bash" in result.stderr
@@ -89,12 +88,12 @@ class TestInitCommand:
     def test_all_shells_supported(self):
         """Test that all expected shells are supported."""
         shells = ["bash", "zsh", "fish"]
-        
+
         for shell in shells:
             result = self.runner.invoke(init_app, [shell])
             assert result.exit_code == 0, f"Failed to generate completion for {shell}"
             assert len(result.stdout) > 0, f"Empty output for {shell}"
-            
+
     def test_completion_scripts_are_valid_format(self):
         """Test that generated completion scripts have valid format."""
         # Test bash
@@ -102,13 +101,13 @@ class TestInitCommand:
         bash_script = result.stdout
         assert bash_script.count("_wqm_completion()") == 1
         assert "complete" in bash_script
-        
-        # Test zsh  
+
+        # Test zsh
         result = self.runner.invoke(init_app, ["zsh"])
         zsh_script = result.stdout
         assert zsh_script.startswith("#compdef wqm")
         assert zsh_script.count("_wqm_completion()") == 1
-        
+
         # Test fish
         result = self.runner.invoke(init_app, ["fish"])
         fish_script = result.stdout
@@ -119,7 +118,7 @@ class TestInitCommand:
         """Test that completion scripts contain proper wqm references."""
         result = self.runner.invoke(init_app, [shell])
         output = result.stdout
-        
+
         # All scripts should reference wqm and the completion environment variable
         assert "wqm" in output
         assert "_WQM_COMPLETE" in output

@@ -16,17 +16,17 @@ Features:
 
 import asyncio
 import logging
+import multiprocessing
 import os
 import tempfile
 import threading
 import time
-import psutil
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Optional, Dict, Any, List
-import multiprocessing
+from typing import Any, Optional
 
+import psutil
 
 # Safety limits to prevent system crashes
 SAFETY_MAX_MEMORY_PERCENT = 80  # Max 80% of total system RAM
@@ -45,10 +45,10 @@ class ResourceType(Enum):
 @dataclass
 class ResourceExhaustionScenario:
     """Configuration for a resource exhaustion scenario."""
-    memory_target_mb: Optional[int] = None
-    cpu_target_percent: Optional[int] = None
-    disk_io_target_mb_per_sec: Optional[int] = None
-    network_target_mb_per_sec: Optional[int] = None
+    memory_target_mb: int | None = None
+    cpu_target_percent: int | None = None
+    disk_io_target_mb_per_sec: int | None = None
+    network_target_mb_per_sec: int | None = None
     duration_seconds: float = 60.0
     ramp_up_seconds: float = 10.0
 
@@ -84,7 +84,7 @@ class MemoryPressureSimulator:
     def __init__(self):
         """Initialize memory pressure simulator."""
         self.logger = logging.getLogger(__name__)
-        self._allocated_blocks: List[bytearray] = []
+        self._allocated_blocks: list[bytearray] = []
         self._target_mb: int = 0
         self._running = False
 
@@ -157,7 +157,7 @@ class CPUSaturationSimulator:
     def __init__(self):
         """Initialize CPU saturation simulator."""
         self.logger = logging.getLogger(__name__)
-        self._workers: List[threading.Thread] = []
+        self._workers: list[threading.Thread] = []
         self._stop_event = threading.Event()
         self._target_percent: int = 0
 
@@ -187,7 +187,7 @@ class CPUSaturationSimulator:
         )
 
         # Spawn worker threads
-        for i in range(num_cores):
+        for _i in range(num_cores):
             worker = threading.Thread(
                 target=self._cpu_worker,
                 args=(target_percent,),
@@ -244,10 +244,10 @@ class DiskIOSaturationSimulator:
     def __init__(self):
         """Initialize disk I/O saturation simulator."""
         self.logger = logging.getLogger(__name__)
-        self._worker_thread: Optional[threading.Thread] = None
+        self._worker_thread: threading.Thread | None = None
         self._stop_event = threading.Event()
-        self._temp_dir: Optional[Path] = None
-        self._temp_files: List[Path] = []
+        self._temp_dir: Path | None = None
+        self._temp_files: list[Path] = []
 
     def start(self, target_mb_per_sec: int, temp_dir: Path) -> None:
         """Start disk I/O saturation.
@@ -449,8 +449,8 @@ class ResourceExhaustionSimulator:
         self.network_limiter = NetworkBandwidthLimiter()
 
         # Active simulations tracking
-        self._active_simulations: Dict[ResourceType, bool] = {}
-        self._temp_dir: Optional[Path] = None
+        self._active_simulations: dict[ResourceType, bool] = {}
+        self._temp_dir: Path | None = None
 
     async def simulate_memory_pressure(
         self,

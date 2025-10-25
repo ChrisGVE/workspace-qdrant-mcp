@@ -11,13 +11,14 @@ Tests all CLI parser modules for 100% coverage, including:
 import asyncio
 import hashlib
 import os
-import pytest
 import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
-from unittest.mock import AsyncMock, MagicMock, Mock, patch, call
+from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
+
+import pytest
 
 # Add src paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
@@ -28,12 +29,16 @@ os.environ["WQM_LOG_INIT"] = "false"
 
 try:
     from wqm_cli.cli.parsers.base import (
-        ParsedDocument, DocumentParser,
+        DocumentParser,
+        ParsedDocument,
     )
     from wqm_cli.cli.parsers.exceptions import ParsingError, handle_parsing_error
     from wqm_cli.cli.parsers.file_detector import FileDetector, detect_file_type
     from wqm_cli.cli.parsers.progress import (
-        ProgressPhase, ProgressTracker, ProgressUnit, create_progress_tracker
+        ProgressPhase,
+        ProgressTracker,
+        ProgressUnit,
+        create_progress_tracker,
     )
     PARSERS_BASE_AVAILABLE = True
 except ImportError as e:
@@ -41,17 +46,17 @@ except ImportError as e:
     print(f"Warning: wqm_cli.cli.parsers.base not available: {e}")
 
 try:
-    from wqm_cli.cli.parsers.text_parser import TextParser
-    from wqm_cli.cli.parsers.markdown_parser import MarkdownParser
-    from wqm_cli.cli.parsers.html_parser import HTMLParser
     from wqm_cli.cli.parsers.code_parser import CodeParser
-    from wqm_cli.cli.parsers.pdf_parser import PDFParser
     from wqm_cli.cli.parsers.docx_parser import DocxParser
     from wqm_cli.cli.parsers.epub_parser import EpubParser
-    from wqm_cli.cli.parsers.pptx_parser import PptxParser
+    from wqm_cli.cli.parsers.html_parser import HTMLParser
+    from wqm_cli.cli.parsers.markdown_parser import MarkdownParser
     from wqm_cli.cli.parsers.mobi_parser import MobiParser
-    from wqm_cli.cli.parsers.web_parser import WebParser
+    from wqm_cli.cli.parsers.pdf_parser import PDFParser
+    from wqm_cli.cli.parsers.pptx_parser import PptxParser
+    from wqm_cli.cli.parsers.text_parser import TextParser
     from wqm_cli.cli.parsers.web_crawler import WebCrawler
+    from wqm_cli.cli.parsers.web_parser import WebParser
     SPECIFIC_PARSERS_AVAILABLE = True
 except ImportError as e:
     SPECIFIC_PARSERS_AVAILABLE = False
@@ -109,7 +114,7 @@ class TestParsedDocument:
             assert "file_created" in doc.metadata
 
             # Test content hash generation
-            expected_hash = hashlib.sha256("Test file content".encode("utf-8")).hexdigest()
+            expected_hash = hashlib.sha256(b"Test file content").hexdigest()
             assert doc.content_hash == expected_hash
 
             # Test timestamp format
@@ -134,7 +139,7 @@ class TestParsedDocument:
         assert doc.metadata["filename"] == "file.txt"
         assert doc.metadata["file_extension"] == ".txt"
         # Should use content length as approximate file size
-        assert doc.file_size == len("Test content".encode("utf-8"))
+        assert doc.file_size == len(b"Test content")
 
     def test_parsed_document_create_with_multiline_content(self):
         """Test ParsedDocument.create() with multi-line content"""
@@ -209,7 +214,7 @@ class TestDocumentParserBase:
         """Concrete implementation for testing"""
 
         @property
-        def supported_extensions(self) -> List[str]:
+        def supported_extensions(self) -> list[str]:
             return ['.txt', '.md']
 
         @property
@@ -438,7 +443,7 @@ class TestFileDetector:
             ("/test/file.js", "code"),
         ]
 
-        for file_path, expected_type in test_cases:
+        for file_path, _expected_type in test_cases:
             try:
                 mime_type, parser_type, description = detect_file_type(Path(file_path))
                 # Note: actual implementation may vary, just test that it returns something

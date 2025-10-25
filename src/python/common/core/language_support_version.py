@@ -22,7 +22,6 @@ import hashlib
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 
@@ -55,7 +54,7 @@ class LanguageSupportVersionTracker:
             db_path: Path to SQLite database file
         """
         self.db_path = Path(db_path)
-        self.connection: Optional[sqlite3.Connection] = None
+        self.connection: sqlite3.Connection | None = None
 
     async def initialize(self) -> None:
         """Initialize database connection.
@@ -77,7 +76,7 @@ class LanguageSupportVersionTracker:
             self.connection.execute("PRAGMA journal_mode = WAL")
             logger.debug(f"Initialized version tracker with database: {self.db_path}")
 
-    async def get_current_version(self) -> Optional[str]:
+    async def get_current_version(self) -> str | None:
         """Retrieve the current stored version string.
 
         Queries the language_support_version table for the most recent version.
@@ -118,7 +117,7 @@ class LanguageSupportVersionTracker:
         finally:
             cursor.close()
 
-    async def get_content_hash(self) -> Optional[str]:
+    async def get_content_hash(self) -> str | None:
         """Retrieve the stored content hash.
 
         Queries the language_support_version table for the most recent content hash.

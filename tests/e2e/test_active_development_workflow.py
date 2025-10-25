@@ -32,26 +32,25 @@ Performance Targets:
 
 import asyncio
 import os
-import pytest
 import shutil
 import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from common.utils.project_detection import (
-    ProjectDetector,
-    DaemonIdentifier,
-    calculate_tenant_id,
-)
+import pytest
 from common.core.sqlite_state_manager import (
+    ProjectRecord,
     SQLiteStateManager,
     WatchFolderConfig,
-    ProjectRecord,
 )
-
+from common.utils.project_detection import (
+    DaemonIdentifier,
+    ProjectDetector,
+    calculate_tenant_id,
+)
 
 # ============================================================================
 # Fixtures
@@ -241,7 +240,7 @@ class TestActiveDevelopmentWorkflow:
         - Search indexing
         - Response time < 2 seconds
         """
-        project = active_dev_project["path"]
+        active_dev_project["path"]
         src_dir = active_dev_project["src_dir"]
 
         # Create new module
@@ -266,7 +265,7 @@ class TestActiveDevelopmentWorkflow:
         await asyncio.sleep(3)
 
         # Verify file is tracked
-        state_manager = watch_enabled_state_manager["manager"]
+        watch_enabled_state_manager["manager"]
         watch_config = watch_enabled_state_manager["watch_config"]
 
         # Simulate search for the new class
@@ -392,7 +391,7 @@ def calculate_length(text: str) -> int:
         - Concurrent file handling
         - Batch latency < 5 seconds
         """
-        project = active_dev_project["path"]
+        active_dev_project["path"]
         src_dir = active_dev_project["src_dir"]
 
         # Create multiple new files rapidly
@@ -507,7 +506,7 @@ def calculate_length(text: str) -> int:
         - Pattern reuse from search results
         - Search-create-search cycle
         """
-        project = active_dev_project["path"]
+        active_dev_project["path"]
         src_dir = active_dev_project["src_dir"]
 
         # Developer searches for validation patterns
@@ -561,7 +560,7 @@ def calculate_length(text: str) -> int:
         - Final state correctness
         """
         main_file = active_dev_project["files"]["main"]
-        original_content = main_file.read_text()
+        main_file.read_text()
 
         # Make 3 incremental updates
         for i in range(1, 4):

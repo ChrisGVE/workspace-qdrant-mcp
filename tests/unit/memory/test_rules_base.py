@@ -5,18 +5,17 @@ Provides common setup, teardown, and helper methods for memory rules tests.
 """
 
 import asyncio
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, Mock
 from dataclasses import asdict
+from datetime import datetime, timezone
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, Mock
 
 import pytest
-
 from common.core.memory import (
-    MemoryRule,
-    MemoryCategory,
-    AuthorityLevel,
     AgentDefinition,
+    AuthorityLevel,
+    MemoryCategory,
+    MemoryRule,
 )
 
 
@@ -35,8 +34,8 @@ class BaseMemoryRuleTest:
 
         Initializes common test data and mocks.
         """
-        self.test_rules: List[MemoryRule] = []
-        self.test_agents: List[AgentDefinition] = []
+        self.test_rules: list[MemoryRule] = []
+        self.test_agents: list[AgentDefinition] = []
         self.mock_client = None
 
         yield
@@ -52,7 +51,7 @@ class BaseMemoryRuleTest:
         name: str = "Test Rule",
         rule_text: str = "Always test thoroughly",
         authority: AuthorityLevel = AuthorityLevel.DEFAULT,
-        scope: Optional[List[str]] = None,
+        scope: list[str] | None = None,
         **kwargs: Any
     ) -> MemoryRule:
         """
@@ -91,7 +90,7 @@ class BaseMemoryRuleTest:
         agent_id: str = "test-agent-1",
         name: str = "test-agent",
         description: str = "Test agent for testing",
-        capabilities: Optional[List[str]] = None,
+        capabilities: list[str] | None = None,
         **kwargs: Any
     ) -> AgentDefinition:
         """
@@ -209,7 +208,7 @@ class BaseMemoryRuleTest:
         self.mock_client = mock_client
         return mock_client
 
-    def get_rule_as_dict(self, rule: MemoryRule) -> Dict[str, Any]:
+    def get_rule_as_dict(self, rule: MemoryRule) -> dict[str, Any]:
         """
         Convert MemoryRule to dictionary representation.
 
@@ -221,7 +220,7 @@ class BaseMemoryRuleTest:
         """
         return asdict(rule)
 
-    def get_agent_as_dict(self, agent: AgentDefinition) -> Dict[str, Any]:
+    def get_agent_as_dict(self, agent: AgentDefinition) -> dict[str, Any]:
         """
         Convert AgentDefinition to dictionary representation.
 

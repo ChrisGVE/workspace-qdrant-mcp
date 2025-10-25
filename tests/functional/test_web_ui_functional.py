@@ -5,13 +5,14 @@ This module provides comprehensive functional testing for web interfaces,
 including server status pages, API documentation, and any web-based management interfaces.
 """
 
-import pytest
 import asyncio
-from playwright.async_api import async_playwright, Page, Browser, BrowserContext
-from typing import Dict, Any, List, Optional
 import json
-import tempfile
 import os
+import tempfile
+from typing import Any, Optional
+
+import pytest
+from playwright.async_api import Browser, BrowserContext, Page, async_playwright
 
 
 @pytest.mark.functional

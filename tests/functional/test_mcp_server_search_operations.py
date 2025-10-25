@@ -17,11 +17,11 @@ Task 281: Develop MCP server search operations test suite
 """
 
 import asyncio
-import sys
-from pathlib import Path
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
 import statistics
+import sys
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional
 
 import pytest
 from qdrant_client import QdrantClient
@@ -30,9 +30,9 @@ from qdrant_client.http import models
 # Add src/python to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
-from common.core.hybrid_search import HybridSearchEngine, RRFFusionRanker
-from common.core.embeddings import EmbeddingService
 from common.core.client import QdrantWorkspaceClient
+from common.core.embeddings import EmbeddingService
+from common.core.hybrid_search import HybridSearchEngine, RRFFusionRanker
 
 
 @dataclass
@@ -44,7 +44,7 @@ class SearchTestDocument:
     collection_type: str
     workspace_scope: str
     relevance_score: float  # Ground truth relevance for validation
-    metadata: Dict[str, Any]
+    metadata: dict[str, Any]
 
 
 @dataclass
@@ -213,7 +213,7 @@ def synthetic_test_documents():
 async def ingest_test_documents(
     qdrant_client: QdrantClient,
     collection_name: str,
-    documents: List[SearchTestDocument],
+    documents: list[SearchTestDocument],
     embedding_service: EmbeddingService
 ):
     """Ingest test documents into collection with embeddings."""
@@ -255,8 +255,8 @@ async def ingest_test_documents(
 
 
 def calculate_search_metrics(
-    results: List[Dict],
-    ground_truth_docs: List[SearchTestDocument],
+    results: list[dict],
+    ground_truth_docs: list[SearchTestDocument],
     relevance_threshold: float = 0.5,
     k: int = 10
 ) -> SearchMetrics:

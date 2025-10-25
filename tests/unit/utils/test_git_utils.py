@@ -19,14 +19,13 @@ import os
 from pathlib import Path
 
 import pytest
-from git import Repo
-
 from common.utils.git_utils import (
     DEFAULT_BRANCH,
     get_current_branch,
     get_repository_root,
     is_git_repository,
 )
+from git import Repo
 
 
 @pytest.fixture

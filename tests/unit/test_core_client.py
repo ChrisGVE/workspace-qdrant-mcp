@@ -18,17 +18,18 @@ Test Coverage Goals:
 """
 
 import asyncio
-import pytest
+import sys
 import tempfile
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock, MagicMock, patch, call
-from typing import Dict, Optional, List
+from typing import Optional
+from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
-import sys
+import pytest
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 from common.core.client import QdrantWorkspaceClient, create_qdrant_client
-from common.core.config import get_config, ConfigManager, reset_config
+from common.core.config import ConfigManager, get_config, reset_config
 
 
 class TestQdrantWorkspaceClientInit:

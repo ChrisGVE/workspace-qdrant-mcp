@@ -9,10 +9,10 @@ This module tests:
 - Different LLM context formats (system prompt, markdown, JSON)
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta
-from typing import List, Dict, Any
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
+import pytest
 from common.memory.claude_integration import ClaudeCodeIntegration
 from common.memory.token_counter import TokenCounter
 from common.memory.types import (
@@ -40,7 +40,7 @@ def integration(token_counter):
 
 
 @pytest.fixture
-def sample_rules() -> List[MemoryRule]:
+def sample_rules() -> list[MemoryRule]:
     """Create sample rules for testing."""
     return [
         MemoryRule(
@@ -685,7 +685,7 @@ class TestDifferentLLMContextFormats:
 
             # If file exists, verify format
             if os.path.exists(injection_file):
-                with open(injection_file, "r") as f:
+                with open(injection_file) as f:
                     content = f.read()
 
                 # Should have proper markdown structure

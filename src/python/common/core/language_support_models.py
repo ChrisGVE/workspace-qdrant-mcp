@@ -33,10 +33,8 @@ Example:
 from __future__ import annotations
 
 import re
-from typing import Any, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
-
 
 # =============================================================================
 # COMPREHENSIVE ASSET FILE MODELS (Original/Existing)
@@ -305,7 +303,7 @@ class TreeSitterDefinition(BaseModel):
         min_length=1,
         description="Tree-sitter grammar name (e.g., 'python', 'rust')",
     )
-    repo: Optional[str] = Field(
+    repo: str | None = Field(
         None, description="GitHub repository URL for the grammar (optional)"
     )
 
@@ -319,7 +317,7 @@ class TreeSitterDefinition(BaseModel):
 
     @field_validator("repo")
     @classmethod
-    def validate_repo_url(cls, v: Optional[str]) -> Optional[str]:
+    def validate_repo_url(cls, v: str | None) -> str | None:
         """Validate that repo URL is a valid GitHub URL if provided."""
         if v is None:
             return v
@@ -358,15 +356,15 @@ class LanguageDefinition(BaseModel):
     name: str = Field(
         ..., min_length=1, description="Language name (e.g., 'python', 'rust')"
     )
-    extensions: List[str] = Field(
+    extensions: list[str] = Field(
         ...,
         min_items=1,
         description="File extensions for this language (e.g., ['.py', '.pyw'])",
     )
-    lsp: Optional[LSPDefinition] = Field(
+    lsp: LSPDefinition | None = Field(
         None, description="LSP server configuration (optional)"
     )
-    treesitter: Optional[TreeSitterDefinition] = Field(
+    treesitter: TreeSitterDefinition | None = Field(
         None, description="Tree-sitter parser configuration (optional)"
     )
 
@@ -386,7 +384,7 @@ class LanguageDefinition(BaseModel):
 
     @field_validator("extensions")
     @classmethod
-    def validate_extensions(cls, v: List[str]) -> List[str]:
+    def validate_extensions(cls, v: list[str]) -> list[str]:
         """Validate that all extensions start with '.' and are not empty."""
         if not v:
             raise ValueError("At least one file extension is required")
@@ -449,7 +447,7 @@ class LanguageSupportDatabaseConfig(BaseModel):
         ...,
         description="Semantic version of the language support configuration (e.g., '1.0.0')",
     )
-    languages: List[LanguageDefinition] = Field(
+    languages: list[LanguageDefinition] = Field(
         ..., min_items=1, description="List of language definitions"
     )
 
@@ -474,8 +472,8 @@ class LanguageSupportDatabaseConfig(BaseModel):
     @field_validator("languages")
     @classmethod
     def validate_unique_languages(
-        cls, v: List[LanguageDefinition]
-    ) -> List[LanguageDefinition]:
+        cls, v: list[LanguageDefinition]
+    ) -> list[LanguageDefinition]:
         """Validate that language names and extensions are unique."""
         if not v:
             raise ValueError("At least one language definition is required")

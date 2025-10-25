@@ -46,9 +46,10 @@ Example:
 """
 
 import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any
 
 from loguru import logger
 
@@ -68,9 +69,9 @@ class ErrorFilter:
         acknowledged_only: If True, only acknowledged errors
         unacknowledged_only: If True, only unacknowledged errors
     """
-    severity_levels: Optional[List[ErrorSeverity]] = None
-    categories: Optional[List[ErrorCategory]] = None
-    date_range: Optional[Tuple[datetime, datetime]] = None
+    severity_levels: list[ErrorSeverity] | None = None
+    categories: list[ErrorCategory] | None = None
+    date_range: tuple[datetime, datetime] | None = None
     acknowledged_only: bool = False
     unacknowledged_only: bool = False
 
@@ -99,7 +100,7 @@ class FilteredErrorResult:
         total_count: Total count of errors matching filter
         filter_applied: The filter that was applied
     """
-    errors: List[ErrorMessage]
+    errors: list[ErrorMessage]
     total_count: int
     filter_applied: ErrorFilter
 
@@ -122,11 +123,11 @@ class AlertRule:
     id: str
     name: str
     filter: ErrorFilter
-    alert_callback: Callable[[List[ErrorMessage]], Any]
+    alert_callback: Callable[[list[ErrorMessage]], Any]
     threshold: int = 1
     enabled: bool = True
     created_at: datetime = field(default_factory=lambda: datetime.now())
-    last_triggered_at: Optional[datetime] = None
+    last_triggered_at: datetime | None = None
 
     def __post_init__(self):
         """Validate alert rule."""
@@ -152,7 +153,7 @@ class TriggeredAlert:
     rule_name: str
     triggered_at: datetime
     error_count: int
-    errors: List[ErrorMessage]
+    errors: list[ErrorMessage]
 
 
 class ErrorFilterManager:
@@ -172,9 +173,9 @@ class ErrorFilterManager:
         """
         self.error_manager = error_manager
         self._initialized = False
-        self._alert_rules: Dict[str, AlertRule] = {}
-        self._alert_history: List[TriggeredAlert] = []
-        self._severity_callbacks: Dict[ErrorSeverity, List[Callable]] = {
+        self._alert_rules: dict[str, AlertRule] = {}
+        self._alert_history: list[TriggeredAlert] = []
+        self._severity_callbacks: dict[ErrorSeverity, list[Callable]] = {
             ErrorSeverity.ERROR: [],
             ErrorSeverity.WARNING: [],
             ErrorSeverity.INFO: []
@@ -228,7 +229,7 @@ class ErrorFilterManager:
             raise RuntimeError("Manager not initialized. Call initialize() first.")
 
         # Build query parameters from filter
-        errors: List[ErrorMessage] = []
+        errors: list[ErrorMessage] = []
 
         # Determine if we need to do multi-query or in-memory filtering
         use_category_filter = filter.categories and len(filter.categories) == 1
@@ -288,14 +289,14 @@ class ErrorFilterManager:
 
     async def _query_with_criteria(
         self,
-        severity: Optional[str] = None,
-        category: Optional[str] = None,
-        date_range: Optional[Tuple[datetime, datetime]] = None,
+        severity: str | None = None,
+        category: str | None = None,
+        date_range: tuple[datetime, datetime] | None = None,
         acknowledged_only: bool = False,
         unacknowledged_only: bool = False,
         limit: int = 100,
         offset: int = 0
-    ) -> List[ErrorMessage]:
+    ) -> list[ErrorMessage]:
         """
         Query errors with specific criteria.
 
@@ -339,7 +340,7 @@ class ErrorFilterManager:
         self,
         name: str,
         filter: ErrorFilter,
-        alert_callback: Callable[[List[ErrorMessage]], Any],
+        alert_callback: Callable[[list[ErrorMessage]], Any],
         threshold: int = 1
     ) -> AlertRule:
         """
@@ -379,7 +380,7 @@ class ErrorFilterManager:
     async def register_alert_callback(
         self,
         severity: ErrorSeverity,
-        callback_func: Callable[[List[ErrorMessage]], Any]
+        callback_func: Callable[[list[ErrorMessage]], Any]
     ) -> bool:
         """
         Register a callback for a specific severity level.
@@ -408,7 +409,7 @@ class ErrorFilterManager:
 
         return True
 
-    async def check_alerts(self) -> List[TriggeredAlert]:
+    async def check_alerts(self) -> list[TriggeredAlert]:
         """
         Check all active alert rules and trigger callbacks.
 
@@ -421,9 +422,9 @@ class ErrorFilterManager:
         if not self._initialized:
             raise RuntimeError("Manager not initialized. Call initialize() first.")
 
-        triggered_alerts: List[TriggeredAlert] = []
+        triggered_alerts: list[TriggeredAlert] = []
 
-        for rule_id, rule in self._alert_rules.items():
+        for _rule_id, rule in self._alert_rules.items():
             if not rule.enabled:
                 continue
 
@@ -468,7 +469,7 @@ class ErrorFilterManager:
     async def _invoke_callback(
         self,
         callback: Callable,
-        errors: List[ErrorMessage],
+        errors: list[ErrorMessage],
         callback_name: str
     ):
         """
@@ -491,7 +492,7 @@ class ErrorFilterManager:
                 exc_info=True
             )
 
-    async def _invoke_severity_callbacks(self, errors: List[ErrorMessage]):
+    async def _invoke_severity_callbacks(self, errors: list[ErrorMessage]):
         """
         Invoke severity-specific callbacks for errors.
 
@@ -499,7 +500,7 @@ class ErrorFilterManager:
             errors: List of errors to process
         """
         # Group errors by severity
-        severity_groups: Dict[ErrorSeverity, List[ErrorMessage]] = {}
+        severity_groups: dict[ErrorSeverity, list[ErrorMessage]] = {}
         for error in errors:
             if error.severity not in severity_groups:
                 severity_groups[error.severity] = []
@@ -515,7 +516,7 @@ class ErrorFilterManager:
                     f"Severity '{severity.value}'"
                 )
 
-    async def get_alert_history(self, limit: int = 100) -> List[TriggeredAlert]:
+    async def get_alert_history(self, limit: int = 100) -> list[TriggeredAlert]:
         """
         Get alert history.
 
@@ -531,7 +532,7 @@ class ErrorFilterManager:
         # Return most recent first
         return list(reversed(self._alert_history[-limit:]))
 
-    def get_alert_rule(self, rule_id: str) -> Optional[AlertRule]:
+    def get_alert_rule(self, rule_id: str) -> AlertRule | None:
         """
         Get an alert rule by ID.
 
@@ -543,7 +544,7 @@ class ErrorFilterManager:
         """
         return self._alert_rules.get(rule_id)
 
-    def list_alert_rules(self) -> List[AlertRule]:
+    def list_alert_rules(self) -> list[AlertRule]:
         """
         List all alert rules.
 

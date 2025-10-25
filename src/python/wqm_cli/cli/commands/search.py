@@ -4,26 +4,19 @@ This module provides command-line search interface with different
 context modes and research capabilities.
 """
 
-import asyncio
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import typer
-
 from common.core.config import get_config_manager
-from common.grpc.daemon_client import get_daemon_client, with_daemon_client
+from common.grpc.daemon_client import with_daemon_client
 from common.grpc.ingestion_pb2 import SearchMode
-from loguru import logger
 from common.utils.project_detection import ProjectDetector
+
 from ..utils import (
     create_command_app,
-    error_message,
     handle_async,
-    json_output_option,
-    success_message,
-    verbose_option,
-    warning_message,
 )
 
 # logger imported from loguru
@@ -32,7 +25,7 @@ from ..utils import (
 search_app = create_command_app(
     name="search",
     help_text="""Command-line search interface.
-    
+
 Examples:
     wqm search project "rust async patterns"      # Search current project
     wqm search collection docs "API reference"   # Search specific collection
@@ -204,7 +197,7 @@ async def _search_project(
 
     async def search_operation(daemon_client):
         # Detect current project
-        config = get_config_manager()
+        get_config_manager()
         detector = ProjectDetector()  # Simplified constructor
         project_info = detector.get_project_info(str(Path.cwd()))
         current_project = project_info["main_project"]
@@ -686,7 +679,7 @@ def _display_detailed_results(
                 ]
             ):
                 try:
-                    syntax = Syntax(
+                    Syntax(
                         content[:500], "python", theme="monokai", line_numbers=False
                     )
                     # Code syntax highlighting not available in plain text mode

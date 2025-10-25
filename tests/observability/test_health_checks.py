@@ -18,11 +18,10 @@ core application logic or MCP server configuration.
 import asyncio
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict
+from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
-
 from common.observability.health import (
     ComponentHealth,
     HealthChecker,
@@ -37,7 +36,6 @@ from common.observability.health_coordinator import (
     HealthCoordinator,
     HealthTrend,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -487,7 +485,7 @@ class TestComponentHealth:
         health_checker.register_check("failing_check", always_fail)
 
         # Run check multiple times
-        for i in range(3):
+        for _i in range(3):
             await health_checker.run_check("failing_check")
 
         check = health_checker.health_checks["failing_check"]
@@ -629,7 +627,7 @@ class TestHealthAggregation:
         assert len(components) >= 3, "Should have multiple components"
 
         # Each component should have required fields
-        for component_name, component_data in components.items():
+        for _component_name, component_data in components.items():
             assert "status" in component_data
             assert "message" in component_data
 

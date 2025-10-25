@@ -15,7 +15,7 @@ import subprocess
 import tempfile
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 import pytest
 
@@ -30,8 +30,8 @@ class FolderWatchingEnvironment:
             tmp_path: Temporary directory for test files
         """
         self.tmp_path = tmp_path
-        self.watched_dirs: List[Path] = []
-        self.test_files: Dict[str, Path] = {}
+        self.watched_dirs: list[Path] = []
+        self.test_files: dict[str, Path] = {}
         self.cli_executable = "uv run wqm"
 
         # Create test directory structure
@@ -108,10 +108,10 @@ class FolderWatchingEnvironment:
     def run_cli_command(
         self,
         command: str,
-        cwd: Optional[Path] = None,
+        cwd: Path | None = None,
         timeout: int = 30,
-        env_vars: Optional[Dict[str, str]] = None,
-    ) -> Tuple[int, str, str]:
+        env_vars: dict[str, str] | None = None,
+    ) -> tuple[int, str, str]:
         """Execute CLI command.
 
         Args:

@@ -22,20 +22,18 @@ import asyncio
 import os
 import platform
 import subprocess
-import tempfile
-import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import typer
+from loguru import logger
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from loguru import logger
+from ..binary_security import BinarySecurityError, BinaryValidator
 from ..utils import create_command_app, handle_async
-from ..binary_security import BinaryValidator, BinarySecurityError
 
 # Initialize app and logger
 service_app = create_command_app(
@@ -67,7 +65,7 @@ class MemexdServiceManager:
         # Validate binary if it exists and validation not skipped
         if not skip_validation:
             self.validate_binary()
-        
+
     def resolve_binary_path(self) -> Path:
         """Resolve OS-specific user binary path for memexd."""
         binary_name = "memexd.exe" if self.system == "windows" else "memexd"
@@ -164,7 +162,7 @@ class MemexdServiceManager:
             binary=str(self.memexd_binary),
             checks=validation_result["checks"]
         )
-    
+
     def get_config_path(self) -> Path:
         """Get the default configuration path for memexd."""
         config_dir = Path.home() / ".config" / "workspace-qdrant"
@@ -178,20 +176,20 @@ class MemexdServiceManager:
             return workspace_config
         else:
             return default_config
-    
+
     def get_log_path(self) -> Path:
         """Get the log file path for memexd."""
         log_dir = Path.home() / ".local" / "var" / "log" / "workspace-qdrant"
         log_dir.mkdir(parents=True, exist_ok=True)
         return log_dir / "memexd.log"
-    
+
     def get_pid_path(self) -> Path:
         """Get the PID file path for memexd."""
         pid_dir = Path.home() / ".local" / "var" / "run" / "workspace-qdrant"
         pid_dir.mkdir(parents=True, exist_ok=True)
         return pid_dir / "memexd.pid"
-    
-    async def install_binary_from_source(self) -> Dict[str, Any]:
+
+    async def install_binary_from_source(self) -> dict[str, Any]:
         """Build and install the memexd binary from Rust source."""
         try:
             # Find daemon source directory
@@ -288,7 +286,7 @@ class MemexdServiceManager:
                 "error": f"Failed to build and install binary: {e}"
             }
 
-    async def install_service(self, auto_start: bool = True, build: bool = False) -> Dict[str, Any]:
+    async def install_service(self, auto_start: bool = True, build: bool = False) -> dict[str, Any]:
         """Install the service with proper error handling."""
         try:
             if self.system == "darwin":
@@ -303,8 +301,8 @@ class MemexdServiceManager:
         except Exception as e:
             logger.error("Service installation failed", error=str(e), exc_info=True)
             return {"success": False, "error": f"Installation failed: {e}"}
-    
-    async def _install_macos_service(self, auto_start: bool, build: bool = False) -> Dict[str, Any]:
+
+    async def _install_macos_service(self, auto_start: bool, build: bool = False) -> dict[str, Any]:
         """Install macOS launchd service with robust error handling using modern bootstrap."""
 
         # Ensure memexd binary exists, build if requested
@@ -334,15 +332,15 @@ class MemexdServiceManager:
                 "success": False,
                 "error": str(e)
             }
-        
+
         # Service file location
         plist_dir = Path.home() / "Library" / "LaunchAgents"
         plist_path = plist_dir / f"{self.service_id}.plist"
-        
+
         try:
             # Create directory with proper error handling
             plist_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Test write permissions
             test_file = plist_dir / ".wqm_test"
             try:
@@ -354,18 +352,18 @@ class MemexdServiceManager:
                     "error": f"No write permission to {plist_dir}",
                     "suggestion": f"Check permissions: ls -la {plist_dir}"
                 }
-            
+
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Cannot create service directory: {e}"
             }
-        
+
         # Get paths for memexd configuration
         config_path = self.get_config_path()
         log_path = self.get_log_path()
         pid_path = self.get_pid_path()
-        
+
         # Create simple, robust plist for memexd
         # KeepAlive=false allows proper start/stop control
         # Use systemctl-style restart behavior (restart only on crash)
@@ -375,7 +373,7 @@ class MemexdServiceManager:
 <dict>
     <key>Label</key>
     <string>{self.service_id}</string>
-    
+
     <key>ProgramArguments</key>
     <array>
         <string>{self.memexd_binary}</string>
@@ -386,22 +384,22 @@ class MemexdServiceManager:
         <string>--pid-file</string>
         <string>{pid_path}</string>
     </array>
-    
+
     <key>RunAtLoad</key>
     <{"true" if auto_start else "false"}/>
-    
+
     <key>KeepAlive</key>
     <false/>
-    
+
     <key>StandardOutPath</key>
     <string>{log_path}</string>
-    
+
     <key>StandardErrorPath</key>
     <string>{log_path}.error</string>
-    
+
     <key>WorkingDirectory</key>
     <string>{Path.home()}</string>
-    
+
     <key>EnvironmentVariables</key>
     <dict>
         <key>HOME</key>
@@ -415,31 +413,31 @@ class MemexdServiceManager:
             plist_path.write_text(plist_content)
         except Exception as e:
             return {
-                "success": False, 
+                "success": False,
                 "error": f"Failed to write plist: {e}",
                 "plist_path": str(plist_path)
             }
-        
+
         # Bootstrap service with proper error handling using modern launchctl
         try:
             # First remove any existing service to avoid conflicts
             await self._bootout_service()
             await asyncio.sleep(1)
-            
+
             # Bootstrap the service using modern gui domain syntax for LaunchAgents
             gui_domain = f"gui/{os.getuid()}"
             cmd = ["launchctl", "bootstrap", gui_domain, str(plist_path)]
             result = await asyncio.create_subprocess_exec(
-                *cmd, 
-                stdout=subprocess.PIPE, 
+                *cmd,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
-            
+
             if result.returncode != 0:
                 # Try to provide better error messages
                 error_msg = stderr.decode().strip() or stdout.decode().strip()
-                
+
                 if "service already loaded" in error_msg.lower():
                     # Service already exists - this is actually OK
                     pass
@@ -450,7 +448,7 @@ class MemexdServiceManager:
                         "plist_path": str(plist_path),
                         "returncode": result.returncode
                     }
-            
+
             return {
                 "success": True,
                 "service_id": self.service_id,
@@ -462,15 +460,15 @@ class MemexdServiceManager:
                 "auto_start": auto_start,
                 "message": f"Service {self.service_id} installed successfully"
             }
-            
+
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Exception bootstrapping service: {e}",
                 "plist_path": str(plist_path)
             }
-    
-    async def _install_linux_service(self, auto_start: bool, build: bool = False) -> Dict[str, Any]:
+
+    async def _install_linux_service(self, auto_start: bool, build: bool = False) -> dict[str, Any]:
         """Install Linux systemd service."""
 
         # Ensure memexd binary exists, build if requested
@@ -498,12 +496,12 @@ class MemexdServiceManager:
 
         try:
             service_dir.mkdir(parents=True, exist_ok=True)
-            
+
             # Get paths for memexd configuration
             config_path = self.get_config_path()
             log_path = self.get_log_path()
             pid_path = self.get_pid_path()
-            
+
             service_content = f'''[Unit]
 Description=Workspace Qdrant Daemon (memexd)
 After=network.target
@@ -521,19 +519,19 @@ StandardError=append:{log_path}.error
 [Install]
 WantedBy=default.target
 '''
-            
+
             service_path.write_text(service_content)
-            
+
             # Reload systemd
             cmd = ["systemctl", "--user", "daemon-reload"]
             result = await asyncio.create_subprocess_exec(*cmd)
             await result.wait()
-            
+
             if auto_start:
                 cmd = ["systemctl", "--user", "enable", service_name]
                 result = await asyncio.create_subprocess_exec(*cmd)
                 await result.wait()
-            
+
             return {
                 "success": True,
                 "service_name": service_name,
@@ -544,14 +542,14 @@ WantedBy=default.target
                 "pid_path": str(pid_path),
                 "message": f"Service {service_name} installed successfully"
             }
-            
+
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Failed to install Linux service: {e}"
             }
-    
-    async def uninstall_service(self) -> Dict[str, Any]:
+
+    async def uninstall_service(self) -> dict[str, Any]:
         """Uninstall service with proper cleanup."""
         try:
             if self.system == "darwin":
@@ -560,67 +558,67 @@ WantedBy=default.target
                 return await self._uninstall_linux_service()
             else:
                 return {"success": False, "error": f"Unsupported platform: {self.system}"}
-                
+
         except Exception as e:
             logger.error("Service uninstall failed", error=str(e), exc_info=True)
             return {"success": False, "error": f"Uninstall failed: {e}"}
-    
-    async def _uninstall_macos_service(self) -> Dict[str, Any]:
+
+    async def _uninstall_macos_service(self) -> dict[str, Any]:
         """Uninstall macOS service with proper cleanup using modern bootout."""
         # Find the actual plist file - it might have a different service ID
         plist_dir = Path.home() / "Library" / "LaunchAgents"
         actual_plist = None
         actual_service_id = None
-        
+
         # Look for workspace-qdrant related plist files
         for plist_file in plist_dir.glob("*workspace-qdrant*.plist"):
             if plist_file.is_file():
                 actual_plist = plist_file
                 actual_service_id = plist_file.stem
                 break
-        
+
         if not actual_plist:
             return {
-                "success": False, 
+                "success": False,
                 "error": "Service not installed",
                 "suggestion": "No workspace-qdrant service found"
             }
-        
+
         try:
             # Stop service first and handle memexd shutdown bug
             await self._force_stop_service(actual_service_id)
             await asyncio.sleep(1)
-            
+
             # Bootout service using modern launchctl
             await self._bootout_service(actual_service_id)
             await asyncio.sleep(1)
-            
+
             # Remove plist file
             actual_plist.unlink()
-            
+
             # Cleanup PID file
             pid_file = self.get_pid_path()
             if pid_file.exists():
                 pid_file.unlink()
-            
+
             return {
                 "success": True,
                 "service_id": actual_service_id,
                 "plist_path": str(actual_plist),
                 "message": f"Service {actual_service_id} uninstalled successfully"
             }
-            
+
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Failed to uninstall service: {e}"
             }
-    
-    async def _bootout_service(self, service_id: Optional[str] = None) -> None:
+
+    async def _bootout_service(self, service_id: str | None = None) -> None:
         """Bootout service using modern launchctl, ignoring errors if not loaded."""
         try:
             gui_domain = f"gui/{os.getuid()}"
-            
+
             if service_id:
                 # Bootout specific service
                 cmd = ["launchctl", "bootout", gui_domain, service_id]
@@ -637,10 +635,10 @@ WantedBy=default.target
                         )
                         await result.communicate()
                 return
-                
+
                 # No service found to bootout
                 return
-            
+
             result = await asyncio.create_subprocess_exec(
                 *cmd,
                 stdout=subprocess.PIPE,
@@ -650,7 +648,7 @@ WantedBy=default.target
             # Don't check return code - bootout can fail if service not loaded
         except:
             pass  # Ignore bootout errors
-            
+
     async def _force_stop_service(self, service_id: str) -> None:
         """Force stop service, handling memexd shutdown bug with SIGKILL if necessary."""
         try:
@@ -663,10 +661,10 @@ WantedBy=default.target
                 stderr=subprocess.PIPE
             )
             await result.communicate()
-            
+
             # Wait for graceful shutdown
             await asyncio.sleep(3)
-            
+
             # Check if any memexd processes are still running
             ps_cmd = ["pgrep", "-f", "memexd"]
             ps_result = await asyncio.create_subprocess_exec(
@@ -675,11 +673,11 @@ WantedBy=default.target
                 stderr=subprocess.PIPE
             )
             ps_stdout, ps_stderr = await ps_result.communicate()
-            
+
             if ps_result.returncode == 0 and ps_stdout.decode().strip():
                 # memexd processes still running despite SIGTERM - force kill them
                 pids = [p.strip() for p in ps_stdout.decode().strip().split('\n') if p.strip().isdigit()]
-                
+
                 for pid in pids:
                     try:
                         # Force kill the stubborn memexd process
@@ -692,42 +690,42 @@ WantedBy=default.target
                         await kill_result.communicate()
                     except:
                         pass  # Ignore kill errors
-                        
+
         except:
             pass  # Ignore force stop errors
-    
-    async def _uninstall_linux_service(self) -> Dict[str, Any]:
+
+    async def _uninstall_linux_service(self) -> dict[str, Any]:
         """Uninstall Linux service."""
         service_name = f"{self.service_name}.service"
         service_path = Path.home() / ".config" / "systemd" / "user" / service_name
-        
+
         if not service_path.exists():
             return {"success": False, "error": "Service not installed"}
-        
+
         try:
             # Stop and disable
             for action in ["stop", "disable"]:
                 cmd = ["systemctl", "--user", action, service_name]
                 result = await asyncio.create_subprocess_exec(*cmd)
                 await result.wait()
-            
+
             service_path.unlink()
-            
+
             # Reload systemd
             cmd = ["systemctl", "--user", "daemon-reload"]
             result = await asyncio.create_subprocess_exec(*cmd)
             await result.wait()
-            
+
             return {
                 "success": True,
                 "service_name": service_name,
                 "message": f"Service {service_name} uninstalled successfully"
             }
-            
+
         except Exception as e:
             return {"success": False, "error": f"Failed to uninstall: {e}"}
-    
-    async def start_service(self) -> Dict[str, Any]:
+
+    async def start_service(self) -> dict[str, Any]:
         """Start service with proper error handling."""
         try:
             if self.system == "darwin":
@@ -739,31 +737,31 @@ WantedBy=default.target
         except Exception as e:
             logger.error("Service start failed", error=str(e), exc_info=True)
             return {"success": False, "error": f"Start failed: {e}"}
-    
-    async def _start_macos_service(self) -> Dict[str, Any]:
+
+    async def _start_macos_service(self) -> dict[str, Any]:
         """Start macOS service with proper service ID detection using modern launchctl."""
         # Find the actual plist file - it might have a different service ID
         plist_dir = Path.home() / "Library" / "LaunchAgents"
         actual_plist = None
         actual_service_id = None
-        
+
         # Look for workspace-qdrant related plist files
         for plist_file in plist_dir.glob("*workspace-qdrant*.plist"):
             if plist_file.is_file():
                 actual_plist = plist_file
                 actual_service_id = plist_file.stem
                 break
-        
+
         if not actual_plist:
             return {
                 "success": False,
                 "error": "Service not installed",
                 "suggestion": "Run 'wqm service install' first"
             }
-        
+
         try:
             gui_domain = f"gui/{os.getuid()}"
-            
+
             # Check if service is bootstrapped, if not bootstrap it first
             list_cmd = ["launchctl", "list", actual_service_id]
             list_result = await asyncio.create_subprocess_exec(
@@ -772,7 +770,7 @@ WantedBy=default.target
                 stderr=subprocess.PIPE
             )
             await list_result.communicate()
-            
+
             if list_result.returncode != 0:
                 # Service not bootstrapped, bootstrap it first
                 bootstrap_cmd = ["launchctl", "bootstrap", gui_domain, str(actual_plist)]
@@ -782,7 +780,7 @@ WantedBy=default.target
                     stderr=subprocess.PIPE
                 )
                 bootstrap_stdout, bootstrap_stderr = await bootstrap_result.communicate()
-                
+
                 if bootstrap_result.returncode != 0:
                     error_msg = bootstrap_stderr.decode().strip() or bootstrap_stdout.decode().strip()
                     if "service already loaded" not in error_msg.lower():
@@ -791,7 +789,7 @@ WantedBy=default.target
                             "error": f"Failed to bootstrap service: {error_msg}",
                             "returncode": bootstrap_result.returncode
                         }
-            
+
             # Now use modern launchctl kickstart to start the service
             cmd = ["launchctl", "kickstart", "-k", gui_domain + "/" + actual_service_id]
             result = await asyncio.create_subprocess_exec(
@@ -800,7 +798,7 @@ WantedBy=default.target
                 stderr=subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
-            
+
             if result.returncode != 0:
                 error_msg = stderr.decode().strip() or stdout.decode().strip()
                 return {
@@ -808,11 +806,11 @@ WantedBy=default.target
                     "error": f"Failed to start service: {error_msg}",
                     "returncode": result.returncode
                 }
-            
+
             # Verify service started
             await asyncio.sleep(2)
             status = await self.get_service_status()
-            
+
             if status.get("success") and status.get("running"):
                 return {
                     "success": True,
@@ -829,17 +827,17 @@ WantedBy=default.target
                     "plist_path": str(actual_plist),
                     "debug_info": status
                 }
-            
+
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Exception starting service: {e}"
             }
-    
-    async def _start_linux_service(self) -> Dict[str, Any]:
+
+    async def _start_linux_service(self) -> dict[str, Any]:
         """Start Linux service."""
         service_name = f"{self.service_name}.service"
-        
+
         try:
             cmd = ["systemctl", "--user", "start", service_name]
             result = await asyncio.create_subprocess_exec(
@@ -848,27 +846,27 @@ WantedBy=default.target
                 stderr=subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
-            
+
             if result.returncode != 0:
                 error_msg = stderr.decode().strip()
                 return {
                     "success": False,
                     "error": f"Failed to start service: {error_msg}"
                 }
-            
+
             return {
                 "success": True,
                 "service_name": service_name,
                 "message": "Service started successfully"
             }
-            
+
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Exception starting service: {e}"
             }
-    
-    async def stop_service(self) -> Dict[str, Any]:
+
+    async def stop_service(self) -> dict[str, Any]:
         """Stop service with proper error handling."""
         try:
             if self.system == "darwin":
@@ -880,31 +878,31 @@ WantedBy=default.target
         except Exception as e:
             logger.error("Service stop failed", error=str(e), exc_info=True)
             return {"success": False, "error": f"Stop failed: {e}"}
-    
-    async def _stop_macos_service(self) -> Dict[str, Any]:
+
+    async def _stop_macos_service(self) -> dict[str, Any]:
         """Stop macOS service using modern launchctl and handle memexd shutdown bug."""
         try:
             # Find the actual plist file - it might have a different service ID
             plist_dir = Path.home() / "Library" / "LaunchAgents"
             actual_plist = None
             actual_service_id = None
-            
+
             # Look for workspace-qdrant related plist files
             for plist_file in plist_dir.glob("*workspace-qdrant*.plist"):
                 if plist_file.is_file():
                     actual_plist = plist_file
                     actual_service_id = plist_file.stem
                     break
-            
+
             if not actual_plist:
                 return {
                     "success": False,
                     "error": "No workspace-qdrant service found",
                     "suggestion": "Service may not be installed"
                 }
-            
+
             gui_domain = f"gui/{os.getuid()}"
-            
+
             # First try graceful stop using modern launchctl kill with SIGTERM
             cmd = ["launchctl", "kill", "TERM", gui_domain + "/" + actual_service_id]
             result = await asyncio.create_subprocess_exec(
@@ -913,10 +911,10 @@ WantedBy=default.target
                 stderr=subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
-            
+
             # Wait for graceful shutdown
             await asyncio.sleep(3)
-            
+
             # Check if any memexd processes are still running (memexd shutdown bug)
             ps_cmd = ["pgrep", "-f", "memexd"]
             ps_result = await asyncio.create_subprocess_exec(
@@ -925,7 +923,7 @@ WantedBy=default.target
                 stderr=subprocess.PIPE
             )
             ps_stdout, ps_stderr = await ps_result.communicate()
-            
+
             if ps_result.returncode == 0 and ps_stdout.decode().strip():
                 # memexd is stuck - force kill with SIGKILL due to shutdown bug
                 force_kill_cmd = ["launchctl", "kill", "KILL", gui_domain + "/" + actual_service_id]
@@ -935,10 +933,10 @@ WantedBy=default.target
                     stderr=subprocess.PIPE
                 )
                 await force_result.communicate()
-                
+
                 # Wait a moment for force kill to take effect
                 await asyncio.sleep(2)
-                
+
                 # Check again if processes are gone
                 final_ps_result = await asyncio.create_subprocess_exec(
                     *ps_cmd,
@@ -946,11 +944,11 @@ WantedBy=default.target
                     stderr=subprocess.PIPE
                 )
                 final_ps_stdout, final_ps_stderr = await final_ps_result.communicate()
-                
+
                 if final_ps_result.returncode == 0 and final_ps_stdout.decode().strip():
                     # Still running despite SIGKILL - manually kill remaining processes
                     pids = [p.strip() for p in final_ps_stdout.decode().strip().split('\n') if p.strip().isdigit()]
-                    
+
                     for pid in pids:
                         try:
                             manual_kill_cmd = ["kill", "-KILL", pid]
@@ -962,7 +960,7 @@ WantedBy=default.target
                             await manual_kill_result.communicate()
                         except:
                             pass  # Ignore manual kill errors
-                    
+
                     return {
                         "success": True,
                         "service_id": actual_service_id,
@@ -971,7 +969,7 @@ WantedBy=default.target
                         "method": "force_kill",
                         "status": "force_stopped"
                     }
-            
+
             # Verify final stop status
             status_cmd = ["launchctl", "list", actual_service_id]
             status_result = await asyncio.create_subprocess_exec(
@@ -980,12 +978,12 @@ WantedBy=default.target
                 stderr=subprocess.PIPE
             )
             status_stdout, status_stderr = await status_result.communicate()
-            
+
             if status_result.returncode == 0:
                 # Service is still loaded, check if it's actually stopped
                 output = status_stdout.decode().strip()
                 lines = output.split('\n')
-                
+
                 pid = None
                 for line in lines:
                     if '"PID" =' in line:
@@ -995,7 +993,7 @@ WantedBy=default.target
                                 pid = int(pid_str)
                         except (ValueError, IndexError):
                             pass
-                
+
                 if pid is None:
                     # Service is loaded but not running (stopped successfully)
                     return {
@@ -1025,44 +1023,44 @@ WantedBy=default.target
                     "method": "graceful_stop",
                     "status": "not_loaded"
                 }
-                
+
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Exception stopping service: {e}"
             }
-    
-    async def _stop_linux_service(self) -> Dict[str, Any]:
+
+    async def _stop_linux_service(self) -> dict[str, Any]:
         """Stop Linux service."""
         service_name = f"{self.service_name}.service"
-        
+
         try:
             cmd = ["systemctl", "--user", "stop", service_name]
             result = await asyncio.create_subprocess_exec(*cmd)
             await result.wait()
-            
+
             return {
                 "success": True,
                 "service_name": service_name,
                 "message": "Service stopped successfully"
             }
-            
+
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Exception stopping service: {e}"
             }
-    
-    async def restart_service(self) -> Dict[str, Any]:
+
+    async def restart_service(self) -> dict[str, Any]:
         """Restart service by stopping then starting."""
         stop_result = await self.stop_service()
         if not stop_result["success"]:
             return stop_result
-            
+
         await asyncio.sleep(2)
         return await self.start_service()
-    
-    async def get_service_status(self) -> Dict[str, Any]:
+
+    async def get_service_status(self) -> dict[str, Any]:
         """Get service status with proper error handling."""
         try:
             if self.system == "darwin":
@@ -1074,21 +1072,21 @@ WantedBy=default.target
         except Exception as e:
             logger.error("Service status check failed", error=str(e), exc_info=True)
             return {"success": False, "error": f"Status check failed: {e}"}
-    
-    async def _get_macos_service_status(self) -> Dict[str, Any]:
+
+    async def _get_macos_service_status(self) -> dict[str, Any]:
         """Get macOS service status using launchctl with proper service ID detection."""
         # Find the actual plist file - it might have a different service ID
         plist_dir = Path.home() / "Library" / "LaunchAgents"
         actual_plist = None
         actual_service_id = None
-        
+
         # Look for workspace-qdrant related plist files
         for plist_file in plist_dir.glob("*workspace-qdrant*.plist"):
             if plist_file.is_file():
                 actual_plist = plist_file
                 actual_service_id = plist_file.stem
                 break
-        
+
         if not actual_plist:
             return {
                 "success": True,
@@ -1096,7 +1094,7 @@ WantedBy=default.target
                 "running": False,
                 "message": "Service is not installed"
             }
-        
+
         try:
             # Use launchctl list to check service status
             cmd = ["launchctl", "list", actual_service_id]
@@ -1106,15 +1104,15 @@ WantedBy=default.target
                 stderr=subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
-            
+
             if result.returncode == 0:
                 # Service is loaded, parse output for PID
                 output = stdout.decode().strip()
                 lines = output.split('\n')
-                
+
                 pid = None
                 status = "loaded"
-                
+
                 for line in lines:
                     if '"PID" =' in line:
                         try:
@@ -1124,7 +1122,7 @@ WantedBy=default.target
                                 status = "running"
                         except (ValueError, IndexError):
                             pass
-                
+
                 # Double-check by looking for actual memexd processes
                 if not pid:
                     ps_cmd = ["pgrep", "-f", "memexd"]
@@ -1134,14 +1132,14 @@ WantedBy=default.target
                         stderr=subprocess.PIPE
                     )
                     ps_stdout, ps_stderr = await ps_result.communicate()
-                    
+
                     if ps_result.returncode == 0 and ps_stdout.decode().strip():
                         # Found memexd processes
                         pids = [p.strip() for p in ps_stdout.decode().strip().split('\n') if p.strip()]
                         if pids:
                             pid = int(pids[0])  # Use first PID
                             status = "running"
-                
+
                 return {
                     "success": True,
                     "status": status,
@@ -1160,7 +1158,7 @@ WantedBy=default.target
                     stderr=subprocess.PIPE
                 )
                 ps_stdout, ps_stderr = await ps_result.communicate()
-                
+
                 if ps_result.returncode == 0 and ps_stdout.decode().strip():
                     # Found memexd processes even though service not loaded
                     pids = [p.strip() for p in ps_stdout.decode().strip().split('\n') if p.strip()]
@@ -1183,18 +1181,18 @@ WantedBy=default.target
                         "plist_path": str(actual_plist),
                         "platform": "macOS"
                     }
-                
+
         except Exception as e:
             return {
                 "success": False,
                 "error": f"Exception checking service status: {e}",
                 "service_id": actual_service_id or self.service_id
             }
-    
-    async def _get_linux_service_status(self) -> Dict[str, Any]:
+
+    async def _get_linux_service_status(self) -> dict[str, Any]:
         """Get Linux service status using systemctl."""
         service_name = f"{self.service_name}.service"
-        
+
         try:
             cmd = ["systemctl", "--user", "is-active", service_name]
             result = await asyncio.create_subprocess_exec(
@@ -1203,10 +1201,10 @@ WantedBy=default.target
                 stderr=subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
-            
+
             status = stdout.decode().strip()
             running = status == "active"
-            
+
             return {
                 "success": True,
                 "status": status,
@@ -1214,7 +1212,7 @@ WantedBy=default.target
                 "service_name": service_name,
                 "platform": "Linux"
             }
-            
+
         except Exception as e:
             return {
                 "success": False,
@@ -1222,7 +1220,7 @@ WantedBy=default.target
                 "service_name": service_name
             }
 
-    async def get_service_logs(self, lines: int = 50) -> Dict[str, Any]:
+    async def get_service_logs(self, lines: int = 50) -> dict[str, Any]:
         """Get service logs with proper error handling."""
         try:
             if self.system == "darwin":
@@ -1235,14 +1233,14 @@ WantedBy=default.target
             logger.error("Service logs retrieval failed", error=str(e), exc_info=True)
             return {"success": False, "error": f"Logs retrieval failed: {e}"}
 
-    async def _get_macos_service_logs(self, lines: int) -> Dict[str, Any]:
+    async def _get_macos_service_logs(self, lines: int) -> dict[str, Any]:
         """Get macOS service logs."""
         log_path = self.get_log_path()
         log_files = [
             log_path,
             Path(str(log_path) + ".error")
         ]
-        
+
         logs = []
         for log_file in log_files:
             if log_file.exists():
@@ -1252,10 +1250,10 @@ WantedBy=default.target
                     logs.extend([f"[{log_file.name}] {line}" for line in log_lines if line.strip()])
                 except Exception as e:
                     logs.append(f"[{log_file.name}] Error reading log: {e}")
-        
+
         if not logs:
             logs = ["No logs found", "Check if service has been started"]
-        
+
         return {
             "success": True,
             "service_id": self.service_id,
@@ -1263,10 +1261,10 @@ WantedBy=default.target
             "lines_requested": lines
         }
 
-    async def _get_linux_service_logs(self, lines: int) -> Dict[str, Any]:
+    async def _get_linux_service_logs(self, lines: int) -> dict[str, Any]:
         """Get Linux service logs."""
         service_name = f"{self.service_name}.service"
-        
+
         try:
             cmd = ["journalctl", "--user", "-u", service_name, "-n", str(lines), "--no-pager"]
             result = await asyncio.create_subprocess_exec(
@@ -1275,19 +1273,19 @@ WantedBy=default.target
                 stderr=subprocess.PIPE
             )
             stdout, stderr = await result.communicate()
-            
+
             if result.returncode == 0:
                 logs = stdout.decode().strip().split('\n')
             else:
                 logs = [f"Error getting logs: {stderr.decode()}"]
-            
+
             return {
                 "success": True,
                 "service_name": service_name,
                 "logs": logs,
                 "lines_requested": lines
             }
-            
+
         except Exception as e:
             return {
                 "success": False,
@@ -1313,7 +1311,7 @@ def install_service(
 
     async def _install():
         result = await service_manager.install_service(auto_start=auto_start, build=build)
-        
+
         if result["success"]:
             console.print(
                 Panel.fit(
@@ -1328,10 +1326,10 @@ def install_service(
             )
         else:
             error_text = f"❌ Installation failed!\n\nError: {result['error']}"
-            
+
             if 'suggestion' in result:
                 error_text += f"\n\n💡 Suggestion:\n{result['suggestion']}"
-            
+
             console.print(
                 Panel.fit(
                     error_text,
@@ -1350,7 +1348,7 @@ def uninstall_service() -> None:
 
     async def _uninstall():
         result = await service_manager.uninstall_service()
-        
+
         if result["success"]:
             console.print(
                 Panel.fit(
@@ -1380,7 +1378,7 @@ def start_service() -> None:
 
     async def _start():
         result = await service_manager.start_service()
-        
+
         if result["success"]:
             console.print(
                 Panel.fit(
@@ -1393,10 +1391,10 @@ def start_service() -> None:
             )
         else:
             error_text = f"❌ Failed to start service!\n\nError: {result['error']}"
-            
+
             if 'suggestion' in result:
                 error_text += f"\n\n💡 Suggestion:\n{result['suggestion']}"
-                
+
             console.print(
                 Panel.fit(
                     error_text,
@@ -1415,7 +1413,7 @@ def stop_service() -> None:
 
     async def _stop():
         result = await service_manager.stop_service()
-        
+
         if result["success"]:
             console.print(
                 Panel.fit(
@@ -1445,7 +1443,7 @@ def restart_service() -> None:
 
     async def _restart():
         result = await service_manager.restart_service()
-        
+
         if result["success"]:
             console.print(
                 Panel.fit(
@@ -1515,7 +1513,7 @@ def get_status(
 
             if verbose and running:
                 console.print("\n💡 Service is running and processing workspace events")
-                
+
         else:
             console.print(
                 Panel.fit(

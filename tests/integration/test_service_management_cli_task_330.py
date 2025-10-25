@@ -23,13 +23,13 @@ import platform
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Optional
 
 import pytest
 
 
 def run_wqm_command(
-    command: list, env: Optional[Dict] = None, timeout: int = 30
+    command: list, env: dict | None = None, timeout: int = 30
 ) -> subprocess.CompletedProcess:
     """Run wqm CLI command via subprocess."""
     full_command = ["uv", "run", "wqm"] + command
@@ -370,12 +370,12 @@ class TestServiceLifecycleIntegration:
         assert status_result.returncode == 0, f"Status check failed: {status_result.stderr}"
 
         # 3. Stop service
-        stop_result = run_wqm_command(["service", "stop"])
+        run_wqm_command(["service", "stop"])
         # Stop may succeed or fail depending on service state
         time.sleep(2)
 
         # 4. Start service
-        start_result = run_wqm_command(["service", "start"])
+        run_wqm_command(["service", "start"])
         # Start may succeed or fail depending on platform and service state
         time.sleep(2)
 
@@ -450,8 +450,8 @@ class TestMacOSServiceIntegration:
         time.sleep(5)  # Allow service time to create logs
 
         # Check for log files
-        log_file = Path("/tmp/workspace-qdrant-daemon.log")
-        error_log_file = Path("/tmp/workspace-qdrant-daemon.error.log")
+        Path("/tmp/workspace-qdrant-daemon.log")
+        Path("/tmp/workspace-qdrant-daemon.error.log")
 
         # At least one log file should exist
         # (Service might not start depending on environment)

@@ -12,13 +12,9 @@ import asyncio
 import statistics
 import tempfile
 from pathlib import Path
-from typing import Dict, List
 from unittest.mock import MagicMock
 
 import pytest
-from qdrant_client import QdrantClient
-from qdrant_client.http import models
-
 from common.core.context_injection import (
     ClaudeMdFileTrigger,
     RuleFilter,
@@ -35,6 +31,8 @@ from common.core.context_injection import (
 from common.core.context_injection.formatters import FormatManager
 from common.core.memory import AuthorityLevel, MemoryCategory, MemoryManager, MemoryRule
 from common.core.ssl_config import suppress_qdrant_ssl_warnings
+from qdrant_client import QdrantClient
+from qdrant_client.http import models
 
 
 class ContextInjectionBenchmarkFixtures:
@@ -129,7 +127,7 @@ class ContextInjectionBenchmarkFixtures:
         client.upsert(collection_name=collection_name, points=points)
 
     @staticmethod
-    def create_sample_rules(num_rules: int) -> List[MemoryRule]:
+    def create_sample_rules(num_rules: int) -> list[MemoryRule]:
         """
         Create sample MemoryRule objects for benchmarking.
 
@@ -172,7 +170,7 @@ class ContextInjectionBenchmarkFixtures:
 
 
 # Helper function for percentile calculation
-def calculate_percentiles(benchmark_stats) -> Dict[str, float]:
+def calculate_percentiles(benchmark_stats) -> dict[str, float]:
     """
     Calculate percentile metrics from benchmark stats.
 

@@ -11,12 +11,11 @@ Usage:
     wqm messages retry --queue-type=retry  # Retry all items from retry queue
 """
 
-import asyncio
 import json
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import typer
 from loguru import logger
@@ -28,7 +27,6 @@ from ..utils import (
     error_message,
     handle_async,
     success_message,
-    warning_message,
 )
 
 # Create the messages app
@@ -121,12 +119,12 @@ def truncate_text(text: str, max_length: int = 60) -> str:
 
 @messages_app.command("list")
 def list_messages(
-    severity: Optional[str] = typer.Option(
+    severity: str | None = typer.Option(
         None,
         "--severity",
         help="Filter by severity (error, warning, info)",
     ),
-    queue_type: Optional[str] = typer.Option(
+    queue_type: str | None = typer.Option(
         None,
         "--queue-type",
         help="Filter by queue type (processing, missing_metadata, retry)",
@@ -146,7 +144,7 @@ def list_messages(
         "--format",
         help="Output format: table or json",
     ),
-    tenant_id: Optional[str] = typer.Option(
+    tenant_id: str | None = typer.Option(
         None,
         "--tenant-id",
         help="Filter by tenant ID",
@@ -160,12 +158,12 @@ def list_messages(
 
 
 async def _list_messages(
-    severity: Optional[str],
-    queue_type: Optional[str],
+    severity: str | None,
+    queue_type: str | None,
     days: int,
     limit: int,
     format: str,
-    tenant_id: Optional[str],
+    tenant_id: str | None,
 ) -> None:
     """Implementation of list_messages command."""
     try:
@@ -187,7 +185,7 @@ async def _list_messages(
             FROM messages m
             WHERE m.occurred_timestamp >= datetime('now', ?)
         """
-        params: List[Any] = [f'-{days} days']
+        params: list[Any] = [f'-{days} days']
 
         # Apply filters
         if severity:
@@ -266,11 +264,11 @@ async def _list_messages(
 
 @messages_app.command("retry")
 def retry_messages(
-    item_id: Optional[int] = typer.Argument(
+    item_id: int | None = typer.Argument(
         None,
         help="Specific message/item ID to retry",
     ),
-    queue_type: Optional[str] = typer.Option(
+    queue_type: str | None = typer.Option(
         None,
         "--queue-type",
         help="Retry all items from queue type (retry, missing_metadata)",
@@ -295,8 +293,8 @@ def retry_messages(
 
 
 async def _retry_messages(
-    item_id: Optional[int],
-    queue_type: Optional[str],
+    item_id: int | None,
+    queue_type: str | None,
     dry_run: bool,
     force: bool,
 ) -> None:

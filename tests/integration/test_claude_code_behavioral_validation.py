@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Optional
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
@@ -88,8 +88,8 @@ class ComplianceMetrics:
     rules_applied: int
     rules_followed: int
     compliance_rate: float
-    violations: List[str] = field(default_factory=list)
-    partial_compliance: List[str] = field(default_factory=list)
+    violations: list[str] = field(default_factory=list)
+    partial_compliance: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -149,11 +149,11 @@ class ScenarioDefinition:
     name: str
     behavior_type: BehaviorType
     prompt: str
-    rules: List[MemoryRule]
-    expected_patterns: List[str] = field(default_factory=list)
-    forbidden_patterns: List[str] = field(default_factory=list)
-    quality_criteria: Dict[str, Any] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    rules: list[MemoryRule]
+    expected_patterns: list[str] = field(default_factory=list)
+    forbidden_patterns: list[str] = field(default_factory=list)
+    quality_criteria: dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -183,9 +183,9 @@ class BehavioralTestResult:
     token_metrics: TokenMetrics
     behavior_changed: bool
     test_passed: bool
-    failure_reason: Optional[str] = None
+    failure_reason: str | None = None
     execution_time_ms: float = 0.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 class RuleComplianceChecker:
@@ -201,7 +201,7 @@ class RuleComplianceChecker:
         pass
 
     def check_compliance(
-        self, response: str, rules: List[MemoryRule]
+        self, response: str, rules: list[MemoryRule]
     ) -> ComplianceMetrics:
         """
         Check if response complies with rules.
@@ -276,7 +276,7 @@ class RuleComplianceChecker:
 
     def _extract_validation_patterns(
         self, rule: MemoryRule
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Extract validation patterns from rule metadata.
 
@@ -328,7 +328,7 @@ class RuleComplianceChecker:
         else:
             return "none"
 
-    def _extract_keywords(self, rule_text: str) -> List[str]:
+    def _extract_keywords(self, rule_text: str) -> list[str]:
         """
         Extract important keywords from rule text.
 
@@ -379,7 +379,7 @@ class ResponseComparator:
         with_rules: str,
         without_rules: str,
         scenario: ScenarioDefinition,
-    ) -> Tuple[bool, Dict[str, Any]]:
+    ) -> tuple[bool, dict[str, Any]]:
         """
         Compare two responses to detect behavioral changes.
 
@@ -438,7 +438,7 @@ class ResponseComparator:
 
     def _detect_structural_changes(
         self, with_rules: str, without_rules: str
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Detect structural changes in code/content.
 
@@ -483,7 +483,7 @@ class ResponseComparator:
 
     def _detect_style_changes(
         self, with_rules: str, without_rules: str
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Detect code style changes.
 
@@ -794,7 +794,7 @@ class BehavioralValidator:
         self,
         prompt: str,
         inject_rules: bool,
-        rules: Optional[List[MemoryRule]] = None,
+        rules: list[MemoryRule] | None = None,
     ) -> str:
         """
         Get response from Claude (mocked or real).
@@ -820,7 +820,7 @@ class BehavioralValidator:
         self,
         prompt: str,
         with_rules: bool,
-        rules: Optional[List[MemoryRule]] = None,
+        rules: list[MemoryRule] | None = None,
     ) -> str:
         """
         Generate mock response for automated testing.
@@ -873,7 +873,6 @@ def process_data(data):
             if "type hint" in rule.rule.lower() or "typing" in rule.rule.lower():
                 # Add type hints
                 enhanced_response = '''
-from typing import List
 
 def process_data(data: List[float]) -> List[float]:
     """
@@ -895,7 +894,6 @@ def process_data(data: List[float]) -> List[float]:
             if "error handling" in rule.rule.lower() or "exception" in rule.rule.lower():
                 # Add error handling
                 enhanced_response = '''
-from typing import List
 
 def process_data(data: List[float]) -> List[float]:
     """
@@ -927,7 +925,7 @@ def process_data(data: List[float]) -> List[float]:
         return enhanced_response
 
     def _calculate_token_metrics(
-        self, response: str, rules: List[MemoryRule]
+        self, response: str, rules: list[MemoryRule]
     ) -> TokenMetrics:
         """
         Calculate token usage metrics.

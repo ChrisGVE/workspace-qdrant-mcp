@@ -7,7 +7,8 @@ and Rust daemon components, including error scenarios and realistic behavior sim
 
 import asyncio
 import random
-from typing import Any, AsyncIterator, Dict, List, Optional, Union
+from collections.abc import AsyncIterator
+from typing import Any, Optional, Union
 from unittest.mock import AsyncMock, Mock
 
 import grpc
@@ -70,9 +71,9 @@ class MockGRPCException(grpc.RpcError):
 class GRPCClientMock:
     """Mock gRPC client for daemon communication."""
 
-    def __init__(self, error_injector: Optional[GRPCErrorInjector] = None):
+    def __init__(self, error_injector: GRPCErrorInjector | None = None):
         self.error_injector = error_injector or GRPCErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
         self.connected = False
         self.channel = None
         self.performance_delays = {
@@ -155,7 +156,7 @@ class GRPCClientMock:
                                    collection_name: str,
                                    document_path: str,
                                    content: str,
-                                   metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                                   metadata: dict[str, Any] | None = None) -> dict[str, Any]:
         """Mock document ingestion through gRPC."""
         await self._inject_grpc_error("ingestion")
 
@@ -182,7 +183,7 @@ class GRPCClientMock:
                                    collection_name: str,
                                    query: str,
                                    limit: int = 10,
-                                   filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                                   filters: dict[str, Any] | None = None) -> dict[str, Any]:
         """Mock document search through gRPC."""
         await self._inject_grpc_error("search")
 
@@ -218,7 +219,7 @@ class GRPCClientMock:
             "search_time_ms": random.randint(10, 100)
         }
 
-    async def _mock_get_daemon_status(self) -> Dict[str, Any]:
+    async def _mock_get_daemon_status(self) -> dict[str, Any]:
         """Mock daemon status retrieval."""
         await self._inject_grpc_error("status")
 
@@ -238,7 +239,7 @@ class GRPCClientMock:
 
     async def _mock_create_collection(self,
                                      collection_name: str,
-                                     config: Dict[str, Any]) -> Dict[str, Any]:
+                                     config: dict[str, Any]) -> dict[str, Any]:
         """Mock collection creation through gRPC."""
         await self._inject_grpc_error("collection_ops")
 
@@ -258,7 +259,7 @@ class GRPCClientMock:
             "distance_metric": config.get("distance_metric", "cosine")
         }
 
-    async def _mock_delete_collection(self, collection_name: str) -> Dict[str, Any]:
+    async def _mock_delete_collection(self, collection_name: str) -> dict[str, Any]:
         """Mock collection deletion through gRPC."""
         await self._inject_grpc_error("collection_ops")
 
@@ -276,8 +277,8 @@ class GRPCClientMock:
         }
 
     async def _mock_watch_files(self,
-                               paths: List[str],
-                               event_types: List[str]) -> AsyncIterator[Dict[str, Any]]:
+                               paths: list[str],
+                               event_types: list[str]) -> AsyncIterator[dict[str, Any]]:
         """Mock file watching through gRPC streaming."""
         await self._inject_grpc_error("watch_files")
 
@@ -302,7 +303,7 @@ class GRPCClientMock:
 
     async def _mock_get_metadata(self,
                                 document_id: str,
-                                collection_name: str) -> Dict[str, Any]:
+                                collection_name: str) -> dict[str, Any]:
         """Mock metadata retrieval through gRPC."""
         await self._inject_grpc_error("search")
 
@@ -327,7 +328,7 @@ class GRPCClientMock:
             }
         }
 
-    def get_operation_history(self) -> List[Dict[str, Any]]:
+    def get_operation_history(self) -> list[dict[str, Any]]:
         """Get history of gRPC operations."""
         return self.operation_history.copy()
 
@@ -342,9 +343,9 @@ class GRPCClientMock:
 class GRPCServerMock:
     """Mock gRPC server for testing server-side functionality."""
 
-    def __init__(self, error_injector: Optional[GRPCErrorInjector] = None):
+    def __init__(self, error_injector: GRPCErrorInjector | None = None):
         self.error_injector = error_injector or GRPCErrorInjector()
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
         self.running = False
         self.port = None
 
@@ -406,10 +407,10 @@ class GRPCServerMock:
 class DaemonCommunicationMock:
     """High-level mock for daemon communication patterns."""
 
-    def __init__(self, error_injector: Optional[GRPCErrorInjector] = None):
+    def __init__(self, error_injector: GRPCErrorInjector | None = None):
         self.error_injector = error_injector or GRPCErrorInjector()
         self.client = GRPCClientMock(error_injector)
-        self.operation_history: List[Dict[str, Any]] = []
+        self.operation_history: list[dict[str, Any]] = []
 
         # Setup high-level method mocks
         self._setup_communication_methods()
@@ -422,7 +423,7 @@ class DaemonCommunicationMock:
         self.bulk_ingest = AsyncMock(side_effect=self._mock_bulk_ingest)
         self.stream_search_results = AsyncMock(side_effect=self._mock_stream_search_results)
 
-    async def _mock_initialize_daemon(self, config: Dict[str, Any]) -> Dict[str, Any]:
+    async def _mock_initialize_daemon(self, config: dict[str, Any]) -> dict[str, Any]:
         """Mock daemon initialization."""
         await self.client.connect()
 
@@ -437,7 +438,7 @@ class DaemonCommunicationMock:
             "supported_features": ["ingestion", "search", "watching"]
         }
 
-    async def _mock_shutdown_daemon(self) -> Dict[str, Any]:
+    async def _mock_shutdown_daemon(self) -> dict[str, Any]:
         """Mock daemon shutdown."""
         await self.client.disconnect()
 
@@ -450,7 +451,7 @@ class DaemonCommunicationMock:
             "final_operations_count": len(self.client.operation_history)
         }
 
-    async def _mock_health_check(self) -> Dict[str, Any]:
+    async def _mock_health_check(self) -> dict[str, Any]:
         """Mock daemon health check."""
         status = await self.client.get_daemon_status()
 
@@ -466,8 +467,8 @@ class DaemonCommunicationMock:
         }
 
     async def _mock_bulk_ingest(self,
-                               documents: List[Dict[str, Any]],
-                               collection_name: str) -> Dict[str, Any]:
+                               documents: list[dict[str, Any]],
+                               collection_name: str) -> dict[str, Any]:
         """Mock bulk document ingestion."""
         results = []
 
@@ -499,7 +500,7 @@ class DaemonCommunicationMock:
 
     async def _mock_stream_search_results(self,
                                          query: str,
-                                         collections: List[str]) -> AsyncIterator[Dict[str, Any]]:
+                                         collections: list[str]) -> AsyncIterator[dict[str, Any]]:
         """Mock streaming search across multiple collections."""
         for collection in collections:
             try:
@@ -523,7 +524,7 @@ class DaemonCommunicationMock:
 
             await asyncio.sleep(0.05)  # Simulate streaming delay
 
-    def get_operation_history(self) -> List[Dict[str, Any]]:
+    def get_operation_history(self) -> list[dict[str, Any]]:
         """Get combined operation history."""
         return self.operation_history + self.client.get_operation_history()
 
@@ -538,7 +539,7 @@ def create_grpc_mock(
     component: str = "client",
     with_error_injection: bool = False,
     error_probability: float = 0.1
-) -> Union[GRPCClientMock, GRPCServerMock, DaemonCommunicationMock]:
+) -> GRPCClientMock | GRPCServerMock | DaemonCommunicationMock:
     """
     Create a gRPC mock component with optional error injection.
 

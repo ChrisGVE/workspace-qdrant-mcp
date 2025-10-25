@@ -15,22 +15,29 @@ import os
 import shutil
 import tempfile
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 
-from src.python.common.core.lsp_client import AsyncioLspClient, ConnectionState, LspError
-from src.python.common.core.lsp_metadata_extractor import (
-    LspMetadataExtractor,
-    CodeSymbol,
-    SymbolKind,
-    FileMetadata,
+from src.python.common.core.lsp_client import (
+    AsyncioLspClient,
+    ConnectionState,
+    LspError,
 )
-from src.python.common.core.lsp_detector import LSPDetector, LSPDetectionResult, LSPServerInfo
 from src.python.common.core.lsp_config import LSPConfig
-from tests.mocks.lsp_mocks import LSPServerMock, LSPErrorInjector
-
+from src.python.common.core.lsp_detector import (
+    LSPDetectionResult,
+    LSPDetector,
+    LSPServerInfo,
+)
+from src.python.common.core.lsp_metadata_extractor import (
+    CodeSymbol,
+    FileMetadata,
+    LspMetadataExtractor,
+    SymbolKind,
+)
+from tests.mocks.lsp_mocks import LSPErrorInjector, LSPServerMock
 
 # ============================================================================
 # Fixtures
@@ -549,7 +556,6 @@ class TestCodeStructureAnalysis:
         file_path = temp_workspace / "with_imports.py"
         content = '''import os
 from pathlib import Path
-from typing import Dict, List
 
 def process_path(p: Path) -> str:
     return str(p)
@@ -588,13 +594,13 @@ class TestErrorHandling:
         with patch.object(extractor, 'lsp_clients', {'python': mock_server}):
             # Extract metadata - should handle errors gracefully or raise
             try:
-                metadata = await extractor.extract_file_metadata(
+                await extractor.extract_file_metadata(
                     file_path=sample_python_file,
                     force_refresh=True
                 )
                 # May return None on error (graceful degradation)
                 # or may raise exception depending on error severity
-            except (Exception,):
+            except Exception:
                 # Error handling is working
                 pass
 
@@ -609,12 +615,12 @@ class TestErrorHandling:
         with patch.object(extractor, 'lsp_clients', {'python': mock_server}):
             # Extract metadata - should handle protocol errors
             try:
-                metadata = await extractor.extract_file_metadata(
+                await extractor.extract_file_metadata(
                     file_path=sample_python_file,
                     force_refresh=True
                 )
                 # May return None or raise depending on error
-            except (Exception,):
+            except Exception:
                 # Protocol error handling is working
                 pass
 
@@ -630,7 +636,7 @@ class TestErrorHandling:
 
         with patch.object(extractor, 'lsp_clients', {'python': mock_lsp_server}):
             # Should handle timeout gracefully
-            metadata = await extractor.extract_file_metadata(
+            await extractor.extract_file_metadata(
                 file_path=sample_python_file,
                 force_refresh=True
             )

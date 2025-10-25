@@ -61,9 +61,8 @@ CLI Usage:
 
 import logging
 import os
-import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlparse
 
 import typer
@@ -172,16 +171,14 @@ class ConfigValidator:
             ```
         """
         try:
-            import warnings
-            import urllib3
-            
+
             # Create client and test connection with SSL warning suppression
             from ..core.ssl_config import suppress_qdrant_ssl_warnings
             with suppress_qdrant_ssl_warnings():
                 client = QdrantClient(**self.config.qdrant_client_config)
                 client.get_collections()
                 client.close()
-            
+
             return True, "Qdrant successfully connected to server"
         except Exception as e:
             return False, str(e)
@@ -572,16 +569,14 @@ class ConfigValidator:
     def _test_qdrant_connection(self) -> bool:
         """Test connection to Qdrant instance."""
         try:
-            import warnings
-            import urllib3
-            
+
             # Test connection with SSL warning suppression
             from ..core.ssl_config import suppress_qdrant_ssl_warnings
             with suppress_qdrant_ssl_warnings():
                 client = QdrantClient(**self.config.qdrant_client_config)
                 client.get_collections()
                 client.close()
-            
+
             return True
         except Exception as e:
             logger.debug("Qdrant connection test failed: %s", e)

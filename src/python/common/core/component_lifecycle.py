@@ -37,24 +37,22 @@ Example:
 """
 
 import asyncio
-import json
 import time
 import traceback
 import uuid
-from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any
 
 from loguru import logger
 
 from common.core.component_coordination import (
     ComponentCoordinator,
-    ComponentType,
-    ComponentStatus,
     ComponentHealth,
+    ComponentStatus,
+    ComponentType,
     ProcessingQueueType,
     get_component_coordinator,
 )
@@ -116,11 +114,11 @@ class ComponentConfig:
     shutdown_timeout: float = 15.0
     health_check_interval: float = 5.0
     max_startup_retries: int = 3
-    readiness_checks: List[str] = None
-    config_overrides: Dict[str, Any] = None
-    environment_variables: Dict[str, str] = None
-    startup_command: Optional[str] = None
-    shutdown_command: Optional[str] = None
+    readiness_checks: list[str] = None
+    config_overrides: dict[str, Any] = None
+    environment_variables: dict[str, str] = None
+    startup_command: str | None = None
+    shutdown_command: str | None = None
 
     def __post_init__(self):
         if self.readiness_checks is None:
@@ -140,10 +138,10 @@ class LifecycleEvent:
     phase: LifecyclePhase
     event_type: str  # startup, shutdown, failure, recovery
     message: str
-    details: Dict[str, Any] = None
-    duration_ms: Optional[float] = None
+    details: dict[str, Any] = None
+    duration_ms: float | None = None
     success: bool = True
-    error_message: Optional[str] = None
+    error_message: str | None = None
     timestamp: datetime = None
 
     def __post_init__(self):
@@ -225,9 +223,9 @@ class ComponentLifecycleManager:
     def __init__(
         self,
         db_path: str = "workspace_state.db",
-        project_name: Optional[str] = None,
-        project_path: Optional[str] = None,
-        component_configs: Optional[Dict[ComponentType, ComponentConfig]] = None
+        project_name: str | None = None,
+        project_path: str | None = None,
+        component_configs: dict[ComponentType, ComponentConfig] | None = None
     ):
         """
         Initialize Component Lifecycle Manager.
@@ -243,7 +241,7 @@ class ComponentLifecycleManager:
         self.project_path = project_path or str(Path.cwd())
 
         # Component coordination
-        self.coordinator: Optional[ComponentCoordinator] = None
+        self.coordinator: ComponentCoordinator | None = None
 
         # Component configurations
         self.component_configs = {**self.DEFAULT_CONFIGS}
@@ -251,21 +249,21 @@ class ComponentLifecycleManager:
             self.component_configs.update(component_configs)
 
         # Component instances and state tracking
-        self.component_instances: Dict[ComponentType, Any] = {}
-        self.component_states: Dict[ComponentType, ComponentState] = {}
-        self.startup_events: List[LifecycleEvent] = []
+        self.component_instances: dict[ComponentType, Any] = {}
+        self.component_states: dict[ComponentType, ComponentState] = {}
+        self.startup_events: list[LifecycleEvent] = []
 
         # Lifecycle state
         self.current_phase = LifecyclePhase.INITIALIZATION
-        self.startup_start_time: Optional[datetime] = None
-        self.shutdown_start_time: Optional[datetime] = None
+        self.startup_start_time: datetime | None = None
+        self.shutdown_start_time: datetime | None = None
 
         # Background tasks
-        self._lifecycle_tasks: List[asyncio.Task] = []
+        self._lifecycle_tasks: list[asyncio.Task] = []
         self._shutdown_event = asyncio.Event()
 
         # Daemon management
-        self.daemon_manager: Optional[DaemonManager] = None
+        self.daemon_manager: DaemonManager | None = None
 
         # Initialize component states
         for component_type in self.component_configs.keys():
@@ -532,7 +530,7 @@ class ComponentLifecycleManager:
             logger.error(f"Failed to restart component {component_type.value}: {e}")
             return False
 
-    async def get_component_status(self) -> Dict[str, Any]:
+    async def get_component_status(self) -> dict[str, Any]:
         """
         Get comprehensive status of all components and lifecycle manager.
 
@@ -625,7 +623,7 @@ class ComponentLifecycleManager:
     async def _start_dependency_level(
         self,
         dependency: StartupDependency,
-        components: List[ComponentType]
+        components: list[ComponentType]
     ):
         """Start all components at a specific dependency level."""
         logger.info(
@@ -811,7 +809,7 @@ class ComponentLifecycleManager:
             logger.info("Starting Python MCP server")
 
             # Import server module
-            from workspace_qdrant_mcp.server import app, Config
+            from workspace_qdrant_mcp.server import Config
 
             # Create server configuration
             server_config = Config()
@@ -989,7 +987,7 @@ class ComponentLifecycleManager:
     async def _shutdown_dependency_level(
         self,
         dependency: StartupDependency,
-        components: List[ComponentType]
+        components: list[ComponentType]
     ):
         """Shutdown all components at a specific dependency level."""
         logger.info(
@@ -1012,7 +1010,7 @@ class ComponentLifecycleManager:
 
     async def _shutdown_component(self, component_type: ComponentType):
         """Shutdown a specific component."""
-        config = self.component_configs[component_type]
+        self.component_configs[component_type]
 
         try:
             logger.info(f"Shutting down component: {component_type.value}")
@@ -1069,8 +1067,8 @@ class ComponentLifecycleManager:
         """Monitor component health and handle failures."""
         while not self._shutdown_event.is_set():
             try:
-                for component_type, instance in self.component_instances.items():
-                    config = self.component_configs[component_type]
+                for component_type, _instance in self.component_instances.items():
+                    self.component_configs[component_type]
 
                     # Skip if component is not operational
                     if self.component_states[component_type] != ComponentState.OPERATIONAL:
@@ -1147,9 +1145,9 @@ class ComponentLifecycleManager:
         event_type: str,
         message: str,
         success: bool = True,
-        error_message: Optional[str] = None,
-        duration_ms: Optional[float] = None,
-        details: Optional[Dict[str, Any]] = None
+        error_message: str | None = None,
+        duration_ms: float | None = None,
+        details: dict[str, Any] | None = None
     ):
         """Log a lifecycle event for monitoring and debugging."""
         event = LifecycleEvent(
@@ -1202,14 +1200,14 @@ class ComponentLifecycleManager:
 
 
 # Global lifecycle manager instance
-_lifecycle_manager: Optional[ComponentLifecycleManager] = None
+_lifecycle_manager: ComponentLifecycleManager | None = None
 
 
 async def get_lifecycle_manager(
     db_path: str = "workspace_state.db",
-    project_name: Optional[str] = None,
-    project_path: Optional[str] = None,
-    component_configs: Optional[Dict[ComponentType, ComponentConfig]] = None
+    project_name: str | None = None,
+    project_path: str | None = None,
+    component_configs: dict[ComponentType, ComponentConfig] | None = None
 ) -> ComponentLifecycleManager:
     """Get or create global lifecycle manager instance."""
     global _lifecycle_manager

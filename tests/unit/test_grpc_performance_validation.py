@@ -17,23 +17,27 @@ Performance Requirements Validation:
 """
 
 import asyncio
-import sys
-import time
-import statistics
 import resource
+import statistics
+import sys
 import threading
-from pathlib import Path
-from typing import Dict, Any, List, Optional, Tuple
-from unittest.mock import AsyncMock, MagicMock, patch
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Optional
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 
 # Add src/python to path for common module imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
 from workspace_qdrant_mcp.grpc.client import AsyncIngestClient
-from workspace_qdrant_mcp.grpc.connection_manager import GrpcConnectionManager, ConnectionConfig
+from workspace_qdrant_mcp.grpc.connection_manager import (
+    ConnectionConfig,
+    GrpcConnectionManager,
+)
 
 
 @dataclass
@@ -60,13 +64,13 @@ class PerformanceTestHarness:
     """Performance testing harness for gRPC operations."""
 
     def __init__(self):
-        self.metrics_history: List[PerformanceMetrics] = []
+        self.metrics_history: list[PerformanceMetrics] = []
         self.active_operations = 0
         self.peak_active_operations = 0
         self.total_bytes_sent = 0
         self.total_bytes_received = 0
 
-    async def run_performance_test(self, test_config: Dict) -> PerformanceMetrics:
+    async def run_performance_test(self, test_config: dict) -> PerformanceMetrics:
         """Run a comprehensive performance test with the given configuration."""
         print(f"🚀 Running performance test: {test_config['name']}")
 
@@ -158,7 +162,7 @@ class PerformanceTestHarness:
 
     async def _generate_connection_load(self, conn_id: int, operation_type: str,
                                        target_ops_per_sec: float, end_time: float,
-                                       latencies: List[float]) -> Dict:
+                                       latencies: list[float]) -> dict:
         """Generate load for a single connection."""
         operations_completed = 0
         operations_failed = 0
@@ -193,7 +197,7 @@ class PerformanceTestHarness:
 
         return {'completed': operations_completed, 'failed': operations_failed}
 
-    async def _execute_single_operation(self, operation_type: str) -> Dict:
+    async def _execute_single_operation(self, operation_type: str) -> dict:
         """Execute a single gRPC operation for performance testing."""
         start_time = time.time()
         self.active_operations += 1
@@ -237,8 +241,8 @@ class PerformanceTestHarness:
         finally:
             self.active_operations -= 1
 
-    async def _monitor_resources(self, memory_samples: List[float],
-                               cpu_samples: List[float], duration: float):
+    async def _monitor_resources(self, memory_samples: list[float],
+                               cpu_samples: list[float], duration: float):
         """Monitor system resources during performance testing."""
         start_time = time.time()
 
@@ -257,7 +261,7 @@ class PerformanceTestHarness:
 
             await asyncio.sleep(0.1)  # Sample every 100ms
 
-    def _calculate_latency_statistics(self, latencies: List[float]) -> Dict[str, float]:
+    def _calculate_latency_statistics(self, latencies: list[float]) -> dict[str, float]:
         """Calculate comprehensive latency statistics."""
         if not latencies:
             return {'avg': 0, 'min': 0, 'max': 0, 'p50': 0, 'p95': 0, 'p99': 0}
@@ -274,7 +278,7 @@ class PerformanceTestHarness:
             'p99': latencies[int(count * 0.99)]
         }
 
-    def generate_performance_report(self) -> Dict:
+    def generate_performance_report(self) -> dict:
         """Generate comprehensive performance analysis report."""
         if not self.metrics_history:
             return {"error": "No performance metrics available"}
@@ -317,7 +321,7 @@ class PerformanceTestHarness:
             ]
         }
 
-    def _calculate_trend(self, values: List[float]) -> str:
+    def _calculate_trend(self, values: list[float]) -> str:
         """Calculate trend direction for a series of values."""
         if len(values) < 2:
             return "insufficient_data"
@@ -587,7 +591,7 @@ class TestGrpcPerformanceValidation:
         self.test_results.extend(scaling_results)
         return scaling_results
 
-    def _analyze_scaling_degradation(self, scaling_results: List[Dict]) -> str:
+    def _analyze_scaling_degradation(self, scaling_results: list[dict]) -> str:
         """Analyze scaling degradation pattern."""
         if len(scaling_results) < 3:
             return "insufficient_data"
@@ -864,7 +868,7 @@ class TestGrpcPerformanceValidation:
         )
 
     def _analyze_performance_regression(self, baseline: PerformanceMetrics,
-                                      current: PerformanceMetrics) -> Dict:
+                                      current: PerformanceMetrics) -> dict:
         """Analyze performance changes between baseline and current metrics."""
         throughput_change = (current.throughput_ops_per_sec - baseline.throughput_ops_per_sec) / baseline.throughput_ops_per_sec
         latency_change = (current.avg_latency_ms - baseline.avg_latency_ms) / baseline.avg_latency_ms

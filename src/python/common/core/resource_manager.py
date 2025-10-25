@@ -11,20 +11,18 @@ import asyncio
 import gc
 import json
 import logging
-from collections import deque
-from loguru import logger
 import os
-import psutil
-import resource
-import signal
 import tempfile
-import threading
-import time
+from collections import deque
+from collections.abc import Callable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, asdict
-from pathlib import Path
-from typing import Dict, List, Optional, Set, Any, Callable, Deque
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Any
+
+import psutil
+from loguru import logger
 
 # logger imported from loguru
 
@@ -32,28 +30,28 @@ from datetime import datetime, timedelta
 @dataclass
 class ResourceLimits:
     """Resource limits for a daemon instance."""
-    
+
     # Memory limits (in MB)
     max_memory_mb: int = 512
     memory_warning_threshold: float = 0.8  # 80% of max
     memory_critical_threshold: float = 0.95  # 95% of max
-    
+
     # CPU limits
     max_cpu_percent: float = 50.0  # Max CPU usage percentage
     cpu_warning_threshold: float = 0.8  # 80% of max
     cpu_critical_threshold: float = 0.95  # 95% of max
-    
+
     # File descriptor limits
     max_open_files: int = 1024
     fd_warning_threshold: float = 0.8
-    
+
     # Connection limits
     max_grpc_connections: int = 100
     max_qdrant_connections: int = 10
-    
+
     # Process limits
     max_child_processes: int = 4
-    
+
     # Timeout limits (in seconds)
     processing_timeout: float = 300.0  # 5 minutes
     connection_timeout: float = 30.0
@@ -62,35 +60,35 @@ class ResourceLimits:
 @dataclass
 class ResourceUsage:
     """Current resource usage for a daemon instance."""
-    
+
     timestamp: datetime
     project_id: str
     pid: int
-    
+
     # Memory usage
     memory_mb: float = 0.0
     memory_percent: float = 0.0
-    
+
     # CPU usage
     cpu_percent: float = 0.0
-    
+
     # File descriptors
     open_files: int = 0
-    
+
     # Network connections
     active_connections: int = 0
     grpc_connections: int = 0
     qdrant_connections: int = 0
-    
+
     # Process information
     child_processes: int = 0
     thread_count: int = 0
-    
+
     # Status flags
     is_healthy: bool = True
-    warnings: List[str] = None
-    errors: List[str] = None
-    
+    warnings: list[str] = None
+    errors: list[str] = None
+
     def __post_init__(self):
         if self.warnings is None:
             self.warnings = []
@@ -101,7 +99,7 @@ class ResourceUsage:
 @dataclass
 class ResourceAlert:
     """Resource usage alert."""
-    
+
     timestamp: datetime
     project_id: str
     alert_type: str  # warning, critical, error
@@ -114,19 +112,19 @@ class ResourceAlert:
 class SharedResourcePool:
     """
     Manages shared resources across multiple daemon instances.
-    
+
     Coordinates access to shared resources like Qdrant connections,
     embedding models, and other expensive-to-create resources.
     """
-    
+
     def __init__(self):
-        self._qdrant_connections: Dict[str, Any] = {}
-        self._embedding_models: Dict[str, Any] = {}
-        self._connection_locks: Dict[str, asyncio.Lock] = {}
-        self._usage_counts: Dict[str, int] = {}
-        self._cleanup_tasks: Set[asyncio.Task] = set()
+        self._qdrant_connections: dict[str, Any] = {}
+        self._embedding_models: dict[str, Any] = {}
+        self._connection_locks: dict[str, asyncio.Lock] = {}
+        self._usage_counts: dict[str, int] = {}
+        self._cleanup_tasks: set[asyncio.Task] = set()
         self._lock = asyncio.Lock()
-    
+
     async def get_qdrant_connection(self, url: str, timeout: float = 30.0) -> Any:
         """Get or create a shared Qdrant connection."""
         async with self._lock:
@@ -134,23 +132,24 @@ class SharedResourcePool:
                 logger.info(f"Creating new shared Qdrant connection: {url}")
                 # Import here to avoid circular dependencies
                 from qdrant_client import AsyncQdrantClient
+
                 from .ssl_config import suppress_qdrant_ssl_warnings
-                
+
                 with suppress_qdrant_ssl_warnings():
                     client = AsyncQdrantClient(url=url, timeout=timeout)
                 self._qdrant_connections[url] = client
                 self._connection_locks[url] = asyncio.Lock()
                 self._usage_counts[url] = 0
-            
+
             self._usage_counts[url] += 1
             return self._qdrant_connections[url]
-    
+
     async def release_qdrant_connection(self, url: str) -> None:
         """Release a shared Qdrant connection."""
         async with self._lock:
             if url in self._usage_counts:
                 self._usage_counts[url] -= 1
-                
+
                 # Cleanup connection if no longer used
                 if self._usage_counts[url] <= 0:
                     logger.info(f"Cleaning up unused Qdrant connection: {url}")
@@ -163,7 +162,7 @@ class SharedResourcePool:
                             del self._qdrant_connections[url]
                             del self._connection_locks[url]
                             del self._usage_counts[url]
-    
+
     async def get_embedding_model(self, model_name: str) -> Any:
         """Get or create a shared embedding model."""
         async with self._lock:
@@ -209,7 +208,7 @@ class SharedResourcePool:
                             finally:
                                 del self._embedding_models[model_name]
                                 del self._usage_counts[usage_key]
-    
+
     async def cleanup_all(self) -> None:
         """Clean up all shared resources."""
         async with self._lock:
@@ -249,11 +248,11 @@ class SharedResourcePool:
 class ResourceMonitor:
     """
     Monitors resource usage for daemon instances.
-    
+
     Tracks memory, CPU, connections, and other resources with
     configurable thresholds and alerting.
     """
-    
+
     def __init__(self, project_id: str, limits: ResourceLimits):
         self.project_id = project_id
         self.limits = limits
@@ -261,16 +260,16 @@ class ResourceMonitor:
         self.process = psutil.Process(self.pid)
 
         self._monitoring = False
-        self._monitor_task: Optional[asyncio.Task] = None
-        self._alert_callbacks: List[Callable[[ResourceAlert], None]] = []
+        self._monitor_task: asyncio.Task | None = None
+        self._alert_callbacks: list[Callable[[ResourceAlert], None]] = []
         # Fix memory leak: Use deque with maxlen for O(1) operations instead of list.pop(0)
-        self._usage_history: Deque[ResourceUsage] = deque(maxlen=1000)
+        self._usage_history: deque[ResourceUsage] = deque(maxlen=1000)
         self._max_history = 1000  # Keep last 1000 measurements
-    
+
     def add_alert_callback(self, callback: Callable[[ResourceAlert], None]) -> None:
         """Add a callback to be called when alerts are generated."""
         self._alert_callbacks.append(callback)
-    
+
     async def start_monitoring(self, interval: float = 60.0) -> None:
         """
         Start resource monitoring.
@@ -284,7 +283,7 @@ class ResourceMonitor:
         self._monitoring = True
         self._monitor_task = asyncio.create_task(self._monitoring_loop(interval))
         logger.info(f"Started resource monitoring for project {self.project_id} with {interval}s interval")
-    
+
     async def stop_monitoring(self) -> None:
         """Stop resource monitoring."""
         self._monitoring = False
@@ -295,7 +294,7 @@ class ResourceMonitor:
             except asyncio.CancelledError:
                 pass
         logger.info(f"Stopped resource monitoring for project {self.project_id}")
-    
+
     async def get_current_usage(self) -> ResourceUsage:
         """Get current resource usage."""
         try:
@@ -303,16 +302,16 @@ class ResourceMonitor:
             memory_info = self.process.memory_info()
             memory_mb = memory_info.rss / (1024 * 1024)  # Convert to MB
             memory_percent = (memory_mb / self.limits.max_memory_mb) * 100
-            
+
             # CPU usage
             cpu_percent = self.process.cpu_percent()
-            
+
             # File descriptors
             try:
                 open_files = self.process.num_fds()
             except (AttributeError, psutil.AccessDenied):
                 open_files = 0
-            
+
             # Network connections
             try:
                 connections = self.process.connections()
@@ -321,7 +320,7 @@ class ResourceMonitor:
             except (psutil.AccessDenied, psutil.NoSuchProcess):
                 active_connections = 0
                 grpc_connections = 0
-            
+
             # Process information
             try:
                 child_processes = len(self.process.children())
@@ -329,7 +328,7 @@ class ResourceMonitor:
             except (psutil.AccessDenied, psutil.NoSuchProcess):
                 child_processes = 0
                 thread_count = 0
-            
+
             usage = ResourceUsage(
                 timestamp=datetime.now(),
                 project_id=self.project_id,
@@ -343,12 +342,12 @@ class ResourceMonitor:
                 child_processes=child_processes,
                 thread_count=thread_count
             )
-            
+
             # Check for alerts
             await self._check_thresholds(usage)
-            
+
             return usage
-            
+
         except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
             logger.warning(f"Error getting resource usage: {e}")
             return ResourceUsage(
@@ -358,7 +357,7 @@ class ResourceMonitor:
                 is_healthy=False,
                 errors=[str(e)]
             )
-    
+
     async def _monitoring_loop(self, interval: float) -> None:
         """Main monitoring loop."""
         try:
@@ -369,16 +368,16 @@ class ResourceMonitor:
                 self._usage_history.append(usage)
 
                 await asyncio.sleep(interval)
-                
+
         except asyncio.CancelledError:
             logger.debug("Resource monitoring loop cancelled")
         except Exception as e:
             logger.error(f"Error in resource monitoring loop: {e}")
-    
+
     async def _check_thresholds(self, usage: ResourceUsage) -> None:
         """Check resource usage against thresholds and generate alerts."""
         alerts = []
-        
+
         # Memory checks
         if usage.memory_percent >= self.limits.memory_critical_threshold * 100:
             alerts.append(ResourceAlert(
@@ -400,7 +399,7 @@ class ResourceMonitor:
                 threshold_value=self.limits.memory_warning_threshold * 100,
                 message=f"Memory usage {usage.memory_percent:.1f}% exceeds warning threshold"
             ))
-        
+
         # CPU checks
         cpu_threshold_percent = self.limits.max_cpu_percent
         if usage.cpu_percent >= cpu_threshold_percent * self.limits.cpu_critical_threshold:
@@ -423,7 +422,7 @@ class ResourceMonitor:
                 threshold_value=cpu_threshold_percent * self.limits.cpu_warning_threshold,
                 message=f"CPU usage {usage.cpu_percent:.1f}% exceeds warning threshold"
             ))
-        
+
         # File descriptor checks
         fd_percent = (usage.open_files / self.limits.max_open_files) * 100
         if fd_percent >= self.limits.fd_warning_threshold * 100:
@@ -436,7 +435,7 @@ class ResourceMonitor:
                 threshold_value=self.limits.fd_warning_threshold * 100,
                 message=f"File descriptor usage {fd_percent:.1f}% exceeds threshold"
             ))
-        
+
         # Process alerts
         for alert in alerts:
             for callback in self._alert_callbacks:
@@ -444,8 +443,8 @@ class ResourceMonitor:
                     callback(alert)
                 except Exception as e:
                     logger.error(f"Error in alert callback: {e}")
-    
-    def get_usage_history(self, limit: Optional[int] = None) -> List[ResourceUsage]:
+
+    def get_usage_history(self, limit: int | None = None) -> list[ResourceUsage]:
         """Get resource usage history."""
         if limit:
             return list(self._usage_history)[-limit:]
@@ -505,41 +504,41 @@ class ResourceMonitor:
 class ResourceManager:
     """
     Main resource coordination system for multi-instance daemons.
-    
+
     Manages resource limits, monitoring, shared resources, and cleanup
     across multiple daemon instances with project isolation.
     """
-    
+
     def __init__(self):
-        self.monitors: Dict[str, ResourceMonitor] = {}
+        self.monitors: dict[str, ResourceMonitor] = {}
         self.shared_pool = SharedResourcePool()
-        self.project_limits: Dict[str, ResourceLimits] = {}
-        self.alert_history: List[ResourceAlert] = []
-        self.cleanup_handlers: List[Callable[[], None]] = []
+        self.project_limits: dict[str, ResourceLimits] = {}
+        self.alert_history: list[ResourceAlert] = []
+        self.cleanup_handlers: list[Callable[[], None]] = []
 
         # Alert management (fix memory leak from unbounded growth)
         self._max_alert_history = 500  # Maximum alerts to keep
         self._alert_expiry = timedelta(hours=1)  # Expire after 1 hour
-        self._enforcement_tasks: Set[asyncio.Task] = set()  # Track enforcement tasks
+        self._enforcement_tasks: set[asyncio.Task] = set()  # Track enforcement tasks
 
         # Memory leak detection and automatic cleanup
         self._leak_detection_running = False
-        self._leak_detection_task: Optional[asyncio.Task] = None
+        self._leak_detection_task: asyncio.Task | None = None
         self._leak_detection_interval = 300.0  # Check every 5 minutes
         self._leak_threshold_mb_per_min = 5.0  # Alert threshold
         self._gc_interval = 600.0  # Run gc.collect() every 10 minutes
-        self._gc_task: Optional[asyncio.Task] = None
+        self._gc_task: asyncio.Task | None = None
 
         # System memory pressure monitoring
         self._memory_pressure_warning_threshold = 0.75  # 75% system memory usage
         self._memory_pressure_critical_threshold = 0.85  # 85% system memory usage
-        self._last_pressure_check: Optional[datetime] = None
+        self._last_pressure_check: datetime | None = None
         self._last_pressure_level: str = "normal"  # normal, warning, critical
 
         # Resource limit enforcement
         self._enforcement_enabled = True
-        self._project_quotas_exceeded: Set[str] = set()  # Projects over quota
-        self._enforcement_level: Dict[str, str] = {}  # normal, warning, critical per project
+        self._project_quotas_exceeded: set[str] = set()  # Projects over quota
+        self._enforcement_level: dict[str, str] = {}  # normal, warning, critical per project
 
         # Registry file for persistence
         temp_dir = Path(tempfile.gettempdir())
@@ -550,37 +549,37 @@ class ResourceManager:
         self._global_cpu_limit_percent = 80.0  # 80% total CPU
 
         self._lock = asyncio.Lock()
-    
+
     async def register_project(
-        self, 
-        project_id: str, 
-        limits: Optional[ResourceLimits] = None
+        self,
+        project_id: str,
+        limits: ResourceLimits | None = None
     ) -> ResourceMonitor:
         """Register a project for resource monitoring."""
         async with self._lock:
             if project_id in self.monitors:
                 return self.monitors[project_id]
-            
+
             # Use provided limits or defaults
             project_limits = limits or ResourceLimits()
-            
+
             # Adjust limits based on number of active projects
             active_projects = len(self.monitors)
             if active_projects > 0:
                 # Distribute resources among projects
                 memory_per_project = self._global_memory_limit_mb // (active_projects + 1)
                 cpu_per_project = self._global_cpu_limit_percent / (active_projects + 1)
-                
+
                 project_limits.max_memory_mb = min(project_limits.max_memory_mb, memory_per_project)
                 project_limits.max_cpu_percent = min(project_limits.max_cpu_percent, cpu_per_project)
-            
+
             # Create monitor
             monitor = ResourceMonitor(project_id, project_limits)
             monitor.add_alert_callback(self._handle_alert)
-            
+
             self.monitors[project_id] = monitor
             self.project_limits[project_id] = project_limits
-            
+
             # Start monitoring
             await monitor.start_monitoring()
 
@@ -592,7 +591,7 @@ class ResourceManager:
             await self._save_registry()
 
             return monitor
-    
+
     async def unregister_project(self, project_id: str) -> None:
         """Unregister a project from resource monitoring."""
         async with self._lock:
@@ -857,20 +856,20 @@ class ResourceManager:
                     await self.enforce_limits(project_id)
                 except Exception as e:
                     logger.error(f"Error enforcing limits for {project_id}: {e}")
-    
-    async def get_project_usage(self, project_id: str) -> Optional[ResourceUsage]:
+
+    async def get_project_usage(self, project_id: str) -> ResourceUsage | None:
         """Get current resource usage for a project."""
         if project_id in self.monitors:
             return await self.monitors[project_id].get_current_usage()
         return None
-    
-    async def get_all_usage(self) -> Dict[str, ResourceUsage]:
+
+    async def get_all_usage(self) -> dict[str, ResourceUsage]:
         """Get current resource usage for all projects."""
         usage = {}
         for project_id, monitor in self.monitors.items():
             usage[project_id] = await monitor.get_current_usage()
         return usage
-    
+
     def is_operation_allowed(self, project_id: str, operation_type: str = "general") -> tuple[bool, str]:
         """
         Check if an operation is allowed for a project based on current resource usage.
@@ -1007,7 +1006,7 @@ class ResourceManager:
             )
 
         return actions_taken
-    
+
     def _handle_alert(self, alert: ResourceAlert) -> None:
         """Handle resource alerts."""
         self.alert_history.append(alert)
@@ -1038,7 +1037,7 @@ class ResourceManager:
             self._enforcement_tasks.add(task)
             # Auto-remove task from set when done
             task.add_done_callback(lambda t: self._enforcement_tasks.discard(t))
-    
+
     @asynccontextmanager
     async def shared_qdrant_connection(self, url: str):
         """Context manager for shared Qdrant connections."""
@@ -1047,11 +1046,11 @@ class ResourceManager:
             yield connection
         finally:
             await self.shared_pool.release_qdrant_connection(url)
-    
+
     async def get_shared_embedding_model(self, model_name: str):
         """Get shared embedding model."""
         return await self.shared_pool.get_embedding_model(model_name)
-    
+
     def add_cleanup_handler(self, handler: Callable[[], None]) -> None:
         """Add a cleanup handler to be called on shutdown."""
         if handler not in self.cleanup_handlers:
@@ -1063,7 +1062,7 @@ class ResourceManager:
             self.cleanup_handlers.remove(handler)
         except ValueError:
             pass  # Handler not in list
-    
+
     async def cleanup_all(self) -> None:
         """Clean up all resources and stop monitoring."""
         logger.info("Cleaning up resource manager")
@@ -1101,7 +1100,7 @@ class ResourceManager:
         self.alert_history.clear()
         self._project_quotas_exceeded.clear()
         self._enforcement_level.clear()
-    
+
     async def _save_registry(self) -> None:
         """Save resource registry to file."""
         try:
@@ -1117,18 +1116,18 @@ class ResourceManager:
                 },
                 "timestamp": datetime.now().isoformat()
             }
-            
+
             # Write atomically
             temp_file = self.registry_file.with_suffix('.tmp')
             with open(temp_file, 'w') as f:
                 json.dump(data, f, indent=2)
-            
+
             temp_file.replace(self.registry_file)
-            
+
         except Exception as e:
             logger.warning(f"Failed to save resource registry: {e}")
-    
-    async def check_and_handle_memory_pressure(self) -> Dict[str, Any]:
+
+    async def check_and_handle_memory_pressure(self) -> dict[str, Any]:
         """
         Check system memory pressure and handle if needed.
 
@@ -1152,7 +1151,7 @@ class ResourceManager:
             "timestamp": datetime.now().isoformat()
         }
 
-    async def get_system_status(self) -> Dict[str, Any]:
+    async def get_system_status(self) -> dict[str, Any]:
         """Get comprehensive system status with performance monitoring integration."""
         all_usage = await self.get_all_usage()
 
@@ -1198,12 +1197,12 @@ class ResourceManager:
             "recent_alerts": [asdict(alert) for alert in recent_alerts[-10:]],
             "performance_monitoring": performance_data
         }
-    
-    async def get_performance_recommendations(self) -> Dict[str, Any]:
+
+    async def get_performance_recommendations(self) -> dict[str, Any]:
         """Get performance optimization recommendations for all projects."""
         try:
             from .performance_monitor import _performance_monitors
-            
+
             recommendations = {}
             for project_id, monitor in _performance_monitors.items():
                 try:
@@ -1214,14 +1213,14 @@ class ResourceManager:
                 except Exception as e:
                     logger.error(f"Failed to get recommendations for {project_id}: {e}")
                     recommendations[project_id] = {"error": str(e)}
-            
+
             return recommendations
         except ImportError:
             return {"error": "Performance monitoring not available"}
 
 
 # Global resource manager instance
-_resource_manager: Optional[ResourceManager] = None
+_resource_manager: ResourceManager | None = None
 
 
 async def get_resource_manager() -> ResourceManager:
@@ -1233,8 +1232,8 @@ async def get_resource_manager() -> ResourceManager:
 
 
 async def register_project_resources(
-    project_id: str, 
-    limits: Optional[ResourceLimits] = None
+    project_id: str,
+    limits: ResourceLimits | None = None
 ) -> ResourceMonitor:
     """Convenience function to register project for resource monitoring."""
     manager = await get_resource_manager()

@@ -22,15 +22,16 @@ PERFORMANCE REGRESSION THRESHOLDS:
 
 import asyncio
 import gc
-import psutil
-import pytest
 import time
 import tracemalloc
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import psutil
+import pytest
 
 # Test markers
 pytestmark = [
@@ -117,7 +118,7 @@ class PerformanceMetrics:
 
         return result, duration_ms, memory_used_mb
 
-    async def measure_concurrent_operations(self, operations: List[Tuple[str, any]], max_workers: int = 10):
+    async def measure_concurrent_operations(self, operations: list[tuple[str, any]], max_workers: int = 10):
         """Measure concurrent operation performance."""
         start_time = time.perf_counter()
         mem_before = self.process.memory_info().rss / 1024 / 1024
@@ -155,14 +156,14 @@ class PerformanceMetrics:
         self.concurrent_performance.append(concurrent_metrics)
         return results, concurrent_metrics
 
-    def measure_scaling_behavior(self, operation_name: str, data_sizes: List[int], results: List[float]):
+    def measure_scaling_behavior(self, operation_name: str, data_sizes: list[int], results: list[float]):
         """Measure and analyze scaling behavior."""
         if len(data_sizes) != len(results):
             raise ValueError("Data sizes and results must have same length")
 
         # Calculate scaling metrics
         scaling_data = []
-        for i, (size, result) in enumerate(zip(data_sizes, results)):
+        for i, (size, result) in enumerate(zip(data_sizes, results, strict=False)):
             if i > 0:
                 size_ratio = size / data_sizes[0]
                 time_ratio = result / results[0]
@@ -183,7 +184,7 @@ class PerformanceMetrics:
         self.scaling_metrics[operation_name] = scaling_data
         return scaling_data
 
-    def detect_memory_leaks(self, operation_count: int, memory_snapshots: List[float]) -> Dict[str, Any]:
+    def detect_memory_leaks(self, operation_count: int, memory_snapshots: list[float]) -> dict[str, Any]:
         """Detect potential memory leaks."""
         if len(memory_snapshots) < 2:
             return {'leak_detected': False, 'reason': 'Insufficient data'}
@@ -204,7 +205,7 @@ class PerformanceMetrics:
             n = len(memory_snapshots)
             sum_x = sum(operation_numbers)
             sum_y = sum(memory_values)
-            sum_xy = sum(x * y for x, y in zip(operation_numbers, memory_values))
+            sum_xy = sum(x * y for x, y in zip(operation_numbers, memory_values, strict=False))
             sum_x2 = sum(x * x for x in operation_numbers)
 
             correlation = (n * sum_xy - sum_x * sum_y) / ((n * sum_x2 - sum_x * sum_x) ** 0.5 * (n * sum(y * y for y in memory_values) - sum_y * sum_y) ** 0.5)
@@ -233,7 +234,7 @@ class PerformanceMetrics:
             'operation_count': operation_count
         }
 
-    def get_performance_summary(self) -> Dict[str, Any]:
+    def get_performance_summary(self) -> dict[str, Any]:
         """Get comprehensive performance summary."""
         if not self.response_times:
             return {'error': 'No performance data collected'}
@@ -367,7 +368,7 @@ class TestCoreOperationPerformance:
             ))
 
         # Benchmark the operation
-        result = benchmark.pedantic(sync_process, iterations=20, rounds=3)
+        benchmark.pedantic(sync_process, iterations=20, rounds=3)
 
         # Validate performance requirements
         stats = benchmark.stats
@@ -379,7 +380,7 @@ class TestCoreOperationPerformance:
         # Record performance metrics
         performance_metrics.response_times.extend([avg_time_ms] * 20)
 
-        print(f"\n📄 Document Processing Performance:")
+        print("\n📄 Document Processing Performance:")
         print(f"   Average time: {avg_time_ms:.2f}ms")
         print(f"   Max time: {stats.max * 1000:.2f}ms")
         print(f"   Min time: {stats.min * 1000:.2f}ms")
@@ -388,7 +389,7 @@ class TestCoreOperationPerformance:
     async def test_vector_search_performance(self, performance_metrics, mock_qdrant_client, benchmark):
         """Benchmark vector search operations."""
 
-        async def vector_search(query_vector: List[float], limit: int = 10):
+        async def vector_search(query_vector: list[float], limit: int = 10):
             return await mock_qdrant_client.search(
                 collection_name="test",
                 query_vector=query_vector,
@@ -404,7 +405,7 @@ class TestCoreOperationPerformance:
             ))
 
         # Benchmark search operation
-        result = benchmark.pedantic(sync_search, iterations=50, rounds=5)
+        benchmark.pedantic(sync_search, iterations=50, rounds=5)
 
         stats = benchmark.stats
         avg_time_ms = stats.mean * 1000
@@ -412,7 +413,7 @@ class TestCoreOperationPerformance:
         # CRITICAL: Vector search should be < 100ms
         assert avg_time_ms < 100.0, f"Vector search too slow: {avg_time_ms:.2f}ms"
 
-        print(f"\n🔍 Vector Search Performance:")
+        print("\n🔍 Vector Search Performance:")
         print(f"   Average time: {avg_time_ms:.2f}ms")
         print(f"   Max time: {stats.max * 1000:.2f}ms")
         print(f"   Throughput: {1000 / avg_time_ms:.1f} searches/second")
@@ -447,7 +448,7 @@ class TestCoreOperationPerformance:
             ))
 
         # Benchmark hybrid search
-        result = benchmark.pedantic(sync_hybrid_search, iterations=30, rounds=3)
+        benchmark.pedantic(sync_hybrid_search, iterations=30, rounds=3)
 
         stats = benchmark.stats
         avg_time_ms = stats.mean * 1000
@@ -455,7 +456,7 @@ class TestCoreOperationPerformance:
         # CRITICAL: Hybrid search should be < 150ms (allowing for additional complexity)
         assert avg_time_ms < 150.0, f"Hybrid search too slow: {avg_time_ms:.2f}ms"
 
-        print(f"\n🔀 Hybrid Search Performance:")
+        print("\n🔀 Hybrid Search Performance:")
         print(f"   Average time: {avg_time_ms:.2f}ms")
         print(f"   Max time: {stats.max * 1000:.2f}ms")
 
@@ -555,11 +556,11 @@ class TestMCPToolPerformance:
         assert concurrent_metrics['avg_response_time_ms'] < 300.0, \
             f"Concurrent response time too high: {concurrent_metrics['avg_response_time_ms']:.2f}ms"
 
-        print(f"\n🛠️  MCP Tools Performance Summary:")
+        print("\n🛠️  MCP Tools Performance Summary:")
         for tool_name, metrics in tool_results.items():
             print(f"   {tool_name}: {metrics['duration_ms']:.2f}ms")
 
-        print(f"\n⚡ Concurrent Execution:")
+        print("\n⚡ Concurrent Execution:")
         print(f"   Total operations: {concurrent_metrics['total_operations']}")
         print(f"   Success rate: {concurrent_metrics['successful_operations']/concurrent_metrics['total_operations']*100:.1f}%")
         print(f"   Average response time: {concurrent_metrics['avg_response_time_ms']:.2f}ms")
@@ -577,7 +578,7 @@ class TestMemoryPerformance:
         baseline_memory = performance_metrics.process.memory_info().rss / 1024 / 1024
 
         # Simulate lightweight operations
-        for i in range(100):
+        for _i in range(100):
             await performance_metrics.measure_async_operation(
                 "baseline_operation",
                 asyncio.sleep(0.001)
@@ -590,7 +591,7 @@ class TestMemoryPerformance:
         # CRITICAL: Base overhead should be < 50MB
         assert memory_overhead < 50.0, f"Base memory overhead too high: {memory_overhead:.2f}MB"
 
-        print(f"\n💾 Memory Baseline:")
+        print("\n💾 Memory Baseline:")
         print(f"   Baseline memory: {baseline_memory:.2f}MB")
         print(f"   Final memory: {final_memory:.2f}MB")
         print(f"   Overhead: {memory_overhead:.2f}MB")
@@ -643,7 +644,7 @@ class TestMemoryPerformance:
         assert leak_analysis['total_growth_mb'] < 20.0, \
             f"Excessive memory growth: {leak_analysis['total_growth_mb']:.2f}MB"
 
-        print(f"\n🚫 Memory Leak Analysis:")
+        print("\n🚫 Memory Leak Analysis:")
         print(f"   Leak detected: {leak_analysis['leak_detected']}")
         print(f"   Total growth: {leak_analysis['total_growth_mb']:.2f}MB")
         print(f"   Growth per operation: {leak_analysis['growth_per_operation_mb']:.4f}MB")
@@ -679,7 +680,7 @@ class TestMemoryPerformance:
             "memory_scaling", document_counts, memory_usage_results
         )
 
-        print(f"\n📈 Memory Scaling Analysis:")
+        print("\n📈 Memory Scaling Analysis:")
         for data in scaling_data:
             print(f"   {data['data_size']} docs: {data['response_time_ms']:.6f}MB/doc (scaling factor: {data['scaling_factor']:.2f})")
 
@@ -716,7 +717,7 @@ class TestConcurrentPerformance:
         success_rate = metrics['successful_operations'] / metrics['total_operations']
         assert success_rate >= 0.95, f"Concurrent search success rate too low: {success_rate:.2%}"
 
-        print(f"\n🔄 Concurrent Search Performance:")
+        print("\n🔄 Concurrent Search Performance:")
         print(f"   Total operations: {metrics['total_operations']}")
         print(f"   Success rate: {success_rate:.1%}")
         print(f"   Total duration: {metrics['total_duration_ms']:.2f}ms")
@@ -753,7 +754,7 @@ class TestConcurrentPerformance:
         assert metrics['avg_response_time_ms'] < 800.0, \
             f"Concurrent processing response time too high: {metrics['avg_response_time_ms']:.2f}ms"
 
-        print(f"\n📝 Concurrent Document Processing:")
+        print("\n📝 Concurrent Document Processing:")
         print(f"   Operations: {metrics['total_operations']}")
         print(f"   Success rate: {metrics['successful_operations']/metrics['total_operations']:.1%}")
         print(f"   Avg response time: {metrics['avg_response_time_ms']:.2f}ms")
@@ -803,7 +804,7 @@ class TestScalingPerformance:
             "search_scaling", dataset_sizes, search_times
         )
 
-        print(f"\n📊 Search Scaling Analysis:")
+        print("\n📊 Search Scaling Analysis:")
         for data in scaling_data:
             print(f"   {data['data_size']} docs: {data['response_time_ms']:.2f}ms (scaling factor: {data['scaling_factor']:.2f})")
 
@@ -838,7 +839,7 @@ class TestScalingPerformance:
             "collection_scaling", collection_counts, collection_times
         )
 
-        print(f"\n📚 Collection Scaling Analysis:")
+        print("\n📚 Collection Scaling Analysis:")
         for data in scaling_data:
             print(f"   {data['data_size']} collections: {data['response_time_ms']:.2f}ms")
 
@@ -908,14 +909,14 @@ class TestPerformanceRegression:
         # CRITICAL: No significant performance regressions should be detected
         assert len(regressions) == 0, f"Performance regressions detected: {'; '.join(regressions)}"
 
-        print(f"\n✅ Performance Regression Analysis:")
+        print("\n✅ Performance Regression Analysis:")
         print(f"   Response time threshold: {thresholds['response_time_increase_percent']}%")
         print(f"   Memory threshold: {thresholds['memory_increase_percent']}%")
         print(f"   Throughput threshold: {thresholds['throughput_decrease_percent']}%")
         print(f"   Regressions detected: {len(regressions)}")
 
         # Generate performance comparison report
-        print(f"\n📈 Performance Comparison:")
+        print("\n📈 Performance Comparison:")
         for metric in current_metrics:
             baseline = baseline_metrics[metric]
             current = current_metrics[metric]
@@ -933,9 +934,9 @@ async def test_comprehensive_performance_report(performance_metrics):
 
     summary = performance_metrics.get_performance_summary()
 
-    print(f"\n" + "="*60)
-    print(f"📊 COMPREHENSIVE PERFORMANCE REPORT")
-    print(f"="*60)
+    print("\n" + "="*60)
+    print("📊 COMPREHENSIVE PERFORMANCE REPORT")
+    print("="*60)
 
     if 'error' in summary:
         print(f"❌ Error: {summary['error']}")
@@ -943,7 +944,7 @@ async def test_comprehensive_performance_report(performance_metrics):
 
     # Response time summary
     rt_stats = summary['response_time_stats']
-    print(f"\n⏱️  Response Time Performance:")
+    print("\n⏱️  Response Time Performance:")
     print(f"   Average: {rt_stats['avg_ms']:.2f}ms")
     print(f"   Maximum: {rt_stats['max_ms']:.2f}ms")
     print(f"   Minimum: {rt_stats['min_ms']:.2f}ms")
@@ -951,38 +952,38 @@ async def test_comprehensive_performance_report(performance_metrics):
 
     # Memory summary
     mem_stats = summary['memory_stats']
-    print(f"\n💾 Memory Performance:")
+    print("\n💾 Memory Performance:")
     print(f"   Average usage: {mem_stats['avg_usage_mb']:.2f}MB")
     print(f"   Maximum usage: {mem_stats['max_usage_mb']:.2f}MB")
     print(f"   Total snapshots: {mem_stats['total_snapshots']}")
 
     # Error summary
     err_stats = summary['error_stats']
-    print(f"\n🚨 Error Statistics:")
+    print("\n🚨 Error Statistics:")
     print(f"   Total operations: {err_stats['total_operations']}")
     print(f"   Success rate: {(err_stats['successful_operations']/err_stats['total_operations']*100):.1f}%")
     print(f"   Error rate: {(err_stats['error_rate']*100):.2f}%")
 
     # Tool performance
     if summary['tool_performance']:
-        print(f"\n🛠️  Tool Performance:")
+        print("\n🛠️  Tool Performance:")
         for tool_name, tool_stats in summary['tool_performance'].items():
             print(f"   {tool_name}: {tool_stats['avg_latency_ms']:.2f}ms avg, {tool_stats['operation_count']} ops")
 
     # Concurrent performance
     if summary['concurrent_performance']:
-        print(f"\n⚡ Concurrent Performance:")
+        print("\n⚡ Concurrent Performance:")
         for i, perf in enumerate(summary['concurrent_performance']):
             print(f"   Test {i+1}: {perf['operations_per_second']:.1f} ops/sec, {perf['avg_response_time_ms']:.2f}ms avg")
 
     # GC statistics
     gc_stats = summary['gc_stats']
-    print(f"\n🗑️  Garbage Collection:")
+    print("\n🗑️  Garbage Collection:")
     print(f"   Gen 0 collections: {gc_stats['total_gen0_collections']}")
     print(f"   Gen 1 collections: {gc_stats['total_gen1_collections']}")
     print(f"   Gen 2 collections: {gc_stats['total_gen2_collections']}")
 
-    print(f"\n" + "="*60)
+    print("\n" + "="*60)
 
     # Validate overall performance meets requirements
     assert rt_stats['avg_ms'] < 300.0, f"Overall average response time too high: {rt_stats['avg_ms']:.2f}ms"

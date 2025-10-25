@@ -8,16 +8,17 @@ These tests demonstrate isolated testing patterns using:
 - Database migration testing
 """
 
-import pytest
 import asyncio
 import logging
-from typing import Dict, Any, List
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
-import numpy as np
+import tempfile
 import time
 from pathlib import Path
-import tempfile
+from typing import Any
+
+import numpy as np
+import pytest
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, PointStruct, VectorParams
 
 logger = logging.getLogger(__name__)
 
@@ -228,7 +229,7 @@ class TestQdrantContainerIntegration:
 class TestServiceIntegrationScenarios:
     """Test integration scenarios with multiple containerized services."""
 
-    async def test_qdrant_with_mock_services(self, isolated_environment: Dict[str, Any]):
+    async def test_qdrant_with_mock_services(self, isolated_environment: dict[str, Any]):
         """Test Qdrant integration with mock external services."""
         import httpx
 

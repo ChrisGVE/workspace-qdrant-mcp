@@ -40,7 +40,6 @@ Example Usage:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
 
 from loguru import logger
 
@@ -80,8 +79,8 @@ class SwitchValidationResult:
     token_limit_ok: bool
     format_compatible: bool
     rules_truncated: int
-    warnings: List[str] = field(default_factory=list)
-    errors: List[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
 
     def __str__(self) -> str:
         """Human-readable validation result."""
@@ -120,7 +119,7 @@ class ContextSwitcher:
     def validate_switch(
         source_tool: LLMToolType,
         target_tool: LLMToolType,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         current_token_count: int,
     ) -> SwitchValidationResult:
         """
@@ -250,9 +249,9 @@ class ContextSwitcher:
     @staticmethod
     def perform_switch(
         target_tool: LLMToolType,
-        rules: List[MemoryRule],
+        rules: list[MemoryRule],
         auto_truncate: bool = False,
-    ) -> Tuple[List[MemoryRule], SwitchValidationResult]:
+    ) -> tuple[list[MemoryRule], SwitchValidationResult]:
         """
         Perform context switch to target tool.
 
@@ -374,7 +373,7 @@ class ContextSwitcher:
 
     @staticmethod
     def can_switch_safely(
-        source_tool: LLMToolType, target_tool: LLMToolType, rules: List[MemoryRule]
+        source_tool: LLMToolType, target_tool: LLMToolType, rules: list[MemoryRule]
     ) -> bool:
         """
         Quick check if switching is safe (no errors).
@@ -461,7 +460,7 @@ class ContextSwitcher:
         target_token_count: int,
         rules_truncated: int,
         total_rules: int,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Generate warning messages for switch validation.
 
@@ -539,7 +538,7 @@ class ContextSwitcher:
         target_token_count: int,
         target_limits,
         rules_truncated: int,
-    ) -> List[str]:
+    ) -> list[str]:
         """
         Generate error messages for switch validation.
 

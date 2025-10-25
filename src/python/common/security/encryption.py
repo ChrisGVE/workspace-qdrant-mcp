@@ -14,32 +14,30 @@ The system supports multiple encryption algorithms and provides
 enterprise-grade security for all MCP operations and data storage.
 """
 
-import os
 import base64
-import hashlib
-import secrets
 import json
-import time
 import logging
-from typing import Dict, Optional, Any, Tuple, List, Union, Callable
+import os
+import secrets
+import threading
+from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from enum import Enum, auto
-import threading
-from pathlib import Path
-from contextlib import contextmanager
+from enum import Enum
+from typing import Any
 
 # Cryptographic imports
 try:
-    from cryptography.hazmat.primitives import hashes, serialization, padding
-    from cryptography.hazmat.primitives.asymmetric import rsa, padding as asym_padding
+    from cryptography import x509
+    from cryptography.hazmat.backends import default_backend
+    from cryptography.hazmat.primitives import hashes, hmac, padding, serialization
+    from cryptography.hazmat.primitives.asymmetric import padding as asym_padding
+    from cryptography.hazmat.primitives.asymmetric import rsa
     from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
     from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
     from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-    from cryptography.hazmat.primitives import hmac
-    from cryptography.hazmat.backends import default_backend
-    from cryptography import x509
     from cryptography.x509.oid import NameOID
     CRYPTOGRAPHY_AVAILABLE = True
 except ImportError:
@@ -78,12 +76,12 @@ class EncryptionKey:
     key_id: str
     algorithm: EncryptionAlgorithm
     key_data: bytes
-    public_key: Optional[bytes] = None
+    public_key: bytes | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
-    expires_at: Optional[datetime] = None
+    expires_at: datetime | None = None
     usage_count: int = 0
-    max_usage: Optional[int] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    max_usage: int | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     def is_expired(self) -> bool:
         """Check if key has expired."""
@@ -108,13 +106,13 @@ class EncryptedData:
     data: bytes
     algorithm: EncryptionAlgorithm
     key_id: str
-    iv: Optional[bytes] = None
-    tag: Optional[bytes] = None
-    mac: Optional[bytes] = None
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    iv: bytes | None = None
+    tag: bytes | None = None
+    mac: bytes | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
     created_at: datetime = field(default_factory=datetime.utcnow)
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             'data': base64.b64encode(self.data).decode('utf-8'),
@@ -128,7 +126,7 @@ class EncryptedData:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> 'EncryptedData':
+    def from_dict(cls, data: dict[str, Any]) -> 'EncryptedData':
         """Create from dictionary."""
         return cls(
             data=base64.b64decode(data['data']),
@@ -175,16 +173,16 @@ class KeyManager:
     - Key usage tracking and lifecycle management
     """
 
-    def __init__(self, master_key: Optional[bytes] = None, key_storage_path: Optional[str] = None):
+    def __init__(self, master_key: bytes | None = None, key_storage_path: str | None = None):
         """Initialize key manager."""
         if not CRYPTOGRAPHY_AVAILABLE:
             raise KeyManagementError("cryptography library not available")
 
-        self._keys: Dict[str, EncryptionKey] = {}
+        self._keys: dict[str, EncryptionKey] = {}
         self._master_key = master_key or self._generate_master_key()
         self._key_storage_path = key_storage_path
         self._lock = threading.RLock()
-        self._key_rotation_callbacks: List[Callable[[str, str], None]] = []
+        self._key_rotation_callbacks: list[Callable[[str, str], None]] = []
 
         # Initialize key derivation parameters
         self._kdf_salt = os.urandom(32)
@@ -196,8 +194,8 @@ class KeyManager:
         """Generate a secure master key."""
         return os.urandom(32)  # 256-bit key
 
-    def generate_key(self, algorithm: EncryptionAlgorithm, key_id: Optional[str] = None,
-                    expires_in_days: Optional[int] = None, max_usage: Optional[int] = None) -> str:
+    def generate_key(self, algorithm: EncryptionAlgorithm, key_id: str | None = None,
+                    expires_in_days: int | None = None, max_usage: int | None = None) -> str:
         """Generate a new encryption key."""
         try:
             if key_id is None:
@@ -261,7 +259,7 @@ class KeyManager:
             logger.error(f"Failed to generate key: {e}")
             raise KeyManagementError(f"Key generation failed: {e}")
 
-    def get_key(self, key_id: str) -> Optional[EncryptionKey]:
+    def get_key(self, key_id: str) -> EncryptionKey | None:
         """Get a key by ID."""
         with self._lock:
             key = self._keys.get(key_id)
@@ -290,7 +288,7 @@ class KeyManager:
             logger.error(f"Failed to delete key {key_id}: {e}")
             return False
 
-    def rotate_key(self, old_key_id: str, new_algorithm: Optional[EncryptionAlgorithm] = None) -> Optional[str]:
+    def rotate_key(self, old_key_id: str, new_algorithm: EncryptionAlgorithm | None = None) -> str | None:
         """Rotate a key by generating a new one."""
         try:
             with self._lock:
@@ -319,7 +317,7 @@ class KeyManager:
             logger.error(f"Key rotation failed: {e}")
             raise KeyManagementError(f"Key rotation failed: {e}")
 
-    def derive_key(self, password: str, salt: Optional[bytes] = None,
+    def derive_key(self, password: str, salt: bytes | None = None,
                   algorithm: EncryptionAlgorithm = EncryptionAlgorithm.AES_256_GCM,
                   kdf: KeyDerivationFunction = KeyDerivationFunction.PBKDF2) -> str:
         """Derive a key from a password."""
@@ -378,7 +376,7 @@ class KeyManager:
             logger.error(f"Key derivation failed: {e}")
             raise KeyManagementError(f"Key derivation failed: {e}")
 
-    def export_public_key(self, key_id: str) -> Optional[bytes]:
+    def export_public_key(self, key_id: str) -> bytes | None:
         """Export public key for asymmetric algorithms."""
         key = self.get_key(key_id)
         if not key:
@@ -407,7 +405,7 @@ class KeyManager:
 
         return cleaned_count
 
-    def list_keys(self) -> List[Dict[str, Any]]:
+    def list_keys(self) -> list[dict[str, Any]]:
         """List all keys with metadata."""
         with self._lock:
             return [
@@ -459,7 +457,7 @@ class EncryptionEngine:
 
         logger.info("Encryption engine initialized")
 
-    def encrypt(self, data: bytes, key_id: str, additional_data: Optional[bytes] = None) -> EncryptedData:
+    def encrypt(self, data: bytes, key_id: str, additional_data: bytes | None = None) -> EncryptedData:
         """Encrypt data with the specified key."""
         try:
             with self._lock:
@@ -486,7 +484,7 @@ class EncryptionEngine:
             logger.error(f"Encryption failed: {e}")
             raise EncryptionError(f"Encryption failed: {e}")
 
-    def decrypt(self, encrypted_data: EncryptedData, additional_data: Optional[bytes] = None) -> bytes:
+    def decrypt(self, encrypted_data: EncryptedData, additional_data: bytes | None = None) -> bytes:
         """Decrypt encrypted data."""
         try:
             with self._lock:
@@ -510,7 +508,7 @@ class EncryptionEngine:
             logger.error(f"Decryption failed: {e}")
             raise DecryptionError(f"Decryption failed: {e}")
 
-    def _encrypt_aes_gcm(self, data: bytes, key: EncryptionKey, additional_data: Optional[bytes]) -> EncryptedData:
+    def _encrypt_aes_gcm(self, data: bytes, key: EncryptionKey, additional_data: bytes | None) -> EncryptedData:
         """Encrypt using AES-256-GCM."""
         iv = os.urandom(12)  # 96-bit IV for GCM
         cipher = Cipher(algorithms.AES(key.key_data), modes.GCM(iv), backend=default_backend())
@@ -529,7 +527,7 @@ class EncryptionEngine:
             tag=encryptor.tag
         )
 
-    def _decrypt_aes_gcm(self, encrypted_data: EncryptedData, key: EncryptionKey, additional_data: Optional[bytes]) -> bytes:
+    def _decrypt_aes_gcm(self, encrypted_data: EncryptedData, key: EncryptionKey, additional_data: bytes | None) -> bytes:
         """Decrypt using AES-256-GCM."""
         cipher = Cipher(algorithms.AES(key.key_data), modes.GCM(encrypted_data.iv, encrypted_data.tag), backend=default_backend())
         decryptor = cipher.decryptor()
@@ -582,7 +580,7 @@ class EncryptionEngine:
 
         return plaintext
 
-    def _encrypt_chacha20_poly1305(self, data: bytes, key: EncryptionKey, additional_data: Optional[bytes]) -> EncryptedData:
+    def _encrypt_chacha20_poly1305(self, data: bytes, key: EncryptionKey, additional_data: bytes | None) -> EncryptedData:
         """Encrypt using ChaCha20-Poly1305."""
         nonce = os.urandom(12)  # 96-bit nonce
         cipher = Cipher(algorithms.ChaCha20(key.key_data, nonce), None, backend=default_backend())
@@ -607,7 +605,7 @@ class EncryptionEngine:
             tag=tag
         )
 
-    def _decrypt_chacha20_poly1305(self, encrypted_data: EncryptedData, key: EncryptionKey, additional_data: Optional[bytes]) -> bytes:
+    def _decrypt_chacha20_poly1305(self, encrypted_data: EncryptedData, key: EncryptionKey, additional_data: bytes | None) -> bytes:
         """Decrypt using ChaCha20-Poly1305."""
         from cryptography.hazmat.primitives.ciphers.aead import ChaCha20Poly1305
         aead = ChaCha20Poly1305(key.key_data)
@@ -708,12 +706,12 @@ class SecureCommunication:
 
         self._key_manager = key_manager
         self._encryption_engine = encryption_engine
-        self._certificates: Dict[str, x509.Certificate] = {}
+        self._certificates: dict[str, x509.Certificate] = {}
         self._lock = threading.RLock()
 
         logger.info("Secure communication initialized")
 
-    def generate_self_signed_certificate(self, subject_name: str, validity_days: int = 365) -> Tuple[str, str]:
+    def generate_self_signed_certificate(self, subject_name: str, validity_days: int = 365) -> tuple[str, str]:
         """Generate self-signed certificate and private key."""
         try:
             # Generate private key
@@ -769,7 +767,7 @@ class SecureCommunication:
             logger.error(f"Certificate generation failed: {e}")
             raise CryptoError(f"Certificate generation failed: {e}")
 
-    def validate_certificate(self, cert_pem: str, ca_cert_pem: Optional[str] = None) -> bool:
+    def validate_certificate(self, cert_pem: str, ca_cert_pem: str | None = None) -> bool:
         """Validate certificate against CA or self-signed."""
         try:
             cert = x509.load_pem_x509_certificate(cert_pem.encode('utf-8'), default_backend())
@@ -831,7 +829,7 @@ class SecureChannel:
         self._secure_comm = secure_comm
         self._remote_cert_pem = remote_cert_pem
         self._local_key_id = local_key_id
-        self._session_key_id: Optional[str] = None
+        self._session_key_id: str | None = None
         self._message_counter = 0
         self._lock = threading.Lock()
 
@@ -848,7 +846,7 @@ class SecureChannel:
             expires_in_days=1  # Short-lived session key
         )
 
-    def send_message(self, message: bytes, additional_data: Optional[bytes] = None) -> EncryptedData:
+    def send_message(self, message: bytes, additional_data: bytes | None = None) -> EncryptedData:
         """Send encrypted message through channel."""
         with self._lock:
             if not self._session_key_id:
@@ -868,7 +866,7 @@ class SecureChannel:
 
             return encrypted_data
 
-    def receive_message(self, encrypted_data: EncryptedData, additional_data: Optional[bytes] = None) -> bytes:
+    def receive_message(self, encrypted_data: EncryptedData, additional_data: bytes | None = None) -> bytes:
         """Receive and decrypt message from channel."""
         with self._lock:
             if not self._session_key_id:
@@ -881,7 +879,7 @@ class SecureChannel:
             )
 
             # Extract message counter and message
-            counter = int.from_bytes(message_with_counter[:8], 'big')
+            int.from_bytes(message_with_counter[:8], 'big')
             message = message_with_counter[8:]
 
             # Note: In a real implementation, you'd want to track and validate
@@ -913,14 +911,14 @@ class SecureChannel:
 
 # Convenience functions and utilities
 
-def encrypt_json(data: Dict[str, Any], key_id: str, key_manager: KeyManager, encryption_engine: EncryptionEngine) -> str:
+def encrypt_json(data: dict[str, Any], key_id: str, key_manager: KeyManager, encryption_engine: EncryptionEngine) -> str:
     """Encrypt JSON data and return base64-encoded result."""
     json_data = json.dumps(data, sort_keys=True).encode('utf-8')
     encrypted_data = encryption_engine.encrypt(json_data, key_id)
     return base64.b64encode(json.dumps(encrypted_data.to_dict()).encode('utf-8')).decode('utf-8')
 
 
-def decrypt_json(encrypted_b64: str, encryption_engine: EncryptionEngine) -> Dict[str, Any]:
+def decrypt_json(encrypted_b64: str, encryption_engine: EncryptionEngine) -> dict[str, Any]:
     """Decrypt base64-encoded JSON data."""
     encrypted_dict = json.loads(base64.b64decode(encrypted_b64).decode('utf-8'))
     encrypted_data = EncryptedData.from_dict(encrypted_dict)

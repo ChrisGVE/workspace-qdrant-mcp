@@ -20,7 +20,7 @@ import re
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -115,7 +115,7 @@ class TestHypothesisFuzzing:
         max_size=100
     ))
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
-    def test_fuzz_json_processing(self, data_dict: Dict[str, Any]):
+    def test_fuzz_json_processing(self, data_dict: dict[str, Any]):
         """Fuzz test for JSON data processing."""
         # Any valid dictionary should be JSON-serializable
         try:
@@ -130,7 +130,7 @@ class TestHypothesisFuzzing:
             result = self._process_json_data(parsed)
             assert result is not None
 
-        except (TypeError, ValueError, OverflowError) as e:
+        except (TypeError, ValueError, OverflowError):
             # Some edge cases may not be JSON-serializable
             pass
 
@@ -140,7 +140,7 @@ class TestHypothesisFuzzing:
         max_size=1000
     ))
     @settings(max_examples=100, suppress_health_check=[HealthCheck.too_slow])
-    def test_fuzz_list_processing(self, list_data: List[str]):
+    def test_fuzz_list_processing(self, list_data: list[str]):
         """Fuzz test for list data processing."""
         # Any list should be processed safely
         try:
@@ -151,7 +151,7 @@ class TestHypothesisFuzzing:
             for item in result:
                 assert item is not None or item is None  # Tautology to force iteration
 
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError):
             # Expected exceptions
             pass
 
@@ -170,7 +170,7 @@ class TestHypothesisFuzzing:
             return str(value)  # Convert to string for large values
         return value
 
-    def _process_json_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+    def _process_json_data(self, data: dict[str, Any]) -> dict[str, Any]:
         """Process JSON data safely."""
         # Validate and sanitize
         sanitized = {}
@@ -180,7 +180,7 @@ class TestHypothesisFuzzing:
                     sanitized[key] = value
         return sanitized
 
-    def _process_list_data(self, data: List[str]) -> List[str]:
+    def _process_list_data(self, data: list[str]) -> list[str]:
         """Process list data safely."""
         # Limit list size
         return data[:1000]
@@ -196,7 +196,7 @@ class TestAPIFuzzingHarnesses:
         min_size=1
     ))
     @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
-    def test_fuzz_store_endpoint(self, params: Dict[str, str]):
+    def test_fuzz_store_endpoint(self, params: dict[str, str]):
         """Fuzz test for store endpoint parameters."""
         # Simulate store endpoint call
         try:
@@ -218,7 +218,7 @@ class TestAPIFuzzingHarnesses:
         )
     ))
     @settings(max_examples=50, suppress_health_check=[HealthCheck.too_slow])
-    def test_fuzz_search_endpoint(self, params: Dict[str, Any]):
+    def test_fuzz_search_endpoint(self, params: dict[str, Any]):
         """Fuzz test for search endpoint parameters."""
         # Simulate search endpoint call
         try:
@@ -227,7 +227,7 @@ class TestAPIFuzzingHarnesses:
             if result:
                 assert isinstance(result, (dict, list))
 
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError):
             # Expected validation errors
             pass
 
@@ -243,11 +243,11 @@ class TestAPIFuzzingHarnesses:
                 # Should return parsed content or empty
                 assert isinstance(result, (str, dict, list))
 
-            except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as e:
+            except (ValueError, UnicodeDecodeError, json.JSONDecodeError):
                 # Expected parsing errors
                 pass
 
-    def _simulate_store_call(self, params: Dict[str, str]) -> Dict[str, Any]:
+    def _simulate_store_call(self, params: dict[str, str]) -> dict[str, Any]:
         """Simulate MCP store endpoint call."""
         # Validate required parameters
         if "content" not in params:
@@ -256,7 +256,7 @@ class TestAPIFuzzingHarnesses:
         # Simulate successful storage
         return {"success": True, "id": "test_id"}
 
-    def _simulate_search_call(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def _simulate_search_call(self, params: dict[str, Any]) -> dict[str, Any]:
         """Simulate MCP search endpoint call."""
         # Validate query parameter
         if "query" not in params:
@@ -325,7 +325,7 @@ class TestCorpusGeneration:
         minimized = self._minimize_corpus(corpus_dir)
 
         # Should have only unique inputs
-        unique_content = set(f.read_text() for f in minimized)
+        unique_content = {f.read_text() for f in minimized}
         assert len(unique_content) == 3  # input1, input2, input3
 
     def test_corpus_seed_generation(self, tmp_path):
@@ -349,7 +349,7 @@ class TestCorpusGeneration:
         assert b"\xff" in all_content  # High bytes
         assert b"<" in all_content  # Special characters
 
-    def _generate_corpus(self, source_dir: Path, corpus_dir: Path) -> List[Path]:
+    def _generate_corpus(self, source_dir: Path, corpus_dir: Path) -> list[Path]:
         """Generate fuzzing corpus from source files."""
         corpus_files = []
 
@@ -362,7 +362,7 @@ class TestCorpusGeneration:
 
         return corpus_files
 
-    def _minimize_corpus(self, corpus_dir: Path) -> List[Path]:
+    def _minimize_corpus(self, corpus_dir: Path) -> list[Path]:
         """Minimize corpus by removing duplicates."""
         seen_content = set()
         minimized = []
@@ -375,7 +375,7 @@ class TestCorpusGeneration:
 
         return minimized
 
-    def _generate_seed_inputs(self) -> List[bytes]:
+    def _generate_seed_inputs(self) -> list[bytes]:
         """Generate diverse seed inputs for fuzzing."""
         return [
             b"normal input",
@@ -479,11 +479,11 @@ class TestCrashDetection:
 
         return False
 
-    def _generate_crash_report(self, crash_data: Dict[str, Any], report_path: Path):
+    def _generate_crash_report(self, crash_data: dict[str, Any], report_path: Path):
         """Generate crash report."""
         report_path.write_text(json.dumps(crash_data, indent=2))
 
-    def _collect_fuzzing_stats(self) -> Dict[str, Any]:
+    def _collect_fuzzing_stats(self) -> dict[str, Any]:
         """Collect fuzzing statistics."""
         # In production: collect from fuzzing engine
         return {
@@ -589,7 +589,7 @@ jobs:
           path: crashes/
 """
 
-    def _generate_fuzzing_report(self) -> Dict[str, Any]:
+    def _generate_fuzzing_report(self) -> dict[str, Any]:
         """Generate fuzzing report."""
         return {
             "summary": {
@@ -605,7 +605,7 @@ jobs:
             }
         }
 
-    def _check_fuzzing_thresholds(self, stats: Dict[str, Any]) -> bool:
+    def _check_fuzzing_thresholds(self, stats: dict[str, Any]) -> bool:
         """Check if fuzzing meets quality thresholds."""
         # Define thresholds
         min_coverage = 80.0

@@ -39,24 +39,24 @@ Example:
 
 import re
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Set, Tuple, Any
 from enum import Enum
+from typing import Any
 
 from loguru import logger
 
 try:
     from .metadata_schema import (
-        MultiTenantMetadataSchema,
-        CollectionCategory,
-        WorkspaceScope,
-        AccessLevel,
-        METADATA_SCHEMA_VERSION,
-        MAX_PROJECT_NAME_LENGTH,
-        MAX_COLLECTION_TYPE_LENGTH,
-        MAX_TENANT_NAMESPACE_LENGTH,
-        MAX_CREATED_BY_LENGTH,
         MAX_ACCESS_LEVEL_LENGTH,
-        MAX_BRANCH_LENGTH
+        MAX_BRANCH_LENGTH,
+        MAX_COLLECTION_TYPE_LENGTH,
+        MAX_CREATED_BY_LENGTH,
+        MAX_PROJECT_NAME_LENGTH,
+        MAX_TENANT_NAMESPACE_LENGTH,
+        METADATA_SCHEMA_VERSION,
+        AccessLevel,
+        CollectionCategory,
+        MultiTenantMetadataSchema,
+        WorkspaceScope,
     )
 except ImportError:
     logger.error("Cannot import metadata_schema module")
@@ -81,7 +81,7 @@ class ValidationError:
     message: str
     code: str
     value: Any = None
-    suggestion: Optional[str] = None
+    suggestion: str | None = None
 
 
 @dataclass
@@ -89,9 +89,9 @@ class ValidationResult:
     """Result of metadata validation with errors and warnings."""
 
     is_valid: bool
-    errors: List[ValidationError] = field(default_factory=list)
-    warnings: List[ValidationError] = field(default_factory=list)
-    info_messages: List[ValidationError] = field(default_factory=list)
+    errors: list[ValidationError] = field(default_factory=list)
+    warnings: list[ValidationError] = field(default_factory=list)
+    info_messages: list[ValidationError] = field(default_factory=list)
 
     def add_error(self, field_name: str, message: str, code: str,
                   value: Any = None, suggestion: str = None):
@@ -130,7 +130,7 @@ class ValidationResult:
             suggestion=suggestion
         ))
 
-    def get_all_issues(self) -> List[ValidationError]:
+    def get_all_issues(self) -> list[ValidationError]:
         """Get all validation issues (errors + warnings + info)."""
         return self.errors + self.warnings + self.info_messages
 
@@ -783,7 +783,7 @@ class MetadataValidator:
 
         return result
 
-    def suggest_fixes(self, metadata: MultiTenantMetadataSchema) -> Dict[str, str]:
+    def suggest_fixes(self, metadata: MultiTenantMetadataSchema) -> dict[str, str]:
         """
         Generate suggestions for fixing common metadata issues.
 

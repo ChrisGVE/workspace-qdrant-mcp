@@ -46,20 +46,17 @@ Example:
     ```
 """
 
-import asyncio
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any
-from pathlib import Path
+from typing import Any
 
 from loguru import logger
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
-    AliasOperations,
-    CreateAliasOperation,
     CreateAlias,
-    DeleteAliasOperation,
+    CreateAliasOperation,
     DeleteAlias,
+    DeleteAliasOperation,
 )
 
 # Import SQLiteStateManager for alias persistence
@@ -83,7 +80,7 @@ class CollectionAlias:
     collection_name: str
     created_at: datetime = None
     created_by: str = "system"
-    metadata: Optional[Dict[str, Any]] = None
+    metadata: dict[str, Any] | None = None
 
     def __post_init__(self):
         if self.created_at is None:
@@ -108,7 +105,7 @@ class AliasManager:
     def __init__(
         self,
         qdrant_client: QdrantClient,
-        state_manager: Optional[SQLiteStateManager] = None
+        state_manager: SQLiteStateManager | None = None
     ):
         """
         Initialize the alias manager.
@@ -119,7 +116,7 @@ class AliasManager:
         """
         self.qdrant_client = qdrant_client
         self.state_manager = state_manager
-        self._alias_cache: Dict[str, str] = {}  # alias_name -> collection_name
+        self._alias_cache: dict[str, str] = {}  # alias_name -> collection_name
         self._cache_valid = False
 
     async def initialize(self) -> bool:
@@ -185,7 +182,7 @@ class AliasManager:
         alias_name: str,
         collection_name: str,
         created_by: str = "system",
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
     ) -> bool:
         """
         Create a collection alias in Qdrant and persist to SQLite.
@@ -286,7 +283,7 @@ class AliasManager:
             logger.error(f"Failed to delete alias {alias_name}: {e}")
             raise
 
-    async def get_alias(self, alias_name: str) -> Optional[CollectionAlias]:
+    async def get_alias(self, alias_name: str) -> CollectionAlias | None:
         """
         Get alias information from SQLite.
 
@@ -326,7 +323,7 @@ class AliasManager:
             logger.error(f"Failed to get alias {alias_name}: {e}")
             return None
 
-    async def list_aliases(self) -> List[CollectionAlias]:
+    async def list_aliases(self) -> list[CollectionAlias]:
         """
         List all collection aliases from SQLite.
 
@@ -392,7 +389,7 @@ class AliasManager:
         # Not an alias, return as-is
         return name
 
-    async def get_aliases_for_collection(self, collection_name: str) -> List[str]:
+    async def get_aliases_for_collection(self, collection_name: str) -> list[str]:
         """
         Get all aliases pointing to a specific collection.
 

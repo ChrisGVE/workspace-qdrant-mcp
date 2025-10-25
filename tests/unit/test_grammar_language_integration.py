@@ -5,15 +5,18 @@ Tests the GrammarLanguageIntegrator class that bridges tree-sitter grammar
 management with the language support system.
 """
 
-import pytest
-import tempfile
 import json
+import tempfile
 from pathlib import Path
-from unittest.mock import Mock, AsyncMock, patch, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
-from src.python.common.core.grammar_language_integration import GrammarLanguageIntegrator
-from src.python.common.core.grammar_discovery import GrammarInfo
+import pytest
+
 from src.python.common.core.grammar_compiler import CompilationResult
+from src.python.common.core.grammar_discovery import GrammarInfo
+from src.python.common.core.grammar_language_integration import (
+    GrammarLanguageIntegrator,
+)
 from src.python.common.core.sqlite_state_manager import SQLiteStateManager
 
 

@@ -6,33 +6,35 @@ hyperparameter tuning, feature engineering, and error handling with
 extensive edge cases and error conditions.
 """
 
-import pytest
-import numpy as np
-import pandas as pd
 import tempfile
 import time
-from pathlib import Path
-from unittest.mock import Mock, patch, MagicMock
-from typing import Dict, Any, List
 import warnings
+from pathlib import Path
+from typing import Any
+from unittest.mock import MagicMock, Mock, patch
+
+import numpy as np
+import pandas as pd
+import pytest
+
 warnings.filterwarnings('ignore')
 
 from common.ml.config.ml_config import (
+    FeatureSelectionMethod,
     MLConfig,
     MLExperimentConfig,
     MLModelConfig,
     MLTaskType,
     ModelType,
-    FeatureSelectionMethod
 )
 from common.ml.pipeline.training_pipeline import (
+    DataValidationError,
+    HyperparameterTuningError,
+    MLPipelineError,
+    ModelTrainingError,
+    PipelineState,
     TrainingPipeline,
     TrainingResult,
-    PipelineState,
-    MLPipelineError,
-    DataValidationError,
-    ModelTrainingError,
-    HyperparameterTuningError
 )
 
 
@@ -679,7 +681,7 @@ class TestTrainingPipeline:
         def progress_callback(progress):
             progress_values.append(progress)
 
-        results = pipeline.fit(
+        pipeline.fit(
             self.X_classification,
             self.y_classification,
             progress_callback=progress_callback
@@ -747,7 +749,7 @@ class TestTrainingPipeline:
         assert initial_state.progress == 0.0
 
         # Run pipeline to update state
-        results = pipeline.fit(self.X_classification, self.y_classification)
+        pipeline.fit(self.X_classification, self.y_classification)
 
         final_state = pipeline.get_pipeline_state()
         assert final_state.progress == 1.0

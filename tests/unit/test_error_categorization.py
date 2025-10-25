@@ -5,13 +5,15 @@ Tests error severity and category enums, as well as the ErrorCategorizer
 class for automatic error classification.
 """
 
-import pytest
-import socket
 import asyncio
+import socket
+
+import pytest
+
 from src.python.common.core.error_categorization import (
-    ErrorSeverity,
-    ErrorCategory,
     ErrorCategorizer,
+    ErrorCategory,
+    ErrorSeverity,
 )
 
 
@@ -247,7 +249,7 @@ class TestExceptionTypeCategorization:
     def test_io_error(self):
         """Test IOError categorization."""
         category, severity, confidence = self.categorizer.categorize(
-            exception=IOError("I/O operation failed")
+            exception=OSError("I/O operation failed")
         )
 
         assert category == ErrorCategory.FILE_CORRUPT
@@ -257,7 +259,7 @@ class TestExceptionTypeCategorization:
     def test_socket_timeout(self):
         """Test socket.timeout categorization."""
         category, severity, confidence = self.categorizer.categorize(
-            exception=socket.timeout("Socket timeout")
+            exception=TimeoutError("Socket timeout")
         )
 
         assert category == ErrorCategory.TIMEOUT

@@ -9,10 +9,10 @@ This module provides comprehensive ML capabilities including:
 """
 
 from .config.ml_config import MLConfig, MLExperimentConfig, MLModelConfig
-from .pipeline.training_pipeline import TrainingPipeline
-from .management.model_registry import ModelRegistry
 from .management.deployment_manager import DeploymentManager
+from .management.model_registry import ModelRegistry
 from .monitoring.model_monitor import ModelMonitor
+from .pipeline.training_pipeline import TrainingPipeline
 
 __all__ = [
     "MLConfig",

@@ -7,7 +7,7 @@ search, insertion, deletion, collection management, and failure simulation.
 
 import asyncio
 import random
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Optional, Union
 from unittest.mock import AsyncMock, Mock
 
 from qdrant_client.http import models
@@ -52,7 +52,7 @@ class QdrantErrorInjector(ErrorInjector):
 class EnhancedQdrantClientMock:
     """Enhanced mock Qdrant client with realistic behavior and error injection."""
 
-    def __init__(self, error_injector: Optional[QdrantErrorInjector] = None):
+    def __init__(self, error_injector: QdrantErrorInjector | None = None):
         self.error_injector = error_injector or QdrantErrorInjector()
         self.collections = {}
         self.points = {}
@@ -140,7 +140,7 @@ class EnhancedQdrantClientMock:
         elif error_type == "network_partition":
             raise ConnectionError("Network unreachable")
 
-    async def _mock_search(self, collection_name: str, query_vector: Union[List[float], models.NamedVector], **kwargs) -> List[models.ScoredPoint]:
+    async def _mock_search(self, collection_name: str, query_vector: list[float] | models.NamedVector, **kwargs) -> list[models.ScoredPoint]:
         """Mock search operation with realistic behavior."""
         await self._inject_errors_and_delay("search")
 
@@ -172,7 +172,7 @@ class EnhancedQdrantClientMock:
 
         return results
 
-    async def _mock_search_batch(self, collection_name: str, requests: List[models.SearchRequest]) -> List[List[models.ScoredPoint]]:
+    async def _mock_search_batch(self, collection_name: str, requests: list[models.SearchRequest]) -> list[list[models.ScoredPoint]]:
         """Mock batch search operation."""
         await self._inject_errors_and_delay("search")
 
@@ -183,7 +183,7 @@ class EnhancedQdrantClientMock:
 
         return results
 
-    async def _mock_recommend(self, collection_name: str, **kwargs) -> List[models.ScoredPoint]:
+    async def _mock_recommend(self, collection_name: str, **kwargs) -> list[models.ScoredPoint]:
         """Mock recommendation operation."""
         await self._inject_errors_and_delay("search")
 
@@ -197,7 +197,7 @@ class EnhancedQdrantClientMock:
             )
         ]
 
-    async def _mock_discover(self, collection_name: str, **kwargs) -> List[models.ScoredPoint]:
+    async def _mock_discover(self, collection_name: str, **kwargs) -> list[models.ScoredPoint]:
         """Mock discovery operation."""
         await self._inject_errors_and_delay("search")
 
@@ -211,7 +211,7 @@ class EnhancedQdrantClientMock:
             )
         ]
 
-    async def _mock_upsert(self, collection_name: str, points: Union[List[models.PointStruct], models.Batch], **kwargs) -> models.UpdateResult:
+    async def _mock_upsert(self, collection_name: str, points: list[models.PointStruct] | models.Batch, **kwargs) -> models.UpdateResult:
         """Mock upsert operation."""
         await self._inject_errors_and_delay("upsert")
 
@@ -252,7 +252,7 @@ class EnhancedQdrantClientMock:
             status=models.UpdateStatus.COMPLETED
         )
 
-    async def _mock_retrieve(self, collection_name: str, ids: List[Union[str, int]], **kwargs) -> List[models.Record]:
+    async def _mock_retrieve(self, collection_name: str, ids: list[str | int], **kwargs) -> list[models.Record]:
         """Mock retrieve operation."""
         await self._inject_errors_and_delay("search")
 
@@ -272,7 +272,7 @@ class EnhancedQdrantClientMock:
 
         return records
 
-    async def _mock_scroll(self, collection_name: str, **kwargs) -> tuple[List[models.Record], Optional[str]]:
+    async def _mock_scroll(self, collection_name: str, **kwargs) -> tuple[list[models.Record], str | None]:
         """Mock scroll operation."""
         await self._inject_errors_and_delay("search")
 
@@ -306,7 +306,7 @@ class EnhancedQdrantClientMock:
         count = random.randint(100, 1000)
         return models.CountResult(count=count)
 
-    async def _mock_create_collection(self, collection_name: str, vectors_config: Union[models.VectorParams, Dict[str, models.VectorParams]], **kwargs) -> bool:
+    async def _mock_create_collection(self, collection_name: str, vectors_config: models.VectorParams | dict[str, models.VectorParams], **kwargs) -> bool:
         """Mock collection creation."""
         await self._inject_errors_and_delay("collection_ops")
 
@@ -373,7 +373,7 @@ class EnhancedQdrantClientMock:
         await self._inject_errors_and_delay("collection_ops")
 
         collections = []
-        for name, data in self.collections.items():
+        for name, _data in self.collections.items():
             collections.append(models.CollectionDescription(
                 name=name
             ))
@@ -403,7 +403,7 @@ class EnhancedQdrantClientMock:
 
         return True
 
-    async def _mock_info(self) -> Dict[str, Any]:
+    async def _mock_info(self) -> dict[str, Any]:
         """Mock server info."""
         return {
             "title": "qdrant",
@@ -411,7 +411,7 @@ class EnhancedQdrantClientMock:
             "description": "Mock Qdrant instance for testing"
         }
 
-    async def _mock_health(self) -> Dict[str, Any]:
+    async def _mock_health(self) -> dict[str, Any]:
         """Mock health check."""
         if self.error_injector.should_inject_error():
             raise ConnectionError("Health check failed")
@@ -426,7 +426,7 @@ class EnhancedQdrantClientMock:
         """Mock client close."""
         self.operation_history.append({"operation": "close"})
 
-    def get_operation_history(self) -> List[Dict[str, Any]]:
+    def get_operation_history(self) -> list[dict[str, Any]]:
         """Get history of operations performed."""
         return self.operation_history.copy()
 
@@ -445,7 +445,7 @@ class EnhancedQdrantClientMock:
 def create_enhanced_qdrant_client(
     with_error_injection: bool = False,
     error_probability: float = 0.1,
-    collections: Optional[List[str]] = None
+    collections: list[str] | None = None
 ) -> EnhancedQdrantClientMock:
     """
     Create an enhanced Qdrant client mock with optional error injection.

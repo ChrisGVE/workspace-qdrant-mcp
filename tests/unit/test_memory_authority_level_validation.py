@@ -11,26 +11,26 @@ This test suite validates:
 """
 
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from qdrant_client import QdrantClient
-from qdrant_client.models import PointStruct, Distance, VectorParams, ScoredPoint
+from qdrant_client.models import Distance, PointStruct, ScoredPoint, VectorParams
 
 # Add src/python to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
 
+from common.core.collection_naming import CollectionNamingManager
 from common.core.memory import (
-    MemoryManager,
-    MemoryRule,
-    MemoryCategory,
     AuthorityLevel,
     BehavioralController,
+    MemoryCategory,
     MemoryConflict,
+    MemoryManager,
+    MemoryRule,
 )
-from common.core.collection_naming import CollectionNamingManager
 from common.core.sparse_vectors import BM25SparseEncoder
 
 
@@ -132,7 +132,7 @@ async def test_create_rules_with_different_authority_levels(memory_manager):
 async def test_authority_level_persistence(memory_manager, mock_qdrant_client):
     """Test that authority levels are correctly persisted in payloads."""
     # Create rule with absolute authority
-    rule_id = await memory_manager.add_memory_rule(
+    await memory_manager.add_memory_rule(
         category=MemoryCategory.BEHAVIOR,
         name="test_rule",
         rule="Test rule content",
@@ -187,7 +187,7 @@ async def test_list_rules_by_authority_level(memory_manager, mock_qdrant_client)
     mock_qdrant_client.scroll.return_value = ([absolute_point, default_point], None)
 
     # Test listing absolute rules only
-    absolute_rules = await memory_manager.list_memory_rules(
+    await memory_manager.list_memory_rules(
         authority=AuthorityLevel.ABSOLUTE
     )
 
@@ -576,7 +576,7 @@ async def test_search_with_authority_filter(memory_manager, mock_qdrant_client):
     mock_qdrant_client.search.return_value = [absolute_result]
 
     # Search with authority level filter
-    results = await memory_manager.search_memory_rules(
+    await memory_manager.search_memory_rules(
         query="critical behavior",
         authority=AuthorityLevel.ABSOLUTE,
         limit=10

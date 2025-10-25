@@ -8,21 +8,21 @@ throughput analysis, latency tracking, and metrics export.
 import asyncio
 import json
 import sqlite3
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-import tempfile
 
 import pytest
 
+from src.python.common.core.queue_connection import ConnectionConfig
 from src.python.common.core.queue_performance_metrics import (
-    ThroughputMetrics,
     LatencyMetrics,
     MetricsAggregator,
     PerformanceMetrics,
-    QueuePerformanceCollector
+    QueuePerformanceCollector,
+    ThroughputMetrics,
 )
-from src.python.common.core.queue_connection import ConnectionConfig
 
 
 @pytest.fixture
@@ -636,7 +636,7 @@ class TestQueuePerformanceCollector:
         # Collector has max_events=1000 from fixture
 
         # Record more than max events
-        for i in range(1500):
+        for _i in range(1500):
             await collector.record_processing_event(
                 duration_ms=100.0,
                 success=True

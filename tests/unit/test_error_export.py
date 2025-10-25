@@ -116,7 +116,7 @@ class TestErrorExporter:
         assert output_file.exists()
 
         # Read and verify CSV
-        with open(output_file, 'r', encoding='utf-8') as f:
+        with open(output_file, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
@@ -136,7 +136,7 @@ class TestErrorExporter:
         assert result is True
 
         # Read and verify escaping
-        with open(output_file, 'r', encoding='utf-8') as f:
+        with open(output_file, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
@@ -157,7 +157,7 @@ class TestErrorExporter:
 
         assert result is True
 
-        with open(output_file, 'r', encoding='utf-8') as f:
+        with open(output_file, encoding='utf-8') as f:
             reader = csv.DictReader(f)
             rows = list(reader)
 
@@ -195,7 +195,7 @@ class TestErrorExporter:
         assert output_file.exists()
 
         # Read and verify JSON
-        with open(output_file, 'r', encoding='utf-8') as f:
+        with open(output_file, encoding='utf-8') as f:
             data = json.load(f)
 
         assert len(data) == 3
@@ -213,7 +213,7 @@ class TestErrorExporter:
 
         assert result is True
 
-        with open(output_file, 'r', encoding='utf-8') as f:
+        with open(output_file, encoding='utf-8') as f:
             data = json.load(f)
 
         # Check acknowledged error has all fields

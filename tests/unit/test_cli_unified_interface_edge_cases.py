@@ -7,16 +7,17 @@ and interruption handling for the complete wqm CLI system.
 Task 251: Edge case testing for unified CLI interface.
 """
 
-import pytest
 import os
-import sys
 import signal
+import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
-from unittest.mock import Mock, patch, call, MagicMock
+from unittest.mock import MagicMock, Mock, call, patch
+
+import pytest
 from typer.testing import CliRunner
-import subprocess
 
 # Add src paths for imports
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "src" / "python"))
@@ -26,10 +27,10 @@ os.environ["WQM_CLI_MODE"] = "true"
 os.environ["WQM_LOG_INIT"] = "false"
 
 try:
-    from wqm_cli.cli.main import app, handle_async_command
-    from wqm_cli.cli.help_system import help_system
-    from wqm_cli.cli.error_handling import error_handler, ErrorContext
     from wqm_cli.cli.advanced_features import smart_defaults
+    from wqm_cli.cli.error_handling import ErrorContext, error_handler
+    from wqm_cli.cli.help_system import help_system
+    from wqm_cli.cli.main import app, handle_async_command
     CLI_AVAILABLE = True
 except ImportError as e:
     CLI_AVAILABLE = False
@@ -226,7 +227,7 @@ class TestTimeoutAndInterruptionScenarios:
 
         import asyncio
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(SystemExit):
             with patch('builtins.print'):
                 handle_async_command(slow_command(), debug=False)
                 # Simulate keyboard interrupt
@@ -290,7 +291,7 @@ class TestTimeoutAndInterruptionScenarios:
         # Create large data structures to simulate memory pressure
         large_data = []
         try:
-            for i in range(1000):
+            for _i in range(1000):
                 large_data.append("x" * 10000)  # 10KB strings
 
             runner = CliRunner()
@@ -379,7 +380,7 @@ class TestComplexErrorRecoveryScenarios:
         with patch('wqm_cli.cli.error_handling.console.print', side_effect=Exception("Display error")):
             try:
                 error_handler._display_error = Mock(side_effect=Exception("Display failed"))
-                error = error_handler.handle_exception(exception, context)
+                error_handler.handle_exception(exception, context)
             except Exception as e:
                 # Should be the display error, not a crash in error handling
                 assert "Display" in str(e) or isinstance(e, Exception)
@@ -477,8 +478,8 @@ class TestSystemIntegrationEdgeCases:
 
     def test_concurrent_config_modification(self):
         """Test behavior with concurrent configuration modifications."""
-        import tempfile
         import json
+        import tempfile
 
         # Create temporary config files
         config_files = []

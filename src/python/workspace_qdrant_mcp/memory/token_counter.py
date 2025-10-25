@@ -7,8 +7,8 @@ This module re-exports token counter components from common.memory.
 from common.memory.token_counter import (
     RuleTokenInfo,
     TokenCounter,
-    TokenUsage,
     TokenizationMethod,
+    TokenUsage,
 )
 
 __all__ = ["RuleTokenInfo", "TokenCounter", "TokenUsage", "TokenizationMethod"]

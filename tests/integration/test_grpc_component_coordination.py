@@ -18,8 +18,8 @@ import asyncio
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Any, List, Optional, Union
-from unittest.mock import AsyncMock, MagicMock, patch, Mock
+from typing import Any, Optional, Union
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
 
@@ -52,7 +52,7 @@ class MockGRPCServer:
         self.connections.clear()
         print("    🛑 Mock gRPC server stopped")
 
-    async def health_check(self) -> Dict[str, Any]:
+    async def health_check(self) -> dict[str, Any]:
         """Perform health check."""
         return {
             "status": self.health_status,
@@ -61,7 +61,7 @@ class MockGRPCServer:
             "processing_queue_size": len(self.processing_queue)
         }
 
-    async def process_document(self, content: str, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    async def process_document(self, content: str, metadata: dict[str, Any]) -> dict[str, Any]:
         """Process document via gRPC."""
         self.performance_metrics["requests_processed"] += 1
 
@@ -77,7 +77,7 @@ class MockGRPCServer:
             "metadata": metadata
         }
 
-    async def search_documents(self, query: str, limit: int = 10) -> Dict[str, Any]:
+    async def search_documents(self, query: str, limit: int = 10) -> dict[str, Any]:
         """Search documents via gRPC."""
         self.performance_metrics["requests_processed"] += 1
 
@@ -295,12 +295,6 @@ seamless integration with the Python MCP server architecture.
         print("  ⚙️ Step 2: Configuration synchronization...")
 
         # Mock configuration data
-        config_data = {
-            "qdrant_url": "http://localhost:6333",
-            "project_name": "grpc-coordination-test",
-            "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
-            "grpc_port": 50051
-        }
 
         # Test configuration consistency across components
         config_consistency_checks = {
@@ -486,7 +480,7 @@ seamless integration with the Python MCP server architecture.
         # Test 1: Concurrent processing performance
         print("  🏃 Step 1: Concurrent processing performance...")
 
-        async def process_concurrent_request(request_id: int) -> Dict[str, Any]:
+        async def process_concurrent_request(request_id: int) -> dict[str, Any]:
             """Process a single concurrent request."""
             start_time = time.time()
 
@@ -535,7 +529,6 @@ seamless integration with the Python MCP server architecture.
         print("  💪 Step 2: Reliability under load...")
 
         # Simulate load testing
-        load_test_requests = 50
         load_test_duration = 2.0  # seconds
 
         start_time = time.time()
