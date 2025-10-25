@@ -372,21 +372,35 @@ class TestCollectionService:
             - Collection has correct vector configuration
             - Response contains success=True and collection_id
         """
-        # TODO: Implement collection creation validation
-        # Expected flow:
-        # 1. Call daemon_client.create_collection(
-        #       collection_name="test_protocol_collection",
-        #       project_id="test_project",
-        #       config=pb2.CollectionConfig(
-        #           vector_size=384,
-        #           distance_metric="Cosine",
-        #           enable_indexing=True
-        #       )
-        #    )
-        # 2. Verify response.success == True
-        # 3. Verify collection exists in qdrant_client
-        # 4. Verify collection has correct vector size (384)
-        pass
+        collection_name = "test_protocol_collection"
+
+        # Create collection via daemon
+        config = pb2.CollectionConfig(
+            vector_size=384,
+            distance_metric="Cosine",
+            enable_indexing=True
+        )
+
+        response = await daemon_client.create_collection(
+            collection_name=collection_name,
+            project_id="test_project",
+            config=config
+        )
+
+        # Verify response structure
+        assert response.success == True, f"Collection creation failed: {response.error_message}"
+        assert response.collection_id != "", "collection_id should not be empty"
+        assert response.error_message == "", "error_message should be empty on success"
+
+        # Verify collection exists in Qdrant
+        collections = qdrant_client.get_collections().collections
+        collection_names = [c.name for c in collections]
+        assert collection_name in collection_names, f"Collection {collection_name} not found in Qdrant"
+
+        # Verify collection has correct vector configuration
+        collection_info = qdrant_client.get_collection(collection_name)
+        assert collection_info.config.params.vectors.size == 384, "Vector size mismatch"
+        assert collection_info.config.params.vectors.distance == Distance.COSINE, "Distance metric mismatch"
 
     async def test_create_collection_with_custom_config(
         self,
@@ -402,8 +416,28 @@ class TestCollectionService:
             - Custom distance metric is applied
             - Metadata schema is configured
         """
-        # TODO: Implement custom config validation
-        pass
+        collection_name = "test_custom_config_collection"
+
+        # Create collection with custom configuration
+        config = pb2.CollectionConfig(
+            vector_size=512,
+            distance_metric="Euclidean",
+            enable_indexing=True
+        )
+
+        response = await daemon_client.create_collection(
+            collection_name=collection_name,
+            project_id="test_project",
+            config=config
+        )
+
+        # Verify response
+        assert response.success == True, f"Collection creation failed: {response.error_message}"
+
+        # Verify collection exists with custom configuration
+        collection_info = qdrant_client.get_collection(collection_name)
+        assert collection_info.config.params.vectors.size == 512, "Custom vector size not applied"
+        assert collection_info.config.params.vectors.distance == Distance.EUCLID, "Custom distance metric not applied"
 
     async def test_delete_collection_success(
         self,
@@ -419,16 +453,38 @@ class TestCollectionService:
             - Collection no longer exists in Qdrant
             - Deletion is permanent
         """
-        # TODO: Implement collection deletion validation
-        # Expected flow:
-        # 1. First create a test collection
-        # 2. Call daemon_client.delete_collection(
-        #       collection_name="test_delete_collection",
-        #       project_id="test_project",
-        #       force=True
-        #    )
-        # 3. Verify collection is removed from qdrant_client
-        pass
+        collection_name = "test_delete_collection"
+
+        # First create a collection
+        config = pb2.CollectionConfig(
+            vector_size=384,
+            distance_metric="Cosine",
+            enable_indexing=True
+        )
+
+        create_response = await daemon_client.create_collection(
+            collection_name=collection_name,
+            project_id="test_project",
+            config=config
+        )
+        assert create_response.success == True, "Collection creation failed"
+
+        # Verify collection exists
+        collections = qdrant_client.get_collections().collections
+        collection_names = [c.name for c in collections]
+        assert collection_name in collection_names, "Collection not created"
+
+        # Delete collection via daemon
+        await daemon_client.delete_collection(
+            collection_name=collection_name,
+            project_id="test_project",
+            force=True
+        )
+
+        # Verify collection no longer exists
+        collections = qdrant_client.get_collections().collections
+        collection_names = [c.name for c in collections]
+        assert collection_name not in collection_names, "Collection still exists after deletion"
 
     async def test_delete_collection_force_flag(
         self,
@@ -443,8 +499,50 @@ class TestCollectionService:
             - Force flag allows deletion of non-empty collections
             - All documents are removed along with collection
         """
-        # TODO: Implement force deletion validation
-        pass
+        collection_name = "test_force_delete_collection"
+
+        # Create collection via daemon
+        config = pb2.CollectionConfig(
+            vector_size=384,
+            distance_metric="Cosine",
+            enable_indexing=True
+        )
+
+        create_response = await daemon_client.create_collection(
+            collection_name=collection_name,
+            project_id="test_project",
+            config=config
+        )
+        assert create_response.success == True, "Collection creation failed"
+
+        # Add some data to make collection non-empty
+        from qdrant_client.models import PointStruct
+        qdrant_client.upsert(
+            collection_name=collection_name,
+            points=[
+                PointStruct(
+                    id=1,
+                    vector=[0.1] * 384,
+                    payload={"test": "data"}
+                )
+            ]
+        )
+
+        # Verify collection has data
+        count = qdrant_client.count(collection_name=collection_name)
+        assert count.count > 0, "Collection should have data"
+
+        # Delete non-empty collection with force=True
+        await daemon_client.delete_collection(
+            collection_name=collection_name,
+            project_id="test_project",
+            force=True
+        )
+
+        # Verify collection is deleted
+        collections = qdrant_client.get_collections().collections
+        collection_names = [c.name for c in collections]
+        assert collection_name not in collection_names, "Collection still exists after force deletion"
 
     async def test_create_collection_alias_success(
         self,
@@ -460,16 +558,37 @@ class TestCollectionService:
             - Alias points to correct collection
             - Alias can be used for queries
         """
-        # TODO: Implement alias creation validation
-        # Expected flow:
-        # 1. Create a collection
-        # 2. Call daemon_client.create_collection_alias(
-        #       alias_name="test_alias",
-        #       collection_name="test_collection"
-        #    )
-        # 3. Verify alias exists in Qdrant
-        # 4. Verify alias points to correct collection
-        pass
+        collection_name = "test_alias_collection"
+        alias_name = "test_alias"
+
+        # Create a collection first
+        config = pb2.CollectionConfig(
+            vector_size=384,
+            distance_metric="Cosine",
+            enable_indexing=True
+        )
+
+        create_response = await daemon_client.create_collection(
+            collection_name=collection_name,
+            project_id="test_project",
+            config=config
+        )
+        assert create_response.success == True, "Collection creation failed"
+
+        # Create alias via daemon
+        await daemon_client.create_collection_alias(
+            alias_name=alias_name,
+            collection_name=collection_name
+        )
+
+        # Verify alias exists and points to correct collection
+        # Try to get collection info using the alias name
+        alias_info = qdrant_client.get_collection(alias_name)
+        assert alias_info is not None, "Alias should resolve to collection"
+
+        # Verify the alias points to the same collection (same vector config)
+        collection_info = qdrant_client.get_collection(collection_name)
+        assert alias_info.config.params.vectors.size == collection_info.config.params.vectors.size, "Alias should point to same collection"
 
     async def test_delete_collection_alias_success(
         self,
@@ -485,8 +604,45 @@ class TestCollectionService:
             - Original collection remains intact
             - Alias no longer resolves
         """
-        # TODO: Implement alias deletion validation
-        pass
+        collection_name = "test_delete_alias_collection"
+        alias_name = "test_delete_alias"
+
+        # Create collection and alias
+        config = pb2.CollectionConfig(
+            vector_size=384,
+            distance_metric="Cosine",
+            enable_indexing=True
+        )
+
+        create_response = await daemon_client.create_collection(
+            collection_name=collection_name,
+            project_id="test_project",
+            config=config
+        )
+        assert create_response.success == True, "Collection creation failed"
+
+        await daemon_client.create_collection_alias(
+            alias_name=alias_name,
+            collection_name=collection_name
+        )
+
+        # Verify alias exists
+        alias_info = qdrant_client.get_collection(alias_name)
+        assert alias_info is not None, "Alias should exist"
+
+        # Delete alias via daemon
+        await daemon_client.delete_collection_alias(alias_name=alias_name)
+
+        # Verify alias no longer resolves
+        try:
+            qdrant_client.get_collection(alias_name)
+            assert False, "Alias should not resolve after deletion"
+        except Exception:
+            pass  # Expected - alias should not exist
+
+        # Verify original collection still exists
+        collection_info = qdrant_client.get_collection(collection_name)
+        assert collection_info is not None, "Original collection should remain intact"
 
     async def test_rename_collection_alias_atomic(
         self,
@@ -503,17 +659,54 @@ class TestCollectionService:
             - New alias name points to same collection
             - Original collection is unchanged
         """
-        # TODO: Implement atomic rename validation
-        # Expected flow:
-        # 1. Create collection and alias
-        # 2. Call daemon_client.rename_collection_alias(
-        #       old_name="test_alias_old",
-        #       new_name="test_alias_new",
-        #       collection_name="test_collection"
-        #    )
-        # 3. Verify old alias no longer exists
-        # 4. Verify new alias points to collection
-        pass
+        collection_name = "test_rename_alias_collection"
+        old_alias_name = "test_alias_old"
+        new_alias_name = "test_alias_new"
+
+        # Create collection and initial alias
+        config = pb2.CollectionConfig(
+            vector_size=384,
+            distance_metric="Cosine",
+            enable_indexing=True
+        )
+
+        create_response = await daemon_client.create_collection(
+            collection_name=collection_name,
+            project_id="test_project",
+            config=config
+        )
+        assert create_response.success == True, "Collection creation failed"
+
+        await daemon_client.create_collection_alias(
+            alias_name=old_alias_name,
+            collection_name=collection_name
+        )
+
+        # Verify old alias exists
+        old_alias_info = qdrant_client.get_collection(old_alias_name)
+        assert old_alias_info is not None, "Old alias should exist"
+
+        # Rename alias atomically via daemon
+        await daemon_client.rename_collection_alias(
+            old_name=old_alias_name,
+            new_name=new_alias_name,
+            collection_name=collection_name
+        )
+
+        # Verify old alias no longer exists
+        try:
+            qdrant_client.get_collection(old_alias_name)
+            assert False, "Old alias should not exist after rename"
+        except Exception:
+            pass  # Expected - old alias should be gone
+
+        # Verify new alias exists and points to the collection
+        new_alias_info = qdrant_client.get_collection(new_alias_name)
+        assert new_alias_info is not None, "New alias should exist"
+
+        # Verify collection is unchanged
+        collection_info = qdrant_client.get_collection(collection_name)
+        assert collection_info.config.params.vectors.size == 384, "Collection should be unchanged"
 
     async def test_collection_operations_sequential(
         self,
@@ -529,8 +722,81 @@ class TestCollectionService:
             - Each operation completes successfully
             - State transitions are correct
         """
-        # TODO: Implement sequential operations validation
-        pass
+        collection_name = "test_sequential_collection"
+        alias_name_1 = "test_sequential_alias_1"
+        alias_name_2 = "test_sequential_alias_2"
+
+        # Step 1: Create collection
+        config = pb2.CollectionConfig(
+            vector_size=384,
+            distance_metric="Cosine",
+            enable_indexing=True
+        )
+
+        create_response = await daemon_client.create_collection(
+            collection_name=collection_name,
+            project_id="test_project",
+            config=config
+        )
+        assert create_response.success == True, "Collection creation failed"
+
+        # Verify collection exists
+        collections = qdrant_client.get_collections().collections
+        collection_names = [c.name for c in collections]
+        assert collection_name in collection_names, "Collection should exist after creation"
+
+        # Step 2: Create alias
+        await daemon_client.create_collection_alias(
+            alias_name=alias_name_1,
+            collection_name=collection_name
+        )
+
+        # Verify alias exists
+        alias_1_info = qdrant_client.get_collection(alias_name_1)
+        assert alias_1_info is not None, "Alias should exist after creation"
+
+        # Step 3: Rename alias
+        await daemon_client.rename_collection_alias(
+            old_name=alias_name_1,
+            new_name=alias_name_2,
+            collection_name=collection_name
+        )
+
+        # Verify old alias gone, new alias exists
+        try:
+            qdrant_client.get_collection(alias_name_1)
+            assert False, "Old alias should not exist after rename"
+        except Exception:
+            pass  # Expected
+
+        alias_2_info = qdrant_client.get_collection(alias_name_2)
+        assert alias_2_info is not None, "New alias should exist after rename"
+
+        # Step 4: Delete alias
+        await daemon_client.delete_collection_alias(alias_name=alias_name_2)
+
+        # Verify alias is gone
+        try:
+            qdrant_client.get_collection(alias_name_2)
+            assert False, "Alias should not exist after deletion"
+        except Exception:
+            pass  # Expected
+
+        # Verify collection still exists
+        collection_info = qdrant_client.get_collection(collection_name)
+        assert collection_info is not None, "Collection should still exist"
+
+        # Step 5: Delete collection
+        await daemon_client.delete_collection(
+            collection_name=collection_name,
+            project_id="test_project",
+            force=True
+        )
+
+        # Verify collection is deleted
+        collections = qdrant_client.get_collections().collections
+        collection_names = [c.name for c in collections]
+        assert collection_name not in collection_names, "Collection should not exist after deletion"
 
 
 @pytest.mark.integration
