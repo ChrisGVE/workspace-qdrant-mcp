@@ -292,25 +292,25 @@ class MemexdServiceManager:
         """Install the service with proper error handling."""
         try:
             if self.system == "darwin":
-                return await self._install_macos_service(auto_start)
+                return await self._install_macos_service(auto_start, build)
             elif self.system == "linux":
-                return await self._install_linux_service(auto_start)
+                return await self._install_linux_service(auto_start, build)
             elif self.system == "windows":
                 return {"success": False, "error": "Windows support not implemented yet"}
             else:
                 return {"success": False, "error": f"Unsupported platform: {self.system}"}
-                
+
         except Exception as e:
             logger.error("Service installation failed", error=str(e), exc_info=True)
             return {"success": False, "error": f"Installation failed: {e}"}
     
-    async def _install_macos_service(self, auto_start: bool) -> Dict[str, Any]:
+    async def _install_macos_service(self, auto_start: bool, build: bool = False) -> Dict[str, Any]:
         """Install macOS launchd service with robust error handling using modern bootstrap."""
-        
+
         # Ensure memexd binary exists, build if requested
         try:
             self.validate_binary()
-        except FileNotFoundError as e:
+        except (FileNotFoundError, BinarySecurityError) as e:
             if build:
                 # Try to build and install binary from source
                 build_result = await self.install_binary_from_source()
@@ -470,12 +470,32 @@ class MemexdServiceManager:
                 "plist_path": str(plist_path)
             }
     
-    async def _install_linux_service(self, auto_start: bool) -> Dict[str, Any]:
+    async def _install_linux_service(self, auto_start: bool, build: bool = False) -> Dict[str, Any]:
         """Install Linux systemd service."""
+
+        # Ensure memexd binary exists, build if requested
+        try:
+            self.validate_binary()
+        except (FileNotFoundError, BinarySecurityError) as e:
+            if build:
+                # Try to build and install binary from source
+                build_result = await self.install_binary_from_source()
+                if not build_result.get("success"):
+                    return {
+                        "success": False,
+                        "error": f"Failed to build binary: {build_result.get('error')}"
+                    }
+            else:
+                # Suggest using --build flag
+                return {
+                    "success": False,
+                    "error": f"Binary validation failed: {e}. Use 'wqm service install --build' to rebuild."
+                }
+
         service_name = f"{self.service_name}.service"
         service_dir = Path.home() / ".config" / "systemd" / "user"
         service_path = service_dir / service_name
-        
+
         try:
             service_dir.mkdir(parents=True, exist_ok=True)
             
