@@ -663,6 +663,26 @@ class DaemonClient:
 
         return await self._retry_operation(operation, timeout=timeout)
 
+    async def create_collection_v2(
+        self,
+        collection_name: str,
+        project_id: str,
+        config: Optional[pb2.CollectionConfig] = None,
+        timeout: float = 30.0
+    ) -> pb2.CreateCollectionResponse:
+        """
+        Alias for create_collection to maintain compatibility with server code.
+
+        This is the same as create_collection() but with a version suffix
+        to distinguish from the legacy IngestService method.
+        """
+        return await self.create_collection(
+            collection_name=collection_name,
+            project_id=project_id,
+            config=config,
+            timeout=timeout
+        )
+
     async def delete_collection(
         self,
         collection_name: str,
@@ -698,6 +718,26 @@ class DaemonClient:
             return await self._collection_stub.DeleteCollection(request)
 
         return await self._retry_operation(operation, timeout=timeout)
+
+    async def delete_collection_v2(
+        self,
+        collection_name: str,
+        project_id: str,
+        force: bool = False,
+        timeout: float = 30.0
+    ):
+        """
+        Alias for delete_collection to maintain compatibility with server code.
+
+        This is the same as delete_collection() but with a version suffix
+        to distinguish from the legacy IngestService method.
+        """
+        return await self.delete_collection(
+            collection_name=collection_name,
+            project_id=project_id,
+            force=force,
+            timeout=timeout
+        )
 
     async def create_collection_alias(
         self,
@@ -1108,13 +1148,13 @@ class DaemonClient:
 
         return await self._ingest_stub.GetCollectionInfo(request)
 
-    async def create_collection(
+    async def create_collection_legacy(
         self,
         collection_name: str,
         description: str = "",
         metadata: Optional[Dict[str, str]] = None,
     ) -> LegacyCreateCollectionResponse:
-        """Create a new collection via legacy IngestService."""
+        """Create a new collection via legacy IngestService (deprecated)."""
         self._ensure_connected()
 
         # Apply LLM access control validation for collection creation
@@ -1133,10 +1173,10 @@ class DaemonClient:
 
         return await self._ingest_stub.CreateCollection(request)
 
-    async def delete_collection(
+    async def delete_collection_legacy(
         self, collection_name: str, confirm: bool = False
     ) -> LegacyDeleteCollectionResponse:
-        """Delete a collection via legacy IngestService."""
+        """Delete a collection via legacy IngestService (deprecated)."""
         self._ensure_connected()
 
         # Apply LLM access control validation for collection deletion
