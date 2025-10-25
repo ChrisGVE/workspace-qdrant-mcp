@@ -788,7 +788,6 @@ mod thread_safety_tests {
 
         assert_eq!(config.url, cloned.url);
         assert_eq!(config.api_key, cloned.api_key);
-        assert_eq!(config.timeout_secs, cloned.timeout_secs);
         assert_eq!(config.max_retries, cloned.max_retries);
         assert_eq!(config.default_collection.vector_size, cloned.default_collection.vector_size);
         assert_eq!(config.default_collection.distance_metric, cloned.default_collection.distance_metric);
@@ -810,7 +809,7 @@ mod thread_safety_tests {
         let qdrant_debug = format!("{:?}", qdrant_config);
         assert!(qdrant_debug.contains("QdrantConfig"));
         assert!(qdrant_debug.contains(&qdrant_config.url));
-        assert!(qdrant_debug.contains(&qdrant_config.timeout_secs.to_string()));
+        assert!(qdrant_debug.contains(&qdrant_config.max_retries.to_string()));
     }
 
     #[tokio::test]

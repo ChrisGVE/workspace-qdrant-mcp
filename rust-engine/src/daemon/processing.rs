@@ -246,7 +246,6 @@ impl DocumentProcessor {
         let qdrant_config = QdrantConfig {
             url: "http://localhost:6333".to_string(),
             api_key: None,
-            timeout_secs: 30,
             max_retries: 3,
             default_collection: crate::config::CollectionConfig {
                 vector_size: 384,
@@ -293,7 +292,6 @@ mod tests {
         QdrantConfig {
             url: "http://localhost:6333".to_string(),
             api_key: None,
-            timeout_secs: 30,
             max_retries: 3,
             default_collection: CollectionConfig {
                 vector_size: 384,
@@ -497,7 +495,6 @@ mod tests {
         // Test that qdrant_config is properly set
         assert_eq!(processor.qdrant_config.url, "http://localhost:6333");
         assert_eq!(processor.qdrant_config.api_key, None);
-        assert_eq!(processor.qdrant_config.timeout_secs, 30);
         assert_eq!(processor.qdrant_config.max_retries, 3);
         assert_eq!(processor.qdrant_config.default_collection.vector_size, 384);
         assert_eq!(processor.qdrant_config.default_collection.distance_metric, "Cosine");
@@ -632,7 +629,6 @@ mod tests {
         let qdrant_with_key = QdrantConfig {
             url: "https://cloud.qdrant.io".to_string(),
             api_key: Some("test-api-key".to_string()),
-            timeout_secs: 60,
             max_retries: 5,
             default_collection: CollectionConfig {
                 vector_size: 768,
@@ -649,7 +645,6 @@ mod tests {
 
         assert_eq!(processor.qdrant_config.url, "https://cloud.qdrant.io");
         assert_eq!(processor.qdrant_config.api_key, Some("test-api-key".to_string()));
-        assert_eq!(processor.qdrant_config.timeout_secs, 60);
         assert_eq!(processor.qdrant_config.max_retries, 5);
         assert_eq!(processor.qdrant_config.default_collection.vector_size, 768);
         assert_eq!(processor.qdrant_config.default_collection.distance_metric, "Dot");
@@ -851,7 +846,6 @@ mod tests {
         // Test qdrant_config field
         assert_eq!(processor.qdrant_config.url, "http://localhost:6333");
         assert_eq!(processor.qdrant_config.api_key, None);
-        assert_eq!(processor.qdrant_config.timeout_secs, 30);
         assert_eq!(processor.qdrant_config.max_retries, 3);
         assert_eq!(processor.qdrant_config.default_collection.vector_size, 384);
         assert_eq!(processor.qdrant_config.default_collection.distance_metric, "Cosine");

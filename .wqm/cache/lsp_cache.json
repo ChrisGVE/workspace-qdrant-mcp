@@ -3,13 +3,13 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "completion",
-      "hover",
       "diagnostics",
-      "semantic_tokens"
+      "semantic_tokens",
+      "hover",
+      "completion"
     ],
-    "detection_time": 1759577380.711563,
-    "last_accessed": 1759577380.711563,
+    "detection_time": 1761388652.8830552,
+    "last_accessed": 1761388652.8830552,
     "lsp_name": "clangd",
     "priority": 10,
     "supported_extensions": [
@@ -29,14 +29,14 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "hover",
+      "completion",
       "semantic_tokens",
       "formatting",
-      "diagnostics",
-      "completion"
+      "hover",
+      "diagnostics"
     ],
-    "detection_time": 1759577380.6775029,
-    "last_accessed": 1759577380.6775029,
+    "detection_time": 1761388652.8691158,
+    "last_accessed": 1761388652.8691158,
     "lsp_name": "gopls",
     "priority": 10,
     "supported_extensions": [
@@ -50,12 +50,12 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "completion",
+      "diagnostics",
       "hover",
-      "diagnostics"
+      "completion"
     ],
-    "detection_time": 1759577380.914772,
-    "last_accessed": 1759577380.914773,
+    "detection_time": 1761388652.953742,
+    "last_accessed": 1761388652.953742,
     "lsp_name": "haskell-language-server",
     "priority": 9,
     "supported_extensions": [
@@ -68,13 +68,13 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "completion",
-      "hover",
       "diagnostics",
-      "semantic_tokens"
+      "semantic_tokens",
+      "hover",
+      "completion"
     ],
-    "detection_time": 1759577380.747203,
-    "last_accessed": 1759577380.747203,
+    "detection_time": 1761388652.897252,
+    "last_accessed": 1761388652.897253,
     "lsp_name": "java-language-server",
     "priority": 8,
     "supported_extensions": [
@@ -86,12 +86,12 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "completion",
+      "diagnostics",
       "hover",
-      "diagnostics"
+      "completion"
     ],
-    "detection_time": 1759577380.782162,
-    "last_accessed": 1759577380.782163,
+    "detection_time": 1761388652.91091,
+    "last_accessed": 1761388652.91091,
     "lsp_name": "lua-language-server",
     "priority": 8,
     "supported_extensions": [
@@ -103,12 +103,12 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "completion",
+      "diagnostics",
       "hover",
-      "diagnostics"
+      "completion"
     ],
-    "detection_time": 1759577380.8743129,
-    "last_accessed": 1759577380.874314,
+    "detection_time": 1761388652.939242,
+    "last_accessed": 1761388652.939242,
     "lsp_name": "ocaml-lsp",
     "priority": 9,
     "supported_extensions": [
@@ -123,13 +123,13 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
+      "diagnostics",
       "formatting",
-      "completion",
       "hover",
-      "diagnostics"
+      "completion"
     ],
-    "detection_time": 1759577380.639306,
-    "last_accessed": 1759577380.639306,
+    "detection_time": 1761388652.850529,
+    "last_accessed": 1761388652.850529,
     "lsp_name": "pylsp",
     "priority": 7,
     "supported_extensions": [
@@ -142,13 +142,13 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "completion",
-      "hover",
       "diagnostics",
-      "semantic_tokens"
+      "semantic_tokens",
+      "hover",
+      "completion"
     ],
-    "detection_time": 1759577380.592839,
-    "last_accessed": 1759577380.59284,
+    "detection_time": 1761388652.8359401,
+    "last_accessed": 1761388652.8359401,
     "lsp_name": "pyright",
     "priority": 9,
     "supported_extensions": [
@@ -161,12 +161,12 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
+      "diagnostics",
       "formatting",
-      "code_actions",
-      "diagnostics"
+      "code_actions"
     ],
-    "detection_time": 1759577380.5187662,
-    "last_accessed": 1759577380.5187662,
+    "detection_time": 1761388652.808703,
+    "last_accessed": 1761388652.808703,
     "lsp_name": "ruff",
     "priority": 8,
     "supported_extensions": [
@@ -179,13 +179,13 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "completion",
-      "hover",
       "diagnostics",
-      "semantic_tokens"
+      "semantic_tokens",
+      "hover",
+      "completion"
     ],
-    "detection_time": 1759577380.483982,
-    "last_accessed": 1759577380.483983,
+    "detection_time": 1761388652.795017,
+    "last_accessed": 1761388652.795017,
     "lsp_name": "rust-analyzer",
     "priority": 10,
     "supported_extensions": [
@@ -198,14 +198,14 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "hover",
+      "completion",
       "semantic_tokens",
       "formatting",
-      "diagnostics",
-      "completion"
+      "hover",
+      "diagnostics"
     ],
-    "detection_time": 1759577380.555359,
-    "last_accessed": 1759577380.55536,
+    "detection_time": 1761388652.8220658,
+    "last_accessed": 1761388652.8220658,
     "lsp_name": "typescript-language-server",
     "priority": 10,
     "supported_extensions": [
@@ -222,13 +222,13 @@
     "access_count": 0,
     "binary_path": "/usr/local/bin/pylsp",
     "capabilities": [
-      "completion",
-      "hover",
       "diagnostics",
-      "semantic_tokens"
+      "semantic_tokens",
+      "hover",
+      "completion"
     ],
-    "detection_time": 1759577380.832833,
-    "last_accessed": 1759577380.832834,
+    "detection_time": 1761388652.92502,
+    "last_accessed": 1761388652.92502,
     "lsp_name": "zls",
     "priority": 9,
     "supported_extensions": [
