@@ -6,7 +6,7 @@ on:
     branches: [main, develop]
     paths:
       - 'src/**'
-      - 'src/rust/daemon/core/**'
+      - 'src/rust/daemon/**'
       - 'tests/**'
       - 'pyproject.toml'
       - 'Cargo.toml'
@@ -294,8 +294,8 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            src/rust/daemon/core/target/
-          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('src/rust/daemon/core/Cargo.lock') }}
+            src/rust/daemon/target/
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('src/rust/daemon/Cargo.lock') }}
 
       - name: Install dependencies
         run: |
@@ -311,14 +311,14 @@ jobs:
 
       - name: Run Rust criterion benchmarks
         run: |
-          cd src/rust/daemon/core
+          cd src/rust/daemon
 
           # Run benchmarks with criterion
           cargo bench --workspace \
             --bench processing_benchmarks \
             --bench watching_benchmarks \
             -- --output-format bencher \
-            | tee ../rust-benchmark-results.txt
+            | tee rust-benchmark-results.txt
         timeout-minutes: 45
 
       - name: Analyze Rust performance results
@@ -452,7 +452,7 @@ jobs:
           path: |
             rust-benchmark-results.txt
             rust-performance-summary.md
-            src/rust/daemon/core/target/criterion/
+            src/rust/daemon/target/criterion/
           retention-days: 90
 
       - name: Update Rust baseline
