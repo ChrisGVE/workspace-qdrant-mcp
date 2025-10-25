@@ -7,10 +7,8 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::signal;
 use tonic::transport::{Server, ServerTlsConfig, Identity};
-use tonic::{Request, Status, metadata::MetadataValue};
-use uuid::Uuid;
+use tonic::{Request, Status};
 
 pub mod proto {
     // Generated protobuf definitions from build.rs
@@ -18,8 +16,8 @@ pub mod proto {
     tonic::include_proto!("workspace_daemon");
 }
 
-// Legacy service - to be deprecated
-pub mod service;
+// Legacy service - DISABLED (to be removed after validation)
+// pub mod service;
 
 // New modular services implementation
 pub mod services;
@@ -354,9 +352,16 @@ impl GrpcServer {
     }
 
     pub async fn start(&mut self) -> Result<(), GrpcError> {
-        let service = service::IngestionService::new_with_auth(
-            self.config.auth_config.clone()
-        );
+        // Create instances of the new modular services
+        use crate::services::{SystemServiceImpl, CollectionServiceImpl, DocumentServiceImpl};
+        use workspace_qdrant_core::storage::StorageClient;
+
+        // Create shared storage client
+        let storage_client = Arc::new(StorageClient::new());
+
+        let system_service = SystemServiceImpl::new();
+        let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
+        let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));
 
         tracing::info!("Starting gRPC server on {}", self.config.bind_addr);
         tracing::info!("gRPC server configuration: TLS={}, Auth={}, Timeouts={:?}",
@@ -418,10 +423,15 @@ impl GrpcServer {
                 ))?;
         }
 
-        // Add the service without interceptors (auth handled in service)
-        let svc = proto::ingest_service_server::IngestServiceServer::new(service);
+        // Register all three gRPC services
+        let system_svc = proto::system_service_server::SystemServiceServer::new(system_service);
+        let collection_svc = proto::collection_service_server::CollectionServiceServer::new(collection_service);
+        let document_svc = proto::document_service_server::DocumentServiceServer::new(document_service);
 
-        let server = server_builder.add_service(svc);
+        let server = server_builder
+            .add_service(system_svc)
+            .add_service(collection_svc)
+            .add_service(document_svc);
 
         // Start server with graceful shutdown
         match self.shutdown_signal.take() {
@@ -503,11 +513,12 @@ mod tests {
 
     #[test]
     fn test_grpc_service_instantiation() {
-        use crate::service::IngestionService;
+        use crate::services::{SystemServiceImpl, CollectionServiceImpl, DocumentServiceImpl};
 
-        // Test that the service can be created
-        let _service = IngestionService::new();
-        // Service should be valid (no panic on creation)
-        let _service2 = IngestionService::default();
+        // Test that the new modular services can be created
+        let _system_service = SystemServiceImpl::new();
+        let _collection_service = CollectionServiceImpl::new();
+        let _document_service = DocumentServiceImpl::new();
+        // Services should be valid (no panic on creation)
     }
 }

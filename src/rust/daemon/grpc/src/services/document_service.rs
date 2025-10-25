@@ -32,7 +32,6 @@ const DEFAULT_CHUNK_OVERLAP: usize = 200;
 const DEFAULT_VECTOR_SIZE: u64 = 384;
 
 /// DocumentService implementation with text chunking and embedding generation
-#[derive(Debug)]
 pub struct DocumentServiceImpl {
     storage_client: Arc<StorageClient>,
     chunk_size: usize,
@@ -310,8 +309,11 @@ impl DocumentServiceImpl {
             // Generate embedding
             let embedding = self.generate_embedding(&chunk_content);
 
-            // Build metadata
-            let mut chunk_metadata = metadata.clone();
+            // Build metadata - convert HashMap<String, String> to HashMap<String, Value>
+            let mut chunk_metadata: HashMap<String, serde_json::Value> = metadata.iter()
+                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                .collect();
+
             chunk_metadata.insert("document_id".to_string(), serde_json::json!(document_id.clone()));
             chunk_metadata.insert("chunk_index".to_string(), serde_json::json!(chunk_index));
             chunk_metadata.insert("total_chunks".to_string(), serde_json::json!(total_chunks));
@@ -325,9 +327,7 @@ impl DocumentServiceImpl {
                 id: point_id,
                 dense_vector: embedding,
                 sparse_vector: None, // TODO: Add sparse vector support
-                payload: chunk_metadata.into_iter()
-                    .map(|(k, v)| (k, v))
-                    .collect(),
+                payload: chunk_metadata,
             };
 
             document_points.push(point);

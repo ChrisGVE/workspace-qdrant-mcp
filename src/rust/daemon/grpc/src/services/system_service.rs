@@ -5,7 +5,6 @@
 //! Provides 7 RPCs: HealthCheck, GetStatus, GetMetrics, SendRefreshSignal,
 //! NotifyServerStatus, PauseAllWatchers, ResumeAllWatchers
 
-use std::sync::Arc;
 use std::time::SystemTime;
 use tonic::{Request, Response, Status};
 use tracing::{debug, info};

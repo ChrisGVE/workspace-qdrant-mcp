@@ -17,7 +17,6 @@ use crate::proto::{
 };
 
 /// CollectionService implementation with Qdrant integration
-#[derive(Debug)]
 pub struct CollectionServiceImpl {
     storage_client: Arc<StorageClient>,
 }
@@ -164,11 +163,10 @@ impl CollectionService for CollectionServiceImpl {
         let _distance_metric = Self::map_distance_metric(&config.distance_metric)?;
 
         // Create collection using storage client
-        // Note: The storage client's create_collection method signature needs to be checked
-        // For now, we'll use the basic parameters
         match self.storage_client.create_collection(
             &req.collection_name,
-            config.vector_size as u64,
+            Some(config.vector_size as u64),
+            None, // sparse vector size - not currently used
         ).await {
             Ok(_) => {
                 info!("Successfully created collection: {}", req.collection_name);
