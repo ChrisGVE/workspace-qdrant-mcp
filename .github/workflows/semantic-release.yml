@@ -227,7 +227,7 @@ jobs:
             --target ${{ matrix.target }} \
             --out wheels \
             --interpreter python
-        working-directory: src/rust/daemon/core/python-bindings
+        working-directory: src/rust/daemon/python-bindings
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
 
