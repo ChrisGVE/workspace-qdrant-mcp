@@ -297,14 +297,14 @@ class TestAllZeroCoverageModules:
                             try:
                                 instance.DESCRIPTOR
                                 str(instance.DESCRIPTOR)
-                            except:
+                            except Exception:
                                 pass
 
                             # Try serialization methods
                             try:
                                 data = instance.SerializeToString()
                                 instance.ParseFromString(data)
-                            except:
+                            except Exception:
                                 pass
 
                             # Try other common protobuf methods
@@ -316,9 +316,9 @@ class TestAllZeroCoverageModules:
                                             method(instance)
                                         else:
                                             method()
-                                    except:
+                                    except Exception:
                                         pass
-                    except:
+                    except Exception:
                         pass
 
         except ImportError:

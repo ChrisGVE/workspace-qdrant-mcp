@@ -613,7 +613,7 @@ class TrainingPipeline:
                 if len(np.unique(y_test)) == 2 and hasattr(model, 'predict_proba'):
                     y_proba = model.predict_proba(X_test)[:, 1]
                     roc_auc = roc_auc_score(y_test, y_proba)
-            except:
+            except Exception:
                 pass
 
             return MLPerformanceMetrics(

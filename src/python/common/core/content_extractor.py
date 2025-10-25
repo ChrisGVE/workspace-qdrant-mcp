@@ -408,7 +408,7 @@ class ContentExtractor:
                         from dateutil.parser import parse
                         publish_date = parse(date_text.strip())
                         break
-                    except:
+                    except Exception:
                         pass
         metadata['publish_date'] = publish_date
 

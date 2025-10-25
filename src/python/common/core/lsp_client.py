@@ -509,7 +509,7 @@ class AsyncioLspClient:
                 try:
                     self._server_process.terminate()
                     await self._server_process.wait()
-                except:
+                except Exception:
                     pass
                 self._server_process = None
 

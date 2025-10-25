@@ -322,7 +322,7 @@ class QueueConnectionPool:
         """Return connection to pool."""
         try:
             self._pool.put_nowait(conn)
-        except:
+        except Exception:
             # Pool is full, close the connection
             logger.warning("Pool full, closing excess connection")
             conn.close()

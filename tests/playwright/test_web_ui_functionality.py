@@ -265,7 +265,7 @@ class TestWebUINavigation:
                     nav_locator = page.locator(f"text={item}").first()
                     if await nav_locator.count() > 0:
                         await expect(nav_locator).to_be_visible()
-                except:
+                except Exception:
                     # Navigation item might not be visible or named differently
                     pass
 
@@ -300,7 +300,7 @@ class TestWorkspaceStatusPage:
             for indicator in status_indicators:
                 try:
                     await expect(page.locator(f"text={indicator}").first()).to_be_visible(timeout=5000)
-                except:
+                except Exception:
                     # Some indicators might be named differently
                     pass
 
@@ -331,7 +331,7 @@ class TestWorkspaceStatusPage:
                     if await toggle.count() > 0:
                         safety_toggle = toggle
                         break
-                except:
+                except Exception:
                     continue
 
             if safety_toggle:
@@ -372,7 +372,7 @@ class TestWorkspaceStatusPage:
                         await toggle.click()  # Enable read-only mode
                         await page.wait_for_timeout(1000)
                         break
-                except:
+                except Exception:
                     continue
 
             # Look for disabled dangerous operations
@@ -384,7 +384,7 @@ class TestWorkspaceStatusPage:
                 try:
                     # Should be disabled in read-only mode
                     await expect(button).to_be_disabled(timeout=5000)
-                except:
+                except Exception:
                     # Button might not be present or disabled differently
                     pass
 
@@ -417,7 +417,7 @@ class TestProcessingQueuePage:
             for element in queue_elements:
                 try:
                     await expect(page.locator(f"text={element}").first()).to_be_visible(timeout=5000)
-                except:
+                except Exception:
                     # Element might be named differently or not present
                     pass
 
@@ -446,7 +446,7 @@ class TestProcessingQueuePage:
                     if await button.count() > 0:
                         refresh_button = button
                         break
-                except:
+                except Exception:
                     continue
 
             if refresh_button:
@@ -481,7 +481,7 @@ class TestProcessingQueuePage:
                     if await button.count() > 0:
                         clear_button = button
                         break
-                except:
+                except Exception:
                     continue
 
             if clear_button:
@@ -502,7 +502,7 @@ class TestProcessingQueuePage:
                             await confirm_button.click()
                             await page.wait_for_timeout(1000)
                             break
-                    except:
+                    except Exception:
                         continue
 
         except Exception as e:
@@ -535,7 +535,7 @@ class TestMemoryRulesPage:
             for element in rule_elements:
                 try:
                     await expect(page.locator(f"text={element}").first()).to_be_visible(timeout=5000)
-                except:
+                except Exception:
                     pass
 
         except Exception as e:
@@ -564,7 +564,7 @@ class TestMemoryRulesPage:
                     if await button.count() > 0:
                         add_button = button
                         break
-                except:
+                except Exception:
                     continue
 
             if add_button:
@@ -597,13 +597,13 @@ class TestMemoryRulesPage:
                                 if await f.count() > 0:
                                     field = f
                                     break
-                            except:
+                            except Exception:
                                 continue
 
                         if field:
                             await field.fill(value)
 
-                    except:
+                    except Exception:
                         continue
 
                 # Submit form
@@ -621,7 +621,7 @@ class TestMemoryRulesPage:
                             await submit_button.click()
                             await page.wait_for_timeout(2000)
                             break
-                    except:
+                    except Exception:
                         continue
 
         except Exception as e:
@@ -649,7 +649,7 @@ class TestMemoryRulesPage:
                     if await button.count() > 0:
                         edit_button = button
                         break
-                except:
+                except Exception:
                     continue
 
             if edit_button:
@@ -667,7 +667,7 @@ class TestMemoryRulesPage:
                         if await save_button.count() > 0:
                             await save_button.click()
                             await page.wait_for_timeout(2000)
-                except:
+                except Exception:
                     pass
 
         except Exception as e:
@@ -695,7 +695,7 @@ class TestMemoryRulesPage:
                     if await button.count() > 0:
                         delete_button = button
                         break
-                except:
+                except Exception:
                     continue
 
             if delete_button:
@@ -718,7 +718,7 @@ class TestMemoryRulesPage:
                             await page.wait_for_timeout(2000)
                             confirmed = True
                             break
-                    except:
+                    except Exception:
                         continue
 
                 if confirmed:
@@ -755,7 +755,7 @@ class TestErrorHandlingAndRealTimeUpdates:
                     if await error_element.count() > 0:
                         await expect(error_element).to_be_visible()
                         break
-                except:
+                except Exception:
                     continue
 
             # Should handle errors gracefully without crashing
@@ -823,7 +823,7 @@ class TestErrorHandlingAndRealTimeUpdates:
                             if await error_element.count() > 0:
                                 await expect(error_element).to_be_visible()
                                 break
-                        except:
+                        except Exception:
                             continue
 
         except Exception as e:
@@ -838,7 +838,7 @@ async def check_dev_server_running() -> bool:
         async with aiohttp.ClientSession() as session:
             async with session.get(TEST_BASE_URL, timeout=aiohttp.ClientTimeout(total=5)) as response:
                 return response.status < 400
-    except:
+    except Exception:
         return False
 
 
@@ -854,5 +854,5 @@ def skip_if_no_dev_server():
         running = asyncio.run(check())
         if not running:
             pytest.skip("Development server not running at http://localhost:3000", allow_module_level=True)
-    except:
+    except Exception:
         pytest.skip("Cannot check development server status", allow_module_level=True)

@@ -276,7 +276,7 @@ class TestQueueResourceMonitor:
         # Cleanup
         try:
             os.unlink(db_path)
-        except:
+        except Exception:
             pass
 
     @pytest.fixture

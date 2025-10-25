@@ -646,7 +646,7 @@ WantedBy=default.target
             )
             await result.communicate()
             # Don't check return code - bootout can fail if service not loaded
-        except:
+        except Exception:
             pass  # Ignore bootout errors
 
     async def _force_stop_service(self, service_id: str) -> None:
@@ -688,10 +688,10 @@ WantedBy=default.target
                             stderr=subprocess.PIPE
                         )
                         await kill_result.communicate()
-                    except:
+                    except Exception:
                         pass  # Ignore kill errors
 
-        except:
+        except Exception:
             pass  # Ignore force stop errors
 
     async def _uninstall_linux_service(self) -> dict[str, Any]:
@@ -958,7 +958,7 @@ WantedBy=default.target
                                 stderr=subprocess.PIPE
                             )
                             await manual_kill_result.communicate()
-                        except:
+                        except Exception:
                             pass  # Ignore manual kill errors
 
                     return {

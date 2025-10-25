@@ -684,7 +684,7 @@ def _display_detailed_results(
                     )
                     # Code syntax highlighting not available in plain text mode
                     print(f"Code content (first 500 chars): {content[:500]}")
-                except:
+                except Exception:
                     print(f"Content (first 500 chars): {content[:500]}")
             else:
                 print(f"Content (first 500 chars): {content[:500]}")

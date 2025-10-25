@@ -472,7 +472,7 @@ def test_old_function():
                         if result:
                             while result > 0:
                                 result -= 1
-                    except:
+                    except Exception:
                         pass
     assert True
 

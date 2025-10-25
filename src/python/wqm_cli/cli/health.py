@@ -350,7 +350,7 @@ class HealthMonitor:
                         )
                         # Extract optimization information if available
                         health.optimization_status = "optimal"  # Placeholder
-                    except:
+                    except Exception:
                         health.optimization_status = "unknown"
 
                     collections_health.append(health)

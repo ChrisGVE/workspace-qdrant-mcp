@@ -435,7 +435,7 @@ class TestTargeted25PercentCoverage:
             try:
                 doc_req_with_data = DocumentRequest(content="test content", document_id="doc1")
                 assert doc_req_with_data is not None
-            except:
+            except Exception:
                 # Constructor might not accept parameters
                 pass
 
@@ -481,7 +481,7 @@ class TestTargeted25PercentCoverage:
             try:
                 manager_with_config = PatternManager(config)
                 assert manager_with_config is not None
-            except:
+            except Exception:
                 # Constructor might not accept config
                 pass
 

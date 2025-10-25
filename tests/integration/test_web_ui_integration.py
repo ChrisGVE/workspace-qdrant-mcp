@@ -63,7 +63,7 @@ class DevServerManager:
                         async with session.get(self.base_url, timeout=aiohttp.ClientTimeout(total=2)) as response:
                             if response.status < 400:
                                 return True
-                except:
+                except Exception:
                     pass
 
                 # Check if process is still running

@@ -65,9 +65,9 @@ class TestConfigurationSystem:
                                 if not nested_attr.startswith('_'):
                                     try:
                                         getattr(value, nested_attr)
-                                    except:
+                                    except Exception:
                                         pass
-                    except:
+                    except Exception:
                         pass
 
         except ImportError:
@@ -92,7 +92,7 @@ class TestConfigurationSystem:
                             # Method might need parameters
                             try:
                                 result = method({})
-                            except:
+                            except Exception:
                                 pass
 
         except ImportError:
@@ -138,7 +138,7 @@ class TestEmbeddingServiceComprehensive:
                                     asyncio.get_event_loop().run_until_complete(method())
                                 else:
                                     method()
-                            except:
+                            except Exception:
                                 pass
 
         except ImportError:
@@ -184,7 +184,7 @@ class TestEmbeddingServiceComprehensive:
                                 # Try without arguments
                                 try:
                                     result = await method()
-                                except:
+                                except Exception:
                                     pass
 
         except ImportError:
@@ -501,7 +501,7 @@ class TestSecurityModules:
                             # Method might need different parameters
                             try:
                                 result = method('test_resource')
-                            except:
+                            except Exception:
                                 pass
 
         except ImportError:

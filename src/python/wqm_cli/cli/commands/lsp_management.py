@@ -992,7 +992,7 @@ async def _interactive_lsp_setup(
                     for srv in missing_servers:
                         try:
                             await _install_lsp_server(srv, False, False, verbose)
-                        except:
+                        except Exception:
                             warning_message(f"Failed to install {srv}, continuing...")
                 return
             else:

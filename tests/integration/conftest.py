@@ -315,7 +315,7 @@ def integration_test_setup():
         client = docker.from_env()
         client.ping()
         docker_available = True
-    except:
+    except Exception:
         docker_available = False
         print("WARNING: Docker not available - some tests will be skipped")
 

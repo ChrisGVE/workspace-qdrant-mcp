@@ -328,7 +328,7 @@ class TestRustDependencyVulnerabilities:
                                     # This is a workspace member
                                     is_member = True
                                     break
-                            except:
+                            except Exception:
                                 pass
                         parent = parent.parent
 

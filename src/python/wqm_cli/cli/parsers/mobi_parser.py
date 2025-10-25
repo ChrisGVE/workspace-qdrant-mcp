@@ -461,7 +461,7 @@ class MobiParser(DocumentParser):
         try:
             # Try to decode with specified encoding
             text = data.decode(encoding, errors="ignore")
-        except:
+        except Exception:
             # Fallback to latin1 which can decode any byte sequence
             text = data.decode("latin1", errors="ignore")
 

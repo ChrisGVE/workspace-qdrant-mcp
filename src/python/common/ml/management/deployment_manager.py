@@ -642,7 +642,7 @@ class DeploymentManager:
             # Simulate environment creation
             time.sleep(1)
             return env_id
-        except:
+        except Exception:
             return None
 
     def _test_environment(self, env_id: str) -> bool:
@@ -719,7 +719,7 @@ class DeploymentManager:
             # Simulate restoration
             time.sleep(1)
             return True
-        except:
+        except Exception:
             return False
 
     def _save_deployments(self):

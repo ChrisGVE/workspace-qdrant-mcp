@@ -1002,7 +1002,7 @@ class TestParserErrorHandling:
                 try:
                     restricted_file.chmod(0o644)
                     restricted_file.unlink()
-                except:
+                except Exception:
                     pass
 
 

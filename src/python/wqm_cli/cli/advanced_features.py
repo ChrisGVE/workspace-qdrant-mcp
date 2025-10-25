@@ -257,7 +257,7 @@ class ConfigurationWizard:
                     'url': 'http://localhost:6333',
                     'prefer_grpc': True
                 }
-        except:
+        except Exception:
             pass
 
         # Check for common cloud setups
@@ -285,7 +285,7 @@ class ConfigurationWizard:
             )
             if result.returncode == 0:
                 return result.stdout.strip()
-        except:
+        except Exception:
             pass
         return None
 
@@ -294,14 +294,14 @@ class ConfigurationWizard:
         try:
             import psutil
             return int(psutil.virtual_memory().total / (1024**3))
-        except:
+        except Exception:
             return 8  # Default assumption
 
     def _get_cpu_count(self) -> int:
         """Get CPU core count."""
         try:
             return os.cpu_count() or 4
-        except:
+        except Exception:
             return 4
 
 
@@ -319,7 +319,7 @@ class SmartDefaults:
             if self.usage_history_file.exists():
                 with open(self.usage_history_file) as f:
                     return json.load(f)
-        except:
+        except Exception:
             pass
         return {
             'command_frequency': {},
@@ -334,7 +334,7 @@ class SmartDefaults:
             self.usage_history_file.parent.mkdir(parents=True, exist_ok=True)
             with open(self.usage_history_file, 'w') as f:
                 json.dump(self.usage_history, f, indent=2)
-        except:
+        except Exception:
             pass
 
     def record_command_usage(self, command: str, subcommand: str = None, flags: dict[str, Any] = None) -> None:
@@ -377,7 +377,7 @@ class SmartDefaults:
                     # Extract repo name from URL
                     repo_name = url.split('/')[-1].replace('.git', '')
                     return repo_name
-            except:
+            except Exception:
                 pass
 
         return "default"

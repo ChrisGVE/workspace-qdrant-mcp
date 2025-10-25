@@ -80,7 +80,7 @@ class TestRealFunctionality:
                         try:
                             instance = cls('test', mock_environment['mock_config'])
                             assert instance is not None
-                        except:
+                        except Exception:
                             # Class requires specific parameters - that's ok
                             pass
 
@@ -109,7 +109,7 @@ class TestRealFunctionality:
                         try:
                             await func('test_param')
                             assert True
-                        except:
+                        except Exception:
                             # Function requires specific parameters - that's ok
                             pass
 
@@ -139,7 +139,7 @@ class TestRealFunctionality:
                             except (ValueError, TypeError, AttributeError, FileNotFoundError):
                                 # Expected error - error handling is working
                                 pass
-                    except:
+                    except Exception:
                         # Some functions may not accept any parameters
                         pass
 
@@ -178,10 +178,10 @@ class TestRealFunctionality:
                                 try:
                                     func(**test_data)
                                     # Function processed data successfully
-                                except:
+                                except Exception:
                                     # Function signature doesn't match - that's ok
                                     pass
-                    except:
+                    except Exception:
                         # Function may not be a data processing function
                         pass
 
@@ -215,10 +215,10 @@ class TestIntegrationScenarios:
                                         try:
                                             attr()
                                             # Method executed successfully
-                                        except:
+                                        except Exception:
                                             # Method may require parameters
                                             pass
-                    except:
+                    except Exception:
                         # Class may require specific initialization
                         pass
 
@@ -253,7 +253,7 @@ class TestIntegrationScenarios:
 
                     # Test concurrent execution
                     await asyncio.gather(func1(), func2())
-            except:
+            except Exception:
                 # Functions may require specific parameters
                 pass
 
@@ -284,7 +284,7 @@ class TestEdgeCases:
                              patch('os.path.exists', return_value=True):
                             func(boundary_value)
                             # Function handled boundary value
-                    except:
+                    except Exception:
                         # Function may not accept this type/value
                         pass
 
@@ -311,6 +311,6 @@ class TestEdgeCases:
                          patch('time.time', return_value=1234567890):
                         func(large_data)
                         # Function handled large data successfully
-                except:
+                except Exception:
                     # Function may not be designed for this data
                     pass

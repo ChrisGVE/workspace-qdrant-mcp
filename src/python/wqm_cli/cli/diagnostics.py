@@ -856,7 +856,7 @@ class DiagnosticTool:
                             None,
                             lambda: client.client.delete_collection(test_collection),
                         )
-                    except:
+                    except Exception:
                         pass  # Collection might not have been created
 
                 duration_ms = (time.time() - start_time) * 1000
@@ -1064,7 +1064,7 @@ class DiagnosticTool:
                             None,
                             lambda: client.client.delete_collection(test_collection),
                         )
-                    except:
+                    except Exception:
                         pass
 
                 duration_ms = (time.time() - start_time) * 1000
@@ -1299,7 +1299,7 @@ class DiagnosticTool:
                         await semantic_search(query, collections[0], limit=10)
                         search_time = time.time() - start_time
                         search_times.append(search_time)
-                    except:
+                    except Exception:
                         pass  # Skip failed searches
 
                 if search_times:

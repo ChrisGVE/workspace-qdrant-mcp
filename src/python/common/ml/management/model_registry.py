@@ -317,7 +317,7 @@ class ModelRegistry:
             # Clean up partially stored artifacts
             try:
                 self._cleanup_model_artifacts(model_id)
-            except:
+            except Exception:
                 pass
             raise ModelRegistryError(f"Failed to register model: {str(e)}")
 

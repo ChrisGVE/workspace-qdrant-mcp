@@ -85,7 +85,7 @@ class MCPClientSimulator:
                         except json.JSONDecodeError:
                             # Invalid JSON - this should not happen
                             pytest.fail(f"Server produced invalid JSON: {repr(line)}")
-            except:
+            except Exception:
                 # Continue trying
                 pass
 

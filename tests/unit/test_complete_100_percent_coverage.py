@@ -778,7 +778,7 @@ class Test100PercentCoverage:
                                 try:
                                     attr.__name__
                                     attr.__doc__
-                                except:
+                                except Exception:
                                     pass
 
                         except Exception:

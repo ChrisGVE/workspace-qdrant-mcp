@@ -382,7 +382,7 @@ WantedBy=default.target
             )
             await result.communicate()
             # Don't check return code - unload can fail if service not loaded
-        except:
+        except Exception:
             pass  # Ignore unload errors
 
     async def _uninstall_linux_service(self) -> dict[str, Any]:

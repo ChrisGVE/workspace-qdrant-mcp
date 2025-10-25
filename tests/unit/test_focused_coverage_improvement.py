@@ -449,7 +449,7 @@ class TestErrorHandlingPaths:
                                     await method()
                                 else:
                                     method()
-                            except:
+                            except Exception:
                                 assert True
 
         except ImportError:
@@ -558,7 +558,7 @@ async def test_async_context_managers():
                 with patch('common.core.client.create_qdrant_client'):
                     try:
                         await client.initialize()
-                    except:
+                    except Exception:
                         pass
 
             if hasattr(client, 'close'):

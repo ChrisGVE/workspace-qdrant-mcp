@@ -1407,7 +1407,7 @@ class TestSQLiteStateManagerComprehensive:
         try:
             process = psutil.Process()
             return process.memory_info().rss / 1024 / 1024
-        except:
+        except Exception:
             return 0.0
 
     async def _create_test_data(self, state_manager: SQLiteStateManagerComprehensive, count: int) -> list[StateRecord]:

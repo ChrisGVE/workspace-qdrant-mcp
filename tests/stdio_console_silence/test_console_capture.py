@@ -142,7 +142,7 @@ class TestConsoleCapture:
                     msg="Direct handler test", args=(), exc_info=None
                 )
                 handler.handle(record)
-            except:
+            except Exception:
                 pass  # Expected for null handlers
 
         # Capture output
