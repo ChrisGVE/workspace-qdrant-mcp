@@ -1408,13 +1408,48 @@ class TestFallbackDetection:
             - WARNING log is emitted indicating fallback
             - Response includes fallback_mode flag
         """
-        # TODO: Implement fallback detection validation
-        # Expected flow:
-        # 1. Create DaemonClient with unreachable address
-        # 2. Attempt ingestion (should fail to reach daemon)
-        # 3. Verify WARNING log about fallback mode
-        # 4. Verify content still reaches Qdrant (fallback path)
-        pass
+        import workspace_qdrant_mcp.server as server_module
+
+        # Save original daemon_client and set to None to simulate unavailability
+        original_daemon_client = server_module.daemon_client
+        server_module.daemon_client = None
+
+        try:
+            # Attempt to create collection via ensure_collection_exists
+            # This should trigger fallback path
+            collection_name = f"test_fallback_{uuid.uuid4().hex[:8]}"
+            test_collection_cleanup.append(collection_name)
+
+            # Initialize server components if needed
+            await server_module.initialize()
+
+            # Call ensure_collection_exists which should fallback to direct Qdrant
+            result = await server_module.ensure_collection_exists(collection_name)
+
+            # Verify collection was created (fallback succeeded)
+            assert result == True, "Collection creation should succeed via fallback"
+
+            # Verify collection exists in Qdrant
+            collection_info = qdrant_client.get_collection(collection_name)
+            assert collection_info is not None, "Collection should exist in Qdrant"
+
+            # Verify WARNING logs were emitted
+            warnings = [r for r in log_capture.buffer if r.levelno == logging.WARNING]
+            assert len(warnings) > 0, "Should have WARNING logs for fallback"
+
+            # Check for fallback-related keywords in warnings
+            fallback_warnings = [
+                w for w in warnings
+                if any(kw in w.getMessage().lower() for kw in ["fallback", "daemon unavailable", "direct"])
+            ]
+            assert len(fallback_warnings) > 0, (
+                f"Should have fallback warnings. Got {len(warnings)} warnings: "
+                f"{[w.getMessage() for w in warnings]}"
+            )
+
+        finally:
+            # Restore original daemon_client
+            server_module.daemon_client = original_daemon_client
 
     async def test_daemon_timeout_fallback(
         self,
@@ -1427,8 +1462,45 @@ class TestFallbackDetection:
             - Timeout errors trigger fallback path
             - Warnings are logged for timeout condition
         """
-        # TODO: Implement timeout fallback validation
-        pass
+        import workspace_qdrant_mcp.server as server_module
+        from unittest.mock import AsyncMock, MagicMock
+
+        # Save original daemon_client
+        original_daemon_client = server_module.daemon_client
+
+        try:
+            # Create a mock daemon_client that raises timeout
+            mock_daemon = AsyncMock()
+            mock_daemon.create_collection_v2 = AsyncMock(side_effect=DaemonTimeoutError("Operation timed out"))
+            server_module.daemon_client = mock_daemon
+
+            # Initialize server components if needed
+            await server_module.initialize()
+
+            # Attempt to create collection which should timeout and fallback
+            collection_name = f"test_timeout_fallback_{uuid.uuid4().hex[:8]}"
+            result = await server_module.ensure_collection_exists(collection_name)
+
+            # Verify fallback occurred (should still succeed via direct Qdrant)
+            assert result == True, "Collection creation should succeed via fallback after timeout"
+
+            # Verify WARNING logs were emitted
+            warnings = [r for r in log_capture.buffer if r.levelno == logging.WARNING]
+            assert len(warnings) > 0, "Should have WARNING logs for timeout fallback"
+
+            # Check for timeout-related keywords in warnings
+            timeout_warnings = [
+                w for w in warnings
+                if any(kw in w.getMessage().lower() for kw in ["timeout", "fallback", "daemon"])
+            ]
+            assert len(timeout_warnings) > 0, (
+                f"Should have timeout/fallback warnings. Got {len(warnings)} warnings: "
+                f"{[w.getMessage() for w in warnings]}"
+            )
+
+        finally:
+            # Restore original daemon_client
+            server_module.daemon_client = original_daemon_client
 
     async def test_no_fallback_when_daemon_healthy(
         self,
@@ -1445,13 +1517,57 @@ class TestFallbackDetection:
             - No fallback warnings are logged
             - Response does NOT include fallback_mode flag
         """
-        # TODO: Implement healthy daemon validation
-        # Expected flow:
-        # 1. Use healthy daemon_client
-        # 2. Ingest content
-        # 3. Verify NO WARNING logs
-        # 4. Verify response has no fallback_mode flag
-        pass
+        # Create collection via daemon (requires daemon to be running)
+        collection_name = f"test_no_fallback_{uuid.uuid4().hex[:8]}"
+        test_collection_cleanup.append(collection_name)
+
+        # Create collection via daemon
+        response = await daemon_client.create_collection_v2(
+            collection_name=collection_name,
+            vector_size=384,
+            distance_metric="Cosine"
+        )
+
+        # Verify creation succeeded
+        assert response.success == True, f"Collection creation failed: {response.error_message}"
+
+        # Verify collection exists in Qdrant
+        collection_info = qdrant_client.get_collection(collection_name)
+        assert collection_info is not None, "Collection should exist in Qdrant"
+
+        # Ingest text via daemon
+        metadata = {
+            "test_id": "no_fallback_test",
+            "source": "integration_test"
+        }
+
+        ingest_response = await daemon_client.ingest_text(
+            content="Test content for no-fallback validation",
+            collection_basename=collection_name,
+            tenant_id="test_project",
+            metadata=metadata,
+            chunk_text=True
+        )
+
+        # Verify ingestion succeeded
+        assert ingest_response.success == True, f"Ingestion failed: {ingest_response.error_message}"
+        assert ingest_response.document_id != "", "document_id should not be empty"
+
+        # Wait for daemon to complete processing
+        await wait_for_daemon_processing()
+
+        # Verify NO WARNING logs with fallback keywords
+        warnings = [r for r in log_capture.buffer if r.levelno == logging.WARNING]
+        fallback_warnings = [
+            w for w in warnings
+            if any(kw in w.getMessage().lower() for kw in ["fallback", "direct write", "daemon unavailable"])
+        ]
+
+        assert len(fallback_warnings) == 0, (
+            f"Should have NO fallback warnings when daemon is healthy. "
+            f"Found {len(fallback_warnings)} fallback warnings: "
+            f"{[w.getMessage() for w in fallback_warnings]}"
+        )
 
 
 @pytest.mark.integration
