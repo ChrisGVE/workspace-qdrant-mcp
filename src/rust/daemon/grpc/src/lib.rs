@@ -119,6 +119,91 @@ impl ServerConfig {
         }
     }
 
+    /// Create a secure configuration with TLS and authentication required
+    pub fn new_secure(bind_addr: SocketAddr, cert_path: String, key_path: String, api_key: String) -> Self {
+        Self {
+            bind_addr,
+            tls_config: Some(TlsConfig {
+                cert_path,
+                key_path,
+                ca_cert_path: None,
+                require_client_cert: false,
+            }),
+            auth_config: Some(AuthConfig {
+                enabled: true,
+                api_key: Some(api_key),
+                jwt_secret: None,
+                allowed_origins: vec![], // Empty = no wildcard allowed
+            }),
+            timeout_config: TimeoutConfig::default(),
+            performance_config: PerformanceConfig::default(),
+            health_check_config: HealthCheckConfig::default(),
+        }
+    }
+
+    /// Create a mutual TLS configuration for maximum security
+    pub fn new_mutual_tls(
+        bind_addr: SocketAddr,
+        cert_path: String,
+        key_path: String,
+        ca_cert_path: String,
+    ) -> Self {
+        Self {
+            bind_addr,
+            tls_config: Some(TlsConfig {
+                cert_path,
+                key_path,
+                ca_cert_path: Some(ca_cert_path),
+                require_client_cert: true,
+            }),
+            auth_config: Some(AuthConfig {
+                enabled: false, // mTLS provides authentication
+                api_key: None,
+                jwt_secret: None,
+                allowed_origins: vec![],
+            }),
+            timeout_config: TimeoutConfig::default(),
+            performance_config: PerformanceConfig::default(),
+            health_check_config: HealthCheckConfig::default(),
+        }
+    }
+
+    /// Check if the configuration is secure (has TLS or requires authentication)
+    pub fn is_secure(&self) -> bool {
+        self.tls_config.is_some() ||
+        self.auth_config.as_ref().map(|a| a.enabled).unwrap_or(false)
+    }
+
+    /// Get security warnings for the current configuration
+    pub fn get_security_warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+
+        if self.tls_config.is_none() {
+            warnings.push("TLS is not enabled - all communication will be unencrypted".to_string());
+        }
+
+        if let Some(auth) = &self.auth_config {
+            if !auth.enabled {
+                warnings.push("Authentication is disabled - anyone can access the gRPC server".to_string());
+            }
+            if auth.enabled && auth.api_key.is_none() && auth.jwt_secret.is_none() {
+                warnings.push("Authentication enabled but no credentials configured".to_string());
+            }
+            if auth.allowed_origins.contains(&"*".to_string()) {
+                warnings.push("Wildcard origin allowed - CORS protection disabled".to_string());
+            }
+        } else {
+            warnings.push("No authentication configured".to_string());
+        }
+
+        // Check if binding to all interfaces without TLS
+        if self.bind_addr.ip().is_unspecified() && self.tls_config.is_none() {
+            warnings.push("Binding to 0.0.0.0 without TLS - server exposed to network without encryption".to_string());
+        }
+
+        warnings
+    }
+
     pub fn with_tls(mut self, tls_config: TlsConfig) -> Self {
         self.tls_config = Some(tls_config);
         self
@@ -279,6 +364,21 @@ impl GrpcServer {
             self.config.auth_config.as_ref().map(|a| a.enabled).unwrap_or(false),
             self.config.timeout_config
         );
+
+        // Log security warnings
+        let warnings = self.config.get_security_warnings();
+        if !warnings.is_empty() {
+            tracing::warn!("===== SECURITY WARNINGS =====");
+            for warning in &warnings {
+                tracing::warn!("  - {}", warning);
+            }
+            tracing::warn!("============================");
+            if !self.config.is_secure() {
+                tracing::error!("gRPC server is running in INSECURE mode - not suitable for production");
+            }
+        } else {
+            tracing::info!("gRPC server security configuration validated");
+        }
 
         let mut server_builder = Server::builder()
             .timeout(self.config.timeout_config.request_timeout)

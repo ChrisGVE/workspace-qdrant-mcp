@@ -1,0 +1,121 @@
+# Secure gRPC Server Configuration Example
+# ==========================================
+# This configuration demonstrates how to enable TLS and authentication
+# for the gRPC daemon to prevent unauthorized access.
+
+# Server binding configuration
+server:
+  # Bind address - use 127.0.0.1 for localhost only or 0.0.0.0 for all interfaces
+  # WARNING: Only bind to 0.0.0.0 if you have proper firewall rules and TLS enabled
+  bind_addr: "127.0.0.1:50051"
+
+# TLS Configuration (REQUIRED for production)
+tls:
+  # Enable TLS encryption
+  enabled: true
+
+  # Path to server certificate (PEM format)
+  cert_path: "/path/to/server-cert.pem"
+
+  # Path to server private key (PEM format)
+  key_path: "/path/to/server-key.pem"
+
+  # Optional: Path to CA certificate for client verification (mutual TLS)
+  # Uncomment to require client certificates
+  # ca_cert_path: "/path/to/ca-cert.pem"
+
+  # Require client certificates (mutual TLS)
+  # When true, only clients with valid certificates can connect
+  require_client_cert: false
+
+# Authentication Configuration
+auth:
+  # Enable authentication
+  enabled: true
+
+  # API Key authentication (recommended for simple deployments)
+  # Clients must send: Authorization: Bearer <api_key>
+  api_key: "your-secure-api-key-here-min-32-chars"
+
+  # Optional: JWT secret for token-based authentication
+  # jwt_secret: "your-jwt-secret-here"
+
+  # Allowed origins for CORS (empty list = no wildcard)
+  # Use empty list or specific origins for security
+  allowed_origins: []
+  # Example with specific origins:
+  # allowed_origins:
+  #   - "http://localhost:3000"
+  #   - "https://app.example.com"
+
+# Timeout Configuration
+timeouts:
+  request_timeout_secs: 30
+  connection_timeout_secs: 10
+  keepalive_interval_secs: 30
+  keepalive_timeout_secs: 5
+
+# Performance Configuration
+performance:
+  max_concurrent_streams: 1000
+  max_message_size_mb: 16
+  max_connection_idle_secs: 300
+  max_connection_age_secs: 3600
+  tcp_nodelay: true
+  tcp_keepalive_secs: 600
+
+# Health Check Configuration
+health_check:
+  enabled: true
+  interval_secs: 30
+  timeout_secs: 5
+  failure_threshold: 3
+
+# ==========================================
+# SECURITY BEST PRACTICES
+# ==========================================
+#
+# 1. TLS is MANDATORY for production deployments
+#    - Generate certificates using openssl or certbot
+#    - Use strong encryption (TLS 1.2+)
+#    - Rotate certificates regularly
+#
+# 2. Authentication should ALWAYS be enabled
+#    - Use strong API keys (min 32 characters, random)
+#    - Rotate keys regularly
+#    - Never commit keys to version control
+#
+# 3. Network Security
+#    - Bind to 127.0.0.1 unless external access is needed
+#    - Use firewall rules to restrict access
+#    - Consider mutual TLS for zero-trust environments
+#
+# 4. Monitoring
+#    - Enable metrics and health checks
+#    - Monitor authentication failures
+#    - Set up alerts for suspicious activity
+#
+# ==========================================
+# QUICK START - GENERATING SELF-SIGNED CERTIFICATES
+# ==========================================
+#
+# For development/testing (NOT for production):
+#
+# 1. Generate CA key and certificate:
+#    openssl req -x509 -newkey rsa:4096 -days 365 -nodes \
+#      -keyout ca-key.pem -out ca-cert.pem \
+#      -subj "/CN=Workspace Qdrant CA"
+#
+# 2. Generate server key and CSR:
+#    openssl req -newkey rsa:4096 -nodes \
+#      -keyout server-key.pem -out server-req.pem \
+#      -subj "/CN=localhost"
+#
+# 3. Sign server certificate:
+#    openssl x509 -req -in server-req.pem -days 365 \
+#      -CA ca-cert.pem -CAkey ca-key.pem -CAcreateserial \
+#      -out server-cert.pem
+#
+# 4. For production, use certificates from a trusted CA like Let's Encrypt
+#
+# ==========================================
