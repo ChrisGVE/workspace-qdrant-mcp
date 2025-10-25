@@ -34,6 +34,7 @@ Store any type of content in the vector database with automatic embedding genera
 - Supports text, code, documentation, notes, and more
 - Automatic project detection and collection routing
 - Metadata enrichment (file_type, branch, project_id)
+- **Daemon-first write architecture**: All writes route through the Rust daemon for consistency
 - Background processing via Rust daemon for optimal performance
 
 ### 2. **search** - Hybrid Search
@@ -46,9 +47,9 @@ Search across collections with powerful hybrid semantic + keyword matching.
 - File type filtering (code, docs, tests, etc.)
 
 ### 3. **manage** - Collection Management
-Manage collections, system status, and configuration.
+Manage collections, system status, and configuration via the daemon's gRPC interface.
 - List all collections with statistics
-- Create and delete collections
+- Create and delete collections through daemon
 - Get workspace status and health information
 - Initialize project collections
 - Cleanup empty collections and optimize storage
@@ -147,6 +148,36 @@ This interactive wizard will guide you through configuration, test your setup, a
 
 For development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+### Development Build
+
+For building from source or contributing to the project:
+
+```bash
+# Python development dependencies
+uv sync --dev
+
+# Build unified Rust daemon (workspace at src/rust/daemon)
+cd src/rust/daemon
+cargo build --release
+
+# The daemon binary will be at:
+# target/release/memexd
+
+# Run Python tests (requires running Qdrant server)
+cd ../../..
+uv run pytest
+
+# Run Rust tests
+cd src/rust/daemon
+cargo test
+```
+
+The unified daemon workspace at `src/rust/daemon` contains:
+- `core/` - Daemon core logic and processing
+- `grpc/` - gRPC service implementations (SystemService, CollectionService, DocumentService)
+- `python-bindings/` - Python bindings for Rust components
+- `proto/` - Protocol buffer definitions
+
 ## Daemon Service Setup
 
 The `memexd` daemon provides continuous document processing and monitoring capabilities for production deployments:
@@ -177,14 +208,45 @@ wqm service logs
 workspace-qdrant-health --daemon
 ```
 
-### Daemon Benefits
+### Daemon Architecture
 
-The daemon service automatically:
-- 📁 **Monitors document changes** in real-time with file watching
-- 🤖 **Generates embeddings** in the background for optimal performance
-- 🔄 **Maintains collection health** and consistency across restarts
-- 🔌 **Provides IPC communication** for seamless Python integration
-- 🚀 **Starts on system boot** with automatic crash recovery
+The unified daemon (`memexd`) provides:
+- 📁 **Real-time file monitoring** with SQLite-driven watch configuration
+- 🤖 **Background embedding generation** for optimal performance
+- 🔄 **gRPC services**: SystemService, CollectionService, DocumentService (15 RPCs total)
+- 🔌 **Single writer pattern**: All Qdrant writes route through daemon for consistency
+- 🚀 **Automatic startup** on system boot with crash recovery
+- 📊 **Health monitoring** with comprehensive metrics and status reporting
+
+### gRPC Services Architecture
+
+The daemon exposes three gRPC services for communication with MCP server and CLI:
+
+**1. SystemService (7 RPCs)** - Health monitoring and lifecycle management:
+- `HealthCheck` - Quick health status for monitoring/alerting
+- `GetStatus` - Comprehensive system state snapshot
+- `GetMetrics` - Current performance metrics
+- `SendRefreshSignal` - Event-driven state change notifications
+- `NotifyServerStatus` - MCP/CLI server lifecycle events
+- `PauseAllWatchers` / `ResumeAllWatchers` - Master file watcher control
+
+**2. CollectionService (5 RPCs)** - Qdrant collection lifecycle:
+- `CreateCollection` - Create collection with proper configuration
+- `DeleteCollection` - Remove collection and all data
+- `CreateCollectionAlias` - Create alias for tenant_id changes
+- `DeleteCollectionAlias` - Remove collection alias
+- `RenameCollectionAlias` - Atomically rename alias
+
+**3. DocumentService (3 RPCs)** - Direct text ingestion (non-file content):
+- `IngestText` - Synchronous text ingestion with chunking
+- `UpdateText` - Update previously ingested text
+- `DeleteText` - Delete ingested document
+
+**Design Principles:**
+- **Single writer pattern**: Only daemon writes to Qdrant
+- **Queue-based async processing**: File operations via SQLite queue
+- **Direct sync ingestion**: Text content via gRPC IngestText
+- **Event-driven refresh**: Lightweight signals for state changes
 
 **📖 For detailed daemon installation:** See [CLI Reference](CLI.md#service-management) - Covers systemd (Linux), launchd (macOS), and Windows Service with security configurations.
 
@@ -317,34 +379,41 @@ export FASTEMBED_MODEL="BAAI/bge-base-en-v1.5"
 
 ### Collection Naming
 
-Collections are automatically created based on your project and configuration:
+Collections are automatically created based on your project and configuration. All collection types use **non-empty basenames** to ensure proper daemon routing and metadata enrichment:
 
-**Always Created:**
+**Project Collections (Scoped by Project):**
 
-- `{project-name}-scratchbook` → Auto-created for notes, ideas, todos, and code snippets
+- `COLLECTIONS="code"` → creates `{project-id}_code` (project-scoped code collection)
+- `COLLECTIONS="notes,docs"` → creates `{project-id}_notes`, `{project-id}_docs`
 
-**Project Collections:**
+**User Collections (Shared Across Projects):**
 
-- `COLLECTIONS="project"` → creates `{project-name}-project`
-- `COLLECTIONS="docs,tests"` → creates `{project-name}-docs`, `{project-name}-tests`
+- Collection pattern: `{basename}-{type}` (e.g., `myapp-notes`, `work-scratchbook`)
+- Auto-enriched with current project context when accessed from project directory
+- Searchable across all projects
 
-**Global Collections (User Choice):**
+**Library Collections (Shared Documentation):**
 
-- `GLOBAL_COLLECTIONS="docs,references"` → creates `docs`, `references` (shared across projects)
+- Pattern: `_{library_name}` (e.g., `_react`, `_pytorch`)
+- Global shared documentation and references
 
-**Example:** For project "my-app" with `COLLECTIONS="docs,tests"`:
+**Memory Collections (Agent Context):**
 
-- `my-app-scratchbook` (automatically created for notes)
-- `my-app-docs` (project documentation)
-- `my-app-tests` (test-related documents)
-- `docs` (global documentation)
-- `references` (global references)
+- `_memory` → User memory and context
+- `_agent_memory` → Agent-specific memory storage
 
-### Scratchbook Collections
+**Example:** For project "my-app" with `COLLECTIONS="code,docs"`:
 
-Every project automatically gets a `{project-name}-scratchbook` collection for capturing development thoughts and notes. This is your **personal development journal** for the project.
+- `my-app-hash_code` (project-scoped code, hash identifies project)
+- `my-app-hash_docs` (project-scoped documentation)
+- `myapp-notes` (user collection, auto-enriched with project_id)
+- `_react` (shared React documentation library)
 
-**What goes in scratchbook collections:**
+### Development Notes Collections
+
+You can create user collections for capturing development thoughts and notes across projects. These are your **personal development journals** accessible from any project.
+
+**What goes in user note collections:**
 
 - 📝 **Meeting notes** and action items
 - 💡 **Ideas** and implementation thoughts
@@ -355,24 +424,31 @@ Every project automatically gets a `{project-name}-scratchbook` collection for c
 - 📊 **Research findings** and links
 - 🎯 **Project goals** and milestones
 
-**Example scratchbook entries:**
+**Example usage:**
 
+```bash
+# Store note in user collection (auto-enriched with current project context)
+wqm add --collection myapp-notes "Discussed API rate limiting - implement exponential backoff"
+
+# Search across all your notes
+wqm search "rate limiting" --collection myapp-notes
 ```
-"Discussed API rate limiting in team meeting - need to implement exponential backoff"
-"Found solution for memory leak in worker threads - use weak references"
-"TODO: Update deployment docs after container changes"
-"Code snippet: async context manager pattern for database connections"
-```
+
+**Collection naming:** User collections follow the pattern `{basename}-{type}` (e.g., `work-notes`, `personal-snippets`) and are automatically enriched with the current project context when accessed.
 
 ### Subproject Support (Git Submodules)
 
-For repositories with **Git submodules**, additional collections are created automatically:
+For repositories with **Git submodules**, the daemon automatically detects and tracks each submodule as a separate project:
 
 **Requirements:**
 
 - Must set `WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER=yourusername`
-- Only submodules **owned by you** get collections (prevents vendor/third-party sprawl)
+- Only submodules **owned by you** are tracked (prevents vendor/third-party sprawl)
 - Without `github_user` configured, only main project collections are created (conservative approach)
+
+**How it works:**
+
+Each submodule gets its own project_id (normalized git remote URL) and separate project-scoped collections. The daemon identifies ownership by comparing git remote usernames.
 
 **Example with subprojects:**
 
@@ -380,15 +456,15 @@ For repositories with **Git submodules**, additional collections are created aut
 # Repository: my-monorepo with submodules
 # - frontend/ (github.com/myuser/frontend)
 # - backend/ (github.com/myuser/backend)
-# - vendor-lib/ (github.com/vendor/lib) ← ignored
+# - vendor-lib/ (github.com/vendor/lib) ← ignored (different owner)
 
-# Collections created:
-my-monorepo-scratchbook    # Main project notes
-my-monorepo-project        # Main project docs
-frontend-scratchbook       # Frontend notes
-frontend-project          # Frontend docs
-backend-scratchbook       # Backend notes
-backend-project           # Backend docs
+# Collections created (assuming COLLECTIONS="code,docs"):
+monorepo-hash_code         # Main project code
+monorepo-hash_docs         # Main project docs
+frontend-hash_code         # Frontend code (separate project_id)
+frontend-hash_docs         # Frontend docs
+backend-hash_code          # Backend code (separate project_id)
+backend-hash_docs          # Backend docs
 # No collections for vendor-lib (different owner)
 ```
 
@@ -529,14 +605,15 @@ workspace-qdrant-ingest /path/to/docs -c my-project --dry-run
 
 ## Documentation
 
-- **[Architecture](docs/ARCHITECTURE.md)** - System architecture diagrams and component interactions
+- **[Architecture](docs/ARCHITECTURE.md)** - System architecture, unified daemon design, and gRPC protocol
 - **[CLI Reference](CLI.md)** - Complete command-line reference for all `wqm` commands
 - **[API Reference](API.md)** - Complete MCP tools documentation
 - **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Comprehensive troubleshooting and debugging
 - **[Migration Guide](MIGRATION.md)** - v0.2.x to v0.3.0 upgrade instructions
-- **[Contributing Guide](CONTRIBUTING.md)** - Development setup and guidelines
+- **[Contributing Guide](CONTRIBUTING.md)** - Development setup, building from source, testing
 - **[CI/CD Processes](docs/ci-cd-processes.md)** - Automated releases and deployment
 - **[Benchmarking](tests/benchmarks/README.md)** - Performance testing and metrics
+- **[Protocol Definition](src/rust/daemon/proto/workspace_daemon.proto)** - Complete gRPC protocol specification
 
 ## Troubleshooting
 
