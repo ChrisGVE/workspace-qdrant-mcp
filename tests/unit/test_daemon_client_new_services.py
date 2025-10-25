@@ -195,14 +195,18 @@ class TestCollectionServiceMethods:
         )
         connected_client._collection_stub.CreateCollection = AsyncMock(return_value=mock_response)
 
+        # Create CollectionConfig object
+        config = CollectionConfig(
+            vector_size=384,
+            distance_metric="Cosine",
+            enable_indexing=True,
+        )
+
         with patch("common.grpc.daemon_client.validate_llm_collection_access"):
             response = await connected_client.create_collection_v2(
                 collection_name="test_collection",
                 project_id="proj123",
-                vector_size=384,
-                distance_metric="Cosine",
-                enable_indexing=True,
-                metadata_schema={"type": "test"},
+                config=config,
             )
 
         assert response.success is True
@@ -226,6 +230,7 @@ class TestCollectionServiceMethods:
         with pytest.raises(DaemonClientError, match="CollectionService not available"):
             await connected_client.create_collection_v2(
                 collection_name="test",
+                project_id="proj123",
             )
 
     @pytest.mark.asyncio
@@ -241,6 +246,7 @@ class TestCollectionServiceMethods:
         with patch("common.grpc.daemon_client.validate_llm_collection_access"):
             response = await connected_client.create_collection_v2(
                 collection_name="existing_collection",
+                project_id="proj123",
             )
 
         assert response.success is False
@@ -348,8 +354,8 @@ class TestCollectionServiceMethods:
         connected_client._collection_stub.RenameCollectionAlias = AsyncMock(return_value=mock_response)
 
         await connected_client.rename_collection_alias(
-            old_alias_name="old_alias",
-            new_alias_name="new_alias",
+            old_name="old_alias",
+            new_name="new_alias",
             collection_name="test_collection",
         )
 
