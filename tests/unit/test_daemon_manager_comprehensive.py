@@ -689,7 +689,7 @@ class TestDaemonInstance:
     @pytest.mark.asyncio
     async def test_find_daemon_binary_existing(self, daemon_instance):
         """Test finding existing daemon binary."""
-        binary_path = Path("/test/rust-engine/target/release/memexd")
+        binary_path = Path("/test/rust-engine-legacy/target/release/memexd")
 
         # Mock the config project path
         daemon_instance.config.project_path = "/test/project"
@@ -703,7 +703,7 @@ class TestDaemonInstance:
     @pytest.mark.asyncio
     async def test_find_daemon_binary_build_success(self, daemon_instance):
         """Test building daemon binary successfully."""
-        binary_path = Path("/test/rust-engine/target/release/memexd")
+        binary_path = Path("/test/rust-engine-legacy/target/release/memexd")
 
         # Mock the config project path
         daemon_instance.config.project_path = "/test/project"

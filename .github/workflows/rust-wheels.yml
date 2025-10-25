@@ -37,24 +37,24 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust-engine/target
-          key: rust-${{ runner.os }}-${{ hashFiles('rust-engine/Cargo.lock') }}
+            rust-engine-legacy/target
+          key: rust-${{ runner.os }}-${{ hashFiles('rust-engine-legacy/Cargo.lock') }}
       
       - name: Check formatting
         run: cargo fmt --all --check
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
       
       - name: Lint with clippy
         run: cargo clippy --workspace --exclude workspace-qdrant-python-bindings -- -D warnings
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
       
       - name: Run tests
         run: cargo test --workspace --exclude workspace-qdrant-python-bindings
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
       
       - name: Build documentation
         run: cargo doc --all-features --no-deps
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
 
   # Build wheels for different platforms
   build-wheels:
@@ -114,8 +114,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust-engine/target
-          key: rust-${{ matrix.target }}-${{ hashFiles('rust-engine/Cargo.lock') }}
+            rust-engine-legacy/target
+          key: rust-${{ matrix.target }}-${{ hashFiles('rust-engine-legacy/Cargo.lock') }}
       
       - name: Install maturin
         run: pip install maturin[patchelf]
@@ -150,7 +150,7 @@ jobs:
             --target ${{ matrix.target }} \
             --out ../wheels \
             --interpreter python
-        working-directory: rust-engine/python-bindings
+        working-directory: rust-engine-legacy/python-bindings
         env:
           # Enable PyO3 forward compatibility for newer Python versions
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
@@ -206,7 +206,7 @@ jobs:
       
       - name: Build source distribution
         run: maturin sdist --out ../dist
-        working-directory: rust-engine/python-bindings
+        working-directory: rust-engine-legacy/python-bindings
         env:
           # Enable PyO3 forward compatibility for newer Python versions
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
@@ -344,22 +344,22 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust-engine/target
-          key: rust-security-${{ hashFiles('rust-engine/Cargo.lock') }}
+            rust-engine-legacy/target
+          key: rust-security-${{ hashFiles('rust-engine-legacy/Cargo.lock') }}
       
       - name: Install cargo-audit
         run: cargo install cargo-audit
       
       - name: Run security audit
         run: cargo audit
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
       
       - name: Install cargo-deny
         run: cargo install cargo-deny
       
       - name: Check licenses and dependencies
         run: cargo deny check
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
         continue-on-error: true  # Don't fail build on license issues
 
   # Benchmark performance
@@ -380,18 +380,18 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust-engine/target
-          key: rust-bench-${{ hashFiles('rust-engine/Cargo.lock') }}
+            rust-engine-legacy/target
+          key: rust-bench-${{ hashFiles('rust-engine-legacy/Cargo.lock') }}
       
       - name: Run benchmarks
         run: cargo bench --features benchmarks
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
       
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
-          path: rust-engine/target/criterion/
+          path: rust-engine-legacy/target/criterion/
 
   # Publish to PyPI
   publish:

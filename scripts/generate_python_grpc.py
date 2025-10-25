@@ -23,7 +23,7 @@ def main():
     project_root = Path(__file__).parent.parent.absolute()
 
     # Proto file location
-    proto_dir = project_root / "rust-engine" / "proto"
+    proto_dir = project_root / "rust-engine-legacy" / "proto"
     proto_file = proto_dir / "workspace_daemon.proto"
 
     # Output directory for generated Python code

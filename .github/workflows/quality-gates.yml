@@ -152,8 +152,8 @@ jobs:
           ~/.cargo/registry/index/
           ~/.cargo/registry/cache/
           ~/.cargo/git/db/
-          rust-engine/target/
-        key: ubuntu-security-audit-${{ hashFiles('rust-engine/Cargo.lock') }}
+          rust-engine-legacy/target/
+        key: ubuntu-security-audit-${{ hashFiles('rust-engine-legacy/Cargo.lock') }}
 
     - name: Install Rust security tools
       run: |
@@ -163,21 +163,21 @@ jobs:
 
     - name: Run cargo audit for vulnerabilities
       run: |
-        cd rust-engine
+        cd rust-engine-legacy
         echo "🔍 Running cargo audit"
         cargo audit --format json --output ../rust-audit-report.json
         cargo audit
 
     - name: Check license compliance and dependencies
       run: |
-        cd rust-engine
+        cd rust-engine-legacy
         echo "📜 Checking license compliance"
         cargo deny check --format json --output ../rust-deny-report.json
         cargo deny check
 
     - name: Scan for unsafe Rust code
       run: |
-        cd rust-engine
+        cd rust-engine-legacy
         echo "⚠️ Scanning for unsafe code patterns"
         cargo geiger --format json --output ../rust-geiger-report.json
         cargo geiger

@@ -6,7 +6,7 @@ on:
     branches: [main, develop]
     paths:
       - 'src/**'
-      - 'rust-engine/**'
+      - 'rust-engine-legacy/**'
       - 'tests/**'
       - 'pyproject.toml'
       - 'Cargo.toml'
@@ -294,8 +294,8 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            rust-engine/target/
-          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('rust-engine/Cargo.lock') }}
+            rust-engine-legacy/target/
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('rust-engine-legacy/Cargo.lock') }}
 
       - name: Install dependencies
         run: |
@@ -311,7 +311,7 @@ jobs:
 
       - name: Run Rust criterion benchmarks
         run: |
-          cd rust-engine
+          cd rust-engine-legacy
 
           # Run benchmarks with criterion
           cargo bench --workspace \
@@ -452,7 +452,7 @@ jobs:
           path: |
             rust-benchmark-results.txt
             rust-performance-summary.md
-            rust-engine/target/criterion/
+            rust-engine-legacy/target/criterion/
           retention-days: 90
 
       - name: Update Rust baseline

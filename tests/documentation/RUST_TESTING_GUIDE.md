@@ -18,7 +18,7 @@ This guide covers Rust testing best practices for the high-performance engine co
 ### Test Directory Structure
 
 ```
-rust-engine/
+rust-engine-legacy/
 ├── src/
 │   ├── lib.rs
 │   ├── processing.rs       # Document processing logic

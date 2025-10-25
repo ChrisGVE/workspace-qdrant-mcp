@@ -153,7 +153,7 @@ impl LoggingConfig {
             global_fields: {
                 let mut fields = HashMap::new();
                 fields.insert("service".to_string(), "workspace-qdrant-mcp".to_string());
-                fields.insert("component".to_string(), "rust-engine".to_string());
+                fields.insert("component".to_string(), "rust-daemon".to_string());
                 fields
             },
         }

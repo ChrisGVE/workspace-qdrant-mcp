@@ -47,7 +47,7 @@ For each Rust version, we validate:
 ### Automatic Testing (All Versions)
 
 ```bash
-cd rust-engine
+cd rust-engine-legacy
 ./test-rust-versions.sh
 ```
 
@@ -60,7 +60,7 @@ This script will:
 ### Manual Testing (Specific Version)
 
 ```bash
-cd rust-engine
+cd rust-engine-legacy
 
 # Test with MSRV
 rustup toolchain install 1.75.0
@@ -105,13 +105,13 @@ jobs:
           components: clippy, rustfmt
       - name: Check
         run: cargo check --all-features
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
       - name: Test
         run: cargo test --all-features
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
       - name: Clippy
         run: cargo clippy --all-features -- -D warnings
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
 ```
 
 ## Upgrading MSRV

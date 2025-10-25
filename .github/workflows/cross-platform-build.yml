@@ -4,12 +4,12 @@ on:
   push:
     branches: [main, develop, 'feature/**', 'release/**']
     paths:
-      - 'rust-engine/**'
+      - 'rust-engine-legacy/**'
       - '.github/workflows/cross-platform-build.yml'
   pull_request:
     branches: [main, develop]
     paths:
-      - 'rust-engine/**'
+      - 'rust-engine-legacy/**'
       - '.github/workflows/cross-platform-build.yml'
   workflow_dispatch:
     inputs:
@@ -98,8 +98,8 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            rust-engine/target/
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('rust-engine/Cargo.lock') }}
+            rust-engine-legacy/target/
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('rust-engine-legacy/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-
             ${{ runner.os }}-cargo-
@@ -143,7 +143,7 @@ jobs:
       # Build steps
       - name: Check code formatting
         run: cargo fmt --all --check
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
 
       - name: Lint with Clippy
         run: |
@@ -152,7 +152,7 @@ jobs:
           else
             cargo clippy --workspace --target ${{ matrix.target }} -- -D warnings
           fi
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
 
       - name: Build workspace
         run: |
@@ -161,7 +161,7 @@ jobs:
           else
             cargo build --workspace --target ${{ matrix.target }} --release
           fi
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
         env:
           # Platform-specific optimization flags
           RUSTFLAGS: >-
@@ -177,7 +177,7 @@ jobs:
           else
             cargo test --workspace --target ${{ matrix.target }} --release
           fi
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
 
       - name: Run platform-specific feature tests
         if: matrix.test
@@ -205,7 +205,7 @@ jobs:
               cargo test --workspace --target ${{ matrix.target }} --release --features windows-optimizations || true
               ;;
           esac
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
 
       # Archive build artifacts for analysis
       - name: Archive build artifacts
@@ -213,7 +213,7 @@ jobs:
         with:
           name: build-artifacts-${{ matrix.target }}
           path: |
-            rust-engine/target/${{ matrix.target }}/release/
+            rust-engine-legacy/target/${{ matrix.target }}/release/
           retention-days: 7
 
   # Platform-specific integration tests
@@ -242,8 +242,8 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            rust-engine/target/
-          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('rust-engine/Cargo.lock') }}
+            rust-engine-legacy/target/
+          key: ${{ runner.os }}-cargo-integration-${{ hashFiles('rust-engine-legacy/Cargo.lock') }}
 
       - name: Install platform dependencies
         run: |
@@ -281,7 +281,7 @@ jobs:
               cargo test --workspace --release --features windows-integration-tests || true
               ;;
           esac
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
 
       - name: Test memory usage and performance
         run: |
@@ -290,7 +290,7 @@ jobs:
           
           echo "Testing file processing performance..."
           cargo test --workspace --release performance_baseline_tests || true
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
 
   # Security and vulnerability testing
   security-audit:
@@ -311,8 +311,8 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            rust-engine/target/
-          key: ubuntu-cargo-audit-${{ hashFiles('rust-engine/Cargo.lock') }}
+            rust-engine-legacy/target/
+          key: ubuntu-cargo-audit-${{ hashFiles('rust-engine-legacy/Cargo.lock') }}
 
       - name: Install security audit tools
         run: |
@@ -322,16 +322,16 @@ jobs:
 
       - name: Run cargo audit
         run: cargo audit
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
 
       - name: Check licenses and dependencies
         run: cargo deny check
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
         continue-on-error: true
 
       - name: Scan for unsafe code
         run: cargo geiger --format GitHubMarkdown >> $GITHUB_STEP_SUMMARY
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
         continue-on-error: true
 
   # Performance benchmarks (optional)
@@ -355,8 +355,8 @@ jobs:
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
-            rust-engine/target/
-          key: ubuntu-cargo-bench-${{ hashFiles('rust-engine/Cargo.lock') }}
+            rust-engine-legacy/target/
+          key: ubuntu-cargo-bench-${{ hashFiles('rust-engine-legacy/Cargo.lock') }}
 
       - name: Install dependencies
         run: |
@@ -373,13 +373,13 @@ jobs:
           
           echo "Running cross-platform compatibility benchmarks..."
           cargo bench --workspace --bench platform_benchmarks || true
-        working-directory: rust-engine
+        working-directory: rust-engine-legacy
 
       - name: Archive benchmark results
         uses: actions/upload-artifact@v4
         with:
           name: benchmark-results
-          path: rust-engine/target/criterion/
+          path: rust-engine-legacy/target/criterion/
           retention-days: 30
 
   # Comprehensive build report

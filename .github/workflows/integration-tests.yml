@@ -97,8 +97,8 @@ jobs:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
-          rust-engine/target
-        key: ${{ runner.os }}-rust-${{ hashFiles('rust-engine/**/Cargo.lock') }}
+          rust-engine-legacy/target
+        key: ${{ runner.os }}-rust-${{ hashFiles('rust-engine-legacy/**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-rust-
     

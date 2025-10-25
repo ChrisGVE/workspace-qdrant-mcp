@@ -237,7 +237,7 @@ proptest! {
 ### Test Organization
 
 ```
-rust-engine/
+rust-engine-legacy/
 ├── tests/
 │   ├── functional/
 │   │   ├── test_service_integration.rs
@@ -434,8 +434,8 @@ uv run pytest tests/functional/ -n auto
 ### Rust Test Execution
 
 ```bash
-# Navigate to Rust engine directory
-cd rust-engine
+# Navigate to Rust engine directory (legacy)
+cd rust-engine-legacy
 
 # Run all tests with nextest
 cargo nextest run

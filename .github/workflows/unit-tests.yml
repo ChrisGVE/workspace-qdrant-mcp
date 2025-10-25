@@ -117,7 +117,7 @@ jobs:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
-          rust-engine/target
+          rust-engine-legacy/target
           src/rust/daemon/target
           src/rust/daemon/core/target
         key: ${{ runner.os }}-rust-unit-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
@@ -127,22 +127,22 @@ jobs:
 
     - name: Check Rust formatting
       run: |
-        cd rust-engine && cargo fmt --check || true
+        cd rust-engine-legacy && cargo fmt --check || true
         cd ../src/rust/daemon && cargo fmt --check || true
       continue-on-error: true  # Don't fail on formatting in unit tests
 
     - name: Run Rust clippy
       run: |
-        echo "Running clippy on rust-engine..."
-        cd rust-engine && cargo clippy --all-targets --all-features -- -D warnings || true
+        echo "Running clippy on rust-engine-legacy..."
+        cd rust-engine-legacy && cargo clippy --all-targets --all-features -- -D warnings || true
 
         echo "Running clippy on daemon..."
         cd ../src/rust/daemon && cargo clippy --all-targets --all-features -- -D warnings || true
       continue-on-error: true  # Don't fail on clippy warnings in unit tests
 
-    - name: Run rust-engine unit tests
+    - name: Run rust-engine-legacy unit tests
       run: |
-        cd rust-engine
+        cd rust-engine-legacy
         cargo test --lib --bins --tests --all-features -- --test-threads=4 --nocapture
       timeout-minutes: 10
 
@@ -165,7 +165,7 @@ jobs:
       with:
         name: rust-unit-test-results
         path: |
-          rust-engine/target/debug/
+          rust-engine-legacy/target/debug/
           src/rust/daemon/target/debug/
         retention-days: 3
         if-no-files-found: ignore

@@ -977,7 +977,7 @@ class DaemonInstance:
         """Find the daemon binary, building if necessary."""
         # Look for pre-built binary first
         project_root = Path(self.config.project_path).parent
-        rust_engine_path = project_root / "rust-engine"
+        rust_engine_path = project_root / "rust-engine-legacy"
 
         # Check for built binary in target directory
         target_dirs = [

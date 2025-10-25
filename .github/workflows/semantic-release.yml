@@ -227,7 +227,7 @@ jobs:
             --target ${{ matrix.target }} \
             --out wheels \
             --interpreter python
-        working-directory: rust-engine/python-bindings
+        working-directory: rust-engine-legacy/python-bindings
         env:
           PYO3_USE_ABI3_FORWARD_COMPATIBILITY: 1
 
