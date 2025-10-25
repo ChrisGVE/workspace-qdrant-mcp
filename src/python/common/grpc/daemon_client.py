@@ -113,9 +113,6 @@ except ImportError:
         class LLMAccessControlError(Exception):
             pass
 
-# Service discovery (commented out - infrastructure ready for future use)
-# from ..core.service_discovery import discover_daemon_endpoint, ServiceEndpoint
-
 logger = logging.getLogger(__name__)
 
 
@@ -219,9 +216,6 @@ class DaemonClient:
         self._shutdown = False
         self._connected = False
 
-        # Service discovery state
-        self._discovered_endpoint: Optional[Any] = None  # ServiceEndpoint when available
-
         # Circuit breaker state
         self._circuit_breaker_failures = 0
         self._circuit_breaker_state = "closed"  # closed, open, half-open
@@ -294,7 +288,6 @@ class DaemonClient:
         self._ingest_stub = None
         self._started = False
         self._connected = False
-        self._discovered_endpoint = None
 
         logger.info("DaemonClient stopped")
 
@@ -1394,18 +1387,8 @@ class DaemonClient:
                 "max_delay": self.config.max_retry_delay,
                 "backoff_multiplier": self.config.retry_backoff_multiplier,
             },
+            "discovery_strategy": "configuration"
         }
-
-        if self._discovered_endpoint:
-            info.update({
-                "endpoint": self._discovered_endpoint.address,
-                "project_id": getattr(self._discovered_endpoint, 'project_id', None),
-                "service_name": getattr(self._discovered_endpoint, 'service_name', None),
-                "health_status": getattr(self._discovered_endpoint, 'health_status', None),
-                "discovery_strategy": "service_discovery"
-            })
-        else:
-            info["discovery_strategy"] = "configuration"
 
         return info
 
