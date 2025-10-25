@@ -148,6 +148,42 @@ embedding_model = None
 daemon_client: Optional[DaemonClient] = None
 project_cache = {}
 
+# Collection basename mapping for Rust daemon validation
+# Maps collection types to valid basenames (non-empty strings)
+BASENAME_MAP = {
+    "project": "code",      # PROJECT collections: _{project_id}
+    "user": "notes",        # USER collections: {basename}-{type}
+    "library": "lib",       # LIBRARY collections: _{library_name}
+    "memory": "memory",     # MEMORY collections: _memory, _agent_memory
+}
+
+
+def get_collection_type(collection_name: str) -> str:
+    """Determine collection type from collection name.
+
+    Args:
+        collection_name: Collection name to analyze
+
+    Returns:
+        One of: "project", "user", "library", "memory"
+    """
+    if collection_name in ("_memory", "_agent_memory"):
+        return "memory"
+    elif collection_name.startswith("_"):
+        # Could be project or library - check for library patterns
+        # Libraries typically have recognizable names (e.g., _numpy, _pandas)
+        # Projects are hex hashes (e.g., _a1b2c3d4e5f6)
+        # For now, assume underscore-prefixed is project unless it's a known library pattern
+        # This can be refined based on actual usage patterns
+        if len(collection_name) == 13:  # _{12-char-hash}
+            return "project"
+        else:
+            return "library"
+    else:
+        # No underscore prefix = user collection
+        return "user"
+
+
 # Configuration
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_COLLECTION_CONFIG = {
@@ -433,17 +469,17 @@ async def store(
         doc_metadata.update(metadata)
 
     # Extract collection_basename and tenant_id for daemon
-    # For project collections (_{project_id}), extract the project_id
-    # For custom collections, use the full name as basename
-    if target_collection.startswith('_'):
-        # Project collection format: _{project_id}
+    # Use BASENAME_MAP to ensure non-empty basenames for Rust validation
+    collection_type = get_collection_type(target_collection)
+    collection_basename = BASENAME_MAP[collection_type]
+
+    # Extract tenant_id based on collection type
+    if collection_type in ("project", "library", "memory"):
+        # PROJECT/LIBRARY/MEMORY: _{project_id} or _{library_name} or _memory
         tenant_id = target_collection[1:]  # Remove leading underscore
-        collection_basename = ""  # Empty basename for project collections
     else:
-        # Custom/legacy collection - use collection name as-is
-        # Generate tenant_id from current project path
+        # USER: {basename}-{type} - generate tenant_id from current project path
         tenant_id = calculate_tenant_id(str(Path.cwd()))
-        collection_basename = target_collection
 
     # ============================================================================
     # DAEMON WRITE BOUNDARY (First Principle 10)
