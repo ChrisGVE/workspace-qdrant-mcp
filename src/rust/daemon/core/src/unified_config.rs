@@ -155,7 +155,7 @@ impl UnifiedConfigManager {
 
         match format {
             ConfigFormat::Yaml => {
-                serde_yaml::from_str(&content)
+                serde_yml::from_str(&content)
                     .map_err(|e| UnifiedConfigError::YamlError(e.to_string()))
             }
         }
@@ -348,7 +348,7 @@ impl UnifiedConfigManager {
 
         let content = match format {
             ConfigFormat::Yaml => {
-                serde_yaml::to_string(config)
+                serde_yml::to_string(config)
                     .map_err(|e| UnifiedConfigError::YamlError(e.to_string()))?
             }
         };

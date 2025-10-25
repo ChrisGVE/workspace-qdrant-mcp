@@ -37,7 +37,7 @@ pub use exclusion::{
 #[derive(Error, Debug)]
 pub enum PatternError {
     #[error("YAML parsing error: {0}")]
-    YamlParse(#[from] serde_yaml::Error),
+    YamlParse(#[from] serde_yml::Error),
 
     #[error("Pattern validation error: {0}")]
     Validation(String),
@@ -180,7 +180,7 @@ pub struct LanguageExtensions {
     pub specialized_formats: HashMap<String, LanguageGroup>,
     pub extensions_to_languages: HashMap<String, String>,
     pub filenames_to_languages: HashMap<String, String>,
-    pub metadata: HashMap<String, serde_yaml::Value>,
+    pub metadata: HashMap<String, serde_yml::Value>,
 }
 
 /// All pattern types combined

@@ -7,7 +7,7 @@ edition = "2021"
 # Core dependencies
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
-serde_yaml = "0.9"
+serde_yml = "0.0.12"
 thiserror = "2.0"
 uuid = { version = "1.6", features = ["v4", "serde"] }
 tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "sync", "time", "fs", "io-util", "net", "process", "signal"] }

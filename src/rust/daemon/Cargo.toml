@@ -60,7 +60,7 @@ prost-types = "0.13"
 # Serialization and configuration
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
-serde_yaml = "0.9"
+serde_yml = "0.0.12"
 toml = "0.8"
 
 # Utilities and data structures
