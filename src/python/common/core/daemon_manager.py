@@ -977,12 +977,12 @@ class DaemonInstance:
         """Find the daemon binary, building if necessary."""
         # Look for pre-built binary first
         project_root = Path(self.config.project_path).parent
-        daemon_core_path = project_root / "src" / "rust" / "daemon" / "core"
+        daemon_path = project_root / "src" / "rust" / "daemon"
 
         # Check for built binary in target directory
         target_dirs = [
-            daemon_core_path / "target" / "release",
-            daemon_core_path / "target" / "debug",
+            daemon_path / "target" / "release",
+            daemon_path / "target" / "debug",
         ]
 
         binary_name = "memexd"
@@ -996,8 +996,8 @@ class DaemonInstance:
                 return binary_path
 
         # Try to build if source exists
-        if daemon_core_path.exists() and (daemon_core_path / "Cargo.toml").exists():
-            logger.info("Building daemon binary", daemon_path=str(daemon_core_path))
+        if daemon_path.exists() and (daemon_path / "Cargo.toml").exists():
+            logger.info("Building daemon binary", daemon_path=str(daemon_path))
 
             try:
                 # Use cargo to build the gRPC service
@@ -1007,7 +1007,7 @@ class DaemonInstance:
                     "--release",
                     "--bin",
                     "memexd",
-                    cwd=str(daemon_core_path),
+                    cwd=str(daemon_path),
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
@@ -1015,7 +1015,7 @@ class DaemonInstance:
                 stdout, stderr = await result.communicate()
 
                 if result.returncode == 0:
-                    binary_path = daemon_core_path / "target" / "release" / binary_name
+                    binary_path = daemon_path / "target" / "release" / binary_name
                     if binary_path.exists():
                         logger.info(
                             "Successfully built daemon binary", path=str(binary_path)
