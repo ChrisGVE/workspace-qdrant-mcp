@@ -253,14 +253,17 @@ class CodeSymbol:
     
     def get_signature(self) -> str:
         """Get symbol signature string"""
+        # If we have a type signature, prepend modifiers if any
         if self.type_info and self.type_info.type_signature:
+            if self.modifiers:
+                return " ".join(self.modifiers) + " " + self.type_info.type_signature
             return self.type_info.type_signature
-        
+
         # Build basic signature from available information
         signature_parts = []
         if self.modifiers:
             signature_parts.extend(self.modifiers)
-        
+
         if self.kind == SymbolKind.FUNCTION or self.kind == SymbolKind.METHOD:
             params = []
             if self.type_info and self.type_info.parameter_types:
@@ -269,17 +272,18 @@ class CodeSymbol:
                     if param.get("type"):
                         param_str += f": {param['type']}"
                     params.append(param_str)
-            
+
             signature = f"{self.name}({', '.join(params)})"
             if self.type_info and self.type_info.return_type:
                 signature += f" -> {self.type_info.return_type}"
-            
+
             signature_parts.append(signature)
         else:
-            signature_parts.append(self.name)
+            name_and_type = self.name
             if self.type_info and self.type_info.type_name:
-                signature_parts.append(f": {self.type_info.type_name}")
-        
+                name_and_type += f": {self.type_info.type_name}"
+            signature_parts.append(name_and_type)
+
         return " ".join(signature_parts)
 
 
@@ -513,24 +517,39 @@ class PythonExtractor(LanguageSpecificExtractor):
     def get_minimal_context(self, source_lines: List[str], symbol_range: Range) -> Tuple[List[str], List[str]]:
         """Get minimal context for Python symbols"""
         start_line = symbol_range.start.line
-        
+
         # Get 1-2 lines before (excluding empty lines and comments)
+        # Prioritize structural context (class/def) over imports
         context_before = []
-        for i in range(start_line - 1, max(0, start_line - 3), -1):
-            if i >= 0:
-                line = source_lines[i].strip()
-                if line and not line.startswith('#'):
-                    context_before.insert(0, source_lines[i])
-                    if len(context_before) >= 2:
-                        break
-        
+        structural_context = None
+
+        for i in range(start_line - 1, max(-1, start_line - 5), -1):
+            if i < 0:
+                break
+            line = source_lines[i]
+            line_stripped = line.strip()
+
+            if line_stripped and not line_stripped.startswith('#'):
+                # Check if this is structural context (class, def, etc.)
+                if line_stripped.startswith(('class ', 'def ', 'async def ')):
+                    structural_context = line
+                    break
+                # Otherwise just add as regular context
+                context_before.insert(0, line)
+                if len(context_before) >= 2:
+                    break
+
+        # If we found structural context, use it preferentially
+        if structural_context:
+            context_before = [structural_context]
+
         # Get 0-1 lines after (for context like decorators or continuations)
         context_after = []
         if start_line + 1 < len(source_lines):
             next_line = source_lines[start_line + 1].strip()
             if next_line and not next_line.startswith('"""') and not next_line.startswith("'''"):
                 context_after.append(source_lines[start_line + 1])
-        
+
         return context_before, context_after
 
 
@@ -542,34 +561,57 @@ class RustExtractor(LanguageSpecificExtractor):
         """Extract Rust doc comments (/// and //!)"""
         doc = Documentation()
         start_line = symbol_range.start.line
-        
+
         # Look for doc comments before the symbol
         doc_lines = []
-        for i in range(start_line - 1, max(0, start_line - 20), -1):
-            if i >= 0:
-                line = source_lines[i].strip()
-                if line.startswith("///") or line.startswith("//!"):
-                    doc_lines.insert(0, line[3:].strip())
-                elif line.startswith("/**") or line.startswith("/*!"):
-                    # Multi-line doc comment
-                    comment_lines = [line[3:].strip()]
-                    for j in range(i + 1, start_line):
-                        comment_line = source_lines[j].strip()
-                        if comment_line.endswith("*/"):
-                            comment_lines.append(comment_line[:-2].strip())
-                            break
-                        else:
-                            comment_lines.append(comment_line.lstrip("* "))
-                    doc_lines = comment_lines + doc_lines
+        multiline_start = None
+        multiline_end = None
+
+        for i in range(start_line - 1, max(-1, start_line - 20), -1):
+            if i < 0:
+                break
+            line = source_lines[i].strip()
+
+            if line.startswith("///") or line.startswith("//!"):
+                doc_lines.insert(0, line[3:].strip())
+            elif line.endswith("*/") and multiline_end is None:
+                # Found end of multi-line comment - mark it and keep searching for start
+                multiline_end = i
+            elif (line.startswith("/**") or line.startswith("/*!")) and multiline_end is not None:
+                # Found start of multi-line doc comment
+                multiline_start = i
+                break
+            elif not line or line.startswith("//"):
+                continue
+            else:
+                # If we haven't found a multiline end yet, break
+                if multiline_end is None:
                     break
-                elif not line or line.startswith("//"):
-                    continue
+
+        # Process multi-line doc comment if found
+        if multiline_start is not None and multiline_end is not None:
+            comment_lines = []
+            for j in range(multiline_start, multiline_end + 1):
+                comment_line = source_lines[j].strip()
+                if comment_line.startswith("/**") or comment_line.startswith("/*!"):
+                    content = comment_line[3:].strip()
+                    # Only add if there's actual content and it's not just "*"
+                    if content and content != "*" and not content.startswith("*/"):
+                        comment_lines.append(content)
+                elif comment_line.endswith("*/"):
+                    content = comment_line[:-2].strip().lstrip("* ")
+                    if content and content != "*":
+                        comment_lines.append(content)
+                    break
                 else:
-                    break
-        
+                    content = comment_line.lstrip("* ")
+                    if content and content != "*":
+                        comment_lines.append(content)
+            doc_lines = comment_lines + doc_lines
+
         if doc_lines:
             doc.docstring = "\n".join(doc_lines)
-        
+
         return doc
     
     def extract_type_information(self, symbol_data: Dict[str, Any], hover_data: Optional[Dict[str, Any]]) -> TypeInformation:
@@ -610,16 +652,30 @@ class RustExtractor(LanguageSpecificExtractor):
     def get_minimal_context(self, source_lines: List[str], symbol_range: Range) -> Tuple[List[str], List[str]]:
         """Get minimal context for Rust symbols"""
         start_line = symbol_range.start.line
-        
+
         context_before = []
-        for i in range(start_line - 1, max(0, start_line - 2), -1):
-            if i >= 0:
-                line = source_lines[i].strip()
-                if line and not line.startswith("//"):
-                    context_before.insert(0, source_lines[i])
-                    if len(context_before) >= 1:
-                        break
-        
+        structural_context = None
+
+        for i in range(start_line - 1, max(-1, start_line - 5), -1):
+            if i < 0:
+                break
+            line = source_lines[i]
+            line_stripped = line.strip()
+
+            if line_stripped and not line_stripped.startswith("//"):
+                # Check if this is structural context (impl, struct, etc.)
+                if line_stripped.startswith(('impl ', 'struct ', 'enum ', 'trait ')):
+                    structural_context = line
+                    break
+                # Otherwise just add as regular context
+                context_before.insert(0, line)
+                if len(context_before) >= 1:
+                    break
+
+        # If we found structural context, use it preferentially
+        if structural_context:
+            context_before = [structural_context]
+
         context_after = []
         return context_before, context_after
 
@@ -631,58 +687,79 @@ class JavaScriptExtractor(LanguageSpecificExtractor):
         """Extract JSDoc comments and regular comments"""
         doc = Documentation()
         start_line = symbol_range.start.line
-        
+
         # Look for JSDoc comments before the symbol
-        for i in range(start_line - 1, max(0, start_line - 20), -1):
-            if i >= 0:
-                line = source_lines[i].strip()
-                if line.startswith("/**"):
-                    # Multi-line JSDoc comment
-                    jsdoc_lines = []
-                    for j in range(i, start_line):
-                        comment_line = source_lines[j].strip()
-                        if comment_line.startswith("/**"):
-                            jsdoc_lines.append(comment_line[3:].strip())
-                        elif comment_line.startswith("*/"):
-                            break
-                        elif comment_line.startswith("*"):
-                            content = comment_line[1:].strip()
-                            if content.startswith("@"):
-                                # JSDoc tag
-                                tag_match = re.match(r'@(\w+)\s*(.*)', content)
-                                if tag_match:
-                                    tag_name, tag_content = tag_match.groups()
-                                    if tag_name not in doc.tags:
-                                        doc.tags[tag_name] = []
-                                    doc.tags[tag_name].append(tag_content.strip())
-                            else:
-                                jsdoc_lines.append(content)
-                    
-                    if jsdoc_lines:
-                        doc.docstring = "\n".join(jsdoc_lines)
+        multiline_start = None
+        multiline_end = None
+
+        for i in range(start_line - 1, max(-1, start_line - 20), -1):
+            if i < 0:
+                break
+            line = source_lines[i].strip()
+            if line.endswith("*/") and multiline_end is None:
+                # Found end of multi-line comment
+                multiline_end = i
+            elif line.startswith("/**") and multiline_end is not None:
+                # Found start of JSDoc comment
+                multiline_start = i
+                break
+            elif not line or line.startswith("//"):
+                continue
+            else:
+                # If we haven't found a multiline end yet, break
+                if multiline_end is None:
                     break
-                elif not line or line.startswith("//"):
-                    continue
-                else:
+
+        # Process JSDoc comment if found
+        if multiline_start is not None and multiline_end is not None:
+            jsdoc_lines = []
+            for j in range(multiline_start, multiline_end + 1):
+                comment_line = source_lines[j].strip()
+                if comment_line.startswith("/**"):
+                    content = comment_line[3:].strip()
+                    # Only add if there's actual content and not just "*" or "*/"
+                    if content and content != "*" and not content.startswith("*/"):
+                        jsdoc_lines.append(content)
+                elif comment_line.startswith("*/"):
                     break
-        
+                elif comment_line.startswith("*"):
+                    content = comment_line[1:].strip()
+                    if content.startswith("@"):
+                        # JSDoc tag
+                        tag_match = re.match(r'@(\w+)\s*(.*)', content)
+                        if tag_match:
+                            tag_name, tag_content = tag_match.groups()
+                            if tag_name not in doc.tags:
+                                doc.tags[tag_name] = []
+                            doc.tags[tag_name].append(tag_content.strip())
+                    elif content and content != "*":
+                        jsdoc_lines.append(content)
+
+            if jsdoc_lines:
+                doc.docstring = "\n".join(jsdoc_lines)
+
         return doc
     
     def extract_type_information(self, symbol_data: Dict[str, Any], hover_data: Optional[Dict[str, Any]]) -> TypeInformation:
         """Extract JavaScript/TypeScript type information"""
         type_info = TypeInformation()
-        
+
         if hover_data and hover_data.get("contents"):
             contents = hover_data["contents"]
             if isinstance(contents, dict) and contents.get("value"):
                 type_text = contents["value"]
                 type_info.type_signature = type_text.strip()
-                
-                # Extract TypeScript type annotations
-                if ": " in type_text:
+
+                # Extract TypeScript return type from function signature
+                if "): " in type_text:
+                    # function signature like "function name(...): returnType"
+                    type_part = type_text.split("): ")[1].strip()
+                    type_info.type_name = type_part
+                elif ": " in type_text:
+                    # variable type like "const name: type"
                     type_part = type_text.split(": ")[1].split("=")[0].strip()
                     type_info.type_name = type_part
-        
+
         return type_info
     
     def extract_imports_exports(self, source_lines: List[str]) -> Tuple[List[str], List[str]]:
@@ -727,41 +804,57 @@ class JavaExtractor(LanguageSpecificExtractor):
         """Extract Java Javadoc comments and regular comments"""
         doc = Documentation()
         start_line = symbol_range.start.line
-        
+
         # Look for Javadoc comments before the symbol
         javadoc_lines = []
-        for i in range(start_line - 1, max(0, start_line - 20), -1):
-            if i >= 0:
-                line = source_lines[i].strip()
-                if line.startswith("/**"):
-                    # Multi-line Javadoc comment
-                    for j in range(i, start_line):
-                        comment_line = source_lines[j].strip()
-                        if comment_line.startswith("/**"):
-                            javadoc_lines.append(comment_line[3:].strip())
-                        elif comment_line.startswith("*/"):
-                            break
-                        elif comment_line.startswith("*"):
-                            content = comment_line[1:].strip()
-                            if content.startswith("@"):
-                                # Javadoc tag
-                                tag_match = re.match(r'@(\w+)\s*(.*)', content)
-                                if tag_match:
-                                    tag_name, tag_content = tag_match.groups()
-                                    if tag_name not in doc.tags:
-                                        doc.tags[tag_name] = []
-                                    doc.tags[tag_name].append(tag_content.strip())
-                            else:
-                                javadoc_lines.append(content)
+        multiline_start = None
+        multiline_end = None
+
+        for i in range(start_line - 1, max(-1, start_line - 20), -1):
+            if i < 0:
+                break
+            line = source_lines[i].strip()
+            if line.endswith("*/") and multiline_end is None:
+                # Found end of multi-line comment
+                multiline_end = i
+            elif line.startswith("/**") and multiline_end is not None:
+                # Found start of Javadoc comment
+                multiline_start = i
+                break
+            elif not line or line.startswith("//"):
+                continue
+            else:
+                # If we haven't found a multiline end yet, break
+                if multiline_end is None:
                     break
-                elif not line or line.startswith("//"):
-                    continue
-                else:
+
+        # Process Javadoc comment if found
+        if multiline_start is not None and multiline_end is not None:
+            for j in range(multiline_start, multiline_end + 1):
+                comment_line = source_lines[j].strip()
+                if comment_line.startswith("/**"):
+                    content = comment_line[3:].strip()
+                    # Only add if there's actual content and not just "*" or "*/"
+                    if content and content != "*" and not content.startswith("*/"):
+                        javadoc_lines.append(content)
+                elif comment_line.startswith("*/"):
                     break
-        
+                elif comment_line.startswith("*"):
+                    content = comment_line[1:].strip()
+                    if content.startswith("@"):
+                        # Javadoc tag
+                        tag_match = re.match(r'@(\w+)\s*(.*)', content)
+                        if tag_match:
+                            tag_name, tag_content = tag_match.groups()
+                            if tag_name not in doc.tags:
+                                doc.tags[tag_name] = []
+                            doc.tags[tag_name].append(tag_content.strip())
+                    elif content and content != "*":
+                        javadoc_lines.append(content)
+
         if javadoc_lines:
             doc.docstring = "\n".join(javadoc_lines)
-        
+
         return doc
     
     def extract_type_information(self, symbol_data: Dict[str, Any], hover_data: Optional[Dict[str, Any]]) -> TypeInformation:
@@ -825,22 +918,27 @@ class GoExtractor(LanguageSpecificExtractor):
         """Extract Go doc comments"""
         doc = Documentation()
         start_line = symbol_range.start.line
-        
+
         # Look for doc comments before the symbol (// comments immediately before)
         doc_lines = []
-        for i in range(start_line - 1, max(0, start_line - 10), -1):
-            if i >= 0:
-                line = source_lines[i].strip()
-                if line.startswith("//"):
-                    doc_lines.insert(0, line[2:].strip())
-                elif not line:
-                    continue  # Allow empty lines
-                else:
+        for i in range(start_line - 1, max(-1, start_line - 10), -1):
+            if i < 0:
+                break
+            line = source_lines[i].strip()
+            if line.startswith("//"):
+                doc_lines.insert(0, line[2:].strip())
+            elif not line:
+                # Empty lines can be part of doc comments in Go
+                # But we stop if we already collected some lines and hit empty line
+                if doc_lines:
                     break
-        
+                continue
+            else:
+                break
+
         if doc_lines:
             doc.docstring = "\n".join(doc_lines)
-        
+
         return doc
     
     def extract_type_information(self, symbol_data: Dict[str, Any], hover_data: Optional[Dict[str, Any]]) -> TypeInformation:
@@ -921,34 +1019,51 @@ class CppExtractor(LanguageSpecificExtractor):
         """Extract C/C++ doc comments (/// and /** */)"""
         doc = Documentation()
         start_line = symbol_range.start.line
-        
+
         # Look for doc comments before the symbol
         doc_lines = []
-        for i in range(start_line - 1, max(0, start_line - 15), -1):
-            if i >= 0:
-                line = source_lines[i].strip()
-                if line.startswith("///"):
-                    doc_lines.insert(0, line[3:].strip())
-                elif line.startswith("/**"):
-                    # Multi-line doc comment
-                    comment_lines = [line[3:].strip()]
-                    for j in range(i + 1, start_line):
-                        comment_line = source_lines[j].strip()
-                        if comment_line.endswith("*/"):
-                            comment_lines.append(comment_line[:-2].strip())
-                            break
-                        else:
-                            comment_lines.append(comment_line.lstrip("* "))
-                    doc_lines = comment_lines + doc_lines
+        multiline_start = None
+
+        for i in range(start_line - 1, max(-1, start_line - 15), -1):
+            if i < 0:
+                break
+            line = source_lines[i].strip()
+
+            if line.startswith("///"):
+                doc_lines.insert(0, line[3:].strip())
+            elif line.startswith("/**"):
+                # Found start of multi-line doc comment
+                multiline_start = i
+                break
+            elif line.startswith("//") or not line:
+                continue
+            else:
+                break
+
+        # Process multi-line doc comment if found
+        if multiline_start is not None:
+            comment_lines = []
+            for j in range(multiline_start, start_line):
+                comment_line = source_lines[j].strip()
+                if comment_line.startswith("/**"):
+                    content = comment_line[3:].strip()
+                    # Only add if there's actual content and not just "*" or "*/"
+                    if content and content != "*" and not content.startswith("*/"):
+                        comment_lines.append(content)
+                elif comment_line.endswith("*/"):
+                    content = comment_line[:-2].strip().lstrip("* ")
+                    if content and content != "*":
+                        comment_lines.append(content)
                     break
-                elif line.startswith("//") or not line:
-                    continue
                 else:
-                    break
-        
+                    content = comment_line.lstrip("* ")
+                    if content and content != "*":
+                        comment_lines.append(content)
+            doc_lines = comment_lines + doc_lines
+
         if doc_lines:
             doc.docstring = "\n".join(doc_lines)
-        
+
         return doc
     
     def extract_type_information(self, symbol_data: Dict[str, Any], hover_data: Optional[Dict[str, Any]]) -> TypeInformation:
@@ -1507,20 +1622,31 @@ class LspMetadataExtractor:
         try:
             name = symbol_data.get("name", "")
             kind_value = symbol_data.get("kind", 1)
-            
+
+            # Validate symbol data - log errors for malformed data
+            if not name:
+                error_msg = f"Symbol missing name field: {symbol_data}"
+                logger.debug(error_msg)
+                metadata.extraction_errors.append(error_msg)
+
+            if "range" not in symbol_data:
+                error_msg = f"Symbol '{name}' missing range field"
+                logger.debug(error_msg)
+                metadata.extraction_errors.append(error_msg)
+
             # Convert LSP kind to our SymbolKind
             try:
                 kind = SymbolKind(kind_value)
             except ValueError:
                 kind = SymbolKind.VARIABLE  # Default fallback
-            
+
             # Extract ranges
             range_data = symbol_data.get("range", {})
             selection_range_data = symbol_data.get("selectionRange")
-            
+
             symbol_range = Range.from_lsp(range_data)
             selection_range = Range.from_lsp(selection_range_data) if selection_range_data else None
-            
+
             # Create symbol object
             symbol = CodeSymbol(
                 name=name,
