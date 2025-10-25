@@ -34,6 +34,7 @@ Example:
 import contextlib
 import ssl
 import warnings
+from contextlib import AbstractContextManager
 from typing import Any
 from urllib.parse import urlparse
 
