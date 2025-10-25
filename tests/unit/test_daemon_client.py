@@ -458,7 +458,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_unavailable_error_raises_daemon_unavailable(self, daemon_client):
         """Test that UNAVAILABLE gRPC error raises DaemonUnavailableError."""
-        mock_error = MagicMock(spec=grpc.RpcError)
+        mock_error = MagicMock()
         mock_error.code.return_value = grpc.StatusCode.UNAVAILABLE
         mock_error.details.return_value = "Service unavailable"
 
@@ -470,7 +470,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_non_retryable_error_raises_immediately(self, daemon_client):
         """Test that non-retryable errors don't retry."""
-        mock_error = MagicMock(spec=grpc.RpcError)
+        mock_error = MagicMock()
         mock_error.code.return_value = grpc.StatusCode.INVALID_ARGUMENT
         mock_error.details.return_value = "Invalid argument"
 
@@ -485,7 +485,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_retry_on_transient_failure(self, daemon_client):
         """Test retry logic on transient failures."""
-        mock_error = MagicMock(spec=grpc.RpcError)
+        mock_error = MagicMock()
         mock_error.code.return_value = grpc.StatusCode.UNAVAILABLE
         mock_error.details.return_value = "Temporary unavailable"
 
@@ -504,7 +504,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_max_retries_exceeded(self, daemon_client):
         """Test that max retries is respected."""
-        mock_error = MagicMock(spec=grpc.RpcError)
+        mock_error = MagicMock()
         mock_error.code.return_value = grpc.StatusCode.UNAVAILABLE
         mock_error.details.return_value = "Service unavailable"
 
@@ -523,7 +523,7 @@ class TestCircuitBreaker:
     @pytest.mark.asyncio
     async def test_circuit_breaker_opens_after_failures(self, daemon_client):
         """Test circuit breaker opens after threshold failures."""
-        mock_error = MagicMock(spec=grpc.RpcError)
+        mock_error = MagicMock()
         mock_error.code.return_value = grpc.StatusCode.UNAVAILABLE
         mock_error.details.return_value = "Service unavailable"
 
