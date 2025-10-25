@@ -64,6 +64,11 @@ class TestRealFunctionality:
             if hasattr(target_module, class_name):
                 cls = getattr(target_module, class_name)
 
+                # Skip enums - they can't be instantiated with arbitrary values
+                import enum
+                if isinstance(cls, type) and issubclass(cls, enum.Enum):
+                    continue
+
                 # Try to instantiate with various parameter combinations
                 try:
                     # Try no parameters
