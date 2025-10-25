@@ -8,11 +8,12 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import grpc
 
-from src.python.common.grpc.daemon_client import (
+from common.grpc.daemon_client import (
     DaemonClient,
-    DaemonConnectionError,
+    DaemonClientError,
+    DaemonUnavailableError,
 )
-from src.python.common.grpc.generated.workspace_daemon_pb2 import (
+from common.grpc.generated.workspace_daemon_pb2 import (
     IngestTextRequest,
     IngestTextResponse,
     UpdateTextRequest,
@@ -74,7 +75,7 @@ class TestDocumentServiceMethods:
         connected_client.document_service.IngestText = AsyncMock(return_value=mock_response)
 
         # Call the method
-        with patch("src.python.common.core.daemon_client.validate_llm_collection_access"):
+        with patch("common.grpc.daemon_client.validate_llm_collection_access"):
             response = await connected_client.ingest_text(
                 content="Test content",
                 collection_basename="scratchbook",
@@ -128,7 +129,7 @@ class TestDocumentServiceMethods:
         mock_error.details = MagicMock(return_value="Service unavailable")
         connected_client.document_service.IngestText = AsyncMock(side_effect=mock_error)
 
-        with patch("src.python.common.core.daemon_client.validate_llm_collection_access"):
+        with patch("common.grpc.daemon_client.validate_llm_collection_access"):
             with pytest.raises(DaemonConnectionError, match="Failed to ingest text"):
                 await connected_client.ingest_text(
                     content="Test",
@@ -192,7 +193,7 @@ class TestCollectionServiceMethods:
         )
         connected_client.collection_service.CreateCollection = AsyncMock(return_value=mock_response)
 
-        with patch("src.python.common.core.daemon_client.validate_llm_collection_access"):
+        with patch("common.grpc.daemon_client.validate_llm_collection_access"):
             response = await connected_client.create_collection_v2(
                 collection_name="test_collection",
                 project_id="proj123",
@@ -235,7 +236,7 @@ class TestCollectionServiceMethods:
         )
         connected_client.collection_service.CreateCollection = AsyncMock(return_value=mock_response)
 
-        with patch("src.python.common.core.daemon_client.validate_llm_collection_access"):
+        with patch("common.grpc.daemon_client.validate_llm_collection_access"):
             response = await connected_client.create_collection_v2(
                 collection_name="existing_collection",
             )
@@ -250,7 +251,7 @@ class TestCollectionServiceMethods:
         mock_response = Empty()
         connected_client.collection_service.DeleteCollection = AsyncMock(return_value=mock_response)
 
-        with patch("src.python.common.core.daemon_client.validate_llm_collection_access"):
+        with patch("common.grpc.daemon_client.validate_llm_collection_access"):
             await connected_client.delete_collection_v2(
                 collection_name="test_collection",
                 project_id="proj123",
@@ -267,7 +268,7 @@ class TestCollectionServiceMethods:
     @pytest.mark.asyncio
     async def test_collection_exists_true(self, connected_client):
         """Test collection_exists returns True when collection exists."""
-        from src.python.common.grpc.ingestion_pb2 import (
+        from common.grpc.ingestion_pb2 import (
             ListCollectionsResponse,
             CollectionInfo,
         )
@@ -283,7 +284,7 @@ class TestCollectionServiceMethods:
     @pytest.mark.asyncio
     async def test_collection_exists_false(self, connected_client):
         """Test collection_exists returns False when collection doesn't exist."""
-        from src.python.common.grpc.ingestion_pb2 import (
+        from common.grpc.ingestion_pb2 import (
             ListCollectionsResponse,
             CollectionInfo,
         )
@@ -369,9 +370,9 @@ class TestConnectionManagement:
             mock_channel.return_value = mock_channel_instance
 
             with patch.object(daemon_client, "health_check", new=AsyncMock()):
-                with patch("src.python.common.grpc.ingestion_pb2_grpc.IngestServiceStub"):
-                    with patch("src.python.common.grpc.generated.workspace_daemon_pb2_grpc.DocumentServiceStub"):
-                        with patch("src.python.common.grpc.generated.workspace_daemon_pb2_grpc.CollectionServiceStub"):
+                with patch("common.grpc.ingestion_pb2_grpc.IngestServiceStub"):
+                    with patch("common.grpc.generated.workspace_daemon_pb2_grpc.DocumentServiceStub"):
+                        with patch("common.grpc.generated.workspace_daemon_pb2_grpc.CollectionServiceStub"):
                             await daemon_client.connect()
 
         assert daemon_client._connected is True
@@ -400,9 +401,9 @@ class TestConnectionManagement:
             mock_channel.return_value = mock_channel_instance
 
             with patch.object(daemon_client, "health_check", new=AsyncMock(side_effect=Exception("Connection failed"))):
-                with patch("src.python.common.grpc.ingestion_pb2_grpc.IngestServiceStub"):
-                    with patch("src.python.common.grpc.generated.workspace_daemon_pb2_grpc.DocumentServiceStub"):
-                        with patch("src.python.common.grpc.generated.workspace_daemon_pb2_grpc.CollectionServiceStub"):
+                with patch("common.grpc.ingestion_pb2_grpc.IngestServiceStub"):
+                    with patch("common.grpc.generated.workspace_daemon_pb2_grpc.DocumentServiceStub"):
+                        with patch("common.grpc.generated.workspace_daemon_pb2_grpc.CollectionServiceStub"):
                             with pytest.raises(DaemonConnectionError):
                                 await daemon_client.connect()
 
@@ -418,7 +419,7 @@ class TestLLMAccessControl:
     @pytest.mark.asyncio
     async def test_ingest_text_blocked_by_access_control(self, connected_client):
         """Test that ingest_text respects LLM access control."""
-        from src.python.common.core.llm_access_control import (
+        from common.core.llm_access_control import (
             LLMAccessControlError,
             AccessViolation,
             AccessViolationType,
@@ -432,7 +433,7 @@ class TestLLMAccessControl:
             message="Access denied",
         )
 
-        with patch("src.python.common.core.daemon_client.validate_llm_collection_access") as mock_validate:
+        with patch("common.grpc.daemon_client.validate_llm_collection_access") as mock_validate:
             mock_validate.side_effect = LLMAccessControlError(violation)
 
             with pytest.raises(DaemonConnectionError, match="Text ingestion blocked"):
@@ -445,7 +446,7 @@ class TestLLMAccessControl:
     @pytest.mark.asyncio
     async def test_create_collection_v2_blocked_by_access_control(self, connected_client):
         """Test that create_collection_v2 respects LLM access control."""
-        from src.python.common.core.llm_access_control import (
+        from common.core.llm_access_control import (
             LLMAccessControlError,
             AccessViolation,
             AccessViolationType,
@@ -459,7 +460,7 @@ class TestLLMAccessControl:
             message="Access denied",
         )
 
-        with patch("src.python.common.core.daemon_client.validate_llm_collection_access") as mock_validate:
+        with patch("common.grpc.daemon_client.validate_llm_collection_access") as mock_validate:
             mock_validate.side_effect = LLMAccessControlError(violation)
 
             with pytest.raises(DaemonConnectionError, match="Collection creation blocked"):
@@ -470,7 +471,7 @@ class TestLLMAccessControl:
     @pytest.mark.asyncio
     async def test_delete_collection_v2_blocked_by_access_control(self, connected_client):
         """Test that delete_collection_v2 respects LLM access control."""
-        from src.python.common.core.llm_access_control import (
+        from common.core.llm_access_control import (
             LLMAccessControlError,
             AccessViolation,
             AccessViolationType,
@@ -484,7 +485,7 @@ class TestLLMAccessControl:
             message="Access denied",
         )
 
-        with patch("src.python.common.core.daemon_client.validate_llm_collection_access") as mock_validate:
+        with patch("common.grpc.daemon_client.validate_llm_collection_access") as mock_validate:
             mock_validate.side_effect = LLMAccessControlError(violation)
 
             with pytest.raises(DaemonConnectionError, match="Collection deletion blocked"):
