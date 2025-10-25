@@ -35,6 +35,7 @@ from rich.text import Text
 
 from loguru import logger
 from ..utils import create_command_app, handle_async
+from ..binary_security import BinaryValidator, BinarySecurityError
 
 # Initialize app and logger
 service_app = create_command_app(
@@ -49,14 +50,23 @@ console = Console()
 class MemexdServiceManager:
     """Service manager for the actual memexd binary."""
 
-    def __init__(self):
+    def __init__(self, skip_validation: bool = False):
+        """Initialize service manager.
+
+        Args:
+            skip_validation: Skip binary validation (for install operations)
+        """
         self.system = platform.system().lower()
         self.service_name = "workspace-qdrant-daemon"
         self.service_id = f"com.workspace-qdrant.{self.service_name}"
+        self.binary_validator = BinaryValidator()
 
         # Use OS-specific user binary path resolution
         self.memexd_binary = self.resolve_binary_path()
-        self.validate_binary()
+
+        # Validate binary if it exists and validation not skipped
+        if not skip_validation:
+            self.validate_binary()
         
     def resolve_binary_path(self) -> Path:
         """Resolve OS-specific user binary path for memexd."""
@@ -109,8 +119,16 @@ class MemexdServiceManager:
         else:
             return Path.home() / ".local" / "bin" / binary_name
 
-    def validate_binary(self) -> None:
-        """Validate that the memexd binary exists and is executable."""
+    def validate_binary(self, skip_checksum: bool = False) -> None:
+        """Validate memexd binary with comprehensive security checks.
+
+        Args:
+            skip_checksum: Skip checksum verification (used during initial installation)
+
+        Raises:
+            FileNotFoundError: If binary doesn't exist
+            BinarySecurityError: If security validation fails
+        """
         if not self.memexd_binary.exists():
             # Provide helpful error with OS-specific install path
             preferred_path = self.get_preferred_install_path()
@@ -120,13 +138,32 @@ class MemexdServiceManager:
                 f"Run 'wqm service install --build' to build and install the binary."
             )
 
-        if not os.access(self.memexd_binary, os.X_OK):
-            raise PermissionError(
-                f"memexd binary at {self.memexd_binary} is not executable. "
-                "Please check permissions."
-            )
+        # Perform comprehensive security validation
+        validation_result = self.binary_validator.validate_binary(
+            self.memexd_binary,
+            verify_checksum=not skip_checksum,
+            strict_ownership=True
+        )
 
-        logger.debug(f"Found valid memexd binary at {self.memexd_binary}")
+        if not validation_result["valid"]:
+            error_msg = "Binary security validation failed:\n"
+            for error in validation_result["errors"]:
+                error_msg += f"  - {error}\n"
+
+            logger.error(
+                "Binary validation failed",
+                binary=str(self.memexd_binary),
+                checks=validation_result["checks"],
+                errors=validation_result["errors"]
+            )
+            raise BinarySecurityError(error_msg)
+
+        # Log successful validation
+        logger.info(
+            "Binary security validation passed",
+            binary=str(self.memexd_binary),
+            checks=validation_result["checks"]
+        )
     
     def get_config_path(self) -> Path:
         """Get the default configuration path for memexd."""
@@ -209,18 +246,38 @@ class MemexdServiceManager:
             import shutil
             shutil.copy2(built_binary, install_path)
 
-            # Set executable permissions on Unix systems
+            # Set strict permissions (owner read/write/execute only)
             if self.system != "windows":
-                os.chmod(install_path, 0o755)
+                os.chmod(install_path, 0o700)  # More restrictive than 0o755
+            else:
+                # Windows: ensure not world-writable
+                try:
+                    os.chmod(install_path, 0o755)
+                except (OSError, AttributeError):
+                    pass  # Windows permissions work differently
 
-            # Update binary path and validate
+            # Compute and store binary checksum for tamper detection
+            try:
+                checksum = self.binary_validator.compute_checksum(install_path)
+                checksum_path = self.binary_validator.store_checksum(install_path, checksum)
+                logger.info(
+                    "Binary checksum stored",
+                    checksum=checksum[:16] + "...",  # Log first 16 chars only
+                    checksum_file=str(checksum_path)
+                )
+            except BinarySecurityError as e:
+                logger.warning(f"Failed to store binary checksum: {e}")
+                # Non-fatal: continue without checksum
+
+            # Update binary path and validate (skip checksum on first install)
             self.memexd_binary = install_path
-            self.validate_binary()
+            self.validate_binary(skip_checksum=False)  # Validate with freshly stored checksum
 
             return {
                 "success": True,
                 "source_path": str(built_binary),
                 "install_path": str(install_path),
+                "checksum": checksum[:16] + "..." if 'checksum' in locals() else "N/A",
                 "message": f"memexd binary built and installed successfully at {install_path}"
             }
 
