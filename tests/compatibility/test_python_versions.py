@@ -11,7 +11,7 @@ from typing import Any, Dict
 
 import pytest
 
-from src.python.common.core.client import get_qdrant_client
+from src.python.common.core.client import create_qdrant_client
 from src.python.common.core.config import get_config
 from src.python.common.core.hybrid_search import HybridSearchEngine
 from src.python.common.core.memory import MemoryManager
@@ -155,7 +155,7 @@ class TestCoreModuleCompatibility:
     def test_qdrant_client_initialization(self):
         """Test Qdrant client can be created."""
         # This should not fail to import/instantiate
-        client = get_qdrant_client()
+        client = create_qdrant_client()
         assert client is not None
 
     def test_hybrid_search_initialization(self):
