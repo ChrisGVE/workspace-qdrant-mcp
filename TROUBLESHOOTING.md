@@ -8,6 +8,7 @@ Comprehensive troubleshooting guide for workspace-qdrant-mcp installation, confi
 - [Qdrant Connection Problems](#qdrant-connection-problems)
 - [MCP Server Debugging](#mcp-server-debugging)
 - [Daemon Startup Issues](#daemon-startup-issues)
+- [Phase 1 Foundation Issues](#phase-1-foundation-issues-unified-daemon-architecture)
 - [Performance Troubleshooting](#performance-troubleshooting)
 - [Configuration Guide](#configuration-guide)
 - [Debugging Commands](#debugging-commands)
@@ -107,13 +108,17 @@ sudo dnf install -y nodejs npm
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 rustup update stable
 
-# Build manually to see detailed errors
-cd src/rust/daemon/core
+# Build manually to see detailed errors (use workspace root)
+cd src/rust/daemon
 cargo clean
 cargo build --release
 
 # Check for specific errors
 cargo check
+
+# Verify workspace structure
+cat Cargo.toml | grep -A 10 "^\[workspace\]"
+# Should show members: core, grpc, python-bindings, shared-test-utils
 ```
 
 **Common causes:**
@@ -121,6 +126,9 @@ cargo check
 - Outdated Rust version (update with `rustup update`)
 - Missing C compiler or system headers
 - Insufficient disk space for compilation
+- Building from wrong path (use `src/rust/daemon`, not `src/rust/daemon/core`)
+
+**Note:** Phase 1 unified the daemon workspace. Always build from `src/rust/daemon` (workspace root), not from subdirectories.
 
 ## Qdrant Connection Problems
 
@@ -429,7 +437,7 @@ wqm service status
 wqm service logs
 
 # Try starting manually to see errors
-/path/to/src/rust/daemon/core/target/release/memexd --foreground --log-level debug
+src/rust/daemon/target/release/memexd --foreground --log-level debug
 ```
 
 **Common errors and solutions:**
@@ -569,6 +577,295 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblockapp /path/to/memex
 # config.yaml
 grpc:
   fallback_to_direct: true  # Enable direct Qdrant access fallback
+```
+
+## Phase 1 Foundation Issues (Unified Daemon Architecture)
+
+This section covers issues specific to Phase 1 foundation work (October 2025) that unified the daemon architecture and enabled gRPC services.
+
+### Empty Collection Basename Errors
+
+**Problem:** `Status::invalid_argument("basename cannot be empty")` when trying to store documents
+
+**Cause:** Phase 1 Task 385 fixed the empty basename bug. All collection operations now require non-empty basenames.
+
+**Diagnosis:**
+```bash
+# Check if error appears in logs
+wqm service logs | grep "basename cannot be empty"
+
+# Verify you're using latest code
+cd src/rust/daemon && git log --oneline -1
+# Should show Task 385 commit or later
+```
+
+**Solutions:**
+
+**1. For MCP users** (automatic fix in server.py):
+```python
+# This is handled automatically by server.py BASENAME_MAP
+# No user action required - ensure server.py is up to date
+```
+
+**2. For direct daemon calls**:
+```python
+from workspace_qdrant_mcp.server import get_collection_type, BASENAME_MAP
+
+collection_name = "_a1b2c3d4e5f6"  # PROJECT collection
+collection_type = get_collection_type(collection_name)  # Returns "project"
+basename = BASENAME_MAP[collection_type]  # Returns "code"
+
+# Use basename in daemon call
+daemon_client.ingest_text(
+    collection_basename=basename,  # Required non-empty
+    # ... other parameters
+)
+```
+
+**3. Collection type basenames**:
+| Collection Type | Pattern | Required Basename |
+|----------------|---------|-------------------|
+| PROJECT | `_{project_id}` | `"code"` |
+| USER | `{basename}-{type}` | `"notes"` (default) |
+| LIBRARY | `_{library_name}` | `"lib"` |
+| MEMORY | `_memory`, `_agent_memory` | `"memory"` |
+
+**Reference:** See `docs/COLLECTION_NAMING.md` for complete naming guide.
+
+### Daemon Build Path Errors
+
+**Problem:** Build fails with "no Cargo.toml found" when using old build path
+
+**Cause:** Phase 1 unified the daemon workspace. Old build path `src/rust/daemon/core` is deprecated.
+
+**Diagnosis:**
+```bash
+# Check if using wrong path
+pwd
+# If shows: .../src/rust/daemon/core ← WRONG
+
+# Correct path should be:
+# .../src/rust/daemon ← CORRECT
+```
+
+**Solutions:**
+
+**Update build commands:**
+```bash
+# ❌ OLD (deprecated)
+cd src/rust/daemon/core && cargo build
+
+# ✅ NEW (correct workspace root)
+cd src/rust/daemon && cargo build --release
+```
+
+**Update CI/CD pipelines:**
+```yaml
+# ❌ OLD
+- name: Build Daemon
+  run: |
+    cd src/rust/daemon/core
+    cargo build --release
+
+# ✅ NEW
+- name: Build Daemon
+  run: |
+    cd src/rust/daemon
+    cargo build --release
+```
+
+**Binary location after build:**
+```bash
+# Binary now at:
+ls -lh src/rust/daemon/target/release/memexd
+
+# Not at (old location):
+# src/rust/daemon/core/target/release/memexd
+```
+
+**Reference:** See `docs/PHASE1_MIGRATION_GUIDE.md` for complete migration instructions.
+
+### gRPC Service Not Available
+
+**Problem:** "gRPC method not found" or "service unavailable" errors
+
+**Cause:** gRPC workspace member not enabled in build configuration (Task 384 requirement).
+
+**Diagnosis:**
+```bash
+# Check if grpc workspace is enabled
+cat src/rust/daemon/Cargo.toml | grep -A 10 "^\[workspace\]"
+
+# Should see:
+# members = [
+#     "core",
+#     "grpc",  ← Must be present
+#     ...
+# ]
+```
+
+**Solutions:**
+
+**1. Verify grpc workspace enabled:**
+```bash
+# Check Cargo.toml
+grep -A 5 "\[workspace\]" src/rust/daemon/Cargo.toml
+
+# Should show grpc in members list
+# If missing, pull latest code:
+git pull origin main
+```
+
+**2. Rebuild with all services:**
+```bash
+cd src/rust/daemon
+cargo clean
+cargo build --release
+
+# Verify binary includes gRPC services
+strings target/release/memexd | grep -i "CollectionService\|DocumentService"
+# Should show service names
+```
+
+**3. Test gRPC connectivity:**
+```bash
+# Start daemon
+wqm service start
+
+# Check if listening on gRPC port
+lsof -i :50051
+# Expected: memexd listening on port 50051
+
+# Test with grpcurl (if installed)
+grpcurl -plaintext localhost:50051 list
+# Expected output:
+# workspace_daemon.CollectionService
+# workspace_daemon.DocumentService
+# workspace_daemon.SystemService
+```
+
+**Reference:** See `docs/ARCHITECTURE.md` for complete gRPC protocol documentation.
+
+### Protocol Validation Test Failures
+
+**Problem:** Integration tests fail with protocol mismatch errors
+
+**Cause:** Python MCP server expects full protocol (15 RPCs), daemon must provide all services.
+
+**Diagnosis:**
+```bash
+# Run Phase 1 validation tests
+uv run pytest tests/integration/test_phase1_protocol_validation.py -v
+
+# Check for specific failures:
+# - "Empty basename" ← Task 385 issue
+# - "Service not found" ← Task 384 issue
+# - "Method not implemented" ← Protocol mismatch
+```
+
+**Solutions:**
+
+**1. For empty basename failures:**
+```bash
+# Pull latest server.py with BASENAME_MAP
+git pull origin main
+
+# Verify BASENAME_MAP exists
+grep -A 5 "BASENAME_MAP" src/python/workspace_qdrant_mcp/server.py
+```
+
+**2. For service not found:**
+```bash
+# Rebuild daemon with all services
+cd src/rust/daemon
+cargo clean
+cargo build --release
+
+# Restart service
+wqm service restart
+```
+
+**3. Run specific test classes:**
+```bash
+# Test SystemService only
+uv run pytest tests/integration/test_phase1_protocol_validation.py::TestSystemService -v
+
+# Test DocumentService only
+uv run pytest tests/integration/test_phase1_protocol_validation.py::TestDocumentService -v
+
+# Test CollectionService only
+uv run pytest tests/integration/test_phase1_protocol_validation.py::TestCollectionService -v
+```
+
+**Expected results:**
+- All tests PASS when daemon + Qdrant running
+- Tests SKIP gracefully when daemon unavailable
+
+**Reference:** See `tests/integration/test_phase1_protocol_validation.py` for complete test documentation.
+
+### Daemon Starts But gRPC Calls Fail
+
+**Problem:** Daemon service shows "running" but gRPC calls timeout or fail
+
+**Cause:** Daemon may have started without gRPC module, or port conflict exists.
+
+**Diagnosis:**
+```bash
+# Check daemon logs for gRPC startup
+wqm service logs | grep -i grpc
+# Expected: "gRPC server listening on [::1]:50051"
+
+# Check if port is actually open
+lsof -i :50051
+# Expected: memexd process
+
+# Test connection
+grpcurl -plaintext localhost:50051 list
+# Should list all 3 services
+```
+
+**Solutions:**
+
+**1. Verify gRPC module loaded:**
+```bash
+# Check daemon startup logs
+wqm service logs | head -50
+
+# Should see:
+# "Starting gRPC server on [::1]:50051"
+# "Registered SystemService"
+# "Registered CollectionService"
+# "Registered DocumentService"
+
+# If missing, rebuild daemon:
+cd src/rust/daemon && cargo clean && cargo build --release
+wqm service restart
+```
+
+**2. Check for port conflicts:**
+```bash
+# Find what's using port 50051
+lsof -i :50051
+
+# If not memexd, kill the process:
+kill <PID>
+
+# Or change daemon port in config
+# config.yaml:
+grpc:
+  port: 50052  # Use different port
+```
+
+**3. Test with manual daemon startup:**
+```bash
+# Stop service
+wqm service stop
+
+# Run daemon manually in foreground
+src/rust/daemon/target/release/memexd --foreground --log-level debug
+
+# Check output for gRPC startup messages
+# Should see "gRPC server listening..."
 ```
 
 ## Performance Troubleshooting
