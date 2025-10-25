@@ -474,6 +474,7 @@ class TestLLMAccessControl:
             with pytest.raises(DaemonClientError, match="Collection creation blocked"):
                 await connected_client.create_collection_v2(
                     collection_name="protected_collection",
+                    project_id="proj123",
                 )
 
     @pytest.mark.asyncio
@@ -499,6 +500,7 @@ class TestLLMAccessControl:
             with pytest.raises(DaemonClientError, match="Collection deletion blocked"):
                 await connected_client.delete_collection_v2(
                     collection_name="protected_collection",
+                    project_id="proj123",
                 )
 
 
