@@ -157,21 +157,21 @@ class MemexdServiceManager:
     async def install_binary_from_source(self) -> Dict[str, Any]:
         """Build and install the memexd binary from Rust source."""
         try:
-            # Find rust-engine source directory
+            # Find daemon source directory
             current_dir = Path(__file__).resolve()
             project_root = None
 
-            # Walk up directory tree to find rust-engine
+            # Walk up directory tree to find src/rust/daemon/core
             for parent in current_dir.parents:
-                rust_engine_dir = parent / "rust-engine"
-                if rust_engine_dir.exists() and (rust_engine_dir / "Cargo.toml").exists():
-                    project_root = rust_engine_dir
+                daemon_core_dir = parent / "src" / "rust" / "daemon" / "core"
+                if daemon_core_dir.exists() and (daemon_core_dir / "Cargo.toml").exists():
+                    project_root = daemon_core_dir
                     break
 
             if not project_root:
                 return {
                     "success": False,
-                    "error": "rust-engine directory not found. Cannot build from source."
+                    "error": "src/rust/daemon/core directory not found. Cannot build from source."
                 }
 
             logger.info(f"Building memexd from source at {project_root}")
