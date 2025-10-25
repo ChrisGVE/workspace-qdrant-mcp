@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import typer
 
-from common.core.daemon_client import get_daemon_client
+from common.grpc.daemon_client import get_daemon_client
 from common.core.sqlite_state_manager import SQLiteStateManager, WatchFolderConfig
 from loguru import logger
 

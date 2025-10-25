@@ -11,7 +11,7 @@ from typing import List, Optional
 import typer
 
 from ..ingestion_engine import IngestionResult
-from common.core.daemon_client import get_daemon_client, with_daemon_client
+from common.grpc.daemon_client import get_daemon_client, with_daemon_client
 from common.core.yaml_metadata import YamlMetadataWorkflow
 from loguru import logger
 from ..utils import (

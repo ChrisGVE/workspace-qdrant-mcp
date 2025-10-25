@@ -31,7 +31,7 @@ from typing import Any, Dict, List, Optional
 from unittest.mock import AsyncMock, MagicMock, patch, Mock
 
 from src.python.workspace_qdrant_mcp import server
-from src.python.common.core.daemon_client import DaemonClient, DaemonConnectionError
+from src.python.common.grpc.daemon_client import DaemonClient, DaemonConnectionError
 from qdrant_client import QdrantClient
 from qdrant_client.models import PointStruct, Filter, FieldCondition, MatchValue
 

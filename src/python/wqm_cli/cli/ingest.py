@@ -29,7 +29,7 @@ from rich.progress import (
 from rich.table import Table
 
 from common.core.config import get_config_manager
-from common.core.daemon_client import get_daemon_client, with_daemon_client
+from common.grpc.daemon_client import get_daemon_client, with_daemon_client
 from .ingestion_engine import DocumentIngestionEngine, IngestionResult, IngestionStats
 from .parsers import SecurityConfig, WebIngestionInterface, create_secure_web_parser
 

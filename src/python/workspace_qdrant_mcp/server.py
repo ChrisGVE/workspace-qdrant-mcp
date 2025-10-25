@@ -137,7 +137,7 @@ if _detect_stdio_mode():
 from common.utils.project_detection import calculate_tenant_id
 from common.utils.git_utils import get_current_branch
 from common.core.collection_naming import build_project_collection_name
-from common.core.daemon_client import DaemonClient, DaemonConnectionError
+from common.grpc.daemon_client import DaemonClient, DaemonConnectionError
 
 # Initialize the FastMCP app
 app = FastMCP("Workspace Qdrant MCP")

@@ -8,7 +8,7 @@ import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 import grpc
 
-from src.python.common.core.daemon_client import (
+from src.python.common.grpc.daemon_client import (
     DaemonClient,
     DaemonConnectionError,
 )

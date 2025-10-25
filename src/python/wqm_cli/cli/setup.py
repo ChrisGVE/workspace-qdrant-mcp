@@ -46,7 +46,7 @@ from loguru import logger
 
 import typer
 
-from common.core.daemon_client import get_daemon_client, with_daemon_client
+from common.grpc.daemon_client import get_daemon_client, with_daemon_client
 from common.core.config import get_config_manager, EmbeddingConfig, QdrantConfig, WorkspaceConfig
 from common.core.embeddings import EmbeddingService
 from common.utils.config_validator import ConfigValidator
