@@ -93,10 +93,7 @@ runs:
       uses: actions/cache@v4
       with:
         path: |
-          src/rust/daemon/core/target
           src/rust/daemon/target
-          src/rust/daemon/core/target
-          src/rust/daemon/shared-test-utils/target
         key: ${{ steps.cache-key.outputs.cache-key }}
         restore-keys: |
           ${{ steps.cache-key.outputs.restore-key-1 }}
@@ -109,10 +106,6 @@ runs:
       run: |
         # Clean up old artifacts to prevent cache bloat
         # Only run on cache miss to avoid unnecessary work
-
-        if [ -d "src/rust/daemon/core/target" ]; then
-          cargo clean --manifest-path src/rust/daemon/core/Cargo.toml --release || true
-        fi
 
         if [ -d "src/rust/daemon/target" ]; then
           cargo clean --manifest-path src/rust/daemon/Cargo.toml --release || true
@@ -138,8 +131,8 @@ runs:
         fi
 
         # Report cache size
-        if [ -d "src/rust/daemon/core/target" ] || [ -d "src/rust/daemon/target" ]; then
-          CACHE_SIZE=$(du -sh src/rust/daemon/core/target src/rust/daemon/target 2>/dev/null | awk '{sum+=$1} END {print sum}' || echo "unknown")
+        if [ -d "src/rust/daemon/target" ]; then
+          CACHE_SIZE=$(du -sh src/rust/daemon/target 2>/dev/null | awk '{print $1}' || echo "unknown")
           echo "- **Cache Size:** ${CACHE_SIZE}" >> $GITHUB_STEP_SUMMARY
         fi
 
