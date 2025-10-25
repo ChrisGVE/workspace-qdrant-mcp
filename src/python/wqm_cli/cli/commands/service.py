@@ -198,17 +198,17 @@ class MemexdServiceManager:
             current_dir = Path(__file__).resolve()
             project_root = None
 
-            # Walk up directory tree to find src/rust/daemon/core
+            # Walk up directory tree to find src/rust/daemon
             for parent in current_dir.parents:
-                daemon_core_dir = parent / "src" / "rust" / "daemon" / "core"
-                if daemon_core_dir.exists() and (daemon_core_dir / "Cargo.toml").exists():
-                    project_root = daemon_core_dir
+                daemon_dir = parent / "src" / "rust" / "daemon"
+                if daemon_dir.exists() and (daemon_dir / "Cargo.toml").exists():
+                    project_root = daemon_dir
                     break
 
             if not project_root:
                 return {
                     "success": False,
-                    "error": "src/rust/daemon/core directory not found. Cannot build from source."
+                    "error": "src/rust/daemon directory not found. Cannot build from source."
                 }
 
             logger.info(f"Building memexd from source at {project_root}")
