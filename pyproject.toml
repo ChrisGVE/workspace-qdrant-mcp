@@ -196,3 +196,8 @@ markers = [
   "xss: marks XSS prevention tests",
   "redos: marks ReDoS prevention tests",
 ]
+filterwarnings = [
+  # Ignore testcontainers internal deprecation warnings (third-party library issue)
+  "ignore::DeprecationWarning:testcontainers.core",
+  "ignore::DeprecationWarning:testcontainers.qdrant",
+]

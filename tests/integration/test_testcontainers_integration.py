@@ -15,7 +15,6 @@ import pytest
 try:
     from testcontainers.compose import DockerCompose
     from testcontainers.core.container import DockerContainer
-    from testcontainers.core.waiting_utils import wait_container_is_ready
     TESTCONTAINERS_AVAILABLE = True
 except ImportError:
     TESTCONTAINERS_AVAILABLE = False
