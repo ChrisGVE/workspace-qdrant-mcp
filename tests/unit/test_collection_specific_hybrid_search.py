@@ -1253,7 +1253,7 @@ class TestMultiCollectionTypeScenarios:
 
         # Verify no ID overlap across collection types
         all_ids_by_type = {}
-        for collection_name, data in all_results.items():
+        for _collection_name, data in all_results.items():
             expected_type = data["expected_type"]
             result_ids = {r.id for r in data["results"]}
             all_ids_by_type[expected_type] = result_ids

@@ -200,7 +200,7 @@ class TestServer100Percent:
             ("Regular content", "documents"),
         ]
 
-        for content, expected in content_tests:
+        for content, _expected in content_tests:
             result = determine_collection_name(content=content, project_name="test")
             assert "test" in result
 

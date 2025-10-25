@@ -619,7 +619,7 @@ class TestVersionConsistency(BaseMemoryRuleTest):
         )
 
         # Perform updates and track versions
-        for i in range(5):
+        for _i in range(5):
             if rule.metadata and "version" in rule.metadata:
                 old_version = rule.metadata["version"]
                 rule.metadata["version"] += 1

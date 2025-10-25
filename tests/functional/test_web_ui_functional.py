@@ -430,7 +430,7 @@ class TestWebUIEdgeCases:
         """Test behavior with multiple concurrent users."""
         # Create multiple pages to simulate concurrent users
         pages = []
-        for i in range(3):
+        for _i in range(3):
             page = await browser_context.new_page()
             pages.append(page)
 

@@ -170,7 +170,7 @@ class TenantAwareResultDeduplicator:
 
         deduplicated_results = []
 
-        for group_key, group_results in result_groups.items():
+        for _group_key, group_results in result_groups.items():
             if len(group_results) == 1:
                 # No duplicates, keep as-is
                 deduplicated_results.append(group_results[0])
@@ -588,7 +588,7 @@ class RRFFusionRanker:
 
         # Convert to sorted list
         fused_results = []
-        for doc_id, score_data in sorted(
+        for _doc_id, score_data in sorted(
             rrf_scores.items(),
             key=lambda x: x[1]["score"],
             reverse=True
@@ -774,7 +774,7 @@ class WeightedSumFusionRanker:
 
         # Convert to sorted list
         fused_results = []
-        for doc_id, score_data in sorted(
+        for _doc_id, score_data in sorted(
             combined_scores.items(),
             key=lambda x: x[1]["score"],
             reverse=True
@@ -1128,7 +1128,7 @@ class HybridSearchEngine:
 
         # Convert to sorted list
         fused_results = []
-        for doc_id, data in sorted(score_map.items(), key=lambda x: x[1]["score"], reverse=True):
+        for _doc_id, data in sorted(score_map.items(), key=lambda x: x[1]["score"], reverse=True):
             result = data["result"]
             if hasattr(result, 'score'):
                 result.score = data["score"]

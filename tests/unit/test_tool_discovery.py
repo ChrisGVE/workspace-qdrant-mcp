@@ -311,7 +311,7 @@ class TestDiscoverCompilers:
             assert compiler in compilers
 
         # Values should be either str (path) or None
-        for compiler, path in compilers.items():
+        for _compiler, path in compilers.items():
             assert path is None or isinstance(path, str)
             if path is not None:
                 assert Path(path).exists()
@@ -388,7 +388,7 @@ class TestDiscoverBuildTools:
             assert tool in build_tools
 
         # Values should be either str (path) or None
-        for tool, path in build_tools.items():
+        for _tool, path in build_tools.items():
             assert path is None or isinstance(path, str)
             if path is not None:
                 assert Path(path).exists()

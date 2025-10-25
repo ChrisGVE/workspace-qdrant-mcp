@@ -285,7 +285,7 @@ class EnhancedEmbeddingServiceMock:
         vector = []
 
         # Base random vector
-        for i in range(self.vector_dim):
+        for _i in range(self.vector_dim):
             vector.append(random.gauss(0, 0.3))
 
         # Add patterns based on text features

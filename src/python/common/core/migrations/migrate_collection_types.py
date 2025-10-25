@@ -89,7 +89,7 @@ def update_collection_types(
 
     if dry_run:
         print("DRY RUN MODE - No changes will be made")
-        for file_path, collection_name, collection_type in items:
+        for _file_path, collection_name, collection_type in items:
             stats[collection_type] = stats.get(collection_type, 0) + 1
             print(f"  Would update: {collection_name} -> {collection_type}")
         return stats
@@ -97,7 +97,7 @@ def update_collection_types(
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    for file_path, collection_name, collection_type in items:
+    for file_path, _collection_name, collection_type in items:
         cursor.execute(
             """
             UPDATE ingestion_queue

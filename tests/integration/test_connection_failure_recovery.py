@@ -262,7 +262,7 @@ class TestConnectionLoss:
 
         # Simulate reconnection and resume
         retry_chunks_sent = 0
-        for i in range(chunks_sent, chunks_to_send):
+        for _i in range(chunks_sent, chunks_to_send):
             await asyncio.sleep(0.01)
             retry_chunks_sent += 1
 

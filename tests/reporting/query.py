@@ -321,7 +321,7 @@ class TestResultQuery:
 
         # Identify flaky tests
         flaky_tests = []
-        for test_key, stats in test_stats.items():
+        for _test_key, stats in test_stats.items():
             total = stats["total_runs"]
             if total < min_runs:
                 continue

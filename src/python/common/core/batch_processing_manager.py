@@ -821,7 +821,7 @@ class BatchProcessingManager:
         # Find low priority items to remove
         items_to_remove = []
 
-        for collection, batch in self._current_batches.items():
+        for _collection, batch in self._current_batches.items():
             low_priority_items = [
                 item for item in batch.items
                 if item.file_operation.priority == BatchPriority.LOW

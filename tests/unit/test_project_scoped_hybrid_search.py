@@ -498,7 +498,7 @@ class TestProjectMetadataFiltering:
         """Test filtering by project_name metadata field."""
         mock_qdrant_client.search.return_value = mock_search_results_project_a
 
-        results = await hybrid_search_engine.hybrid_search(
+        await hybrid_search_engine.hybrid_search(
             collection_name="test-collection",
             query_embeddings=sample_query_embeddings,
             project_context=project_metadata_project_a,

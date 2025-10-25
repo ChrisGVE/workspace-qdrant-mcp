@@ -109,7 +109,7 @@ class TestPerformanceMetricsCollection:
             performance_monitor.record_operation(10.0, error=error)
 
         # Record warnings
-        for i in range(5):
+        for _i in range(5):
             performance_monitor.record_warning()
 
         metrics = performance_monitor.stop_monitoring()

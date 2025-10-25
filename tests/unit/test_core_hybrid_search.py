@@ -442,7 +442,7 @@ class TestMultiTenantResultAggregator:
         collection1_results = []
         collection2_results = []
 
-        for i, result in enumerate(sample_dense_results[:3]):
+        for i, _result in enumerate(sample_dense_results[:3]):
             # Collection 1: high scores (0.8-1.0)
             result1 = Mock()
             result1.id = f"col1_doc_{i}"

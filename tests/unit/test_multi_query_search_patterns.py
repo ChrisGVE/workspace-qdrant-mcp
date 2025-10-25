@@ -232,7 +232,7 @@ class TestBatchQueries:
 
         # Validate each fusion method produces results
         assert len(results) == 3
-        for method, result in results:
+        for _method, result in results:
             assert "fused_results" in result
             assert len(result["fused_results"]) > 0
 

@@ -354,7 +354,7 @@ class Calculator:
         # Verify ingestion
         print("   Step 2: Verifying pattern matching...")
         async with httpx.AsyncClient() as client:
-            for filename, content, should_match in files_to_create:
+            for filename, _content, should_match in files_to_create:
                 # Search for unique content from each file
                 search_term = filename.split('.')[0]  # Use filename as search term
 

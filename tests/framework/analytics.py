@@ -601,7 +601,7 @@ class TestAnalytics:
 
             # Generate alerts
             self.alert_manager.check_suite_health(suite_metrics)
-            for test_name, test_metrics in self.test_metrics.items():
+            for _test_name, test_metrics in self.test_metrics.items():
                 self.alert_manager.check_test_health(test_metrics)
 
             # Store suite metrics

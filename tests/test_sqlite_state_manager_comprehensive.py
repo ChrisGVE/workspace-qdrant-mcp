@@ -1536,7 +1536,7 @@ class TestSQLiteStateManagerIntegration:
             await manager1.upsert_state(record, tx_id)
 
         # Commit some transactions, leave others uncommitted
-        for i, tx_id in enumerate(tx_ids[:5]):
+        for _i, tx_id in enumerate(tx_ids[:5]):
             await manager1.commit_transaction(tx_id)
 
         # Simulate disaster - close without committing remaining transactions

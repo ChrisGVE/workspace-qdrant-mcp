@@ -525,7 +525,7 @@ class TestCompleteWorkflowOrchestration:
 
         # Measure search latency
         search_latencies = []
-        for i in range(10):
+        for _i in range(10):
             search_start = time.time()
             # Simulate search
             await asyncio.sleep(0.3)
