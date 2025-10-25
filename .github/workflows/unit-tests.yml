@@ -117,9 +117,7 @@ jobs:
         path: |
           ~/.cargo/registry
           ~/.cargo/git
-          src/rust/daemon/core/target
           src/rust/daemon/target
-          src/rust/daemon/core/target
         key: ${{ runner.os }}-rust-unit-${{ hashFiles('**/Cargo.lock', '**/Cargo.toml') }}
         restore-keys: |
           ${{ runner.os }}-rust-unit-
@@ -127,35 +125,31 @@ jobs:
 
     - name: Check Rust formatting
       run: |
-        cd src/rust/daemon/core && cargo fmt --check || true
-        cd ../src/rust/daemon && cargo fmt --check || true
+        cd src/rust/daemon && cargo fmt --check || true
       continue-on-error: true  # Don't fail on formatting in unit tests
 
     - name: Run Rust clippy
       run: |
-        echo "Running clippy on src/rust/daemon/core..."
-        cd src/rust/daemon/core && cargo clippy --all-targets --all-features -- -D warnings || true
-
-        echo "Running clippy on daemon..."
-        cd ../src/rust/daemon && cargo clippy --all-targets --all-features -- -D warnings || true
+        echo "Running clippy on daemon workspace..."
+        cd src/rust/daemon && cargo clippy --all-targets --all-features -- -D warnings || true
       continue-on-error: true  # Don't fail on clippy warnings in unit tests
 
-    - name: Run src/rust/daemon/core unit tests
+    - name: Run daemon workspace unit tests
       run: |
-        cd src/rust/daemon/core
+        cd src/rust/daemon
         cargo test --lib --bins --tests --all-features -- --test-threads=4 --nocapture
       timeout-minutes: 10
 
     - name: Run daemon core unit tests
       run: |
-        cd src/rust/daemon/core
+        cd src/rust/daemon
         cargo test --lib --all-features -- --test-threads=4 --nocapture
       timeout-minutes: 8
 
     - name: Run daemon shared-test-utils tests
       run: |
-        cd src/rust/daemon/shared-test-utils
-        cargo test --lib --all-features -- --test-threads=4 --nocapture
+        cd src/rust/daemon
+        cargo test -p shared-test-utils --lib --all-features -- --test-threads=4 --nocapture
       timeout-minutes: 5
       continue-on-error: true  # Shared test utils might not have tests
 
@@ -165,7 +159,6 @@ jobs:
       with:
         name: rust-unit-test-results
         path: |
-          src/rust/daemon/core/target/debug/
           src/rust/daemon/target/debug/
         retention-days: 3
         if-no-files-found: ignore
