@@ -391,18 +391,26 @@ class TestLoggingSanitization:
 
     def test_log_sanitizer_removes_api_keys(self, sample_secrets, caplog):
         """Test that log sanitizer removes API keys."""
+        from common.utils.log_sanitizer import LogSanitizer
+
         logger = logging.getLogger("test_sanitizer")
+        sanitizer = LogSanitizer()
 
         # Create custom handler with sanitization
         handler = logging.StreamHandler()
         handler.addFilter(self._create_sanitizing_filter())
         logger.addHandler(handler)
 
-        # Log message with API key
-        logger.info(f"Request with key: {sample_secrets['api_key']}")
+        # Log message with API key (should be sanitized by filter)
+        message = f"Request with key: {sample_secrets['api_key']}"
+        sanitized_message = sanitizer.sanitize_string(message)
 
-        # Verify API key is not in logs (or is masked)
-        # Note: This is a framework test - actual implementation would use log filters
+        # Verify sanitizer works
+        assert sample_secrets['api_key'] not in sanitized_message
+        assert "***REDACTED***" in sanitized_message
+
+        # Log the sanitized message (safe to log)
+        logger.info(sanitized_message)
 
     def test_structured_logging_sanitization(self, sample_secrets):
         """Test sanitization in structured logging."""
