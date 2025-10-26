@@ -1354,6 +1354,151 @@ cargo bench
 
 ## Adding New Tests
 
+This section provides comprehensive guidelines for contributing new test cases to workspace-qdrant-mcp, ensuring consistency, quality, and maintainability.
+
+### When to Add Tests
+
+#### 1. New Features
+
+Always add tests when implementing new features:
+
+**Required Test Types:**
+- **Unit tests**: Core logic in isolation
+- **Integration tests**: Feature with external dependencies
+- **Functional tests**: Complete feature workflow
+- **Documentation tests**: Examples in docstrings
+
+**Example:**
+
+```
+New feature: Add BM25 scoring to hybrid search
+
+Required tests:
+✓ Unit: BM25 algorithm calculation
+✓ Unit: Score normalization
+✓ Integration: BM25 with Qdrant storage
+✓ Functional: Hybrid search with BM25 weighting
+✓ Documentation: BM25 usage examples in docstring
+```
+
+#### 2. Bug Fixes
+
+Add regression tests for every bug fix:
+
+**Test Requirements:**
+1. Reproduce the bug (test should fail initially)
+2. Apply fix
+3. Verify test passes
+4. Add edge cases around the bug
+
+**Example:**
+
+```
+Bug: Empty query causes NullPointerError
+
+Regression test:
+def test_empty_query_handling():
+    """Regression test for issue #123: empty query crashes."""
+    result = search(collection="test", query="")
+    assert result.success is False
+    assert "query cannot be empty" in result.error_message
+```
+
+#### 3. Edge Cases
+
+Test boundary conditions and error paths:
+
+**Common Edge Cases:**
+- Empty inputs (strings, lists, dicts)
+- Null/None values
+- Maximum size inputs (very long strings, large lists)
+- Invalid types
+- Concurrent access
+- Resource exhaustion
+
+**Example:**
+
+```python
+class TestSearchEdgeCases:
+    """Edge case tests for search functionality."""
+
+    def test_empty_query(self):
+        """Test search with empty query string."""
+        with pytest.raises(ValueError, match="query cannot be empty"):
+            search(collection="test", query="")
+
+    def test_very_long_query(self):
+        """Test search with extremely long query."""
+        long_query = "a" * 100_000
+        result = search(collection="test", query=long_query)
+        # Should either succeed or fail gracefully
+        assert result.success in [True, False]
+        if not result.success:
+            assert "query too long" in result.error_message.lower()
+
+    def test_null_collection(self):
+        """Test search with None collection."""
+        with pytest.raises(TypeError):
+            search(collection=None, query="test")
+
+    def test_invalid_limit(self):
+        """Test search with invalid limit parameter."""
+        with pytest.raises(ValueError):
+            search(collection="test", query="test", limit=-1)
+```
+
+#### 4. Performance Regressions
+
+Add benchmark tests for performance-critical code:
+
+**When to Add:**
+- New algorithm implementations
+- Bulk operations
+- Search and retrieval paths
+- I/O operations
+
+**Example:**
+
+```python
+@pytest.mark.performance
+def test_search_latency(benchmark, sample_documents):
+    """Benchmark search latency for performance regression detection."""
+    # Setup: Pre-populate collection
+    setup_collection("perf_test", sample_documents)
+
+    # Benchmark the search operation
+    result = benchmark(search, collection="perf_test", query="test query")
+
+    # Assert performance thresholds
+    stats = benchmark.stats
+    assert stats.mean < 0.5  # Average < 500ms
+    assert stats.stddev < 0.1  # Low variance
+```
+
+### Test Contribution Workflow
+
+```
+1. Identify what needs testing
+   ↓
+2. Determine test category and location
+   ↓
+3. Write test following standards
+   ↓
+4. Run test locally and verify it passes
+   ↓
+5. Run full test suite to ensure no regressions
+   ↓
+6. Update documentation if needed
+   ↓
+7. Submit PR with test coverage evidence
+   ↓
+8. CI/CD automatically validates tests
+   ↓
+9. Code review focuses on test quality
+   ↓
+10. Merge after approval
+```
+
 ### Step 1: Determine Test Category
 
 Choose the appropriate directory based on test type:
@@ -1478,6 +1623,567 @@ uv run pytest tests/unit/test_new_feature.py --cov=src.module --cov-report=term-
 
 # Verify markers applied correctly
 uv run pytest --collect-only tests/unit/test_new_feature.py
+```
+
+### Step 7: Write Effective Assertions
+
+Good assertions make tests valuable and maintainable.
+
+#### Assertion Best Practices
+
+**1. Be Specific**
+
+```python
+# ❌ Bad: Vague assertion
+assert result
+
+# ✅ Good: Specific assertion
+assert result.success is True
+assert result.data == expected_data
+assert len(result.items) == 5
+```
+
+**2. Use Descriptive Messages**
+
+```python
+# ❌ Bad: No context on failure
+assert len(results) > 0
+
+# ✅ Good: Clear failure message
+assert len(results) > 0, f"Expected search results, got empty list for query: {query}"
+```
+
+**3. Test One Thing Per Test**
+
+```python
+# ❌ Bad: Testing multiple unrelated things
+def test_everything():
+    assert feature_a_works()
+    assert feature_b_works()
+    assert feature_c_works()
+
+# ✅ Good: Focused tests
+def test_feature_a():
+    assert feature_a_works()
+
+def test_feature_b():
+    assert feature_b_works()
+
+def test_feature_c():
+    assert feature_c_works()
+```
+
+**4. Use pytest's Rich Assertions**
+
+```python
+# ❌ Bad: Manual exception handling
+def test_invalid_input():
+    try:
+        process_data(None)
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "invalid" in str(e).lower()
+
+# ✅ Good: pytest.raises context manager
+def test_invalid_input():
+    with pytest.raises(ValueError, match="invalid"):
+        process_data(None)
+```
+
+**5. Assert on Behavior, Not Implementation**
+
+```python
+# ❌ Bad: Testing implementation details
+def test_cache_internal_structure():
+    cache = Cache()
+    cache.set("key", "value")
+    assert cache._internal_dict["key"] == "value"  # Implementation detail
+
+# ✅ Good: Testing behavior
+def test_cache_stores_and_retrieves():
+    cache = Cache()
+    cache.set("key", "value")
+    assert cache.get("key") == "value"  # Public behavior
+```
+
+### Step 8: Create Test Data Properly
+
+Follow these guidelines for test data creation:
+
+#### 1. Use Fixtures for Reusable Data
+
+```python
+@pytest.fixture
+def sample_user_data():
+    """Provide sample user data for tests."""
+    return {
+        "username": "testuser",
+        "email": "test@example.com",
+        "role": "admin",
+    }
+
+def test_user_creation(sample_user_data):
+    user = create_user(**sample_user_data)
+    assert user.username == sample_user_data["username"]
+```
+
+#### 2. Use Generators for Large Datasets
+
+```python
+from tests.shared.test_data import TestDataGenerator
+
+def test_bulk_insert(test_data_generator):
+    """Test bulk insert with generated data."""
+    # Generate 1000 unique documents
+    documents = [
+        test_data_generator.generate_document()
+        for _ in range(1000)
+    ]
+
+    # Test bulk insert
+    result = bulk_insert(documents)
+    assert result.inserted_count == 1000
+```
+
+#### 3. Avoid Hardcoded Test Data in Tests
+
+```python
+# ❌ Bad: Hardcoded data in test
+def test_search():
+    doc1 = {"id": "123", "content": "Python is great", "metadata": {...}}
+    doc2 = {"id": "456", "content": "Rust is fast", "metadata": {...}}
+    # ... more hardcoded data
+
+# ✅ Good: Use fixtures or sample data
+def test_search(sample_documents):
+    # sample_documents comes from fixture
+    for doc in sample_documents:
+        store(doc)
+```
+
+#### 4. Use Parametrize for Multiple Test Cases
+
+```python
+@pytest.mark.parametrize("query,expected_count", [
+    ("python", 5),
+    ("rust", 3),
+    ("javascript", 0),
+    ("", 0),  # Edge case: empty query
+])
+def test_search_counts(query, expected_count, search_collection):
+    """Test search returns correct count for various queries."""
+    results = search(collection=search_collection, query=query)
+    assert len(results) == expected_count
+```
+
+### Step 9: Integrate with CI/CD
+
+All tests are automatically run in CI/CD pipelines on:
+
+1. **Pull Request Creation**: Full test suite runs
+2. **Commits to Main**: Full test suite + coverage report
+3. **Nightly Builds**: Full test suite + benchmarks + stress tests
+4. **Release Tags**: All tests + compatibility matrix
+
+#### CI/CD Test Workflow
+
+```yaml
+# .github/workflows/test.yml (simplified)
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test-python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      - name: Install dependencies
+        run: |
+          pip install uv
+          uv sync --dev
+      - name: Run tests with coverage
+        run: |
+          uv run pytest --cov=src --cov-report=xml
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+
+  test-rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+      - name: Run Rust tests
+        run: |
+          cd src/rust/daemon
+          cargo test
+```
+
+#### Local Pre-CI Validation
+
+Before submitting PR, run the same checks CI will run:
+
+```bash
+# Full Python test suite with coverage
+uv run pytest --cov=src --cov-report=term-missing
+
+# Rust tests
+cd src/rust/daemon && cargo test
+
+# Linting (CI runs these too)
+uv run ruff check src tests
+uv run black --check src tests
+uv run mypy src
+
+# Type checking
+uv run mypy src/
+```
+
+### Step 10: PR Requirements for Tests
+
+When submitting a pull request with new code, ensure:
+
+#### Required for All PRs:
+
+- [ ] **Test coverage**: New code has corresponding tests
+- [ ] **All tests pass**: Run `uv run pytest` locally
+- [ ] **No coverage regression**: Coverage doesn't decrease
+- [ ] **Tests are documented**: Clear docstrings explaining what's tested
+
+#### Required for Feature PRs:
+
+- [ ] **Unit tests**: Core logic tested in isolation
+- [ ] **Integration tests**: Feature tested with dependencies
+- [ ] **Edge case tests**: Boundary conditions covered
+- [ ] **Documentation updated**: README/docs reflect new feature
+
+#### Required for Bug Fix PRs:
+
+- [ ] **Regression test**: Test reproduces the bug (fails before fix)
+- [ ] **Test passes after fix**: Verify fix resolves issue
+- [ ] **Related edge cases**: Test similar boundary conditions
+- [ ] **Issue reference**: Test references GitHub issue number
+
+#### PR Template Checklist
+
+When creating PR, use this checklist:
+
+```markdown
+## Testing Checklist
+
+- [ ] Added unit tests for new functionality
+- [ ] Added integration tests where appropriate
+- [ ] Added edge case tests
+- [ ] All tests pass locally (`uv run pytest`)
+- [ ] Test coverage is maintained or improved
+- [ ] Tests are well-documented with clear docstrings
+- [ ] Ran linters (`ruff check`, `black --check`)
+- [ ] Updated documentation if needed
+
+## Test Coverage
+
+<!-- Paste coverage report showing new code is tested -->
+
+## Test Execution
+
+<!-- Paste pytest output showing all tests pass -->
+```
+
+### Best Practices for Test Quality
+
+#### 1. Fast Tests
+
+Keep unit tests fast (<100ms each):
+
+```python
+# ❌ Slow: Unnecessary I/O
+def test_calculation():
+    save_to_file("temp.txt", data)  # Slow I/O
+    result = calculate(data)
+    assert result == expected
+
+# ✅ Fast: No I/O
+def test_calculation():
+    result = calculate(data)
+    assert result == expected
+```
+
+#### 2. Isolated Tests
+
+Tests should not depend on each other:
+
+```python
+# ❌ Bad: Tests depend on order
+def test_create_user():
+    global test_user
+    test_user = create_user("alice")
+
+def test_get_user():
+    # Depends on test_create_user running first
+    user = get_user(test_user.id)
+
+# ✅ Good: Each test is independent
+@pytest.fixture
+def created_user():
+    user = create_user("alice")
+    yield user
+    delete_user(user.id)
+
+def test_create_user(created_user):
+    assert created_user.username == "alice"
+
+def test_get_user(created_user):
+    user = get_user(created_user.id)
+    assert user.id == created_user.id
+```
+
+#### 3. Descriptive Test Names
+
+```python
+# ❌ Bad: Unclear what's tested
+def test_search():
+    pass
+
+def test_search2():
+    pass
+
+# ✅ Good: Clear test purpose
+def test_search_returns_relevant_results():
+    pass
+
+def test_search_handles_empty_query():
+    pass
+
+def test_search_respects_limit_parameter():
+    pass
+```
+
+#### 4. Arrange-Act-Assert Pattern
+
+```python
+def test_user_creation():
+    # Arrange: Set up test data
+    username = "testuser"
+    email = "test@example.com"
+
+    # Act: Perform the operation
+    user = create_user(username=username, email=email)
+
+    # Assert: Verify the outcome
+    assert user.username == username
+    assert user.email == email
+    assert user.id is not None
+```
+
+#### 5. Clean Up Resources
+
+```python
+@pytest.fixture
+def temp_collection():
+    """Create temporary collection and clean up after test."""
+    collection_name = f"test_{uuid.uuid4()}"
+
+    # Setup
+    create_collection(collection_name)
+
+    yield collection_name
+
+    # Teardown
+    delete_collection(collection_name)
+
+def test_with_temp_collection(temp_collection):
+    # Test uses collection
+    # Automatic cleanup after test
+    pass
+```
+
+### Examples of Well-Written Tests
+
+#### Example 1: Unit Test
+
+```python
+"""
+Unit test for HybridSearch class.
+
+Tests search scoring logic in isolation without external dependencies.
+"""
+import pytest
+from workspace_qdrant_mcp.core.hybrid_search import HybridSearch
+
+
+class TestHybridSearchScoring:
+    """Test hybrid search scoring algorithms."""
+
+    def test_rrf_score_calculation(self):
+        """Test Reciprocal Rank Fusion score calculation."""
+        # Arrange
+        dense_scores = [(0, 0.9), (1, 0.7), (2, 0.5)]
+        sparse_scores = [(1, 0.8), (0, 0.6), (3, 0.4)]
+        k = 60
+
+        # Act
+        hybrid_search = HybridSearch()
+        combined_scores = hybrid_search.rrf_score(
+            dense_scores, sparse_scores, k=k
+        )
+
+        # Assert
+        # Document 0 appears in both, should have highest combined score
+        # Document 1 appears in both, second highest
+        # Documents 2 and 3 appear in one each
+        assert len(combined_scores) == 4
+        assert combined_scores[0][0] in [0, 1]  # Top result is 0 or 1
+
+    def test_empty_dense_scores(self):
+        """Test RRF when dense search returns no results."""
+        # Arrange
+        dense_scores = []
+        sparse_scores = [(0, 0.9), (1, 0.8)]
+
+        # Act
+        hybrid_search = HybridSearch()
+        combined_scores = hybrid_search.rrf_score(dense_scores, sparse_scores)
+
+        # Assert
+        # Should return sparse scores only
+        assert len(combined_scores) == 2
+        assert combined_scores[0] == (0, pytest.approx(0.9, rel=0.01))
+```
+
+#### Example 2: Integration Test
+
+```python
+"""
+Integration test for MCP server search tool.
+
+Tests complete search flow from tool invocation through Qdrant to results.
+"""
+import pytest
+
+
+@pytest.mark.requires_qdrant
+@pytest.mark.integration
+async def test_search_tool_integration(
+    isolated_qdrant_container,
+    mcp_client,
+    sample_documents,
+    test_collection_name
+):
+    """Test MCP search tool with real Qdrant instance."""
+    # Arrange: Store sample documents
+    for doc in sample_documents:
+        await mcp_client.call_tool(
+            "store",
+            collection=test_collection_name,
+            content=doc["content"],
+            metadata=doc.get("metadata", {})
+        )
+
+    # Act: Search for documents
+    search_result = await mcp_client.call_tool(
+        "search",
+        collection=test_collection_name,
+        query="python programming"
+    )
+
+    # Assert: Verify search results
+    assert search_result["success"] is True
+    assert len(search_result["results"]) > 0
+
+    # Verify result structure
+    first_result = search_result["results"][0]
+    assert "content" in first_result
+    assert "score" in first_result
+    assert "metadata" in first_result
+
+    # Verify scoring (semantic search)
+    # Documents about Python should score higher
+    python_doc = next(
+        r for r in search_result["results"]
+        if "python" in r["content"].lower()
+    )
+    other_doc = next(
+        r for r in search_result["results"]
+        if "python" not in r["content"].lower()
+    )
+    assert python_doc["score"] > other_doc["score"]
+```
+
+#### Example 3: Functional Test
+
+```python
+"""
+Functional test for complete search workflow.
+
+Tests end-to-end user workflow from document storage to search retrieval.
+"""
+import pytest
+
+
+@pytest.mark.functional
+async def test_document_lifecycle_workflow(
+    shared_qdrant_container,
+    test_collection_name,
+    cleanup_collections
+):
+    """Test complete document lifecycle: store → search → retrieve → delete."""
+    # Register collection for cleanup
+    cleanup_collections(test_collection_name)
+
+    # Step 1: Store document
+    doc_content = "Machine learning with Python and scikit-learn"
+    doc_metadata = {"author": "Alice", "tags": ["ml", "python"]}
+
+    store_result = await store_document(
+        collection=test_collection_name,
+        content=doc_content,
+        metadata=doc_metadata
+    )
+
+    assert store_result.success
+    doc_id = store_result.document_id
+
+    # Step 2: Search for document
+    search_results = await search_documents(
+        collection=test_collection_name,
+        query="machine learning python"
+    )
+
+    assert len(search_results) > 0
+    assert any(r.id == doc_id for r in search_results)
+
+    # Step 3: Retrieve specific document
+    retrieved_doc = await get_document(
+        collection=test_collection_name,
+        document_id=doc_id
+    )
+
+    assert retrieved_doc.content == doc_content
+    assert retrieved_doc.metadata == doc_metadata
+
+    # Step 4: Delete document
+    delete_result = await delete_document(
+        collection=test_collection_name,
+        document_id=doc_id
+    )
+
+    assert delete_result.success
+
+    # Step 5: Verify deletion
+    search_results = await search_documents(
+        collection=test_collection_name,
+        query="machine learning python"
+    )
+
+    assert all(r.id != doc_id for r in search_results)
 ```
 
 ---
