@@ -55,7 +55,7 @@ class MemexdServiceManager:
             skip_validation: Skip binary validation (for install operations)
         """
         self.system = platform.system().lower()
-        self.service_name = "workspace-qdrant-daemon"
+        self.service_name = "memexd"  # Aligned with binary name
         self.service_id = f"com.workspace-qdrant.{self.service_name}"
         self.binary_validator = BinaryValidator()
 
