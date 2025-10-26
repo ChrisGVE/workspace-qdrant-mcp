@@ -4,16 +4,470 @@ Comprehensive testing documentation for workspace-qdrant-mcp covering test organ
 
 ## Table of Contents
 
-1. [Test Architecture Overview](#test-architecture-overview)
-2. [Test Directory Structure](#test-directory-structure)
-3. [Testing Frameworks](#testing-frameworks)
-4. [Test Categories and Markers](#test-categories-and-markers)
-5. [Fixture Organization](#fixture-organization)
-6. [Mock Strategies](#mock-strategies)
-7. [Test Data Management](#test-data-management)
-8. [Running Tests](#running-tests)
-9. [Adding New Tests](#adding-new-tests)
-10. [Debugging Test Failures](#debugging-test-failures)
+1. [Local Testing Setup](#local-testing-setup)
+2. [Test Architecture Overview](#test-architecture-overview)
+3. [Test Directory Structure](#test-directory-structure)
+4. [Testing Frameworks](#testing-frameworks)
+5. [Test Categories and Markers](#test-categories-and-markers)
+6. [Fixture Organization](#fixture-organization)
+7. [Mock Strategies](#mock-strategies)
+8. [Test Data Management](#test-data-management)
+9. [Running Tests](#running-tests)
+10. [Adding New Tests](#adding-new-tests)
+11. [Debugging Test Failures](#debugging-test-failures)
+
+---
+
+## Local Testing Setup
+
+This guide walks you through setting up a complete testing environment for workspace-qdrant-mcp on your local machine.
+
+### Prerequisites
+
+#### System Requirements
+
+- **Python**: 3.11 or higher
+- **Rust**: Latest stable (1.70+)
+- **Docker**: For testcontainers (Qdrant isolation)
+- **Git**: For repository operations
+
+**Verify installations:**
+
+```bash
+# Python
+python --version  # Should be 3.11+
+
+# Rust
+rustc --version   # Should be 1.70+
+
+# Docker
+docker --version
+docker ps         # Should connect without errors
+
+# Git
+git --version
+```
+
+#### Required Tools
+
+Install `uv` (Python package manager):
+
+```bash
+# macOS/Linux
+curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# Windows
+powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
+
+# Verify
+uv --version
+```
+
+### Step 1: Clone and Setup Project
+
+```bash
+# Clone repository
+git clone https://github.com/yourusername/workspace-qdrant-mcp.git
+cd workspace-qdrant-mcp
+
+# Install Python dependencies (including dev dependencies)
+uv sync --dev
+
+# Build Rust daemon (optional, needed for daemon tests)
+cd src/rust/daemon
+cargo build --release
+cd ../../..
+
+# Verify installation
+uv run pytest --version
+uv run wqm --version
+```
+
+### Step 2: Start Qdrant Server
+
+**Option 1: Docker (Recommended)**
+
+```bash
+# Start Qdrant server
+docker run -d --name qdrant-test \
+  -p 6333:6333 \
+  -p 6334:6334 \
+  qdrant/qdrant:latest
+
+# Verify Qdrant is running
+curl http://localhost:6333/health
+# Expected: {"title":"HealthChecker","version":"...","status":"ok"}
+
+# Stop when done
+docker stop qdrant-test
+docker rm qdrant-test
+```
+
+**Option 2: Testcontainers (Automatic)**
+
+Tests using `isolated_qdrant_container` or `shared_qdrant_container` fixtures will automatically start Qdrant in Docker. No manual setup needed.
+
+**Option 3: Local Binary**
+
+```bash
+# Download and run Qdrant binary
+# See: https://qdrant.tech/documentation/quick-start/
+
+./qdrant --config-path ./config.yaml
+```
+
+### Step 3: Configure Environment
+
+Create `.env` file in project root:
+
+```bash
+# Qdrant connection
+QDRANT_URL=http://localhost:6333
+# QDRANT_API_KEY=your_api_key  # Only if using Qdrant Cloud
+
+# Testing configuration
+WQM_TEST_MODE=true
+WQM_LOG_LEVEL=WARNING
+FASTEMBED_MODEL=sentence-transformers/all-MiniLM-L6-v2
+FASTEMBED_CACHE_DIR=~/.cache/fastembed_test
+
+# Optional: Rust daemon configuration (for daemon tests)
+WQM_DAEMON_PORT=50051
+```
+
+### Step 4: Verify Test Environment
+
+Run smoke test to verify everything is set up correctly:
+
+```bash
+# Run basic unit tests (no external dependencies)
+uv run pytest tests/unit/test_hybrid_search.py -v
+
+# Expected output:
+# ========= test session starts =========
+# ...
+# tests/unit/test_hybrid_search.py::TestHybridSearch::test_basic ✓
+# ...
+# ========= X passed in Y.YYs =========
+```
+
+If this passes, your environment is ready!
+
+### Step 5: Run Full Test Suite
+
+```bash
+# Run all tests (may take several minutes)
+uv run pytest
+
+# Run with coverage report
+uv run pytest --cov=src --cov-report=html
+
+# View coverage report
+open htmlcov/index.html  # macOS
+xdg-open htmlcov/index.html  # Linux
+start htmlcov/index.html  # Windows
+```
+
+### Common Setup Issues
+
+#### Issue: Docker Not Running
+
+**Symptom:**
+
+```
+Cannot connect to the Docker daemon
+```
+
+**Solution:**
+
+```bash
+# macOS: Start Docker Desktop
+open -a Docker
+
+# Linux: Start Docker service
+sudo systemctl start docker
+
+# Verify
+docker ps
+```
+
+#### Issue: Port Already in Use
+
+**Symptom:**
+
+```
+Bind for 0.0.0.0:6333 failed: port is already allocated
+```
+
+**Solution:**
+
+```bash
+# Find process using port 6333
+lsof -i :6333
+
+# Kill existing Qdrant container
+docker ps | grep qdrant
+docker stop <container_id>
+
+# Or use different port
+docker run -p 6334:6333 qdrant/qdrant:latest
+# Update QDRANT_URL=http://localhost:6334
+```
+
+#### Issue: Python Module Not Found
+
+**Symptom:**
+
+```
+ModuleNotFoundError: No module named 'workspace_qdrant_mcp'
+```
+
+**Solution:**
+
+```bash
+# Reinstall dependencies
+uv sync --dev
+
+# Verify src is in Python path
+python -c "import sys; print(sys.path)"
+
+# Check conftest.py adds src to path
+cat tests/conftest.py | grep sys.path
+```
+
+#### Issue: Rust Build Fails
+
+**Symptom:**
+
+```
+error: could not compile `workspace-qdrant-daemon`
+```
+
+**Solution:**
+
+```bash
+# Update Rust
+rustup update stable
+
+# Clean and rebuild
+cd src/rust/daemon
+cargo clean
+cargo build --release
+
+# Check dependencies
+cargo check
+```
+
+#### Issue: Test Hanging
+
+**Symptom:**
+
+Test runs but never completes
+
+**Solution:**
+
+```bash
+# Run with timeout
+uv run pytest --timeout=30
+
+# Check for deadlocks in async code
+# Add debug output
+uv run pytest -s -v
+
+# Run single test to isolate
+uv run pytest tests/unit/test_foo.py::test_bar -v
+```
+
+### Testing Different Components
+
+#### Python Tests Only
+
+```bash
+# Unit tests (fast, no external dependencies)
+uv run pytest tests/unit -v
+
+# Integration tests (requires Qdrant)
+uv run pytest tests/integration -v
+
+# MCP server tests
+uv run pytest tests/mcp_server -v
+
+# CLI tests
+uv run pytest tests/cli -v
+```
+
+#### Rust Tests Only
+
+```bash
+cd src/rust/daemon
+
+# All Rust tests
+cargo test
+
+# Specific test module
+cargo test file_watching
+
+# With output
+cargo test -- --nocapture
+
+# Integration tests only
+cargo test --test '*'
+```
+
+#### Combined Tests (Full System)
+
+```bash
+# End-to-end tests
+uv run pytest tests/e2e -v
+
+# Functional tests
+uv run pytest tests/functional -v
+```
+
+### IDE Integration
+
+#### Visual Studio Code
+
+Install recommended extensions:
+
+```json
+// .vscode/extensions.json
+{
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "charliermarsh.ruff",
+    "rust-lang.rust-analyzer",
+    "tamasfe.even-better-toml"
+  ]
+}
+```
+
+Configure pytest in VS Code:
+
+```json
+// .vscode/settings.json
+{
+  "python.testing.pytestEnabled": true,
+  "python.testing.unittestEnabled": false,
+  "python.testing.pytestArgs": [
+    "tests"
+  ],
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
+}
+```
+
+#### PyCharm
+
+1. Open **Settings** → **Tools** → **Python Integrated Tools**
+2. Set **Default test runner** to **pytest**
+3. Set **Project interpreter** to uv-managed venv
+4. Right-click test file → **Run 'pytest in test_foo.py'**
+
+#### Rust Analyzer
+
+Add to `Cargo.toml`:
+
+```toml
+[workspace]
+members = [
+    "core",
+    "grpc",
+    "python-bindings",
+]
+```
+
+Configure in editor:
+- VS Code: Install `rust-analyzer` extension
+- IntelliJ/CLion: Install Rust plugin
+
+### Performance Benchmarking Setup
+
+#### Python Benchmarks
+
+```bash
+# Run benchmarks only
+uv run pytest --benchmark-only
+
+# Save baseline
+uv run pytest --benchmark-save=my_baseline
+
+# Compare to baseline
+uv run pytest --benchmark-compare=my_baseline
+
+# Generate histogram
+uv run pytest --benchmark-histogram
+```
+
+#### Rust Benchmarks
+
+```bash
+cd src/rust/daemon
+
+# Run benchmarks with Criterion
+cargo bench
+
+# View HTML reports
+open target/criterion/report/index.html
+
+# Benchmark specific function
+cargo bench search
+```
+
+### Continuous Testing Workflow
+
+#### Watch Mode (Auto-run on file changes)
+
+Install `pytest-watch`:
+
+```bash
+uv add --dev pytest-watch
+```
+
+Run in watch mode:
+
+```bash
+# Watch all tests
+uv run ptw
+
+# Watch specific directory
+uv run ptw tests/unit
+
+# Watch with coverage
+uv run ptw -- --cov=src
+```
+
+#### Pre-commit Hooks
+
+Install pre-commit:
+
+```bash
+uv add --dev pre-commit
+pre-commit install
+```
+
+Configure `.pre-commit-config.yaml`:
+
+```yaml
+repos:
+  - repo: local
+    hooks:
+      - id: pytest-quick
+        name: Run Quick Tests
+        entry: uv run pytest -m "not slow"
+        language: system
+        pass_filenames: false
+        always_run: true
+```
+
+Now tests run automatically before each commit.
+
+### Next Steps
+
+- Read [Test Architecture Overview](#test-architecture-overview) to understand test organization
+- See [Running Tests](#running-tests) for detailed execution commands
+- Check [Adding New Tests](#adding-new-tests) when contributing tests
+- Refer to [Debugging Test Failures](#debugging-test-failures) when tests fail
 
 ---
 
