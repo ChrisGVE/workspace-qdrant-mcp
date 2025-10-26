@@ -519,9 +519,21 @@ class TestEnvVarParsing:
             if key.startswith(('WQM_MCP_', 'WQM_DAEMON_')):
                 del os.environ[key]
         yield
-        # Restore original environment
-        os.environ.clear()
-        os.environ.update(original_env)
+        # Restore original environment (preserve pytest internal variables)
+        current_keys = set(os.environ.keys())
+        original_keys = set(original_env.keys())
+
+        # Remove keys added during test (except pytest internal variables)
+        for key in current_keys - original_keys:
+            if not key.startswith('PYTEST_'):
+                os.environ.pop(key, None)
+
+        # Restore original values
+        for key in original_keys:
+            if key in original_env:
+                os.environ[key] = original_env[key]
+            else:
+                os.environ.pop(key, None)
 
     def test_parse_env_vars_for_mcp_empty(self, clean_env):
         """Test parsing MCP environment variables when none are set."""
