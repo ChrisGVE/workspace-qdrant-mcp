@@ -75,6 +75,7 @@ Write Path Architecture (First Principle 10):
     See: FIRST-PRINCIPLES.md (Principle 10), Task 375.6 validation report
 """
 
+import asyncio
 import logging
 import os
 import subprocess
@@ -90,7 +91,7 @@ from urllib.parse import urlparse
 
 import typer
 from fastmcp import FastMCP
-from qdrant_client import QdrantClient
+from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import (
     Distance,
     FieldCondition,
@@ -144,7 +145,7 @@ from common.utils.project_detection import calculate_tenant_id
 app = FastMCP("Workspace Qdrant MCP")
 
 # Global components
-qdrant_client: QdrantClient | None = None
+qdrant_client: AsyncQdrantClient | None = None
 embedding_model = None
 daemon_client: DaemonClient | None = None
 project_cache = {}
@@ -192,22 +193,30 @@ DEFAULT_COLLECTION_CONFIG = {
     "vector_size": 384,  # all-MiniLM-L6-v2 embedding size
 }
 
-def get_project_name() -> str:
-    """Detect current project name from git or directory."""
+async def get_project_name() -> str:
+    """Detect current project name from git or directory using async subprocess."""
     try:
-        # Try to get from git remote URL
-        result = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            capture_output=True,
-            text=True,
+        # Try to get from git remote URL using async subprocess
+        proc = await asyncio.create_subprocess_exec(
+            "git", "remote", "get-url", "origin",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
             cwd=Path.cwd()
         )
-        if result.returncode == 0:
-            url = result.stdout.strip()
-            # Extract repo name from URL
-            if url.endswith('.git'):
-                url = url[:-4]
-            return url.split('/')[-1]
+
+        # Wait for subprocess with timeout
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=10.0)
+            if proc.returncode == 0 and stdout:
+                url = stdout.decode().strip()
+                # Extract repo name from URL
+                if url.endswith('.git'):
+                    url = url[:-4]
+                return url.split('/')[-1]
+        except asyncio.TimeoutError:
+            # Kill subprocess if timeout
+            proc.kill()
+            await proc.wait()
     except Exception:
         pass
 
@@ -241,11 +250,11 @@ async def initialize_components():
     global qdrant_client, embedding_model, daemon_client
 
     if qdrant_client is None:
-        # Connect to Qdrant
+        # Connect to Qdrant with async client
         qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
         qdrant_api_key = os.getenv("QDRANT_API_KEY")
 
-        qdrant_client = QdrantClient(
+        qdrant_client = AsyncQdrantClient(
             url=qdrant_url,
             api_key=qdrant_api_key,
             timeout=60
@@ -271,6 +280,7 @@ async def ensure_collection_exists(collection_name: str) -> bool:
     Ensure a collection exists, create if it doesn't.
 
     REFACTORED (Task 375.4): Now uses DaemonClient.create_collection_v2() for writes.
+    REFACTORED (Task 382.9): Now uses async qdrant_client operations.
     Falls back to direct qdrant_client if daemon unavailable.
 
     Args:
@@ -281,9 +291,9 @@ async def ensure_collection_exists(collection_name: str) -> bool:
     """
     logger = logging.getLogger(__name__)
 
-    # First check if collection exists (read-only, OK to use qdrant_client)
+    # First check if collection exists (read-only, async call)
     try:
-        qdrant_client.get_collection(collection_name)
+        await qdrant_client.get_collection(collection_name)
         return True
     except Exception:
         # Collection doesn't exist, need to create it
@@ -311,10 +321,10 @@ async def ensure_collection_exists(collection_name: str) -> bool:
             )
             # Fall through to direct creation
 
-    # Fallback: Create collection directly via qdrant_client
+    # Fallback: Create collection directly via qdrant_client (async)
     # NOTE: This violates First Principle 10 but maintains backwards compatibility
     try:
-        qdrant_client.create_collection(
+        await qdrant_client.create_collection(
             collection_name=collection_name,
             vectors_config=VectorParams(
                 size=DEFAULT_COLLECTION_CONFIG["vector_size"],
@@ -357,12 +367,13 @@ def determine_collection_name(
     return get_project_collection()
 
 async def generate_embeddings(text: str) -> list[float]:
-    """Generate embeddings for text."""
+    """Generate embeddings for text using non-blocking async execution."""
     if not embedding_model:
         await initialize_components()
 
-    # FastEmbed returns generator, convert to list
-    embeddings = list(embedding_model.embed([text]))
+    # FastEmbed embed() is CPU-intensive and synchronous - run in thread pool
+    # to avoid blocking the event loop
+    embeddings = await asyncio.to_thread(lambda: list(embedding_model.embed([text])))
     return embeddings[0].tolist()
 
 def build_metadata_filters(
@@ -456,7 +467,7 @@ async def store(
         "source": source,
         "document_type": document_type,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "project": project_name or get_project_name(),
+        "project": project_name or await get_project_name(),
         "content_preview": content[:200] + "..." if len(content) > 200 else content
     }
 
@@ -530,7 +541,7 @@ async def store(
             document_id = str(uuid.uuid4())
             embeddings = await generate_embeddings(content)
 
-            # Store in Qdrant
+            # Store in Qdrant (async)
             point = PointStruct(
                 id=document_id,
                 vector=embeddings,
@@ -540,7 +551,7 @@ async def store(
                 }
             )
 
-            qdrant_client.upsert(
+            await qdrant_client.upsert(
                 collection_name=target_collection,
                 points=[point]
             )
@@ -652,8 +663,8 @@ async def search(
             # Generate query embeddings for semantic search
             query_embeddings = await generate_embeddings(query)
 
-            # Perform vector search
-            search_results = qdrant_client.search(
+            # Perform vector search (async)
+            search_results = await qdrant_client.search(
                 collection_name=search_collection,
                 query_vector=query_embeddings,
                 query_filter=search_filter,
@@ -674,10 +685,10 @@ async def search(
                 all_results.append(result)
 
         if mode in ["exact", "keyword", "hybrid"]:
-            # For keyword/exact search, use scroll to find text matches
+            # For keyword/exact search, use scroll to find text matches (async)
             # This is a simplified implementation - in production, you'd want
             # to implement proper sparse vector search or use Qdrant's full-text search
-            scroll_results = qdrant_client.scroll(
+            scroll_results = await qdrant_client.scroll(
                 collection_name=search_collection,
                 scroll_filter=search_filter,
                 limit=limit * 2  # Get more for filtering
@@ -771,12 +782,12 @@ async def manage(
 
     try:
         if action == "list_collections":
-            collections_response = qdrant_client.get_collections()
+            collections_response = await qdrant_client.get_collections()
             collections_info = []
 
             for col in collections_response.collections:
                 try:
-                    col_info = qdrant_client.get_collection(col.name)
+                    col_info = await qdrant_client.get_collection(col.name)
                     collections_info.append({
                         "name": col.name,
                         "points_count": col_info.points_count,
@@ -845,9 +856,9 @@ async def manage(
                     )
                     # Fall through to direct creation
 
-            # Fallback: Create collection directly via qdrant_client
+            # Fallback: Create collection directly via qdrant_client (async)
             # NOTE: This violates First Principle 10 but maintains backwards compatibility
-            qdrant_client.create_collection(
+            await qdrant_client.create_collection(
                 collection_name=name,
                 vectors_config=VectorParams(
                     size=collection_config.get("vector_size", 384),
@@ -893,9 +904,9 @@ async def manage(
                     )
                     # Fall through to direct deletion
 
-            # Fallback: Delete collection directly via qdrant_client
+            # Fallback: Delete collection directly via qdrant_client (async)
             # NOTE: This violates First Principle 10 but maintains backwards compatibility
-            qdrant_client.delete_collection(target_collection)
+            await qdrant_client.delete_collection(target_collection)
 
             return {
                 "success": True,
@@ -909,7 +920,7 @@ async def manage(
                 return {"success": False, "error": "Collection name required for info action"}
 
             target_collection = name or collection
-            col_info = qdrant_client.get_collection(target_collection)
+            col_info = await qdrant_client.get_collection(target_collection)
 
             return {
                 "success": True,
@@ -927,12 +938,12 @@ async def manage(
             }
 
         elif action == "workspace_status":
-            # System health check
-            current_project = project_name or get_project_name()
+            # System health check (async)
+            current_project = project_name or await get_project_name()
             project_collection = get_project_collection()
 
-            # Get collections info
-            collections_response = qdrant_client.get_collections()
+            # Get collections info (async)
+            collections_response = await qdrant_client.get_collections()
 
             # Check for project collection (new architecture: single _{project_id})
             project_collections = []
@@ -943,8 +954,8 @@ async def manage(
                 elif col.name.startswith(f"{current_project}-"):
                     project_collections.append(col.name)
 
-            # Get Qdrant cluster info
-            cluster_info = qdrant_client.get_cluster_info()
+            # Get Qdrant cluster info (async)
+            cluster_info = await qdrant_client.get_cluster_info()
 
             return {
                 "success": True,
@@ -964,8 +975,8 @@ async def manage(
             }
 
         elif action == "init_project":
-            # Initialize project collection (new architecture: single _{project_id})
-            target_project = project_name or get_project_name()
+            # Initialize project collection (new architecture: single _{project_id}, async)
+            target_project = project_name or await get_project_name()
             project_collection = get_project_collection()
 
             created_collections = []
@@ -982,13 +993,13 @@ async def manage(
             }
 
         elif action == "cleanup":
-            # Remove empty collections and optimize
-            collections_response = qdrant_client.get_collections()
+            # Remove empty collections and optimize (async)
+            collections_response = await qdrant_client.get_collections()
             cleaned_collections = []
 
             for col in collections_response.collections:
                 try:
-                    col_info = qdrant_client.get_collection(col.name)
+                    col_info = await qdrant_client.get_collection(col.name)
                     if col_info.points_count == 0:
                         # Try to delete via daemon first
                         if daemon_client:
@@ -1005,8 +1016,8 @@ async def manage(
                                 )
                                 # Fall through to direct deletion
 
-                        # Fallback: Delete directly
-                        qdrant_client.delete_collection(col.name)
+                        # Fallback: Delete directly (async)
+                        await qdrant_client.delete_collection(col.name)
                         cleaned_collections.append(col.name)
                         logger.warning(f"Deleted empty collection '{col.name}' (direct write - daemon unavailable)")
                 except Exception:
@@ -1091,9 +1102,9 @@ async def retrieve(
             search_collection = get_project_collection()
 
         if document_id:
-            # Direct ID retrieval
+            # Direct ID retrieval (async)
             try:
-                points = qdrant_client.retrieve(
+                points = await qdrant_client.retrieve(
                     collection_name=search_collection,
                     ids=[document_id]
                 )
@@ -1147,9 +1158,9 @@ async def retrieve(
                 file_type=file_type
             )
 
-            # Retrieve from collection
+            # Retrieve from collection (async)
             try:
-                scroll_result = qdrant_client.scroll(
+                scroll_result = await qdrant_client.scroll(
                     collection_name=search_collection,
                     scroll_filter=search_filter,
                     limit=limit
