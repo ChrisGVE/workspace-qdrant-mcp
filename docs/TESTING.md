@@ -2354,6 +2354,588 @@ cargo test test_name -- --exact
 RUST_BACKTRACE=1 cargo test
 ```
 
+### Advanced Debugging Techniques
+
+#### IDE Debugging
+
+**Visual Studio Code:**
+
+```json
+// .vscode/launch.json
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Debug pytest",
+      "type": "python",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "tests/unit/test_foo.py::test_bar",
+        "-v",
+        "-s"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false
+    }
+  ]
+}
+```
+
+**PyCharm:**
+
+1. Right-click on test function
+2. Select **Debug 'pytest in test_foo.py::test_bar'**
+3. Set breakpoints in code
+4. Use debugger panel to inspect variables
+
+**Benefits:**
+- Step through code line by line
+- Inspect variable values at breakpoints
+- Evaluate expressions in debug console
+- View call stack
+
+#### Analyzing Test Coverage Gaps
+
+**Step 1: Generate Coverage Report**
+
+```bash
+# Generate detailed coverage report
+uv run pytest --cov=src --cov-report=html --cov-report=term-missing
+
+# View HTML report
+open htmlcov/index.html
+```
+
+**Step 2: Identify Coverage Gaps**
+
+Look for:
+- **Red lines**: Not executed by any test
+- **Yellow lines**: Partially covered (e.g., one branch of if/else)
+- **Low file coverage**: <80% for critical modules
+
+**Example Output:**
+
+```
+Name                        Stmts   Miss  Cover   Missing
+---------------------------------------------------------
+src/core/hybrid_search.py     245     12    95%   127-130, 156
+src/core/client.py            189     45    76%   45-67, 123-145
+```
+
+**Step 3: Write Tests for Gaps**
+
+```python
+# Example: Coverage gap on lines 127-130 (error handling)
+def test_hybrid_search_handles_qdrant_error(mocker):
+    """Test error handling when Qdrant connection fails."""
+    # Mock Qdrant client to raise error
+    mocker.patch(
+        'src.core.client.QdrantClient.search',
+        side_effect=QdrantConnectionError("Connection failed")
+    )
+
+    search = HybridSearch()
+    result = search.query("test")
+
+    # This should hit lines 127-130 (error handling path)
+    assert result.success is False
+    assert "connection failed" in result.error_message.lower()
+```
+
+#### Interpreting CI/CD Test Failures
+
+**Common CI/CD Failure Scenarios:**
+
+**1. Tests Pass Locally, Fail in CI**
+
+**Possible Causes:**
+- Timing differences (CI is slower/faster)
+- Missing environment variables
+- Different Python/Rust versions
+- Resource constraints in CI
+
+**Debugging Steps:**
+
+```bash
+# Check CI logs for environment differences
+cat .github/workflows/test.yml | grep -A 5 "env:"
+
+# Run tests with same Python version as CI
+pyenv install 3.11.5
+pyenv local 3.11.5
+uv run pytest
+
+# Increase timeouts for CI environment
+@pytest.mark.timeout(60)  # Instead of 30
+def test_slow_operation():
+    pass
+```
+
+**2. Flaky Tests in CI**
+
+```bash
+# Run test multiple times locally to reproduce
+for i in {1..50}; do
+    uv run pytest tests/flaky_test.py::test_foo -v || break
+done
+
+# Check CI logs for patterns
+gh run view <run_id> --log-failed
+```
+
+**3. Container Failures in CI**
+
+```bash
+# CI logs show: "docker: Cannot connect to Docker daemon"
+
+# Solution: Check CI workflow has Docker service
+jobs:
+  test:
+    services:
+      docker:
+        image: docker:dind
+        options: --privileged
+```
+
+**4. Out of Memory Errors**
+
+```
+FAILED tests/stress/test_bulk_insert.py - MemoryError
+
+# Solution: Reduce test data size in CI
+@pytest.fixture
+def sample_size():
+    if os.getenv("CI"):
+        return 100  # Smaller in CI
+    return 1000  # Larger locally
+```
+
+#### Performance Test Analysis and Optimization
+
+**1. Benchmark Test Failures**
+
+```bash
+# Run benchmark tests
+uv run pytest --benchmark-only
+
+# Compare to baseline
+uv run pytest --benchmark-compare=baseline --benchmark-fail-threshold=1.5
+```
+
+**Example Failure:**
+
+```
+FAILED test_search_performance - Regression: Mean 1.2s exceeds threshold 0.5s
+```
+
+**Analysis Steps:**
+
+```python
+# Add profiling to identify bottleneck
+import cProfile
+import pstats
+
+def test_search_performance_profiling():
+    profiler = cProfile.Profile()
+    profiler.enable()
+
+    # Run slow operation
+    result = search(collection="test", query="query")
+
+    profiler.disable()
+    stats = pstats.Stats(profiler)
+    stats.sort_stats('cumulative')
+    stats.print_stats(10)  # Top 10 slowest functions
+```
+
+**2. Optimize Based on Profile**
+
+```python
+# Before optimization (slow)
+def search(query):
+    for doc in get_all_documents():  # O(n)
+        if matches(doc, query):
+            yield doc
+
+# After optimization (fast)
+def search(query):
+    # Use index instead
+    doc_ids = index.lookup(query)  # O(log n)
+    return [get_document(id) for id in doc_ids]
+```
+
+**3. Stress Test Failure Analysis**
+
+```bash
+# Stress test fails: Too many open connections
+
+# Check system limits
+ulimit -n  # File descriptor limit
+
+# Increase limits for test
+ulimit -n 10000
+uv run pytest tests/stress/
+```
+
+**Common Stress Test Issues:**
+
+| Issue | Symptom | Solution |
+|-------|---------|----------|
+| Connection pool exhaustion | "Too many connections" | Increase pool size or add connection reuse |
+| Memory leak | OOM after N iterations | Profile memory, fix leaks, add cleanup |
+| Rate limiting | "429 Too Many Requests" | Add delays, reduce concurrency |
+| Resource deadlock | Test hangs indefinitely | Add timeouts, fix resource locking |
+
+#### Log Analysis Techniques
+
+**1. Enable Debug Logging in Tests**
+
+```python
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+def test_with_debug_logging():
+    # Debug logs will appear in pytest output
+    logger.debug("Starting test")
+    result = perform_operation()
+    logger.debug(f"Result: {result}")
+```
+
+**2. Capture Logs with pytest**
+
+```bash
+# Show log output for failed tests
+uv run pytest --log-cli-level=DEBUG
+
+# Save logs to file
+uv run pytest --log-file=test.log --log-file-level=DEBUG
+```
+
+**3. Analyze Qdrant Logs**
+
+```bash
+# Get container logs
+docker logs <qdrant_container_id> 2>&1 | tee qdrant.log
+
+# Search for errors
+grep ERROR qdrant.log
+
+# Look for specific operation
+grep "collection_name" qdrant.log | grep "search"
+```
+
+**4. Parse Structured Logs**
+
+```python
+import json
+
+def analyze_test_logs(log_file):
+    """Parse and analyze structured JSON logs."""
+    errors = []
+    warnings = []
+
+    with open(log_file) as f:
+        for line in f:
+            try:
+                log_entry = json.loads(line)
+                if log_entry.get("level") == "ERROR":
+                    errors.append(log_entry)
+                elif log_entry.get("level") == "WARN":
+                    warnings.append(log_entry)
+            except json.JSONDecodeError:
+                pass
+
+    print(f"Found {len(errors)} errors, {len(warnings)} warnings")
+    return errors, warnings
+```
+
+#### When to Use Different Debugging Approaches
+
+**Decision Tree:**
+
+```
+Test Failure
+    │
+    ├─> Quick reproducible issue
+    │   └─> Use: pytest -v -s --pdb
+    │
+    ├─> Intermittent/flaky
+    │   └─> Use: Run in loop, enable debug logging
+    │
+    ├─> Performance regression
+    │   └─> Use: pytest --benchmark + cProfile
+    │
+    ├─> CI-only failure
+    │   └─> Use: Check CI logs, reproduce with CI environment
+    │
+    ├─> Complex interaction bug
+    │   └─> Use: IDE debugger with breakpoints
+    │
+    └─> Unknown cause
+        └─> Use: Enable all logging, run single test with -vv -s
+```
+
+**Debugging Approach Matrix:**
+
+| Scenario | Best Approach | Commands |
+|----------|---------------|----------|
+| Quick syntax error | pytest -v | `uv run pytest -v` |
+| Logic bug | IDE debugger | Set breakpoints, step through |
+| Async race condition | Add logging | `pytest -v -s --log-cli-level=DEBUG` |
+| Performance issue | Profiling | `python -m cProfile`, `pytest --benchmark` |
+| Container issue | Docker logs | `docker logs <id>`, `docker exec -it <id> sh` |
+| Memory leak | Memory profiler | `python -m memory_profiler` |
+| Flaky test | Multiple runs | `pytest --count=50` |
+| CI failure | CI logs | `gh run view --log-failed` |
+
+### Troubleshooting Common Error Patterns
+
+#### Pattern 1: "Connection Refused" Errors
+
+**Symptom:**
+
+```
+requests.exceptions.ConnectionError: HTTPConnectionPool(host='localhost', port=6333):
+Max retries exceeded with url: /collections
+```
+
+**Root Causes & Solutions:**
+
+```bash
+# Cause 1: Qdrant not running
+docker ps | grep qdrant  # Check if running
+docker start qdrant-test  # Start if stopped
+
+# Cause 2: Wrong port
+# Check QDRANT_URL in .env
+cat .env | grep QDRANT_URL
+
+# Cause 3: Testcontainer not started
+# Check test uses correct fixture
+def test_search(isolated_qdrant_container):  # ✅ Correct
+    url = isolated_qdrant_container.get_http_url()
+
+def test_search():  # ❌ No container fixture
+    url = "http://localhost:6333"  # May not be running
+```
+
+#### Pattern 2: "Collection Not Found" Errors
+
+**Symptom:**
+
+```
+QdrantException: Collection 'test-collection' not found
+```
+
+**Debugging:**
+
+```python
+# Add collection existence check
+def test_search_with_debug():
+    # List all collections
+    response = client.get_collections()
+    print(f"Available collections: {response.collections}")
+
+    # Check if test collection exists
+    assert "test-collection" in [c.name for c.names in response.collections]
+```
+
+**Common Causes:**
+
+- Collection not created in test setup
+- Wrong collection name (typo)
+- Test cleanup removed collection before assertion
+- Using shared container without proper reset
+
+#### Pattern 3: "Fixture Not Found" Errors
+
+**Symptom:**
+
+```
+E   fixture 'isolated_qdrant_container' not found
+```
+
+**Solutions:**
+
+```bash
+# Check fixture is imported in conftest.py
+cat tests/conftest.py | grep "pytest_plugins"
+
+# Verify fixture exists in shared/fixtures.py
+grep "def isolated_qdrant_container" tests/shared/fixtures.py
+
+# Check fixture scope matches
+# Function-scoped test can't use session-scoped fixture directly
+```
+
+#### Pattern 4: "Timeout" Errors in Async Tests
+
+**Symptom:**
+
+```
+asyncio.exceptions.TimeoutError: Test exceeded timeout of 5 seconds
+```
+
+**Solutions:**
+
+```python
+# Increase timeout for specific test
+@pytest.mark.timeout(30)
+async def test_slow_operation():
+    await slow_async_function()
+
+# Check for deadlocks
+import asyncio
+
+async def test_with_timeout():
+    try:
+        result = await asyncio.wait_for(
+            operation(),
+            timeout=10.0
+        )
+    except asyncio.TimeoutError:
+        pytest.fail("Operation timed out - possible deadlock")
+```
+
+### Resource Constraint Debugging
+
+#### Memory Constraints
+
+**Detect Memory Issues:**
+
+```bash
+# Install memory profiler
+uv add --dev memory-profiler
+
+# Profile test
+python -m memory_profiler tests/unit/test_foo.py
+
+# Monitor memory during test
+uv run pytest tests/stress/ --memray
+```
+
+**Example Output:**
+
+```
+Line #    Mem usage    Increment   Line Contents
+================================================
+   45   125.2 MiB    125.2 MiB   @profile
+   46                             def test_bulk_insert():
+   47   725.3 MiB    600.1 MiB       docs = [generate_doc() for _ in range(10000)]  # 🔴 Memory spike
+   48   725.3 MiB      0.0 MiB       bulk_insert(docs)
+```
+
+**Fix:**
+
+```python
+# Use generator instead of list
+def test_bulk_insert_optimized():
+    docs = (generate_doc() for _ in range(10000))  # ✅ Generator
+    bulk_insert(docs)
+```
+
+#### CPU Constraints
+
+**Profile CPU Usage:**
+
+```bash
+# Profile with cProfile
+python -m cProfile -o profile.stats -m pytest tests/performance/
+
+# Analyze results
+python -c "import pstats; p = pstats.Stats('profile.stats'); p.sort_stats('cumulative'); p.print_stats(20)"
+```
+
+**Identify Hotspots:**
+
+```python
+import cProfile
+import pstats
+
+def test_cpu_intensive():
+    profiler = cProfile.Profile()
+    profiler.enable()
+
+    # Run operation
+    result = cpu_intensive_function()
+
+    profiler.disable()
+
+    # Print top 10 CPU-intensive functions
+    stats = pstats.Stats(profiler)
+    stats.sort_stats('cumulative')
+    stats.print_stats(10)
+```
+
+#### Disk I/O Constraints
+
+**Symptoms:**
+- Tests slow on CI but fast locally
+- "Disk quota exceeded" errors
+- Intermittent failures with temp files
+
+**Solutions:**
+
+```python
+# Use in-memory filesystem for tests
+import tempfile
+
+@pytest.fixture
+def temp_dir():
+    # Create temp directory in memory (Linux)
+    if os.path.exists('/dev/shm'):
+        temp_dir = tempfile.mkdtemp(dir='/dev/shm')
+    else:
+        temp_dir = tempfile.mkdtemp()
+
+    yield temp_dir
+
+    # Cleanup
+    shutil.rmtree(temp_dir)
+```
+
+#### Network Constraints
+
+**Symptoms:**
+- Timeouts in CI
+- Connection pool exhaustion
+- Rate limiting errors
+
+**Solutions:**
+
+```python
+# Add retry logic with backoff
+from tenacity import retry, stop_after_attempt, wait_exponential
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10)
+)
+async def test_with_retry():
+    result = await network_operation()
+    assert result.success
+```
+
+### Debugging Checklist
+
+When debugging a test failure, work through this checklist:
+
+- [ ] **Read the error message** - What exactly failed?
+- [ ] **Run single test** - Isolate the failure
+- [ ] **Check recent changes** - What changed since it last passed?
+- [ ] **Review test logs** - Enable debug logging
+- [ ] **Check fixtures** - Are they set up correctly?
+- [ ] **Verify environment** - Correct Python version, dependencies?
+- [ ] **Test locally** - Does it fail locally or only in CI?
+- [ ] **Check resources** - Memory, CPU, disk, network OK?
+- [ ] **Profile if slow** - Use cProfile or benchmark
+- [ ] **Reproduce consistently** - Can you make it fail reliably?
+- [ ] **Minimal reproduction** - Simplify to smallest failing case
+- [ ] **Fix root cause** - Don't just treat symptoms
+- [ ] **Add regression test** - Prevent future occurrences
+- [ ] **Document solution** - Help others who hit same issue
+
 ---
 
 ## Appendix: Testing Tools Reference
