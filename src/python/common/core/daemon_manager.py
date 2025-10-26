@@ -707,23 +707,23 @@ class DaemonInstance:
                 )
                 return False
 
-            # Try to connect to gRPC endpoint
-            from ..grpc.client import AsyncIngestClient
-            from ..grpc.connection_manager import ConnectionConfig
-
-            config = ConnectionConfig(
-                host=self.config.grpc_host,
-                port=self.config.grpc_port,
-                connection_timeout=5.0,
-            )
+            # Try to connect to gRPC endpoint using unified DaemonClient
+            from ..grpc.daemon_client import DaemonClient
 
             client = None
             is_healthy = False
 
             try:
-                client = AsyncIngestClient(connection_config=config)
-                await client.start()
-                is_healthy = await client.test_connection()
+                client = DaemonClient(
+                    host=self.config.grpc_host,
+                    port=self.config.grpc_port,
+                    connection_timeout=5.0,
+                )
+                await client.connect()
+
+                # Use new protocol health check (workspace_daemon)
+                health_response = await client.health_check(timeout=5.0)
+                is_healthy = health_response.status == "healthy"
 
                 self.status.last_health_check = datetime.now()
                 self.status.health_status = "healthy" if is_healthy else "unhealthy"
@@ -767,7 +767,7 @@ class DaemonInstance:
                 # ALWAYS cleanup client, even on exceptions (fix memory leak)
                 if client is not None:
                     try:
-                        await client.stop()
+                        await client.close()
                     except Exception as e:
                         logger.debug(
                             "Client cleanup error during health check",
