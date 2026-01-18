@@ -878,6 +878,8 @@ class MemoryManager:
             (["commit", "immediately"], ["batch", "commit"]),
             (["uv"], ["pip"]),
             (["pytest"], ["unittest"]),
+            (["parallel"], ["sequential"]),
+            (["parallel"], ["sequentially"]),
         ]
 
         rule1_lower = rule1.rule.lower()
