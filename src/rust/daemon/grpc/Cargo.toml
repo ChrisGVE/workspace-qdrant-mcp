@@ -35,6 +35,9 @@ uuid = { version = "1.0", features = ["v4"] }
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
 
+# Database access (for ProjectService)
+sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "chrono"] }
+
 [build-dependencies]
 tonic-build = { version = "0.12", features = ["prost"] }
 prost-build = "0.13"
@@ -47,6 +50,7 @@ shared-test-utils = { path = "../shared-test-utils" }
 tokio-test = { workspace = true }
 tonic-build = { workspace = true }
 futures = "0.3"
+tempfile = { workspace = true }
 # Complex dependencies disabled:
 # testcontainers = { workspace = true }
 # wiremock = { workspace = true }

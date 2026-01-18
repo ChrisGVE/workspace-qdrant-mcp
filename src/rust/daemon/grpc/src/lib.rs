@@ -513,12 +513,12 @@ mod tests {
 
     #[test]
     fn test_grpc_service_instantiation() {
-        use crate::services::{SystemServiceImpl, CollectionServiceImpl, DocumentServiceImpl};
+        use crate::services::SystemServiceImpl;
 
-        // Test that the new modular services can be created
+        // Test that the system service can be created (no dependencies)
         let _system_service = SystemServiceImpl::new();
-        let _collection_service = CollectionServiceImpl::new();
-        let _document_service = DocumentServiceImpl::new();
-        // Services should be valid (no panic on creation)
+        // CollectionServiceImpl and DocumentServiceImpl require StorageClient
+        // ProjectServiceImpl requires SqlitePool
+        // These are tested in their respective module tests
     }
 }
