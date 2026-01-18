@@ -9,7 +9,7 @@ import "google/protobuf/empty.proto";
 // =============================================================================
 // SERVICE DEFINITIONS
 // =============================================================================
-// This protocol defines 3 services with 15 total RPCs for communication
+// This protocol defines 4 services with 20 total RPCs for communication
 // between the Rust daemon and Python components (MCP server, CLI).
 //
 // Design principles:
@@ -17,6 +17,7 @@ import "google/protobuf/empty.proto";
 // - Queue-based async processing: File operations via SQLite queue
 // - Direct sync ingestion: Text content via gRPC IngestText
 // - Event-driven refresh: Lightweight signals for state changes
+// - Session-based priority: Active MCP sessions get HIGH priority
 // =============================================================================
 
 // -----------------------------------------------------------------------------
@@ -87,6 +88,33 @@ service DocumentService {
 
     // Delete ingested text document
     rpc DeleteText(DeleteTextRequest) returns (google.protobuf.Empty);
+}
+
+// -----------------------------------------------------------------------------
+// 4. ProjectService (5 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Multi-tenant project lifecycle and session management.
+// Use case: MCP servers register active projects, daemon prioritizes their
+//           ingestion. Heartbeat mechanism detects orphaned sessions.
+
+service ProjectService {
+    // Register a project for high-priority processing
+    // Called when MCP server starts for a project
+    rpc RegisterProject(RegisterProjectRequest) returns (RegisterProjectResponse);
+
+    // Deprioritize a project (decrement session count)
+    // Called when MCP server stops
+    rpc DeprioritizeProject(DeprioritizeProjectRequest) returns (DeprioritizeProjectResponse);
+
+    // Get current status of a project
+    rpc GetProjectStatus(GetProjectStatusRequest) returns (GetProjectStatusResponse);
+
+    // List all registered projects with their status
+    rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+
+    // Heartbeat to keep session alive (60s timeout)
+    // Called periodically by MCP servers
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 }
 
 // =============================================================================
@@ -246,6 +274,83 @@ message DeleteTextRequest {
 }
 
 // =============================================================================
+// MESSAGE TYPES - ProjectService
+// =============================================================================
+
+// RegisterProject Request/Response
+message RegisterProjectRequest {
+    string path = 1;                              // Absolute path to project root
+    string project_id = 2;                        // 12-char hex identifier
+    optional string name = 3;                     // Human-readable project name
+    optional string git_remote = 4;               // Git remote URL (for normalization)
+}
+
+message RegisterProjectResponse {
+    bool created = 1;                             // True if new, false if existing
+    string project_id = 2;                        // Confirmed project ID
+    string priority = 3;                          // Current priority: "high", "normal", "low"
+    int32 active_sessions = 4;                    // Number of active sessions
+}
+
+// DeprioritizeProject Request/Response
+message DeprioritizeProjectRequest {
+    string project_id = 1;                        // 12-char hex identifier
+}
+
+message DeprioritizeProjectResponse {
+    bool success = 1;
+    int32 remaining_sessions = 2;                 // Sessions after decrement
+    string new_priority = 3;                      // Priority after demotion
+}
+
+// GetProjectStatus Request/Response
+message GetProjectStatusRequest {
+    string project_id = 1;                        // 12-char hex identifier
+}
+
+message GetProjectStatusResponse {
+    bool found = 1;                               // Whether project exists
+    string project_id = 2;
+    string project_name = 3;
+    string project_root = 4;
+    string priority = 5;                          // "high", "normal", "low"
+    int32 active_sessions = 6;
+    google.protobuf.Timestamp last_active = 7;    // Last heartbeat/activity
+    google.protobuf.Timestamp registered_at = 8;
+    optional string git_remote = 9;
+}
+
+// ListProjects Request/Response
+message ListProjectsRequest {
+    optional string priority_filter = 1;          // Filter by priority: "high", "normal", "low", "all"
+    bool active_only = 2;                         // Only return projects with active_sessions > 0
+}
+
+message ListProjectsResponse {
+    repeated ProjectInfo projects = 1;
+    int32 total_count = 2;
+}
+
+message ProjectInfo {
+    string project_id = 1;
+    string project_name = 2;
+    string project_root = 3;
+    string priority = 4;
+    int32 active_sessions = 5;
+    google.protobuf.Timestamp last_active = 6;
+}
+
+// Heartbeat Request/Response
+message HeartbeatRequest {
+    string project_id = 1;                        // 12-char hex identifier
+}
+
+message HeartbeatResponse {
+    bool acknowledged = 1;                        // True if heartbeat was accepted
+    google.protobuf.Timestamp next_heartbeat_by = 2;  // Deadline for next heartbeat
+}
+
+// =============================================================================
 // COMMON ENUMS
 // =============================================================================
 
@@ -269,6 +374,13 @@ enum ServerState {
     SERVER_STATE_UNSPECIFIED = 0;
     SERVER_STATE_UP = 1;                          // Server started
     SERVER_STATE_DOWN = 2;                        // Server shutting down
+}
+
+enum ProjectPriority {
+    PROJECT_PRIORITY_UNSPECIFIED = 0;
+    PROJECT_PRIORITY_HIGH = 1;                    // Active agent sessions
+    PROJECT_PRIORITY_NORMAL = 2;                  // Registered without active sessions
+    PROJECT_PRIORITY_LOW = 3;                     // Background/inactive
 }
 
 enum DocumentType {

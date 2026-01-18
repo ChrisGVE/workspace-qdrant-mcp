@@ -2,7 +2,7 @@
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Generate Rust code from workspace_daemon.proto
-    // This proto file defines 3 services: SystemService, CollectionService, DocumentService
+    // This proto file defines 4 services: SystemService, CollectionService, DocumentService, ProjectService
     tonic_build::configure()
         .build_server(true)
         .build_client(true)
