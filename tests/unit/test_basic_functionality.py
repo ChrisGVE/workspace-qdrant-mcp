@@ -21,8 +21,9 @@ class TestBasicInstantiation:
         counter = TokenCounter()
 
         # Just check the method exists, don't call it
-        assert hasattr(counter, 'count_tokens')
-        assert callable(counter.count_tokens)
+        # Note: Implementation has count_rule_tokens and count_rules_tokens
+        assert hasattr(counter, 'count_rule_tokens')
+        assert callable(counter.count_rule_tokens)
 
     @patch.dict(sys.modules, {'qdrant_client': MagicMock()})
     def test_qdrant_client_instantiation(self):

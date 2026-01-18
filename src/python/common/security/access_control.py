@@ -23,7 +23,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from enum import Enum, auto
 from typing import Any
 
@@ -87,8 +87,8 @@ class Role:
     ip_whitelist: set[str] = field(default_factory=set)
     time_restrictions: dict[str, Any] = field(default_factory=dict)
     resource_limits: dict[str, int] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def __post_init__(self):
         """Ensure permissions are a set."""
@@ -109,12 +109,12 @@ class User:
     mfa_enabled: bool = False
     mfa_secret: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    updated_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
     def is_locked(self) -> bool:
         """Check if user account is locked."""
-        return self.locked_until is not None and datetime.utcnow() < self.locked_until
+        return self.locked_until is not None and datetime.now(UTC) < self.locked_until
 
 
 @dataclass
@@ -122,8 +122,8 @@ class Session:
     """Represents an active user session."""
     session_id: str
     user_id: str
-    created_at: datetime = field(default_factory=datetime.utcnow)
-    last_activity: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+    last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
     expires_at: datetime | None = None
     ip_address: str | None = None
     user_agent: str | None = None
@@ -136,13 +136,13 @@ class Session:
         """Check if session has expired."""
         if self.expires_at is None:
             return False
-        return datetime.utcnow() > self.expires_at
+        return datetime.now(UTC) > self.expires_at
 
     def is_active(self, timeout_seconds: int = 3600) -> bool:
         """Check if session is considered active."""
         if self.is_expired():
             return False
-        inactive_time = datetime.utcnow() - self.last_activity
+        inactive_time = datetime.now(UTC) - self.last_activity
         return inactive_time.total_seconds() < timeout_seconds
 
 
@@ -156,7 +156,7 @@ class AccessContext:
     resource_type: str | None = None
     resource_id: str | None = None
     operation: str | None = None
-    timestamp: datetime = field(default_factory=datetime.utcnow)
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
@@ -378,7 +378,7 @@ class RoleBasedAccessControl:
                     return True
 
                 user.roles.add(role_name)
-                user.updated_at = datetime.utcnow()
+                user.updated_at = datetime.now(UTC)
                 self._clear_permission_cache(user_id)
 
                 if self._audit_logger:
@@ -409,7 +409,7 @@ class RoleBasedAccessControl:
                     return True
 
                 user.roles.discard(role_name)
-                user.updated_at = datetime.utcnow()
+                user.updated_at = datetime.now(UTC)
                 self._clear_permission_cache(user_id)
 
                 # Update active sessions
@@ -457,7 +457,7 @@ class RoleBasedAccessControl:
                 session_id = secrets.token_urlsafe(32)
 
                 # Calculate session expiration
-                expires_at = datetime.utcnow() + timedelta(seconds=timeout_seconds)
+                expires_at = datetime.now(UTC) + timedelta(seconds=timeout_seconds)
 
                 # Get user permissions
                 permissions = self._calculate_user_permissions(user_id)
@@ -475,9 +475,11 @@ class RoleBasedAccessControl:
                 active_sessions = [s for s in user.active_sessions
                                  if s in self._sessions and self._sessions[s].is_active()]
 
-                max_sessions = min(role for role_name in user.roles
-                                 if role_name in self._roles
-                                 for role in [self._roles[role_name].max_sessions])
+                # Get max_sessions from roles, default to 5 if no roles assigned
+                max_sessions_list = [self._roles[role_name].max_sessions
+                                     for role_name in user.roles
+                                     if role_name in self._roles]
+                max_sessions = min(max_sessions_list) if max_sessions_list else 5
 
                 if len(active_sessions) >= max_sessions:
                     # Remove oldest session
@@ -487,7 +489,7 @@ class RoleBasedAccessControl:
 
                 self._sessions[session_id] = session
                 user.active_sessions.add(session_id)
-                user.last_login = datetime.utcnow()
+                user.last_login = datetime.now(UTC)
                 user.failed_attempts = 0  # Reset on successful login
 
                 if self._audit_logger:
@@ -555,7 +557,7 @@ class RoleBasedAccessControl:
                     return AccessResult.SESSION_EXPIRED
 
                 # Update last activity
-                session.last_activity = datetime.utcnow()
+                session.last_activity = datetime.now(UTC)
 
                 # Get user
                 user = self._users.get(session.user_id)
@@ -661,7 +663,7 @@ class RoleBasedAccessControl:
 
     def _check_time_restrictions(self, user: User) -> bool:
         """Check time-based restrictions for user roles."""
-        now = datetime.utcnow()
+        now = datetime.now(UTC)
         current_hour = now.hour
         current_day = now.weekday()  # 0 = Monday
 
@@ -848,7 +850,7 @@ class SessionManager:
             # Update session activity
             session = self._rbac._sessions.get(session_id)
             if session:
-                session.last_activity = datetime.utcnow()
+                session.last_activity = datetime.now(UTC)
 
 
 # Global RBAC instance (can be configured via dependency injection)
