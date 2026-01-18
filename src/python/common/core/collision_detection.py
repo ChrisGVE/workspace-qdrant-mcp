@@ -56,7 +56,7 @@ import threading
 import time
 import weakref
 from collections import defaultdict, deque
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, AbstractAsyncContextManager
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any

@@ -6,6 +6,8 @@ for metadata extraction, multi-page processing, and content analysis.
 Provides fallback handling for encrypted or corrupted PDFs.
 """
 
+from __future__ import annotations
+
 from pathlib import Path
 from typing import Any
 

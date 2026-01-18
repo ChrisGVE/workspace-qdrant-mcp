@@ -275,7 +275,7 @@ async def initialize_components():
             # Daemon connection is optional - fall back to direct writes if unavailable
             daemon_client = None
 
-async def ensure_collection_exists(collection_name: str) -> bool:
+async def ensure_collection_exists(collection_name: str, project_id: str | None = None) -> bool:
     """
     Ensure a collection exists, create if it doesn't.
 
@@ -285,6 +285,7 @@ async def ensure_collection_exists(collection_name: str) -> bool:
 
     Args:
         collection_name: Name of the collection to ensure exists
+        project_id: Project identifier for daemon. Defaults to current project.
 
     Returns:
         True if collection exists or was created successfully, False otherwise
@@ -299,42 +300,32 @@ async def ensure_collection_exists(collection_name: str) -> bool:
         # Collection doesn't exist, need to create it
         pass
 
-    # Try to create collection via daemon first
-    if daemon_client:
-        try:
-            response = await daemon_client.create_collection_v2(
-                collection_name=collection_name,
-                vector_size=DEFAULT_COLLECTION_CONFIG["vector_size"],
-                distance_metric="Cosine",  # Map Distance.COSINE to string
-            )
-            if response.success:
-                logger.info(f"Collection '{collection_name}' created via daemon")
-                return True
-            else:
-                logger.warning(
-                    f"Daemon failed to create collection '{collection_name}': {response.error_message}"
-                )
-                # Fall through to direct creation
-        except DaemonConnectionError as e:
-            logger.warning(
-                f"Daemon unavailable for collection creation, falling back to direct write: {e}"
-            )
-            # Fall through to direct creation
+    # Get project_id if not provided
+    if project_id is None:
+        project_id = calculate_tenant_id(str(Path.cwd()))
 
-    # Fallback: Create collection directly via qdrant_client (async)
-    # NOTE: This violates First Principle 10 but maintains backwards compatibility
+    # Create collection via daemon (First Principle 10: daemon-only writes)
+    if not daemon_client:
+        logger.error(f"Cannot create collection '{collection_name}': daemon not connected")
+        return False
+
     try:
-        await qdrant_client.create_collection(
+        response = await daemon_client.create_collection_v2(
             collection_name=collection_name,
-            vectors_config=VectorParams(
-                size=DEFAULT_COLLECTION_CONFIG["vector_size"],
-                distance=DEFAULT_COLLECTION_CONFIG["distance"]
+            project_id=project_id,
+            # config=None uses daemon defaults (384 vectors, Cosine, indexing enabled)
+        )
+        if response.success:
+            logger.info(f"Collection '{collection_name}' created via daemon")
+            return True
+        else:
+            logger.error(
+                f"Daemon failed to create collection '{collection_name}': {response.error_message}"
             )
-        )
-        logger.warning(
-            f"Collection '{collection_name}' created via direct Qdrant write (daemon unavailable)"
-        )
-        return True
+            return False
+    except DaemonConnectionError as e:
+        logger.error(f"Daemon connection error creating collection '{collection_name}': {e}")
+        return False
     except Exception as e:
         logger.error(f"Failed to create collection {collection_name}: {e}")
         return False
@@ -815,63 +806,48 @@ async def manage(
 
             collection_config = config or DEFAULT_COLLECTION_CONFIG
 
-            # Extract distance metric and convert to string for daemon API
-            distance = collection_config.get("distance", Distance.COSINE)
-            distance_str = "Cosine"  # Default
-            if distance == Distance.EUCLID:
-                distance_str = "Euclidean"
-            elif distance == Distance.DOT:
-                distance_str = "Dot"
+            # Get project_id from project_name parameter or current directory
+            project_id = calculate_tenant_id(str(Path.cwd()))
 
             # ============================================================================
             # DAEMON WRITE BOUNDARY (First Principle 10)
             # ============================================================================
-            # Collection creation must go through daemon. Direct write is fallback only.
+            # Collection creation must go through daemon. No fallback to direct writes.
             # ============================================================================
 
-            # Try to create via daemon first
-            if daemon_client:
-                try:
-                    response = await daemon_client.create_collection_v2(
-                        collection_name=name,
-                        vector_size=collection_config.get("vector_size", 384),
-                        distance_metric=distance_str,
-                    )
+            if not daemon_client:
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": "Daemon not connected. Collection creation requires daemon (First Principle 10)."
+                }
 
-                    if response.success:
-                        return {
-                            "success": True,
-                            "action": action,
-                            "collection_name": name,
-                            "message": f"Collection '{name}' created successfully via daemon"
-                        }
-                    else:
-                        logger.warning(
-                            f"Daemon failed to create collection '{name}': {response.error_message}"
-                        )
-                        # Fall through to direct creation
-                except DaemonConnectionError as e:
-                    logger.warning(
-                        f"Daemon unavailable for collection creation, falling back to direct write: {e}"
-                    )
-                    # Fall through to direct creation
-
-            # Fallback: Create collection directly via qdrant_client (async)
-            # NOTE: This violates First Principle 10 but maintains backwards compatibility
-            await qdrant_client.create_collection(
-                collection_name=name,
-                vectors_config=VectorParams(
-                    size=collection_config.get("vector_size", 384),
-                    distance=collection_config.get("distance", Distance.COSINE)
+            try:
+                response = await daemon_client.create_collection_v2(
+                    collection_name=name,
+                    project_id=project_id,
+                    # config=None uses daemon defaults (384 vectors, Cosine, indexing enabled)
                 )
-            )
 
-            return {
-                "success": True,
-                "action": action,
-                "collection_name": name,
-                "message": f"Collection '{name}' created successfully (direct write - daemon unavailable)"
-            }
+                if response.success:
+                    return {
+                        "success": True,
+                        "action": action,
+                        "collection_name": name,
+                        "message": f"Collection '{name}' created successfully via daemon"
+                    }
+                else:
+                    return {
+                        "success": False,
+                        "action": action,
+                        "error": f"Daemon failed to create collection: {response.error_message}"
+                    }
+            except DaemonConnectionError as e:
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": f"Daemon connection error: {e}"
+                }
 
         elif action == "delete_collection":
             if not name and not collection:
@@ -879,41 +855,40 @@ async def manage(
 
             target_collection = name or collection
 
+            # Get project_id from current directory
+            project_id = calculate_tenant_id(str(Path.cwd()))
+
             # ============================================================================
             # DAEMON WRITE BOUNDARY (First Principle 10)
             # ============================================================================
-            # Collection deletion must go through daemon. Direct write is fallback only.
+            # Collection deletion must go through daemon. No fallback to direct writes.
             # ============================================================================
 
-            # Try to delete via daemon first
-            if daemon_client:
-                try:
-                    await daemon_client.delete_collection_v2(
-                        collection_name=target_collection,
-                    )
+            if not daemon_client:
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": "Daemon not connected. Collection deletion requires daemon (First Principle 10)."
+                }
 
-                    return {
-                        "success": True,
-                        "action": action,
-                        "collection_name": target_collection,
-                        "message": f"Collection '{target_collection}' deleted successfully via daemon"
-                    }
-                except DaemonConnectionError as e:
-                    logger.warning(
-                        f"Daemon unavailable for collection deletion, falling back to direct write: {e}"
-                    )
-                    # Fall through to direct deletion
+            try:
+                await daemon_client.delete_collection_v2(
+                    collection_name=target_collection,
+                    project_id=project_id,
+                )
 
-            # Fallback: Delete collection directly via qdrant_client (async)
-            # NOTE: This violates First Principle 10 but maintains backwards compatibility
-            await qdrant_client.delete_collection(target_collection)
-
-            return {
-                "success": True,
-                "action": action,
-                "collection_name": target_collection,
-                "message": f"Collection '{target_collection}' deleted successfully (direct write - daemon unavailable)"
-            }
+                return {
+                    "success": True,
+                    "action": action,
+                    "collection_name": target_collection,
+                    "message": f"Collection '{target_collection}' deleted successfully via daemon"
+                }
+            except DaemonConnectionError as e:
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": f"Daemon connection error: {e}"
+                }
 
         elif action == "collection_info":
             if not name and not collection:
@@ -994,32 +969,40 @@ async def manage(
 
         elif action == "cleanup":
             # Remove empty collections and optimize (async)
+            # ============================================================================
+            # DAEMON WRITE BOUNDARY (First Principle 10)
+            # ============================================================================
+            # Collection deletion must go through daemon. No fallback to direct writes.
+            # ============================================================================
+
+            if not daemon_client:
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": "Daemon not connected. Cleanup requires daemon (First Principle 10)."
+                }
+
             collections_response = await qdrant_client.get_collections()
             cleaned_collections = []
+            failed_collections = []
+
+            # Get project_id from current directory
+            project_id = calculate_tenant_id(str(Path.cwd()))
 
             for col in collections_response.collections:
                 try:
                     col_info = await qdrant_client.get_collection(col.name)
                     if col_info.points_count == 0:
-                        # Try to delete via daemon first
-                        if daemon_client:
-                            try:
-                                await daemon_client.delete_collection_v2(
-                                    collection_name=col.name,
-                                )
-                                cleaned_collections.append(col.name)
-                                logger.info(f"Deleted empty collection '{col.name}' via daemon")
-                                continue
-                            except DaemonConnectionError as e:
-                                logger.warning(
-                                    f"Daemon unavailable for cleanup deletion, falling back to direct write: {e}"
-                                )
-                                # Fall through to direct deletion
-
-                        # Fallback: Delete directly (async)
-                        await qdrant_client.delete_collection(col.name)
-                        cleaned_collections.append(col.name)
-                        logger.warning(f"Deleted empty collection '{col.name}' (direct write - daemon unavailable)")
+                        try:
+                            await daemon_client.delete_collection_v2(
+                                collection_name=col.name,
+                                project_id=project_id,
+                            )
+                            cleaned_collections.append(col.name)
+                            logger.info(f"Deleted empty collection '{col.name}' via daemon")
+                        except DaemonConnectionError as e:
+                            failed_collections.append(col.name)
+                            logger.error(f"Failed to delete collection '{col.name}': {e}")
                 except Exception:
                     continue
 
@@ -1027,6 +1010,7 @@ async def manage(
                 "success": True,
                 "action": action,
                 "cleaned_collections": cleaned_collections,
+                "failed_collections": failed_collections,
                 "message": f"Cleaned up {len(cleaned_collections)} empty collections"
             }
 
