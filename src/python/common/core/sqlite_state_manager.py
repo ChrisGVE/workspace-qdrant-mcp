@@ -240,7 +240,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 6  # Updated for project_id column addition to projects table
+    SCHEMA_VERSION = 7  # Updated for multi-tenant architecture (priority, sessions, library_watches)
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -633,7 +633,13 @@ class SQLiteStateManager:
                 last_scan TIMESTAMP,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                metadata TEXT  -- JSON for additional project configuration
+                metadata TEXT,  -- JSON for additional project configuration
+                -- Multi-tenant architecture columns (v7)
+                priority TEXT DEFAULT 'normal' CHECK (priority IN ('high', 'normal', 'low')),
+                active_sessions INTEGER DEFAULT 0,
+                git_remote TEXT,
+                registered_at TIMESTAMP,
+                last_active TIMESTAMP
             )
             """,
             # Indexes for projects
@@ -643,6 +649,8 @@ class SQLiteStateManager:
             "CREATE INDEX idx_projects_project_id ON projects(project_id)",
             "CREATE INDEX idx_projects_lsp_enabled ON projects(lsp_enabled)",
             "CREATE INDEX idx_projects_last_scan ON projects(last_scan)",
+            "CREATE INDEX idx_projects_priority ON projects(priority)",
+            "CREATE INDEX idx_projects_active_sessions ON projects(active_sessions)",
             # LSP Servers table
             """
             CREATE TABLE lsp_servers (
@@ -729,6 +737,26 @@ class SQLiteStateManager:
             # Indexes for language_support_version
             "CREATE INDEX idx_language_support_version_yaml_hash ON language_support_version(yaml_hash)",
             "CREATE INDEX idx_language_support_version_loaded_at ON language_support_version(loaded_at)",
+            # Library watches table for reference documentation (v7)
+            """
+            CREATE TABLE library_watches (
+                library_name TEXT PRIMARY KEY,
+                path TEXT NOT NULL UNIQUE,
+                patterns TEXT NOT NULL DEFAULT '["*.pdf", "*.epub", "*.md", "*.txt"]',
+                ignore_patterns TEXT NOT NULL DEFAULT '[".git/*", "__pycache__/*"]',
+                enabled INTEGER DEFAULT 1,
+                recursive INTEGER DEFAULT 1,
+                recursive_depth INTEGER DEFAULT 10,
+                debounce_seconds REAL DEFAULT 2.0,
+                added_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_scan TIMESTAMP,
+                document_count INTEGER DEFAULT 0,
+                metadata TEXT  -- JSON for extensibility
+            )
+            """,
+            # Indexes for library_watches
+            "CREATE INDEX idx_library_watches_path ON library_watches(path)",
+            "CREATE INDEX idx_library_watches_enabled ON library_watches(enabled)",
             # Insert initial schema version
             f"INSERT INTO schema_version (version) VALUES ({self.SCHEMA_VERSION})",
         ]
@@ -958,6 +986,56 @@ class SQLiteStateManager:
                     )
 
                 logger.info("Successfully migrated to schema version 6 (added project_id column to projects table)")
+
+            # Migrate from version 6 to version 7 - Multi-tenant architecture support
+            if from_version <= 6 and to_version >= 7:
+                logger.info("Applying migration: v6 -> v7 (multi-tenant architecture support)")
+                multi_tenant_sql = [
+                    # Add priority and session tracking to projects table
+                    "ALTER TABLE projects ADD COLUMN priority TEXT DEFAULT 'normal' CHECK (priority IN ('high', 'normal', 'low'))",
+                    "ALTER TABLE projects ADD COLUMN active_sessions INTEGER DEFAULT 0",
+                    "ALTER TABLE projects ADD COLUMN git_remote TEXT",
+                    "ALTER TABLE projects ADD COLUMN registered_at TIMESTAMP",
+                    "ALTER TABLE projects ADD COLUMN last_active TIMESTAMP",
+                    # Add indexes for new columns
+                    "CREATE INDEX IF NOT EXISTS idx_projects_priority ON projects(priority)",
+                    "CREATE INDEX IF NOT EXISTS idx_projects_active_sessions ON projects(active_sessions)",
+                    # Create library_watches table for reference documentation
+                    """
+                    CREATE TABLE IF NOT EXISTS library_watches (
+                        library_name TEXT PRIMARY KEY,
+                        path TEXT NOT NULL UNIQUE,
+                        patterns TEXT NOT NULL DEFAULT '["*.pdf", "*.epub", "*.md", "*.txt"]',
+                        ignore_patterns TEXT NOT NULL DEFAULT '[".git/*", "__pycache__/*"]',
+                        enabled INTEGER DEFAULT 1,
+                        recursive INTEGER DEFAULT 1,
+                        recursive_depth INTEGER DEFAULT 10,
+                        debounce_seconds REAL DEFAULT 2.0,
+                        added_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        last_scan TIMESTAMP,
+                        document_count INTEGER DEFAULT 0,
+                        metadata TEXT
+                    )
+                    """,
+                    # Add indexes for library_watches
+                    "CREATE INDEX IF NOT EXISTS idx_library_watches_path ON library_watches(path)",
+                    "CREATE INDEX IF NOT EXISTS idx_library_watches_enabled ON library_watches(enabled)",
+                ]
+
+                for sql in multi_tenant_sql:
+                    try:
+                        conn.execute(sql)
+                    except sqlite3.OperationalError as e:
+                        # Ignore "duplicate column" errors for ALTER TABLE (column may already exist)
+                        if "duplicate column" not in str(e).lower():
+                            raise
+
+                # Populate registered_at for existing projects
+                conn.execute(
+                    "UPDATE projects SET registered_at = created_at WHERE registered_at IS NULL"
+                )
+
+                logger.info("Successfully migrated to schema version 7 (multi-tenant architecture support)")
 
             # Record the migration
             conn.execute(
@@ -2548,4 +2626,372 @@ class SQLiteStateManager:
     ) -> list[WatchFolderConfig]:
         """List all watch folder configs (alias for get_all_watch_folder_configs)."""
         return await self.get_all_watch_folder_configs(enabled_only=enabled_only)
+
+    # =========================================================================
+    # Library Watch Management (Multi-Tenant Architecture v7)
+    # =========================================================================
+
+    async def save_library_watch(
+        self,
+        library_name: str,
+        path: str,
+        patterns: list[str] | None = None,
+        ignore_patterns: list[str] | None = None,
+        recursive: bool = True,
+        recursive_depth: int = 10,
+        debounce_seconds: float = 2.0,
+        enabled: bool = True,
+        metadata: dict | None = None,
+    ) -> bool:
+        """
+        Save or update a library watch configuration.
+
+        Args:
+            library_name: Unique identifier for the library (e.g., "color-science")
+            path: Absolute path to the library folder
+            patterns: File patterns to include (default: PDF, EPUB, MD, TXT)
+            ignore_patterns: Patterns to exclude (default: .git, __pycache__)
+            recursive: Watch subdirectories
+            recursive_depth: Maximum recursion depth
+            debounce_seconds: Wait time before processing changes
+            enabled: Whether the watch is active
+            metadata: Optional JSON metadata
+
+        Returns:
+            True if saved successfully
+        """
+        if patterns is None:
+            patterns = ["*.pdf", "*.epub", "*.md", "*.txt"]
+        if ignore_patterns is None:
+            ignore_patterns = [".git/*", "__pycache__/*"]
+
+        try:
+            async with self.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO library_watches (
+                        library_name, path, patterns, ignore_patterns,
+                        enabled, recursive, recursive_depth, debounce_seconds,
+                        added_at, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+                    ON CONFLICT(library_name) DO UPDATE SET
+                        path = excluded.path,
+                        patterns = excluded.patterns,
+                        ignore_patterns = excluded.ignore_patterns,
+                        enabled = excluded.enabled,
+                        recursive = excluded.recursive,
+                        recursive_depth = excluded.recursive_depth,
+                        debounce_seconds = excluded.debounce_seconds,
+                        metadata = excluded.metadata
+                    """,
+                    (
+                        library_name,
+                        path,
+                        json.dumps(patterns),
+                        json.dumps(ignore_patterns),
+                        1 if enabled else 0,
+                        1 if recursive else 0,
+                        recursive_depth,
+                        debounce_seconds,
+                        json.dumps(metadata) if metadata else None,
+                    ),
+                )
+            logger.info(f"Saved library watch: {library_name} -> {path}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save library watch {library_name}: {e}")
+            return False
+
+    async def get_library_watch(self, library_name: str) -> dict | None:
+        """Get a library watch configuration by name."""
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    "SELECT * FROM library_watches WHERE library_name = ?",
+                    (library_name,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "library_name": row["library_name"],
+                        "path": row["path"],
+                        "patterns": json.loads(row["patterns"]),
+                        "ignore_patterns": json.loads(row["ignore_patterns"]),
+                        "enabled": bool(row["enabled"]),
+                        "recursive": bool(row["recursive"]),
+                        "recursive_depth": row["recursive_depth"],
+                        "debounce_seconds": row["debounce_seconds"],
+                        "added_at": row["added_at"],
+                        "last_scan": row["last_scan"],
+                        "document_count": row["document_count"],
+                        "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get library watch {library_name}: {e}")
+            return None
+
+    async def list_library_watches(self, enabled_only: bool = True) -> list[dict]:
+        """List all library watch configurations."""
+        try:
+            async with self.transaction() as conn:
+                query = "SELECT * FROM library_watches"
+                if enabled_only:
+                    query += " WHERE enabled = 1"
+                cursor = conn.execute(query)
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "library_name": row["library_name"],
+                        "path": row["path"],
+                        "patterns": json.loads(row["patterns"]),
+                        "ignore_patterns": json.loads(row["ignore_patterns"]),
+                        "enabled": bool(row["enabled"]),
+                        "recursive": bool(row["recursive"]),
+                        "recursive_depth": row["recursive_depth"],
+                        "debounce_seconds": row["debounce_seconds"],
+                        "added_at": row["added_at"],
+                        "last_scan": row["last_scan"],
+                        "document_count": row["document_count"],
+                        "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"Failed to list library watches: {e}")
+            return []
+
+    async def remove_library_watch(self, library_name: str) -> bool:
+        """Remove a library watch configuration."""
+        try:
+            async with self.transaction() as conn:
+                conn.execute(
+                    "DELETE FROM library_watches WHERE library_name = ?",
+                    (library_name,),
+                )
+            logger.info(f"Removed library watch: {library_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to remove library watch {library_name}: {e}")
+            return False
+
+    async def update_library_watch_stats(
+        self, library_name: str, document_count: int | None = None
+    ) -> bool:
+        """Update library watch statistics (last_scan, document_count)."""
+        try:
+            async with self.transaction() as conn:
+                if document_count is not None:
+                    conn.execute(
+                        """
+                        UPDATE library_watches
+                        SET last_scan = CURRENT_TIMESTAMP, document_count = ?
+                        WHERE library_name = ?
+                        """,
+                        (document_count, library_name),
+                    )
+                else:
+                    conn.execute(
+                        """
+                        UPDATE library_watches
+                        SET last_scan = CURRENT_TIMESTAMP
+                        WHERE library_name = ?
+                        """,
+                        (library_name,),
+                    )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update library watch stats {library_name}: {e}")
+            return False
+
+    # =========================================================================
+    # Project Session Management (Multi-Tenant Architecture v7)
+    # =========================================================================
+
+    async def register_project(
+        self,
+        project_id: str,
+        path: str,
+        name: str | None = None,
+        git_remote: str | None = None,
+    ) -> bool:
+        """
+        Register a project for multi-tenant tracking.
+
+        Called by MCP server when agent starts in a project folder.
+
+        Args:
+            project_id: 12-character hex identifier
+            path: Absolute path to project root
+            name: Human-readable project name (derived from folder/git if not provided)
+            git_remote: Normalized git remote URL if available
+
+        Returns:
+            True if registered/updated successfully
+        """
+        try:
+            if name is None:
+                name = path.rstrip("/").split("/")[-1]  # Use folder name
+
+            async with self.transaction() as conn:
+                # Check if project exists by project_id
+                cursor = conn.execute(
+                    "SELECT id FROM projects WHERE project_id = ?",
+                    (project_id,),
+                )
+                existing = cursor.fetchone()
+
+                if existing:
+                    # Update existing project - increment sessions and set high priority
+                    conn.execute(
+                        """
+                        UPDATE projects
+                        SET active_sessions = active_sessions + 1,
+                            priority = 'high',
+                            last_active = CURRENT_TIMESTAMP,
+                            git_remote = COALESCE(?, git_remote),
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE project_id = ?
+                        """,
+                        (git_remote, project_id),
+                    )
+                    logger.info(f"Updated project registration: {project_id} (incremented sessions)")
+                else:
+                    # Create new project registration
+                    conn.execute(
+                        """
+                        INSERT INTO projects (
+                            name, root_path, collection_name, project_id,
+                            priority, active_sessions, git_remote,
+                            registered_at, last_active, created_at, updated_at
+                        ) VALUES (?, ?, ?, ?, 'high', 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                        """,
+                        (name, path, f"projects", project_id, git_remote),
+                    )
+                    logger.info(f"Registered new project: {project_id} at {path}")
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to register project {project_id}: {e}")
+            return False
+
+    async def deprioritize_project(self, project_id: str) -> tuple[bool, int, str]:
+        """
+        Deprioritize a project when agent session ends.
+
+        Called by MCP server on shutdown.
+
+        Args:
+            project_id: 12-character hex identifier
+
+        Returns:
+            Tuple of (success, remaining_sessions, new_priority)
+        """
+        try:
+            async with self.transaction() as conn:
+                # Get current session count
+                cursor = conn.execute(
+                    "SELECT active_sessions FROM projects WHERE project_id = ?",
+                    (project_id,),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return False, 0, "normal"
+
+                current_sessions = row["active_sessions"]
+                new_sessions = max(0, current_sessions - 1)
+                new_priority = "high" if new_sessions > 0 else "normal"
+
+                conn.execute(
+                    """
+                    UPDATE projects
+                    SET active_sessions = ?,
+                        priority = ?,
+                        last_active = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE project_id = ?
+                    """,
+                    (new_sessions, new_priority, project_id),
+                )
+
+            logger.info(f"Deprioritized project {project_id}: sessions={new_sessions}, priority={new_priority}")
+            return True, new_sessions, new_priority
+        except Exception as e:
+            logger.error(f"Failed to deprioritize project {project_id}: {e}")
+            return False, 0, "normal"
+
+    async def get_project_by_id(self, project_id: str) -> dict | None:
+        """Get project details by project_id."""
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    "SELECT * FROM projects WHERE project_id = ?",
+                    (project_id,),
+                )
+                row = cursor.fetchone()
+                if row:
+                    return {
+                        "id": row["id"],
+                        "name": row["name"],
+                        "root_path": row["root_path"],
+                        "collection_name": row["collection_name"],
+                        "project_id": row["project_id"],
+                        "priority": row["priority"],
+                        "active_sessions": row["active_sessions"],
+                        "git_remote": row["git_remote"],
+                        "registered_at": row["registered_at"],
+                        "last_active": row["last_active"],
+                        "lsp_enabled": bool(row["lsp_enabled"]),
+                        "metadata": json.loads(row["metadata"]) if row["metadata"] else None,
+                    }
+                return None
+        except Exception as e:
+            logger.error(f"Failed to get project {project_id}: {e}")
+            return None
+
+    async def list_projects_by_priority(
+        self, priority: str | None = None
+    ) -> list[dict]:
+        """
+        List projects, optionally filtered by priority.
+
+        Args:
+            priority: Filter by priority ('high', 'normal', 'low') or None for all
+
+        Returns:
+            List of project dictionaries
+        """
+        try:
+            async with self.transaction() as conn:
+                if priority:
+                    cursor = conn.execute(
+                        "SELECT * FROM projects WHERE priority = ? ORDER BY last_active DESC",
+                        (priority,),
+                    )
+                else:
+                    cursor = conn.execute(
+                        "SELECT * FROM projects ORDER BY priority DESC, last_active DESC"
+                    )
+                rows = cursor.fetchall()
+                return [
+                    {
+                        "id": row["id"],
+                        "name": row["name"],
+                        "root_path": row["root_path"],
+                        "project_id": row["project_id"],
+                        "priority": row["priority"],
+                        "active_sessions": row["active_sessions"],
+                        "git_remote": row["git_remote"],
+                        "registered_at": row["registered_at"],
+                        "last_active": row["last_active"],
+                    }
+                    for row in rows
+                ]
+        except Exception as e:
+            logger.error(f"Failed to list projects: {e}")
+            return []
+
+    async def get_high_priority_projects(self) -> list[dict]:
+        """Get all projects with high priority (active agent sessions)."""
+        return await self.list_projects_by_priority(priority="high")
 
