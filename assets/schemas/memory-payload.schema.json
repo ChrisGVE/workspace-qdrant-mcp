@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-qdrant-mcp/schemas/memory-payload.schema.json",
+  "title": "Memory Collection Payload Schema",
+  "description": "JSON Schema for validating payloads in the memory collection (v2.0)",
+  "type": "object",
+  "required": ["rule_id", "content", "created_at"],
+  "properties": {
+    "rule_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "maxLength": 128,
+      "description": "Unique rule identifier"
+    },
+    "rule_type": {
+      "type": "string",
+      "enum": ["preference", "behavior", "constraint", "pattern"],
+      "description": "Rule classification"
+    },
+    "content": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 10000,
+      "description": "Rule text content (required)"
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 5,
+      "description": "Rule priority (1-10, higher = more important)"
+    },
+    "scope": {
+      "type": "string",
+      "enum": ["global", "project", "language"],
+      "default": "global",
+      "description": "Rule applicability scope"
+    },
+    "project_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{12}$",
+      "description": "Project scope identifier (required if scope=project)"
+    },
+    "language": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "Language scope (required if scope=language)"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the rule is active"
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "maxItems": 20,
+      "description": "Optional tags for categorization"
+    },
+    "chunk_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Position if rule is chunked (usually 0)"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 creation timestamp (required)"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 last update timestamp"
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "scope": { "const": "project" }
+        }
+      },
+      "then": {
+        "required": ["project_id"]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "scope": { "const": "language" }
+        }
+      },
+      "then": {
+        "required": ["language"]
+      }
+    }
+  ],
+  "additionalProperties": true
+}

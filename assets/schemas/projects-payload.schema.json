@@ -1,0 +1,171 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-qdrant-mcp/schemas/projects-payload.schema.json",
+  "title": "Projects Collection Payload Schema",
+  "description": "JSON Schema for validating payloads in the unified projects collection (v2.0)",
+  "type": "object",
+  "required": ["project_id", "file_path", "chunk_index", "created_at"],
+  "properties": {
+    "project_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{12}$",
+      "description": "12-character hexadecimal project identifier (required, indexed)"
+    },
+    "project_name": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Human-readable project name"
+    },
+    "file_path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024,
+      "description": "Relative path from project root (required)"
+    },
+    "file_absolute_path": {
+      "type": "string",
+      "maxLength": 2048,
+      "description": "Full absolute path (reference only, may become stale)"
+    },
+    "file_type": {
+      "type": "string",
+      "enum": ["code", "doc", "test", "config", "note", "artifact"],
+      "description": "Content classification"
+    },
+    "language": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "Programming language or file format (e.g., python, rust, markdown)"
+    },
+    "branch": {
+      "type": "string",
+      "maxLength": 256,
+      "default": "main",
+      "description": "Git branch name"
+    },
+    "symbols": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 256
+      },
+      "description": "LSP-extracted symbols (functions, classes, variables)"
+    },
+    "symbols_defined": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 256
+      },
+      "description": "Symbols defined in this chunk"
+    },
+    "symbols_used": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 256
+      },
+      "description": "Symbols referenced/imported in this chunk"
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 512,
+      "description": "Document/file title or first line summary"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["file", "user_input", "web", "chat", "generated"],
+      "default": "file",
+      "description": "Content origin"
+    },
+    "lsp_metadata": {
+      "type": "object",
+      "description": "Rich metadata from LSP server",
+      "properties": {
+        "definitions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/symbolDefinition"
+          }
+        },
+        "references": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/symbolReference"
+          }
+        },
+        "hover_info": {
+          "type": "string"
+        }
+      }
+    },
+    "chunk_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Position in chunked document (0-indexed, required)"
+    },
+    "total_chunks": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total number of chunks for this document"
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA256 hash of content for deduplication"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 creation timestamp (required)"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 last update timestamp"
+    }
+  },
+  "$defs": {
+    "symbolDefinition": {
+      "type": "object",
+      "required": ["name", "kind"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["function", "class", "variable", "constant", "method", "property", "interface", "enum", "module", "namespace"]
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "symbolReference": {
+      "type": "object",
+      "required": ["name"],
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "file_path": {
+          "type": "string",
+          "maxLength": 1024
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "additionalProperties": true
+}

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://workspace-qdrant-mcp/schemas/libraries-payload.schema.json",
+  "title": "Libraries Collection Payload Schema",
+  "description": "JSON Schema for validating payloads in the unified libraries collection (v2.0)",
+  "type": "object",
+  "required": ["library_name", "source_file", "chunk_index", "created_at"],
+  "properties": {
+    "library_name": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$",
+      "maxLength": 128,
+      "description": "Library identifier derived from folder root name (required, indexed)"
+    },
+    "source_file": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "description": "Original file path within library (required)"
+    },
+    "file_type": {
+      "type": "string",
+      "enum": ["pdf", "epub", "md", "txt", "html", "rst", "doc", "docx"],
+      "description": "Document format"
+    },
+    "title": {
+      "type": "string",
+      "maxLength": 512,
+      "description": "Extracted or filename-derived title"
+    },
+    "author": {
+      "type": "string",
+      "maxLength": 256,
+      "description": "Document author(s) if extractable"
+    },
+    "topics": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "maxLength": 64
+      },
+      "maxItems": 50,
+      "description": "User-provided or extracted topics/tags"
+    },
+    "folder": {
+      "type": "string",
+      "maxLength": 512,
+      "description": "Subfolder within library for optional filtering"
+    },
+    "library_version": {
+      "type": "string",
+      "maxLength": 32,
+      "description": "Version if library has versioning"
+    },
+    "page_number": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Page number for PDFs"
+    },
+    "chunk_index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Position in chunked document (0-indexed, required)"
+    },
+    "total_chunks": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Total number of chunks for this document"
+    },
+    "content_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$",
+      "description": "SHA256 hash of content for deduplication"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 creation timestamp (required)"
+    },
+    "updated_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 last update timestamp"
+    }
+  },
+  "additionalProperties": true
+}
