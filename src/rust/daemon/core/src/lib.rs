@@ -77,7 +77,9 @@ pub use crate::patterns::{
     Ecosystem, ProjectIndicator, ConfidenceLevel, LanguageGroup, CommentSyntax
 };
 pub use crate::priority_manager::{
-    PriorityManager, PriorityError, PriorityResult, PriorityTransition
+    PriorityManager, PriorityError, PriorityResult, PriorityTransition,
+    SessionMonitor, SessionMonitorConfig, SessionInfo, OrphanedSessionCleanup,
+    priority
 };
 pub use crate::queue_operations::{
     QueueManager, QueueOperation, QueueItem, QueueError
