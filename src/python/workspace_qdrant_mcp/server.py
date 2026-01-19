@@ -10,7 +10,7 @@ and provides hybrid search combining dense (semantic) and sparse (keyword) vecto
 Key Features:
     - 4 comprehensive tools: store, search, manage, retrieve
     - Content-based routing - parameters determine specific actions
-    - Single collection per project with metadata-based differentiation
+    - Unified multi-tenant collections with tenant_id-based filtering
     - Branch-aware querying with automatic Git branch detection
     - File type filtering via metadata (code, test, docs, config, data, build, other)
     - Hybrid search combining dense (semantic) and sparse (keyword) vectors
@@ -18,13 +18,14 @@ Key Features:
     - Comprehensive scratchbook for cross-project note management
     - Production-ready async architecture with comprehensive error handling
 
-Architecture (Task 374.6):
-    - Project collections: _{project_id} (single collection per project)
-    - project_id: 12-char hex hash from project path (via calculate_tenant_id)
+Architecture (Task 396/397 Multi-Tenant):
+    - Unified projects collection: _projects (ALL projects in one collection)
+    - Unified libraries collection: _libraries (ALL libraries in one collection)
+    - Tenant isolation via tenant_id payload filtering (indexed for O(1) lookup)
     - Branch-scoped queries: All queries filter by Git branch (default: current branch)
     - File type differentiation via metadata: code, test, docs, config, data, build, other
-    - Shared collections for cross-project resources (memory, libraries)
-    - No collection type suffixes (replaced with metadata filtering)
+    - User collections: {basename}-{type} for user notes (auto-enriched with project_id)
+    - Memory collections: _memory, _agent_memory (meta-level data, direct writes allowed)
 
 Tools:
     1. store - Store any content (documents, notes, code, web content)
@@ -33,32 +34,34 @@ Tools:
     4. retrieve - Direct document retrieval by ID or metadata with branch filtering
 
 Example Usage:
-    # Store different content types (all go to _{project_id} collection)
+    # Store different content types (all go to _projects collection with tenant_id)
     store(content="user notes", source="scratchbook")  # metadata: file_type="other"
     store(file_path="main.py", content="code")         # metadata: file_type="code"
     store(url="https://docs.com", content="docs")      # metadata: file_type="docs"
 
-    # Search with branch and file_type filtering
-    search(query="authentication", mode="hybrid")             # Current branch, all file types
-    search(query="def login", mode="exact", file_type="code") # Current branch, code only
-    search(query="notes", branch="main", file_type="docs")    # main branch, docs only
+    # Search with scope, branch and file_type filtering
+    search(query="authentication", scope="project")              # Current project only
+    search(query="def login", mode="exact", file_type="code")    # Current project, code only
+    search(query="notes", scope="global")                        # All projects
+    search(query="numpy", include_libraries=True)                # Projects + libraries
 
     # Management operations
     manage(action="list_collections")                  # List all collections
-    manage(action="workspace_status")                 # System status
-    manage(action="init_project")                     # Create _{project_id} collection
+    manage(action="workspace_status")                  # System status
+    manage(action="init_project")                      # Register project in _projects
 
     # Direct retrieval with branch filtering
     retrieve(document_id="uuid-123")                              # Current branch
     retrieve(metadata={"file_type": "test"}, branch="develop")    # develop branch, tests
+    retrieve(scope="all")                                         # All collections
 
 Write Path Architecture (First Principle 10):
     DAEMON-ONLY WRITES: All Qdrant write operations MUST route through the daemon
 
     Collection Types:
-        - PROJECT: _{project_id} - Auto-created by daemon for file watching
-        - USER: {basename}-{type} - User collections, created via daemon
-        - LIBRARY: _{library_name} - External libraries, managed via daemon
+        - PROJECT: _projects - Unified collection, tenant isolation via tenant_id filter
+        - LIBRARY: _libraries - Unified collection, isolation via library_name filter
+        - USER: {basename}-{type} - User collections, enriched with project_id
         - MEMORY: _memory, _agent_memory - EXCEPTION: Direct writes allowed (meta-level data)
 
     Write Priority:
@@ -1345,8 +1348,13 @@ async def manage(
     - "delete_collection" -> delete collection (name required)
     - "workspace_status" -> system status and health check
     - "collection_info" -> detailed info about specific collection
-    - "init_project" -> initialize project collection (single _{project_id})
+    - "init_project" -> register project in unified _projects collection
     - "cleanup" -> remove empty collections and optimize
+
+    Multi-Tenant Architecture:
+    - init_project registers the current project's tenant_id in _projects
+    - The _projects and _libraries collections are unified (multi-tenant)
+    - create_collection can create additional user collections
 
     Args:
         action: Management action to perform
