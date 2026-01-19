@@ -18,6 +18,7 @@ pub mod git_integration;
 pub mod metadata_enrichment;
 pub mod ipc;
 pub mod logging;
+pub mod metrics;
 pub mod daemon_state;
 pub mod patterns;
 pub mod priority_manager;
@@ -60,6 +61,9 @@ pub use crate::git_integration::{
 pub use crate::logging::{
     LoggingConfig, PerformanceMetrics, initialize_logging, initialize_daemon_silence,
     track_async_operation, log_error_with_context, LoggingErrorMonitor
+};
+pub use crate::metrics::{
+    DaemonMetrics, MetricsServer, MetricsSnapshot, METRICS
 };
 pub use crate::daemon_state::{
     DaemonStateManager
