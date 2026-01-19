@@ -36,7 +36,6 @@ pub mod unified_config;
 pub mod watching;
 pub mod watching_queue;
 
-use crate::storage::StorageClient;
 use crate::config::Config;
 pub use crate::deletion_strategy::{
     DeletionMode, DeletionCollectionType, DeletionStrategy, DeletionStrategyFactory,
@@ -102,6 +101,12 @@ pub use crate::file_classification::{
 };
 pub use crate::metadata_enrichment::{
     enrich_metadata, CollectionType
+};
+pub use crate::storage::{
+    StorageClient, StorageConfig, StorageError,
+    MultiTenantConfig, MultiTenantInitResult,
+    DocumentPoint, SearchResult, SearchParams, HybridSearchMode, BatchStats,
+    collections
 };
 
 /// Core processing errors
@@ -190,7 +195,7 @@ impl Default for ChunkingConfig {
 /// Main ingestion engine
 pub struct IngestionEngine {
     _config: Config,
-    _storage_client: Arc<StorageClient>,
+    _storage_client: Arc<crate::storage::StorageClient>,
     _embedding_generator: Arc<EmbeddingGenerator>,
     _pipeline: Arc<crate::processing::Pipeline>,
 }
@@ -198,7 +203,7 @@ pub struct IngestionEngine {
 impl IngestionEngine {
     /// Create a new ingestion engine with the provided configuration
     pub fn new(config: Config) -> std::result::Result<Self, ProcessingError> {
-        let storage_client = Arc::new(StorageClient::new());
+        let storage_client = Arc::new(crate::storage::StorageClient::new());
         let embedding_config = EmbeddingConfig::default();
         let embedding_generator = Arc::new(
             EmbeddingGenerator::new(embedding_config)

@@ -12,12 +12,80 @@ use qdrant_client::config::QdrantConfig;
 use qdrant_client::qdrant::{PointStruct, SearchPoints, UpsertPoints};
 use qdrant_client::qdrant::{CreateCollection, DeleteCollection, Distance, VectorParams, VectorsConfig};
 use qdrant_client::qdrant::Datatype;
+use qdrant_client::qdrant::{
+    CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
+    FieldType, HnswConfigDiffBuilder, VectorParamsBuilder,
+};
 use serde::{Serialize, Deserialize};
 use tokio::time::sleep;
 use thiserror::Error;
 use tracing::{debug, info, warn, error};
 // Note: tonic, hyper, and url imports removed as they're not currently used
 // They would be needed for advanced gRPC HTTP/2 configuration
+
+/// Multi-tenant collection names (unified architecture)
+pub mod collections {
+    /// Projects collection - stores code and documents from all projects
+    /// Filtered by project_id payload field
+    pub const PROJECTS: &str = "_projects";
+
+    /// Libraries collection - stores library documentation
+    /// Filtered by library_name payload field
+    pub const LIBRARIES: &str = "_libraries";
+
+    /// Memory collection - stores agent memory and cross-project notes
+    pub const MEMORY: &str = "_memory";
+}
+
+/// Multi-tenant collection configuration
+#[derive(Debug, Clone)]
+pub struct MultiTenantConfig {
+    /// Dense vector size (default: 384 for all-MiniLM-L6-v2)
+    pub vector_size: u64,
+    /// HNSW m parameter (default: 16)
+    pub hnsw_m: u64,
+    /// HNSW ef_construct parameter (default: 100)
+    pub hnsw_ef_construct: u64,
+    /// Enable on_disk_payload for large collections
+    pub on_disk_payload: bool,
+}
+
+impl Default for MultiTenantConfig {
+    fn default() -> Self {
+        Self {
+            vector_size: 384, // all-MiniLM-L6-v2
+            hnsw_m: 16,
+            hnsw_ef_construct: 100,
+            on_disk_payload: true,
+        }
+    }
+}
+
+/// Result of multi-tenant collection initialization
+#[derive(Debug, Clone, Default)]
+pub struct MultiTenantInitResult {
+    /// Whether _projects collection was created
+    pub projects_created: bool,
+    /// Whether project_id index was created
+    pub projects_indexed: bool,
+    /// Whether _libraries collection was created
+    pub libraries_created: bool,
+    /// Whether library_name index was created
+    pub libraries_indexed: bool,
+    /// Whether _memory collection was created
+    pub memory_created: bool,
+}
+
+impl MultiTenantInitResult {
+    /// Check if all collections were successfully initialized
+    pub fn is_complete(&self) -> bool {
+        self.projects_created
+            && self.projects_indexed
+            && self.libraries_created
+            && self.libraries_indexed
+            && self.memory_created
+    }
+}
 
 /// Storage-related errors
 #[derive(Error, Debug)]
@@ -519,15 +587,177 @@ impl StorageClient {
     /// Check if a collection exists
     pub async fn collection_exists(&self, collection_name: &str) -> Result<bool, StorageError> {
         debug!("Checking if collection exists: {}", collection_name);
-        
+
         let response = self.retry_operation(|| async {
             self.client.collection_exists(collection_name).await
                 .map_err(|e| StorageError::Collection(e.to_string()))
         }).await?;
-        
+
         Ok(response)
     }
-    
+
+    /// Create a multi-tenant collection with optimized HNSW configuration
+    ///
+    /// This uses the builder pattern from qdrant-client for better ergonomics
+    /// and supports the new multi-tenant architecture requirements.
+    pub async fn create_multi_tenant_collection(
+        &self,
+        collection_name: &str,
+        config: &MultiTenantConfig,
+    ) -> Result<(), StorageError> {
+        info!(
+            "Creating multi-tenant collection: {} (vector_size={}, m={}, ef_construct={})",
+            collection_name, config.vector_size, config.hnsw_m, config.hnsw_ef_construct
+        );
+
+        // Check if collection already exists (idempotency)
+        if self.collection_exists(collection_name).await? {
+            info!("Collection {} already exists, skipping creation", collection_name);
+            return Ok(());
+        }
+
+        // Build HNSW configuration
+        let hnsw_config = HnswConfigDiffBuilder::default()
+            .m(config.hnsw_m)
+            .ef_construct(config.hnsw_ef_construct);
+
+        // Build vector parameters with HNSW config
+        let vector_params = VectorParamsBuilder::new(config.vector_size, Distance::Cosine)
+            .hnsw_config(hnsw_config)
+            .on_disk(false); // Keep vectors in memory for performance
+
+        // Create collection with builder
+        let create_request = CreateCollectionBuilder::new(collection_name)
+            .vectors_config(vector_params)
+            .on_disk_payload(config.on_disk_payload)
+            .shard_number(1)
+            .replication_factor(1)
+            .write_consistency_factor(1);
+
+        self.retry_operation(|| async {
+            self.client
+                .create_collection(create_request.clone())
+                .await
+                .map_err(|e| StorageError::Collection(e.to_string()))
+        })
+        .await?;
+
+        info!("Successfully created multi-tenant collection: {}", collection_name);
+        Ok(())
+    }
+
+    /// Create a payload index for efficient filtering
+    ///
+    /// Creates a keyword index on the specified field for fast filtering in queries.
+    /// This is essential for multi-tenant filtering by project_id or library_name.
+    pub async fn create_payload_index(
+        &self,
+        collection_name: &str,
+        field_name: &str,
+    ) -> Result<(), StorageError> {
+        info!(
+            "Creating payload index on {}.{}",
+            collection_name, field_name
+        );
+
+        let index_request = CreateFieldIndexCollectionBuilder::new(
+            collection_name,
+            field_name,
+            FieldType::Keyword,
+        );
+
+        self.retry_operation(|| async {
+            self.client
+                .create_field_index(index_request.clone())
+                .await
+                .map_err(|e| StorageError::Collection(format!(
+                    "Failed to create payload index on {}.{}: {}",
+                    collection_name, field_name, e
+                )))
+        })
+        .await?;
+
+        info!(
+            "Successfully created payload index on {}.{}",
+            collection_name, field_name
+        );
+        Ok(())
+    }
+
+    /// Initialize all multi-tenant collections with proper configuration
+    ///
+    /// Creates the three unified collections:
+    /// - _projects: project code/documents, indexed by project_id
+    /// - _libraries: library documentation, indexed by library_name
+    /// - _memory: agent memory and cross-project notes
+    ///
+    /// This method is idempotent - existing collections are skipped.
+    pub async fn initialize_multi_tenant_collections(
+        &self,
+        config: Option<MultiTenantConfig>,
+    ) -> Result<MultiTenantInitResult, StorageError> {
+        let config = config.unwrap_or_default();
+        info!("Initializing multi-tenant collections with config: {:?}", config);
+
+        let mut result = MultiTenantInitResult::default();
+
+        // Create _projects collection
+        match self.create_multi_tenant_collection(collections::PROJECTS, &config).await {
+            Ok(()) => {
+                // Check if we actually created it (vs skipped)
+                if !self.collection_exists(collections::PROJECTS).await.unwrap_or(false) {
+                    result.projects_created = true;
+                }
+                // Create project_id index
+                match self.create_payload_index(collections::PROJECTS, "project_id").await {
+                    Ok(()) => result.projects_indexed = true,
+                    Err(e) => {
+                        // Index might already exist, log but continue
+                        warn!("Could not create project_id index (may already exist): {}", e);
+                        result.projects_indexed = true; // Assume it exists
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to create {} collection: {}", collections::PROJECTS, e);
+                return Err(e);
+            }
+        }
+        result.projects_created = true;
+
+        // Create _libraries collection
+        match self.create_multi_tenant_collection(collections::LIBRARIES, &config).await {
+            Ok(()) => {
+                // Create library_name index
+                match self.create_payload_index(collections::LIBRARIES, "library_name").await {
+                    Ok(()) => result.libraries_indexed = true,
+                    Err(e) => {
+                        warn!("Could not create library_name index (may already exist): {}", e);
+                        result.libraries_indexed = true;
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to create {} collection: {}", collections::LIBRARIES, e);
+                return Err(e);
+            }
+        }
+        result.libraries_created = true;
+
+        // Create _memory collection (no additional index needed)
+        match self.create_multi_tenant_collection(collections::MEMORY, &config).await {
+            Ok(()) => {}
+            Err(e) => {
+                error!("Failed to create {} collection: {}", collections::MEMORY, e);
+                return Err(e);
+            }
+        }
+        result.memory_created = true;
+
+        info!("Multi-tenant collections initialized: {:?}", result);
+        Ok(result)
+    }
+
     /// Insert a single document point
     pub async fn insert_point(
         &self,
@@ -1026,4 +1256,133 @@ where
     }
 
     f()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_collection_names() {
+        assert_eq!(collections::PROJECTS, "_projects");
+        assert_eq!(collections::LIBRARIES, "_libraries");
+        assert_eq!(collections::MEMORY, "_memory");
+    }
+
+    #[test]
+    fn test_multi_tenant_config_default() {
+        let config = MultiTenantConfig::default();
+        assert_eq!(config.vector_size, 384);
+        assert_eq!(config.hnsw_m, 16);
+        assert_eq!(config.hnsw_ef_construct, 100);
+        assert!(config.on_disk_payload);
+    }
+
+    #[test]
+    fn test_multi_tenant_config_custom() {
+        let config = MultiTenantConfig {
+            vector_size: 768,
+            hnsw_m: 32,
+            hnsw_ef_construct: 200,
+            on_disk_payload: false,
+        };
+        assert_eq!(config.vector_size, 768);
+        assert_eq!(config.hnsw_m, 32);
+        assert_eq!(config.hnsw_ef_construct, 200);
+        assert!(!config.on_disk_payload);
+    }
+
+    #[test]
+    fn test_multi_tenant_init_result_default() {
+        let result = MultiTenantInitResult::default();
+        assert!(!result.projects_created);
+        assert!(!result.projects_indexed);
+        assert!(!result.libraries_created);
+        assert!(!result.libraries_indexed);
+        assert!(!result.memory_created);
+        assert!(!result.is_complete());
+    }
+
+    #[test]
+    fn test_multi_tenant_init_result_complete() {
+        let result = MultiTenantInitResult {
+            projects_created: true,
+            projects_indexed: true,
+            libraries_created: true,
+            libraries_indexed: true,
+            memory_created: true,
+        };
+        assert!(result.is_complete());
+    }
+
+    #[test]
+    fn test_multi_tenant_init_result_incomplete() {
+        let result = MultiTenantInitResult {
+            projects_created: true,
+            projects_indexed: true,
+            libraries_created: true,
+            libraries_indexed: false, // Missing index
+            memory_created: true,
+        };
+        assert!(!result.is_complete());
+    }
+
+    #[test]
+    fn test_storage_config_default() {
+        let config = StorageConfig::default();
+        assert_eq!(config.url, "http://localhost:6333");
+        assert!(config.api_key.is_none());
+        assert_eq!(config.timeout_ms, 30000);
+        assert_eq!(config.max_retries, 3);
+        assert_eq!(config.retry_delay_ms, 1000);
+        assert_eq!(config.dense_vector_size, 1536);
+        assert!(config.check_compatibility);
+    }
+
+    #[test]
+    fn test_storage_config_daemon_mode() {
+        let config = StorageConfig::daemon_mode();
+        assert!(!config.check_compatibility);
+    }
+
+    #[test]
+    fn test_hybrid_search_mode_default() {
+        let mode = HybridSearchMode::default();
+        match mode {
+            HybridSearchMode::Hybrid { dense_weight, sparse_weight } => {
+                assert_eq!(dense_weight, 1.0);
+                assert_eq!(sparse_weight, 1.0);
+            }
+            _ => panic!("Expected Hybrid mode as default"),
+        }
+    }
+
+    #[test]
+    fn test_search_params_default() {
+        let params = SearchParams::default();
+        assert!(params.dense_vector.is_none());
+        assert!(params.sparse_vector.is_none());
+        assert_eq!(params.limit, 10);
+        assert!(params.score_threshold.is_none());
+        assert!(params.filter.is_none());
+    }
+
+    #[test]
+    fn test_transport_mode_default() {
+        let mode = TransportMode::default();
+        assert!(matches!(mode, TransportMode::Grpc));
+    }
+
+    #[test]
+    fn test_http2_config_default() {
+        let config = Http2Config::default();
+        assert_eq!(config.max_frame_size, Some(8192));
+        assert_eq!(config.initial_window_size, Some(32768));
+        assert_eq!(config.max_header_list_size, Some(8192));
+        assert!(!config.enable_push);
+        assert!(config.tcp_keepalive);
+        assert_eq!(config.keepalive_interval_ms, Some(30000));
+        assert_eq!(config.keepalive_timeout_ms, Some(5000));
+        assert!(!config.http2_adaptive_window);
+    }
 }
