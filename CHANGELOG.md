@@ -12,28 +12,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 #### Unified Multi-Tenant Collection Architecture
-- **Single `_projects` Collection** - ALL project content now stored in one unified collection with tenant isolation via `tenant_id` payload field (12-char hex derived from normalized git remote URL or path hash)
+- **Single `_projects` Collection** - ALL project content now stored in one unified collection with tenant isolation via `tenant_id` payload field (12-char hex derived from normalized git remote URL or path hash). See [ARCHITECTURE.md](docs/ARCHITECTURE.md#collection-structure) for details.
 - **Single `_libraries` Collection** - ALL library documentation now stored in one unified collection with tenant isolation via `library_name` payload field
 - **Payload Indexing** - O(1) filtering performance via indexed payload fields on `tenant_id` and `library_name`
+- **Hard Tenant Isolation** - Queries automatically filter by tenant_id, preventing cross-tenant data leakage
 - **Cross-Project Search** - Search across all projects with `scope="all"` parameter
 - **Library Inclusion** - Include library documentation in searches with `include_libraries=True` parameter
 
 #### Session Lifecycle Management (ProjectService gRPC)
-- **RegisterProject RPC** - Register project for high-priority processing when MCP server starts
-- **DeprioritizeProject RPC** - Decrement session count when MCP server stops
+- **RegisterProject RPC** - Register project for high-priority processing when MCP server starts. See [GRPC_API.md](docs/GRPC_API.md#registerproject) for usage.
+- **DeprioritizeProject RPC** - Decrement session count when MCP server stops gracefully
 - **Heartbeat RPC** - Keep session alive with 30-second intervals (60-second timeout)
-- **GetProjectStatus RPC** - Query current project status and priority
-- **ListProjects RPC** - List all registered projects with filtering options
-- **Priority-Based Processing** - Active sessions get HIGH priority (queue position 1)
+- **GetProjectStatus RPC** - Query current project status, priority, and session count
+- **ListProjects RPC** - List all registered projects with priority and active-only filtering
+- **Priority-Based Processing** - Active sessions get HIGH priority (queue position 1), inactive get NORMAL (position 5)
+- **Automatic Project Registration** - MCP server automatically registers project on startup, daemon begins watching immediately
+- **Orphaned Session Detection** - Sessions missing heartbeat for 60 seconds marked orphaned, cleaned up periodically
+- **Session Revival** - New MCP connections can revive orphaned projects without re-registration. See [ARCHITECTURE.md](docs/ARCHITECTURE.md#session-lifecycle-management) for state machine diagram.
 
 #### Search Enhancements
-- **`scope` Parameter** - Control search scope: `"project"` (current project only, default), `"global"` (global collections), `"all"` (all projects)
+- **`scope` Parameter** - Control search scope: `"project"` (current project only, default), `"global"` (global collections), `"all"` (all projects). See [API.md](API.md#search) for examples.
 - **`include_libraries` Parameter** - Include `_libraries` collection in search results
 - **`branch` Parameter** - Filter results by git branch (supports `"*"` for all branches)
 - **`collections_searched` Response Field** - Lists collections that were searched
+- **Metadata-Based Multi-Project Filtering** - Use `tenant_id` in filter conditions for advanced queries
 
 #### Documentation
 - **[docs/GRPC_API.md](docs/GRPC_API.md)** - Comprehensive gRPC API reference documenting all 4 services (20 RPCs): SystemService, CollectionService, DocumentService, ProjectService
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Updated with session lifecycle management section including state machine and sequence diagrams
+- **[API.md](API.md)** - Updated MCP tools reference with multi-tenant search examples
+- **[CLI.md](CLI.md)** - Updated CLI reference with unified collection commands
+- **[MIGRATION.md](MIGRATION.md)** - Migration guide from v0.3.x to v0.4.0 unified model
 
 ### Changed
 
