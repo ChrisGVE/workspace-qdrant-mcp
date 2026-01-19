@@ -654,6 +654,8 @@ workspace-qdrant-ingest /path/to/docs -c my-project --dry-run
 ## Documentation
 
 - **[Architecture](docs/ARCHITECTURE.md)** - System architecture, unified daemon design, and gRPC protocol
+- **[Search Examples](docs/EXAMPLES.md)** - Comprehensive multi-tenant search scenarios and use cases
+- **[gRPC API Reference](docs/GRPC_API.md)** - Complete gRPC protocol documentation (20 RPCs)
 - **[Collection Naming Guide](docs/COLLECTION_NAMING.md)** - Collection types, naming conventions, and basename requirements
 - **[CLI Reference](CLI.md)** - Complete command-line reference for all `wqm` commands
 - **[API Reference](API.md)** - Complete MCP tools documentation
