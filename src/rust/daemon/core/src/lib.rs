@@ -69,7 +69,10 @@ pub use crate::logging::{
     log_search_request, log_search_result, log_ingestion_error,
 };
 pub use crate::metrics::{
-    DaemonMetrics, MetricsServer, MetricsSnapshot, METRICS
+    DaemonMetrics, MetricsServer, MetricsSnapshot, METRICS,
+    // Alerting (Task 412.15-18)
+    Alert, AlertChecker, AlertConfig, AlertSeverity, AlertType,
+    create_orphaned_session_alert, create_slow_search_alert
 };
 pub use crate::daemon_state::{
     DaemonStateManager
