@@ -111,13 +111,9 @@ Repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
 Issues = "https://github.com/ChrisGVE/workspace-qdrant-mcp/issues"
 Changelog = "https://github.com/ChrisGVE/workspace-qdrant-mcp/blob/main/CHANGELOG.md"
 
-[tool.setuptools]
-packages = ["workspace_qdrant_mcp", "common", "wqm_cli"]
-
-[tool.setuptools.package-dir]
-workspace_qdrant_mcp = "src/python/workspace_qdrant_mcp"
-common = "src/python/common"
-wqm_cli = "src/python/wqm_cli"
+[tool.setuptools.packages.find]
+where = ["src/python"]
+include = ["workspace_qdrant_mcp*", "common*", "wqm_cli*"]
 
 [tool.black]
 line-length = 88
