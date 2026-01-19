@@ -19,6 +19,49 @@ use thiserror::Error;
 use glob::Pattern;
 
 use crate::queue_operations::{QueueManager, QueueOperation, QueueError};
+use crate::file_classification::classify_file_type;
+use serde::{Deserialize, Serialize};
+
+//
+// ========== MULTI-TENANT TYPES ==========
+//
+
+/// Unified collection names for multi-tenant architecture
+pub const UNIFIED_PROJECTS_COLLECTION: &str = "_projects";
+pub const UNIFIED_LIBRARIES_COLLECTION: &str = "_libraries";
+
+/// Watch type distinguishing project vs library watches
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WatchType {
+    /// Project watch - files are routed to _projects collection with project_id
+    Project,
+    /// Library watch - files are routed to _libraries collection with library_name
+    Library,
+}
+
+impl Default for WatchType {
+    fn default() -> Self {
+        WatchType::Project
+    }
+}
+
+impl WatchType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WatchType::Project => "project",
+            WatchType::Library => "library",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "project" => Some(WatchType::Project),
+            "library" => Some(WatchType::Library),
+            _ => None,
+        }
+    }
+}
 
 //
 // ========== PUBLIC UTILITY FUNCTIONS ==========
@@ -304,12 +347,17 @@ pub type WatchingQueueResult<T> = Result<T, WatchingQueueError>;
 pub struct WatchConfig {
     pub id: String,
     pub path: PathBuf,
+    /// Legacy collection field - used as fallback if watch_type not set
     pub collection: String,
     pub patterns: Vec<String>,
     pub ignore_patterns: Vec<String>,
     pub recursive: bool,
     pub debounce_ms: u64,
     pub enabled: bool,
+    /// Watch type: Project or Library (determines target collection)
+    pub watch_type: WatchType,
+    /// Library name (required for Library watch type)
+    pub library_name: Option<String>,
 }
 
 /// Compiled patterns for efficient matching
@@ -789,7 +837,42 @@ impl FileWatcherQueue {
         file_path.parent().unwrap_or(file_path).to_path_buf()
     }
 
-    /// Enqueue file operation with retry logic
+    /// Determine collection and tenant_id based on watch type
+    ///
+    /// Multi-tenant routing logic:
+    /// - Project watches: route to _projects collection with project_id as tenant
+    /// - Library watches: route to _libraries collection with library_name as tenant
+    fn determine_collection_and_tenant(
+        watch_type: WatchType,
+        project_root: &Path,
+        library_name: Option<&str>,
+        legacy_collection: &str,
+    ) -> (String, String) {
+        match watch_type {
+            WatchType::Project => {
+                let project_id = calculate_tenant_id(project_root);
+                (UNIFIED_PROJECTS_COLLECTION.to_string(), project_id)
+            }
+            WatchType::Library => {
+                let tenant = library_name
+                    .map(|s| s.to_string())
+                    .unwrap_or_else(|| {
+                        // Fallback: extract library name from legacy collection or path
+                        if legacy_collection.starts_with('_') {
+                            legacy_collection[1..].to_string()
+                        } else {
+                            project_root.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("unknown")
+                                .to_string()
+                        }
+                    });
+                (UNIFIED_LIBRARIES_COLLECTION.to_string(), tenant)
+            }
+        }
+    }
+
+    /// Enqueue file operation with retry logic and multi-tenant routing
     async fn enqueue_file_operation(
         event: FileEvent,
         config: &Arc<RwLock<WatchConfig>>,
@@ -808,19 +891,34 @@ impl FileWatcherQueue {
         // Calculate priority
         let priority = Self::calculate_priority(operation);
 
-        // Find project root and calculate tenant ID and branch
+        // Find project root
         let project_root = Self::find_project_root(&event.path);
-        let tenant_id = calculate_tenant_id(&project_root);
+
+        // Get branch
         let branch = get_current_branch(&project_root);
 
-        // Get collection from config
-        let collection = {
+        // Classify file type for metadata
+        let file_type = classify_file_type(&event.path);
+
+        // Determine collection and tenant_id based on watch type (multi-tenant routing)
+        let (collection, tenant_id) = {
             let config_lock = config.read().await;
-            config_lock.collection.clone()
+            Self::determine_collection_and_tenant(
+                config_lock.watch_type,
+                &project_root,
+                config_lock.library_name.as_deref(),
+                &config_lock.collection,
+            )
         };
 
         // Get absolute path
         let file_absolute_path = event.path.to_string_lossy().to_string();
+
+        // Log multi-tenant routing decision
+        debug!(
+            "Multi-tenant routing: file={}, collection={}, tenant={}, file_type={}, branch={}",
+            file_absolute_path, collection, tenant_id, file_type.as_str(), branch
+        );
 
         // Retry logic with exponential backoff
         const MAX_RETRIES: u32 = 3;
@@ -841,8 +939,8 @@ impl FileWatcherQueue {
                     *count += 1;
 
                     debug!(
-                        "Enqueued file: {} (operation={:?}, priority={}, tenant={}, branch={})",
-                        file_absolute_path, operation, priority, tenant_id, branch
+                        "Enqueued file: {} (operation={:?}, priority={}, collection={}, tenant={}, branch={}, file_type={})",
+                        file_absolute_path, operation, priority, collection, tenant_id, branch, file_type.as_str()
                     );
                     return;
                 },
@@ -937,10 +1035,19 @@ impl WatchManager {
             let recursive: bool = row.get("recursive");
             let debounce_seconds: f64 = row.get("debounce_seconds");
 
+            // Multi-tenant fields (with defaults for backwards compatibility)
+            let watch_type_str: Option<String> = row.try_get("watch_type").ok();
+            let library_name: Option<String> = row.try_get("library_name").ok();
+
             let patterns: Vec<String> = serde_json::from_str(&patterns_json)
                 .unwrap_or_else(|_| vec!["*".to_string()]);
             let ignore_patterns: Vec<String> = serde_json::from_str(&ignore_patterns_json)
                 .unwrap_or_else(|_| Vec::new());
+
+            // Parse watch_type, default to Project for backwards compatibility
+            let watch_type = watch_type_str
+                .and_then(|s| WatchType::from_str(&s))
+                .unwrap_or(WatchType::Project);
 
             let config = WatchConfig {
                 id: id.clone(),
@@ -951,6 +1058,8 @@ impl WatchManager {
                 recursive,
                 debounce_ms: (debounce_seconds * 1000.0) as u64,
                 enabled: true,
+                watch_type,
+                library_name,
             };
 
             let watcher = Arc::new(FileWatcherQueue::new(config, queue_manager.clone())?);
@@ -1033,5 +1142,91 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let branch = get_current_branch(temp_dir.path());
         assert_eq!(branch, "main");
+    }
+
+    // Multi-tenant routing tests
+    #[test]
+    fn test_watch_type_default() {
+        assert_eq!(WatchType::default(), WatchType::Project);
+    }
+
+    #[test]
+    fn test_watch_type_from_str() {
+        assert_eq!(WatchType::from_str("project"), Some(WatchType::Project));
+        assert_eq!(WatchType::from_str("library"), Some(WatchType::Library));
+        assert_eq!(WatchType::from_str("PROJECT"), Some(WatchType::Project));
+        assert_eq!(WatchType::from_str("LIBRARY"), Some(WatchType::Library));
+        assert_eq!(WatchType::from_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_watch_type_as_str() {
+        assert_eq!(WatchType::Project.as_str(), "project");
+        assert_eq!(WatchType::Library.as_str(), "library");
+    }
+
+    #[test]
+    fn test_unified_collection_constants() {
+        assert_eq!(UNIFIED_PROJECTS_COLLECTION, "_projects");
+        assert_eq!(UNIFIED_LIBRARIES_COLLECTION, "_libraries");
+    }
+
+    #[test]
+    fn test_determine_collection_and_tenant_project() {
+        let temp_dir = tempdir().unwrap();
+        let (collection, tenant_id) = FileWatcherQueue::determine_collection_and_tenant(
+            WatchType::Project,
+            temp_dir.path(),
+            None,
+            "_old_collection",
+        );
+
+        assert_eq!(collection, UNIFIED_PROJECTS_COLLECTION);
+        // Tenant ID should be path-based since temp_dir is not a git repo
+        assert!(tenant_id.starts_with("path_"));
+    }
+
+    #[test]
+    fn test_determine_collection_and_tenant_library_with_name() {
+        let temp_dir = tempdir().unwrap();
+        let (collection, tenant_id) = FileWatcherQueue::determine_collection_and_tenant(
+            WatchType::Library,
+            temp_dir.path(),
+            Some("my_library"),
+            "_old_collection",
+        );
+
+        assert_eq!(collection, UNIFIED_LIBRARIES_COLLECTION);
+        assert_eq!(tenant_id, "my_library");
+    }
+
+    #[test]
+    fn test_determine_collection_and_tenant_library_fallback_from_collection() {
+        let temp_dir = tempdir().unwrap();
+        let (collection, tenant_id) = FileWatcherQueue::determine_collection_and_tenant(
+            WatchType::Library,
+            temp_dir.path(),
+            None, // No library_name provided
+            "_langchain", // Legacy collection
+        );
+
+        assert_eq!(collection, UNIFIED_LIBRARIES_COLLECTION);
+        // Should extract "langchain" from "_langchain"
+        assert_eq!(tenant_id, "langchain");
+    }
+
+    #[test]
+    fn test_determine_collection_and_tenant_library_fallback_from_path() {
+        let temp_dir = tempdir().unwrap();
+        let (collection, tenant_id) = FileWatcherQueue::determine_collection_and_tenant(
+            WatchType::Library,
+            temp_dir.path(),
+            None, // No library_name
+            "some_collection", // No underscore prefix
+        );
+
+        assert_eq!(collection, UNIFIED_LIBRARIES_COLLECTION);
+        // Should use directory name from path
+        assert!(!tenant_id.is_empty());
     }
 }

@@ -125,7 +125,12 @@ class FileProcessingRecord:
 
 @dataclass
 class WatchFolderConfig:
-    """Configuration for persistent watch folders."""
+    """Configuration for persistent watch folders.
+
+    Multi-tenant routing (Task 402):
+    - watch_type: "project" routes to _projects collection with project_id as tenant
+    - watch_type: "library" routes to _libraries collection with library_name as tenant
+    """
 
     watch_id: str
     path: str
@@ -137,6 +142,9 @@ class WatchFolderConfig:
     recursive_depth: int = 10
     debounce_seconds: float = 2.0
     enabled: bool = True
+    # Multi-tenant routing fields (Task 402)
+    watch_type: str = "project"  # "project" or "library"
+    library_name: str | None = None  # Required for watch_type="library"
     created_at: datetime = None
     updated_at: datetime = None
     last_scan: datetime | None = None
@@ -147,6 +155,9 @@ class WatchFolderConfig:
             self.created_at = datetime.now(timezone.utc)
         if self.updated_at is None:
             self.updated_at = self.created_at
+        # Validate watch_type
+        if self.watch_type not in ("project", "library"):
+            self.watch_type = "project"  # Default to project
 
 
 @dataclass
@@ -466,6 +477,8 @@ class SQLiteStateManager:
                 recursive_depth INTEGER NOT NULL DEFAULT 10,
                 debounce_seconds REAL NOT NULL DEFAULT 2.0,
                 enabled BOOLEAN NOT NULL DEFAULT 1,
+                watch_type TEXT NOT NULL DEFAULT 'project',  -- 'project' or 'library' (Task 402)
+                library_name TEXT,  -- Required for library watch type (Task 402)
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 last_scan TIMESTAMP,
@@ -2393,8 +2406,9 @@ class SQLiteStateManager:
                     INSERT OR REPLACE INTO watch_folders
                     (watch_id, path, collection, patterns, ignore_patterns, auto_ingest,
                      recursive, recursive_depth, debounce_seconds, enabled,
+                     watch_type, library_name,
                      created_at, updated_at, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                            COALESCE((SELECT created_at FROM watch_folders WHERE watch_id = ?), CURRENT_TIMESTAMP),
                            CURRENT_TIMESTAMP, ?)
                     """,
@@ -2409,12 +2423,14 @@ class SQLiteStateManager:
                         config.recursive_depth,
                         config.debounce_seconds,
                         config.enabled,
+                        config.watch_type,
+                        config.library_name,
                         config.watch_id,
                         self._serialize_json(config.metadata),
                     ),
                 )
 
-            logger.debug(f"Saved watch folder config: {config.watch_id}")
+            logger.debug(f"Saved watch folder config: {config.watch_id} (type={config.watch_type})")
             return True
 
         except Exception as e:
@@ -2431,6 +2447,7 @@ class SQLiteStateManager:
                     """
                     SELECT watch_id, path, collection, patterns, ignore_patterns, auto_ingest,
                            recursive, recursive_depth, debounce_seconds, enabled,
+                           watch_type, library_name,
                            created_at, updated_at, last_scan, metadata
                     FROM watch_folders
                     WHERE watch_id = ?
@@ -2454,6 +2471,8 @@ class SQLiteStateManager:
                     recursive_depth=row["recursive_depth"],
                     debounce_seconds=row["debounce_seconds"],
                     enabled=bool(row["enabled"]),
+                    watch_type=row["watch_type"] or "project",
+                    library_name=row["library_name"],
                     created_at=datetime.fromisoformat(
                         row["created_at"].replace("Z", "+00:00")
                     ),
@@ -2481,6 +2500,7 @@ class SQLiteStateManager:
                 sql = """
                     SELECT watch_id, path, collection, patterns, ignore_patterns, auto_ingest,
                            recursive, recursive_depth, debounce_seconds, enabled,
+                           watch_type, library_name,
                            created_at, updated_at, last_scan, metadata
                     FROM watch_folders
                 """
@@ -2510,6 +2530,8 @@ class SQLiteStateManager:
                             recursive_depth=row["recursive_depth"],
                             debounce_seconds=row["debounce_seconds"],
                             enabled=bool(row["enabled"]),
+                            watch_type=row["watch_type"] or "project",
+                            library_name=row["library_name"],
                             created_at=datetime.fromisoformat(
                                 row["created_at"].replace("Z", "+00:00")
                             ),
