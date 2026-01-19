@@ -1014,6 +1014,17 @@ impl WatchManager {
     pub async fn start_all_watches(&self) -> WatchingQueueResult<()> {
         let queue_manager = Arc::new(QueueManager::new(self.pool.clone()));
 
+        // Load and start project watches from watch_folders table
+        self.load_watch_folders(&queue_manager).await?;
+
+        // Load and start library watches from library_watches table
+        self.load_library_watches(&queue_manager).await?;
+
+        Ok(())
+    }
+
+    /// Load watch configurations from watch_folders table (project watches)
+    async fn load_watch_folders(&self, queue_manager: &Arc<QueueManager>) -> WatchingQueueResult<()> {
         // Query watch configurations (using correct column names: watch_id, debounce_seconds)
         let rows = sqlx::query(
             r#"
@@ -1025,6 +1036,8 @@ impl WatchManager {
         )
         .fetch_all(&self.pool)
         .await?;
+
+        info!("Loading {} project watches from watch_folders table", rows.len());
 
         for row in rows {
             let id: String = row.get("watch_id");
@@ -1062,21 +1075,294 @@ impl WatchManager {
                 library_name,
             };
 
-            let watcher = Arc::new(FileWatcherQueue::new(config, queue_manager.clone())?);
+            self.start_watcher(id, config, queue_manager.clone()).await;
+        }
 
-            match watcher.start().await {
-                Ok(_) => {
-                    info!("Started watcher: {}", id);
+        Ok(())
+    }
+
+    /// Load library watch configurations from library_watches table
+    async fn load_library_watches(&self, queue_manager: &Arc<QueueManager>) -> WatchingQueueResult<()> {
+        // Query library_watches table
+        let rows = sqlx::query(
+            r#"
+            SELECT library_name, path, patterns, ignore_patterns,
+                   recursive, recursive_depth, debounce_seconds, enabled
+            FROM library_watches
+            WHERE enabled = 1
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        info!("Loading {} library watches from library_watches table", rows.len());
+
+        for row in rows {
+            let library_name: String = row.get("library_name");
+            let path: String = row.get("path");
+            let patterns_json: String = row.get("patterns");
+            let ignore_patterns_json: String = row.get("ignore_patterns");
+            let recursive: bool = row.get("recursive");
+            let _recursive_depth: i32 = row.get("recursive_depth");
+            let debounce_seconds: f64 = row.get("debounce_seconds");
+
+            let patterns: Vec<String> = serde_json::from_str(&patterns_json)
+                .unwrap_or_else(|_| vec!["*.pdf".to_string(), "*.epub".to_string(), "*.md".to_string(), "*.txt".to_string()]);
+            let ignore_patterns: Vec<String> = serde_json::from_str(&ignore_patterns_json)
+                .unwrap_or_else(|_| vec![".git/*".to_string(), "__pycache__/*".to_string()]);
+
+            // Use library prefix for watch ID to avoid conflicts
+            let id = format!("lib_{}", library_name);
+
+            let config = WatchConfig {
+                id: id.clone(),
+                path: PathBuf::from(path),
+                // Legacy collection field - used as fallback
+                collection: format!("_{}", library_name),
+                patterns,
+                ignore_patterns,
+                recursive,
+                debounce_ms: (debounce_seconds * 1000.0) as u64,
+                enabled: true,
+                // Library watches always use Library type
+                watch_type: WatchType::Library,
+                library_name: Some(library_name.clone()),
+            };
+
+            self.start_watcher(id, config, queue_manager.clone()).await;
+        }
+
+        Ok(())
+    }
+
+    /// Start a single watcher with the given configuration
+    async fn start_watcher(&self, id: String, config: WatchConfig, queue_manager: Arc<QueueManager>) {
+        match FileWatcherQueue::new(config, queue_manager) {
+            Ok(watcher) => {
+                let watcher = Arc::new(watcher);
+                match watcher.start().await {
+                    Ok(_) => {
+                        info!("Started watcher: {} (type: {:?})", id,
+                            if id.starts_with("lib_") { "library" } else { "project" });
+                        let mut watchers = self.watchers.write().await;
+                        watchers.insert(id, watcher);
+                    },
+                    Err(e) => {
+                        error!("Failed to start watcher {}: {}", id, e);
+                    }
+                }
+            },
+            Err(e) => {
+                error!("Failed to create watcher {}: {}", id, e);
+            }
+        }
+    }
+
+    /// Refresh watches by checking for config changes (hot-reload support)
+    ///
+    /// This method:
+    /// 1. Gets current enabled watch IDs from both tables
+    /// 2. Stops watchers for watches that were disabled or removed
+    /// 3. Starts watchers for newly added/enabled watches
+    pub async fn refresh_watches(&self) -> WatchingQueueResult<()> {
+        let queue_manager = Arc::new(QueueManager::new(self.pool.clone()));
+
+        // Get current enabled watch IDs from database
+        let db_watch_ids = self.get_enabled_watch_ids().await?;
+
+        // Get currently running watcher IDs
+        let running_ids: Vec<String> = {
+            let watchers = self.watchers.read().await;
+            watchers.keys().cloned().collect()
+        };
+
+        // Stop watchers that are no longer enabled
+        for id in &running_ids {
+            if !db_watch_ids.contains(id) {
+                info!("Stopping disabled/removed watcher: {}", id);
+                let watcher = {
                     let mut watchers = self.watchers.write().await;
-                    watchers.insert(id, watcher);
-                },
-                Err(e) => {
-                    error!("Failed to start watcher {}: {}", id, e);
+                    watchers.remove(id)
+                };
+                if let Some(w) = watcher {
+                    if let Err(e) = w.stop().await {
+                        error!("Failed to stop watcher {}: {}", id, e);
+                    }
+                }
+            }
+        }
+
+        // Start watchers for newly enabled watches
+        for id in &db_watch_ids {
+            let already_running = {
+                let watchers = self.watchers.read().await;
+                watchers.contains_key(id)
+            };
+
+            if !already_running {
+                info!("Starting newly enabled watcher: {}", id);
+                if id.starts_with("lib_") {
+                    // Library watch - reload from library_watches
+                    self.start_single_library_watch(id, &queue_manager).await?;
+                } else {
+                    // Project watch - reload from watch_folders
+                    self.start_single_watch_folder(id, &queue_manager).await?;
                 }
             }
         }
 
         Ok(())
+    }
+
+    /// Get all enabled watch IDs from both tables
+    async fn get_enabled_watch_ids(&self) -> WatchingQueueResult<Vec<String>> {
+        let mut ids = Vec::new();
+
+        // Get project watch IDs from watch_folders
+        let project_rows = sqlx::query("SELECT watch_id FROM watch_folders WHERE enabled = TRUE")
+            .fetch_all(&self.pool)
+            .await?;
+        for row in project_rows {
+            let id: String = row.get("watch_id");
+            ids.push(id);
+        }
+
+        // Get library watch IDs from library_watches
+        let library_rows = sqlx::query("SELECT library_name FROM library_watches WHERE enabled = 1")
+            .fetch_all(&self.pool)
+            .await?;
+        for row in library_rows {
+            let library_name: String = row.get("library_name");
+            ids.push(format!("lib_{}", library_name));
+        }
+
+        Ok(ids)
+    }
+
+    /// Start a single watch folder by ID
+    async fn start_single_watch_folder(&self, id: &str, queue_manager: &Arc<QueueManager>) -> WatchingQueueResult<()> {
+        let row = sqlx::query(
+            r#"
+            SELECT watch_id, path, collection, patterns, ignore_patterns,
+                   recursive, debounce_seconds
+            FROM watch_folders
+            WHERE watch_id = ? AND enabled = TRUE
+            "#
+        )
+        .bind(id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(row) = row {
+            let id: String = row.get("watch_id");
+            let path: String = row.get("path");
+            let collection: String = row.get("collection");
+            let patterns_json: String = row.get("patterns");
+            let ignore_patterns_json: String = row.get("ignore_patterns");
+            let recursive: bool = row.get("recursive");
+            let debounce_seconds: f64 = row.get("debounce_seconds");
+
+            let watch_type_str: Option<String> = row.try_get("watch_type").ok();
+            let library_name: Option<String> = row.try_get("library_name").ok();
+
+            let patterns: Vec<String> = serde_json::from_str(&patterns_json)
+                .unwrap_or_else(|_| vec!["*".to_string()]);
+            let ignore_patterns: Vec<String> = serde_json::from_str(&ignore_patterns_json)
+                .unwrap_or_else(|_| Vec::new());
+
+            let watch_type = watch_type_str
+                .and_then(|s| WatchType::from_str(&s))
+                .unwrap_or(WatchType::Project);
+
+            let config = WatchConfig {
+                id: id.clone(),
+                path: PathBuf::from(path),
+                collection,
+                patterns,
+                ignore_patterns,
+                recursive,
+                debounce_ms: (debounce_seconds * 1000.0) as u64,
+                enabled: true,
+                watch_type,
+                library_name,
+            };
+
+            self.start_watcher(id, config, queue_manager.clone()).await;
+        }
+
+        Ok(())
+    }
+
+    /// Start a single library watch by ID
+    async fn start_single_library_watch(&self, id: &str, queue_manager: &Arc<QueueManager>) -> WatchingQueueResult<()> {
+        // Extract library_name from id (remove "lib_" prefix)
+        let library_name = id.strip_prefix("lib_").unwrap_or(id);
+
+        let row = sqlx::query(
+            r#"
+            SELECT library_name, path, patterns, ignore_patterns,
+                   recursive, recursive_depth, debounce_seconds
+            FROM library_watches
+            WHERE library_name = ? AND enabled = 1
+            "#
+        )
+        .bind(library_name)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(row) = row {
+            let library_name: String = row.get("library_name");
+            let path: String = row.get("path");
+            let patterns_json: String = row.get("patterns");
+            let ignore_patterns_json: String = row.get("ignore_patterns");
+            let recursive: bool = row.get("recursive");
+            let _recursive_depth: i32 = row.get("recursive_depth");
+            let debounce_seconds: f64 = row.get("debounce_seconds");
+
+            let patterns: Vec<String> = serde_json::from_str(&patterns_json)
+                .unwrap_or_else(|_| vec!["*.pdf".to_string(), "*.epub".to_string(), "*.md".to_string(), "*.txt".to_string()]);
+            let ignore_patterns: Vec<String> = serde_json::from_str(&ignore_patterns_json)
+                .unwrap_or_else(|_| vec![".git/*".to_string(), "__pycache__/*".to_string()]);
+
+            let id = format!("lib_{}", library_name);
+
+            let config = WatchConfig {
+                id: id.clone(),
+                path: PathBuf::from(path),
+                collection: format!("_{}", library_name),
+                patterns,
+                ignore_patterns,
+                recursive,
+                debounce_ms: (debounce_seconds * 1000.0) as u64,
+                enabled: true,
+                watch_type: WatchType::Library,
+                library_name: Some(library_name),
+            };
+
+            self.start_watcher(id, config, queue_manager.clone()).await;
+        }
+
+        Ok(())
+    }
+
+    /// Start periodic polling for watch configuration changes
+    ///
+    /// Polls SQLite every `poll_interval_secs` seconds for changes and hot-reloads.
+    pub fn start_polling(self: Arc<Self>, poll_interval_secs: u64) -> tokio::task::JoinHandle<()> {
+        info!("Starting watch configuration polling (interval: {}s)", poll_interval_secs);
+
+        tokio::spawn(async move {
+            let mut poll_interval = interval(Duration::from_secs(poll_interval_secs));
+
+            loop {
+                poll_interval.tick().await;
+
+                debug!("Polling for watch configuration changes...");
+                if let Err(e) = self.refresh_watches().await {
+                    error!("Failed to refresh watches: {}", e);
+                }
+            }
+        })
     }
 
     /// Stop all watchers
@@ -1102,6 +1388,18 @@ impl WatchManager {
         }
 
         stats
+    }
+
+    /// Get count of active watchers
+    pub async fn active_watcher_count(&self) -> usize {
+        let watchers = self.watchers.read().await;
+        watchers.len()
+    }
+
+    /// Check if a specific watch is active
+    pub async fn is_watch_active(&self, id: &str) -> bool {
+        let watchers = self.watchers.read().await;
+        watchers.contains_key(id)
     }
 }
 
@@ -1228,5 +1526,75 @@ mod tests {
         assert_eq!(collection, UNIFIED_LIBRARIES_COLLECTION);
         // Should use directory name from path
         assert!(!tenant_id.is_empty());
+    }
+
+    // Library watch ID format tests
+    #[test]
+    fn test_library_watch_id_format() {
+        let library_name = "langchain";
+        let id = format!("lib_{}", library_name);
+
+        assert!(id.starts_with("lib_"));
+        assert_eq!(id, "lib_langchain");
+
+        // Test stripping prefix
+        let extracted = id.strip_prefix("lib_").unwrap_or(&id);
+        assert_eq!(extracted, "langchain");
+    }
+
+    #[test]
+    fn test_library_watch_config_creation() {
+        let library_name = "my_docs";
+        let id = format!("lib_{}", library_name);
+
+        let config = WatchConfig {
+            id: id.clone(),
+            path: PathBuf::from("/path/to/docs"),
+            collection: format!("_{}", library_name),
+            patterns: vec!["*.pdf".to_string(), "*.md".to_string()],
+            ignore_patterns: vec![".git/*".to_string()],
+            recursive: true,
+            debounce_ms: 2000,
+            enabled: true,
+            watch_type: WatchType::Library,
+            library_name: Some(library_name.to_string()),
+        };
+
+        assert_eq!(config.watch_type, WatchType::Library);
+        assert_eq!(config.library_name, Some("my_docs".to_string()));
+        assert_eq!(config.collection, "_my_docs");
+    }
+
+    #[test]
+    fn test_watch_type_routing_for_library() {
+        let temp_dir = tempdir().unwrap();
+
+        // Test library routing
+        let (collection, tenant) = FileWatcherQueue::determine_collection_and_tenant(
+            WatchType::Library,
+            temp_dir.path(),
+            Some("langchain"),
+            "_legacy",
+        );
+
+        assert_eq!(collection, "_libraries");
+        assert_eq!(tenant, "langchain");
+    }
+
+    #[test]
+    fn test_watch_type_routing_for_project() {
+        let temp_dir = tempdir().unwrap();
+
+        // Test project routing (should use tenant ID calculation)
+        let (collection, tenant) = FileWatcherQueue::determine_collection_and_tenant(
+            WatchType::Project,
+            temp_dir.path(),
+            None,
+            "_legacy",
+        );
+
+        assert_eq!(collection, "_projects");
+        // Tenant should be path-based hash since temp_dir is not a git repo
+        assert!(tenant.starts_with("path_"));
     }
 }
