@@ -2,13 +2,21 @@
 
 This module provides management for readonly library collections
 (prefixed with _) that are used for reference materials and documents.
+
+Task 399: Multi-tenant library management with watch folder integration.
+- `wqm library add` - Add a watch folder for library ingestion
+- `wqm library rescan` - Re-ingest all files from a library watch
+- `wqm library watches` - List all library watch folders
 """
 
+from pathlib import Path
 
 import typer
 from common.core.collection_naming import CollectionNameError, validate_collection_name
 from common.core.config import get_config_manager
-from common.grpc.daemon_client import with_daemon_client
+from common.core.sqlite_state_manager import SQLiteStateManager
+from common.grpc.daemon_client import with_daemon_client, get_daemon_client
+from loguru import logger
 
 from ..utils import (
     create_command_app,
@@ -117,6 +125,138 @@ def copy_library(
 ):
     """Copy library collection."""
     handle_async(_copy_library(source, destination, description))
+
+
+# ============================================================================
+# Task 399: Multi-tenant library watch folder commands
+# ============================================================================
+
+@library_app.command("add")
+def add_library_watch(
+    path: str = typer.Argument(..., help="Path to library folder to watch"),
+    name: str = typer.Option(..., "--name", "-n", help="Library name (e.g., 'langchain')"),
+    patterns: list[str] | None = typer.Option(
+        None,
+        "--pattern",
+        "-p",
+        help="File patterns to include (default: *.pdf, *.epub, *.md, *.txt)",
+    ),
+    ignore: list[str] | None = typer.Option(
+        None,
+        "--ignore",
+        "-i",
+        help="Patterns to exclude (default: .git/*, __pycache__/*)",
+    ),
+    recursive: bool = typer.Option(
+        True, "--recursive/--no-recursive", help="Watch subdirectories"
+    ),
+    depth: int = typer.Option(
+        10, "--depth", help="Maximum directory depth to watch"
+    ),
+    debounce: float = typer.Option(
+        5.0, "--debounce", help="Debounce time in seconds"
+    ),
+    auto_ingest: bool = typer.Option(
+        True, "--auto/--no-auto", help="Start initial ingestion immediately"
+    ),
+):
+    """Add a folder to watch for automatic library ingestion.
+
+    This command configures a watch folder that the daemon will monitor
+    for changes. Files matching the patterns will be automatically
+    ingested into the _libraries unified collection with the specified
+    library_name as the tenant identifier.
+
+    Examples:
+        wqm library add ~/docs/langchain --name langchain
+        wqm library add ~/research/papers --name papers --pattern "*.pdf"
+        wqm library add ~/docs --name docs --depth 5 --no-recursive
+    """
+    handle_async(
+        _add_library_watch(path, name, patterns, ignore, recursive, depth, debounce, auto_ingest)
+    )
+
+
+@library_app.command("watches")
+def list_library_watches(
+    all_watches: bool = typer.Option(
+        False, "--all", "-a", help="Include disabled watches"
+    ),
+    format: str = typer.Option(
+        "table", "--format", "-f", help="Output format: table, json"
+    ),
+):
+    """List all library watch folders.
+
+    Shows configured library watch folders with their status,
+    document counts, and last scan times.
+    """
+    handle_async(_list_library_watches(all_watches, format))
+
+
+@library_app.command("unwatch")
+def remove_library_watch(
+    name: str = typer.Argument(..., help="Library name to stop watching"),
+    delete_collection: bool = typer.Option(
+        False, "--delete-collection", help="Also delete the library collection"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip confirmation"
+    ),
+):
+    """Stop watching a library folder.
+
+    Removes the watch configuration for the specified library.
+    Optionally deletes the associated collection data.
+    """
+    handle_async(_remove_library_watch(name, delete_collection, force))
+
+
+@library_app.command("rescan")
+def rescan_library(
+    name: str = typer.Argument(..., help="Library name to rescan"),
+    clear_first: bool = typer.Option(
+        False, "--clear", "-c", help="Clear existing documents before rescan"
+    ),
+    force: bool = typer.Option(
+        False, "--force", "-f", help="Skip confirmation"
+    ),
+):
+    """Re-ingest all files from a library watch folder.
+
+    Queues all matching files from the watched folder for re-ingestion.
+    Use --clear to remove existing documents first.
+
+    Examples:
+        wqm library rescan langchain              # Re-ingest all files
+        wqm library rescan papers --clear         # Clear and re-ingest
+    """
+    handle_async(_rescan_library(name, clear_first, force))
+
+
+@library_app.command("watch-status")
+def library_watch_status(
+    name: str = typer.Argument(..., help="Library name to check"),
+    detailed: bool = typer.Option(
+        False, "--detailed", "-d", help="Show detailed statistics"
+    ),
+):
+    """Show detailed status for a specific library watch.
+
+    Displays watch configuration, ingestion stats, and recent activity.
+    """
+    handle_async(_library_watch_status(name, detailed))
+
+
+# ============================================================================
+# Helper functions
+# ============================================================================
+
+async def _get_state_manager() -> SQLiteStateManager:
+    """Get initialized state manager for library watch operations."""
+    state_manager = SQLiteStateManager()
+    await state_manager.initialize()
+    return state_manager
 
 
 # Async implementation functions
@@ -523,4 +663,378 @@ async def _copy_library(source: str, destination: str, description: str | None):
 
     except Exception as e:
         print(f"Error: Copy operation failed: {e}")
+        raise typer.Exit(1)
+
+
+# ============================================================================
+# Task 399: Multi-tenant library watch folder implementations
+# ============================================================================
+
+async def _add_library_watch(
+    path: str,
+    name: str,
+    patterns: list[str] | None,
+    ignore: list[str] | None,
+    recursive: bool,
+    depth: int,
+    debounce: float,
+    auto_ingest: bool,
+):
+    """Add a library watch folder configuration."""
+    try:
+        # Validate and resolve path
+        watch_path = Path(path).expanduser().resolve()
+        if not watch_path.exists():
+            print(f"Error: Path does not exist: {watch_path}")
+            raise typer.Exit(1)
+        if not watch_path.is_dir():
+            print(f"Error: Path is not a directory: {watch_path}")
+            raise typer.Exit(1)
+
+        # Normalize library name (remove _ prefix if provided)
+        library_name = name.lstrip("_").lower().replace(" ", "-")
+
+        # Set default patterns
+        if patterns is None:
+            patterns = ["*.pdf", "*.epub", "*.md", "*.txt"]
+        if ignore is None:
+            ignore = [".git/*", "__pycache__/*", "node_modules/*", ".DS_Store"]
+
+        # Get state manager and save configuration
+        state_manager = await _get_state_manager()
+
+        # Check if library watch already exists
+        existing = await state_manager.get_library_watch(library_name)
+        if existing:
+            print(f"Library watch '{library_name}' already exists.")
+            print(f"Current path: {existing['path']}")
+            response = input("Do you want to update it? (y/N): ")
+            if response.lower() not in ["y", "yes"]:
+                print("Operation cancelled.")
+                return
+
+        # Save library watch configuration
+        success = await state_manager.save_library_watch(
+            library_name=library_name,
+            path=str(watch_path),
+            patterns=patterns,
+            ignore_patterns=ignore,
+            recursive=recursive,
+            recursive_depth=depth,
+            debounce_seconds=debounce,
+            enabled=True,
+            metadata={"auto_ingest": auto_ingest},
+        )
+
+        if not success:
+            print(f"Error: Failed to save library watch configuration")
+            raise typer.Exit(1)
+
+        print(f"Library Watch Added: {library_name}")
+        print(f"Path: {watch_path}")
+        print(f"Patterns: {', '.join(patterns)}")
+        print(f"Ignore: {', '.join(ignore)}")
+        print(f"Recursive: {recursive} (depth: {depth})")
+        print(f"Debounce: {debounce}s")
+
+        # Signal daemon to refresh watches (if available)
+        try:
+            daemon_client = get_daemon_client()
+            await daemon_client.connect()
+            # The daemon polls SQLite for watch changes, so no explicit signal needed
+            # But we can check if it's running
+            print("\nDaemon will detect new watch configuration automatically.")
+        except Exception as e:
+            logger.debug(f"Daemon not available: {e}")
+            print("\nNote: Daemon not running. Start with 'wqm service start'.")
+
+        if auto_ingest:
+            print("\nTo start initial ingestion, run:")
+            print(f"  wqm library rescan {library_name}")
+
+        print("\nNext steps:")
+        print(f"- Search: wqm search --scope all \"{library_name} documentation\"")
+        print(f"- Status: wqm library watch-status {library_name}")
+        print(f"- List:   wqm library watches")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        print(f"Error: Failed to add library watch: {e}")
+        raise typer.Exit(1)
+
+
+async def _list_library_watches(all_watches: bool, format: str):
+    """List all library watch configurations."""
+    try:
+        state_manager = await _get_state_manager()
+        watches = await state_manager.list_library_watches(enabled_only=not all_watches)
+
+        if not watches:
+            print("No library watches configured.")
+            print("Use 'wqm library add <path> --name <name>' to add one.")
+            return
+
+        if format == "json":
+            import json
+            print(json.dumps(watches, indent=2, default=str))
+            return
+
+        # Table format
+        print(f"Library Watches ({len(watches)} found):")
+        print()
+        print(f"{'Name':<20} {'Path':<40} {'Docs':<8} {'Status':<10} {'Last Scan':<20}")
+        print("-" * 100)
+
+        for watch in watches:
+            name = watch["library_name"]
+            path = watch["path"]
+            if len(path) > 38:
+                path = "..." + path[-35:]
+            doc_count = watch.get("document_count", 0) or 0
+            status = "active" if watch["enabled"] else "disabled"
+            last_scan = watch.get("last_scan", "never") or "never"
+            if last_scan != "never":
+                last_scan = last_scan[:19]  # Trim timestamp
+
+            print(f"{name:<20} {path:<40} {doc_count:<8} {status:<10} {last_scan:<20}")
+
+        print()
+        total_docs = sum(w.get("document_count", 0) or 0 for w in watches)
+        print(f"Total documents: {total_docs:,}")
+
+    except Exception as e:
+        print(f"Error: Failed to list library watches: {e}")
+        raise typer.Exit(1)
+
+
+async def _remove_library_watch(name: str, delete_collection: bool, force: bool):
+    """Remove a library watch configuration."""
+    try:
+        library_name = name.lstrip("_").lower()
+        state_manager = await _get_state_manager()
+
+        # Check if watch exists
+        watch = await state_manager.get_library_watch(library_name)
+        if not watch:
+            print(f"Error: Library watch '{library_name}' not found")
+            raise typer.Exit(1)
+
+        if not force:
+            print(f"Remove Library Watch: {library_name}")
+            print(f"Path: {watch['path']}")
+            print(f"Documents: {watch.get('document_count', 0) or 0}")
+            if delete_collection:
+                print("\nWARNING: This will also delete the collection data!")
+
+            response = input("\nAre you sure? (y/N): ")
+            if response.lower() not in ["y", "yes"]:
+                print("Operation cancelled.")
+                return
+
+        # Remove watch configuration
+        success = await state_manager.remove_library_watch(library_name)
+        if not success:
+            print(f"Error: Failed to remove library watch")
+            raise typer.Exit(1)
+
+        print(f"Library watch '{library_name}' removed.")
+
+        # Optionally delete collection
+        if delete_collection:
+            try:
+                config = get_config_manager()
+                collection_name = f"_{library_name}"
+
+                async def _delete_op(client):
+                    return await client.delete_collection(collection_name, confirm=True)
+
+                await with_daemon_client(_delete_op, config)
+                print(f"Collection '{collection_name}' deleted.")
+            except Exception as e:
+                print(f"Warning: Failed to delete collection: {e}")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        print(f"Error: Failed to remove library watch: {e}")
+        raise typer.Exit(1)
+
+
+async def _rescan_library(name: str, clear_first: bool, force: bool):
+    """Re-ingest all files from a library watch folder."""
+    try:
+        library_name = name.lstrip("_").lower()
+        state_manager = await _get_state_manager()
+
+        # Get watch configuration
+        watch = await state_manager.get_library_watch(library_name)
+        if not watch:
+            print(f"Error: Library watch '{library_name}' not found")
+            print("Use 'wqm library watches' to see configured watches.")
+            raise typer.Exit(1)
+
+        watch_path = Path(watch["path"])
+        if not watch_path.exists():
+            print(f"Error: Watch path no longer exists: {watch_path}")
+            raise typer.Exit(1)
+
+        # Count files to process
+        patterns = watch.get("patterns", ["*.pdf", "*.epub", "*.md", "*.txt"])
+        ignore_patterns = watch.get("ignore_patterns", [])
+        recursive = watch.get("recursive", True)
+        depth = watch.get("recursive_depth", 10)
+
+        # Find matching files
+        matching_files = []
+        for pattern in patterns:
+            if recursive:
+                matching_files.extend(watch_path.rglob(pattern))
+            else:
+                matching_files.extend(watch_path.glob(pattern))
+
+        # Filter out ignored files
+        def should_ignore(file_path: Path) -> bool:
+            rel_path = str(file_path.relative_to(watch_path))
+            for ignore_pattern in ignore_patterns:
+                if ignore_pattern.endswith("/*"):
+                    dir_name = ignore_pattern[:-2]
+                    if rel_path.startswith(dir_name + "/") or f"/{dir_name}/" in rel_path:
+                        return True
+                elif rel_path.endswith(ignore_pattern.lstrip("*")):
+                    return True
+            return False
+
+        matching_files = [f for f in matching_files if not should_ignore(f)]
+
+        if not matching_files:
+            print(f"No files found matching patterns: {patterns}")
+            return
+
+        if not force:
+            print(f"Rescan Library: {library_name}")
+            print(f"Path: {watch_path}")
+            print(f"Files to process: {len(matching_files)}")
+            if clear_first:
+                print("\nWARNING: This will clear existing documents first!")
+
+            response = input("\nProceed? (y/N): ")
+            if response.lower() not in ["y", "yes"]:
+                print("Operation cancelled.")
+                return
+
+        # Clear collection if requested
+        if clear_first:
+            print("Clearing existing documents...")
+            try:
+                config = get_config_manager()
+
+                async def _clear_op(client):
+                    # Delete and recreate collection
+                    collection_name = f"_{library_name}"
+                    try:
+                        await client.delete_collection(collection_name, confirm=True)
+                    except Exception:
+                        pass  # Collection might not exist
+                    return True
+
+                await with_daemon_client(_clear_op, config)
+                print("Collection cleared.")
+            except Exception as e:
+                print(f"Warning: Failed to clear collection: {e}")
+
+        # Queue files for ingestion
+        print(f"Queueing {len(matching_files)} files for ingestion...")
+
+        queued_count = 0
+        for file_path in matching_files:
+            try:
+                await state_manager.add_to_ingestion_queue(
+                    file_path=str(file_path),
+                    collection=f"_libraries",  # Unified libraries collection
+                    tenant_id=library_name,
+                    priority=5,  # Normal priority
+                    metadata={"library_name": library_name, "source": "rescan"},
+                )
+                queued_count += 1
+            except Exception as e:
+                logger.warning(f"Failed to queue {file_path}: {e}")
+
+        print(f"Queued {queued_count} files for ingestion.")
+
+        # Update last scan time
+        await state_manager.update_library_watch_stats(library_name)
+
+        print("\nThe daemon will process queued files automatically.")
+        print(f"Monitor progress with: wqm library watch-status {library_name}")
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        print(f"Error: Failed to rescan library: {e}")
+        raise typer.Exit(1)
+
+
+async def _library_watch_status(name: str, detailed: bool):
+    """Show detailed status for a library watch."""
+    try:
+        library_name = name.lstrip("_").lower()
+        state_manager = await _get_state_manager()
+
+        # Get watch configuration
+        watch = await state_manager.get_library_watch(library_name)
+        if not watch:
+            print(f"Error: Library watch '{library_name}' not found")
+            raise typer.Exit(1)
+
+        print(f"Library Watch Status: {library_name}")
+        print("=" * 50)
+        print(f"Path: {watch['path']}")
+        print(f"Status: {'active' if watch['enabled'] else 'disabled'}")
+        print(f"Documents: {watch.get('document_count', 0) or 0}")
+        print(f"Last Scan: {watch.get('last_scan', 'never') or 'never'}")
+        print(f"Added: {watch.get('added_at', 'unknown')}")
+
+        print("\nConfiguration:")
+        print(f"  Patterns: {', '.join(watch.get('patterns', []))}")
+        print(f"  Ignore: {', '.join(watch.get('ignore_patterns', []))}")
+        print(f"  Recursive: {watch.get('recursive', True)}")
+        print(f"  Max Depth: {watch.get('recursive_depth', 10)}")
+        print(f"  Debounce: {watch.get('debounce_seconds', 2.0)}s")
+
+        if detailed:
+            # Check if path exists and count files
+            watch_path = Path(watch["path"])
+            if watch_path.exists():
+                patterns = watch.get("patterns", ["*.pdf", "*.epub", "*.md", "*.txt"])
+                file_count = 0
+                for pattern in patterns:
+                    if watch.get("recursive", True):
+                        file_count += len(list(watch_path.rglob(pattern)))
+                    else:
+                        file_count += len(list(watch_path.glob(pattern)))
+
+                print(f"\nFile System:")
+                print(f"  Path exists: Yes")
+                print(f"  Matching files: {file_count}")
+            else:
+                print(f"\nFile System:")
+                print(f"  Path exists: NO - Path missing!")
+
+            # Get ingestion queue stats
+            try:
+                queue_stats = await state_manager.get_queue_stats()
+                library_queued = sum(
+                    1 for item in queue_stats.get("items", [])
+                    if item.get("tenant_id") == library_name
+                )
+                print(f"\nIngestion Queue:")
+                print(f"  Pending items: {library_queued}")
+            except Exception:
+                pass
+
+    except typer.Exit:
+        raise
+    except Exception as e:
+        print(f"Error: Failed to get watch status: {e}")
         raise typer.Exit(1)
