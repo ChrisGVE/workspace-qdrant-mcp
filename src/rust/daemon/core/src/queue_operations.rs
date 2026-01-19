@@ -12,6 +12,7 @@ use tracing::{debug, error, info, warn};
 
 // Import MissingTool from queue_processor module
 use crate::queue_types::MissingTool;
+use crate::metrics::METRICS;
 
 /// Queue operation errors
 #[derive(Error, Debug)]
@@ -278,6 +279,19 @@ impl QueueManager {
             file_path, collection, priority, collection_type
         );
 
+        // Update queue depth metric (Task 412.7)
+        // Note: We use the priority and collection for metric labels
+        let priority_str = match priority {
+            1 => "high",
+            3 => "normal",
+            5 => "low",
+            _ => "other",
+        };
+        // Get actual queue depth after insert
+        if let Ok(depth) = self.get_queue_depth(Some(tenant_id), None).await {
+            METRICS.set_queue_depth(priority_str, collection, depth);
+        }
+
         Ok(file_path.to_string())
     }
 
@@ -440,6 +454,9 @@ impl QueueManager {
         let deleted = result.rows_affected() > 0;
 
         if deleted {
+            // Record failure metric (Task 412.7)
+            METRICS.queue_item_processed("normal", "failure", 0.0);
+            METRICS.ingestion_error("max_retries_exceeded");
             warn!("Marked as failed and removed from queue: {}", file_path);
         } else {
             warn!("File not found in queue when marking failed: {}", file_path);
@@ -480,6 +497,9 @@ impl QueueManager {
     }
 
     /// Mark a file as completed and remove from queue
+    ///
+    /// Records queue_item_processed metric with "success" status.
+    /// For accurate processing time metrics, use `mark_complete_with_duration` instead.
     pub async fn mark_complete(&self, file_path: &str) -> QueueResult<bool> {
         let query = "DELETE FROM ingestion_queue WHERE file_absolute_path = ?1";
 
@@ -491,7 +511,49 @@ impl QueueManager {
         let deleted = result.rows_affected() > 0;
 
         if deleted {
+            // Record successful processing metric (Task 412.7)
+            // Note: Processing time is 0.0 because we don't track it here
+            // Use mark_complete_with_duration for accurate timing
+            METRICS.queue_item_processed("normal", "success", 0.0);
             debug!("Marked complete and removed from queue: {}", file_path);
+        } else {
+            warn!("File not found in queue: {}", file_path);
+        }
+
+        Ok(deleted)
+    }
+
+    /// Mark a file as completed with processing duration
+    ///
+    /// Records queue_item_processed metric with actual processing time.
+    pub async fn mark_complete_with_duration(
+        &self,
+        file_path: &str,
+        priority: i32,
+        processing_time_secs: f64,
+    ) -> QueueResult<bool> {
+        let query = "DELETE FROM ingestion_queue WHERE file_absolute_path = ?1";
+
+        let result = sqlx::query(query)
+            .bind(file_path)
+            .execute(&self.pool)
+            .await?;
+
+        let deleted = result.rows_affected() > 0;
+
+        if deleted {
+            // Record successful processing metric (Task 412.7)
+            let priority_str = match priority {
+                1 => "high",
+                3 => "normal",
+                5 => "low",
+                _ => "other",
+            };
+            METRICS.queue_item_processed(priority_str, "success", processing_time_secs);
+            debug!(
+                "Marked complete and removed from queue: {} (processing_time={:.3}s)",
+                file_path, processing_time_secs
+            );
         } else {
             warn!("File not found in queue: {}", file_path);
         }
@@ -556,6 +618,10 @@ impl QueueManager {
                     .execute(&mut *tx)
                     .await?;
 
+                // Record failure metrics (Task 412.7)
+                METRICS.queue_item_processed("normal", "failure", 0.0);
+                METRICS.ingestion_error(error_type);
+
                 warn!(
                     "Max retries ({}) reached for {}, removing from queue",
                     max_retries, file_path
@@ -577,6 +643,9 @@ impl QueueManager {
                 .bind(file_path)
                 .execute(&mut *tx)
                 .await?;
+
+                // Record error metric - item will be retried (Task 412.7)
+                METRICS.ingestion_error(error_type);
 
                 debug!(
                     "Updated error for {}: retry {}/{}",
