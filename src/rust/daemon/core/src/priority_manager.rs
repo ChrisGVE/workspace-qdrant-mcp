@@ -21,12 +21,14 @@
 use chrono::{DateTime, Utc, Duration as ChronoDuration};
 use sqlx::SqlitePool;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn, error};
+
+use crate::metrics::METRICS;
 
 /// Priority levels for the queue system
 pub mod priority {
@@ -458,6 +460,9 @@ impl PriorityManager {
 
         tx.commit().await?;
 
+        // Record session metrics (Task 412.6)
+        METRICS.session_started(project_id, "high");
+
         info!(
             "Session registered for project {}: {} active sessions",
             project_id, count
@@ -558,6 +563,10 @@ impl PriorityManager {
 
         tx.commit().await?;
 
+        // Record session end metrics (Task 412.6)
+        // Note: duration is not tracked (session start time not persisted)
+        METRICS.session_ended(project_id, priority, 0.0);
+
         info!(
             "Session unregistered for project {}: {} active sessions",
             project_id, new_count
@@ -581,6 +590,9 @@ impl PriorityManager {
             return Err(PriorityError::EmptyParameter);
         }
 
+        // Measure heartbeat latency (Task 412.6)
+        let start = Instant::now();
+
         let now = Utc::now();
 
         let result = sqlx::query(
@@ -598,8 +610,11 @@ impl PriorityManager {
 
         let updated = result.rows_affected() > 0;
 
+        // Record heartbeat latency metric (Task 412.6)
+        let latency_secs = start.elapsed().as_secs_f64();
         if updated {
-            debug!("Heartbeat received for project {}", project_id);
+            METRICS.heartbeat_processed(project_id, latency_secs);
+            debug!("Heartbeat received for project {} (latency: {:.3}s)", project_id, latency_secs);
         } else {
             warn!(
                 "Heartbeat for project {} ignored (no active sessions or not found)",
@@ -693,6 +708,12 @@ impl PriorityManager {
 
             total_sessions += sessions;
             demoted_projects.push(project_id.clone());
+
+            // Record orphaned session cleanup metrics (Task 412.6)
+            // Decrement active sessions for each orphaned session
+            for _ in 0..sessions {
+                METRICS.session_ended(&project_id, "high", 0.0);
+            }
 
             // Reset active_sessions and demote priority
             sqlx::query(
