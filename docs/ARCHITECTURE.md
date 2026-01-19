@@ -12,6 +12,7 @@ Visual architecture documentation for the workspace-qdrant-mcp system, showing c
 - [Collection Structure](#collection-structure)
 - [SQLite State Management](#sqlite-state-management)
 - [Write Path Architecture](#write-path-architecture)
+- [Session Lifecycle Management](#session-lifecycle-management)
 - [Data Flow Patterns](#data-flow-patterns)
 
 ## System Overview
@@ -580,6 +581,124 @@ graph TB
 - **Reliability**: Single code path reduces bugs
 - **Monitoring**: Centralized write operations tracking
 
+## Session Lifecycle Management
+
+Session-based priority management ensures active projects get preferential processing in the ingestion queue.
+
+### Session Lifecycle Flow
+
+```mermaid
+sequenceDiagram
+    participant Claude as Claude Desktop/Code
+    participant MCP as MCP Server
+    participant Daemon as Rust Daemon
+    participant SQLite as SQLite DB
+
+    Note over Claude,SQLite: Session Initialization
+
+    Claude->>MCP: Connect (stdio)
+
+    activate MCP
+    MCP->>MCP: detect_project()<br/>→ /path/to/project
+    MCP->>MCP: calculate_tenant_id()<br/>→ github_com_user_repo
+
+    MCP->>Daemon: gRPC: RegisterProject<br/>path, tenant_id, name, git_remote
+
+    activate Daemon
+    Daemon->>SQLite: Upsert project<br/>increment active_sessions
+    SQLite-->>Daemon: Success
+
+    Daemon->>Daemon: Set priority=HIGH<br/>(active_sessions > 0)
+    Daemon-->>MCP: RegisterProjectResponse<br/>created=false, priority="high"<br/>active_sessions=1
+    deactivate Daemon
+
+    MCP-->>Claude: Session Ready<br/>Project registered
+    deactivate MCP
+
+    Note over Claude,SQLite: Session Heartbeat (every 30s)
+
+    loop Every 30 seconds
+        activate MCP
+        MCP->>Daemon: gRPC: Heartbeat<br/>tenant_id
+
+        activate Daemon
+        Daemon->>SQLite: Update last_active
+        Daemon-->>MCP: HeartbeatResponse<br/>next_heartbeat_by
+        deactivate Daemon
+        deactivate MCP
+    end
+
+    Note over Claude,SQLite: Session Teardown
+
+    Claude->>MCP: Disconnect
+
+    activate MCP
+    MCP->>Daemon: gRPC: DeprioritizeProject<br/>tenant_id
+
+    activate Daemon
+    Daemon->>SQLite: Decrement active_sessions
+
+    alt active_sessions == 0
+        Daemon->>Daemon: Set priority=NORMAL
+    end
+
+    Daemon-->>MCP: DeprioritizeProjectResponse<br/>remaining_sessions=0<br/>new_priority="normal"
+    deactivate Daemon
+    deactivate MCP
+```
+
+### Session States and Transitions
+
+```mermaid
+stateDiagram-v2
+    [*] --> Unregistered: Project detected
+
+    Unregistered --> Active: RegisterProject
+    Active --> Active: Heartbeat (reset timeout)
+    Active --> Orphaned: Heartbeat timeout (60s)
+    Active --> Inactive: DeprioritizeProject<br/>(sessions=0)
+    Active --> Active: Another MCP connects<br/>(sessions++)
+
+    Orphaned --> Active: New MCP connects
+    Orphaned --> Inactive: Cleanup task
+
+    Inactive --> Active: RegisterProject
+    Inactive --> [*]: DeleteProject
+
+    state Active {
+        [*] --> HIGH_PRIORITY
+        HIGH_PRIORITY: active_sessions > 0
+        HIGH_PRIORITY: Queue priority = 1
+    }
+
+    state Inactive {
+        [*] --> NORMAL_PRIORITY
+        NORMAL_PRIORITY: active_sessions = 0
+        NORMAL_PRIORITY: Queue priority = 5
+    }
+
+    state Orphaned {
+        [*] --> PENDING_CLEANUP
+        PENDING_CLEANUP: Missed heartbeat
+        PENDING_CLEANUP: Grace period active
+    }
+```
+
+### Session Priority Impact
+
+| Priority | active_sessions | Queue Position | Behavior |
+|----------|-----------------|----------------|----------|
+| **HIGH** | > 0 | First | File changes processed immediately |
+| **NORMAL** | 0 | Standard | Processed in FIFO order |
+| **LOW** | 0 (stale) | Last | Processed during idle time |
+
+**Key Characteristics:**
+- **60-second heartbeat timeout**: Sessions missed for 60s are considered orphaned
+- **Multiple sessions supported**: Same project can have multiple MCP connections
+- **Graceful degradation**: Orphaned sessions don't block processing
+- **Session counting**: Priority based on aggregate session count
+- **Automatic cleanup**: Orphaned sessions cleaned up periodically
+
 ## Data Flow Patterns
 
 Common data flow patterns showing typical user operations.
@@ -724,6 +843,6 @@ For detailed component specifications and implementation details:
 - **CLI**: `src/python/wqm_cli/` - Command-line interface
 - **State**: `src/python/common/core/sqlite_state_manager.py` - SQLite management
 
-**Version**: 1.0
-**Last Updated**: 2025-01-21
+**Version**: 1.1
+**Last Updated**: 2025-01-19
 **PRD Alignment**: v3.0 Four-Component Architecture
