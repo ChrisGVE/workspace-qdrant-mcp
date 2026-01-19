@@ -366,6 +366,127 @@ class TestServerAliasResolution:
             server.alias_manager = original_alias_manager
 
 
+class TestSessionHeartbeat:
+    """Test SessionHeartbeat functionality (Task 407)."""
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_starts_and_stops(self):
+        """Test that heartbeat task starts and stops correctly."""
+        from workspace_qdrant_mcp.server import SessionHeartbeat
+
+        # Create mock daemon client
+        mock_daemon_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.acknowledged = True
+        mock_daemon_client.heartbeat = AsyncMock(return_value=mock_response)
+
+        # Create and start heartbeat
+        heartbeat = SessionHeartbeat(mock_daemon_client, "abc123def456")
+        assert not heartbeat.is_running
+
+        await heartbeat.start()
+        assert heartbeat.is_running
+
+        # Stop heartbeat
+        await heartbeat.stop()
+        assert not heartbeat.is_running
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_sends_to_daemon(self):
+        """Test that heartbeat sends periodic heartbeats to daemon."""
+        from workspace_qdrant_mcp.server import SessionHeartbeat
+
+        # Create mock daemon client
+        mock_daemon_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.acknowledged = True
+        mock_daemon_client.heartbeat = AsyncMock(return_value=mock_response)
+
+        # Create heartbeat with very short interval for testing
+        heartbeat = SessionHeartbeat(mock_daemon_client, "abc123def456")
+        # Override interval for faster testing
+        original_interval = SessionHeartbeat.HEARTBEAT_INTERVAL_SECS
+        SessionHeartbeat.HEARTBEAT_INTERVAL_SECS = 0.1
+
+        try:
+            await heartbeat.start()
+
+            # Wait for at least one heartbeat
+            await asyncio.sleep(0.25)
+
+            # Verify heartbeat was called
+            assert mock_daemon_client.heartbeat.call_count >= 1
+            mock_daemon_client.heartbeat.assert_called_with("abc123def456")
+
+            await heartbeat.stop()
+        finally:
+            SessionHeartbeat.HEARTBEAT_INTERVAL_SECS = original_interval
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_handles_daemon_errors(self):
+        """Test that heartbeat continues on daemon errors."""
+        from workspace_qdrant_mcp.server import SessionHeartbeat
+
+        # Create mock daemon client that raises errors
+        mock_daemon_client = MagicMock()
+        mock_daemon_client.heartbeat = AsyncMock(
+            side_effect=Exception("Daemon unavailable")
+        )
+
+        # Create heartbeat with short interval
+        heartbeat = SessionHeartbeat(mock_daemon_client, "abc123def456")
+        original_interval = SessionHeartbeat.HEARTBEAT_INTERVAL_SECS
+        SessionHeartbeat.HEARTBEAT_INTERVAL_SECS = 0.1
+
+        try:
+            await heartbeat.start()
+
+            # Wait for a few heartbeat attempts
+            await asyncio.sleep(0.35)
+
+            # Heartbeat should still be running despite errors
+            assert heartbeat.is_running
+
+            # Stop should work cleanly
+            await heartbeat.stop()
+            assert not heartbeat.is_running
+        finally:
+            SessionHeartbeat.HEARTBEAT_INTERVAL_SECS = original_interval
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_double_start_ignored(self):
+        """Test that starting heartbeat twice is ignored."""
+        from workspace_qdrant_mcp.server import SessionHeartbeat
+
+        mock_daemon_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.acknowledged = True
+        mock_daemon_client.heartbeat = AsyncMock(return_value=mock_response)
+
+        heartbeat = SessionHeartbeat(mock_daemon_client, "abc123def456")
+
+        await heartbeat.start()
+        assert heartbeat.is_running
+
+        # Second start should be ignored (no error)
+        await heartbeat.start()
+        assert heartbeat.is_running
+
+        await heartbeat.stop()
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_stop_when_not_running(self):
+        """Test that stopping heartbeat when not running is safe."""
+        from workspace_qdrant_mcp.server import SessionHeartbeat
+
+        mock_daemon_client = MagicMock()
+        heartbeat = SessionHeartbeat(mock_daemon_client, "abc123def456")
+
+        # Stop without start should be safe
+        await heartbeat.stop()
+        assert not heartbeat.is_running
+
+
 class TestAliasIntegration:
     """Integration tests for alias system."""
 

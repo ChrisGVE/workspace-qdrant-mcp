@@ -155,6 +155,137 @@ project_cache = {}
 # Session lifecycle state
 _session_project_id: str | None = None
 _session_project_path: str | None = None
+_session_heartbeat: "SessionHeartbeat | None" = None
+
+
+class SessionHeartbeat:
+    """
+    Background heartbeat task for MCP server session lifecycle.
+
+    Task 407: Implements periodic heartbeat to keep session alive with daemon.
+    Without heartbeat, sessions are considered orphaned after 60 seconds and
+    demoted by the daemon's SessionMonitor.
+
+    The heartbeat runs every 30 seconds (well within 60s timeout) to ensure
+    the daemon knows the session is still active.
+    """
+
+    # Heartbeat interval in seconds (should be < 60s daemon timeout)
+    HEARTBEAT_INTERVAL_SECS = 30
+
+    def __init__(self, daemon_client: DaemonClient, project_id: str):
+        """
+        Initialize heartbeat task.
+
+        Args:
+            daemon_client: Connected daemon client for sending heartbeats
+            project_id: 12-char hex project identifier
+        """
+        self._daemon_client = daemon_client
+        self._project_id = project_id
+        self._task: asyncio.Task | None = None
+        self._stop_event = asyncio.Event()
+        self._running = False
+        self._logger = logging.getLogger(__name__)
+
+    async def start(self) -> None:
+        """Start the background heartbeat task."""
+        if self._running:
+            self._logger.warning("SessionHeartbeat already running")
+            return
+
+        self._stop_event.clear()
+        self._running = True
+        self._task = asyncio.create_task(self._heartbeat_loop())
+        self._logger.info(
+            f"SessionHeartbeat started for project {self._project_id} "
+            f"(interval: {self.HEARTBEAT_INTERVAL_SECS}s)"
+        )
+
+    async def stop(self) -> None:
+        """Stop the background heartbeat task."""
+        if not self._running:
+            return
+
+        self._stop_event.set()
+        self._running = False
+
+        if self._task:
+            # Wait for task to complete with timeout
+            try:
+                await asyncio.wait_for(self._task, timeout=5.0)
+            except asyncio.TimeoutError:
+                self._logger.warning("SessionHeartbeat task did not stop cleanly, cancelling")
+                self._task.cancel()
+                try:
+                    await self._task
+                except asyncio.CancelledError:
+                    pass
+            self._task = None
+
+        self._logger.info(f"SessionHeartbeat stopped for project {self._project_id}")
+
+    async def _heartbeat_loop(self) -> None:
+        """Main heartbeat loop - sends periodic heartbeats to daemon."""
+        consecutive_failures = 0
+        max_consecutive_failures = 3
+
+        while self._running:
+            try:
+                # Wait for interval or stop signal
+                try:
+                    await asyncio.wait_for(
+                        self._stop_event.wait(),
+                        timeout=self.HEARTBEAT_INTERVAL_SECS
+                    )
+                    # Stop event was set - exit loop
+                    break
+                except asyncio.TimeoutError:
+                    # Normal timeout - send heartbeat
+                    pass
+
+                # Send heartbeat to daemon
+                try:
+                    response = await self._daemon_client.heartbeat(self._project_id)
+                    if response.acknowledged:
+                        consecutive_failures = 0
+                        self._logger.debug(
+                            f"Heartbeat acknowledged for project {self._project_id}"
+                        )
+                    else:
+                        self._logger.warning(
+                            f"Heartbeat not acknowledged for project {self._project_id}"
+                        )
+                        consecutive_failures += 1
+
+                except Exception as e:
+                    consecutive_failures += 1
+                    self._logger.warning(
+                        f"Heartbeat failed for project {self._project_id}: {e} "
+                        f"(failures: {consecutive_failures}/{max_consecutive_failures})"
+                    )
+
+                # If too many consecutive failures, log error but continue
+                # The daemon will eventually detect the orphaned session
+                if consecutive_failures >= max_consecutive_failures:
+                    self._logger.error(
+                        f"Heartbeat consistently failing for project {self._project_id}, "
+                        f"daemon may consider session orphaned"
+                    )
+                    # Reset counter to avoid log spam
+                    consecutive_failures = 0
+
+            except asyncio.CancelledError:
+                self._logger.debug("Heartbeat loop cancelled")
+                break
+            except Exception as e:
+                self._logger.error(f"Unexpected error in heartbeat loop: {e}")
+                # Continue loop - try to recover
+
+    @property
+    def is_running(self) -> bool:
+        """Check if heartbeat task is running."""
+        return self._running
 
 
 async def _get_git_remote() -> str | None:
@@ -184,15 +315,21 @@ async def lifespan(app):
     FastMCP lifespan context manager for session lifecycle management.
 
     Task 395: Multi-tenant session lifecycle
-    - On startup: Detect project, compute project_id, register with daemon
-    - On shutdown: Deprioritize project to allow daemon to adjust priorities
+    Task 407: Heartbeat mechanism for session liveness
+    - On startup: Detect project, compute project_id, register with daemon, start heartbeat
+    - On shutdown: Stop heartbeat, deprioritize project
 
     The daemon uses session registration to:
     - Set HIGH priority for actively-edited projects
-    - Track active sessions for crash recovery
+    - Track active sessions for crash recovery (via heartbeat)
     - Optimize file watcher resources based on activity
+
+    The heartbeat mechanism (Task 407):
+    - Sends periodic heartbeat every 30 seconds
+    - Daemon timeout is 60 seconds for orphaned session detection
+    - Without heartbeat, crashed sessions are detected and demoted
     """
-    global daemon_client, _session_project_id, _session_project_path
+    global daemon_client, _session_project_id, _session_project_path, _session_heartbeat
 
     logger = logging.getLogger(__name__)
 
@@ -233,6 +370,11 @@ async def lifespan(app):
                     f"Project registered: {project_name} ({project_id}), "
                     f"priority={response.priority}, sessions={response.active_sessions}"
                 )
+
+                # Task 407: Start heartbeat after successful registration
+                _session_heartbeat = SessionHeartbeat(daemon_client, project_id)
+                await _session_heartbeat.start()
+
             except Exception as e:
                 logger.warning(f"Failed to register project: {e}")
                 # Continue without registration - daemon features degraded
@@ -243,9 +385,16 @@ async def lifespan(app):
     yield
 
     # =========================================================================
-    # SHUTDOWN: Deprioritize project with daemon
+    # SHUTDOWN: Stop heartbeat and deprioritize project with daemon
     # =========================================================================
     try:
+        # Task 407: Stop heartbeat first to prevent orphan detection race
+        if _session_heartbeat and _session_heartbeat.is_running:
+            try:
+                await _session_heartbeat.stop()
+            except Exception as e:
+                logger.warning(f"Failed to stop heartbeat: {e}")
+
         if daemon_client and _session_project_id:
             try:
                 response = await daemon_client.deprioritize_project(
