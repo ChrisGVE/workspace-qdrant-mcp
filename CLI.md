@@ -167,29 +167,45 @@ wqm admin [OPTIONS] COMMAND [ARGS]
 
 **Commands:**
 
-- `status` - Show comprehensive system status
+- `status` - Show comprehensive system status (including current tenant_id)
 - `config` - Configuration management
 - `start-engine` - Start Rust processing engine
 - `stop-engine` - Stop processing engine
 - `restart-engine` - Restart engine with new configuration
 - `collections` - List and manage collections
 - `health` - Comprehensive health check
+- `migrate-to-unified` - Migrate old per-project collections to unified model
 
 **Examples:**
 
 ```bash
-# System status
+# System status (shows current project's tenant_id)
 wqm admin status
 
 # Health check
 wqm admin health
 
-# List all collections
+# List all collections (unified model: _projects, _libraries, user, memory)
 wqm admin collections
+
+# Collection statistics
+wqm admin collections --verbose
 
 # Restart processing engine
 wqm admin restart-engine
+
+# Migrate from old collection model to unified
+wqm admin migrate-to-unified --dry-run  # Preview changes
+wqm admin migrate-to-unified            # Execute migration
 ```
+
+**Unified Collection Model:**
+
+The system uses only 4 collection types:
+- `_projects` - ALL project content (tenant-isolated by `tenant_id`)
+- `_libraries` - ALL library docs (tenant-isolated by `library_name`)
+- `{user}-{type}` - User collections (e.g., `work-notes`)
+- `_memory` / `_agent_memory` - System and agent rules
 
 ### Configuration
 
@@ -341,34 +357,61 @@ wqm ingest generate-yaml /path/to/library --output library-metadata.yaml
 
 ### Search
 
-Command-line search interface with multiple modes.
+Command-line search interface with multiple modes and scope options.
 
 #### `wqm search`
 
 ```bash
-wqm search [OPTIONS] COMMAND [ARGS]
+wqm search [OPTIONS] QUERY
 ```
+
+**Options:**
+
+- `--scope TEXT` - Search scope: `project` (default), `global`, `all`
+- `--include-libraries` - Include library documentation in results
+- `--branch TEXT` - Filter by git branch (default: current, `*` for all)
+- `--file-type TEXT` - Filter by type: code, doc, test, config, note
+- `--mode TEXT` - Search mode: `hybrid` (default), `semantic`, `exact`
+- `--limit INTEGER` - Maximum results (default: 10)
+- `--collection TEXT` - Search specific collection directly
 
 **Commands:**
 
-- `project` - Search current project collections
-- `collection` - Search specific collection
-- `global` - Search global collections (library and system)
-- `all` - Search all collections
+- `project` - Search current project (alias for `--scope project`)
+- `global` - Search global collections (alias for `--scope global`)
+- `all` - Search all projects (alias for `--scope all`)
 - `memory` - Search memory rules and knowledge graph
 - `research` - Advanced research mode with analysis
 
 **Examples:**
 
 ```bash
-# Search current project
-wqm search project "authentication implementation"
+# Search current project (default scope)
+wqm search "authentication implementation"
+
+# Search all projects
+wqm search "error handling" --scope all
+
+# Include library documentation
+wqm search "FastAPI routing" --include-libraries
+
+# Search all projects with libraries
+wqm search "async patterns" --scope all --include-libraries
+
+# Filter by branch
+wqm search "new feature" --branch feature/auth
+
+# Search all branches
+wqm search "deprecated" --branch "*"
+
+# Filter by file type
+wqm search "validation" --file-type code
+
+# Semantic-only search
+wqm search "similar concepts" --mode semantic
 
 # Search specific collection
-wqm search collection my-project-docs "API documentation"
-
-# Search all collections
-wqm search all "error handling"
+wqm search "notes" --collection myapp-notes
 
 # Search memory rules
 wqm search memory "coding preferences"
@@ -379,7 +422,7 @@ wqm search research "microservices architecture best practices"
 
 ### Library Management
 
-Manage library collections for shared documentation.
+Manage library tenants within the unified `_libraries` collection. Libraries are reference documentation (PDFs, ebooks, API docs) stored with `library_name` tenant isolation.
 
 #### `wqm library`
 
@@ -387,37 +430,55 @@ Manage library collections for shared documentation.
 wqm library [OPTIONS] COMMAND [ARGS]
 ```
 
+**Architecture Note:** All libraries share the unified `_libraries` collection with `library_name` field for tenant isolation. This provides:
+- Single HNSW index for efficient cross-library search
+- O(1) filtering via payload index on `library_name`
+- Consistent metadata enrichment across all libraries
+
 **Commands:**
 
-- `list` - Show all library collections
-- `create` - Create new library collection
-- `remove` - Remove library collection
+- `list` - Show all library tenants with document counts
+- `add` - Add documents to a library (creates tenant if new)
+- `remove` - Remove all documents for a library tenant
 - `status` - Show library statistics and health
 - `info` - Show detailed library information
-- `rename` - Rename library collection
-- `copy` - Copy library collection
+- `search` - Search within specific library
 
 **Examples:**
 
 ```bash
-# List all libraries
+# List all libraries (tenants in _libraries collection)
 wqm library list
 
-# Create library
-wqm library create python-stdlib
+# Add documents to a library
+wqm library add fastapi /path/to/fastapi-docs/
+wqm library add react /path/to/react-tutorial.pdf
 
-# Library information
-wqm library info python-stdlib
+# Ingest entire documentation folder
+wqm library add numpy ~/docs/numpy-reference/ --recursive
 
-# Rename library
-wqm library rename old-name new-name
+# Library information (document count, topics, etc.)
+wqm library info fastapi
 
-# Copy library
-wqm library copy source-lib target-lib
+# Search within specific library
+wqm library search fastapi "dependency injection"
 
-# Remove library
+# Remove library (deletes all documents with that library_name)
 wqm library remove deprecated-lib
+
+# Include libraries in project search
+wqm search "routing patterns" --include-libraries
 ```
+
+**Library Document Metadata:**
+
+Each library document is stored with these payload fields:
+- `library_name` - Tenant identifier (indexed for O(1) filtering)
+- `source_file` - Original file path
+- `file_type` - Document format (pdf, epub, md, html, etc.)
+- `title` - Extracted document title
+- `topics` - Detected topics/tags
+- `folder` - Subfolder for navigation
 
 ### LSP Integration
 
