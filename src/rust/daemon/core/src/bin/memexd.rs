@@ -15,6 +15,7 @@ use workspace_qdrant_core::{
     LoggingConfig, initialize_logging,
     unified_config::{UnifiedConfigManager, UnifiedConfigError},
     ipc::IpcServer,
+    MetricsServer, METRICS,
 };
 
 /// Command-line arguments for memexd daemon
@@ -32,6 +33,8 @@ struct DaemonArgs {
     foreground: bool,
     /// Project identifier for multi-instance support
     project_id: Option<String>,
+    /// Port for Prometheus metrics endpoint (disabled if not specified)
+    metrics_port: Option<u16>,
 }
 
 impl Default for DaemonArgs {
@@ -43,6 +46,7 @@ impl Default for DaemonArgs {
             pid_file: PathBuf::from("/tmp/memexd.pid"),
             foreground: false,
             project_id: None,
+            metrics_port: None,
         }
     }
 }
@@ -104,6 +108,13 @@ fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
                 .help("Project identifier for multi-instance support")
                 .value_parser(clap::value_parser!(String)),
         )
+        .arg(
+            Arg::new("metrics-port")
+                .long("metrics-port")
+                .value_name("PORT")
+                .help("Enable Prometheus metrics endpoint on this port (e.g., 9090)")
+                .value_parser(clap::value_parser!(u16)),
+        )
         .try_get_matches();
 
     let matches = match matches {
@@ -131,6 +142,7 @@ fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
         pid_file: pid_file.clone(),
         foreground: matches.get_flag("foreground"),
         project_id: matches.get_one::<String>("project-id").cloned(),
+        metrics_port: matches.get_one::<u16>("metrics-port").copied(),
     })
 }
 
@@ -377,6 +389,30 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
         remove_pid_file(&pid_file_cleanup);
     });
 
+    // Start metrics server if port is specified
+    let metrics_handle = if let Some(port) = args.metrics_port {
+        info!("Starting Prometheus metrics endpoint on port {}", port);
+        let mut metrics_server = MetricsServer::new(port);
+        let handle = tokio::spawn(async move {
+            if let Err(e) = metrics_server.start().await {
+                error!("Metrics server error: {}", e);
+            }
+        });
+        Some(handle)
+    } else {
+        info!("Metrics endpoint disabled (use --metrics-port to enable)");
+        None
+    };
+
+    // Start uptime tracking
+    let start_time = std::time::Instant::now();
+    let uptime_handle = tokio::spawn(async move {
+        loop {
+            METRICS.set_uptime(start_time.elapsed().as_secs_f64());
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+        }
+    });
+
     info!("Initializing IPC server");
     let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);
     let (ipc_server, _ipc_client) = IpcServer::new(max_concurrent);
@@ -393,6 +429,13 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
     let shutdown_future = setup_signal_handlers();
     if let Err(e) = shutdown_future.await {
         error!("Error in signal handling: {}", e);
+    }
+
+    // Cleanup
+    uptime_handle.abort();
+    if let Some(handle) = metrics_handle {
+        handle.abort();
+        info!("Metrics server stopped");
     }
 
     info!("memexd daemon shutdown complete");
