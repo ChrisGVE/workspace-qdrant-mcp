@@ -20,6 +20,7 @@ pub mod ipc;
 pub mod logging;
 pub mod metrics;
 pub mod daemon_state;
+pub mod tracing_otel;
 pub mod patterns;
 pub mod priority_manager;
 pub mod processing;
@@ -73,6 +74,10 @@ pub use crate::metrics::{
     // Alerting (Task 412.15-18)
     Alert, AlertChecker, AlertConfig, AlertSeverity, AlertType,
     create_orphaned_session_alert, create_slow_search_alert
+};
+pub use crate::tracing_otel::{
+    OtelConfig, init_tracer_provider, otel_layer, shutdown_tracer,
+    current_trace_id, current_span_id
 };
 pub use crate::daemon_state::{
     DaemonStateManager
