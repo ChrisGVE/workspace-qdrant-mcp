@@ -193,6 +193,43 @@ def show_queue(
     handle_async(_show_queue(json_output, collection, status))
 
 
+@admin_app.command("metrics")
+def show_metrics(
+    json_output: bool = json_output_option(),
+    watch: bool = typer.Option(
+        False, "--watch", "-w", help="Watch metrics continuously (5s refresh)"
+    ),
+    tenant: str | None = typer.Option(
+        None, "--tenant", "-t", help="Filter metrics by tenant/project ID"
+    ),
+    daemon_only: bool = typer.Option(
+        False, "--daemon", help="Show only daemon metrics (from Prometheus endpoint)"
+    ),
+    mcp_only: bool = typer.Option(
+        False, "--mcp", help="Show only MCP server metrics"
+    ),
+):
+    """
+    Display system metrics (Task 412).
+
+    Shows metrics from both the Rust daemon (Prometheus format) and
+    the Python MCP server. Includes session tracking, queue metrics,
+    and per-tenant statistics.
+
+    Examples:
+        wqm admin metrics                    # Show all current metrics
+        wqm admin metrics --watch            # Live updating metrics
+        wqm admin metrics --tenant=abc123    # Filter by tenant
+        wqm admin metrics --daemon           # Daemon metrics only
+        wqm admin metrics --mcp              # MCP server metrics only
+        wqm admin metrics --json             # JSON output
+    """
+    if watch:
+        handle_async(_watch_metrics(tenant, daemon_only, mcp_only))
+    else:
+        handle_async(_show_metrics(json_output, tenant, daemon_only, mcp_only))
+
+
 @admin_app.command("migration-report")
 def migration_report(
     migration_id: str | None = typer.Argument(None, help="Specific migration ID to view"),
@@ -1071,6 +1108,285 @@ async def _get_state_manager():
     state_manager = SQLiteStateManager()
     await state_manager.initialize()
     return state_manager
+
+
+# =============================================================================
+# Metrics commands (Task 412)
+# =============================================================================
+
+
+async def _fetch_daemon_metrics(metrics_port: int = 9090) -> dict[str, Any] | None:
+    """
+    Fetch metrics from the Rust daemon's Prometheus endpoint.
+
+    Returns parsed metrics as a dictionary, or None if daemon is unavailable.
+    """
+    import aiohttp
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                f"http://127.0.0.1:{metrics_port}/metrics",
+                timeout=aiohttp.ClientTimeout(total=5)
+            ) as response:
+                if response.status != 200:
+                    return None
+
+                text = await response.text()
+                return _parse_prometheus_metrics(text)
+    except Exception as e:
+        logger.debug(f"Failed to fetch daemon metrics: {e}")
+        return None
+
+
+def _parse_prometheus_metrics(text: str) -> dict[str, Any]:
+    """Parse Prometheus text format into a structured dictionary."""
+    metrics: dict[str, Any] = {
+        "sessions": {},
+        "queue": {},
+        "tenant": {},
+        "system": {},
+        "raw_lines": []
+    }
+
+    for line in text.strip().split("\n"):
+        # Skip comments and empty lines
+        if not line or line.startswith("#"):
+            continue
+
+        metrics["raw_lines"].append(line)
+
+        # Parse metric line: metric_name{labels} value
+        try:
+            if "{" in line:
+                metric_part, value = line.rsplit(" ", 1)
+                metric_name = metric_part.split("{")[0]
+                labels_str = metric_part.split("{")[1].rstrip("}")
+                labels = dict(
+                    kv.split("=") for kv in labels_str.replace('"', '').split(",") if "=" in kv
+                )
+            else:
+                parts = line.split(" ")
+                metric_name = parts[0]
+                value = parts[1] if len(parts) > 1 else "0"
+                labels = {}
+
+            value_float = float(value)
+
+            # Categorize metrics
+            if metric_name.startswith("memexd_active_sessions"):
+                project_id = labels.get("project_id", "unknown")
+                priority = labels.get("priority", "unknown")
+                if project_id not in metrics["sessions"]:
+                    metrics["sessions"][project_id] = {}
+                metrics["sessions"][project_id][priority] = value_float
+
+            elif metric_name.startswith("memexd_queue_depth"):
+                priority = labels.get("priority", "unknown")
+                collection = labels.get("collection", "unknown")
+                key = f"{priority}_{collection}"
+                metrics["queue"][key] = value_float
+
+            elif metric_name.startswith("memexd_queue_items_processed"):
+                priority = labels.get("priority", "unknown")
+                status = labels.get("status", "unknown")
+                key = f"{priority}_{status}"
+                if "items_processed" not in metrics["queue"]:
+                    metrics["queue"]["items_processed"] = {}
+                metrics["queue"]["items_processed"][key] = value_float
+
+            elif metric_name.startswith("memexd_tenant"):
+                tenant_id = labels.get("tenant_id", "unknown")
+                if tenant_id not in metrics["tenant"]:
+                    metrics["tenant"][tenant_id] = {}
+                # Extract metric type from name
+                metric_type = metric_name.replace("memexd_tenant_", "")
+                metrics["tenant"][tenant_id][metric_type] = value_float
+
+            elif metric_name.startswith("memexd_uptime"):
+                metrics["system"]["uptime_seconds"] = value_float
+
+            elif metric_name.startswith("memexd_ingestion_errors"):
+                error_type = labels.get("error_type", "unknown")
+                if "errors" not in metrics["system"]:
+                    metrics["system"]["errors"] = {}
+                metrics["system"]["errors"][error_type] = value_float
+
+        except (ValueError, IndexError) as e:
+            logger.debug(f"Failed to parse metric line '{line}': {e}")
+            continue
+
+    return metrics
+
+
+def _get_mcp_metrics() -> dict[str, Any]:
+    """Get metrics from the Python MCP server."""
+    try:
+        from common.observability.metrics import get_tool_metrics_summary
+        return get_tool_metrics_summary()
+    except ImportError:
+        logger.debug("MCP metrics module not available")
+        return {}
+    except Exception as e:
+        logger.debug(f"Failed to get MCP metrics: {e}")
+        return {}
+
+
+async def _show_metrics(
+    json_output: bool,
+    tenant: str | None,
+    daemon_only: bool,
+    mcp_only: bool
+) -> None:
+    """Display system metrics (Task 412.12)."""
+    from datetime import datetime
+
+    metrics_data: dict[str, Any] = {
+        "timestamp": datetime.now().isoformat(),
+        "daemon": None,
+        "mcp": None,
+    }
+
+    # Fetch daemon metrics unless MCP-only
+    if not mcp_only:
+        daemon_metrics = await _fetch_daemon_metrics()
+        if daemon_metrics:
+            # Filter by tenant if specified
+            if tenant and daemon_metrics.get("tenant"):
+                filtered_tenant = {
+                    k: v for k, v in daemon_metrics["tenant"].items()
+                    if tenant.lower() in k.lower()
+                }
+                daemon_metrics["tenant"] = filtered_tenant
+            metrics_data["daemon"] = daemon_metrics
+        else:
+            metrics_data["daemon"] = {"status": "unavailable", "message": "Daemon metrics endpoint not accessible"}
+
+    # Fetch MCP metrics unless daemon-only
+    if not daemon_only:
+        mcp_metrics = _get_mcp_metrics()
+        metrics_data["mcp"] = mcp_metrics if mcp_metrics else {"status": "no_data"}
+
+    # Output
+    if json_output:
+        print(json.dumps(metrics_data, indent=2, default=str))
+        return
+
+    # Display formatted output
+    print(f"System Metrics - {metrics_data['timestamp'][:19]}")
+    print("=" * 70)
+
+    # Daemon metrics
+    if not mcp_only:
+        print("\n[Daemon Metrics]")
+        print("-" * 70)
+
+        if metrics_data["daemon"] and "status" not in metrics_data["daemon"]:
+            dm = metrics_data["daemon"]
+
+            # System info
+            if dm.get("system"):
+                uptime = dm["system"].get("uptime_seconds", 0)
+                uptime_str = f"{int(uptime // 3600)}h {int((uptime % 3600) // 60)}m"
+                print(f"  Uptime:           {uptime_str}")
+
+                if dm["system"].get("errors"):
+                    total_errors = sum(dm["system"]["errors"].values())
+                    print(f"  Total Errors:     {int(total_errors)}")
+
+            # Session metrics
+            if dm.get("sessions"):
+                total_sessions = sum(
+                    sum(priorities.values()) for priorities in dm["sessions"].values()
+                )
+                print(f"  Active Sessions:  {int(total_sessions)}")
+
+                if len(dm["sessions"]) > 0:
+                    print("  Sessions by Project:")
+                    for project_id, priorities in list(dm["sessions"].items())[:5]:
+                        session_count = sum(priorities.values())
+                        print(f"    {project_id[:12]}:  {int(session_count)}")
+
+            # Queue metrics
+            if dm.get("queue"):
+                print("  Queue Depth:")
+                for key, value in dm["queue"].items():
+                    if key != "items_processed" and value > 0:
+                        print(f"    {key}:  {int(value)}")
+
+                if dm["queue"].get("items_processed"):
+                    print("  Items Processed:")
+                    for key, value in dm["queue"]["items_processed"].items():
+                        if value > 0:
+                            print(f"    {key}:  {int(value)}")
+
+            # Tenant metrics
+            if dm.get("tenant") and tenant:
+                print(f"  Tenant Metrics (filter: {tenant}):")
+                for tenant_id, tenant_metrics in dm["tenant"].items():
+                    print(f"    {tenant_id}:")
+                    for metric, value in tenant_metrics.items():
+                        print(f"      {metric}: {value}")
+        else:
+            print("  Daemon metrics unavailable (start daemon with --metrics-port)")
+
+    # MCP metrics
+    if not daemon_only:
+        print("\n[MCP Server Metrics]")
+        print("-" * 70)
+
+        if metrics_data["mcp"] and metrics_data["mcp"].get("status") != "no_data":
+            mcp = metrics_data["mcp"]
+
+            if mcp.get("tools"):
+                print("  Tool Calls:")
+                for tool_name, stats in mcp["tools"].items():
+                    calls = stats.get("calls", 0)
+                    errors = stats.get("errors", 0)
+                    avg_duration = stats.get("avg_duration_ms", 0)
+                    print(f"    {tool_name}:  {calls} calls, {errors} errors, {avg_duration:.1f}ms avg")
+
+            if mcp.get("search_scopes"):
+                print("  Search Scopes:")
+                for scope, count in mcp["search_scopes"].items():
+                    print(f"    {scope}:  {count}")
+
+            if mcp.get("total_calls"):
+                print(f"  Total Tool Calls: {mcp['total_calls']}")
+        else:
+            print("  No MCP metrics data available (run search/store operations first)")
+
+
+async def _watch_metrics(
+    tenant: str | None,
+    daemon_only: bool,
+    mcp_only: bool
+) -> None:
+    """Watch metrics with continuous refresh (Task 412.13)."""
+    import os
+
+    print("Watching system metrics (Ctrl+C to stop)\n")
+
+    try:
+        while True:
+            # Clear screen
+            clear_cmd = ["clear"] if os.name == "posix" else ["cls"]
+            subprocess.run(clear_cmd, check=False, capture_output=False)
+
+            await _show_metrics(
+                json_output=False,
+                tenant=tenant,
+                daemon_only=daemon_only,
+                mcp_only=mcp_only
+            )
+
+            print("\nPress Ctrl+C to stop watching...")
+
+            # Wait 5 seconds
+            await asyncio.sleep(5)
+
+    except KeyboardInterrupt:
+        print("\nMetrics monitoring stopped")
 
 
 async def _list_projects(json_output: bool, priority: str | None, active_only: bool) -> None:
