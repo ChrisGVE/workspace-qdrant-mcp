@@ -33,9 +33,15 @@ workspace-qdrant-mcp provides 4 comprehensive MCP tools for vector database oper
 Store any type of content in the vector database with automatic embedding generation and metadata enrichment.
 - Supports text, code, documentation, notes, and more
 - Automatic project detection and collection routing
-- Metadata enrichment (file_type, branch, project_id)
+- Metadata enrichment (file_type, branch, tenant_id)
 - **Daemon-first write architecture**: All writes route through the Rust daemon for consistency
 - Background processing via Rust daemon for optimal performance
+
+**Parameters:**
+- `content` (required): The text content to store
+- `collection`: Target collection name (auto-detected if omitted)
+- `file_type`: Content classification (code, doc, note, etc.)
+- `metadata`: Additional key-value metadata
 
 ### 2. **search** - Hybrid Search
 Search across collections with powerful hybrid semantic + keyword matching.
@@ -43,8 +49,27 @@ Search across collections with powerful hybrid semantic + keyword matching.
 - **semantic mode**: Pure vector similarity search for conceptual matches
 - **exact mode**: Keyword and symbol exact matching
 - Automatic result optimization using Reciprocal Rank Fusion (RRF)
-- Branch filtering (search current branch or all branches)
-- File type filtering (code, docs, tests, etc.)
+
+**Parameters:**
+- `query` (required): The search query
+- `mode`: Search mode - `"hybrid"` (default), `"semantic"`, or `"exact"`
+- `scope`: Search scope - `"project"` (default), `"global"`, or `"all"`
+- `include_libraries`: Include library documentation - `true`/`false` (default: false)
+- `branch`: Filter by git branch (default: current branch, `"*"` for all)
+- `file_type`: Filter by content type (code, doc, test, config, note, etc.)
+- `limit`: Maximum results to return (default: 10)
+
+**Example:**
+```python
+# Search current project only
+search(query="authentication", scope="project")
+
+# Search all projects with library documentation
+search(query="JWT tokens", scope="all", include_libraries=True)
+
+# Search specific branch
+search(query="bugfix", branch="feature/auth")
+```
 
 ### 3. **manage** - Collection Management
 Manage collections, system status, and configuration via the daemon's gRPC interface.
@@ -54,12 +79,25 @@ Manage collections, system status, and configuration via the daemon's gRPC inter
 - Initialize project collections
 - Cleanup empty collections and optimize storage
 
+**Operations:**
+- `list_collections`: Show all collections with document counts
+- `create_collection`: Create new collection with proper configuration
+- `delete_collection`: Remove collection and all its data
+- `get_status`: System health and metrics
+
 ### 4. **retrieve** - Direct Document Access
 Retrieve documents by ID or metadata without search ranking.
 - Direct document ID lookup
 - Metadata-based filtering
 - Branch and file type filtering
 - Efficient bulk retrieval
+
+**Parameters:**
+- `document_id`: Retrieve specific document by ID
+- `collection`: Target collection name
+- `branch`: Filter by branch
+- `file_type`: Filter by content type
+- `limit`: Maximum documents to return
 
 All tools seamlessly integrate with Claude Desktop and Claude Code for natural language interaction.
 
