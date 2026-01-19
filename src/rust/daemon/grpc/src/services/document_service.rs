@@ -9,6 +9,14 @@
 //! - Scraped web content
 //! - API responses
 //! - Any text not originating from files
+//!
+//! ## Multi-Tenant Routing (Task 406)
+//!
+//! Routes content to unified collections based on collection_basename:
+//! - `memory`, `agent_memory` → Direct collection names (no multi-tenant)
+//! - Other basenames → Routes to `_projects` or `_libraries`:
+//!   - If tenant_id is 12-char hex → `_projects` with project_id metadata
+//!   - Otherwise → `_libraries` with library_name metadata
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -16,6 +24,7 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
 use uuid::Uuid;
 use workspace_qdrant_core::storage::{StorageClient, DocumentPoint, StorageError};
+use workspace_qdrant_core::{UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION};
 
 use crate::proto::{
     document_service_server::DocumentService,
@@ -119,6 +128,59 @@ impl DocumentServiceImpl {
         let collection_name = format!("{}_{}", basename, tenant_id);
         Self::validate_collection_name(&collection_name)?;
         Ok(collection_name)
+    }
+
+    /// Check if tenant_id is a project ID format (12-char hex)
+    /// Project IDs are generated from git remote URLs or path hashes
+    fn is_project_id(tenant_id: &str) -> bool {
+        tenant_id.len() == 12 && tenant_id.chars().all(|c| c.is_ascii_hexdigit())
+    }
+
+    /// Determine the target collection and tenant metadata for multi-tenant routing
+    ///
+    /// Routing logic:
+    /// - `memory`, `agent_memory` → Direct collection name (no multi-tenant)
+    /// - Other basenames:
+    ///   - If tenant_id is 12-char hex → `_projects` with project_id
+    ///   - Otherwise → `_libraries` with library_name
+    ///
+    /// Returns: (collection_name, tenant_type, tenant_value)
+    /// - tenant_type: "project_id" or "library_name"
+    fn determine_collection_routing(
+        basename: &str,
+        tenant_id: &str,
+    ) -> Result<(String, String, String), Status> {
+        if basename.is_empty() {
+            return Err(Status::invalid_argument("Collection basename cannot be empty"));
+        }
+
+        if tenant_id.is_empty() {
+            return Err(Status::invalid_argument("Tenant ID cannot be empty"));
+        }
+
+        // Memory collections use direct naming (no multi-tenant routing)
+        if basename == "memory" || basename == "agent_memory" {
+            let collection_name = Self::format_collection_name(basename, tenant_id)?;
+            // Memory uses project_id for consistency
+            return Ok((collection_name, "project_id".to_string(), tenant_id.to_string()));
+        }
+
+        // Multi-tenant routing based on tenant_id format
+        if Self::is_project_id(tenant_id) {
+            // 12-char hex = project_id → route to _projects
+            Ok((
+                UNIFIED_PROJECTS_COLLECTION.to_string(),
+                "project_id".to_string(),
+                tenant_id.to_string(),
+            ))
+        } else {
+            // Non-hex = library_name → route to _libraries
+            Ok((
+                UNIFIED_LIBRARIES_COLLECTION.to_string(),
+                "library_name".to_string(),
+                tenant_id.to_string(),
+            ))
+        }
     }
 
     /// Validate document ID format (should be valid UUID)
@@ -387,11 +449,16 @@ impl DocumentService for DocumentServiceImpl {
             req.collection_basename, req.tenant_id
         );
 
-        // Validate and format collection name
-        let collection_name = Self::format_collection_name(
+        // Determine multi-tenant collection routing
+        let (collection_name, tenant_type, tenant_value) = Self::determine_collection_routing(
             &req.collection_basename,
             &req.tenant_id,
         )?;
+
+        info!(
+            "Multi-tenant routing: collection='{}', {}='{}'",
+            collection_name, tenant_type, tenant_value
+        );
 
         // Generate or validate document ID
         let document_id = if let Some(provided_id) = req.document_id {
@@ -407,12 +474,19 @@ impl DocumentService for DocumentServiceImpl {
 
         debug!("Using document_id: {}", document_id);
 
-        // Process ingestion
+        // Enrich metadata with tenant information
+        let mut enriched_metadata = req.metadata.clone();
+        enriched_metadata.insert(tenant_type.clone(), tenant_value.clone());
+
+        // Add collection_basename for filtering within unified collections
+        enriched_metadata.insert("collection_basename".to_string(), req.collection_basename.clone());
+
+        // Process ingestion with enriched metadata
         let response = self.ingest_text_internal(
             req.content,
             collection_name,
             document_id,
-            req.metadata,
+            enriched_metadata,
             req.chunk_text,
         ).await?;
 
@@ -430,7 +504,8 @@ impl DocumentService for DocumentServiceImpl {
         // Validate document ID
         Self::validate_document_id(&req.document_id)?;
 
-        // Determine collection name
+        // Determine collection name - for updates, the collection_name should be
+        // the actual collection (e.g., _projects, _libraries, or memory_xxx)
         let collection_name = if let Some(coll_name) = req.collection_name {
             Self::validate_collection_name(&coll_name)?;
             coll_name
@@ -440,6 +515,11 @@ impl DocumentService for DocumentServiceImpl {
             ));
         };
 
+        info!(
+            "UpdateText: collection='{}', document='{}'",
+            collection_name, req.document_id
+        );
+
         // TODO: Delete existing chunks for this document_id
         // This requires implementing a delete-by-metadata filter in StorageClient
         // For now, we'll log a warning
@@ -448,12 +528,16 @@ impl DocumentService for DocumentServiceImpl {
             req.document_id
         );
 
+        // Add updated_at to metadata
+        let mut enriched_metadata = req.metadata.clone();
+        enriched_metadata.insert("updated_at".to_string(), chrono::Utc::now().to_rfc3339());
+
         // Ingest new content
         let response = self.ingest_text_internal(
             req.content,
             collection_name,
             req.document_id.clone(),
-            req.metadata,
+            enriched_metadata,
             true, // Always chunk for updates
         ).await?;
 
@@ -474,13 +558,23 @@ impl DocumentService for DocumentServiceImpl {
         let req = request.into_inner();
 
         info!(
-            "Deleting document '{}' from collection '{}'",
+            "DeleteText: document='{}', collection='{}'",
             req.document_id, req.collection_name
         );
 
         // Validate inputs
         Self::validate_document_id(&req.document_id)?;
         Self::validate_collection_name(&req.collection_name)?;
+
+        // Log if targeting a unified collection
+        if req.collection_name == UNIFIED_PROJECTS_COLLECTION
+            || req.collection_name == UNIFIED_LIBRARIES_COLLECTION
+        {
+            debug!(
+                "Deleting from unified collection '{}' - document_id filter will be used",
+                req.collection_name
+            );
+        }
 
         // TODO: Implement delete by metadata filter
         // This requires adding a delete_by_filter method to StorageClient
@@ -501,6 +595,9 @@ mod tests {
         assert!(DocumentServiceImpl::validate_collection_name("memory_tenant1").is_ok());
         assert!(DocumentServiceImpl::validate_collection_name("scratchbook_user123").is_ok());
         assert!(DocumentServiceImpl::validate_collection_name("notes-project").is_ok());
+        // Unified collection names are valid
+        assert!(DocumentServiceImpl::validate_collection_name("_projects").is_ok());
+        assert!(DocumentServiceImpl::validate_collection_name("_libraries").is_ok());
 
         // Invalid: too short
         assert!(DocumentServiceImpl::validate_collection_name("ab").is_err());
@@ -514,6 +611,100 @@ mod tests {
 
         // Invalid: empty
         assert!(DocumentServiceImpl::validate_collection_name("").is_err());
+    }
+
+    #[test]
+    fn test_is_project_id() {
+        // Valid 12-char hex project IDs
+        assert!(DocumentServiceImpl::is_project_id("a1b2c3d4e5f6"));
+        assert!(DocumentServiceImpl::is_project_id("123456789abc"));
+        assert!(DocumentServiceImpl::is_project_id("ABCDEF123456"));
+        assert!(DocumentServiceImpl::is_project_id("000000000000"));
+
+        // Invalid: wrong length
+        assert!(!DocumentServiceImpl::is_project_id("a1b2c3d4e5f")); // 11 chars
+        assert!(!DocumentServiceImpl::is_project_id("a1b2c3d4e5f67")); // 13 chars
+        assert!(!DocumentServiceImpl::is_project_id("")); // empty
+
+        // Invalid: non-hex characters
+        assert!(!DocumentServiceImpl::is_project_id("a1b2c3d4e5fg")); // 'g' is not hex
+        assert!(!DocumentServiceImpl::is_project_id("hello_world!")); // not hex
+
+        // Library names (non-hex)
+        assert!(!DocumentServiceImpl::is_project_id("langchain"));
+        assert!(!DocumentServiceImpl::is_project_id("react-docs"));
+    }
+
+    #[test]
+    fn test_determine_collection_routing_memory() {
+        // Memory collection bypasses multi-tenant routing
+        let result = DocumentServiceImpl::determine_collection_routing("memory", "a1b2c3d4e5f6");
+        assert!(result.is_ok());
+        let (collection, tenant_type, tenant_value) = result.unwrap();
+        assert_eq!(collection, "memory_a1b2c3d4e5f6");
+        assert_eq!(tenant_type, "project_id");
+        assert_eq!(tenant_value, "a1b2c3d4e5f6");
+
+        // agent_memory also bypasses routing
+        let result = DocumentServiceImpl::determine_collection_routing("agent_memory", "user123");
+        assert!(result.is_ok());
+        let (collection, tenant_type, tenant_value) = result.unwrap();
+        assert_eq!(collection, "agent_memory_user123");
+        assert_eq!(tenant_type, "project_id");
+        assert_eq!(tenant_value, "user123");
+    }
+
+    #[test]
+    fn test_determine_collection_routing_projects() {
+        // Project routing: 12-char hex tenant_id → _projects
+        let result = DocumentServiceImpl::determine_collection_routing("notes", "a1b2c3d4e5f6");
+        assert!(result.is_ok());
+        let (collection, tenant_type, tenant_value) = result.unwrap();
+        assert_eq!(collection, "_projects");
+        assert_eq!(tenant_type, "project_id");
+        assert_eq!(tenant_value, "a1b2c3d4e5f6");
+
+        // Another project example
+        let result = DocumentServiceImpl::determine_collection_routing("code", "123456789abc");
+        assert!(result.is_ok());
+        let (collection, tenant_type, tenant_value) = result.unwrap();
+        assert_eq!(collection, "_projects");
+        assert_eq!(tenant_type, "project_id");
+        assert_eq!(tenant_value, "123456789abc");
+    }
+
+    #[test]
+    fn test_determine_collection_routing_libraries() {
+        // Library routing: non-hex tenant_id → _libraries
+        let result = DocumentServiceImpl::determine_collection_routing("docs", "langchain");
+        assert!(result.is_ok());
+        let (collection, tenant_type, tenant_value) = result.unwrap();
+        assert_eq!(collection, "_libraries");
+        assert_eq!(tenant_type, "library_name");
+        assert_eq!(tenant_value, "langchain");
+
+        // Another library example
+        let result = DocumentServiceImpl::determine_collection_routing("reference", "react-docs");
+        assert!(result.is_ok());
+        let (collection, tenant_type, tenant_value) = result.unwrap();
+        assert_eq!(collection, "_libraries");
+        assert_eq!(tenant_type, "library_name");
+        assert_eq!(tenant_value, "react-docs");
+    }
+
+    #[test]
+    fn test_determine_collection_routing_validation() {
+        // Empty basename
+        let result = DocumentServiceImpl::determine_collection_routing("", "tenant123");
+        assert!(result.is_err());
+
+        // Empty tenant_id
+        let result = DocumentServiceImpl::determine_collection_routing("notes", "");
+        assert!(result.is_err());
+
+        // Both empty
+        let result = DocumentServiceImpl::determine_collection_routing("", "");
+        assert!(result.is_err());
     }
 
     #[test]
