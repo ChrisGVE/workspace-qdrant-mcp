@@ -141,6 +141,9 @@ from common.core.collection_aliases import AliasManager
 from common.core.collection_naming import build_project_collection_name
 from common.core.sqlite_state_manager import SQLiteStateManager
 from common.grpc.daemon_client import DaemonClient, DaemonConnectionError
+from common.observability.metrics import (
+    track_tool, record_search_scope, record_search_results
+)
 from common.utils.git_utils import get_current_branch
 from common.utils.project_detection import calculate_tenant_id
 
@@ -807,6 +810,7 @@ def _detect_file_type(file_path: str) -> str:
 
 
 @app.tool()
+@track_tool("store")
 async def store(
     content: str,
     title: str = None,
@@ -1030,6 +1034,7 @@ def _merge_with_rrf(
 
 
 @app.tool()
+@track_tool("search")
 async def search(
     query: str,
     collection: str = None,
@@ -1284,6 +1289,10 @@ async def search(
 
         search_duration = (datetime.now() - search_start).total_seconds()
 
+        # Record search metrics (Task 412.10)
+        record_search_scope(scope)
+        record_search_results(scope, len(final_results), search_duration)
+
         response = {
             "success": True,
             "query": query,
@@ -1319,6 +1328,7 @@ async def search(
         }
 
 @app.tool()
+@track_tool("manage")
 async def manage(
     action: str,
     collection: str = None,
@@ -1611,6 +1621,7 @@ async def manage(
         }
 
 @app.tool()
+@track_tool("retrieve")
 async def retrieve(
     document_id: str = None,
     collection: str = None,

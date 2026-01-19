@@ -619,3 +619,172 @@ def record_operation(operation_type: str, **context):
             operation_id, operation_type, False, error_type=type(e).__name__, **context
         )
         raise
+
+
+# =====================================================================
+# MCP Tool Metrics (Task 412.10)
+# =====================================================================
+
+def _initialize_tool_metrics(collector: MetricsCollector) -> None:
+    """Initialize MCP tool-specific metrics.
+
+    Creates:
+        - wqm_tool_calls_total: Counter for tool call counts
+        - wqm_tool_duration_seconds: Histogram for tool durations
+        - wqm_search_scope_total: Counter for search scopes
+        - wqm_search_results: Histogram for search result counts
+        - wqm_search_latency_seconds: Histogram for search latency
+    """
+    collector.create_counter(
+        "wqm_tool_calls_total",
+        "Total MCP tool calls by tool name and status"
+    )
+    collector.create_histogram(
+        "wqm_tool_duration_seconds",
+        "MCP tool call duration in seconds",
+        buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0]
+    )
+    collector.create_counter(
+        "wqm_search_scope_total",
+        "Search scope counts (project, global, all)"
+    )
+    collector.create_histogram(
+        "wqm_search_results",
+        "Number of search results returned",
+        buckets=[0, 1, 5, 10, 25, 50, 100, 250, 500, 1000]
+    )
+    collector.create_histogram(
+        "wqm_search_latency_seconds",
+        "Search latency by scope",
+        buckets=[0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0]
+    )
+
+
+# Initialize tool metrics when metrics collector is created
+_tool_metrics_initialized = False
+
+
+def _ensure_tool_metrics() -> None:
+    """Ensure tool metrics are initialized (once)."""
+    global _tool_metrics_initialized
+    if not _tool_metrics_initialized:
+        _initialize_tool_metrics(get_metrics_collector())
+        _tool_metrics_initialized = True
+
+
+def record_tool_call(tool_name: str, status: str, duration_seconds: float) -> None:
+    """Record an MCP tool call metric.
+
+    Args:
+        tool_name: Name of the tool (store, search, manage, retrieve)
+        status: Call status ("success" or "error")
+        duration_seconds: Duration of the call in seconds
+    """
+    _ensure_tool_metrics()
+    metrics = get_metrics_collector()
+    metrics.increment_counter("wqm_tool_calls_total", tool_name=tool_name, status=status)
+    metrics.record_histogram("wqm_tool_duration_seconds", duration_seconds, tool_name=tool_name)
+
+
+def record_search_scope(scope: str) -> None:
+    """Record a search scope metric.
+
+    Args:
+        scope: Search scope ("project", "global", "all")
+    """
+    _ensure_tool_metrics()
+    get_metrics_collector().increment_counter("wqm_search_scope_total", scope=scope)
+
+
+def record_search_results(scope: str, result_count: int, latency_seconds: float) -> None:
+    """Record search result metrics.
+
+    Args:
+        scope: Search scope ("project", "global", "all")
+        result_count: Number of results returned
+        latency_seconds: Search latency in seconds
+    """
+    _ensure_tool_metrics()
+    metrics = get_metrics_collector()
+    metrics.record_histogram("wqm_search_results", result_count, scope=scope)
+    metrics.record_histogram("wqm_search_latency_seconds", latency_seconds, scope=scope)
+
+
+async def _async_tool_wrapper(tool_name: str, coro):
+    """Async wrapper for recording tool metrics.
+
+    Internal function - use track_tool decorator instead.
+    """
+    start_time = time.perf_counter()
+    try:
+        result = await coro
+        duration = time.perf_counter() - start_time
+        record_tool_call(tool_name, "success", duration)
+        return result
+    except Exception as e:
+        duration = time.perf_counter() - start_time
+        record_tool_call(tool_name, "error", duration)
+        raise
+
+
+def track_tool(tool_name: str):
+    """Decorator for tracking MCP tool call metrics.
+
+    Task 412.10: Wraps async tool functions to record:
+    - wqm_tool_calls_total{tool_name, status}
+    - wqm_tool_duration_seconds{tool_name}
+
+    Args:
+        tool_name: Name of the tool being tracked
+
+    Example:
+        ```python
+        @track_tool("store")
+        async def store(content: str, ...) -> dict:
+            ...
+        ```
+    """
+    import functools
+
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            start_time = time.perf_counter()
+            try:
+                result = await func(*args, **kwargs)
+                duration = time.perf_counter() - start_time
+                record_tool_call(tool_name, "success", duration)
+                return result
+            except Exception as e:
+                duration = time.perf_counter() - start_time
+                record_tool_call(tool_name, "error", duration)
+                raise
+        return wrapper
+    return decorator
+
+
+def get_tool_metrics_summary() -> dict[str, Any]:
+    """Get a summary of MCP tool metrics.
+
+    Returns:
+        Dict with tool calls, durations, and search metrics
+    """
+    _ensure_tool_metrics()
+    metrics = get_metrics_collector()
+
+    return {
+        "tool_calls": metrics.counters.get("wqm_tool_calls_total", Counter("wqm_tool_calls_total")).get_all_labeled_values(),
+        "tool_durations": {
+            "count": metrics.histograms.get("wqm_tool_duration_seconds", Histogram("wqm_tool_duration_seconds")).get_count(),
+            "average": metrics.histograms.get("wqm_tool_duration_seconds", Histogram("wqm_tool_duration_seconds")).get_average(),
+        },
+        "search_scopes": metrics.counters.get("wqm_search_scope_total", Counter("wqm_search_scope_total")).get_all_labeled_values(),
+        "search_results": {
+            "count": metrics.histograms.get("wqm_search_results", Histogram("wqm_search_results")).get_count(),
+            "average": metrics.histograms.get("wqm_search_results", Histogram("wqm_search_results")).get_average(),
+        },
+        "search_latency": {
+            "count": metrics.histograms.get("wqm_search_latency_seconds", Histogram("wqm_search_latency_seconds")).get_count(),
+            "average": metrics.histograms.get("wqm_search_latency_seconds", Histogram("wqm_search_latency_seconds")).get_average(),
+        },
+    }
