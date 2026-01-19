@@ -143,6 +143,56 @@ def health_check(
     handle_async(_health_check(deep, timeout))
 
 
+@admin_app.command("projects")
+def list_projects(
+    json_output: bool = json_output_option(),
+    priority: str | None = typer.Option(
+        None, "--priority", help="Filter by priority: high, normal, low"
+    ),
+    active_only: bool = typer.Option(
+        False, "--active", help="Show only projects with active sessions"
+    ),
+):
+    """
+    List registered projects with priority and session status.
+
+    Shows all projects registered in the multi-tenant architecture,
+    including their priority level, active sessions, and last activity.
+
+    Examples:
+        wqm admin projects                    # List all projects
+        wqm admin projects --active           # Show only active projects
+        wqm admin projects --priority=high    # Filter by priority
+        wqm admin projects --json             # JSON output
+    """
+    handle_async(_list_projects(json_output, priority, active_only))
+
+
+@admin_app.command("queue")
+def show_queue(
+    json_output: bool = json_output_option(),
+    collection: str | None = typer.Option(
+        None, "--collection", help="Filter by collection type: projects, libraries"
+    ),
+    status: str | None = typer.Option(
+        None, "--status", help="Filter by status: pending, processing, failed"
+    ),
+):
+    """
+    Show ingestion queue status with priority breakdown.
+
+    Displays the current state of the ingestion queue, including
+    pending items by priority level and collection type.
+
+    Examples:
+        wqm admin queue                       # Show full queue status
+        wqm admin queue --collection=projects # Show only project queue
+        wqm admin queue --status=pending      # Show pending items
+        wqm admin queue --json                # JSON output
+    """
+    handle_async(_show_queue(json_output, collection, status))
+
+
 @admin_app.command("migration-report")
 def migration_report(
     migration_id: str | None = typer.Argument(None, help="Specific migration ID to view"),
@@ -256,6 +306,9 @@ async def _collect_status_data(config) -> dict[str, Any]:
         "system": {},
         "project": {},
         "collections": {},
+        "registered_projects": {},  # Task 401: Multi-tenant projects info
+        "library_watches": {},      # Task 401: Library watches info
+        "ingestion_queue": {},      # Task 401: Queue info
     }
 
     # Test Qdrant connectivity
@@ -332,6 +385,79 @@ async def _collect_status_data(config) -> dict[str, Any]:
         }
     except Exception as e:
         status_data["project"] = {"error": str(e)}
+
+    # Task 401: Multi-tenant architecture status
+    try:
+        from common.core.sqlite_state_manager import SQLiteStateManager
+        state_manager = SQLiteStateManager()
+
+        # Initialize synchronously for status collection
+        import asyncio
+        loop = asyncio.get_event_loop()
+
+        async def get_multitenant_status():
+            await state_manager.initialize()
+
+            # Get registered projects summary
+            async with state_manager._lock:
+                projects_cursor = state_manager.connection.execute(
+                    """SELECT priority, COUNT(*) as count FROM projects GROUP BY priority"""
+                )
+                projects_by_priority = {row["priority"]: row["count"] for row in projects_cursor.fetchall()}
+
+                active_cursor = state_manager.connection.execute(
+                    """SELECT COUNT(*) as count FROM projects WHERE active_sessions > 0"""
+                )
+                active_projects = active_cursor.fetchone()["count"]
+
+                total_cursor = state_manager.connection.execute(
+                    """SELECT COUNT(*) as count FROM projects"""
+                )
+                total_projects = total_cursor.fetchone()["count"]
+
+            # Get library watches summary
+            async with state_manager._lock:
+                lib_cursor = state_manager.connection.execute(
+                    """SELECT enabled, COUNT(*) as count FROM library_watches GROUP BY enabled"""
+                )
+                lib_rows = lib_cursor.fetchall()
+                enabled_libs = sum(row["count"] for row in lib_rows if row["enabled"])
+                total_libs = sum(row["count"] for row in lib_rows)
+
+            # Get ingestion queue summary
+            async with state_manager._lock:
+                queue_cursor = state_manager.connection.execute(
+                    """SELECT priority, COUNT(*) as count FROM ingestion_queue GROUP BY priority"""
+                )
+                queue_by_priority = {row["priority"]: row["count"] for row in queue_cursor.fetchall()}
+                total_queue = sum(queue_by_priority.values())
+
+            return {
+                "projects": {
+                    "total": total_projects,
+                    "active": active_projects,
+                    "by_priority": projects_by_priority,
+                },
+                "libraries": {
+                    "total": total_libs,
+                    "enabled": enabled_libs,
+                },
+                "queue": {
+                    "total": total_queue,
+                    "by_priority": queue_by_priority,
+                },
+            }
+
+        multitenant_status = loop.run_until_complete(get_multitenant_status())
+        status_data["registered_projects"] = multitenant_status["projects"]
+        status_data["library_watches"] = multitenant_status["libraries"]
+        status_data["ingestion_queue"] = multitenant_status["queue"]
+
+    except Exception as e:
+        logger.debug(f"Multi-tenant status collection failed: {e}")
+        status_data["registered_projects"] = {"error": str(e)}
+        status_data["library_watches"] = {"error": str(e)}
+        status_data["ingestion_queue"] = {"error": str(e)}
 
     return status_data
 
@@ -417,6 +543,40 @@ def _display_status_panel(status_data: dict[str, Any], verbose: bool) -> None:
         disk = system["disk"]
         print(
             f"Disk             | {disk['percent']:.1f}%     | {disk['free_gb']:.1f}GB free / {disk['total_gb']:.1f}GB total"
+        )
+
+    # Task 401: Multi-tenant architecture status (always show)
+    reg_projects = status_data.get("registered_projects", {})
+    lib_watches = status_data.get("library_watches", {})
+    queue = status_data.get("ingestion_queue", {})
+
+    if "error" not in reg_projects:
+        print("\nMulti-Tenant Status:")
+        print("-" * 50)
+
+        # Projects
+        total_projects = reg_projects.get("total", 0)
+        active_projects = reg_projects.get("active", 0)
+        by_priority = reg_projects.get("by_priority", {})
+        high_count = by_priority.get("high", 0)
+        print(
+            f"Projects         | {total_projects} total    | {active_projects} active | {high_count} HIGH priority"
+        )
+
+        # Libraries
+        total_libs = lib_watches.get("total", 0)
+        enabled_libs = lib_watches.get("enabled", 0)
+        print(
+            f"Libraries        | {total_libs} total    | {enabled_libs} enabled"
+        )
+
+        # Queue
+        total_queue = queue.get("total", 0)
+        queue_by_priority = queue.get("by_priority", {})
+        high_queue = queue_by_priority.get(1, 0)
+        normal_queue = queue_by_priority.get(3, 0)
+        print(
+            f"Ingestion Queue  | {total_queue} total    | {high_queue} HIGH | {normal_queue} NORMAL"
         )
 
 
@@ -897,4 +1057,253 @@ async def _cleanup_migration_history(keep_count: int, force: bool) -> None:
 
     except Exception as e:
         print(f"Error during cleanup: {e}")
+        raise typer.Exit(1)
+
+
+# =============================================================================
+# Multi-tenant architecture admin commands (Task 401)
+# =============================================================================
+
+
+async def _get_state_manager():
+    """Get SQLite state manager for querying projects and libraries."""
+    from common.core.sqlite_state_manager import SQLiteStateManager
+    state_manager = SQLiteStateManager()
+    await state_manager.initialize()
+    return state_manager
+
+
+async def _list_projects(json_output: bool, priority: str | None, active_only: bool) -> None:
+    """
+    List registered projects with priority and session status.
+
+    Task 401: Display projects table from SQLite state database.
+    Shows project_id, path, name, priority, active_sessions, last_active.
+    """
+    try:
+        state_manager = await _get_state_manager()
+
+        # Build query with filters
+        query = "SELECT project_id, project_name, project_root, priority, active_sessions, last_active FROM projects"
+        conditions = []
+        params = []
+
+        if priority:
+            conditions.append("priority = ?")
+            params.append(priority.lower())
+
+        if active_only:
+            conditions.append("active_sessions > 0")
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        # Order by priority and last_active
+        query += " ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'normal' THEN 2 WHEN 'low' THEN 3 END, last_active DESC"
+
+        # Execute query
+        async with state_manager._lock:
+            cursor = state_manager.connection.execute(query, params)
+            rows = cursor.fetchall()
+
+        if not rows:
+            filter_desc = ""
+            if priority:
+                filter_desc += f" with priority '{priority}'"
+            if active_only:
+                filter_desc += " with active sessions"
+            print(f"No projects found{filter_desc}.")
+            return
+
+        # Format output
+        if json_output:
+            projects = []
+            for row in rows:
+                projects.append({
+                    "project_id": row["project_id"],
+                    "name": row["project_name"],
+                    "path": row["project_root"],
+                    "priority": row["priority"],
+                    "active_sessions": row["active_sessions"],
+                    "last_active": row["last_active"],
+                })
+            print(json.dumps(projects, indent=2, default=str))
+            return
+
+        # Display as table
+        print(f"Registered Projects ({len(rows)} found)")
+        print("=" * 100)
+        print(f"{'Project ID':<14} {'Name':<20} {'Priority':<10} {'Sessions':<10} {'Last Active':<20}")
+        print("-" * 100)
+
+        for row in rows:
+            project_id = row["project_id"][:12] if row["project_id"] else "N/A"
+            name = (row["project_name"] or "unnamed")[:18]
+            priority_val = row["priority"] or "normal"
+            sessions = row["active_sessions"] or 0
+            last_active = str(row["last_active"])[:19] if row["last_active"] else "never"
+
+            # Color coding via text markers
+            if priority_val == "high":
+                priority_display = f"[HIGH]"
+            elif priority_val == "low":
+                priority_display = f"[LOW]"
+            else:
+                priority_display = priority_val
+
+            print(f"{project_id:<14} {name:<20} {priority_display:<10} {sessions:<10} {last_active:<20}")
+
+        # Summary
+        high_count = sum(1 for row in rows if row["priority"] == "high")
+        active_count = sum(1 for row in rows if (row["active_sessions"] or 0) > 0)
+        print("-" * 100)
+        print(f"Summary: {high_count} HIGH priority, {active_count} with active sessions")
+
+    except Exception as e:
+        logger.error(f"Error listing projects: {e}")
+        print(f"Error: {e}")
+        raise typer.Exit(1)
+
+
+async def _show_queue(json_output: bool, collection: str | None, status: str | None) -> None:
+    """
+    Show ingestion queue status with priority breakdown.
+
+    Task 401: Display ingestion queue with priority breakdown,
+    pending/processing/failed by priority level.
+    """
+    try:
+        state_manager = await _get_state_manager()
+
+        # Query ingestion queue
+        query = """
+            SELECT
+                priority,
+                status,
+                collection_name,
+                COUNT(*) as count
+            FROM ingestion_queue
+        """
+        conditions = []
+        params = []
+
+        if collection:
+            if collection.lower() == "projects":
+                conditions.append("collection_name LIKE '\\_%' ESCAPE '\\'")
+            elif collection.lower() == "libraries":
+                conditions.append("collection_name LIKE '\\_%' ESCAPE '\\' AND collection_name != '_projects'")
+
+        if status:
+            conditions.append("status = ?")
+            params.append(status.lower())
+
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+
+        query += " GROUP BY priority, status, collection_name ORDER BY priority ASC, status ASC"
+
+        # Execute query
+        async with state_manager._lock:
+            cursor = state_manager.connection.execute(query, params)
+            rows = cursor.fetchall()
+
+        # Also get total counts by priority
+        priority_query = """
+            SELECT priority, COUNT(*) as count
+            FROM ingestion_queue
+            GROUP BY priority
+            ORDER BY priority ASC
+        """
+        async with state_manager._lock:
+            priority_cursor = state_manager.connection.execute(priority_query)
+            priority_rows = priority_cursor.fetchall()
+
+        # Format output
+        if json_output:
+            queue_data = {
+                "by_priority": {},
+                "by_status": {},
+                "by_collection": {},
+                "total": 0
+            }
+
+            for row in priority_rows:
+                queue_data["by_priority"][f"priority_{row['priority']}"] = row["count"]
+                queue_data["total"] += row["count"]
+
+            # Status breakdown
+            status_query = """
+                SELECT status, COUNT(*) as count
+                FROM ingestion_queue
+                GROUP BY status
+            """
+            async with state_manager._lock:
+                status_cursor = state_manager.connection.execute(status_query)
+                status_rows = status_cursor.fetchall()
+
+            for row in status_rows:
+                queue_data["by_status"][row["status"]] = row["count"]
+
+            print(json.dumps(queue_data, indent=2))
+            return
+
+        # Display as table
+        total = sum(row["count"] for row in priority_rows)
+        print(f"Ingestion Queue Status ({total} total items)")
+        print("=" * 70)
+
+        # Priority breakdown
+        print("\nBy Priority:")
+        print("-" * 40)
+        print(f"{'Priority':<15} {'Count':<10} {'Description':<25}")
+        print("-" * 40)
+
+        priority_names = {1: "HIGH (active)", 3: "NORMAL", 5: "LOW (background)"}
+        for row in priority_rows:
+            priority_name = priority_names.get(row["priority"], f"Priority {row['priority']}")
+            print(f"{priority_name:<15} {row['count']:<10}")
+
+        # Status breakdown
+        status_query = """
+            SELECT status, COUNT(*) as count
+            FROM ingestion_queue
+            GROUP BY status
+            ORDER BY status
+        """
+        async with state_manager._lock:
+            status_cursor = state_manager.connection.execute(status_query)
+            status_rows = status_cursor.fetchall()
+
+        if status_rows:
+            print("\nBy Status:")
+            print("-" * 40)
+            print(f"{'Status':<15} {'Count':<10}")
+            print("-" * 40)
+            for row in status_rows:
+                print(f"{row['status']:<15} {row['count']:<10}")
+
+        # Collection breakdown (top 5)
+        collection_query = """
+            SELECT collection_name, COUNT(*) as count
+            FROM ingestion_queue
+            GROUP BY collection_name
+            ORDER BY count DESC
+            LIMIT 5
+        """
+        async with state_manager._lock:
+            collection_cursor = state_manager.connection.execute(collection_query)
+            collection_rows = collection_cursor.fetchall()
+
+        if collection_rows:
+            print("\nTop Collections:")
+            print("-" * 40)
+            print(f"{'Collection':<25} {'Count':<10}")
+            print("-" * 40)
+            for row in collection_rows:
+                col_name = row["collection_name"][:23] if row["collection_name"] else "N/A"
+                print(f"{col_name:<25} {row['count']:<10}")
+
+    except Exception as e:
+        logger.error(f"Error showing queue: {e}")
+        print(f"Error: {e}")
         raise typer.Exit(1)
