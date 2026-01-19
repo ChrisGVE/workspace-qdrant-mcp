@@ -1,6 +1,14 @@
 """
 Project collection alias management commands.
 
+Task 400: Projects are now automatically managed by MCP server sessions.
+
+AUTOMATIC PROJECT MANAGEMENT:
+- Projects are automatically registered when an MCP server session starts
+- Project priority is set based on active agent sessions (high during editing)
+- Projects are deprioritized when sessions end
+- No manual `wqm project add` or `wqm project remove` commands are needed
+
 This module provides CLI commands for managing project collection aliases,
 enabling smooth migrations when project IDs change (e.g., when a local
 project gains a git remote).
@@ -19,6 +27,10 @@ Example usage:
 
     # Remove specific alias
     wqm project remove-alias --old-collection _path_abc123def456
+
+Note: For viewing registered projects and their status, use:
+    wqm admin projects  # List registered projects with priority/sessions
+    wqm admin status    # Overall system status including projects
 """
 
 import asyncio
@@ -38,7 +50,14 @@ from tabulate import tabulate
 # Create Typer app for project commands
 project_app = typer.Typer(
     name="project",
-    help="Project collection alias management",
+    help="""Project collection alias management.
+
+NOTE: Projects are automatically managed by MCP server sessions.
+No manual registration is required. Use 'wqm admin projects' to
+view registered projects and their status.
+
+This command group handles collection aliases for project ID migrations
+(e.g., when a local project gains a git remote URL).""",
     no_args_is_help=True
 )
 
