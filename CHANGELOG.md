@@ -7,6 +7,107 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2025-01-19
+
+### Added
+
+#### Unified Multi-Tenant Collection Architecture
+- **Single `_projects` Collection** - ALL project content now stored in one unified collection with tenant isolation via `tenant_id` payload field (12-char hex derived from normalized git remote URL or path hash)
+- **Single `_libraries` Collection** - ALL library documentation now stored in one unified collection with tenant isolation via `library_name` payload field
+- **Payload Indexing** - O(1) filtering performance via indexed payload fields on `tenant_id` and `library_name`
+- **Cross-Project Search** - Search across all projects with `scope="all"` parameter
+- **Library Inclusion** - Include library documentation in searches with `include_libraries=True` parameter
+
+#### Session Lifecycle Management (ProjectService gRPC)
+- **RegisterProject RPC** - Register project for high-priority processing when MCP server starts
+- **DeprioritizeProject RPC** - Decrement session count when MCP server stops
+- **Heartbeat RPC** - Keep session alive with 30-second intervals (60-second timeout)
+- **GetProjectStatus RPC** - Query current project status and priority
+- **ListProjects RPC** - List all registered projects with filtering options
+- **Priority-Based Processing** - Active sessions get HIGH priority (queue position 1)
+
+#### Search Enhancements
+- **`scope` Parameter** - Control search scope: `"project"` (current project only, default), `"global"` (global collections), `"all"` (all projects)
+- **`include_libraries` Parameter** - Include `_libraries` collection in search results
+- **`branch` Parameter** - Filter results by git branch (supports `"*"` for all branches)
+- **`collections_searched` Response Field** - Lists collections that were searched
+
+#### Documentation
+- **[docs/GRPC_API.md](docs/GRPC_API.md)** - Comprehensive gRPC API reference documenting all 4 services (20 RPCs): SystemService, CollectionService, DocumentService, ProjectService
+
+### Changed
+
+#### Breaking Changes
+
+**Collection Architecture (MAJOR)**
+- **Unified `_projects` Collection** replaces per-project `_{project_id}` collections
+  - All project documents now stored in single collection with `tenant_id` payload field
+  - Previous: One collection per project (e.g., `_abc123def456`, `_789xyz012abc`)
+  - New: Single `_projects` collection with tenant isolation via payload filtering
+- **Unified `_libraries` Collection** replaces per-library `_{library_name}` collections
+  - All library documents now stored in single collection with `library_name` payload field
+  - Previous: One collection per library (e.g., `_fastapi`, `_react`)
+  - New: Single `_libraries` collection with library isolation via payload filtering
+- **Only 4 Collection Types** - System now uses exactly 4 collection types:
+  1. `_projects` - Unified collection for ALL project content
+  2. `_libraries` - Unified collection for ALL library documentation
+  3. `{user}-{type}` - User collections (e.g., `work-notes`, `myapp-scratchbook`)
+  4. `_memory`, `_agent_memory` - System and agent memory rules
+
+**Search API Changes**
+- **Default scope is `"project"`** - Searches current project only by default (previously searched all content)
+- **`include_libraries` required** - Libraries not included unless explicitly requested
+- **Response format updated** - Now includes `tenant_id` and `collections_searched` fields
+
+**Configuration**
+- Collection naming constants updated:
+  - `UNIFIED_PROJECTS_COLLECTION = "_projects"`
+  - `UNIFIED_LIBRARIES_COLLECTION = "_libraries"`
+
+### Migration
+
+**Automatic Migration Available**
+```bash
+# Preview migration (dry run)
+wqm admin migrate-to-unified --dry-run
+
+# Execute migration
+wqm admin migrate-to-unified
+
+# Verify migration
+wqm admin collections --verbose
+```
+
+**Migration Process:**
+1. Creates `_projects` and `_libraries` collections if not exist
+2. Copies documents from old `_{project_id}` collections to `_projects`
+3. Adds `tenant_id` metadata to each document
+4. Copies documents from old `_{library_name}` collections to `_libraries`
+5. Adds `library_name` metadata to each document
+6. Optionally deletes old collections after verification
+
+**Search Migration:**
+```python
+# Old behavior (v0.3.x)
+search(query="authentication")  # Searched all content
+
+# New behavior (v0.4.0)
+search(query="authentication")                              # Current project only
+search(query="authentication", scope="all")                 # All projects
+search(query="authentication", include_libraries=True)      # Current project + libraries
+search(query="authentication", scope="all", include_libraries=True)  # Everything
+```
+
+### Benefits of Unified Model
+
+- **Scalability** - Supports thousands of projects without collection sprawl
+- **Efficiency** - Single HNSW index per collection type (better memory utilization)
+- **Cross-Project Discovery** - Semantic search across all projects with one query
+- **Simpler Operations** - Fewer collections to manage and monitor
+- **Better Isolation** - Hard tenant filtering prevents data leakage
+
+---
+
 ## [0.3.0] - 2025-10-21
 
 ### Added
@@ -277,6 +378,7 @@ pip install workspace-qdrant-mcp
 
 ---
 
-[Unreleased]: https://github.com/ChrisGVE/workspace-qdrant-mcp/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/ChrisGVE/workspace-qdrant-mcp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/ChrisGVE/workspace-qdrant-mcp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/ChrisGVE/workspace-qdrant-mcp/compare/v0.1.2...v0.3.0
 [0.1.0]: https://github.com/ChrisGVE/workspace-qdrant-mcp/releases/tag/v0.1.0
