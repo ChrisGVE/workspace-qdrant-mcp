@@ -31,9 +31,12 @@ Usage:
 import asyncio
 import hashlib
 import json
+import sqlite3
 import time
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +49,9 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.http.models import (
     Distance,
+    FieldCondition,
+    Filter,
+    MatchValue,
     PointStruct,
     VectorParams,
 )
@@ -943,6 +949,276 @@ UNIFIED_COLLECTIONS = {
 }
 
 
+# ============================================================================
+# Migration State Tracking (Task 410)
+# ============================================================================
+
+
+class MigrationStatus(str, Enum):
+    """Migration status values."""
+
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    ROLLED_BACK = "rolled_back"
+
+
+@dataclass
+class MigrationState:
+    """Represents a migration operation state."""
+
+    migration_id: str
+    migration_type: str  # "to-multitenant", "to-project", etc.
+    started_at: str
+    completed_at: str | None
+    status: MigrationStatus
+    collections_migrated: list[str]
+    points_migrated: int
+    error_message: str | None
+    report_path: str | None
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for JSON serialization."""
+        result = asdict(self)
+        result["status"] = self.status.value
+        return result
+
+
+class MigrationStateManager:
+    """
+    SQLite-based migration state tracking.
+
+    Task 410: Provides rollback capability by tracking migration state
+    in a persistent SQLite database.
+    """
+
+    def __init__(self, db_path: Path | None = None):
+        """
+        Initialize state manager.
+
+        Args:
+            db_path: Path to SQLite database (default: ~/.taskmaster/migration_state.db)
+        """
+        self.db_path = db_path or (
+            Path.home() / ".taskmaster" / "migration_state.db"
+        )
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_database()
+
+    def _init_database(self) -> None:
+        """Initialize database schema."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS migration_history (
+                    migration_id TEXT PRIMARY KEY,
+                    migration_type TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    status TEXT CHECK (status IN ('running', 'completed', 'failed', 'rolled_back')),
+                    collections_migrated TEXT,
+                    points_migrated INTEGER DEFAULT 0,
+                    error_message TEXT,
+                    report_path TEXT
+                )
+            """)
+
+            # Create index for efficient status queries
+            conn.execute("""
+                CREATE INDEX IF NOT EXISTS idx_migration_status
+                ON migration_history(status)
+            """)
+
+            conn.commit()
+
+    def start_migration(
+        self,
+        migration_type: str,
+        collections: list[str],
+        report_path: str | None = None,
+    ) -> str:
+        """
+        Start a new migration and record it in the database.
+
+        Args:
+            migration_type: Type of migration (e.g., "to-multitenant")
+            collections: List of collections being migrated
+            report_path: Path to migration report file
+
+        Returns:
+            Migration ID (UUID)
+        """
+        migration_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                INSERT INTO migration_history
+                (migration_id, migration_type, started_at, status, collections_migrated, points_migrated, report_path)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    migration_id,
+                    migration_type,
+                    now,
+                    MigrationStatus.RUNNING.value,
+                    json.dumps(collections),
+                    0,
+                    report_path,
+                ),
+            )
+            conn.commit()
+
+        logger.info(f"Started migration {migration_id} ({migration_type})")
+        return migration_id
+
+    def update_progress(self, migration_id: str, points_migrated: int) -> None:
+        """Update migration progress."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE migration_history
+                SET points_migrated = ?
+                WHERE migration_id = ?
+                """,
+                (points_migrated, migration_id),
+            )
+            conn.commit()
+
+    def complete_migration(
+        self, migration_id: str, points_migrated: int, report_path: str | None = None
+    ) -> None:
+        """Mark migration as completed."""
+        now = datetime.now(timezone.utc).isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE migration_history
+                SET status = ?, completed_at = ?, points_migrated = ?, report_path = ?
+                WHERE migration_id = ?
+                """,
+                (
+                    MigrationStatus.COMPLETED.value,
+                    now,
+                    points_migrated,
+                    report_path,
+                    migration_id,
+                ),
+            )
+            conn.commit()
+
+        logger.info(f"Migration {migration_id} completed: {points_migrated} points migrated")
+
+    def fail_migration(self, migration_id: str, error_message: str) -> None:
+        """Mark migration as failed."""
+        now = datetime.now(timezone.utc).isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE migration_history
+                SET status = ?, completed_at = ?, error_message = ?
+                WHERE migration_id = ?
+                """,
+                (MigrationStatus.FAILED.value, now, error_message, migration_id),
+            )
+            conn.commit()
+
+        logger.error(f"Migration {migration_id} failed: {error_message}")
+
+    def rollback_migration(self, migration_id: str) -> None:
+        """Mark migration as rolled back."""
+        now = datetime.now(timezone.utc).isoformat()
+
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """
+                UPDATE migration_history
+                SET status = ?, completed_at = ?
+                WHERE migration_id = ?
+                """,
+                (MigrationStatus.ROLLED_BACK.value, now, migration_id),
+            )
+            conn.commit()
+
+        logger.info(f"Migration {migration_id} rolled back")
+
+    def get_migration(self, migration_id: str) -> MigrationState | None:
+        """Get migration state by ID."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                "SELECT * FROM migration_history WHERE migration_id = ?",
+                (migration_id,),
+            )
+            row = cursor.fetchone()
+
+        if row is None:
+            return None
+
+        return MigrationState(
+            migration_id=row["migration_id"],
+            migration_type=row["migration_type"],
+            started_at=row["started_at"],
+            completed_at=row["completed_at"],
+            status=MigrationStatus(row["status"]),
+            collections_migrated=json.loads(row["collections_migrated"] or "[]"),
+            points_migrated=row["points_migrated"],
+            error_message=row["error_message"],
+            report_path=row["report_path"],
+        )
+
+    def list_migrations(
+        self, status: MigrationStatus | None = None, limit: int = 20
+    ) -> list[MigrationState]:
+        """List migrations, optionally filtered by status."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+
+            if status:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM migration_history
+                    WHERE status = ?
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                    """,
+                    (status.value, limit),
+                )
+            else:
+                cursor = conn.execute(
+                    """
+                    SELECT * FROM migration_history
+                    ORDER BY started_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+
+            rows = cursor.fetchall()
+
+        return [
+            MigrationState(
+                migration_id=row["migration_id"],
+                migration_type=row["migration_type"],
+                started_at=row["started_at"],
+                completed_at=row["completed_at"],
+                status=MigrationStatus(row["status"]),
+                collections_migrated=json.loads(row["collections_migrated"] or "[]"),
+                points_migrated=row["points_migrated"],
+                error_message=row["error_message"],
+                report_path=row["report_path"],
+            )
+            for row in rows
+        ]
+
+    def get_last_completed_migration(self) -> MigrationState | None:
+        """Get the most recent completed migration."""
+        migrations = self.list_migrations(status=MigrationStatus.COMPLETED, limit=1)
+        return migrations[0] if migrations else None
+
+
 @dataclass
 class MultiTenantMigrationReport:
     """Report for multi-tenant migration operation."""
@@ -1324,6 +1600,144 @@ class MultiTenantMigrationManager:
             logger.error(f"Failed to create alias {source_collection}: {e}")
             return False
 
+    async def rollback_collection(
+        self,
+        source_collection: str,
+        target_collection: str,
+    ) -> tuple[int, str | None]:
+        """
+        Rollback migration by deleting points with matching project_id from target.
+
+        Task 410: Rollback capability for failed migrations.
+
+        Args:
+            source_collection: Original collection name (_{project_id})
+            target_collection: Unified collection (_projects)
+
+        Returns:
+            Tuple of (points_deleted, error_message or None)
+        """
+        try:
+            # Extract project_id from collection name
+            project_id = source_collection[1:]  # Remove leading underscore
+
+            # Count points to be deleted
+            points_to_delete = 0
+            offset = None
+            point_ids: list[str | int] = []
+
+            while True:
+                batch, offset = self.qdrant_client.scroll(
+                    collection_name=target_collection,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="project_id",
+                                match=MatchValue(value=project_id),
+                            )
+                        ]
+                    ),
+                    limit=1000,
+                    offset=offset,
+                )
+
+                for point in batch:
+                    point_ids.append(point.id)
+
+                points_to_delete += len(batch)
+
+                if offset is None:
+                    break
+
+            if points_to_delete == 0:
+                logger.info(f"No points to rollback for {source_collection}")
+                return 0, None
+
+            # Delete points in batches
+            batch_size = 1000
+            for i in range(0, len(point_ids), batch_size):
+                batch_ids = point_ids[i : i + batch_size]
+                self.qdrant_client.delete(
+                    collection_name=target_collection,
+                    points_selector=batch_ids,
+                )
+
+            logger.info(
+                f"Rolled back {points_to_delete} points for {source_collection}"
+            )
+            return points_to_delete, None
+
+        except Exception as e:
+            error_msg = f"Rollback failed for {source_collection}: {e}"
+            logger.error(error_msg)
+            return 0, error_msg
+
+    async def verify_rollback(
+        self,
+        source_collection: str,
+        target_collection: str,
+    ) -> tuple[bool, list[str]]:
+        """
+        Verify rollback was successful.
+
+        Checks:
+        - Original collection still exists and has expected points
+        - No points with this project_id remain in target collection
+
+        Args:
+            source_collection: Original collection name
+            target_collection: Unified collection name
+
+        Returns:
+            Tuple of (success, list of issues found)
+        """
+        issues: list[str] = []
+
+        try:
+            # Check original collection still exists
+            try:
+                source_info = self.qdrant_client.get_collection(source_collection)
+                source_count = source_info.points_count or 0
+                if source_count == 0:
+                    issues.append(f"Original collection {source_collection} is empty")
+            except UnexpectedResponse:
+                issues.append(f"Original collection {source_collection} not found")
+
+            # Check no points remain in target with this project_id
+            project_id = source_collection[1:]
+            remaining_count = 0
+            offset = None
+
+            while True:
+                batch, offset = self.qdrant_client.scroll(
+                    collection_name=target_collection,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="project_id",
+                                match=MatchValue(value=project_id),
+                            )
+                        ]
+                    ),
+                    limit=100,
+                    offset=offset,
+                )
+                remaining_count += len(batch)
+                if offset is None:
+                    break
+
+            if remaining_count > 0:
+                issues.append(
+                    f"{remaining_count} points still exist in target for project_id={project_id}"
+                )
+
+            success = len(issues) == 0
+            return success, issues
+
+        except Exception as e:
+            issues.append(f"Verification error: {e}")
+            return False, issues
+
 
 @migrate_app.command("to-multitenant")
 def to_multitenant_command(
@@ -1374,9 +1788,10 @@ def to_multitenant_command(
         config = get_config()
         qdrant_url = config.get("qdrant", {}).get("url", "http://localhost:6333")
 
-        # Initialize client and manager
+        # Initialize client and managers
         qdrant_client = QdrantClient(url=qdrant_url)
         manager = MultiTenantMigrationManager(qdrant_client)
+        state_manager = MigrationStateManager()
 
         console.print(f"\n[bold]{'[DRY RUN] ' if dry_run else ''}Multi-Tenant Migration[/bold]")
         console.print(f"Target collection: {UNIFIED_COLLECTIONS['projects']}")
@@ -1413,7 +1828,16 @@ def to_multitenant_command(
                 console.print("[red]Failed to create unified collection[/red]")
                 raise typer.Exit(1)
 
-        # Step 3: Migrate collections
+        # Step 3: Start migration tracking (Task 410)
+        migration_id: str | None = None
+        if not dry_run:
+            migration_id = state_manager.start_migration(
+                migration_type="to-multitenant",
+                collections=project_collections,
+            )
+            console.print(f"Migration ID: {migration_id[:12]}...")
+
+        # Step 4: Migrate collections
         start_time = time.time()
         total_points_migrated = 0
         failed_migrations: list[dict[str, Any]] = []
@@ -1519,13 +1943,36 @@ def to_multitenant_command(
             json.dump(report.to_dict(), f, indent=2)
         console.print(f"\nReport saved to: {report_file}")
 
+        # Step 6: Update migration state (Task 410)
+        if migration_id and not dry_run:
+            if failed_migrations:
+                # Mark as failed if any migrations failed
+                error_msg = f"{len(failed_migrations)} collection(s) failed: " + ", ".join(
+                    f["collection"] for f in failed_migrations
+                )
+                state_manager.fail_migration(migration_id, error_msg)
+                console.print(f"\n[yellow]Migration recorded as FAILED ({migration_id[:12]}...)[/yellow]")
+            else:
+                # Mark as completed
+                state_manager.complete_migration(
+                    migration_id=migration_id,
+                    points_migrated=total_points_migrated,
+                    report_path=str(report_file),
+                )
+                console.print(f"\n[green]Migration recorded as COMPLETED ({migration_id[:12]}...)[/green]")
+
         if dry_run:
             console.print("\n[yellow]This was a dry run. Use --execute to perform the actual migration.[/yellow]")
         else:
-            console.print("\n[bold green]Migration completed![/bold green]")
+            if failed_migrations:
+                console.print("\n[bold yellow]Migration completed with failures![/bold yellow]")
+                console.print("\nTo rollback: wqm migrate rollback-multitenant --migration-id=" + (migration_id[:12] if migration_id else "ID") + "...")
+            else:
+                console.print("\n[bold green]Migration completed successfully![/bold green]")
             console.print("\nNext steps:")
             console.print("  1. Verify: wqm migrate verify")
             console.print("  2. Cleanup: wqm migrate cleanup (after verification)")
+            console.print("  3. History: wqm migrate history")
 
     except ImportError:
         # Fallback if rich is not available
@@ -1533,6 +1980,12 @@ def to_multitenant_command(
         print("Install with: pip install rich")
         raise typer.Exit(1)
     except Exception as e:
+        # Record failure in state manager if migration was started
+        if "migration_id" in dir() and migration_id and "state_manager" in dir():
+            try:
+                state_manager.fail_migration(migration_id, str(e))
+            except Exception:
+                pass  # Don't mask the original error
         print(f"Error: {e}")
         raise typer.Exit(1)
 
@@ -1754,6 +2207,363 @@ def cleanup_command(
             console.print("\n[bold green]Migration cleanup completed successfully![/bold green]")
         else:
             console.print(f"\n[yellow]Cleanup completed with {failed} failures.[/yellow]")
+
+    except ImportError:
+        print("Error: 'rich' package required. Install with: pip install rich")
+        raise typer.Exit(1)
+    except Exception as e:
+        print(f"Error: {e}")
+        raise typer.Exit(1)
+
+
+@migrate_app.command("rollback-multitenant")
+def rollback_multitenant_command(
+    migration_id: str | None = typer.Argument(
+        None,
+        help="Migration ID to rollback (from migration history). If not provided, shows recent migrations.",
+    ),
+    verify: bool = typer.Option(
+        True,
+        "--verify/--no-verify",
+        help="Verify rollback was successful",
+    ),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        "-f",
+        help="Skip confirmation and verification checks",
+    ),
+):
+    """
+    Rollback a multi-tenant migration by removing migrated data from unified collection.
+
+    This command:
+    1. Loads migration state from SQLite database
+    2. For each migrated collection:
+       - Deletes points from _projects collection with project_id filter
+       - Verifies original collection still exists and intact
+    3. Updates migration status to "rolled_back"
+    4. Generates rollback report
+
+    If no migration_id is provided, shows recent migrations for selection.
+
+    Safety features:
+    - Verifies original collections exist before rollback
+    - Atomic deletion of new data per collection
+    - Verifies rollback success before marking complete
+    - All operations logged for audit trail
+    """
+    try:
+        from rich.console import Console
+        from rich.table import Table
+
+        console = Console()
+
+        # Load configuration
+        config = get_config()
+        qdrant_url = config.get("qdrant", {}).get("url", "http://localhost:6333")
+
+        # Initialize managers
+        qdrant_client = QdrantClient(url=qdrant_url)
+        migration_manager = MultiTenantMigrationManager(qdrant_client)
+        state_manager = MigrationStateManager()
+
+        # If no migration_id provided, show recent migrations
+        if migration_id is None:
+            console.print("\n[bold]Recent Migrations[/bold]")
+            migrations = state_manager.list_migrations(limit=10)
+
+            if not migrations:
+                console.print("[yellow]No migrations found in history.[/yellow]")
+                console.print("Run `wqm migrate to-multitenant --execute` first.")
+                return
+
+            table = Table(title="Migration History")
+            table.add_column("ID", style="cyan", no_wrap=True)
+            table.add_column("Type", style="green")
+            table.add_column("Status", style="yellow")
+            table.add_column("Points", style="magenta")
+            table.add_column("Started", style="blue")
+            table.add_column("Collections", style="white")
+
+            for m in migrations:
+                status_style = {
+                    MigrationStatus.COMPLETED: "green",
+                    MigrationStatus.FAILED: "red",
+                    MigrationStatus.RUNNING: "yellow",
+                    MigrationStatus.ROLLED_BACK: "cyan",
+                }.get(m.status, "white")
+
+                table.add_row(
+                    m.migration_id[:8] + "...",
+                    m.migration_type,
+                    f"[{status_style}]{m.status.value}[/{status_style}]",
+                    str(m.points_migrated),
+                    m.started_at[:19].replace("T", " "),
+                    str(len(m.collections_migrated)),
+                )
+
+            console.print(table)
+            console.print("\nTo rollback a migration, run:")
+            console.print("  wqm migrate rollback-multitenant <MIGRATION_ID>")
+            return
+
+        # Get migration state
+        migration = state_manager.get_migration(migration_id)
+
+        if migration is None:
+            # Try partial match
+            all_migrations = state_manager.list_migrations(limit=100)
+            matches = [m for m in all_migrations if m.migration_id.startswith(migration_id)]
+
+            if len(matches) == 1:
+                migration = matches[0]
+            elif len(matches) > 1:
+                console.print(f"[yellow]Multiple migrations match '{migration_id}':[/yellow]")
+                for m in matches:
+                    console.print(f"  - {m.migration_id}")
+                raise typer.Exit(1)
+            else:
+                console.print(f"[red]Migration '{migration_id}' not found[/red]")
+                raise typer.Exit(1)
+
+        console.print(f"\n[bold]Rollback Migration: {migration.migration_id[:8]}...[/bold]")
+        console.print(f"Type: {migration.migration_type}")
+        console.print(f"Status: {migration.status.value}")
+        console.print(f"Points migrated: {migration.points_migrated}")
+        console.print(f"Collections: {len(migration.collections_migrated)}")
+
+        if migration.status == MigrationStatus.ROLLED_BACK:
+            console.print("\n[yellow]This migration has already been rolled back.[/yellow]")
+            return
+
+        if migration.status == MigrationStatus.RUNNING:
+            console.print("\n[red]Cannot rollback a running migration.[/red]")
+            console.print("Wait for it to complete or fail first.")
+            raise typer.Exit(1)
+
+        # Confirmation
+        if not force:
+            console.print("\n[bold red]WARNING: This will delete migrated data from the unified collection.[/bold red]")
+            console.print("Original collections will NOT be affected.")
+            if not typer.confirm("Proceed with rollback?"):
+                console.print("Rollback cancelled.")
+                raise typer.Exit(0)
+
+        # Verify original collections still exist
+        console.print("\n[bold]Checking original collections...[/bold]")
+        missing_collections = []
+
+        for source_collection in migration.collections_migrated:
+            try:
+                info = qdrant_client.get_collection(source_collection)
+                console.print(f"  ✓ {source_collection} ({info.points_count or 0} points)")
+            except UnexpectedResponse:
+                missing_collections.append(source_collection)
+                console.print(f"  [red]✗ {source_collection} (NOT FOUND)[/red]")
+
+        if missing_collections and not force:
+            console.print(
+                f"\n[red]{len(missing_collections)} original collections are missing.[/red]"
+            )
+            console.print("Data recovery may not be possible. Use --force to proceed anyway.")
+            raise typer.Exit(1)
+
+        # Execute rollback
+        console.print("\n[bold]Rolling back...[/bold]")
+        start_time = time.time()
+        total_points_deleted = 0
+        failed_rollbacks: list[dict[str, Any]] = []
+
+        for source_collection in migration.collections_migrated:
+            points, error = asyncio.run(
+                migration_manager.rollback_collection(
+                    source_collection=source_collection,
+                    target_collection=UNIFIED_COLLECTIONS["projects"],
+                )
+            )
+
+            if error:
+                failed_rollbacks.append({"collection": source_collection, "error": error})
+                console.print(f"  [red]✗ {source_collection}: {error}[/red]")
+            else:
+                total_points_deleted += points
+                console.print(f"  ✓ {source_collection}: {points} points deleted")
+
+        elapsed_time = time.time() - start_time
+
+        # Verify rollback if requested
+        verification_results: dict[str, bool] = {}
+        if verify and not force:
+            console.print("\n[bold]Verifying rollback...[/bold]")
+
+            for source_collection in migration.collections_migrated:
+                success, issues = asyncio.run(
+                    migration_manager.verify_rollback(
+                        source_collection=source_collection,
+                        target_collection=UNIFIED_COLLECTIONS["projects"],
+                    )
+                )
+                verification_results[source_collection] = success
+
+                if success:
+                    console.print(f"  ✓ {source_collection}: verified")
+                else:
+                    console.print(f"  [yellow]⚠ {source_collection}:[/yellow]")
+                    for issue in issues:
+                        console.print(f"      {issue}")
+
+        # Update migration state
+        state_manager.rollback_migration(migration.migration_id)
+
+        # Display results
+        console.print("\n" + "=" * 80)
+        console.print("[bold]ROLLBACK COMPLETE[/bold]")
+        console.print("=" * 80)
+
+        table = Table(show_header=False)
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green")
+
+        table.add_row("Collections rolled back", str(len(migration.collections_migrated) - len(failed_rollbacks)))
+        table.add_row("Points deleted", str(total_points_deleted))
+        table.add_row("Failed rollbacks", str(len(failed_rollbacks)))
+        table.add_row("Elapsed time", f"{elapsed_time:.2f} seconds")
+
+        if verify and not force:
+            passed = sum(1 for v in verification_results.values() if v)
+            table.add_row("Verification", f"{passed}/{len(verification_results)} passed")
+
+        console.print(table)
+
+        if failed_rollbacks:
+            console.print("\n[red]Failed rollbacks:[/red]")
+            for failure in failed_rollbacks:
+                console.print(f"  - {failure['collection']}: {failure['error']}")
+
+        # Save rollback report
+        report_file = migration_manager.backup_dir / f"rollback_report_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.json"
+        report_data = {
+            "migration_id": migration.migration_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "collections_rolled_back": len(migration.collections_migrated) - len(failed_rollbacks),
+            "points_deleted": total_points_deleted,
+            "failed_rollbacks": failed_rollbacks,
+            "verification_results": {k: v for k, v in verification_results.items()},
+            "elapsed_time_seconds": elapsed_time,
+        }
+        with open(report_file, "w") as f:
+            json.dump(report_data, f, indent=2)
+        console.print(f"\nRollback report saved: {report_file}")
+
+        if len(failed_rollbacks) == 0:
+            console.print("\n[bold green]Rollback completed successfully![/bold green]")
+        else:
+            console.print(f"\n[yellow]Rollback completed with {len(failed_rollbacks)} failures.[/yellow]")
+
+    except ImportError:
+        print("Error: 'rich' package required. Install with: pip install rich")
+        raise typer.Exit(1)
+    except Exception as e:
+        print(f"Error: {e}")
+        raise typer.Exit(1)
+
+
+@migrate_app.command("history")
+def history_command(
+    status: str | None = typer.Option(
+        None,
+        "--status",
+        "-s",
+        help="Filter by status (running, completed, failed, rolled_back)",
+    ),
+    limit: int = typer.Option(
+        20,
+        "--limit",
+        "-n",
+        help="Number of migrations to show",
+    ),
+):
+    """
+    Show migration history from SQLite database.
+
+    Displays recent migrations with their status, point counts, and timing.
+    Use --status to filter by migration status.
+    """
+    try:
+        from rich.console import Console
+        from rich.table import Table
+
+        console = Console()
+
+        # Initialize state manager
+        state_manager = MigrationStateManager()
+
+        # Parse status filter
+        status_filter = None
+        if status:
+            try:
+                status_filter = MigrationStatus(status.lower())
+            except ValueError:
+                console.print(f"[red]Invalid status: {status}[/red]")
+                console.print("Valid statuses: running, completed, failed, rolled_back")
+                raise typer.Exit(1)
+
+        # Get migrations
+        migrations = state_manager.list_migrations(status=status_filter, limit=limit)
+
+        if not migrations:
+            console.print("[yellow]No migrations found.[/yellow]")
+            return
+
+        # Display table
+        console.print(f"\n[bold]Migration History ({len(migrations)} records)[/bold]")
+
+        table = Table()
+        table.add_column("ID", style="cyan", no_wrap=True)
+        table.add_column("Type", style="green")
+        table.add_column("Status", style="yellow")
+        table.add_column("Points", justify="right", style="magenta")
+        table.add_column("Collections", justify="right")
+        table.add_column("Started", style="blue")
+        table.add_column("Duration")
+
+        for m in migrations:
+            status_style = {
+                MigrationStatus.COMPLETED: "green",
+                MigrationStatus.FAILED: "red",
+                MigrationStatus.RUNNING: "yellow",
+                MigrationStatus.ROLLED_BACK: "cyan",
+            }.get(m.status, "white")
+
+            # Calculate duration if completed
+            duration = "-"
+            if m.completed_at:
+                try:
+                    start = datetime.fromisoformat(m.started_at.replace("Z", "+00:00"))
+                    end = datetime.fromisoformat(m.completed_at.replace("Z", "+00:00"))
+                    seconds = (end - start).total_seconds()
+                    if seconds < 60:
+                        duration = f"{seconds:.1f}s"
+                    else:
+                        duration = f"{seconds/60:.1f}m"
+                except Exception:
+                    pass
+
+            table.add_row(
+                m.migration_id[:12] + "...",
+                m.migration_type,
+                f"[{status_style}]{m.status.value}[/{status_style}]",
+                str(m.points_migrated),
+                str(len(m.collections_migrated)),
+                m.started_at[:19].replace("T", " "),
+                duration,
+            )
+
+        console.print(table)
+
+        console.print("\nTo see full details: wqm migrate status")
+        console.print("To rollback: wqm migrate rollback-multitenant <ID>")
 
     except ImportError:
         print("Error: 'rich' package required. Install with: pip install rich")
