@@ -272,6 +272,100 @@ class TestAliasManager:
         alias_manager.list_aliases.assert_called_once()
 
 
+class TestServerAliasResolution:
+    """Test server-side alias resolution (Task 405)."""
+
+    @pytest.mark.asyncio
+    async def test_resolve_collection_alias_with_alias_manager(self):
+        """Test that resolve_collection_alias resolves aliases correctly."""
+        # Import the server module
+        from workspace_qdrant_mcp import server
+
+        # Create mock alias manager
+        mock_alias_manager = MagicMock()
+        mock_alias_manager.resolve_collection_name = AsyncMock(
+            return_value="_new_collection"
+        )
+
+        # Set global alias manager
+        original_alias_manager = server.alias_manager
+        server.alias_manager = mock_alias_manager
+
+        try:
+            resolved, was_alias = await server.resolve_collection_alias("_old_collection")
+
+            # Alias was resolved
+            assert resolved == "_new_collection"
+            assert was_alias is True
+            mock_alias_manager.resolve_collection_name.assert_called_once_with("_old_collection")
+        finally:
+            # Restore original
+            server.alias_manager = original_alias_manager
+
+    @pytest.mark.asyncio
+    async def test_resolve_collection_alias_without_alias(self):
+        """Test that non-aliases pass through unchanged."""
+        from workspace_qdrant_mcp import server
+
+        # Create mock alias manager that returns same name (not an alias)
+        mock_alias_manager = MagicMock()
+        mock_alias_manager.resolve_collection_name = AsyncMock(
+            return_value="_direct_collection"
+        )
+
+        original_alias_manager = server.alias_manager
+        server.alias_manager = mock_alias_manager
+
+        try:
+            resolved, was_alias = await server.resolve_collection_alias("_direct_collection")
+
+            # Not an alias - returned unchanged
+            assert resolved == "_direct_collection"
+            assert was_alias is False
+        finally:
+            server.alias_manager = original_alias_manager
+
+    @pytest.mark.asyncio
+    async def test_resolve_collection_alias_without_alias_manager(self):
+        """Test that resolution works without alias manager (returns original)."""
+        from workspace_qdrant_mcp import server
+
+        original_alias_manager = server.alias_manager
+        server.alias_manager = None
+
+        try:
+            resolved, was_alias = await server.resolve_collection_alias("_any_collection")
+
+            # No alias manager - return as-is
+            assert resolved == "_any_collection"
+            assert was_alias is False
+        finally:
+            server.alias_manager = original_alias_manager
+
+    @pytest.mark.asyncio
+    async def test_resolve_collection_alias_error_handling(self):
+        """Test that alias resolution handles errors gracefully."""
+        from workspace_qdrant_mcp import server
+
+        # Create mock alias manager that raises an error
+        mock_alias_manager = MagicMock()
+        mock_alias_manager.resolve_collection_name = AsyncMock(
+            side_effect=Exception("Resolution failed")
+        )
+
+        original_alias_manager = server.alias_manager
+        server.alias_manager = mock_alias_manager
+
+        try:
+            # Should not raise, should return original
+            resolved, was_alias = await server.resolve_collection_alias("_collection")
+
+            assert resolved == "_collection"
+            assert was_alias is False
+        finally:
+            server.alias_manager = original_alias_manager
+
+
 class TestAliasIntegration:
     """Integration tests for alias system."""
 

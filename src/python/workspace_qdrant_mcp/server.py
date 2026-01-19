@@ -137,7 +137,9 @@ if _detect_stdio_mode():
     logging.disable(logging.CRITICAL)
 
 # Import project detection and branch utilities after stdio setup
+from common.core.collection_aliases import AliasManager
 from common.core.collection_naming import build_project_collection_name
+from common.core.sqlite_state_manager import SQLiteStateManager
 from common.grpc.daemon_client import DaemonClient, DaemonConnectionError
 from common.utils.git_utils import get_current_branch
 from common.utils.project_detection import calculate_tenant_id
@@ -146,6 +148,8 @@ from common.utils.project_detection import calculate_tenant_id
 qdrant_client: AsyncQdrantClient | None = None
 embedding_model = None
 daemon_client: DaemonClient | None = None
+alias_manager: AliasManager | None = None
+state_manager: SQLiteStateManager | None = None
 project_cache = {}
 
 # Session lifecycle state
@@ -369,12 +373,15 @@ def get_project_collection(project_path: Path | None = None) -> str:
     return build_project_collection_name(project_id)
 
 async def initialize_components():
-    """Initialize Qdrant client, daemon client, and embedding model.
+    """Initialize Qdrant client, daemon client, embedding model, and alias manager.
 
     Note: daemon_client may already be initialized by the lifespan context manager.
     This function ensures all components are ready for tool operations.
+
+    Task 405: Adds alias_manager initialization for backward compatibility
+    when old collection names (_{project_id}) are used.
     """
-    global qdrant_client, embedding_model, daemon_client
+    global qdrant_client, embedding_model, daemon_client, alias_manager, state_manager
 
     if qdrant_client is None:
         # Connect to Qdrant with async client
@@ -402,6 +409,66 @@ async def initialize_components():
         except DaemonConnectionError:
             # Daemon connection is optional - fall back to direct writes if unavailable
             daemon_client = None
+
+    # Initialize alias manager for backward compatibility (Task 405)
+    if alias_manager is None:
+        try:
+            # Initialize state manager for SQLite persistence
+            if state_manager is None:
+                state_manager = SQLiteStateManager()
+                await state_manager.initialize()
+
+            # Create sync Qdrant client for alias manager (uses sync API)
+            from qdrant_client import QdrantClient
+            qdrant_url = os.getenv("QDRANT_URL", "http://localhost:6333")
+            qdrant_api_key = os.getenv("QDRANT_API_KEY")
+            sync_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key, timeout=60)
+
+            alias_manager = AliasManager(sync_client, state_manager)
+            await alias_manager.initialize()
+        except Exception as e:
+            # Alias manager is optional - proceed without it
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to initialize alias manager: {e}")
+
+
+async def resolve_collection_alias(collection_name: str) -> tuple[str, bool]:
+    """
+    Resolve a collection name, handling aliases transparently.
+
+    Task 405: Backward compatibility for old collection names (_{project_id}).
+    If an alias exists, resolves to the actual collection name and logs a
+    deprecation warning.
+
+    Args:
+        collection_name: Collection name or alias to resolve
+
+    Returns:
+        Tuple of (resolved_collection_name, was_alias)
+    """
+    if alias_manager is None:
+        return collection_name, False
+
+    try:
+        resolved = await alias_manager.resolve_collection_name(collection_name)
+
+        if resolved != collection_name:
+            # Collection was an alias - log deprecation warning
+            logger = logging.getLogger(__name__)
+            logger.warning(
+                f"DEPRECATION: Collection alias '{collection_name}' resolved to '{resolved}'. "
+                f"Old collection names will be removed in a future version. "
+                f"Please use the new collection name directly."
+            )
+            return resolved, True
+
+        return collection_name, False
+
+    except Exception as e:
+        logger = logging.getLogger(__name__)
+        logger.debug(f"Alias resolution failed for '{collection_name}': {e}")
+        return collection_name, False
+
 
 async def ensure_collection_exists(collection_name: str, project_id: str | None = None) -> bool:
     """
@@ -905,10 +972,14 @@ async def search(
     # Determine current project_id for filtering
     current_project_id = calculate_tenant_id(str(Path.cwd()))
 
+    # Track if alias was used for deprecation warning in response
+    alias_used = False
+
     # Determine search collections based on scope (Task 396)
-    # If explicit collection is provided, use it directly
+    # If explicit collection is provided, resolve any alias first (Task 405)
     if collection:
-        search_collections = [collection]
+        resolved_collection, alias_used = await resolve_collection_alias(collection)
+        search_collections = [resolved_collection]
         # Don't apply project_id filter for explicit collections
         project_filter_id = None
     else:
@@ -1064,7 +1135,7 @@ async def search(
 
         search_duration = (datetime.now() - search_start).total_seconds()
 
-        return {
+        response = {
             "success": True,
             "query": query,
             "mode": mode,
@@ -1080,6 +1151,16 @@ async def search(
                 "custom": filters or {}
             }
         }
+
+        # Add deprecation warning if alias was used (Task 405)
+        if alias_used:
+            response["_deprecation_warning"] = (
+                f"Collection '{collection}' is an alias. "
+                f"Old collection names will be removed in a future version. "
+                f"Please update your code to use the new collection name."
+            )
+
+        return response
 
     except Exception as e:
         return {
@@ -1458,11 +1539,15 @@ async def retrieve(
         # Determine current project_id for filtering
         current_project_id = calculate_tenant_id(str(Path.cwd()))
 
+        # Track if alias was used for deprecation warning in response
+        alias_used = False
+
         # Determine retrieval collections based on scope (Task 398)
         project_filter_id = None
         if collection:
-            # Explicit collection overrides scope
-            retrieve_collections = [collection]
+            # Resolve any alias first (Task 405)
+            resolved_collection, alias_used = await resolve_collection_alias(collection)
+            retrieve_collections = [resolved_collection]
             # Don't apply project_id filter for explicit collections
         else:
             # Use unified collections based on scope
@@ -1579,7 +1664,7 @@ async def retrieve(
                 if len(results) >= limit:
                     break
 
-        return {
+        response = {
             "success": True,
             "total_results": len(results),
             "results": results,
@@ -1593,6 +1678,16 @@ async def retrieve(
                 "metadata": metadata or {}
             }
         }
+
+        # Add deprecation warning if alias was used (Task 405)
+        if alias_used:
+            response["_deprecation_warning"] = (
+                f"Collection '{collection}' is an alias. "
+                f"Old collection names will be removed in a future version. "
+                f"Please update your code to use the new collection name."
+            )
+
+        return response
 
     except Exception as e:
         return {
