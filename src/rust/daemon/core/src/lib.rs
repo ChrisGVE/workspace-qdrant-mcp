@@ -60,7 +60,13 @@ pub use crate::git_integration::{
 };
 pub use crate::logging::{
     LoggingConfig, PerformanceMetrics, initialize_logging, initialize_daemon_silence,
-    track_async_operation, log_error_with_context, LoggingErrorMonitor
+    track_async_operation, log_error_with_context, LoggingErrorMonitor,
+    // Multi-tenant structured logging (Task 412.8)
+    SessionContext, QueueContext, SearchContext,
+    log_session_register, log_session_heartbeat, log_session_deprioritize,
+    log_session_cleanup, log_priority_change, log_queue_depth_change,
+    log_queue_enqueue, log_queue_processed, log_slow_query,
+    log_search_request, log_search_result, log_ingestion_error,
 };
 pub use crate::metrics::{
     DaemonMetrics, MetricsServer, MetricsSnapshot, METRICS
