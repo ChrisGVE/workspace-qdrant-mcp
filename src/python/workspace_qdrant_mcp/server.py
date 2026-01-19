@@ -1388,34 +1388,52 @@ async def retrieve(
     limit: int = 10,
     project_name: str = None,
     branch: str = None,
-    file_type: str = None
+    file_type: str = None,
+    scope: str = "project"
 ) -> dict[str, Any]:
     """
     Retrieve documents directly by ID or metadata without search ranking.
 
-    NEW: Task 374.7 - Branch and file_type filtering
+    NEW: Task 398 - Multi-tenant scope parameter with branch filtering
+    - scope="project": Filter by current project_id (default, most focused)
+    - scope="global": Retrieve from all projects (no project_id filter)
+    - scope="all": Retrieve from projects + libraries collections (broadest)
     - Filters by Git branch (default: current branch, "*" = all branches)
     - Filters by file_type when specified
-    - Searches single _{project_id} collection per project
 
     Retrieval methods determined by parameters:
     - document_id specified -> direct ID lookup
     - metadata specified -> filter-based retrieval
-    - collection specified -> limits retrieval to specific collection
+    - collection specified -> limits retrieval to specific collection (overrides scope)
     - branch -> filters by Git branch
     - file_type -> filters by file type
+    - scope -> controls multi-tenant collection and filtering
 
     Args:
         document_id: Direct document ID to retrieve
-        collection: Specific collection to retrieve from
+        collection: Specific collection to retrieve from (overrides scope)
         metadata: Metadata filters for document selection
         limit: Maximum number of documents to retrieve
-        project_name: Limit retrieval to project collections
+        project_name: Limit retrieval to project collections (deprecated, use scope)
         branch: Git branch to filter by (None=current, "*"=all branches)
         file_type: File type filter ("code", "test", "docs", etc.)
+        scope: Retrieval scope - "project" (default), "global", or "all"
 
     Returns:
         Dict with retrieved documents and metadata
+
+    Examples:
+        # Retrieve by ID from current project
+        retrieve(document_id="uuid-123")
+
+        # Retrieve by ID from all projects
+        retrieve(document_id="uuid-123", scope="global")
+
+        # Retrieve by metadata from current project
+        retrieve(metadata={"file_type": "test"}, branch="develop")
+
+        # Retrieve from all collections (projects + libraries)
+        retrieve(metadata={"author": "john"}, scope="all")
     """
     await initialize_components()
 
@@ -1425,106 +1443,152 @@ async def retrieve(
             "error": "Either document_id or metadata filters must be provided"
         }
 
+    # Validate scope parameter (Task 398)
+    valid_scopes = ("project", "global", "all")
+    if scope not in valid_scopes:
+        return {
+            "success": False,
+            "error": f"Invalid scope: {scope}. Must be one of: {', '.join(valid_scopes)}",
+            "results": []
+        }
+
     try:
         results = []
 
-        # Determine search collection
+        # Determine current project_id for filtering
+        current_project_id = calculate_tenant_id(str(Path.cwd()))
+
+        # Determine retrieval collections based on scope (Task 398)
+        project_filter_id = None
         if collection:
-            search_collection = collection
+            # Explicit collection overrides scope
+            retrieve_collections = [collection]
+            # Don't apply project_id filter for explicit collections
         else:
-            # Use single project collection (new architecture)
-            search_collection = get_project_collection()
+            # Use unified collections based on scope
+            if scope == "project":
+                # Retrieve from projects with project_id filter
+                retrieve_collections = [UNIFIED_COLLECTIONS["projects"]]
+                project_filter_id = current_project_id
+            elif scope == "global":
+                # Retrieve from all projects (no project_id filter)
+                retrieve_collections = [UNIFIED_COLLECTIONS["projects"]]
+                project_filter_id = None
+            else:  # scope == "all"
+                # Retrieve from projects + libraries
+                retrieve_collections = [UNIFIED_COLLECTIONS["projects"], UNIFIED_COLLECTIONS["libraries"]]
+                project_filter_id = None
 
         if document_id:
-            # Direct ID retrieval (async)
-            try:
-                points = await qdrant_client.retrieve(
-                    collection_name=search_collection,
-                    ids=[document_id]
-                )
+            # Direct ID retrieval - search across all target collections
+            for search_collection in retrieve_collections:
+                try:
+                    points = await qdrant_client.retrieve(
+                        collection_name=search_collection,
+                        ids=[document_id]
+                    )
 
-                if points:
-                    point = points[0]
-                    # Apply branch filter to retrieved document
-                    if branch != "*":
-                        effective_branch = branch if branch else get_current_branch(Path.cwd())
-                        doc_branch = point.payload.get("branch")
-                        if doc_branch != effective_branch:
-                            # Document not on requested branch
-                            return {
-                                "success": True,
-                                "total_results": 0,
-                                "results": [],
-                                "query_type": "id_lookup",
-                                "message": f"Document found but not on branch '{effective_branch}'"
-                            }
+                    if points:
+                        point = points[0]
 
-                    # Apply file_type filter if specified
-                    if file_type:
-                        doc_file_type = point.payload.get("file_type")
-                        if doc_file_type != file_type:
-                            return {
-                                "success": True,
-                                "total_results": 0,
-                                "results": [],
-                                "query_type": "id_lookup",
-                                "message": f"Document found but not file_type '{file_type}'"
-                            }
+                        # Apply project_id filter for multi-tenant (scope="project")
+                        if project_filter_id:
+                            doc_project_id = point.payload.get("project_id")
+                            if doc_project_id != project_filter_id:
+                                continue  # Document not in current project
 
-                    result = {
-                        "id": point.id,
-                        "collection": search_collection,
-                        "content": point.payload.get("content", ""),
-                        "title": point.payload.get("title", ""),
-                        "metadata": {k: v for k, v in point.payload.items() if k != "content"}
-                    }
-                    results.append(result)
+                        # Apply branch filter to retrieved document
+                        if branch != "*":
+                            effective_branch = branch if branch else get_current_branch(Path.cwd())
+                            doc_branch = point.payload.get("branch")
+                            if doc_branch and doc_branch != effective_branch:
+                                # Document not on requested branch
+                                continue
 
-            except Exception:
-                pass  # Collection might not exist or ID not found
+                        # Apply file_type filter if specified
+                        if file_type:
+                            doc_file_type = point.payload.get("file_type")
+                            if doc_file_type and doc_file_type != file_type:
+                                continue
+
+                        result = {
+                            "id": point.id,
+                            "collection": search_collection,
+                            "content": point.payload.get("content", ""),
+                            "title": point.payload.get("title", ""),
+                            "metadata": {k: v for k, v in point.payload.items() if k != "content"}
+                        }
+                        results.append(result)
+                        break  # Found document, stop searching
+
+                except Exception:
+                    pass  # Collection might not exist or ID not found
+
+            if not results:
+                # Document not found in any collection
+                return {
+                    "success": True,
+                    "total_results": 0,
+                    "results": [],
+                    "query_type": "id_lookup",
+                    "scope": scope,
+                    "collections_searched": retrieve_collections,
+                    "message": f"Document not found or filtered out (branch/file_type/project_id)"
+                }
 
         elif metadata:
-            # Metadata-based retrieval with branch and file_type filters
-            # Build filter conditions including branch and file_type
-            search_filter = build_metadata_filters(
-                filters=metadata,
-                branch=branch,
-                file_type=file_type
-            )
+            # Metadata-based retrieval with branch, file_type, and project_id filters
+            for search_collection in retrieve_collections:
+                # Build filter conditions including branch, file_type, and project_id
+                # Use project_id for projects collection, but not for libraries
+                collection_project_id = project_filter_id if search_collection == UNIFIED_COLLECTIONS["projects"] else None
 
-            # Retrieve from collection (async)
-            try:
-                scroll_result = await qdrant_client.scroll(
-                    collection_name=search_collection,
-                    scroll_filter=search_filter,
-                    limit=limit
+                search_filter = build_metadata_filters(
+                    filters=metadata,
+                    branch=branch,
+                    file_type=file_type,
+                    project_id=collection_project_id
                 )
 
-                points = scroll_result[0]  # scroll returns (points, next_page_offset)
+                # Retrieve from collection (async)
+                try:
+                    scroll_result = await qdrant_client.scroll(
+                        collection_name=search_collection,
+                        scroll_filter=search_filter,
+                        limit=limit - len(results)  # Respect total limit
+                    )
 
-                for point in points:
-                    result = {
-                        "id": point.id,
-                        "collection": search_collection,
-                        "content": point.payload.get("content", ""),
-                        "title": point.payload.get("title", ""),
-                        "metadata": {k: v for k, v in point.payload.items() if k != "content"}
-                    }
-                    results.append(result)
+                    points = scroll_result[0]  # scroll returns (points, next_page_offset)
 
-                    if len(results) >= limit:
-                        break
+                    for point in points:
+                        result = {
+                            "id": point.id,
+                            "collection": search_collection,
+                            "content": point.payload.get("content", ""),
+                            "title": point.payload.get("title", ""),
+                            "metadata": {k: v for k, v in point.payload.items() if k != "content"}
+                        }
+                        results.append(result)
 
-            except Exception:
-                pass  # Collection might not exist
+                        if len(results) >= limit:
+                            break
+
+                except Exception:
+                    pass  # Collection might not exist
+
+                if len(results) >= limit:
+                    break
 
         return {
             "success": True,
             "total_results": len(results),
             "results": results,
             "query_type": "id_lookup" if document_id else "metadata_filter",
+            "scope": scope,
+            "collections_searched": retrieve_collections,
             "filters_applied": {
-                "branch": branch or get_current_branch(Path.cwd()) if branch != "*" else "*",
+                "project_id": project_filter_id,
+                "branch": branch if branch == "*" else (branch or get_current_branch(Path.cwd())),
                 "file_type": file_type,
                 "metadata": metadata or {}
             }
