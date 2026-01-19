@@ -377,38 +377,45 @@ export FASTEMBED_MODEL="BAAI/bge-base-en-v1.5"
 }
 ```
 
-### Collection Naming
+### Multi-Tenant Collection Architecture
 
-workspace-qdrant-mcp uses **four collection types** with strict naming conventions and **required non-empty basenames** for proper daemon routing and metadata enrichment.
+workspace-qdrant-mcp uses a **unified multi-tenant architecture** with only 4 collections, providing efficient storage and fast cross-project search:
 
-**Project Collections** (Auto-created for file watching):
+**Unified Projects Collection** (`_projects`):
 
-- Pattern: `_{project_id}` where `project_id` is 12-character hex hash
-- Example: `_a1b2c3d4e5f6` (single collection per project)
-- Basename: `"code"` (required)
-- All content types in one collection, differentiated by metadata
+- **Single collection** for ALL projects with tenant-based filtering
+- Uses `tenant_id` (derived from git remote URL or path hash) for isolation
+- Supports cross-project search with proper scoping
+- Multi-branch support via `branch` metadata field
+- Automatic project detection with Git repository awareness
 
-**User Collections** (Shared across projects):
+**Unified Libraries Collection** (`_libraries`):
 
-- Pattern: `{basename}-{type}` (e.g., `myapp-notes`, `work-scratchbook`)
-- Basename: `"notes"` (default, customizable)
-- Auto-enriched with current project_id when accessed from project directory
+- **Single collection** for ALL external documentation and references
+- Uses `library_name` for tenant isolation (e.g., `react`, `numpy`, `fastapi`)
+- Semantic search across documentation with optional library filtering
+- Folder structure preserved in metadata for topic navigation
+
+**User Collections** (`{basename}-{type}`):
+
+- User-defined collections for notes, ideas, and personal content
+- Examples: `work-notes`, `personal-snippets`, `project-ideas`
+- Auto-enriched with current `project_id` when accessed from project directory
 - Searchable across all projects with optional project filtering
 
-**Library Collections** (External documentation):
+**Memory Collections** (`_memory`, `_agent_memory`):
 
-- Pattern: `_{library_name}` (e.g., `_numpy`, `_react`, `_fastapi`)
-- Basename: `"lib"` (required)
-- Global shared documentation and references
-- Distinguished from PROJECT collections by length (>13 chars)
+- Global collections for user preferences and LLM behavioral rules
+- Conversational memory and cross-project learnings
+- Fixed names for consistent access
 
-**Memory Collections** (Meta-level data):
+**Benefits of Multi-Tenant Architecture:**
+- 🚀 **Scalable**: Handles hundreds of projects without collection explosion
+- 🔍 **Efficient search**: Single index for fast cross-project queries
+- 🔒 **Isolated**: Hard tenant filtering prevents data leakage
+- 📊 **Optimized**: Qdrant payload indexing on tenant_id for fast filtering
 
-- Fixed names: `_memory`, `_agent_memory`
-- Basename: `"memory"` (required)
-- Agent conversation history and user preferences
-
-**📖 For complete documentation:** See [Collection Naming Guide](docs/COLLECTION_NAMING.md) for detailed naming conventions, validation rules, and usage examples.
+**📖 For complete documentation:** See [Collection Naming Guide](docs/COLLECTION_NAMING.md) and [Multi-Tenancy Architecture](docs/multitenancy_architecture.md) for detailed specifications.
 
 ### Development Notes Collections
 
@@ -439,17 +446,17 @@ wqm search "rate limiting" --collection myapp-notes
 
 ### Subproject Support (Git Submodules)
 
-For repositories with **Git submodules**, the daemon automatically detects and tracks each submodule as a separate project:
+For repositories with **Git submodules**, the daemon automatically detects and tracks each submodule as a separate tenant within the unified `_projects` collection:
 
 **Requirements:**
 
 - Must set `WORKSPACE_QDRANT_WORKSPACE__GITHUB_USER=yourusername`
 - Only submodules **owned by you** are tracked (prevents vendor/third-party sprawl)
-- Without `github_user` configured, only main project collections are created (conservative approach)
+- Without `github_user` configured, only main project is tracked (conservative approach)
 
 **How it works:**
 
-Each submodule gets its own project_id (normalized git remote URL) and separate project-scoped collections. The daemon identifies ownership by comparing git remote usernames.
+Each submodule gets its own `tenant_id` (normalized git remote URL) within the unified `_projects` collection. The daemon identifies ownership by comparing git remote usernames.
 
 **Example with subprojects:**
 
@@ -459,19 +466,16 @@ Each submodule gets its own project_id (normalized git remote URL) and separate 
 # - backend/ (github.com/myuser/backend)
 # - vendor-lib/ (github.com/vendor/lib) ← ignored (different owner)
 
-# Collections created (assuming COLLECTIONS="code,docs"):
-monorepo-hash_code         # Main project code
-monorepo-hash_docs         # Main project docs
-frontend-hash_code         # Frontend code (separate project_id)
-frontend-hash_docs         # Frontend docs
-backend-hash_code          # Backend code (separate project_id)
-backend-hash_docs          # Backend docs
-# No collections for vendor-lib (different owner)
+# All content stored in unified _projects collection with tenant_id:
+# - tenant_id: "github_com_myuser_monorepo" (main project)
+# - tenant_id: "github_com_myuser_frontend" (frontend submodule)
+# - tenant_id: "github_com_myuser_backend" (backend submodule)
+# - vendor-lib content NOT ingested (different owner)
 ```
 
-### Cross-Collection Search
+### Cross-Tenant Search
 
-**Important: All MCP search commands search across ALL your collections simultaneously.**
+**Important: MCP search intelligently scopes queries based on context.**
 
 When you use Claude with commands like:
 
@@ -479,14 +483,19 @@ When you use Claude with commands like:
 - "Find all references to the payment API"
 - "What documentation do I have about deployment?"
 
-The search **automatically includes:**
+The search **automatically handles:**
 
-- ✅ Main project collections (`project-name-*`)
-- ✅ All subproject collections (`subproject-*`)
-- ✅ Global collections (`docs`, `references`, etc.)
-- ✅ All scratchbook collections (your notes and ideas)
+- ✅ **Project scope**: Searches current project's `tenant_id` in `_projects` collection
+- ✅ **Library inclusion**: Optionally includes `_libraries` collection for documentation context
+- ✅ **Cross-project**: Can search across all projects when explicitly requested
+- ✅ **User collections**: Includes user notes collections when relevant
 
-This gives you **unified search across your entire workspace** - you don't need to specify which collection to search.
+**Search parameters:**
+- `scope`: `"project"` (default) or `"all"` for cross-project search
+- `include_libraries`: `true` to include library documentation
+- `branch`: Filter by specific branch (default: current branch)
+
+This gives you **intelligent search with proper scoping** - no accidental data leakage between projects.
 
 ## Usage
 
