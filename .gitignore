@@ -235,3 +235,39 @@ tmp/
 # Git cleanup artifacts
 affected_commits.txt
 *.profraw
+
+# Temporary files with date prefixes (YYYYMMDD-HHMM_*)
+[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9]_*
+
+# Database files
+*.db
+
+# Cache directories and files
+.file_watch_cache.json
+.wqm/cache/
+*_cache.json
+
+# Backup directories
+.workspace-qdrant/backups/
+
+# Log level files (created by loguru)
+CRITICAL
+ERROR
+WARNING
+INFO
+DEBUG
+
+# Coverage and test result files
+coverage.json
+coverage_temp.json
+*_results*.json
+*.tmp
+
+# Test artifacts
+tests/reporting/*.db
+*.backup
+*.lcov
+*.rlib
+test_ingestion*.txt
+test_ingestion*.md
+test_file_ingestion*.md
