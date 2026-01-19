@@ -537,6 +537,59 @@ def build_metadata_filters(
 
     return Filter(must=conditions) if conditions else None
 
+
+def _detect_file_type(file_path: str) -> str:
+    """
+    Detect file type from file path for metadata tagging.
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        File type: "code", "test", "docs", "config", "data", "build", or "other"
+    """
+    path = Path(file_path)
+    name = path.name.lower()
+    suffix = path.suffix.lower()
+
+    # Test files
+    if "test" in name or "spec" in name or name.startswith("test_"):
+        return "test"
+
+    # Documentation
+    if suffix in (".md", ".rst", ".txt", ".adoc", ".asciidoc"):
+        return "docs"
+    if name in ("readme", "changelog", "contributing", "license"):
+        return "docs"
+
+    # Configuration
+    if suffix in (".yaml", ".yml", ".json", ".toml", ".ini", ".cfg", ".conf"):
+        return "config"
+    if name in ("dockerfile", ".dockerignore", ".gitignore", ".env", "makefile"):
+        return "config"
+
+    # Build files
+    if suffix in (".lock", ".sum"):
+        return "build"
+    if name in ("cargo.toml", "pyproject.toml", "package.json", "go.mod", "build.gradle"):
+        return "build"
+
+    # Data files
+    if suffix in (".csv", ".parquet", ".arrow", ".avro", ".db", ".sqlite"):
+        return "data"
+
+    # Code files (default for programming language extensions)
+    code_extensions = {
+        ".py", ".rs", ".go", ".js", ".ts", ".tsx", ".jsx", ".java", ".c", ".cpp",
+        ".h", ".hpp", ".swift", ".kt", ".rb", ".php", ".cs", ".lua", ".scala",
+        ".sh", ".bash", ".zsh", ".sql", ".html", ".css", ".scss", ".less"
+    }
+    if suffix in code_extensions:
+        return "code"
+
+    return "other"
+
+
 @app.tool()
 async def store(
     content: str,
@@ -547,50 +600,81 @@ async def store(
     document_type: str = "text",
     file_path: str = None,
     url: str = None,
-    project_name: str = None
+    project_name: str = None,
+    file_type: str = None
 ) -> dict[str, Any]:
     """
-    Store any type of content in the vector database.
+    Store any type of content in the unified multi-tenant vector database.
 
-    The content and parameters determine the storage location and processing:
-    - All content for a project goes to single _{project_id} collection
-    - Files differentiated by metadata: file_type, branch, project_id
-    - Legacy collection parameter supported for backwards compatibility
+    NEW: Task 397 - Multi-tenant storage with automatic project_id tagging
+    - All content stored in unified _projects collection
+    - Automatic project_id tagging from session context
+    - File type differentiation via metadata
+    - Enables cross-project search while maintaining project isolation
 
-    REFACTORED (Task 375.3): Now uses DaemonClient.ingest_text() for all writes.
-    The daemon handles embedding generation, collection creation, and metadata enrichment.
+    Storage location:
+    - All project content → _projects collection
+    - project_id automatically set from current session
+    - Differentiation via metadata: file_type, branch, source
+
+    DAEMON WRITES (First Principle 10):
+    Routes through DaemonClient.ingest_text() for all writes.
+    Daemon handles embedding, collection creation, and metadata enrichment.
 
     Args:
         content: The text content to store
         title: Optional title for the document
         metadata: Additional metadata to attach
-        collection: Override automatic collection selection (legacy support)
+        collection: Override collection (for library/memory storage)
         source: Source type (user_input, scratchbook, file, web, etc.)
         document_type: Type of document (text, code, note, etc.)
-        file_path: Path to source file (influences collection choice)
-        url: Source URL (influences collection choice)
-        project_name: Override automatic project detection
+        file_path: Path to source file (for file_type detection)
+        url: Source URL (for web content)
+        project_name: Override automatic project name detection
+        file_type: Explicit file type (code, test, docs, config, data, build, other)
 
     Returns:
-        Dict with document_id, collection, and storage confirmation
+        Dict with document_id, collection, project_id, and storage confirmation
     """
     await initialize_components()
 
-    # Determine collection based on content and context
-    target_collection = determine_collection_name(
-        content=content,
-        source=source,
-        file_path=file_path,
-        url=url,
-        collection=collection,
-        project_name=project_name
-    )
+    # Get project_id from session context or compute from current path (Task 397)
+    global _session_project_id
+    project_id = _session_project_id or calculate_tenant_id(str(Path.cwd()))
 
-    # Prepare metadata
+    # Determine target collection based on override or default to unified projects
+    if collection:
+        # Explicit collection override (e.g., for libraries or memory)
+        target_collection = collection
+    else:
+        # Default: use unified _projects collection (Task 397)
+        target_collection = UNIFIED_COLLECTIONS["projects"]
+
+    # Detect file_type from file_path if not explicitly provided
+    if not file_type and file_path:
+        file_type = _detect_file_type(file_path)
+    elif not file_type:
+        # Default based on source
+        source_to_type = {
+            "user_input": "other",
+            "scratchbook": "other",
+            "file": "code",
+            "web": "docs",
+            "note": "other",
+        }
+        file_type = source_to_type.get(source, "other")
+
+    # Get current branch for metadata
+    current_branch = get_current_branch(Path.cwd())
+
+    # Prepare metadata with project_id for multi-tenant filtering
     doc_metadata = {
         "title": title or f"Document {uuid.uuid4().hex[:8]}",
+        "project_id": project_id,  # Critical for multi-tenant filtering
         "source": source,
         "document_type": document_type,
+        "file_type": file_type,  # For file type filtering
+        "branch": current_branch,  # For branch filtering
         "created_at": datetime.now(timezone.utc).isoformat(),
         "project": project_name or await get_project_name(),
         "content_preview": content[:200] + "..." if len(content) > 200 else content
@@ -605,18 +689,9 @@ async def store(
     if metadata:
         doc_metadata.update(metadata)
 
-    # Extract collection_basename and tenant_id for daemon
-    # Use BASENAME_MAP to ensure non-empty basenames for Rust validation
-    collection_type = get_collection_type(target_collection)
-    collection_basename = BASENAME_MAP[collection_type]
-
-    # Extract tenant_id based on collection type
-    if collection_type in ("project", "library", "memory"):
-        # PROJECT/LIBRARY/MEMORY: _{project_id} or _{library_name} or _memory
-        tenant_id = target_collection[1:]  # Remove leading underscore
-    else:
-        # USER: {basename}-{type} - generate tenant_id from current project path
-        tenant_id = calculate_tenant_id(str(Path.cwd()))
+    # Collection basename for daemon - always "projects" for unified collection
+    collection_basename = "projects"
+    tenant_id = project_id
 
     # ============================================================================
     # DAEMON WRITE BOUNDARY (First Principle 10)
@@ -641,9 +716,12 @@ async def store(
                 "success": True,
                 "document_id": response.document_id,
                 "collection": target_collection,
+                "project_id": project_id,  # Task 397: Include for multi-tenant reference
                 "title": doc_metadata["title"],
                 "content_length": len(content),
                 "chunks_created": response.chunks_created,
+                "file_type": file_type,
+                "branch": current_branch,
                 "metadata": doc_metadata
             }
         except DaemonConnectionError as e:
@@ -685,8 +763,11 @@ async def store(
                 "success": True,
                 "document_id": document_id,
                 "collection": target_collection,
+                "project_id": project_id,  # Task 397: Include for multi-tenant reference
                 "title": doc_metadata["title"],
                 "content_length": len(content),
+                "file_type": file_type,
+                "branch": current_branch,
                 "metadata": doc_metadata,
                 "fallback_mode": "direct_qdrant_write"
             }
