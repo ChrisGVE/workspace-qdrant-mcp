@@ -114,7 +114,69 @@ def mock_document_stub():
 
 
 @pytest.fixture
-async def daemon_client(mock_channel, mock_system_stub, mock_collection_stub, mock_document_stub):
+def mock_project_stub():
+    """Create a mock ProjectService stub."""
+    stub = AsyncMock()
+
+    # Register project response
+    register_response = pb2.RegisterProjectResponse(
+        created=True,
+        project_id="abc123def456",
+        priority="high",
+        active_sessions=1
+    )
+    stub.RegisterProject = AsyncMock(return_value=register_response)
+
+    # Deprioritize project response
+    deprioritize_response = pb2.DeprioritizeProjectResponse(
+        success=True,
+        remaining_sessions=0,
+        new_priority="normal"
+    )
+    stub.DeprioritizeProject = AsyncMock(return_value=deprioritize_response)
+
+    # Get project status response
+    status_response = pb2.GetProjectStatusResponse(
+        found=True,
+        project_id="abc123def456",
+        project_name="test-project",
+        project_root="/path/to/project",
+        priority="high",
+        active_sessions=2,
+        last_active=Timestamp(),
+        registered_at=Timestamp(),
+        git_remote="git@github.com:user/repo.git"
+    )
+    stub.GetProjectStatus = AsyncMock(return_value=status_response)
+
+    # List projects response
+    list_response = pb2.ListProjectsResponse(
+        projects=[
+            pb2.ProjectInfo(
+                project_id="abc123def456",
+                project_name="test-project",
+                project_root="/path/to/project",
+                priority="high",
+                active_sessions=2,
+                last_active=Timestamp()
+            )
+        ],
+        total_count=1
+    )
+    stub.ListProjects = AsyncMock(return_value=list_response)
+
+    # Heartbeat response
+    heartbeat_response = pb2.HeartbeatResponse(
+        acknowledged=True,
+        next_heartbeat_by=Timestamp()
+    )
+    stub.Heartbeat = AsyncMock(return_value=heartbeat_response)
+
+    return stub
+
+
+@pytest.fixture
+async def daemon_client(mock_channel, mock_system_stub, mock_collection_stub, mock_document_stub, mock_project_stub):
     """Create a DaemonClient with mocked stubs."""
     config = ConnectionConfig(
         host="localhost",
@@ -134,6 +196,7 @@ async def daemon_client(mock_channel, mock_system_stub, mock_collection_stub, mo
         client._system_stub = mock_system_stub
         client._collection_stub = mock_collection_stub
         client._document_stub = mock_document_stub
+        client._project_stub = mock_project_stub
         yield client
         await client.stop()
 
@@ -439,6 +502,115 @@ class TestDocumentServiceRPCs:
         call_args = daemon_client._document_stub.DeleteText.call_args[0][0]
         assert call_args.document_id == "doc_123"
         assert call_args.collection_name == "myapp-notes"
+
+
+class TestProjectServiceRPCs:
+    """Test ProjectService RPC methods (Task 395)."""
+
+    @pytest.mark.asyncio
+    async def test_register_project(self, daemon_client):
+        """Test register_project() with all parameters."""
+        response = await daemon_client.register_project(
+            path="/path/to/myproject",
+            project_id="abc123def456",
+            name="My Project",
+            git_remote="git@github.com:user/repo.git"
+        )
+
+        assert isinstance(response, pb2.RegisterProjectResponse)
+        assert response.created is True
+        assert response.project_id == "abc123def456"
+        assert response.priority == "high"
+        assert response.active_sessions == 1
+
+        call_args = daemon_client._project_stub.RegisterProject.call_args[0][0]
+        assert call_args.path == "/path/to/myproject"
+        assert call_args.project_id == "abc123def456"
+        assert call_args.name == "My Project"
+        assert call_args.git_remote == "git@github.com:user/repo.git"
+
+    @pytest.mark.asyncio
+    async def test_register_project_minimal(self, daemon_client):
+        """Test register_project() with only required parameters."""
+        response = await daemon_client.register_project(
+            path="/path/to/project",
+            project_id="xyz789uvw012"
+        )
+
+        assert response.created is True
+        call_args = daemon_client._project_stub.RegisterProject.call_args[0][0]
+        assert call_args.path == "/path/to/project"
+        assert call_args.project_id == "xyz789uvw012"
+
+    @pytest.mark.asyncio
+    async def test_deprioritize_project(self, daemon_client):
+        """Test deprioritize_project()."""
+        response = await daemon_client.deprioritize_project(
+            project_id="abc123def456"
+        )
+
+        assert isinstance(response, pb2.DeprioritizeProjectResponse)
+        assert response.success is True
+        assert response.remaining_sessions == 0
+        assert response.new_priority == "normal"
+
+        call_args = daemon_client._project_stub.DeprioritizeProject.call_args[0][0]
+        assert call_args.project_id == "abc123def456"
+
+    @pytest.mark.asyncio
+    async def test_get_project_status(self, daemon_client):
+        """Test get_project_status()."""
+        response = await daemon_client.get_project_status(
+            project_id="abc123def456"
+        )
+
+        assert isinstance(response, pb2.GetProjectStatusResponse)
+        assert response.found is True
+        assert response.project_id == "abc123def456"
+        assert response.project_name == "test-project"
+        assert response.project_root == "/path/to/project"
+        assert response.priority == "high"
+        assert response.active_sessions == 2
+        assert response.git_remote == "git@github.com:user/repo.git"
+
+        call_args = daemon_client._project_stub.GetProjectStatus.call_args[0][0]
+        assert call_args.project_id == "abc123def456"
+
+    @pytest.mark.asyncio
+    async def test_list_projects(self, daemon_client):
+        """Test list_projects() with default parameters."""
+        response = await daemon_client.list_projects()
+
+        assert isinstance(response, pb2.ListProjectsResponse)
+        assert response.total_count == 1
+        assert len(response.projects) == 1
+        assert response.projects[0].project_id == "abc123def456"
+        assert response.projects[0].project_name == "test-project"
+
+    @pytest.mark.asyncio
+    async def test_list_projects_with_filters(self, daemon_client):
+        """Test list_projects() with priority filter and active_only."""
+        await daemon_client.list_projects(
+            priority_filter="high",
+            active_only=True
+        )
+
+        call_args = daemon_client._project_stub.ListProjects.call_args[0][0]
+        assert call_args.priority_filter == "high"
+        assert call_args.active_only is True
+
+    @pytest.mark.asyncio
+    async def test_heartbeat(self, daemon_client):
+        """Test heartbeat()."""
+        response = await daemon_client.heartbeat(
+            project_id="abc123def456"
+        )
+
+        assert isinstance(response, pb2.HeartbeatResponse)
+        assert response.acknowledged is True
+
+        call_args = daemon_client._project_stub.Heartbeat.call_args[0][0]
+        assert call_args.project_id == "abc123def456"
 
 
 class TestErrorHandling:

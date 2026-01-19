@@ -79,6 +79,7 @@ import asyncio
 import logging
 import os
 import subprocess
+from contextlib import asynccontextmanager
 
 # CRITICAL: Complete stdio silence must be set up before ANY other imports
 # This prevents ALL console output in MCP stdio mode for protocol compliance
@@ -141,14 +142,128 @@ from common.grpc.daemon_client import DaemonClient, DaemonConnectionError
 from common.utils.git_utils import get_current_branch
 from common.utils.project_detection import calculate_tenant_id
 
-# Initialize the FastMCP app
-app = FastMCP("Workspace Qdrant MCP")
-
 # Global components
 qdrant_client: AsyncQdrantClient | None = None
 embedding_model = None
 daemon_client: DaemonClient | None = None
 project_cache = {}
+
+# Session lifecycle state
+_session_project_id: str | None = None
+_session_project_path: str | None = None
+
+
+async def _get_git_remote() -> str | None:
+    """Get git remote URL for the current repository."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "git", "remote", "get-url", "origin",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=Path.cwd()
+        )
+        try:
+            stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=5.0)
+            if proc.returncode == 0 and stdout:
+                return stdout.decode().strip()
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+    except Exception:
+        pass
+    return None
+
+
+@asynccontextmanager
+async def lifespan(app):
+    """
+    FastMCP lifespan context manager for session lifecycle management.
+
+    Task 395: Multi-tenant session lifecycle
+    - On startup: Detect project, compute project_id, register with daemon
+    - On shutdown: Deprioritize project to allow daemon to adjust priorities
+
+    The daemon uses session registration to:
+    - Set HIGH priority for actively-edited projects
+    - Track active sessions for crash recovery
+    - Optimize file watcher resources based on activity
+    """
+    global daemon_client, _session_project_id, _session_project_path
+
+    logger = logging.getLogger(__name__)
+
+    # =========================================================================
+    # STARTUP: Register project with daemon for high-priority processing
+    # =========================================================================
+    try:
+        # Initialize daemon client if not already done
+        if daemon_client is None:
+            daemon_client = DaemonClient()
+            try:
+                await daemon_client.connect()
+            except DaemonConnectionError:
+                # Daemon connection is optional - server works without it
+                daemon_client = None
+                logger.warning("Daemon not available - session lifecycle disabled")
+
+        if daemon_client:
+            # Detect current project
+            project_path = str(Path.cwd())
+            project_id = calculate_tenant_id(project_path)
+            project_name = await get_project_name()
+            git_remote = await _get_git_remote()
+
+            # Store for shutdown cleanup
+            _session_project_id = project_id
+            _session_project_path = project_path
+
+            # Register project with daemon
+            try:
+                response = await daemon_client.register_project(
+                    path=project_path,
+                    project_id=project_id,
+                    name=project_name,
+                    git_remote=git_remote
+                )
+                logger.info(
+                    f"Project registered: {project_name} ({project_id}), "
+                    f"priority={response.priority}, sessions={response.active_sessions}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to register project: {e}")
+                # Continue without registration - daemon features degraded
+    except Exception as e:
+        logger.warning(f"Lifespan startup error: {e}")
+
+    # Yield control to the application
+    yield
+
+    # =========================================================================
+    # SHUTDOWN: Deprioritize project with daemon
+    # =========================================================================
+    try:
+        if daemon_client and _session_project_id:
+            try:
+                response = await daemon_client.deprioritize_project(
+                    project_id=_session_project_id
+                )
+                logger.info(
+                    f"Project deprioritized: {_session_project_id}, "
+                    f"remaining_sessions={response.remaining_sessions}, "
+                    f"new_priority={response.new_priority}"
+                )
+            except Exception as e:
+                logger.warning(f"Failed to deprioritize project: {e}")
+
+        # Clean up daemon client
+        if daemon_client:
+            await daemon_client.disconnect()
+    except Exception as e:
+        logger.warning(f"Lifespan shutdown error: {e}")
+
+
+# Initialize the FastMCP app with lifespan management
+app = FastMCP("Workspace Qdrant MCP", lifespan=lifespan)
 
 # Collection basename mapping for Rust daemon validation
 # Maps collection types to valid basenames (non-empty strings)
@@ -246,7 +361,11 @@ def get_project_collection(project_path: Path | None = None) -> str:
     return build_project_collection_name(project_id)
 
 async def initialize_components():
-    """Initialize Qdrant client, daemon client, and embedding model."""
+    """Initialize Qdrant client, daemon client, and embedding model.
+
+    Note: daemon_client may already be initialized by the lifespan context manager.
+    This function ensures all components are ready for tool operations.
+    """
     global qdrant_client, embedding_model, daemon_client
 
     if qdrant_client is None:
@@ -266,6 +385,7 @@ async def initialize_components():
         model_name = os.getenv("FASTEMBED_MODEL", DEFAULT_EMBEDDING_MODEL)
         embedding_model = TextEmbedding(model_name)
 
+    # Daemon client may be initialized by lifespan, only create if not present
     if daemon_client is None:
         # Initialize daemon client for write operations
         daemon_client = DaemonClient()

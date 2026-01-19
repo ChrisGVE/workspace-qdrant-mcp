@@ -219,6 +219,7 @@ class DaemonClient:
         self._system_stub: pb2_grpc.SystemServiceStub | None = None
         self._collection_stub: pb2_grpc.CollectionServiceStub | None = None
         self._document_stub: pb2_grpc.DocumentServiceStub | None = None
+        self._project_stub: pb2_grpc.ProjectServiceStub | None = None
 
         # Legacy protocol stub
         self._ingest_stub: IngestServiceStub | None = None
@@ -265,6 +266,7 @@ class DaemonClient:
             self._system_stub = pb2_grpc.SystemServiceStub(self._channel)
             self._collection_stub = pb2_grpc.CollectionServiceStub(self._channel)
             self._document_stub = pb2_grpc.DocumentServiceStub(self._channel)
+            self._project_stub = pb2_grpc.ProjectServiceStub(self._channel)
 
             # Create legacy protocol stub
             self._ingest_stub = IngestServiceStub(self._channel)
@@ -299,6 +301,7 @@ class DaemonClient:
         self._system_stub = None
         self._collection_stub = None
         self._document_stub = None
+        self._project_stub = None
         self._ingest_stub = None
         self._started = False
         self._connected = False
@@ -977,6 +980,206 @@ class DaemonClient:
 
         async def operation():
             return await self._document_stub.DeleteText(request)
+
+        return await self._retry_operation(operation, timeout=timeout)
+
+    # =========================================================================
+    # ProjectService Methods (5 RPCs)
+    # =========================================================================
+
+    async def register_project(
+        self,
+        path: str,
+        project_id: str,
+        name: str | None = None,
+        git_remote: str | None = None,
+        timeout: float = 10.0
+    ) -> pb2.RegisterProjectResponse:
+        """
+        Register a project for high-priority processing.
+
+        Called when MCP server starts for a project. Increments active session
+        count and sets priority to HIGH.
+
+        Args:
+            path: Absolute path to project root
+            project_id: 12-char hex identifier (from calculate_tenant_id)
+            name: Human-readable project name (optional)
+            git_remote: Git remote URL for normalization (optional)
+            timeout: Request timeout in seconds (default: 10.0)
+
+        Returns:
+            RegisterProjectResponse with:
+            - created: True if new project, False if existing
+            - project_id: Confirmed project ID
+            - priority: Current priority ("high", "normal", "low")
+            - active_sessions: Number of active sessions
+
+        Example:
+            ```python
+            result = await client.register_project(
+                path="/path/to/myproject",
+                project_id="abc123def456",
+                name="My Project",
+                git_remote="git@github.com:user/myproject.git"
+            )
+            print(f"Project registered: {result.project_id}, priority={result.priority}")
+            ```
+        """
+        request = pb2.RegisterProjectRequest(
+            path=path,
+            project_id=project_id,
+        )
+        if name is not None:
+            request.name = name
+        if git_remote is not None:
+            request.git_remote = git_remote
+
+        async def operation():
+            return await self._project_stub.RegisterProject(request)
+
+        return await self._retry_operation(operation, timeout=timeout)
+
+    async def deprioritize_project(
+        self,
+        project_id: str,
+        timeout: float = 10.0
+    ) -> pb2.DeprioritizeProjectResponse:
+        """
+        Deprioritize a project (decrement session count).
+
+        Called when MCP server stops. Decrements active session count.
+        When count reaches 0, priority may be lowered.
+
+        Args:
+            project_id: 12-char hex identifier
+            timeout: Request timeout in seconds (default: 10.0)
+
+        Returns:
+            DeprioritizeProjectResponse with:
+            - success: Whether operation succeeded
+            - remaining_sessions: Sessions after decrement
+            - new_priority: Priority after demotion
+
+        Example:
+            ```python
+            result = await client.deprioritize_project(project_id="abc123def456")
+            print(f"Remaining sessions: {result.remaining_sessions}")
+            ```
+        """
+        request = pb2.DeprioritizeProjectRequest(project_id=project_id)
+
+        async def operation():
+            return await self._project_stub.DeprioritizeProject(request)
+
+        return await self._retry_operation(operation, timeout=timeout)
+
+    async def get_project_status(
+        self,
+        project_id: str,
+        timeout: float = 10.0
+    ) -> pb2.GetProjectStatusResponse:
+        """
+        Get current status of a project.
+
+        Args:
+            project_id: 12-char hex identifier
+            timeout: Request timeout in seconds (default: 10.0)
+
+        Returns:
+            GetProjectStatusResponse with project details including:
+            - found: Whether project exists
+            - project_id, project_name, project_root
+            - priority: Current priority level
+            - active_sessions: Number of active sessions
+            - last_active, registered_at timestamps
+            - git_remote (optional)
+
+        Example:
+            ```python
+            status = await client.get_project_status(project_id="abc123def456")
+            if status.found:
+                print(f"Project: {status.project_name}, priority={status.priority}")
+            ```
+        """
+        request = pb2.GetProjectStatusRequest(project_id=project_id)
+
+        async def operation():
+            return await self._project_stub.GetProjectStatus(request)
+
+        return await self._retry_operation(operation, timeout=timeout)
+
+    async def list_projects(
+        self,
+        priority_filter: str | None = None,
+        active_only: bool = False,
+        timeout: float = 10.0
+    ) -> pb2.ListProjectsResponse:
+        """
+        List all registered projects with their status.
+
+        Args:
+            priority_filter: Filter by priority ("high", "normal", "low", or None for all)
+            active_only: Only return projects with active_sessions > 0
+            timeout: Request timeout in seconds (default: 10.0)
+
+        Returns:
+            ListProjectsResponse with:
+            - projects: List of ProjectInfo objects
+            - total_count: Total number of matching projects
+
+        Example:
+            ```python
+            # List all high-priority projects
+            result = await client.list_projects(priority_filter="high")
+            for project in result.projects:
+                print(f"{project.project_name}: {project.active_sessions} sessions")
+
+            # List only active projects
+            active = await client.list_projects(active_only=True)
+            ```
+        """
+        request = pb2.ListProjectsRequest(active_only=active_only)
+        if priority_filter is not None:
+            request.priority_filter = priority_filter
+
+        async def operation():
+            return await self._project_stub.ListProjects(request)
+
+        return await self._retry_operation(operation, timeout=timeout)
+
+    async def heartbeat(
+        self,
+        project_id: str,
+        timeout: float = 5.0
+    ) -> pb2.HeartbeatResponse:
+        """
+        Send heartbeat to keep session alive.
+
+        Called periodically by MCP servers to prevent session timeout.
+        Default timeout is 60 seconds - heartbeats should be sent more frequently.
+
+        Args:
+            project_id: 12-char hex identifier
+            timeout: Request timeout in seconds (default: 5.0)
+
+        Returns:
+            HeartbeatResponse with:
+            - acknowledged: True if heartbeat was accepted
+            - next_heartbeat_by: Deadline for next heartbeat
+
+        Example:
+            ```python
+            result = await client.heartbeat(project_id="abc123def456")
+            if result.acknowledged:
+                # Schedule next heartbeat before next_heartbeat_by
+                deadline = result.next_heartbeat_by.ToDatetime()
+            ```
+        """
+        request = pb2.HeartbeatRequest(project_id=project_id)
+
+        async def operation():
+            return await self._project_stub.Heartbeat(request)
 
         return await self._retry_operation(operation, timeout=timeout)
 
