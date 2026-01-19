@@ -60,11 +60,24 @@ auto_ingestion:
 **Old architecture:**
 - Custom collection names via `project_collection` setting
 - Manual collection management
+- One collection per project (collection sprawl)
 
-**New architecture:**
-- **PROJECT collections:** `_{project_id}` (auto-created by daemon)
-- **LIBRARY collections:** `_{library_name}` (user-managed)
-- **USER collections:** `{basename}-{type}` (optional)
+**New architecture (Unified Multi-Tenant Model):**
+- **PROJECTS collection:** `_projects` - Single unified collection for ALL projects
+  - Tenant isolation via `tenant_id` payload field (12-char hex from git URL or path hash)
+  - Cross-project search available via `scope="all"` parameter
+  - Payload indexing on `tenant_id` for O(1) filtering
+- **LIBRARIES collection:** `_libraries` - Single unified collection for ALL reference docs
+  - Tenant isolation via `library_name` payload field
+  - Include in search via `include_libraries=True` parameter
+- **USER collections:** `{basename}-{type}` - User-created notes (e.g., `myapp-notes`)
+- **MEMORY collections:** `_memory`, `_agent_memory` - System and agent rules
+
+**Key Benefits:**
+- Only 4 collection types total (scalable to thousands of projects)
+- Single HNSW index per collection type (efficient)
+- Cross-project semantic search (powerful)
+- Hard tenant filtering prevents data leakage (secure)
 
 ### Storage Migration: JSON → SQLite
 
@@ -178,29 +191,59 @@ wqm watch add /path/to/project \
 
 ### 4.2 Collection Migration
 
-**If using default collection names:** No action required.
+**Unified Collections:** v0.4.0 introduces the unified multi-tenant collection model. All project content now goes into a single `_projects` collection with tenant isolation via `tenant_id`.
 
-**If using custom collection names:**
+**Migration Steps:**
 
 1. **List existing collections:**
    ```bash
    wqm admin collections
    ```
 
-2. **For each custom collection:**
+2. **Identify old per-project collections:**
    ```bash
-   # Option 1: Keep as USER collection (requires basename)
-   # Rename: my-project → myapp-code
-   # (Manual process via Qdrant API or wqm library commands)
-
-   # Option 2: Migrate to PROJECT collection
-   # Let daemon auto-create _{project_id} collection
-   # Re-ingest files from watch folders
+   # Old format: _{project_id} (12-char hex per project)
+   # These will be migrated to unified _projects collection
    ```
 
-3. **Verify migration:**
+3. **Run automatic migration:**
+   ```bash
+   # Migration script consolidates old collections into unified model
+   wqm admin migrate-to-unified
+
+   # This will:
+   # - Create _projects collection if not exists
+   # - Copy documents from _{project_id} collections to _projects
+   # - Add tenant_id metadata to each document
+   # - Optionally delete old collections after verification
+   ```
+
+4. **For custom USER collections:**
+   ```bash
+   # User collections ({basename}-{type}) remain unchanged
+   # They are auto-enriched with project_id when accessed from project directory
+   ```
+
+5. **Verify migration:**
    ```bash
    wqm admin collections --verbose
+
+   # Should show:
+   # _projects (unified, contains all projects with tenant_id)
+   # _libraries (unified, contains all libraries with library_name)
+   # {user}-{type} collections (unchanged)
+   ```
+
+6. **Test search with new parameters:**
+   ```bash
+   # Search current project only (default)
+   wqm search "authentication" --scope project
+
+   # Search all projects
+   wqm search "authentication" --scope all
+
+   # Include library documentation
+   wqm search "fastapi routing" --include-libraries
    ```
 
 ## Step 5: Update MCP Configuration
@@ -253,11 +296,19 @@ workspace-qdrant-health
 ### 6.2 Test Search
 
 ```bash
-# Test hybrid search
-wqm search project "your search query"
+# Test hybrid search (default: current project scope)
+wqm search "your search query"
+
+# Test with scope options
+wqm search "query" --scope project   # Current project only (default)
+wqm search "query" --scope all       # All projects
+wqm search "query" --include-libraries  # Include library docs
 
 # Test with filters
-wqm search project "query" --branch main --file-type code
+wqm search "query" --branch main --file-type code
+
+# Test cross-project search
+wqm search "authentication patterns" --scope all --include-libraries
 ```
 
 ### 6.3 Test MCP Tools
@@ -380,17 +431,27 @@ cp assets/default_configuration.yaml ~/.config/workspace-qdrant/config.yaml
 
 **Solution:**
 ```bash
-# 1. Check collections exist
+# 1. Check unified collections exist
 wqm admin collections
+# Should show: _projects, _libraries
 
-# 2. Verify collection has documents
-wqm admin collections --collection _{your-project-id} --stats
+# 2. Verify _projects collection has documents
+wqm admin collections --collection _projects --stats
 
-# 3. Check indexing status
+# 3. Check tenant_id for current project
 wqm admin status
+# Note the tenant_id (e.g., github_com_user_repo)
 
-# 4. Re-index if needed
+# 4. Verify documents exist for this tenant
+wqm search "test" --scope all  # Search all projects
+wqm search "test" --scope project  # Search current project only
+
+# 5. If no documents, re-ingest
 wqm ingest folder /path/to/project
+
+# 6. Check if searching wrong scope
+# Default is "project" - try "all" to search everything
+wqm search "authentication" --scope all --include-libraries
 ```
 
 ## Performance Tuning
