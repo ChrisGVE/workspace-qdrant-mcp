@@ -26,7 +26,10 @@ workspace-qdrant-mcp provides 4 comprehensive MCP tools that enable natural lang
 - Retrieve documents by ID or metadata with filtering
 
 **Architecture Features:**
-- Single collection per project (_{project_id})
+- **Unified Multi-Tenant Model**: Only 4 collections total (`_projects`, `_libraries`, user, memory)
+- **Tenant Isolation**: `tenant_id` for projects, `library_name` for libraries (payload-indexed)
+- **Cross-Project Search**: Search all projects with `scope="all"`
+- **Library Inclusion**: Include documentation with `include_libraries=true`
 - Branch-aware querying with Git integration
 - File type differentiation via metadata
 - Reciprocal Rank Fusion (RRF) for optimal search results
@@ -147,15 +150,16 @@ Search across collections with hybrid semantic + keyword matching, branch filter
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
 | `query` | string | **Yes** | - | Search query text |
-| `collection` | string | No | Auto-detected | Specific collection to search |
-| `project_name` | string | No | Auto-detected | Search within specific project |
+| `scope` | string | No | `"project"` | Search scope: `"project"` (current project), `"global"`, `"all"` (all projects) |
+| `include_libraries` | boolean | No | `false` | Include library documentation (`_libraries` collection) in results |
+| `collection` | string | No | Auto-detected | Specific collection to search (overrides scope) |
 | `mode` | string | No | `"hybrid"` | Search mode: "hybrid", "semantic", "exact", or "keyword" |
 | `limit` | integer | No | `10` | Maximum number of results to return |
 | `score_threshold` | float | No | `0.3` | Minimum similarity score (0.0-1.0) |
 | `filters` | object | No | `{}` | Additional metadata filters |
 | `branch` | string | No | Current branch | Git branch to search (null=current, "*"=all branches) |
 | `file_type` | string | No | `null` | File type filter ("code", "test", "docs", "config", "data", "build", "other") |
-| `workspace_type` | string | No | `null` | **DEPRECATED** - use `file_type` instead |
+| `project_name` | string | No | Auto-detected | **DEPRECATED** - use `scope` instead |
 
 #### Search Modes
 
@@ -176,11 +180,36 @@ Search across collections with hybrid semantic + keyword matching, branch filter
 
 #### Usage Examples
 
-**Basic hybrid search (current branch, all file types):**
+**Basic hybrid search (current project, current branch):**
 ```json
 {
   "query": "authentication logic",
   "mode": "hybrid"
+}
+```
+
+**Search all projects:**
+```json
+{
+  "query": "authentication patterns",
+  "scope": "all"
+}
+```
+
+**Search with library documentation:**
+```json
+{
+  "query": "JWT token validation",
+  "include_libraries": true
+}
+```
+
+**Search all projects with libraries:**
+```json
+{
+  "query": "FastAPI dependency injection",
+  "scope": "all",
+  "include_libraries": true
 }
 ```
 
@@ -225,16 +254,20 @@ Search across collections with hybrid semantic + keyword matching, branch filter
   "success": true,
   "query": "authentication logic",
   "mode": "hybrid",
-  "collection_searched": "_a1b2c3d4e5f6",
+  "scope": "project",
+  "collections_searched": ["_projects"],
+  "tenant_id": "github_com_user_repo",
+  "include_libraries": false,
   "total_results": 3,
   "results": [
     {
       "id": "doc-id-1",
       "score": 0.89,
-      "collection": "_a1b2c3d4e5f6",
+      "collection": "_projects",
       "content": "The authentication logic validates JWT tokens...",
       "title": "Auth Module Documentation",
       "metadata": {
+        "tenant_id": "github_com_user_repo",
         "file_type": "code",
         "branch": "main",
         "file_path": "src/auth.py",
@@ -244,10 +277,11 @@ Search across collections with hybrid semantic + keyword matching, branch filter
     {
       "id": "doc-id-2",
       "score": 0.76,
-      "collection": "_a1b2c3d4e5f6",
+      "collection": "_projects",
       "content": "User authentication flow diagram...",
       "title": "Authentication Flow",
       "metadata": {
+        "tenant_id": "github_com_user_repo",
         "file_type": "docs",
         "branch": "main"
       }
@@ -255,6 +289,7 @@ Search across collections with hybrid semantic + keyword matching, branch filter
   ],
   "search_time_ms": 45.23,
   "filters_applied": {
+    "tenant_id": "github_com_user_repo",
     "branch": "main",
     "file_type": null,
     "custom": {}
@@ -291,13 +326,14 @@ Manage collections, system status, and configuration with comprehensive administ
 
 | Action | Description | Required Parameters |
 |--------|-------------|-------------------|
-| `list_collections` | List all collections with statistics | None |
+| `list_collections` | List all collections with statistics (unified model: `_projects`, `_libraries`, user, memory) | None |
 | `create_collection` | Create a new collection | `name` |
 | `delete_collection` | Delete a collection | `name` or `collection` |
-| `collection_info` | Get detailed info about a collection | `name` or `collection` |
-| `workspace_status` | Get system status and health check | None |
-| `init_project` | Initialize project collection (_{project_id}) | None |
+| `collection_info` | Get detailed info about a collection (shows tenant counts for unified collections) | `name` or `collection` |
+| `workspace_status` | Get system status, health check, and current `tenant_id` | None |
+| `init_project` | Register project in unified `_projects` collection (creates collection if needed) | None |
 | `cleanup` | Remove empty collections and optimize | None |
+| `migrate_to_unified` | Migrate old per-project collections to unified model | None |
 
 #### Usage Examples
 
