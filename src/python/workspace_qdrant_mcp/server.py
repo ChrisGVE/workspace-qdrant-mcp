@@ -274,6 +274,14 @@ BASENAME_MAP = {
     "memory": "memory",     # MEMORY collections: _memory, _agent_memory
 }
 
+# Unified multi-tenant collection names (Task 394/396)
+# These collections store data from all projects/libraries with tenant_id filtering
+UNIFIED_COLLECTIONS = {
+    "projects": "_projects",    # All project code/documents
+    "libraries": "_libraries",  # All library documentation
+    "memory": "_memory",        # Agent memory and cross-project notes
+}
+
 
 def get_collection_type(collection_name: str) -> str:
     """Determine collection type from collection name.
@@ -490,20 +498,26 @@ async def generate_embeddings(text: str) -> list[float]:
 def build_metadata_filters(
     filters: dict[str, Any] = None,
     branch: str = None,
-    file_type: str = None
+    file_type: str = None,
+    project_id: str = None
 ) -> Filter | None:
     """
-    Build Qdrant filter with branch and file_type conditions.
+    Build Qdrant filter with branch, file_type, and project_id conditions.
 
     Args:
         filters: User-provided metadata filters
         branch: Git branch to filter by (None = current branch, "*" = all branches)
         file_type: File type to filter by ("code", "test", "docs", etc.)
+        project_id: Project ID to filter by (for multi-tenant unified collections)
 
     Returns:
         Qdrant Filter object or None if no filters
     """
     conditions = []
+
+    # Add project_id filter for multi-tenant collections (Task 396)
+    if project_id:
+        conditions.append(FieldCondition(key="project_id", match=MatchValue(value=project_id)))
 
     # Add branch filter (always include unless branch="*")
     if branch != "*":
@@ -682,6 +696,42 @@ async def store(
                 "error": f"Failed to store document: {str(e)}"
             }
 
+def _merge_with_rrf(
+    results_lists: list[list[dict[str, Any]]],
+    k: int = 60
+) -> list[dict[str, Any]]:
+    """
+    Merge multiple result lists using Reciprocal Rank Fusion (RRF).
+
+    RRF is a simple but effective method for combining ranked lists.
+    Formula: RRF(d) = Σ 1 / (k + rank(d))
+
+    Args:
+        results_lists: List of result lists, each sorted by score
+        k: Constant to prevent high-ranked items from dominating (default: 60)
+
+    Returns:
+        Merged results sorted by RRF score
+    """
+    rrf_scores: dict[str, float] = {}
+    result_map: dict[str, dict[str, Any]] = {}
+
+    for results in results_lists:
+        for rank, result in enumerate(results, start=1):
+            result_id = str(result["id"])
+            rrf_scores[result_id] = rrf_scores.get(result_id, 0) + 1 / (k + rank)
+            # Keep the result with highest original score
+            if result_id not in result_map or result["score"] > result_map[result_id]["score"]:
+                result_map[result_id] = result
+
+    # Sort by RRF score and return
+    sorted_ids = sorted(rrf_scores.keys(), key=lambda x: rrf_scores[x], reverse=True)
+    return [
+        {**result_map[rid], "rrf_score": rrf_scores[rid]}
+        for rid in sorted_ids
+    ]
+
+
 @app.tool()
 async def search(
     query: str,
@@ -693,30 +743,47 @@ async def search(
     filters: dict[str, Any] = None,
     branch: str = None,
     file_type: str = None,
-    workspace_type: str = None
+    workspace_type: str = None,
+    scope: str = "project",
+    include_libraries: bool = False
 ) -> dict[str, Any]:
     """
     Search across collections with hybrid semantic + keyword matching.
 
-    NEW: Task 374.7 - Single collection + branch filtering architecture
-    - Searches single _{project_id} collection per project
-    - Filters by Git branch (default: current branch, "*" = all branches)
-    - Filters by file_type when specified (code, test, docs, config, data, build, other)
-    - workspace_type parameter deprecated (use file_type instead)
+    NEW: Task 396 - Multi-tenant filtering with scope parameter
+    - scope="project": Filter by current project_id (default, most focused)
+    - scope="global": Search all projects (no project_id filter)
+    - scope="all": Search projects + libraries collections (broadest)
+    - include_libraries: Also search _libraries collection
 
-    Search modes and behavior determined by parameters:
+    Architecture:
+    - Searches unified _projects collection with project_id filtering
+    - Optional parallel search in _libraries collection
+    - Results merged using Reciprocal Rank Fusion (RRF)
+    - Filters by Git branch (default: current branch, "*" = all branches)
+    - Filters by file_type when specified
+
+    Search modes:
     - mode="hybrid" -> combines semantic and keyword search
     - mode="semantic" -> pure vector similarity search
     - mode="exact" -> keyword/symbol exact matching
-    - branch=None -> current Git branch (detected automatically)
-    - branch="main" -> specific branch
-    - branch="*" -> search across all branches
-    - file_type="code" -> only code files
-    - filters -> applies additional metadata filtering
+
+    Examples:
+        # Search current project only (default)
+        search(query="authentication", scope="project")
+
+        # Search all projects
+        search(query="login", scope="global")
+
+        # Search everything including libraries
+        search(query="numpy array", scope="all")
+
+        # Search project + include libraries
+        search(query="datetime", include_libraries=True)
 
     Args:
         query: Search query text
-        collection: Specific collection to search (overrides project-based selection)
+        collection: Specific collection to search (overrides scope-based selection)
         project_name: Search within specific project collections
         mode: Search mode - "hybrid", "semantic", "exact", or "keyword"
         limit: Maximum number of results to return
@@ -725,6 +792,8 @@ async def search(
         branch: Git branch to search (None=current, "*"=all branches)
         file_type: File type filter ("code", "test", "docs", "config", "data", "build", "other")
         workspace_type: DEPRECATED - use file_type instead
+        scope: Search scope - "project" (default), "global", or "all"
+        include_libraries: Also search libraries collection (merged with RRF)
 
     Returns:
         Dict with search results, metadata, and performance info
@@ -743,92 +812,170 @@ async def search(
         }
         file_type = workspace_to_file_type.get(workspace_type, "other")
 
-    # Determine search collection
-    if collection:
-        search_collection = collection
-    else:
-        # Use single project collection (new architecture)
-        search_collection = get_project_collection()
+    # Validate scope parameter (Task 396)
+    valid_scopes = ("project", "global", "all")
+    if scope not in valid_scopes:
+        return {
+            "success": False,
+            "error": f"Invalid scope: {scope}. Must be one of: {', '.join(valid_scopes)}",
+            "results": []
+        }
 
-    # Build metadata filters with branch and file_type
+    # Determine current project_id for filtering
+    current_project_id = calculate_tenant_id(str(Path.cwd()))
+
+    # Determine search collections based on scope (Task 396)
+    # If explicit collection is provided, use it directly
+    if collection:
+        search_collections = [collection]
+        # Don't apply project_id filter for explicit collections
+        project_filter_id = None
+    else:
+        # Use unified collections based on scope
+        if scope == "project":
+            # Search only current project in unified collection
+            search_collections = [UNIFIED_COLLECTIONS["projects"]]
+            project_filter_id = current_project_id
+        elif scope == "global":
+            # Search all projects (no project_id filter)
+            search_collections = [UNIFIED_COLLECTIONS["projects"]]
+            project_filter_id = None
+        else:  # scope == "all"
+            # Search both projects and libraries
+            search_collections = [UNIFIED_COLLECTIONS["projects"], UNIFIED_COLLECTIONS["libraries"]]
+            project_filter_id = None
+
+        # Add libraries collection if requested
+        if include_libraries and UNIFIED_COLLECTIONS["libraries"] not in search_collections:
+            search_collections.append(UNIFIED_COLLECTIONS["libraries"])
+
+    # Build metadata filters with branch, file_type, and project_id
     search_filter = build_metadata_filters(
         filters=filters,
         branch=branch,
-        file_type=file_type
+        file_type=file_type,
+        project_id=project_filter_id
+    )
+
+    # For libraries, we don't filter by branch (they're external documentation)
+    library_filter = build_metadata_filters(
+        filters=filters,
+        branch="*",  # Don't filter libraries by branch
+        file_type=file_type,
+        project_id=None  # Libraries have library_name, not project_id
     )
 
     # Execute search based on mode
-    all_results = []
     search_start = datetime.now()
+    all_collection_results = []
+
+    async def search_single_collection(
+        coll: str,
+        filter_to_use: Filter | None
+    ) -> list[dict[str, Any]]:
+        """Search a single collection and return formatted results."""
+        results = []
+
+        try:
+            # Check collection exists
+            if not await ensure_collection_exists(coll):
+                return results
+
+            if mode in ["semantic", "hybrid"]:
+                # Generate query embeddings for semantic search
+                query_embeddings = await generate_embeddings(query)
+
+                # Perform vector search (async)
+                search_results = await qdrant_client.search(
+                    collection_name=coll,
+                    query_vector=query_embeddings,
+                    query_filter=filter_to_use,
+                    limit=limit,
+                    score_threshold=score_threshold
+                )
+
+                # Convert results
+                for hit in search_results:
+                    result = {
+                        "id": hit.id,
+                        "score": hit.score,
+                        "collection": coll,
+                        "content": hit.payload.get("content", ""),
+                        "title": hit.payload.get("title", ""),
+                        "metadata": {k: v for k, v in hit.payload.items() if k != "content"}
+                    }
+                    results.append(result)
+
+            if mode in ["exact", "keyword", "hybrid"]:
+                # For keyword/exact search, use scroll to find text matches (async)
+                scroll_results = await qdrant_client.scroll(
+                    collection_name=coll,
+                    scroll_filter=filter_to_use,
+                    limit=limit * 2  # Get more for filtering
+                )
+
+                # Filter results by keyword match
+                query_lower = query.lower()
+                for point in scroll_results[0]:  # scroll returns (points, next_page_offset)
+                    content = point.payload.get("content", "").lower()
+                    if query_lower in content:
+                        # Simple relevance scoring based on keyword frequency
+                        keyword_score = content.count(query_lower) / len(content.split()) if content else 0
+
+                        result = {
+                            "id": point.id,
+                            "score": min(keyword_score * 10, 1.0),  # Normalize to 0-1
+                            "collection": coll,
+                            "content": point.payload.get("content", ""),
+                            "title": point.payload.get("title", ""),
+                            "metadata": {k: v for k, v in point.payload.items() if k != "content"}
+                        }
+                        results.append(result)
+
+        except Exception as e:
+            # Log but don't fail the entire search if one collection fails
+            pass
+
+        return results
 
     try:
-        # Ensure collection exists before searching
-        if not await ensure_collection_exists(search_collection):
-            return {
-                "success": False,
-                "error": f"Collection not found: {search_collection}",
-                "results": []
-            }
+        # Execute searches in parallel across collections (Task 396)
+        search_tasks = []
+        for coll in search_collections:
+            # Use library_filter for libraries collection, search_filter for others
+            if coll == UNIFIED_COLLECTIONS["libraries"]:
+                search_tasks.append(search_single_collection(coll, library_filter))
+            else:
+                search_tasks.append(search_single_collection(coll, search_filter))
 
-        if mode in ["semantic", "hybrid"]:
-            # Generate query embeddings for semantic search
-            query_embeddings = await generate_embeddings(query)
+        # Run all searches concurrently
+        collection_results = await asyncio.gather(*search_tasks, return_exceptions=True)
 
-            # Perform vector search (async)
-            search_results = await qdrant_client.search(
-                collection_name=search_collection,
-                query_vector=query_embeddings,
-                query_filter=search_filter,
-                limit=limit,
-                score_threshold=score_threshold
+        # Collect results from each collection
+        for result in collection_results:
+            if isinstance(result, list):
+                all_collection_results.append(result)
+
+        # Merge results using RRF if multiple collections searched
+        if len(all_collection_results) > 1:
+            merged_results = _merge_with_rrf(all_collection_results)
+        elif all_collection_results:
+            # Single collection - just flatten and sort
+            merged_results = sorted(
+                all_collection_results[0],
+                key=lambda x: x["score"],
+                reverse=True
             )
+        else:
+            merged_results = []
 
-            # Convert results
-            for hit in search_results:
-                result = {
-                    "id": hit.id,
-                    "score": hit.score,
-                    "collection": search_collection,
-                    "content": hit.payload.get("content", ""),
-                    "title": hit.payload.get("title", ""),
-                    "metadata": {k: v for k, v in hit.payload.items() if k != "content"}
-                }
-                all_results.append(result)
-
-        if mode in ["exact", "keyword", "hybrid"]:
-            # For keyword/exact search, use scroll to find text matches (async)
-            # This is a simplified implementation - in production, you'd want
-            # to implement proper sparse vector search or use Qdrant's full-text search
-            scroll_results = await qdrant_client.scroll(
-                collection_name=search_collection,
-                scroll_filter=search_filter,
-                limit=limit * 2  # Get more for filtering
-            )
-
-            # Filter results by keyword match
-            query_lower = query.lower()
-            for point in scroll_results[0]:  # scroll returns (points, next_page_offset)
-                content = point.payload.get("content", "").lower()
-                if query_lower in content:
-                    # Simple relevance scoring based on keyword frequency
-                    keyword_score = content.count(query_lower) / len(content.split()) if content else 0
-
-                    result = {
-                        "id": point.id,
-                        "score": min(keyword_score * 10, 1.0),  # Normalize to 0-1
-                        "collection": search_collection,
-                        "content": point.payload.get("content", ""),
-                        "title": point.payload.get("title", ""),
-                        "metadata": {k: v for k, v in point.payload.items() if k != "content"}
-                    }
-                    all_results.append(result)
-
-        # Sort results by score and deduplicate
+        # Deduplicate by ID (in case same doc appears in multiple collections)
         seen_ids = set()
         unique_results = []
-        for result in sorted(all_results, key=lambda x: x["score"], reverse=True):
-            if result["id"] not in seen_ids:
-                seen_ids.add(result["id"])
+        for result in merged_results:
+            result_id = str(result["id"])
+            if result_id not in seen_ids:
+                seen_ids.add(result_id)
                 unique_results.append(result)
 
         # Limit final results
@@ -840,12 +987,14 @@ async def search(
             "success": True,
             "query": query,
             "mode": mode,
-            "collection_searched": search_collection,
+            "scope": scope,
+            "collections_searched": search_collections,
             "total_results": len(final_results),
             "results": final_results,
             "search_time_ms": round(search_duration * 1000, 2),
             "filters_applied": {
-                "branch": branch or get_current_branch(Path.cwd()),
+                "project_id": project_filter_id,
+                "branch": branch if branch != "*" else (get_current_branch(Path.cwd()) if scope == "project" else "*"),
                 "file_type": file_type,
                 "custom": filters or {}
             }
