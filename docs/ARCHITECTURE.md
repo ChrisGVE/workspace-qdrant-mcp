@@ -303,26 +303,26 @@ sequenceDiagram
     Claude->>MCP: search(query="auth logic",<br/>mode="hybrid", file_type="code")
 
     activate MCP
-    Note over MCP: 1. Project Detection
-    MCP->>MCP: get_project_collection()<br/>→ _a1b2c3d4e5f6
+    Note over MCP: 1. Tenant Detection
+    MCP->>MCP: calculate_tenant_id()<br/>→ github_com_user_repo
 
     Note over MCP: 2. Filter Building
-    MCP->>MCP: build_metadata_filters()<br/>branch="main"<br/>file_type="code"
+    MCP->>MCP: build_tenant_filters()<br/>tenant_id="github_com_user_repo"<br/>branch="main"<br/>file_type="code"
 
     Note over MCP: 3. Embedding Generation
     MCP->>MCP: generate_embeddings()<br/>→ [0.123, 0.456, ...]
 
-    MCP->>Daemon: gRPC: SearchRequest<br/>collection="_a1b2c3d4e5f6"<br/>query_vector=[...]<br/>filters={branch, file_type}
+    MCP->>Daemon: gRPC: SearchRequest<br/>collection="_projects"<br/>query_vector=[...]<br/>filters={tenant_id, branch, file_type}
     deactivate MCP
 
     activate Daemon
-    Note over Daemon: 4. Parallel Search
+    Note over Daemon: 4. Parallel Search (tenant-scoped)
 
     par Semantic Search
-        Daemon->>Qdrant: vector_search()<br/>query_vector<br/>filters<br/>limit=10
+        Daemon->>Qdrant: vector_search()<br/>query_vector<br/>filters (incl. tenant_id)<br/>limit=10
         Qdrant-->>Daemon: semantic_results[]<br/>scored by similarity
     and Keyword Search
-        Daemon->>Qdrant: scroll()<br/>keyword="auth logic"<br/>filters<br/>limit=20
+        Daemon->>Qdrant: scroll()<br/>keyword="auth logic"<br/>filters (incl. tenant_id)<br/>limit=20
         Qdrant-->>Daemon: keyword_results[]<br/>scored by frequency
     end
 
@@ -356,69 +356,75 @@ sequenceDiagram
 
 ## Collection Structure
 
-Multi-tenant collection architecture with metadata-based differentiation.
+Unified multi-tenant collection architecture with only 4 collections and tenant-based filtering.
 
 ```mermaid
 graph TB
-    subgraph "Collection Types"
-        subgraph "PROJECT Collections"
-            P1[_a1b2c3d4e5f6<br/>Project Alpha]
-            P2[_b2c3d4e5f6a1<br/>Project Beta]
-            P3[_c3d4e5f6a1b2<br/>Project Gamma]
+    subgraph "Unified Collections (4 Total)"
+        subgraph "Projects Collection"
+            P[_projects<br/>ALL Projects]
+            P --> PT1[tenant_id: github_com_user_alpha<br/>Project Alpha]
+            P --> PT2[tenant_id: github_com_user_beta<br/>Project Beta]
+            P --> PT3[tenant_id: path_c3d4e5f6a1b2<br/>Local Project]
         end
 
-        subgraph "USER Collections"
+        subgraph "Libraries Collection"
+            L[_libraries<br/>ALL Libraries]
+            L --> LT1[library_name: fastapi<br/>FastAPI Docs]
+            L --> LT2[library_name: react<br/>React Docs]
+        end
+
+        subgraph "User Collections"
             U1[myapp-notes<br/>User Notes]
             U2[research-refs<br/>References]
         end
 
-        subgraph "LIBRARY Collections"
-            L1[_fastapi<br/>FastAPI Docs]
-            L2[_react<br/>React Docs]
-        end
-
-        subgraph "MEMORY Collections"
+        subgraph "Memory Collections"
             M1[_memory<br/>System Rules]
             M2[_agent_memory<br/>Agent Context]
         end
     end
 
-    subgraph "Metadata Structure"
+    subgraph "Tenant Metadata Structure"
         direction LR
         Meta[Document Metadata]
 
-        Meta --> FT[file_type:<br/>code, test, docs,<br/>config, data,<br/>build, other]
-        Meta --> BR[branch:<br/>main, develop,<br/>feature/*, etc.]
-        Meta --> PID[project_id:<br/>12-char hex hash]
+        Meta --> TID[tenant_id:<br/>github_com_user_repo<br/>or path_hash]
+        Meta --> FT[file_type:<br/>code, test, docs,<br/>config, data]
+        Meta --> BR[branch:<br/>main, develop,<br/>feature/*]
         Meta --> FP[file_path:<br/>src/auth.py]
         Meta --> SYM[symbols:<br/>functions, classes]
     end
 
-    P1 -.->|contains| Meta
-    U1 -.->|enriched with| PID
+    P -.->|filtered by| TID
+    L -.->|filtered by| LT1
+    U1 -.->|enriched with| TID
 
-    style P1 fill:#e1f5ff
-    style P2 fill:#e1f5ff
-    style P3 fill:#e1f5ff
+    style P fill:#e1f5ff
+    style L fill:#e1ffe1
     style U1 fill:#fff5e1
     style U2 fill:#fff5e1
-    style L1 fill:#e1ffe1
-    style L2 fill:#e1ffe1
     style M1 fill:#ffe1e1
     style M2 fill:#ffe1e1
 ```
 
-**Naming Conventions:**
-- **PROJECT**: `_{project_id}` - Single collection per project (12-char hex hash)
-- **USER**: `{basename}-{type}` - User-created collections
-- **LIBRARY**: `_{library_name}` - External library documentation
+**Collection Architecture:**
+- **PROJECTS**: `_projects` - Unified collection for ALL projects, filtered by `tenant_id`
+- **LIBRARIES**: `_libraries` - Unified collection for ALL libraries, filtered by `library_name`
+- **USER**: `{basename}-{type}` - User-created collections (e.g., `work-notes`)
 - **MEMORY**: `_memory`, `_agent_memory` - System and agent rules
 
-**Differentiation Strategy:**
-- Single collection per project reduces Qdrant collection count
-- Metadata-based filtering for branch, file_type, symbols
-- Automatic project_id enrichment by daemon
+**Multi-Tenant Isolation:**
+- `tenant_id` derived from normalized git remote URL or path hash
+- Payload indexing on `tenant_id` for O(1) filtering performance
+- Cross-project search available with `scope="all"`
 - Branch-scoped queries by default (configurable with `branch="*"`)
+
+**Benefits:**
+- Only 4 collections regardless of project count (scalable)
+- Single HNSW index per collection type (efficient)
+- Cross-project semantic search (powerful)
+- Hard tenant filtering prevents data leakage (secure)
 
 ## SQLite State Management
 
@@ -530,7 +536,7 @@ graph TB
     end
 
     subgraph "Qdrant Vector DB"
-        Collections[(Collections<br/>_{project_id}<br/>{user}-{type}<br/>_{library})]
+        Collections[(Collections<br/>_projects<br/>_libraries<br/>{user}-{type}<br/>_memory)]
     end
 
     MCP_Store --> Check
@@ -616,7 +622,7 @@ sequenceDiagram
 
     Worker->>SQLite: Update state<br/>file_hash, processed_at
 
-    Worker->>Qdrant: Batch upsert<br/>vectors + metadata<br/>project_id, branch, file_type
+    Worker->>Qdrant: Batch upsert to _projects<br/>vectors + metadata<br/>tenant_id, branch, file_type
     Qdrant-->>Worker: Success
 
     Worker->>SQLite: Mark complete<br/>success status
@@ -636,26 +642,33 @@ sequenceDiagram
     User->>MCP: manage(action="init_project")
 
     activate MCP
-    MCP->>MCP: calculate_tenant_id()<br/>→ a1b2c3d4e5f6
-    MCP->>MCP: build_project_collection_name()<br/>→ _a1b2c3d4e5f6
+    MCP->>MCP: calculate_tenant_id()<br/>→ github_com_user_repo
+    MCP->>MCP: check_unified_collection_exists()<br/>→ _projects
 
-    MCP->>Daemon: gRPC: CreateCollection<br/>name="_a1b2c3d4e5f6"<br/>vector_size=384<br/>distance="Cosine"
+    alt Unified collection doesn't exist
+        MCP->>Daemon: gRPC: CreateCollection<br/>name="_projects"<br/>vector_size=384<br/>distance="Cosine"
+
+        activate Daemon
+        Daemon->>Qdrant: create_collection()<br/>VectorParams(384, Cosine)
+        Qdrant-->>Daemon: CollectionInfo
+        Daemon-->>MCP: CreateCollectionResponse<br/>success=true
+        deactivate Daemon
+    end
+
+    MCP->>Daemon: gRPC: RegisterProject<br/>tenant_id="github_com_user_repo"<br/>project_path="/path/to/project"
     deactivate MCP
 
     activate Daemon
-    Daemon->>Qdrant: create_collection()<br/>VectorParams(384, Cosine)
-    Qdrant-->>Daemon: CollectionInfo
-
-    Daemon->>SQLite: Record collection<br/>created_at, config
+    Daemon->>SQLite: Record project<br/>tenant_id, path, created_at
     SQLite-->>Daemon: Success
 
-    Daemon-->>MCP: CreateCollectionResponse<br/>success=true
+    Daemon-->>MCP: RegisterProjectResponse<br/>success=true
     deactivate Daemon
 
     activate MCP
-    MCP->>MCP: Format response<br/>add metadata
+    MCP->>MCP: Format response
 
-    MCP-->>User: {"success": true,<br/>"collection": "_a1b2c3d4e5f6",<br/>"message": "Created"}
+    MCP-->>User: {"success": true,<br/>"tenant_id": "github_com_user_repo",<br/>"collection": "_projects"}
     deactivate MCP
 ```
 
