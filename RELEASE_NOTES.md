@@ -1,293 +1,277 @@
-# Release Notes: workspace-qdrant-mcp v0.3.0
+# Release Notes: workspace-qdrant-mcp v0.4.0
 
-## 🎉 What's New
+## What's New
 
-Version 0.3.0 represents a major evolution of workspace-qdrant-mcp, bringing significant performance improvements, new capabilities, and a more robust architecture. This release introduces over 2,176 commits including 359 new features, 254 bug fixes, and comprehensive testing infrastructure.
+Version 0.4.0 introduces a major architectural evolution: **Unified Multi-Tenant Collections**. This release transforms how projects and libraries are organized, providing better scalability, simpler management, and more powerful cross-project search capabilities.
 
-## ✨ Highlights
+## Highlights
 
-### 🚀 High-Performance Rust Daemon
+### Unified Multi-Tenant Architecture
 
-**What it means for you:** Dramatically faster document processing and file watching.
+**What it means for you:** Simpler collection management with better scalability and cross-project search.
 
-The new Rust-based daemon (`memexd`) replaces Python-based processing for heavy operations:
-- **10x faster** document ingestion
-- **Real-time file watching** with intelligent debouncing
-- **Background processing** without blocking your workflow
-- **Automatic crash recovery** with persistent state
+**Before (v0.3.x):**
+- One collection per project: `_abc123`, `_def456`, `_ghi789`
+- One collection per library: `_fastapi`, `_react`, `_numpy`
+- 100 projects = 100+ collections to manage
+- Cross-project search required querying multiple collections
 
-### 🔍 Intelligent Hybrid Search
+**After (v0.4.0):**
+- Single `_projects` collection for ALL project content
+- Single `_libraries` collection for ALL library documentation
+- Tenant isolation via `tenant_id` payload field
+- Cross-project search with a single query
 
-**What it means for you:** More relevant search results combining semantic understanding with exact keyword matching.
+**Benefits:**
+- **Scalable:** Handle thousands of projects without collection sprawl
+- **Efficient:** Single HNSW index per collection type (better memory utilization)
+- **Discoverable:** Semantic search across all projects with one query
+- **Simple:** Fewer collections to manage and monitor
+- **Secure:** Hard tenant filtering prevents data leakage
 
-The new hybrid search uses Reciprocal Rank Fusion (RRF) to combine:
-- **Semantic search:** Understands context and meaning (e.g., "authentication logic" finds relevant code even without that exact phrase)
-- **Keyword search:** Finds exact matches for symbols, function names, and specific terms
-- **Smart ranking:** Automatically balances both approaches for optimal results
+### Automatic Session Management
 
-Try it:
-```bash
-wqm search project "user login flow"
-# Finds relevant authentication code, even if it doesn't contain those exact words
-```
+**What it means for you:** Projects are automatically prioritized based on active development.
 
-### 🏗️ Multi-Tenant Project Isolation
-
-**What it means for you:** Cleaner organization with automatic project-scoped collections.
-
-Each project gets its own isolated collection:
-- **Automatic detection:** Git repositories automatically get `_{project_id}` collections
-- **Branch-aware filtering:** Search within specific branches (`--branch main`)
-- **File type organization:** Separate code, tests, docs, and config
-- **No manual setup:** Daemon handles collection creation automatically
-
-### 🧠 LLM Context Injection System
-
-**What it means for you:** Claude Code and other LLMs get smarter with automatic context management.
-
-New trigger-based system keeps your LLM context fresh:
-- **Automatic refresh:** Context updates when you modify rules or configuration
-- **Session detection:** Detects Claude Code, Copilot, Cursor automatically
-- **Token budget tracking:** Monitors and manages context size
-- **Tool-aware formatting:** Adapts output format for different LLM tools
-
-### 📚 Comprehensive Documentation
-
-**What it means for you:** Easier onboarding and troubleshooting.
-
-Four new comprehensive guides:
-- **[API.md](API.md):** Complete MCP tools reference with examples
-- **[CLI.md](CLI.md):** All `wqm` commands with practical workflows
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md):** Solutions to common issues
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md):** Visual diagrams of system design
-
-### ⚡ Simplified MCP Tools
-
-**What it means for you:** Easier to use, more powerful tools.
-
-Streamlined from dozens of tools to four comprehensive ones:
-- **`store`:** Save anything (notes, code, documents) with automatic embedding
-- **`search`:** Find anything with hybrid semantic + keyword search
-- **`manage`:** Control collections and system settings
-- **`retrieve`:** Get specific documents by ID or metadata
-
-## 🔧 What Changed
-
-### Docker Images (Coming in v0.3.1)
-
-**Note:** Docker images and container deployment are not included in v0.3.0. The complete Docker and Kubernetes infrastructure exists in the `docker/` directory but images will be published starting with v0.3.1.
-
-**Timeline:**
-- v0.3.0: PyPI package release (available now)
-- v0.3.1: Docker images and container deployment (next patch release)
-
-For now, use pip/uv installation methods. Docker deployment guide will be activated in v0.3.1.
-
-### Configuration Updates (Action Required)
-
-**Before you upgrade:** Review the [Migration Guide](MIGRATION.md) for step-by-step instructions.
-
-Key changes to your `config.yaml`:
-
-```yaml
-# OLD (v0.2.x)
-auto_ingestion:
-  max_file_size_mb: 100
-  timeout_seconds: 30
-  project_collection: "projects_content"
-
-# NEW (v0.3.0)
-auto_ingestion:
-  max_file_size: "100MB"  # Explicit units
-  timeout: "30s"          # Explicit units
-  auto_create_project_collections: true  # Boolean
-```
-
-**Why:** Explicit units prevent ambiguity and configuration errors.
-
-### Storage Changes (Automatic Migration)
-
-**Before:** Watch folder configuration stored in JSON files
-**After:** Unified SQLite database at `~/.local/share/workspace-qdrant/daemon_state.db`
-
-**Why:** Better reliability, faster lookups, and unified state management.
-
-**Migration:** Automatic on first run. Your existing watch folders will be migrated seamlessly.
-
-### Collection Architecture (Automatic)
-
-**Before:** Manual collection management with custom names
-**After:** Automatic project-scoped collections with standardized naming
-
-**Why:** Eliminates configuration overhead and prevents collection sprawl.
-
-**Impact:** Existing custom collections still work, but new projects use the standardized `_{project_id}` pattern.
-
-## 🎯 Who Should Upgrade
-
-### ✅ Recommended for:
-
-- **All users** looking for better performance
-- **Teams** needing project isolation
-- **Power users** wanting hybrid search
-- **Claude Code users** wanting context injection
-- **Anyone** experiencing slow document ingestion
-
-### ⚠️ Consider carefully if:
-
-- **Using heavily customized collection names** (migration required)
-- **Running on systems without Rust toolchain** (needed for daemon)
-- **Dependent on specific v0.2.x behavior** (test thoroughly first)
-
-## 🛠️ Upgrade Guide
-
-### Quick Upgrade (5 minutes)
+New ProjectService gRPC API handles project lifecycle:
+- **Automatic Registration:** Projects registered when MCP server starts
+- **Priority Queuing:** Active sessions get HIGH priority processing
+- **Heartbeat Monitoring:** 30-second heartbeats keep sessions alive
+- **Orphan Detection:** Stale sessions detected and cleaned up automatically
 
 ```bash
-# 1. Backup your data
-qdrant-cli backup create --output ~/backup.tar.gz
-cp ~/.config/workspace-qdrant/config.yaml ~/config-backup.yaml
+# Check project status
+wqm admin projects
 
-# 2. Install Rust (if not installed)
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+# View active sessions
+wqm admin status
+```
 
-# 3. Upgrade package
+### Enhanced Search Scoping
+
+**What it means for you:** More control over what you search.
+
+New search parameters for precise scoping:
+
+```python
+# Search current project only (default)
+search(query="authentication", scope="project")
+
+# Search all projects
+search(query="rate limiting", scope="all")
+
+# Include library documentation
+search(query="FastAPI routing", include_libraries=True)
+
+# Combined: search everything
+search(query="JWT tokens", scope="all", include_libraries=True)
+```
+
+**CLI equivalent:**
+```bash
+wqm search "authentication"                              # Current project
+wqm search "authentication" --scope all                  # All projects
+wqm search "authentication" --include-libraries          # With libraries
+wqm search "authentication" --scope all --include-libraries  # Everything
+```
+
+### Branch-Aware Search
+
+**What it means for you:** Find code across branches or filter to specific ones.
+
+```python
+# Search specific branch
+search(query="feature code", branch="feature/auth")
+
+# Search all branches (find deleted code)
+search(query="deprecated function", branch="*")
+
+# Default: current branch only
+search(query="new feature")
+```
+
+## What Changed
+
+### Breaking Changes
+
+#### Collection Architecture (Migration Required)
+
+| Aspect | v0.3.x | v0.4.0 |
+|--------|--------|--------|
+| Project collections | `_{project_id}` per project | Single `_projects` collection |
+| Library collections | `_{library_name}` per library | Single `_libraries` collection |
+| Isolation method | Separate collections | `tenant_id` payload filtering |
+| Cross-project search | Multiple queries | Single query with `scope="all"` |
+
+#### Search API Changes
+
+| Parameter | v0.3.x | v0.4.0 |
+|-----------|--------|--------|
+| Default scope | All content | Current project only |
+| `scope` parameter | Not available | `"project"`, `"global"`, `"all"` |
+| `include_libraries` | Always included | Opt-in with `include_libraries=True` |
+| Response fields | Basic | Includes `tenant_id`, `collections_searched` |
+
+**Migration example:**
+```python
+# v0.3.x behavior (search everything)
+search(query="authentication")
+
+# v0.4.0 equivalent (explicit scope)
+search(query="authentication", scope="all", include_libraries=True)
+```
+
+### Automatic Migration
+
+Run the migration command to transition existing data:
+
+```bash
+# Preview what will change
+wqm admin migrate-to-unified --dry-run
+
+# Execute migration
+wqm admin migrate-to-unified
+
+# Verify migration completed
+wqm admin collections --verbose
+```
+
+**Migration process:**
+1. Creates `_projects` and `_libraries` collections
+2. Copies documents with added `tenant_id` metadata
+3. Preserves all existing content and embeddings
+4. Optionally removes old collections after verification
+
+## Who Should Upgrade
+
+### Recommended for:
+
+- **Users with many projects** - Dramatic reduction in collection count
+- **Teams needing cross-project search** - Find patterns across your codebase
+- **Anyone wanting simpler management** - Fewer collections to monitor
+- **Users who forgot to include libraries** - Explicit `include_libraries` prevents confusion
+
+### Consider carefully if:
+
+- **Heavy reliance on collection-per-project semantics** - Test migration thoroughly
+- **Custom collection naming conventions** - Review migration plan first
+- **Production systems with tight SLAs** - Plan migration during maintenance window
+
+## Upgrade Guide
+
+### Quick Upgrade (10 minutes)
+
+```bash
+# 1. Backup current data
+wqm backup create --output ~/backup-v03.tar.gz
+
+# 2. Upgrade package
 pip install --upgrade workspace-qdrant-mcp
 
-# 4. Update configuration (see Migration Guide)
-$EDITOR ~/.config/workspace-qdrant/config.yaml
+# 3. Preview migration
+wqm admin migrate-to-unified --dry-run
 
-# 5. Install and start daemon
-wqm service install
-wqm service start
+# 4. Execute migration
+wqm admin migrate-to-unified
+
+# 5. Restart services
+wqm service restart
 
 # 6. Verify
-wqm service status
-workspace-qdrant-health
+wqm admin collections --verbose
+wqm admin status
 ```
 
-**Need help?** See the complete [Migration Guide](MIGRATION.md).
+### Update Search Queries
 
-## 📊 Performance Improvements
+If you were relying on the old default search behavior:
 
-Based on internal benchmarks:
+```python
+# OLD: Searched everything by default
+results = search(query="my query")
 
-| Operation | v0.2.x | v0.3.0 | Improvement |
-|-----------|--------|--------|-------------|
-| **Document Ingestion** | 250 docs/sec | 2,500 docs/sec | **10x faster** |
-| **File Watching** | 5 sec latency | 500ms latency | **90% reduction** |
-| **Search Query** | 200ms | 150ms | **25% faster** |
-| **Collection Creation** | Manual | Automatic | **Infinite** 😊 |
-| **Memory Usage** | 512 MB | 256 MB | **50% reduction** |
+# NEW: Add explicit scope for same behavior
+results = search(query="my query", scope="all", include_libraries=True)
+```
 
-*Benchmarks run on MacBook Pro M1, 16GB RAM, 100k documents*
+## Performance Comparison
 
-## 🧪 Testing & Quality
+| Metric | v0.3.x (100 projects) | v0.4.0 | Improvement |
+|--------|----------------------|--------|-------------|
+| **Collections** | 100+ | 4 | 96% reduction |
+| **Memory (indexes)** | 2.5 GB | 400 MB | 84% reduction |
+| **Cross-project search** | 100 queries | 1 query | 99% reduction |
+| **Collection management** | Manual | Automatic | Eliminated |
 
-This release includes unprecedented test coverage:
+*Based on typical usage with 100 projects, 10 libraries*
 
-- **87 new test suites** covering unit, integration, and E2E scenarios
-- **Property-based testing** using Proptest for edge case validation
-- **LLM behavioral harness** for testing context injection
-- **Performance regression tests** to maintain speed improvements
-- **Multi-platform testing** on macOS, Linux, and Windows
+## New Features Summary
 
-## 🔐 Security Enhancements
+### ProjectService gRPC API (5 RPCs)
 
-- **Enhanced input validation** for all user-provided data
-- **Security monitoring system** with automated alerting
-- **Audit logging** for compliance tracking
-- **Privacy controls** in analytics system
-- **Dependency scanning** in CI/CD pipeline
+| RPC | Purpose |
+|-----|---------|
+| `RegisterProject` | Register project for high-priority processing |
+| `DeprioritizeProject` | Decrement session count on graceful shutdown |
+| `Heartbeat` | Keep session alive (30s interval, 60s timeout) |
+| `GetProjectStatus` | Query project status, priority, sessions |
+| `ListProjects` | List all projects with filtering |
 
-## 🐛 Notable Fixes
+### Search Enhancements
 
-This release includes 254 bug fixes. Key improvements:
+| Feature | Description |
+|---------|-------------|
+| `scope` parameter | Control search scope (`project`, `global`, `all`) |
+| `include_libraries` | Opt-in library documentation in results |
+| `branch` parameter | Filter by git branch (supports `*` wildcard) |
+| `collections_searched` | Response field showing which collections were queried |
 
-- **MCP protocol compliance:** Fixed stdio mode output contamination
-- **Service management:** Improved macOS/Linux/Windows service handling
-- **Configuration loading:** Resolved daemon database path issues
-- **Import paths:** Standardized all imports to absolute paths
-- **Memory leaks:** Fixed several memory leak issues in long-running processes
-- **Test reliability:** Eliminated flaky tests with proper isolation
+### Session Lifecycle
 
-## 💡 New Capabilities
+| State | Description |
+|-------|-------------|
+| `ACTIVE` | MCP server connected, heartbeat received |
+| `IDLE` | Registered but no active sessions |
+| `ORPHANED` | Missed heartbeat for 60+ seconds |
 
-### Testing Framework
+## Documentation
 
-Comprehensive testing infrastructure for development:
-- **Behavioral harness** for mocking LLM interactions
-- **Multi-tool integration** testing (MCP, CLI, API)
-- **Performance monitoring** with statistical analysis
-- **Property-based testing** for edge cases
+### New Documentation
 
-### LSP Integration
+- **[docs/EXAMPLES.md](docs/EXAMPLES.md)** - Comprehensive multi-tenant search examples
+- **[docs/multitenancy_architecture.md](docs/multitenancy_architecture.md)** - Architecture deep-dive
+- **[docs/GRPC_API.md](docs/GRPC_API.md)** - Complete gRPC API reference (20 RPCs)
 
-Language server protocol integration for code intelligence:
-- **Auto-detection** of 500+ language servers
-- **Symbol extraction** with O(1) lookup
-- **Configuration management** with health monitoring
-- **Integration testing** framework
+### Updated Documentation
 
-### Advanced Features
+- **[CHANGELOG.md](CHANGELOG.md)** - Complete v0.4.0 change history
+- **[README.md](README.md)** - Updated architecture overview
+- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - Session lifecycle diagrams
 
-- **Web crawling** with rate limiting and robots.txt compliance
-- **Intelligent auto-ingestion** with debouncing and filtering
-- **Performance monitoring** with metrics and predictive models
-- **Security monitoring** with alerting and compliance
-- **Service discovery** for multi-instance daemon coordination
-- **Circuit breaker** pattern for resilient error recovery
+## What's Next
 
-## 📖 Documentation
+Planned for v0.5.0:
+- **Docker images** - Container deployment support
+- **Kubernetes Helm chart** - Enterprise deployment
+- **Enhanced analytics** - Usage insights dashboard
+- **Plugin system** - Custom document parsers
 
-### New Guides
-
-- **[MIGRATION.md](MIGRATION.md):** Step-by-step upgrade instructions
-- **[API.md](API.md):** Complete MCP tools API reference
-- **[CLI.md](CLI.md):** Comprehensive CLI command reference
-- **[TROUBLESHOOTING.md](TROUBLESHOOTING.md):** Common issues and solutions
-- **[ARCHITECTURE.md](docs/ARCHITECTURE.md):** Visual system architecture
-
-### Updated Docs
-
-- **[README.md](README.md):** Updated with v0.3.0 features
-- **[CHANGELOG.md](CHANGELOG.md):** Complete change history
-
-## 🔮 What's Next
-
-We're already working on exciting features for v0.4.0:
-
-- **Cloud deployment** options (Docker, Kubernetes)
-- **Enhanced analytics** with usage insights
-- **Plugin system** for custom document parsers
-- **Collaborative features** for team workflows
-- **Mobile companion** app for on-the-go access
-
-## 🙏 Acknowledgments
-
-This release was made possible by:
-
-- **2,176 commits** from dedicated development
-- **Comprehensive testing** across all platforms
-- **Community feedback** shaping priorities
-- **Claude Code** providing development assistance
-
-## 📞 Support
+## Support
 
 Need help with the upgrade?
 
 - **Migration Guide:** [MIGRATION.md](MIGRATION.md)
 - **Troubleshooting:** [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+- **Search Examples:** [docs/EXAMPLES.md](docs/EXAMPLES.md)
 - **GitHub Issues:** https://github.com/ChrisGVE/workspace-qdrant-mcp/issues
-- **Documentation:** Full docs in the repository
 
-## 🎊 Thank You
+## Thank You
 
-Thank you for using workspace-qdrant-mcp! We hope v0.3.0 makes your development workflow even better.
+Thank you for using workspace-qdrant-mcp! The v0.4.0 multi-tenant architecture makes managing multiple projects dramatically simpler while enabling powerful cross-project discovery.
 
-**Happy coding!** 🚀
+**Happy coding!**
 
 ---
 
-*Released: 2025-10-21*
-*Download: `pip install workspace-qdrant-mcp==0.3.0`*
+*Released: 2025-01-19*
+*Download: `pip install workspace-qdrant-mcp==0.4.0`*
