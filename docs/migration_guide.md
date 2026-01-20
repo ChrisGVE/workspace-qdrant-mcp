@@ -546,10 +546,9 @@ Review errors and warnings in reports:
 
 ### Additional Resources
 
-- [Multi-Tenant Architecture Guide](./multi_tenant_architecture.md)
-- [Performance Tuning Guide](./performance_tuning.md)
-- [Backup and Recovery Guide](./backup_recovery.md)
-- [API Reference](./api_reference.md)
+- [Multi-Tenant Architecture Guide](./multitenancy_architecture.md)
+- [Backup and Recovery Guide](./BACKUP_RESTORE.md)
+- [API Reference (gRPC)](./GRPC_API.md)
 
 ### Contributing
 
