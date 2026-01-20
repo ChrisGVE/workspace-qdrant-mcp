@@ -9,6 +9,7 @@ Comprehensive troubleshooting guide for workspace-qdrant-mcp installation, confi
 - [MCP Server Debugging](#mcp-server-debugging)
 - [Daemon Startup Issues](#daemon-startup-issues)
 - [Phase 1 Foundation Issues](#phase-1-foundation-issues-unified-daemon-architecture)
+- [Multi-Tenant Architecture Issues](#multi-tenant-architecture-issues-v040)
 - [Performance Troubleshooting](#performance-troubleshooting)
 - [Configuration Guide](#configuration-guide)
 - [Debugging Commands](#debugging-commands)
@@ -866,6 +867,407 @@ src/rust/daemon/target/release/memexd --foreground --log-level debug
 
 # Check output for gRPC startup messages
 # Should see "gRPC server listening..."
+```
+
+## Multi-Tenant Architecture Issues (v0.4.0+)
+
+This section covers issues specific to the unified multi-tenant collection architecture introduced in v0.4.0.
+
+### Project Not Appearing in Searches
+
+**Problem:** Documents from a project don't appear in search results
+
+**Diagnosis:**
+```bash
+# Check if project is registered
+wqm admin projects
+
+# Expected output shows project with ACTIVE or IDLE status
+# Project ID: abc123def456
+# Status: ACTIVE
+# Sessions: 1
+
+# If project not listed, it's not registered
+```
+
+**Solutions:**
+
+**1. Check project registration status:**
+```bash
+# List all registered projects
+wqm admin projects --verbose
+
+# Check specific project
+wqm project status /path/to/project
+
+# If not found, ensure MCP server has connected from project directory
+```
+
+**2. Verify tenant_id in collection:**
+```bash
+# Check if documents have correct tenant_id
+curl "http://localhost:6333/collections/_projects/points/scroll" \
+  -H "Content-Type: application/json" \
+  -d '{"filter": {"must": [{"key": "tenant_id", "match": {"value": "your_tenant_id"}}]}, "limit": 5}'
+```
+
+**3. Trigger project re-registration:**
+```bash
+# Stop and restart MCP server in project directory
+# This triggers RegisterProject RPC
+cd /path/to/project
+workspace-qdrant-mcp  # Restart in project context
+```
+
+### Old Data Not Visible After Migration
+
+**Problem:** Pre-v0.4.0 data not appearing in searches
+
+**Diagnosis:**
+```bash
+# Check if old collections still exist
+wqm admin collections
+
+# Look for collections like:
+# _abc123def456  ← Old per-project collection
+# _projects      ← New unified collection
+
+# If old collections exist but _projects is empty, migration incomplete
+```
+
+**Solutions:**
+
+**1. Check migration status:**
+```bash
+# Verify migration ran
+wqm admin migrate-to-unified --status
+
+# Expected: "Migration completed successfully"
+# If not, migration may have failed or never ran
+```
+
+**2. Re-run migration:**
+```bash
+# Preview migration
+wqm admin migrate-to-unified --dry-run
+
+# Execute migration
+wqm admin migrate-to-unified
+
+# Verify data moved
+wqm admin collections --verbose
+```
+
+**3. Verify tenant_id assignment:**
+```bash
+# Check documents in _projects have tenant_id
+curl "http://localhost:6333/collections/_projects/points/scroll" \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 10, "with_payload": true}'
+
+# Each document should have:
+# "tenant_id": "github_com_user_repo" or similar
+```
+
+### Search Returning Unexpected Results
+
+**Problem:** Search returns too many or too few results
+
+**Diagnosis:**
+```bash
+# Check current search scope
+wqm search "test query" --debug
+
+# Look for:
+# Scope: project (default)
+# Collections searched: ["_projects"]
+# Tenant filter: abc123def456
+```
+
+**Solutions:**
+
+**1. Understand scope parameter:**
+```python
+# scope="project" (default) - Current project only
+search(query="auth", scope="project")
+
+# scope="all" - All projects
+search(query="auth", scope="all")
+
+# scope="global" - Global collections (user notes, memory)
+search(query="auth", scope="global")
+```
+
+**2. Common mistake - expecting old behavior:**
+```python
+# OLD v0.3.x: Searched everything by default
+search(query="auth")  # Searched all content
+
+# NEW v0.4.0: Searches current project by default
+search(query="auth")  # Searches current project only!
+
+# To get old behavior:
+search(query="auth", scope="all", include_libraries=True)
+```
+
+**3. Verify scope in CLI:**
+```bash
+# Current project only (default)
+wqm search "auth"
+
+# All projects
+wqm search "auth" --scope all
+
+# Include libraries
+wqm search "auth" --include-libraries
+
+# Everything searchable
+wqm search "auth" --scope all --include-libraries
+```
+
+### Libraries Not Included in Results
+
+**Problem:** Library documentation not appearing in search results
+
+**Diagnosis:**
+```bash
+# Check if include_libraries parameter is set
+wqm search "FastAPI routing" --debug
+
+# Look for:
+# Include libraries: false (default)
+# Collections searched: ["_projects"]  ← _libraries NOT included
+```
+
+**Solutions:**
+
+**1. Explicitly include libraries:**
+```python
+# MCP Tool
+search(query="FastAPI routing", include_libraries=True)
+
+# CLI
+wqm search "FastAPI routing" --include-libraries
+```
+
+**2. Check _libraries collection exists:**
+```bash
+# List collections
+wqm admin collections
+
+# Look for _libraries collection
+# If missing, no library content has been ingested
+```
+
+**3. Verify library content exists:**
+```bash
+# Check library documents
+curl "http://localhost:6333/collections/_libraries/points/scroll" \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 5, "with_payload": true}'
+
+# Should show documents with library_name field
+```
+
+**4. Ingest library documentation:**
+```bash
+# Add library documentation
+wqm library watch fastapi /path/to/fastapi/docs -p "*.md"
+
+# Force rescan
+wqm library rescan fastapi
+```
+
+### Orphaned Session Alerts
+
+**Problem:** Getting "orphaned session" warnings or alerts
+
+**Cause:** MCP server disconnected without graceful shutdown (crash, network issue, force quit)
+
+**Diagnosis:**
+```bash
+# Check project sessions
+wqm admin projects --verbose
+
+# Look for:
+# Status: ORPHANED
+# Last heartbeat: 2 minutes ago
+# Sessions: 0 (but priority still HIGH)
+```
+
+**Solutions:**
+
+**1. Understand orphaned sessions:**
+- Heartbeats sent every 30 seconds
+- Session marked orphaned after 60 seconds without heartbeat
+- Orphaned sessions eventually cleaned up automatically
+
+**2. Manual cleanup (if needed):**
+```bash
+# Force cleanup of orphaned sessions
+wqm admin cleanup-orphaned
+
+# Restart daemon to reset all session states
+wqm service restart
+```
+
+**3. Prevent orphaned sessions:**
+```bash
+# Always stop MCP server gracefully (Ctrl+C, not force quit)
+# This sends DeprioritizeProject RPC
+
+# For Claude Desktop, quit properly instead of force-quitting
+```
+
+**4. Check daemon health:**
+```bash
+# Verify heartbeat mechanism working
+wqm admin status
+
+# Look for:
+# Heartbeat service: HEALTHY
+# Orphan detection: ACTIVE
+```
+
+### Collection Name Conflicts During Migration
+
+**Problem:** Migration fails with "collection already exists" or similar errors
+
+**Diagnosis:**
+```bash
+# Check existing collections
+wqm admin collections
+
+# Look for conflicts:
+# _projects    ← New unified collection
+# _projects_backup  ← Migration backup?
+# _a1b2c3d4e5f6  ← Old per-project collection
+```
+
+**Solutions:**
+
+**1. Use dry-run first:**
+```bash
+# Preview migration without making changes
+wqm admin migrate-to-unified --dry-run
+
+# Review output for conflicts
+```
+
+**2. Resolve naming conflicts:**
+```bash
+# If _projects already exists with wrong schema:
+# Option A: Delete and recreate
+wqm admin delete-collection _projects --confirm
+wqm admin migrate-to-unified
+
+# Option B: Use different target name (not recommended)
+# This breaks expected naming convention
+```
+
+**3. Handle partial migration:**
+```bash
+# If migration failed partway through:
+# 1. Check what was migrated
+wqm admin collections --verbose
+
+# 2. Resume migration (skips already-migrated)
+wqm admin migrate-to-unified --resume
+
+# 3. Verify completion
+wqm admin migrate-to-unified --status
+```
+
+**4. Backup before migration:**
+```bash
+# Always backup first
+wqm backup create --output ~/backup-pre-migration.tar.gz
+
+# Then migrate
+wqm admin migrate-to-unified
+
+# If issues, restore
+wqm backup restore ~/backup-pre-migration.tar.gz
+```
+
+### Branch Filter Not Working
+
+**Problem:** Search returns results from all branches despite branch filter
+
+**Diagnosis:**
+```bash
+# Check branch metadata in documents
+curl "http://localhost:6333/collections/_projects/points/scroll" \
+  -H "Content-Type: application/json" \
+  -d '{"limit": 10, "with_payload": ["branch"]}'
+
+# Look for branch field in each document
+```
+
+**Solutions:**
+
+**1. Verify documents have branch metadata:**
+```bash
+# Documents must have branch field to filter
+# If missing, re-ingest with branch detection
+
+# Force re-index current branch
+wqm project reindex --branch
+```
+
+**2. Check branch filter syntax:**
+```python
+# Specific branch
+search(query="auth", branch="main")
+
+# All branches (wildcard)
+search(query="auth", branch="*")
+
+# Default: current branch only (detected from git)
+search(query="auth")  # Uses current git branch
+```
+
+**3. Understand branch="*" behavior:**
+```bash
+# branch="*" means search ALL branches
+# This is useful for finding code that was deleted from current branch
+wqm search "deprecated function" --branch "*"
+```
+
+### Diagnostic Commands for Multi-Tenant Issues
+
+Quick diagnostic commands for common issues:
+
+```bash
+# 1. Check overall system health
+wqm admin status
+
+# 2. List all projects and their status
+wqm admin projects --verbose
+
+# 3. List all collections with document counts
+wqm admin collections --verbose
+
+# 4. Check specific project registration
+wqm project status /path/to/project
+
+# 5. Verify migration status
+wqm admin migrate-to-unified --status
+
+# 6. Test search with debug output
+wqm search "test query" --debug
+
+# 7. Check daemon heartbeat service
+wqm admin health --component heartbeat
+
+# 8. View recent session activity
+wqm admin sessions --recent
+
+# 9. Check for orphaned sessions
+wqm admin projects --filter orphaned
+
+# 10. Verify collection schema
+curl http://localhost:6333/collections/_projects | jq '.result.config.params'
 ```
 
 ## Performance Troubleshooting
