@@ -20,6 +20,7 @@ phase3 = ["phase2"]
 [dependencies]
 # CLI framework
 clap = { version = "4.4", features = ["derive", "string", "wrap_help", "cargo", "env"] }
+clap_complete = "4.4"
 
 # gRPC client
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }
