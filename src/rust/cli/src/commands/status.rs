@@ -8,7 +8,8 @@
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
-use crate::output;
+use crate::grpc::client::DaemonClient;
+use crate::output::{self, ServiceStatus};
 
 /// Status command arguments
 #[derive(Args)]
@@ -109,8 +110,36 @@ pub async fn execute(args: StatusArgs) -> Result<()> {
 async fn default_status(show_queue: bool, show_watch: bool, show_performance: bool) -> Result<()> {
     output::section("System Status");
 
-    // Show daemon status
-    output::status_line("Daemon", output::ServiceStatus::Unknown);
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            output::status_line("Daemon", ServiceStatus::Healthy);
+
+            // Get comprehensive status
+            match client.system().get_status(()).await {
+                Ok(response) => {
+                    let status = response.into_inner();
+                    let overall = ServiceStatus::from_proto(status.status);
+                    output::status_line("Overall", overall);
+
+                    output::separator();
+                    output::kv("Collections", &status.total_collections.to_string());
+                    output::kv("Documents", &status.total_documents.to_string());
+                    output::kv("Active Projects", &status.active_projects.len().to_string());
+
+                    if let Some(metrics) = &status.metrics {
+                        output::kv("Pending Operations", &metrics.pending_operations.to_string());
+                    }
+                }
+                Err(e) => {
+                    output::warning(format!("Could not get status: {}", e));
+                }
+            }
+        }
+        Err(_) => {
+            output::status_line("Daemon", ServiceStatus::Unhealthy);
+            output::error("Daemon not running. Start with: wqm service start");
+        }
+    }
 
     if show_queue {
         output::separator();
@@ -127,77 +156,313 @@ async fn default_status(show_queue: bool, show_watch: bool, show_performance: bo
         performance().await?;
     }
 
-    output::warning("Full status not yet implemented");
     Ok(())
 }
 
 async fn history(range: &str) -> Result<()> {
-    output::info(format!("Showing metrics history for {}...", range));
-    // TODO: Implement via SystemService::GetMetrics
-    output::warning("History not yet implemented");
+    output::section(format!("Metrics History ({})", range));
+
+    // Note: GetMetrics returns current point-in-time metrics, not historical
+    // Historical metrics would require additional storage/implementation
+    output::info("Historical metrics require time-series storage.");
+    output::info("Showing current metrics snapshot instead:");
+
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            match client.system().get_metrics(()).await {
+                Ok(response) => {
+                    let metrics_resp = response.into_inner();
+                    for metric in &metrics_resp.metrics {
+                        output::kv(&metric.name, &format!("{:.2}", metric.value));
+                    }
+                }
+                Err(e) => {
+                    output::error(format!("Failed to get metrics: {}", e));
+                }
+            }
+        }
+        Err(_) => {
+            output::error("Cannot connect to daemon");
+        }
+    }
+
     Ok(())
 }
 
 async fn queue(verbose: bool) -> Result<()> {
-    output::info(format!(
-        "Showing queue status{}...",
-        if verbose { " (verbose)" } else { "" }
-    ));
-    // TODO: Implement queue status
-    output::warning("Queue status not yet implemented");
+    output::section("Ingestion Queue");
+
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            match client.system().get_metrics(()).await {
+                Ok(response) => {
+                    let metrics_resp = response.into_inner();
+
+                    // Extract queue-related metrics
+                    let mut pending = 0.0;
+                    let mut processed = 0.0;
+                    let mut failed = 0.0;
+
+                    for metric in &metrics_resp.metrics {
+                        match metric.name.as_str() {
+                            "queue_pending" => pending = metric.value,
+                            "queue_processed" => processed = metric.value,
+                            "queue_failed" => failed = metric.value,
+                            _ => {}
+                        }
+                    }
+
+                    output::kv("Pending", &(pending as i64).to_string());
+                    output::kv("Processed", &(processed as i64).to_string());
+                    output::kv("Failed", &(failed as i64).to_string());
+
+                    if verbose {
+                        output::separator();
+                        output::info("Queue Details:");
+                        output::info("  (Queue items stored in SQLite ingestion_queue table)");
+                        output::info("  Use: sqlite3 ~/.local/share/workspace-qdrant/state.db 'SELECT * FROM ingestion_queue'");
+                    }
+                }
+                Err(e) => {
+                    output::error(format!("Failed to get queue status: {}", e));
+                }
+            }
+        }
+        Err(_) => {
+            output::error("Cannot connect to daemon");
+        }
+    }
+
     Ok(())
 }
 
 async fn watch() -> Result<()> {
-    output::info("Showing watch status...");
-    // TODO: Implement watch status
-    output::warning("Watch status not yet implemented");
+    output::section("Watch Status");
+
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            match client.system().get_status(()).await {
+                Ok(response) => {
+                    let status = response.into_inner();
+
+                    if status.active_projects.is_empty() {
+                        output::info("No active projects being watched");
+                    } else {
+                        output::info("Active Projects:");
+                        for project in &status.active_projects {
+                            println!("  • {}", project);
+                        }
+                    }
+                }
+                Err(e) => {
+                    output::error(format!("Failed to get watch status: {}", e));
+                }
+            }
+
+            // Note: Detailed watch folder configuration is in SQLite
+            output::separator();
+            output::info("Watch folders configured in SQLite:");
+            output::info("  Use: sqlite3 ~/.local/share/workspace-qdrant/state.db 'SELECT watch_id, path, enabled FROM watch_folders'");
+        }
+        Err(_) => {
+            output::error("Cannot connect to daemon");
+        }
+    }
+
     Ok(())
 }
 
 async fn performance() -> Result<()> {
-    output::info("Showing performance metrics...");
-    // TODO: Implement performance metrics
-    output::warning("Performance metrics not yet implemented");
+    output::section("Performance Metrics");
+
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            match client.system().get_status(()).await {
+                Ok(response) => {
+                    let status = response.into_inner();
+
+                    if let Some(metrics) = status.metrics {
+                        output::kv("CPU Usage", &format!("{:.1}%", metrics.cpu_usage_percent));
+                        output::kv("Memory Used", &format_bytes(metrics.memory_usage_bytes));
+                        output::kv("Memory Total", &format_bytes(metrics.memory_total_bytes));
+                        output::kv("Disk Used", &format_bytes(metrics.disk_usage_bytes));
+                        output::kv("Disk Total", &format_bytes(metrics.disk_total_bytes));
+                        output::separator();
+                        output::kv("Active Connections", &metrics.active_connections.to_string());
+                        output::kv("Pending Operations", &metrics.pending_operations.to_string());
+                    } else {
+                        output::warning("Metrics not available from daemon");
+                    }
+                }
+                Err(e) => {
+                    output::error(format!("Failed to get performance metrics: {}", e));
+                }
+            }
+        }
+        Err(_) => {
+            output::error("Cannot connect to daemon");
+        }
+    }
+
     Ok(())
+}
+
+fn format_bytes(bytes: i64) -> String {
+    const KB: i64 = 1024;
+    const MB: i64 = KB * 1024;
+    const GB: i64 = MB * 1024;
+
+    if bytes < KB {
+        format!("{} B", bytes)
+    } else if bytes < MB {
+        format!("{:.1} KB", bytes as f64 / KB as f64)
+    } else if bytes < GB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    }
 }
 
 async fn live(interval: u64) -> Result<()> {
     output::info(format!(
-        "Starting live dashboard (refresh every {}s, Ctrl+C to exit)...",
+        "Live dashboard (refresh every {}s, Ctrl+C to exit)",
         interval
     ));
-    // TODO: Implement live dashboard
-    output::warning("Live dashboard not yet implemented");
-    Ok(())
+    output::separator();
+
+    loop {
+        // Clear screen and move cursor to top
+        print!("\x1B[2J\x1B[H");
+
+        output::section("Live Dashboard");
+
+        match DaemonClient::connect_default().await {
+            Ok(mut client) => {
+                match client.system().get_status(()).await {
+                    Ok(response) => {
+                        let status = response.into_inner();
+                        let overall = ServiceStatus::from_proto(status.status);
+
+                        output::status_line("Daemon", ServiceStatus::Healthy);
+                        output::status_line("Overall", overall);
+                        output::separator();
+
+                        output::kv("Collections", &status.total_collections.to_string());
+                        output::kv("Documents", &status.total_documents.to_string());
+                        output::kv("Active Projects", &status.active_projects.len().to_string());
+
+                        if let Some(metrics) = status.metrics {
+                            output::separator();
+                            output::kv("CPU", &format!("{:.1}%", metrics.cpu_usage_percent));
+                            output::kv("Memory", &format_bytes(metrics.memory_usage_bytes));
+                            output::kv("Pending Ops", &metrics.pending_operations.to_string());
+                            output::kv("Connections", &metrics.active_connections.to_string());
+                        }
+                    }
+                    Err(_) => {
+                        output::warning("Could not fetch status");
+                    }
+                }
+            }
+            Err(_) => {
+                output::status_line("Daemon", ServiceStatus::Unhealthy);
+                output::error("Not connected");
+            }
+        }
+
+        output::separator();
+        output::info(format!("Refreshing every {}s (Ctrl+C to exit)...", interval));
+
+        tokio::time::sleep(tokio::time::Duration::from_secs(interval)).await;
+    }
 }
 
 async fn messages(action: Option<MessageAction>) -> Result<()> {
     match action {
         None | Some(MessageAction::List) => {
-            output::info("Listing messages...");
-            // TODO: Implement message listing
-            output::warning("Message listing not yet implemented");
+            output::section("System Messages");
+            // Messages would come from metrics or a dedicated message service
+            // For now, show info about where to find logs
+            output::info("System messages available in daemon logs:");
+            output::info("  macOS: /tmp/memexd.out.log, /tmp/memexd.err.log");
+            output::info("  Linux: journalctl --user -u memexd");
+            output::separator();
+            output::info("Use 'wqm service logs' to view recent messages");
         }
         Some(MessageAction::Clear) => {
-            output::info("Clearing messages...");
-            // TODO: Implement message clearing
-            output::warning("Message clearing not yet implemented");
+            output::info("Message clearing not supported - logs are managed by the system");
         }
     }
     Ok(())
 }
 
 async fn errors(limit: usize) -> Result<()> {
-    output::info(format!("Showing last {} errors...", limit));
-    // TODO: Implement error display
-    output::warning("Error display not yet implemented");
+    output::section(format!("Recent Errors (last {})", limit));
+
+    // Errors would come from metrics or a dedicated error tracking
+    output::info("Error tracking available via daemon logs:");
+    output::info(&format!("  Use: wqm service logs -n {}", limit));
+    output::info("  Or: grep -i error /tmp/memexd.err.log | tail -n {}", );
+
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            match client.system().get_metrics(()).await {
+                Ok(response) => {
+                    let metrics_resp = response.into_inner();
+
+                    for metric in &metrics_resp.metrics {
+                        if metric.name.contains("error") || metric.name.contains("failed") {
+                            output::kv(&metric.name, &format!("{:.0}", metric.value));
+                        }
+                    }
+                }
+                Err(_) => {}
+            }
+        }
+        Err(_) => {
+            output::warning("Cannot connect to daemon for error metrics");
+        }
+    }
+
     Ok(())
 }
 
 async fn health() -> Result<()> {
-    output::info("Checking system health...");
-    // TODO: Implement via SystemService::HealthCheck
-    output::warning("Health check not yet implemented");
+    output::section("System Health");
+
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            output::status_line("Daemon Connection", ServiceStatus::Healthy);
+
+            match client.system().health_check(()).await {
+                Ok(response) => {
+                    let health = response.into_inner();
+                    let status = ServiceStatus::from_proto(health.status);
+                    output::status_line("Overall Health", status);
+
+                    if !health.components.is_empty() {
+                        output::separator();
+                        for comp in health.components {
+                            let comp_status = ServiceStatus::from_proto(comp.status);
+                            output::status_line(&comp.component_name, comp_status);
+                            if !comp.message.is_empty() {
+                                output::kv("  Message", &comp.message);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    output::status_line("Health Check", ServiceStatus::Unknown);
+                    output::warning(format!("Could not get health: {}", e));
+                }
+            }
+        }
+        Err(_) => {
+            output::status_line("Daemon Connection", ServiceStatus::Unhealthy);
+            output::error("Daemon not running");
+            output::info("Start with: wqm service start");
+        }
+    }
+
     Ok(())
 }
