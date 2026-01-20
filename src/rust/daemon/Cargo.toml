@@ -5,6 +5,13 @@ members = [
     "python-bindings",
     "shared-test-utils",
 ]
+# Default members exclude python-bindings (placeholder code, requires Python dev headers)
+# Build python-bindings explicitly with: cargo build -p workspace-qdrant-python-bindings
+default-members = [
+    "core",
+    "grpc",
+    "shared-test-utils",
+]
 resolver = "2"
 
 # Enable LTO for release builds
