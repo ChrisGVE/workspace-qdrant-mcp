@@ -103,7 +103,7 @@ tokenizers = [
 
 [project.scripts]
 workspace-qdrant-mcp = "workspace_qdrant_mcp.main:main"
-wqm = "wqm_cli.cli_wrapper:main"
+wqm-install = "wqm_cli.installer:main"
 
 [project.urls]
 Homepage = "https://github.com/ChrisGVE/workspace-qdrant-mcp"

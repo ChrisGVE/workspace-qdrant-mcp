@@ -122,35 +122,62 @@ All tools seamlessly integrate with Claude Desktop and Claude Code for natural l
 
 ## Quick Start
 
-### Daemon Service Installation
+### Full Installation (CLI + Daemon + MCP Server)
 
-For production deployments with continuous document processing:
+For production deployments with all features:
 
-1. **Install the package**: `uv tool install workspace-qdrant-mcp`
-2. **Install daemon service**: `wqm service install`
-3. **Start the service**: `wqm service start`
-4. **Verify installation**: `wqm service status`
+```bash
+# 1. Install the Python package (provides MCP server + installer)
+uv tool install workspace-qdrant-mcp
+
+# 2. Compile and install Rust binaries (wqm CLI + memexd daemon)
+wqm-install
+
+# 3. Install and start the daemon service
+wqm service install
+wqm service start
+
+# 4. Verify installation
+wqm service status
+```
 
 The daemon service provides:
 - ✅ Continuous document monitoring and processing
 - ✅ Background embedding generation with file watching
 - ✅ Automatic startup on system boot with crash recovery
 - ✅ Robust error recovery and structured logging
-- ✅ IPC communication for Python integration
+- ✅ High-performance Rust CLI for all operations
 
 **📖 Complete Installation Guide**: See [CLI Reference](CLI.md#service-management) for service setup
 
-### Interactive Setup
+### MCP Server Only (for Claude Desktop/Code)
 
-For quick testing and development:
+For using only the MCP server without the daemon:
 
-1. **Install the package**: `uv tool install workspace-qdrant-mcp`
-2. **Run the setup wizard**: `workspace-qdrant-setup`
-3. **Start using with Claude**: The wizard configures everything automatically
-
-**Or use YAML configuration for project-specific setups:**
 ```bash
-workspace-qdrant-mcp --config=my-project.yaml
+# Use uvx to run the MCP server directly (no installation needed)
+uvx workspace-qdrant-mcp
+
+# Or install and run
+uv tool install workspace-qdrant-mcp
+workspace-qdrant-mcp
+```
+
+This is sufficient for agent configurations that only need the MCP tools.
+
+### Updating Binaries
+
+The `wqm-install` command automatically detects when binaries need updating:
+
+```bash
+# Check if updates are needed
+wqm-install --check
+
+# Update binaries
+wqm-install
+
+# Force rebuild
+wqm-install --force
 ```
 
 ### Docker Deployment (Coming Soon)
@@ -168,6 +195,14 @@ For local installation, see the [Qdrant repository](https://github.com/qdrant/qd
 
 ## Installation
 
+### Prerequisites
+
+- **Python 3.10+** - For the MCP server
+- **Rust toolchain** - For compiling CLI and daemon (install from [rustup.rs](https://rustup.rs))
+- **Qdrant server** - Running locally or in cloud (see [Prerequisites](#prerequisites))
+
+### Step 1: Install Python Package
+
 ```bash
 # Install globally with uv (recommended)
 uv tool install workspace-qdrant-mcp
@@ -176,7 +211,24 @@ uv tool install workspace-qdrant-mcp
 pip install workspace-qdrant-mcp
 ```
 
-**After installation, run the setup wizard:**
+This installs:
+- `workspace-qdrant-mcp` - MCP server command
+- `wqm-install` - Rust binary installer
+
+### Step 2: Install Rust Binaries
+
+```bash
+# Compile and install wqm CLI and memexd daemon
+wqm-install
+```
+
+This compiles from source and installs to `~/.local/bin`:
+- `wqm` - High-performance CLI for all operations
+- `memexd` - Daemon for file watching and processing
+
+**Note:** Requires Rust toolchain. If not installed, get it from [rustup.rs](https://rustup.rs).
+
+### Step 3 (Optional): Setup Wizard
 
 ```bash
 workspace-qdrant-setup

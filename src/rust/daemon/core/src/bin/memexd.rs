@@ -56,7 +56,7 @@ fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
     let is_daemon = detect_daemon_mode();
 
     let matches = Command::new("memexd")
-        .version("0.2.0")
+        .version("0.3.0")
         .author("Christian C. Berclaz <christian.berclaz@mac.com>")
         .about("Memory eXchange Daemon - Document processing and embedding generation service")
         .disable_help_flag(is_daemon)
@@ -120,6 +120,13 @@ fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
     let matches = match matches {
         Ok(m) => m,
         Err(e) => {
+            // Handle version/help specially - they should exit with code 0
+            if e.kind() == clap::error::ErrorKind::DisplayHelp
+                || e.kind() == clap::error::ErrorKind::DisplayVersion
+            {
+                print!("{}", e);
+                process::exit(0);
+            }
             if is_daemon {
                 process::exit(1);
             } else {
@@ -445,6 +452,12 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
 /// Detect if we're running in daemon/service mode
 fn detect_daemon_mode() -> bool {
     let args: Vec<String> = std::env::args().collect();
+
+    // If asking for help or version, don't treat as daemon mode
+    if args.iter().any(|arg| arg == "--help" || arg == "-h" || arg == "--version" || arg == "-V") {
+        return false;
+    }
+
     let is_daemon = !args.iter().any(|arg| arg == "--foreground" || arg == "-f");
 
     let service_context = std::env::var("WQM_SERVICE_MODE").unwrap_or_default() == "true" ||
