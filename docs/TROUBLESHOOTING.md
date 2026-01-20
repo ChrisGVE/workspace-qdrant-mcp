@@ -1,5 +1,7 @@
 # Troubleshooting Guide
 
+> **Note**: Some sections of this guide reference the `wqm` CLI and `memexd` daemon which are under development for v0.4.0. Currently, only the MCP server (`workspace-qdrant-mcp`) is available. See relevant sections for what applies to the current release.
+
 Comprehensive troubleshooting guide for workspace-qdrant-mcp installation, configuration, and operation issues.
 
 ## Table of Contents

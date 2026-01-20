@@ -1,5 +1,7 @@
 # workspace-qdrant-mcp Architecture
 
+> **Note**: This document describes the full system architecture including the Rust daemon and CLI which are under development. The MCP server (`workspace-qdrant-mcp`) is fully functional. Daemon and CLI features are planned for v0.4.0.
+
 Visual architecture documentation for the workspace-qdrant-mcp system, showing component interactions, data flow, and system design.
 
 ## Table of Contents

@@ -1,5 +1,7 @@
 # Release Notes: workspace-qdrant-mcp v0.4.0
 
+> **🚧 Pre-release Documentation**: This document describes the planned v0.4.0 release which is currently under development. These features are not yet available in the current v0.3.0 release.
+
 ## What's New
 
 Version 0.4.0 introduces a major architectural evolution: **Unified Multi-Tenant Collections**. This release transforms how projects and libraries are organized, providing better scalability, simpler management, and more powerful cross-project search capabilities.

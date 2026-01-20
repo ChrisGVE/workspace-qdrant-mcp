@@ -1,8 +1,8 @@
-# THIS PROJECT IS IN ACTIVE DEVELOPMENT AND IS NOT YET READY FOR PRODUCTION, BUT SOON!
-
 # workspace-qdrant-mcp
 
 **Project-scoped Qdrant MCP server with hybrid search and configurable collections**
+
+> **Note:** This project is in active development. The **MCP server is fully functional** and ready for use with Claude Desktop and Claude Code. The high-performance Rust CLI and daemon are under development and will be available soon.
 
 [![PyPI version](https://badge.fury.io/py/workspace-qdrant-mcp.svg)](https://pypi.org/project/workspace-qdrant-mcp/) [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/) [![Downloads](https://pepy.tech/badge/workspace-qdrant-mcp)](https://pepy.tech/project/workspace-qdrant-mcp) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE) [![Semantic Release](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/semantic-release.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/semantic-release.yml) [![Release Verification](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/release-verification.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/release-verification.yml) [![Quality Assurance](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml) [![Security Scan](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml) [![Codecov](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp) [![Qdrant](https://img.shields.io/badge/Qdrant-1.7%2B-red.svg)](https://qdrant.tech) [![FastMCP](https://img.shields.io/badge/FastMCP-0.3%2B-orange.svg)](https://github.com/jlowin/fastmcp) [![GitHub Discussions](https://img.shields.io/github/discussions/ChrisGVE/workspace-qdrant-mcp?style=social&logo=github&label=Discussions)](https://github.com/ChrisGVE/workspace-qdrant-mcp/discussions) [![GitHub stars](https://img.shields.io/github/stars/ChrisGVE/workspace-qdrant-mcp.svg?style=social&label=Stars)](https://github.com/ChrisGVE/workspace-qdrant-mcp/stargazers) [![MseeP.ai Security Assessment](https://mseep.net/pr/chrisgve-workspace-qdrant-mcp-badge.png)](https://mseep.ai/app/chrisgve-workspace-qdrant-mcp)
 
@@ -16,14 +16,18 @@ workspace-qdrant-mcp provides intelligent vector database operations through the
 
 ## ✨ Key Features
 
+**Available Now:**
 - 🏗️ **Auto Project Detection** - Smart workspace-scoped collections with Git repository awareness
 - 🔍 **Hybrid Search** - Combines semantic and keyword search with reciprocal rank fusion
 - 📝 **Scratchbook Collections** - Personal development journals for each project
 - 🎯 **Subproject Support** - Git submodules with user-filtered collection creation
-- ⚙️ **Interactive Setup** - Guided configuration wizard with health checks
-- 🚀 **High Performance** - Rust-powered components with evidence-based benchmarks
-- 🌐 **Cross-Platform** - Native support for macOS (Intel/ARM), Linux (x86_64/ARM64), Windows (x86_64/ARM64)
+- 🌐 **Cross-Platform** - Native support for macOS, Linux, and Windows
 - 🛡️ **Enterprise Ready** - Comprehensive security scanning and quality assurance
+
+**Coming Soon (v0.4.0):**
+- 🚀 **High Performance Rust CLI** - Fast command-line interface for all operations
+- 📁 **Background Daemon** - Continuous document monitoring and processing
+- ⚙️ **Interactive Setup Wizard** - Guided configuration with health checks
 
 ## 🔧 MCP Tools
 
@@ -34,8 +38,6 @@ Store any type of content in the vector database with automatic embedding genera
 - Supports text, code, documentation, notes, and more
 - Automatic project detection and collection routing
 - Metadata enrichment (file_type, branch, tenant_id)
-- **Daemon-first write architecture**: All writes route through the Rust daemon for consistency
-- Background processing via Rust daemon for optimal performance
 
 **Parameters:**
 - `content` (required): The text content to store
@@ -72,9 +74,9 @@ search(query="bugfix", branch="feature/auth")
 ```
 
 ### 3. **manage** - Collection Management
-Manage collections, system status, and configuration via the daemon's gRPC interface.
+Manage collections, system status, and configuration.
 - List all collections with statistics
-- Create and delete collections through daemon
+- Create and delete collections
 - Get workspace status and health information
 - Initialize project collections
 - Cleanup empty collections and optimize storage
@@ -106,15 +108,11 @@ All tools seamlessly integrate with Claude Desktop and Claude Code for natural l
 - [✨ Key Features](#-key-features)
 - [🔧 MCP Tools](#-mcp-tools)
 - [Quick Start](#quick-start)
-  - [Daemon Service Installation](#daemon-service-installation)
-  - [Interactive Setup](#interactive-setup)
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
-- [Daemon Service Setup](#daemon-service-setup)
 - [MCP Integration](#mcp-integration)
 - [Configuration](#configuration)
 - [Usage](#usage)
-- [CLI Tools](#cli-tools)
 - [Documentation](#documentation)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
@@ -122,9 +120,33 @@ All tools seamlessly integrate with Claude Desktop and Claude Code for natural l
 
 ## Quick Start
 
-### Full Installation (CLI + Daemon + MCP Server)
+### MCP Server (Available Now)
 
-For production deployments with all features:
+The MCP server is fully functional and ready for use:
+
+```bash
+# Use uvx to run the MCP server directly (no installation needed)
+uvx workspace-qdrant-mcp
+
+# Or install and run
+uv tool install workspace-qdrant-mcp
+workspace-qdrant-mcp
+```
+
+This provides all 4 MCP tools (`store`, `search`, `manage`, `retrieve`) for use with Claude Desktop and Claude Code.
+
+### Full Installation with CLI + Daemon (Coming Soon)
+
+> **🚧 Under Development**: The high-performance Rust CLI (`wqm`) and daemon (`memexd`) are currently being built. Once available, they will provide:
+> - Continuous document monitoring and processing
+> - Background embedding generation with file watching
+> - Automatic startup on system boot with crash recovery
+> - High-performance CLI for all operations
+>
+> Watch this repository for updates on the v0.4.0 release.
+
+<!--
+For production deployments with all features (once available):
 
 ```bash
 # 1. Install the Python package (provides MCP server + installer)
@@ -140,45 +162,7 @@ wqm service start
 # 4. Verify installation
 wqm service status
 ```
-
-The daemon service provides:
-- ✅ Continuous document monitoring and processing
-- ✅ Background embedding generation with file watching
-- ✅ Automatic startup on system boot with crash recovery
-- ✅ Robust error recovery and structured logging
-- ✅ High-performance Rust CLI for all operations
-
-**📖 Complete Installation Guide**: See [CLI Reference](CLI.md#service-management) for service setup
-
-### MCP Server Only (for Claude Desktop/Code)
-
-For using only the MCP server without the daemon:
-
-```bash
-# Use uvx to run the MCP server directly (no installation needed)
-uvx workspace-qdrant-mcp
-
-# Or install and run
-uv tool install workspace-qdrant-mcp
-workspace-qdrant-mcp
-```
-
-This is sufficient for agent configurations that only need the MCP tools.
-
-### Updating Binaries
-
-The `wqm-install` command automatically detects when binaries need updating:
-
-```bash
-# Check if updates are needed
-wqm-install --check
-
-# Update binaries
-wqm-install
-
-# Force rebuild
-wqm-install --force
-```
+-->
 
 ## Prerequisites
 
@@ -194,10 +178,9 @@ For local installation, see the [Qdrant repository](https://github.com/qdrant/qd
 ### Prerequisites
 
 - **Python 3.10+** - For the MCP server
-- **Rust toolchain** - For compiling CLI and daemon (install from [rustup.rs](https://rustup.rs))
 - **Qdrant server** - Running locally or in cloud (see [Prerequisites](#prerequisites))
 
-### Step 1: Install Python Package
+### Install MCP Server
 
 ```bash
 # Install globally with uv (recommended)
@@ -207,30 +190,15 @@ uv tool install workspace-qdrant-mcp
 pip install workspace-qdrant-mcp
 ```
 
-This installs:
-- `workspace-qdrant-mcp` - MCP server command
-- `wqm-install` - Rust binary installer
+This installs the `workspace-qdrant-mcp` command which runs the MCP server.
 
-### Step 2: Install Rust Binaries
+### Rust CLI and Daemon (Coming Soon)
 
-```bash
-# Compile and install wqm CLI and memexd daemon
-wqm-install
-```
-
-This compiles from source and installs to `~/.local/bin`:
-- `wqm` - High-performance CLI for all operations
-- `memexd` - Daemon for file watching and processing
-
-**Note:** Requires Rust toolchain. If not installed, get it from [rustup.rs](https://rustup.rs).
-
-### Step 3 (Optional): Setup Wizard
-
-```bash
-workspace-qdrant-setup
-```
-
-This interactive wizard will guide you through configuration, test your setup, and get you ready to use the MCP server with Claude in minutes.
+> **🚧 Under Development**: The Rust-based CLI (`wqm`) and daemon (`memexd`) are being developed for the v0.4.0 release. Once available, installation will be:
+> ```bash
+> # Install Rust binaries (requires Rust toolchain from rustup.rs)
+> wqm-install
+> ```
 
 For development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -264,77 +232,29 @@ The unified daemon workspace at `src/rust/daemon` contains:
 - `python-bindings/` - Python bindings for Rust components
 - `proto/` - Protocol buffer definitions
 
-## Daemon Service Setup
+## Daemon Service (Coming Soon)
 
-The `memexd` daemon provides continuous document processing and monitoring capabilities for production deployments:
+> **🚧 Under Development**: The `memexd` daemon is being developed for the v0.4.0 release. It will provide continuous document processing and monitoring capabilities for production deployments.
 
-### Quick Service Installation
+### Planned Daemon Features
 
-```bash
-# Install daemon service (auto-detects platform)
-wqm service install
-
-# Start the service
-wqm service start
-
-# Verify installation
-wqm service status
-```
-
-### Service Management
-
-```bash
-# Service control
-wqm service start|stop|restart|status
-
-# View logs
-wqm service logs
-
-# Health monitoring
-workspace-qdrant-health --daemon
-```
-
-### Daemon Architecture
-
-The unified daemon (`memexd`) provides:
+The unified daemon (`memexd`) will provide:
 - 📁 **Real-time file monitoring** with SQLite-driven watch configuration
 - 🤖 **Background embedding generation** for optimal performance
-- 🔄 **gRPC services**: SystemService, CollectionService, DocumentService (15 RPCs total)
+- 🔄 **gRPC services**: SystemService, CollectionService, DocumentService
 - 🔌 **Single writer pattern**: All Qdrant writes route through daemon for consistency
 - 🚀 **Automatic startup** on system boot with crash recovery
 - 📊 **Health monitoring** with comprehensive metrics and status reporting
 
-### gRPC Services Architecture
+### Planned gRPC Services
 
-The daemon exposes three gRPC services for communication with MCP server and CLI:
+The daemon will expose three gRPC services:
 
-**1. SystemService (7 RPCs)** - Health monitoring and lifecycle management:
-- `HealthCheck` - Quick health status for monitoring/alerting
-- `GetStatus` - Comprehensive system state snapshot
-- `GetMetrics` - Current performance metrics
-- `SendRefreshSignal` - Event-driven state change notifications
-- `NotifyServerStatus` - MCP/CLI server lifecycle events
-- `PauseAllWatchers` / `ResumeAllWatchers` - Master file watcher control
+**1. SystemService** - Health monitoring and lifecycle management
+**2. CollectionService** - Qdrant collection lifecycle management
+**3. DocumentService** - Direct text ingestion (non-file content)
 
-**2. CollectionService (5 RPCs)** - Qdrant collection lifecycle:
-- `CreateCollection` - Create collection with proper configuration
-- `DeleteCollection` - Remove collection and all data
-- `CreateCollectionAlias` - Create alias for tenant_id changes
-- `DeleteCollectionAlias` - Remove collection alias
-- `RenameCollectionAlias` - Atomically rename alias
-
-**3. DocumentService (3 RPCs)** - Direct text ingestion (non-file content):
-- `IngestText` - Synchronous text ingestion with chunking
-- `UpdateText` - Update previously ingested text
-- `DeleteText` - Delete ingested document
-
-**Design Principles:**
-- **Single writer pattern**: Only daemon writes to Qdrant
-- **Queue-based async processing**: File operations via SQLite queue
-- **Direct sync ingestion**: Text content via gRPC IngestText
-- **Event-driven refresh**: Lightweight signals for state changes
-
-**📖 For detailed daemon installation:** See [CLI Reference](CLI.md#service-management) - Covers systemd (Linux), launchd (macOS), and Windows Service with security configurations.
+**📖 Architecture Documentation:** See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed design specifications.
 
 ## MCP Integration
 
@@ -604,168 +524,59 @@ Interact with your collections through natural language commands in Claude:
 - Automatically optimizes results using reciprocal rank fusion (RRF)
 - Searches across project and global collections
 
-## CLI Tools
+## CLI Tools (Coming Soon)
 
-### Interactive Setup Wizard
+> **🚧 Under Development**: The `wqm` CLI is being developed for the v0.4.0 release. It will provide comprehensive command-line tools for managing your semantic workspace.
 
-Get up and running in minutes with the guided setup wizard:
+### Planned CLI Features
 
-```bash
-# Interactive setup with guided prompts
-workspace-qdrant-setup
+Once available, the CLI will provide:
 
-# Advanced mode with all configuration options
-workspace-qdrant-setup --advanced
+- **Service Management**: `wqm service start|stop|restart|status`
+- **Memory Management**: `wqm memory list|add|edit|remove`
+- **Document Ingestion**: `wqm ingest file|folder|web`
+- **Search**: `wqm search project|collection|global`
+- **Library Management**: `wqm library list|add|watch`
+- **System Admin**: `wqm admin status|collections|health`
 
-# Non-interactive mode for automation
-workspace-qdrant-setup --non-interactive
-```
-
-The setup wizard:
-
-- Tests Qdrant connectivity and validates configuration
-- Helps choose optimal embedding models
-- Configures Claude Desktop integration automatically
-- Creates sample documents for immediate testing
-- Provides final system verification
-
-### Diagnostics and Testing
-
-Comprehensive troubleshooting and health monitoring:
-
-```bash
-# Full system diagnostics
-workspace-qdrant-test
-
-# Test specific components
-workspace-qdrant-test --component qdrant
-workspace-qdrant-test --component embedding
-
-# Include performance benchmarks
-workspace-qdrant-test --benchmark
-
-# Generate detailed report
-workspace-qdrant-test --report diagnostic_report.json
-```
-
-### Health Monitoring
-
-Real-time system health and performance monitoring:
-
-```bash
-# One-time health check
-workspace-qdrant-health
-
-# Continuous monitoring with live dashboard
-workspace-qdrant-health --watch
-
-# Detailed analysis with optimization recommendations
-workspace-qdrant-health --analyze
-
-# Generate health report
-workspace-qdrant-health --report health_report.json
-```
-
-### Collection Management
-
-Use `wqutil` for collection management and administration:
-
-```bash
-# List collections
-wqutil list-collections
-
-# Collection information
-wqutil collection-info my-project-scratchbook
-
-# Validate configuration
-workspace-qdrant-validate
-
-# Check workspace status
-wqutil workspace-status
-```
-
-### Document Ingestion
-
-Batch process documents for immediate searchability:
-
-```bash
-# Ingest documents from a directory
-workspace-qdrant-ingest /path/to/docs --collection my-project
-
-# Process specific formats only
-workspace-qdrant-ingest /path/to/docs -c my-project -f pdf,md
-
-# Preview what would be processed (dry run)
-workspace-qdrant-ingest /path/to/docs -c my-project --dry-run
-```
+**📖 CLI Documentation:** See [docs/CLI.md](docs/CLI.md) for the planned command reference.
 
 ## Documentation
 
-- **[Architecture](docs/ARCHITECTURE.md)** - System architecture, unified daemon design, and gRPC protocol
-- **[Search Examples](docs/EXAMPLES.md)** - Comprehensive multi-tenant search scenarios and use cases
-- **[gRPC API Reference](docs/GRPC_API.md)** - Complete gRPC protocol documentation (20 RPCs)
-- **[Collection Naming Guide](docs/COLLECTION_NAMING.md)** - Collection types, naming conventions, and basename requirements
-- **[CLI Reference](CLI.md)** - Complete command-line reference for all `wqm` commands
-- **[API Reference](API.md)** - Complete MCP tools documentation
-- **[Troubleshooting Guide](TROUBLESHOOTING.md)** - Comprehensive troubleshooting and debugging
-- **[Migration Guide](MIGRATION.md)** - v0.2.x to v0.3.0 upgrade instructions
-- **[Contributing Guide](CONTRIBUTING.md)** - Development setup, building from source, testing
-- **[CI/CD Processes](docs/ci-cd-processes.md)** - Automated releases and deployment
-- **[Benchmarking](tests/benchmarks/README.md)** - Performance testing and metrics
-- **[Protocol Definition](src/rust/daemon/proto/workspace_daemon.proto)** - Complete gRPC protocol specification
+**Current (v0.3.0):**
+- **[API Reference](docs/API.md)** - Complete MCP tools documentation
+- **[Collection Naming Guide](docs/COLLECTION_NAMING.md)** - Collection types and naming conventions
+- **[Search Examples](docs/EXAMPLES.md)** - Multi-tenant search scenarios
+- **[Contributing Guide](CONTRIBUTING.md)** - Development setup and testing
+
+**Advanced Documentation:**
+- **[Architecture](docs/ARCHITECTURE.md)** - System architecture and daemon design
+- **[gRPC API Reference](docs/GRPC_API.md)** - gRPC protocol documentation
+- **[CLI Reference](docs/CLI.md)** - Planned command-line reference (v0.4.0)
+- **[Migration Guide](docs/MIGRATION.md)** - v0.2.x to v0.3.0 upgrade instructions
+- **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** - Troubleshooting and debugging
+- **[OS Compatibility](docs/OS_COMPATIBILITY.md)** - Platform support and requirements
+- **[Release Notes](docs/RELEASE_NOTES.md)** - Planned v0.4.0 features
 
 ## Troubleshooting
 
-**Quick Diagnostics:**
+**Verify Qdrant Connection:**
 
 ```bash
-# Run comprehensive system diagnostics
-workspace-qdrant-test
-
-# Get real-time health status
-workspace-qdrant-health
-
-# Run setup wizard to reconfigure
-workspace-qdrant-setup
-```
-
-**Connection Issues:**
-
-```bash
-# Test Qdrant connectivity specifically
-workspace-qdrant-test --component qdrant
-
-# Verify Qdrant is running
+# Check if Qdrant is running
 curl http://localhost:6333/collections
 
-# Validate complete configuration
-workspace-qdrant-validate
+# Test MCP server startup
+workspace-qdrant-mcp --help
 ```
 
-**Performance Issues:**
+**Common Issues:**
 
-```bash
-# Run performance benchmarks
-workspace-qdrant-test --benchmark
+- **"Connection refused"**: Ensure Qdrant server is running on `http://localhost:6333`
+- **"API key required"**: Set `QDRANT_API_KEY` environment variable for Qdrant Cloud
+- **"Module not found"**: Reinstall with `uv tool install workspace-qdrant-mcp`
 
-# Monitor system resources
-workspace-qdrant-health --watch
-
-# Get optimization recommendations
-workspace-qdrant-health --analyze
-```
-
-**Collection Issues:**
-
-```bash
-# List current collections
-wqutil list-collections
-
-# Check project detection
-wqutil workspace-status
-```
-
-For detailed troubleshooting, see [API.md](API.md#troubleshooting).
+For detailed troubleshooting, see [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 
 ## 🚀 Release Process
 

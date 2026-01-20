@@ -1,5 +1,7 @@
 # workspace-qdrant-mcp CLI Reference
 
+> **🚧 Under Development**: This documentation describes the planned `wqm` CLI which is being developed for the v0.4.0 release. The CLI commands described here are not yet available. Currently, only the MCP server (`workspace-qdrant-mcp`) is functional.
+
 Complete command-line reference for workspace-qdrant-mcp (`wqm`) CLI tool.
 
 ## Table of Contents

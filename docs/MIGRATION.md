@@ -1,5 +1,7 @@
 # Migration Guide: v0.2.x → v0.3.0
 
+> **Note**: This guide includes information about CLI commands and daemon setup that are planned for v0.4.0 and not yet available. For current functionality, focus on the MCP server configuration sections.
+
 This guide provides step-by-step instructions for upgrading from workspace-qdrant-mcp v0.2.x to v0.3.0.
 
 ## Overview
