@@ -179,22 +179,36 @@ test_runner.py
 # Note: Temporary files (YYYYMMDD-HHMM_ prefix) and Long-term temporary files (LT_YYYYMMDD-HHMM_ prefix)
 # are NOT included in .gitignore as per git discipline - they must never be staged with git add
 
-# Permanent files on local storage only - MUST NOT BE IN REPO
+# Development files - NOT for users/contributors
 CLAUDE.md
 CLAUDE.local.md
 .claude/
 .taskmaster/
+.cursor/
 specs/
-*PRD.txt
-*PRD.md
-*_PRD.txt
-*_PRD.md
+*PRD*.txt
+*PRD*.md
 research/
 *_RESEARCH.md
 *_RESEARCH_*.md
+*_AUDIT.md
 FIRST-PRINCIPLES.md
-LSP_LINTER_RESEARCH_SUMMARY.md
-LSP_RESEARCH_PROGRESS.md
+GITHUB_ISSUES.md
+INSTALLATION.md
+CONSOLIDATED_PRD*.md
+SUBTASK_*.md
+SECURITY_NOTICE_*.md
+DEPENDENCY_MATRIX.md
+BENCHMARKING.md
+
+# Legacy/external code
+rust-engine-legacy/
+external/
+docker/
+
+# Submodule paths (not used)
+web-ui/
+LT_*/
 
 # System and editor files
 .DS_Store
