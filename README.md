@@ -2,7 +2,7 @@
 
 **Project-scoped Qdrant MCP server with hybrid search and configurable collections**
 
-> **Note:** This project is in active development. The **MCP server is fully functional** and ready for use with Claude Desktop and Claude Code. The high-performance Rust CLI and daemon are under development and will be available soon.
+> **v0.4.0** introduces the unified multi-tenant architecture with a high-performance Rust daemon (`memexd`) and CLI (`wqm`). The MCP server, CLI, and daemon are all fully functional.
 
 [![PyPI version](https://badge.fury.io/py/workspace-qdrant-mcp.svg)](https://pypi.org/project/workspace-qdrant-mcp/) [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/downloads/) [![Downloads](https://pepy.tech/badge/workspace-qdrant-mcp)](https://pepy.tech/project/workspace-qdrant-mcp) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE) [![Semantic Release](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/semantic-release.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/semantic-release.yml) [![Release Verification](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/release-verification.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/release-verification.yml) [![Quality Assurance](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/quality.yml) [![Security Scan](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml/badge.svg)](https://github.com/ChrisGVE/workspace-qdrant-mcp/actions/workflows/security.yml) [![Codecov](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/ChrisGVE/workspace-qdrant-mcp) [![Qdrant](https://img.shields.io/badge/Qdrant-1.7%2B-red.svg)](https://qdrant.tech) [![FastMCP](https://img.shields.io/badge/FastMCP-0.3%2B-orange.svg)](https://github.com/jlowin/fastmcp) [![GitHub Discussions](https://img.shields.io/github/discussions/ChrisGVE/workspace-qdrant-mcp?style=social&logo=github&label=Discussions)](https://github.com/ChrisGVE/workspace-qdrant-mcp/discussions) [![GitHub stars](https://img.shields.io/github/stars/ChrisGVE/workspace-qdrant-mcp.svg?style=social&label=Stars)](https://github.com/ChrisGVE/workspace-qdrant-mcp/stargazers) [![MseeP.ai Security Assessment](https://mseep.net/pr/chrisgve-workspace-qdrant-mcp-badge.png)](https://mseep.ai/app/chrisgve-workspace-qdrant-mcp)
 
@@ -16,17 +16,14 @@ workspace-qdrant-mcp provides intelligent vector database operations through the
 
 ## ✨ Key Features
 
-**Available Now:**
 - 🏗️ **Auto Project Detection** - Smart workspace-scoped collections with Git repository awareness
 - 🔍 **Hybrid Search** - Combines semantic and keyword search with reciprocal rank fusion
 - 📝 **Scratchbook Collections** - Personal development journals for each project
 - 🎯 **Subproject Support** - Git submodules with user-filtered collection creation
 - 🌐 **Cross-Platform** - Native support for macOS, Linux, and Windows
 - 🛡️ **Enterprise Ready** - Comprehensive security scanning and quality assurance
-
-**Coming Soon (v0.4.0):**
-- 🚀 **High Performance Rust CLI** - Fast command-line interface for all operations
-- 📁 **Background Daemon** - Continuous document monitoring and processing
+- 🚀 **High Performance Rust CLI** - Fast `wqm` command-line interface for all operations
+- 📁 **Background Daemon** - `memexd` for continuous document monitoring and processing
 - ⚙️ **Interactive Setup Wizard** - Guided configuration with health checks
 
 ## 🔧 MCP Tools
@@ -120,9 +117,9 @@ All tools seamlessly integrate with Claude Desktop and Claude Code for natural l
 
 ## Quick Start
 
-### MCP Server (Available Now)
+### MCP Server
 
-The MCP server is fully functional and ready for use:
+The MCP server provides all 4 tools (`store`, `search`, `manage`, `retrieve`) for use with Claude Desktop and Claude Code:
 
 ```bash
 # Use uvx to run the MCP server directly (no installation needed)
@@ -133,36 +130,27 @@ uv tool install workspace-qdrant-mcp
 workspace-qdrant-mcp
 ```
 
-This provides all 4 MCP tools (`store`, `search`, `manage`, `retrieve`) for use with Claude Desktop and Claude Code.
+### Full Installation with CLI + Daemon
 
-### Full Installation with CLI + Daemon (Coming Soon)
-
-> **🚧 Under Development**: The high-performance Rust CLI (`wqm`) and daemon (`memexd`) are currently being built. Once available, they will provide:
-> - Continuous document monitoring and processing
-> - Background embedding generation with file watching
-> - Automatic startup on system boot with crash recovery
-> - High-performance CLI for all operations
->
-> Watch this repository for updates on the v0.4.0 release.
-
-<!--
-For production deployments with all features (once available):
+For production deployments with background processing:
 
 ```bash
-# 1. Install the Python package (provides MCP server + installer)
+# 1. Install the Python package (provides MCP server + wqm CLI)
 uv tool install workspace-qdrant-mcp
 
-# 2. Compile and install Rust binaries (wqm CLI + memexd daemon)
-wqm-install
-
-# 3. Install and start the daemon service
+# 2. Install and start the daemon service
 wqm service install
 wqm service start
 
-# 4. Verify installation
+# 3. Verify installation
 wqm service status
 ```
--->
+
+The daemon provides:
+- Continuous document monitoring and processing
+- Background embedding generation with file watching
+- Automatic startup on system boot with crash recovery
+- High-performance gRPC communication with MCP server
 
 ## Prerequisites
 
@@ -192,13 +180,19 @@ pip install workspace-qdrant-mcp
 
 This installs the `workspace-qdrant-mcp` command which runs the MCP server.
 
-### Rust CLI and Daemon (Coming Soon)
+### Rust CLI and Daemon
 
-> **🚧 Under Development**: The Rust-based CLI (`wqm`) and daemon (`memexd`) are being developed for the v0.4.0 release. Once available, installation will be:
-> ```bash
-> # Install Rust binaries (requires Rust toolchain from rustup.rs)
-> wqm-install
-> ```
+The `wqm` CLI and `memexd` daemon are included with the Python package:
+
+```bash
+# CLI is available after installing the package
+wqm --help
+
+# For development builds from source (requires Rust toolchain)
+cd src/rust/daemon
+cargo build --release
+# Binary at: target/release/memexd
+```
 
 For development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
@@ -232,13 +226,13 @@ The unified daemon workspace at `src/rust/daemon` contains:
 - `python-bindings/` - Python bindings for Rust components
 - `proto/` - Protocol buffer definitions
 
-## Daemon Service (Coming Soon)
+## Daemon Service
 
-> **🚧 Under Development**: The `memexd` daemon is being developed for the v0.4.0 release. It will provide continuous document processing and monitoring capabilities for production deployments.
+The unified daemon (`memexd`) provides continuous document processing and monitoring capabilities for production deployments.
 
-### Planned Daemon Features
+### Daemon Features
 
-The unified daemon (`memexd`) will provide:
+The unified daemon (`memexd`) provides:
 - 📁 **Real-time file monitoring** with SQLite-driven watch configuration
 - 🤖 **Background embedding generation** for optimal performance
 - 🔄 **gRPC services**: SystemService, CollectionService, DocumentService
@@ -246,9 +240,9 @@ The unified daemon (`memexd`) will provide:
 - 🚀 **Automatic startup** on system boot with crash recovery
 - 📊 **Health monitoring** with comprehensive metrics and status reporting
 
-### Planned gRPC Services
+### gRPC Services
 
-The daemon will expose three gRPC services:
+The daemon exposes three gRPC services:
 
 **1. SystemService** - Health monitoring and lifecycle management
 **2. CollectionService** - Qdrant collection lifecycle management
@@ -524,13 +518,13 @@ Interact with your collections through natural language commands in Claude:
 - Automatically optimizes results using reciprocal rank fusion (RRF)
 - Searches across project and global collections
 
-## CLI Tools (Coming Soon)
+## CLI Tools
 
-> **🚧 Under Development**: The `wqm` CLI is being developed for the v0.4.0 release. It will provide comprehensive command-line tools for managing your semantic workspace.
+The `wqm` CLI provides comprehensive command-line tools for managing your semantic workspace.
 
-### Planned CLI Features
+### CLI Features
 
-Once available, the CLI will provide:
+The CLI provides:
 
 - **Service Management**: `wqm service start|stop|restart|status`
 - **Memory Management**: `wqm memory list|add|edit|remove`
@@ -539,12 +533,13 @@ Once available, the CLI will provide:
 - **Library Management**: `wqm library list|add|watch`
 - **System Admin**: `wqm admin status|collections|health`
 
-**📖 CLI Documentation:** See [docs/CLI.md](docs/CLI.md) for the planned command reference.
+**📖 CLI Documentation:** See [docs/CLI.md](docs/CLI.md) for the complete command reference.
 
 ## Documentation
 
-**Current (v0.3.0):**
+**Core Documentation:**
 - **[API Reference](docs/API.md)** - Complete MCP tools documentation
+- **[CLI Reference](docs/CLI.md)** - Command-line interface reference
 - **[Collection Naming Guide](docs/COLLECTION_NAMING.md)** - Collection types and naming conventions
 - **[Search Examples](docs/EXAMPLES.md)** - Multi-tenant search scenarios
 - **[Contributing Guide](CONTRIBUTING.md)** - Development setup and testing
@@ -552,11 +547,10 @@ Once available, the CLI will provide:
 **Advanced Documentation:**
 - **[Architecture](docs/ARCHITECTURE.md)** - System architecture and daemon design
 - **[gRPC API Reference](docs/GRPC_API.md)** - gRPC protocol documentation
-- **[CLI Reference](docs/CLI.md)** - Planned command-line reference (v0.4.0)
-- **[Migration Guide](docs/MIGRATION.md)** - v0.2.x to v0.3.0 upgrade instructions
+- **[Migration Guide](docs/MIGRATION.md)** - v0.3.x to v0.4.0 upgrade instructions
 - **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** - Troubleshooting and debugging
 - **[OS Compatibility](docs/OS_COMPATIBILITY.md)** - Platform support and requirements
-- **[Release Notes](docs/RELEASE_NOTES.md)** - Planned v0.4.0 features
+- **[Release Notes](docs/RELEASE_NOTES.md)** - v0.4.0 features and changelog
 
 ## Troubleshooting
 
