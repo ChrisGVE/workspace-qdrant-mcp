@@ -57,15 +57,14 @@ from rich.progress import (
 from rich.table import Table
 from rich.text import Text
 
-# TEMPORARY FIX: Comment out grpc_tools import that causes CLI to hang
-# This needs to be fixed properly by making grpc_tools imports lazy or conditional
-# from workspace_qdrant_mcp.tools.grpc_tools import (
-#     get_grpc_engine_stats,
-#     stream_processing_status_grpc,
-#     stream_queue_status_grpc,
-#     stream_system_metrics_grpc,
-#     test_grpc_connection,
-# )
+# gRPC tools for daemon communication (Task 422: re-enabled)
+from workspace_qdrant_mcp.tools.grpc_tools import (
+    get_grpc_engine_stats,
+    stream_processing_status_grpc,
+    stream_queue_status_grpc,
+    stream_system_metrics_grpc,
+    test_grpc_connection,
+)
 # TEMPORARY FIX: Comment out state_management import that causes hang
 # This needs to be fixed by resolving the state_aware_ingestion import issue
 # from workspace_qdrant_mcp.tools.state_management import (
@@ -410,10 +409,8 @@ async def get_comprehensive_status() -> dict[str, Any]:
         # Database statistics
         tasks.append(get_database_stats(workspace_client, watch_manager))
 
-        # gRPC daemon stats
-        # TEMPORARY FIX: Skip grpc stats due to import hang
-        # tasks.append(get_grpc_engine_stats())
-        pass
+        # gRPC daemon stats (Task 422: re-enabled)
+        tasks.append(get_grpc_engine_stats())
 
         # Execute all tasks
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1013,11 +1010,9 @@ async def live_streaming_status_monitor(
 
         return layout
 
-    # Check if gRPC daemon is available
+    # Check if gRPC daemon is available (Task 422: re-enabled)
     console.print(f"[cyan]Testing gRPC connection to {grpc_host}:{grpc_port}...[/cyan]")
-    # TEMPORARY FIX: Skip grpc connection test due to import hang
-    # connection_result = await test_grpc_connection(grpc_host, grpc_port, timeout=5.0)
-    connection_result = {"connected": False, "error": "gRPC tools temporarily disabled"}
+    connection_result = await test_grpc_connection(grpc_host, grpc_port, timeout=5.0)
 
     if not connection_result.get("connected"):
         console.print(
@@ -1043,62 +1038,66 @@ async def live_streaming_status_monitor(
     latest_queue = None
 
     async def update_processing_status():
-        """Background task to stream processing status updates."""
+        """Background task to poll processing status updates via gRPC."""
         nonlocal latest_processing
         try:
-            # TEMPORARY FIX: Skip grpc streaming due to import hang
-            # Original call was:
-            # result = await stream_processing_status_grpc(
-            #     host=grpc_host,
-            #     port=grpc_port,
-            #     update_interval=interval,
-            #     include_history=True,
-            #     collection_filter=collection,
-            # )
-            result = {"success": False, "error": "gRPC tools temporarily disabled"}
-            if result.get("success") and result.get("status_updates"):
-                for update in result["status_updates"]:
-                    latest_processing = update
+            # Task 422: Re-enabled gRPC polling for processing status
+            while True:
+                result = await stream_processing_status_grpc(
+                    host=grpc_host,
+                    port=grpc_port,
+                )
+                if result.get("success"):
+                    latest_processing = {
+                        "current_stats": result.get("status", {}),
+                        "active_tasks": [],
+                        "recent_completed": [],
+                    }
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            pass  # Task was cancelled, exit gracefully
         except Exception as e:
-            logger.warning("Processing status streaming failed", error=str(e))
+            logger.warning("Processing status polling failed", error=str(e))
 
     async def update_system_metrics():
-        """Background task to stream system metrics updates."""
+        """Background task to poll system metrics updates via gRPC."""
         nonlocal latest_metrics
         try:
-            # TEMPORARY FIX: Skip grpc streaming due to import hang
-            # Original call was:
-            # result = await stream_system_metrics_grpc(
-            #     host=grpc_host,
-            #     port=grpc_port,
-            #     update_interval=max(interval, 10),  # Metrics update less frequently
-            #     include_detailed_metrics=True,
-            # )
-            result = {"success": False, "error": "gRPC tools temporarily disabled"}
-            if result.get("success") and result.get("metrics_updates"):
-                for update in result["metrics_updates"]:
-                    latest_metrics = update
+            # Task 422: Re-enabled gRPC polling for system metrics
+            metrics_interval = max(interval, 10)  # Metrics update less frequently
+            while True:
+                result = await stream_system_metrics_grpc(
+                    host=grpc_host,
+                    port=grpc_port,
+                )
+                if result.get("success"):
+                    latest_metrics = result.get("metrics", {})
+                await asyncio.sleep(metrics_interval)
+        except asyncio.CancelledError:
+            pass  # Task was cancelled, exit gracefully
         except Exception as e:
-            logger.warning("System metrics streaming failed", error=str(e))
+            logger.warning("System metrics polling failed", error=str(e))
 
     async def update_queue_status():
-        """Background task to stream queue status updates."""
+        """Background task to poll queue status updates via gRPC."""
         nonlocal latest_queue
         try:
-            # TEMPORARY FIX: Skip grpc streaming due to import hang
-            # Original call was:
-            # result = await stream_queue_status_grpc(
-            #     host=grpc_host,
-            #     port=grpc_port,
-            #     update_interval=min(interval, 5),  # Queue updates more frequently
-            #     collection_filter=collection,
-            # )
-            result = {"success": False, "error": "gRPC tools temporarily disabled"}
-            if result.get("success") and result.get("queue_updates"):
-                for update in result["queue_updates"]:
-                    latest_queue = update
+            # Task 422: Re-enabled gRPC polling for queue status
+            queue_interval = min(interval, 5)  # Queue updates more frequently
+            while True:
+                result = await stream_queue_status_grpc(
+                    host=grpc_host,
+                    port=grpc_port,
+                )
+                if result.get("success"):
+                    latest_queue = {
+                        "queue_status": result.get("queue", {}),
+                    }
+                await asyncio.sleep(queue_interval)
+        except asyncio.CancelledError:
+            pass  # Task was cancelled, exit gracefully
         except Exception as e:
-            logger.warning("Queue status streaming failed", error=str(e))
+            logger.warning("Queue status polling failed", error=str(e))
 
     try:
         # Start background streaming tasks
