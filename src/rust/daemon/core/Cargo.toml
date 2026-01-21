@@ -96,10 +96,6 @@ ml = ["ort", "tokenizers"]
 embeddings = ["ort", "tokenizers"]
 macos-fsevents = []
 
-[[bin]]
-name = "memexd"
-path = "src/bin/memexd.rs"
-
 [[bench]]
 name = "cross_platform_benchmarks"
 harness = false

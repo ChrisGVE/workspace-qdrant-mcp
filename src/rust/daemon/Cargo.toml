@@ -2,6 +2,7 @@
 members = [
     "core",
     "grpc",
+    "memexd",
     "python-bindings",
     "shared-test-utils",
 ]
@@ -10,6 +11,7 @@ members = [
 default-members = [
     "core",
     "grpc",
+    "memexd",
     "shared-test-utils",
 ]
 resolver = "2"

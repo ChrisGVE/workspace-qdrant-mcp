@@ -18,6 +18,9 @@ use workspace_qdrant_core::{
     MetricsServer, METRICS,
 };
 
+// gRPC server for Python MCP server and CLI communication (Task 421)
+use workspace_qdrant_grpc::{GrpcServer, ServerConfig as GrpcServerConfig};
+
 /// Command-line arguments for memexd daemon
 #[derive(Debug, Clone)]
 struct DaemonArgs {
@@ -25,6 +28,8 @@ struct DaemonArgs {
     config_file: Option<PathBuf>,
     /// Port for IPC communication
     port: Option<u16>,
+    /// Port for gRPC server (default: 50051)
+    grpc_port: u16,
     /// Logging level
     log_level: String,
     /// PID file path
@@ -42,6 +47,7 @@ impl Default for DaemonArgs {
         Self {
             config_file: None,
             port: None,
+            grpc_port: 50051,
             log_level: "info".to_string(),
             pid_file: PathBuf::from("/tmp/memexd.pid"),
             foreground: false,
@@ -115,6 +121,14 @@ fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
                 .help("Enable Prometheus metrics endpoint on this port (e.g., 9090)")
                 .value_parser(clap::value_parser!(u16)),
         )
+        .arg(
+            Arg::new("grpc-port")
+                .long("grpc-port")
+                .value_name("PORT")
+                .help("Port for gRPC server (for MCP server and CLI communication)")
+                .default_value("50051")
+                .value_parser(clap::value_parser!(u16)),
+        )
         .try_get_matches();
 
     let matches = match matches {
@@ -142,9 +156,14 @@ fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
     let pid_file = matches.get_one::<PathBuf>("pid-file")
         .ok_or("Missing pid-file parameter")?;
 
+    let grpc_port = matches.get_one::<u16>("grpc-port")
+        .copied()
+        .unwrap_or(50051);
+
     Ok(DaemonArgs {
         config_file: matches.get_one::<PathBuf>("config").cloned(),
         port: matches.get_one::<u16>("port").copied(),
+        grpc_port,
         log_level: log_level.clone(),
         pid_file: pid_file.clone(),
         foreground: matches.get_flag("foreground"),
@@ -420,6 +439,21 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
         }
     });
 
+    // Start gRPC server for MCP server and CLI communication (Task 421)
+    let grpc_port = args.grpc_port;
+    let grpc_addr = format!("127.0.0.1:{}", grpc_port).parse()
+        .map_err(|e| format!("Invalid gRPC address: {}", e))?;
+    let grpc_config = GrpcServerConfig::new(grpc_addr);
+
+    info!("Starting gRPC server on port {}", grpc_port);
+    let grpc_handle = tokio::spawn(async move {
+        let mut grpc_server = GrpcServer::new(grpc_config);
+        if let Err(e) = grpc_server.start().await {
+            error!("gRPC server error: {}", e);
+        }
+    });
+    info!("gRPC server started on 127.0.0.1:{}", grpc_port);
+
     info!("Initializing IPC server");
     let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);
     let (ipc_server, _ipc_client) = IpcServer::new(max_concurrent);
@@ -431,7 +465,7 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
     })?;
 
     info!("IPC server started successfully");
-    info!("memexd daemon is running. Send SIGTERM or SIGINT to stop.");
+    info!("memexd daemon is running. gRPC on port {}, send SIGTERM or SIGINT to stop.", grpc_port);
 
     let shutdown_future = setup_signal_handlers();
     if let Err(e) = shutdown_future.await {
@@ -440,6 +474,8 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
 
     // Cleanup
     uptime_handle.abort();
+    grpc_handle.abort();
+    info!("gRPC server stopped");
     if let Some(handle) = metrics_handle {
         handle.abort();
         info!("Metrics server stopped");
