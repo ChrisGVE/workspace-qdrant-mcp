@@ -82,12 +82,21 @@ async def get_engine_stats(
         # Use new protocol's get_status() instead of legacy get_stats()
         status = await client.get_status()
         await client.stop()
+
+        # Calculate uptime from timestamp
+        uptime_seconds = 0
+        if hasattr(status, 'uptime_since') and status.uptime_since.seconds:
+            import time
+            uptime_seconds = int(time.time() - status.uptime_since.seconds)
+
         return {
             "success": True,
             "stats": {
-                "queue_depth": getattr(status, 'queue_depth', 0),
-                "active_watches": getattr(status, 'active_watches', 0),
-                "uptime_seconds": getattr(status, 'uptime_seconds', 0),
+                "total_documents": getattr(status, 'total_documents', 0),
+                "total_collections": getattr(status, 'total_collections', 0),
+                "active_projects": getattr(status, 'active_projects', 0),
+                "active_connections": getattr(status.metrics, 'active_connections', 0) if hasattr(status, 'metrics') else 0,
+                "uptime_seconds": uptime_seconds,
             },
         }
     except Exception as e:
@@ -133,12 +142,21 @@ async def stream_processing_status_grpc(
         # Use new protocol's get_status() instead of legacy get_processing_status()
         status = await client.get_status()
         await client.stop()
+
+        # Calculate uptime from timestamp
+        uptime_seconds = 0
+        if hasattr(status, 'uptime_since') and status.uptime_since.seconds:
+            import time
+            uptime_seconds = int(time.time() - status.uptime_since.seconds)
+
         return {
             "success": True,
             "status": {
-                "queue_depth": getattr(status, 'queue_depth', 0),
-                "active_watches": getattr(status, 'active_watches', 0),
-                "uptime_seconds": getattr(status, 'uptime_seconds', 0),
+                "total_documents": getattr(status, 'total_documents', 0),
+                "total_collections": getattr(status, 'total_collections', 0),
+                "active_projects": getattr(status, 'active_projects', 0),
+                "active_connections": getattr(status.metrics, 'active_connections', 0) if hasattr(status, 'metrics') else 0,
+                "uptime_seconds": uptime_seconds,
             },
         }
     except Exception as e:
@@ -219,8 +237,9 @@ async def stream_queue_status_grpc(
         return {
             "success": True,
             "queue": {
-                "depth": getattr(status, 'queue_depth', 0),
-                "active_watches": getattr(status, 'active_watches', 0),
+                "total_queued": 0,  # Not yet implemented in daemon
+                "active_projects": getattr(status, 'active_projects', 0),
+                "active_connections": getattr(status.metrics, 'active_connections', 0) if hasattr(status, 'metrics') else 0,
             },
         }
     except Exception as e:
