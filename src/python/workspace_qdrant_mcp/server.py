@@ -64,16 +64,18 @@ Write Path Architecture (First Principle 10):
 
     Write Priority:
         1. PRIMARY: DaemonClient.ingest_text() / create_collection_v2() / delete_collection_v2()
-        2. FALLBACK: Direct qdrant_client writes (when daemon unavailable)
+        2. QUEUE FALLBACK: SQLite content_ingestion_queue (when daemon unavailable)
         3. EXCEPTION: MEMORY collections use direct writes (architectural decision)
 
-    All fallback paths:
-        - Are clearly documented with NOTE comments
-        - Log warnings when used
-        - Include "fallback_mode" in return values
-        - Maintain backwards compatibility during daemon rollout
+    Queue Fallback Architecture (Task 428):
+        When daemon is unavailable, writes are queued to SQLite instead of direct Qdrant:
+        - Content queued via SQLiteStateManager.enqueue_ingestion()
+        - Daemon polls content_ingestion_queue table periodically (5s interval)
+        - Idempotency key prevents duplicate ingestion
+        - Returns "queued_for_processing: true" in response
+        - Status transitions: pending → in_progress → done/failed
 
-    See: FIRST-PRINCIPLES.md (Principle 10), Task 375.6 validation report
+    See: FIRST-PRINCIPLES.md (Principle 10), Task 375.6, Task 428
 """
 
 import asyncio
@@ -997,51 +999,54 @@ async def store(
                 "error": f"Failed to store document via daemon: {str(e)}"
             }
     else:
-        # Fallback to direct Qdrant write if daemon unavailable
-        # This maintains backwards compatibility but violates First Principle 10
+        # Queue-based fallback when daemon unavailable (Task 428)
+        # Content is queued to SQLite for processing when daemon becomes available
+        # This replaces the direct Qdrant write fallback to maintain First Principle 10
         try:
-            # Ensure collection exists
-            if not await ensure_collection_exists(target_collection):
-                return {
-                    "success": False,
-                    "error": f"Failed to create/access collection: {target_collection}"
-                }
+            # Determine priority based on active project
+            # HIGH (8) for active projects, NORMAL (5) for background
+            priority = 8  # Assume active context when called from MCP
 
-            # Generate document ID and embeddings
-            document_id = str(uuid.uuid4())
-            embeddings = await generate_embeddings(content)
+            # Determine main_tag from project_id
+            main_tag = project_id if project_id else None
+            full_tag = f"{project_id}.{current_branch}" if project_id else None
 
-            # Store in Qdrant (async)
-            point = PointStruct(
-                id=document_id,
-                vector=embeddings,
-                payload={
-                    "content": content,
-                    **doc_metadata
-                }
+            # Enqueue content for later daemon processing
+            queue_id = await state_manager.enqueue_ingestion(
+                content=content,
+                target_collection=target_collection,
+                source_type=file_type or "text",
+                operation="create",
+                source_id=file_path or None,
+                main_tag=main_tag,
+                full_tag=full_tag,
+                metadata=doc_metadata,
+                priority=priority,
             )
 
-            await qdrant_client.upsert(
-                collection_name=target_collection,
-                points=[point]
+            logger.warning(
+                f"Daemon unavailable - content queued for processing: "
+                f"queue_id={queue_id}, collection={target_collection}"
             )
 
             return {
                 "success": True,
-                "document_id": document_id,
+                "queue_id": queue_id,
                 "collection": target_collection,
-                "project_id": project_id,  # Task 397: Include for multi-tenant reference
+                "project_id": project_id,
                 "title": doc_metadata["title"],
                 "content_length": len(content),
                 "file_type": file_type,
                 "branch": current_branch,
                 "metadata": doc_metadata,
-                "fallback_mode": "direct_qdrant_write"
+                "queued_for_processing": True,
+                "message": "Content queued for ingestion when daemon becomes available"
             }
         except Exception as e:
+            logger.error(f"Failed to queue content for ingestion: {e}")
             return {
                 "success": False,
-                "error": f"Failed to store document: {str(e)}"
+                "error": f"Failed to queue document: {str(e)}"
             }
 
 def _merge_with_rrf(
