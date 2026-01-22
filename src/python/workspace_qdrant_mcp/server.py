@@ -163,6 +163,12 @@ _session_project_id: str | None = None
 _session_project_path: str | None = None
 _session_heartbeat: "SessionHeartbeat | None" = None
 
+# Daemon availability state (Task 430)
+# States: "AVAILABLE" (daemon responding) or "UNRESPONSIVE" (2x 10s attempts failed)
+_daemon_state: str = "AVAILABLE"
+_DAEMON_CHECK_TIMEOUT_SECS: float = 10.0
+_DAEMON_CHECK_MAX_ATTEMPTS: int = 2
+
 
 class SessionHeartbeat:
     """
@@ -292,6 +298,71 @@ class SessionHeartbeat:
     def is_running(self) -> bool:
         """Check if heartbeat task is running."""
         return self._running
+
+
+async def check_daemon_availability() -> bool:
+    """
+    Check if daemon is available with 2-attempt, 10s deadline policy.
+
+    Task 430: Implements daemon availability state machine.
+
+    Attempts up to _DAEMON_CHECK_MAX_ATTEMPTS (2) health checks,
+    each with _DAEMON_CHECK_TIMEOUT_SECS (10s) deadline.
+
+    Returns:
+        True if daemon responds, False otherwise.
+
+    Side effects:
+        Updates global _daemon_state to "AVAILABLE" or "UNRESPONSIVE".
+    """
+    global _daemon_state, daemon_client
+
+    if daemon_client is None:
+        _daemon_state = "UNRESPONSIVE"
+        return False
+
+    logger = logging.getLogger(__name__)
+
+    for attempt in range(_DAEMON_CHECK_MAX_ATTEMPTS):
+        try:
+            # Attempt health check with timeout
+            health_response = await asyncio.wait_for(
+                daemon_client.health_check(),
+                timeout=_DAEMON_CHECK_TIMEOUT_SECS
+            )
+
+            # Check if response indicates healthy status
+            if hasattr(health_response, 'status') and health_response.status:
+                _daemon_state = "AVAILABLE"
+                logger.debug(f"Daemon available (attempt {attempt + 1})")
+                return True
+
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Daemon health check timed out (attempt {attempt + 1}/{_DAEMON_CHECK_MAX_ATTEMPTS})"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Daemon health check failed (attempt {attempt + 1}/{_DAEMON_CHECK_MAX_ATTEMPTS}): {e}"
+            )
+
+    # All attempts failed
+    _daemon_state = "UNRESPONSIVE"
+    logger.warning("Daemon marked as UNRESPONSIVE after failed health checks")
+    return False
+
+
+def update_daemon_state(available: bool) -> None:
+    """
+    Update daemon state based on operation success/failure.
+
+    Task 430: Called after daemon operations to track availability.
+
+    Args:
+        available: True if daemon operation succeeded, False otherwise.
+    """
+    global _daemon_state
+    _daemon_state = "AVAILABLE" if available else "UNRESPONSIVE"
 
 
 async def _get_git_remote() -> str | None:
@@ -983,6 +1054,9 @@ async def store(
                 chunk_text=True
             )
 
+            # Task 430: Update daemon state on success
+            update_daemon_state(available=True)
+
             return {
                 "success": True,
                 "document_id": response.document_id,
@@ -993,12 +1067,16 @@ async def store(
                 "chunks_created": response.chunks_created,
                 "file_type": file_type,
                 "branch": current_branch,
-                "metadata": doc_metadata
+                "metadata": doc_metadata,
+                "daemon_available": True
             }
         except DaemonConnectionError as e:
+            # Task 430: Update daemon state on failure
+            update_daemon_state(available=False)
             return {
                 "success": False,
-                "error": f"Failed to store document via daemon: {str(e)}"
+                "error": f"Failed to store document via daemon: {str(e)}",
+                "daemon_available": False
             }
     else:
         # Queue-based fallback when daemon unavailable (Task 428)
@@ -1177,9 +1255,22 @@ async def search(
             "results": []
         }
 
-    # Task 429: Check for explicit project activation when using scope="project"
-    global _session_project_id
+    # Task 430: Check daemon availability for project-scoped searches
+    global _session_project_id, _daemon_state
     logger = logging.getLogger(__name__)
+
+    if scope == "project" and _daemon_state == "UNRESPONSIVE":
+        # Attempt to re-check daemon availability
+        if not await check_daemon_availability():
+            return {
+                "success": False,
+                "error": "Daemon is unresponsive. Project-scoped searches require daemon "
+                        "for session priority management. Use scope='all' with include_libraries=True "
+                        "to search libraries without daemon dependency.",
+                "results": [],
+                "daemon_available": False
+            }
+        # Daemon recovered - continue with search
 
     if scope == "project" and not _session_project_id:
         # Compute project_id from current path as fallback
@@ -1382,7 +1473,9 @@ async def search(
                 "branch": branch if branch != "*" else (get_current_branch(Path.cwd()) if scope == "project" else "*"),
                 "file_type": file_type,
                 "custom": filters or {}
-            }
+            },
+            # Task 430: Include daemon availability for debugging
+            "daemon_available": _daemon_state == "AVAILABLE"
         }
 
         # Add deprecation warning if alias was used (Task 405)
