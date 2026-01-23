@@ -1,0 +1,64 @@
+[package]
+name = "wqm-cli"
+version = "0.3.0"
+edition = "2021"
+description = "High-performance CLI for workspace-qdrant-mcp"
+authors = ["Chris Van Eerden"]
+license = "MIT"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+keywords = ["cli", "qdrant", "mcp", "vector-database"]
+
+[[bin]]
+name = "wqm"
+path = "src/main.rs"
+
+[features]
+default = []
+phase2 = []
+phase3 = ["phase2"]
+
+[dependencies]
+# CLI framework
+clap = { version = "4.4", features = ["derive", "string", "wrap_help", "cargo", "env"] }
+clap_complete = "4.4"
+
+# gRPC client
+tonic = { version = "0.12", features = ["tls", "tls-roots"] }
+prost = "0.13"
+prost-types = "0.13"
+
+# Async runtime (lightweight config for <100ms startup)
+tokio = { version = "1.35", features = ["rt", "macros", "sync"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "2.0"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Output formatting
+tabled = "0.15"
+colored = "2.1"
+
+# Platform utilities
+dirs = "5.0"
+which = "6.0"
+
+[build-dependencies]
+tonic-build = { version = "0.12", features = ["prost"] }
+
+[dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+opt-level = "z"  # Optimize for size
+
+[profile.dev]
+opt-level = 0
+debug = true
