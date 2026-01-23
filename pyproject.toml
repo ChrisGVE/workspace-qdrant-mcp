@@ -103,7 +103,8 @@ tokenizers = [
 
 [project.scripts]
 workspace-qdrant-mcp = "workspace_qdrant_mcp.main:main"
-wqm = "wqm_cli.cli.main:cli_entry_point"
+wqm = "workspace_qdrant_mcp._rust_cli_wrapper:main"
+wqm-py = "wqm_cli.cli.main:cli_entry_point"
 wqm-install = "wqm_cli.installer:main"
 # workspace-qdrant-health = "wqm_cli.cli.health:main"  # Disabled - needs fixes
 
