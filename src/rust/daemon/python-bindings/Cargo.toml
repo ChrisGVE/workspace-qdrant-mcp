@@ -1,0 +1,42 @@
+[package]
+name = "workspace-qdrant-python-bindings" 
+version = "0.4.0"
+edition = "2021"
+authors = ["Christian C. Berclaz <christian.berclaz@mac.com>"]
+description = "Python bindings for workspace-qdrant-mcp ingestion engine"
+license = "MIT"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+[lib]
+name = "workspace_qdrant_python_bindings"
+crate-type = ["cdylib"]
+
+[dependencies]
+# Core engine
+workspace-qdrant-core = { path = "../core" }
+# workspace-qdrant-grpc = { path = "../grpc" }  # Excluded: Not used - CLI writes directly to SQLite
+
+# Python bindings
+pyo3 = { version = "0.24", features = ["extension-module", "abi3"] }
+# Note: pyo3-asyncio removed as it's not used in current implementation
+
+# Async runtime
+tokio = { version = "1.35", features = ["rt-multi-thread", "macros"] }
+
+# Serialization  
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Error handling and logging
+thiserror = "1.0"
+anyhow = "1.0"
+tracing = "0.1"
+
+[build-dependencies]
+pyo3-build-config = "0.24"
+
+[dev-dependencies]
+# Shared test utilities (excluding Python-specific tests due to build complexity)
+# Note: Python bindings tests may need special handling
+tokio-test = { workspace = true }
+test-log = { workspace = true }

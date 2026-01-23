@@ -1,0 +1,36 @@
+[package]
+name = "shared-test-utils"
+version = "0.4.0"
+edition = "2021"
+authors = ["Christian C. Berclaz <christian.berclaz@mac.com>"]
+description = "Shared test utilities for workspace-qdrant-mcp Rust workspace"
+license = "MIT"
+publish = false
+
+[dependencies]
+# Async runtime
+tokio = { workspace = true }
+tokio-util = { workspace = true }
+tokio-test = { workspace = true }
+
+# Serialization and utilities
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Testing infrastructure
+proptest = { workspace = true }
+tempfile = { workspace = true }
+serial_test = { workspace = true }
+test-log = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = "0.3"
+tracing-test = { workspace = true }
+once_cell = { workspace = true }
+
+# Standard library
+regex = { workspace = true }
+reqwest = "0.11"

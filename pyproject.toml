@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "workspace-qdrant-mcp"
-version = "0.3.0"
+version = "0.4.0"
 description = "Project-scoped Qdrant MCP server with scratchbook functionality"
 authors = [
   { name = "Christian C. Berclaz", email = "christian.berclaz@mac.com" },
