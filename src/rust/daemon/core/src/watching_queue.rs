@@ -477,6 +477,9 @@ impl EventDebouncer {
     }
 }
 
+/// Maximum consecutive errors before disabling a watch (Task 438)
+const MAX_CONSECUTIVE_ERRORS: u32 = 3;
+
 /// Main file watcher with queue integration
 pub struct FileWatcherQueue {
     config: Arc<RwLock<WatchConfig>>,
@@ -486,12 +489,16 @@ pub struct FileWatcherQueue {
     watcher: Arc<Mutex<Option<Box<dyn NotifyWatcher + Send + Sync>>>>,
     event_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<FileEvent>>>>,
     processor_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
+    pool: Option<SqlitePool>,
 
     // Statistics
     events_received: Arc<Mutex<u64>>,
     events_processed: Arc<Mutex<u64>>,
     events_filtered: Arc<Mutex<u64>>,
     queue_errors: Arc<Mutex<u64>>,
+
+    // Consecutive error tracking (Task 438)
+    consecutive_errors: Arc<Mutex<u32>>,
 }
 
 impl FileWatcherQueue {
@@ -499,6 +506,15 @@ impl FileWatcherQueue {
     pub fn new(
         config: WatchConfig,
         queue_manager: Arc<QueueManager>,
+    ) -> WatchingQueueResult<Self> {
+        Self::with_pool(config, queue_manager, None)
+    }
+
+    /// Create a new file watcher with queue integration and SQLite pool for error tracking
+    pub fn with_pool(
+        config: WatchConfig,
+        queue_manager: Arc<QueueManager>,
+        pool: Option<SqlitePool>,
     ) -> WatchingQueueResult<Self> {
         let patterns = CompiledPatterns::new(&config)?;
         let debouncer = EventDebouncer::new(config.debounce_ms);
@@ -511,10 +527,12 @@ impl FileWatcherQueue {
             watcher: Arc::new(Mutex::new(None)),
             event_receiver: Arc::new(Mutex::new(None)),
             processor_handle: Arc::new(Mutex::new(None)),
+            pool,
             events_received: Arc::new(Mutex::new(0)),
             events_processed: Arc::new(Mutex::new(0)),
             events_filtered: Arc::new(Mutex::new(0)),
             queue_errors: Arc::new(Mutex::new(0)),
+            consecutive_errors: Arc::new(Mutex::new(0)),
         })
     }
 
@@ -635,6 +653,8 @@ impl FileWatcherQueue {
         let events_processed = self.events_processed.clone();
         let events_filtered = self.events_filtered.clone();
         let queue_errors = self.queue_errors.clone();
+        let consecutive_errors = self.consecutive_errors.clone();
+        let pool = self.pool.clone();
 
         let handle = tokio::spawn(async move {
             Self::event_processing_loop(
@@ -647,6 +667,8 @@ impl FileWatcherQueue {
                 events_processed,
                 events_filtered,
                 queue_errors,
+                consecutive_errors,
+                pool,
             ).await;
         });
 
@@ -669,6 +691,8 @@ impl FileWatcherQueue {
         events_processed: Arc<Mutex<u64>>,
         events_filtered: Arc<Mutex<u64>>,
         queue_errors: Arc<Mutex<u64>>,
+        consecutive_errors: Arc<Mutex<u32>>,
+        pool: Option<SqlitePool>,
     ) {
         let mut debounce_interval = interval(Duration::from_millis(500));
 
@@ -694,6 +718,8 @@ impl FileWatcherQueue {
                             &events_processed,
                             &events_filtered,
                             &queue_errors,
+                            &consecutive_errors,
+                            &pool,
                         ).await;
                     } else {
                         break;
@@ -709,6 +735,8 @@ impl FileWatcherQueue {
                         &queue_manager,
                         &events_processed,
                         &queue_errors,
+                        &consecutive_errors,
+                        &pool,
                     ).await;
                 },
             }
@@ -728,6 +756,8 @@ impl FileWatcherQueue {
         events_processed: &Arc<Mutex<u64>>,
         events_filtered: &Arc<Mutex<u64>>,
         queue_errors: &Arc<Mutex<u64>>,
+        consecutive_errors: &Arc<Mutex<u32>>,
+        pool: &Option<SqlitePool>,
     ) {
         // Update stats
         {
@@ -758,6 +788,8 @@ impl FileWatcherQueue {
                 queue_manager,
                 events_processed,
                 queue_errors,
+                consecutive_errors,
+                pool,
             ).await;
         }
     }
@@ -770,6 +802,8 @@ impl FileWatcherQueue {
         queue_manager: &Arc<QueueManager>,
         events_processed: &Arc<Mutex<u64>>,
         queue_errors: &Arc<Mutex<u64>>,
+        consecutive_errors: &Arc<Mutex<u32>>,
+        pool: &Option<SqlitePool>,
     ) {
         let ready_events = {
             let mut debouncer_lock = debouncer.lock().await;
@@ -791,6 +825,8 @@ impl FileWatcherQueue {
                 queue_manager,
                 events_processed,
                 queue_errors,
+                consecutive_errors,
+                pool,
             ).await;
         }
     }
@@ -873,13 +909,18 @@ impl FileWatcherQueue {
         }
     }
 
-    /// Enqueue file operation with retry logic and multi-tenant routing
+    /// Enqueue file operation with retry logic, multi-tenant routing, and consecutive error tracking
+    ///
+    /// Task 438: Implements consecutive error tracking. After MAX_CONSECUTIVE_ERRORS (3)
+    /// consecutive failures, the watch will be automatically disabled in the database.
     async fn enqueue_file_operation(
         event: FileEvent,
         config: &Arc<RwLock<WatchConfig>>,
         queue_manager: &Arc<QueueManager>,
         events_processed: &Arc<Mutex<u64>>,
         queue_errors: &Arc<Mutex<u64>>,
+        consecutive_errors: &Arc<Mutex<u32>>,
+        pool: &Option<SqlitePool>,
     ) {
         // Skip if not a file
         if !event.path.is_file() && !matches!(event.event_kind, EventKind::Remove(_)) {
@@ -900,6 +941,12 @@ impl FileWatcherQueue {
 
         // Classify file type for metadata
         let file_type = classify_file_type(&event.path);
+
+        // Get watch_id for potential disabling
+        let watch_id = {
+            let config_lock = config.read().await;
+            config_lock.id.clone()
+        };
 
         // Determine collection and tenant_id based on watch type (multi-tenant routing)
         let (collection, tenant_id) = {
@@ -939,6 +986,15 @@ impl FileWatcherQueue {
                     let mut count = events_processed.lock().await;
                     *count += 1;
 
+                    // Reset consecutive errors on success (Task 438)
+                    {
+                        let mut errors = consecutive_errors.lock().await;
+                        if *errors > 0 {
+                            debug!("Resetting consecutive errors to 0 after successful enqueue");
+                        }
+                        *errors = 0;
+                    }
+
                     debug!(
                         "Enqueued file: {} (operation={:?}, priority={}, collection={}, tenant={}, branch={}, file_type={})",
                         file_absolute_path, operation, priority, collection, tenant_id, branch, file_type.as_str()
@@ -962,6 +1018,13 @@ impl FileWatcherQueue {
                         "Failed to enqueue file {}: {} (attempt {}/{})",
                         file_absolute_path, e, attempt + 1, MAX_RETRIES
                     );
+
+                    // Track consecutive errors (Task 438)
+                    Self::track_consecutive_error(
+                        consecutive_errors,
+                        pool,
+                        &watch_id,
+                    ).await;
                     return;
                 }
             }
@@ -974,6 +1037,65 @@ impl FileWatcherQueue {
             "Failed to enqueue file {} after {} retries",
             file_absolute_path, MAX_RETRIES
         );
+
+        // Track consecutive errors after all retries failed (Task 438)
+        Self::track_consecutive_error(
+            consecutive_errors,
+            pool,
+            &watch_id,
+        ).await;
+    }
+
+    /// Track consecutive errors and disable watch after MAX_CONSECUTIVE_ERRORS (Task 438)
+    async fn track_consecutive_error(
+        consecutive_errors: &Arc<Mutex<u32>>,
+        pool: &Option<SqlitePool>,
+        watch_id: &str,
+    ) {
+        let should_disable = {
+            let mut errors = consecutive_errors.lock().await;
+            *errors += 1;
+            warn!(
+                "Consecutive error count: {} (max: {})",
+                *errors, MAX_CONSECUTIVE_ERRORS
+            );
+            *errors >= MAX_CONSECUTIVE_ERRORS
+        };
+
+        if should_disable {
+            error!(
+                "Watch '{}' has reached {} consecutive errors, disabling watch",
+                watch_id, MAX_CONSECUTIVE_ERRORS
+            );
+            if let Some(pool) = pool {
+                if let Err(e) = Self::disable_watch_in_database(pool, watch_id).await {
+                    error!("Failed to disable watch '{}' in database: {}", watch_id, e);
+                } else {
+                    info!("Successfully disabled watch '{}' due to consecutive errors", watch_id);
+                }
+            } else {
+                warn!(
+                    "No database pool available to disable watch '{}', watch will continue but may fail",
+                    watch_id
+                );
+            }
+        }
+    }
+
+    /// Disable a watch in the database (Task 438)
+    async fn disable_watch_in_database(
+        pool: &SqlitePool,
+        watch_id: &str,
+    ) -> WatchingQueueResult<()> {
+        sqlx::query(
+            "UPDATE watch_folders SET enabled = 0, updated_at = datetime('now') WHERE watch_id = ?"
+        )
+        .bind(watch_id)
+        .execute(pool)
+        .await?;
+
+        debug!("Disabled watch '{}' in database", watch_id);
+        Ok(())
     }
 
     /// Get current statistics
@@ -983,7 +1105,22 @@ impl FileWatcherQueue {
             events_processed: *self.events_processed.lock().await,
             events_filtered: *self.events_filtered.lock().await,
             queue_errors: *self.queue_errors.lock().await,
+            consecutive_errors: *self.consecutive_errors.lock().await,
         }
+    }
+
+    /// Reset consecutive error counter (Task 438)
+    ///
+    /// Call this when a watch is re-enabled to reset the error tracking.
+    pub async fn reset_consecutive_errors(&self) {
+        let mut errors = self.consecutive_errors.lock().await;
+        *errors = 0;
+        debug!("Reset consecutive errors counter");
+    }
+
+    /// Get the current consecutive error count (Task 438)
+    pub async fn get_consecutive_errors(&self) -> u32 {
+        *self.consecutive_errors.lock().await
     }
 }
 
@@ -994,6 +1131,8 @@ pub struct WatchingQueueStats {
     pub events_processed: u64,
     pub events_filtered: u64,
     pub queue_errors: u64,
+    /// Current consecutive error count (Task 438)
+    pub consecutive_errors: u32,
 }
 
 /// Watch manager for multiple watchers
@@ -1137,8 +1276,12 @@ impl WatchManager {
     }
 
     /// Start a single watcher with the given configuration
+    ///
+    /// Task 438: Uses with_pool constructor to enable consecutive error tracking
+    /// and automatic watch disabling after MAX_CONSECUTIVE_ERRORS failures.
     async fn start_watcher(&self, id: String, config: WatchConfig, queue_manager: Arc<QueueManager>) {
-        match FileWatcherQueue::new(config, queue_manager) {
+        // Pass pool for consecutive error tracking (Task 438)
+        match FileWatcherQueue::with_pool(config, queue_manager, Some(self.pool.clone())) {
             Ok(watcher) => {
                 let watcher = Arc::new(watcher);
                 match watcher.start().await {
@@ -1665,6 +1808,60 @@ impl WatchManager {
     pub async fn is_watch_active(&self, id: &str) -> bool {
         let watchers = self.watchers.read().await;
         watchers.contains_key(id)
+    }
+
+    /// Re-enable a disabled watch (Task 438)
+    ///
+    /// This method:
+    /// 1. Re-enables the watch in the database
+    /// 2. Resets the consecutive error counter for the watcher (if running)
+    /// 3. Triggers a refresh to restart the watch
+    ///
+    /// Call this when a watch was disabled due to consecutive errors and
+    /// the underlying issue has been resolved.
+    pub async fn reenable_watch(&self, watch_id: &str) -> WatchingQueueResult<()> {
+        info!("Re-enabling watch: {}", watch_id);
+
+        // Check if this is a project watch or library watch
+        let is_library = watch_id.starts_with("lib_");
+
+        if is_library {
+            let library_name = watch_id.strip_prefix("lib_").unwrap_or(watch_id);
+            sqlx::query(
+                "UPDATE library_watches SET enabled = 1, updated_at = datetime('now') WHERE library_name = ?"
+            )
+            .bind(library_name)
+            .execute(&self.pool)
+            .await?;
+        } else {
+            sqlx::query(
+                "UPDATE watch_folders SET enabled = 1, updated_at = datetime('now') WHERE watch_id = ?"
+            )
+            .bind(watch_id)
+            .execute(&self.pool)
+            .await?;
+        }
+
+        // If the watcher is currently running, reset its consecutive error counter
+        {
+            let watchers = self.watchers.read().await;
+            if let Some(watcher) = watchers.get(watch_id) {
+                watcher.reset_consecutive_errors().await;
+            }
+        }
+
+        info!("Watch '{}' re-enabled, will be picked up on next refresh", watch_id);
+        Ok(())
+    }
+
+    /// Get the consecutive error count for a specific watch (Task 438)
+    pub async fn get_watch_consecutive_errors(&self, watch_id: &str) -> Option<u32> {
+        let watchers = self.watchers.read().await;
+        if let Some(watcher) = watchers.get(watch_id) {
+            Some(watcher.get_consecutive_errors().await)
+        } else {
+            None
+        }
     }
 }
 
