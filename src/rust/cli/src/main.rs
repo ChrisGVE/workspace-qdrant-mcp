@@ -13,7 +13,7 @@ mod grpc;
 mod output;
 
 const LONG_ABOUT: &str = "\
-WQM (Workspace Qdrant MCP) is a high-performance CLI for managing the memexd daemon \
+Workspace Qdrant MCP CLI (wqm) - A high-performance tool for managing the memexd daemon \
 and interacting with your project's vector database.
 
 The CLI provides commands for:
@@ -53,7 +53,7 @@ For more information, visit: https://github.com/ChrisGVE/workspace-qdrant-mcp";
 #[derive(Parser)]
 #[command(name = "wqm")]
 #[command(author, version)]
-#[command(about = "High-performance CLI for workspace-qdrant-mcp daemon")]
+#[command(about = "Workspace Qdrant MCP CLI - High-performance daemon management")]
 #[command(long_about = LONG_ABOUT)]
 #[command(after_help = AFTER_HELP)]
 #[command(propagate_version = true)]
