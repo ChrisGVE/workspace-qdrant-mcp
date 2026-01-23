@@ -171,6 +171,12 @@ _daemon_state: str = "AVAILABLE"
 _DAEMON_CHECK_TIMEOUT_SECS: float = 10.0
 _DAEMON_CHECK_MAX_ATTEMPTS: int = 2
 
+# Memory injection state (Task 435)
+# Caches injected memory rules to avoid redundant injections
+_memory_rules_cache: list[dict[str, Any]] | None = None
+_memory_last_injected: datetime | None = None
+_MEMORY_INJECTION_STALE_SECS: float = 300.0  # Re-inject after 5 minutes
+
 
 class SessionHeartbeat:
     """
@@ -388,6 +394,159 @@ async def _get_git_remote() -> str | None:
     return None
 
 
+async def _load_memory_rules(force_refresh: bool = False) -> list[dict[str, Any]]:
+    """
+    Load memory rules from the memory collection for LLM context injection.
+
+    Task 435: Memory injection on MCP startup and compaction.
+
+    Queries the 'memory' collection for all rules and parses them for
+    LLM behavioral context. Rules are sorted by priority (absolute first)
+    and cached to avoid redundant queries.
+
+    Args:
+        force_refresh: If True, bypass cache and reload from Qdrant
+
+    Returns:
+        List of memory rules with metadata for context injection:
+        [
+            {
+                "id": str,
+                "rule": str,
+                "name": str,
+                "category": str,  # preference, behavior, agent
+                "authority": str,  # absolute, default
+                "scope": list[str],
+                "source": str
+            }
+        ]
+    """
+    global _memory_rules_cache, _memory_last_injected, qdrant_client
+
+    logger = logging.getLogger(__name__)
+
+    # Check cache validity (unless force refresh)
+    if not force_refresh and _memory_rules_cache is not None and _memory_last_injected is not None:
+        age = (datetime.now(timezone.utc) - _memory_last_injected).total_seconds()
+        if age < _MEMORY_INJECTION_STALE_SECS:
+            logger.debug(f"Using cached memory rules (age: {age:.1f}s)")
+            return _memory_rules_cache
+
+    # Ensure Qdrant client is initialized
+    if qdrant_client is None:
+        logger.warning("Qdrant client not initialized, cannot load memory rules")
+        return []
+
+    try:
+        # Check if memory collection exists
+        collections_response = await qdrant_client.get_collections()
+        collection_names = {col.name for col in collections_response.collections}
+
+        # Use canonical 'memory' collection (ADR-001)
+        memory_collection = CANONICAL_COLLECTIONS["memory"]
+
+        if memory_collection not in collection_names:
+            logger.debug(f"Memory collection '{memory_collection}' does not exist yet")
+            return []
+
+        # Query all memory rules (limit 1000 for safety)
+        # Using scroll for efficiency with large collections
+        points = []
+        offset = None
+
+        while True:
+            scroll_result = await qdrant_client.scroll(
+                collection_name=memory_collection,
+                limit=100,
+                offset=offset,
+                with_payload=True,
+                with_vectors=False,  # Don't need vectors for injection
+            )
+
+            batch_points, next_offset = scroll_result
+            points.extend(batch_points)
+
+            if next_offset is None or len(points) >= 1000:
+                break
+            offset = next_offset
+
+        # Parse rules from points
+        rules = []
+        for point in points:
+            payload = point.payload or {}
+            rule_entry = {
+                "id": str(point.id) if point.id else None,
+                "rule": payload.get("rule", ""),
+                "name": payload.get("name", ""),
+                "category": payload.get("category", "behavior"),
+                "authority": payload.get("authority", "default"),
+                "scope": payload.get("scope", []),
+                "source": payload.get("source", "unknown"),
+            }
+            rules.append(rule_entry)
+
+        # Sort rules: absolute authority first, then by name for stability
+        authority_order = {"absolute": 0, "default": 1}
+        rules.sort(key=lambda r: (authority_order.get(r["authority"], 2), r["name"]))
+
+        # Update cache
+        _memory_rules_cache = rules
+        _memory_last_injected = datetime.now(timezone.utc)
+
+        logger.info(f"Loaded {len(rules)} memory rules for context injection")
+        return rules
+
+    except Exception as e:
+        logger.warning(f"Failed to load memory rules: {e}")
+        return []
+
+
+def _format_memory_rules_for_llm(rules: list[dict[str, Any]]) -> str:
+    """
+    Format memory rules into a string suitable for LLM context injection.
+
+    Task 435: Formats rules for injection into session context.
+
+    Args:
+        rules: List of memory rule dictionaries from _load_memory_rules()
+
+    Returns:
+        Formatted string with rules organized by authority level
+    """
+    if not rules:
+        return ""
+
+    lines = []
+    lines.append("# Memory Rules (Auto-injected)")
+    lines.append("")
+
+    # Group by authority level
+    absolute_rules = [r for r in rules if r["authority"] == "absolute"]
+    default_rules = [r for r in rules if r["authority"] == "default"]
+
+    if absolute_rules:
+        lines.append("## Absolute Rules (Non-negotiable)")
+        for rule in absolute_rules:
+            name = rule.get("name", "")
+            text = rule.get("rule", "")
+            scope = rule.get("scope", [])
+            scope_str = f" [{', '.join(scope)}]" if scope else ""
+            lines.append(f"- **{name}**{scope_str}: {text}")
+        lines.append("")
+
+    if default_rules:
+        lines.append("## Default Rules (Override when explicitly requested)")
+        for rule in default_rules:
+            name = rule.get("name", "")
+            text = rule.get("rule", "")
+            scope = rule.get("scope", [])
+            scope_str = f" [{', '.join(scope)}]" if scope else ""
+            lines.append(f"- **{name}**{scope_str}: {text}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 @asynccontextmanager
 async def lifespan(app):
     """
@@ -396,9 +555,11 @@ async def lifespan(app):
     Task 395: Multi-tenant session lifecycle
     Task 407: Heartbeat mechanism for session liveness
     Task 429: Explicit project activation (no auto-registration)
+    Task 435: Memory injection on startup and compaction
 
     Architecture (ADR-001):
-    - On startup: Initialize daemon client only (NO automatic project registration)
+    - On startup: Initialize daemon client, inject memory rules
+    - Memory rules loaded from 'memory' collection and cached (5 min TTL)
     - Projects require explicit activation via manage(action="activate_project")
     - On shutdown: Stop heartbeat, deprioritize project (if activated)
 
@@ -444,6 +605,30 @@ async def lifespan(app):
         # - Clear user intent for which projects to track
         # - Avoids accidental registration of transient directories
         # - Matches ADR-001 explicit activation policy
+
+        # =========================================================================
+        # Task 435: Memory injection on startup
+        # Load memory rules from the 'memory' collection and inject into session context
+        # =========================================================================
+        try:
+            # Initialize components to ensure Qdrant client is ready
+            await initialize_components()
+
+            # Load memory rules
+            memory_rules = await _load_memory_rules(force_refresh=True)
+
+            if memory_rules:
+                logger.info(
+                    f"Memory injection: Loaded {len(memory_rules)} rules "
+                    f"(absolute: {len([r for r in memory_rules if r['authority'] == 'absolute'])}, "
+                    f"default: {len([r for r in memory_rules if r['authority'] == 'default'])})"
+                )
+            else:
+                logger.debug("Memory injection: No memory rules found (memory collection may be empty)")
+
+        except Exception as mem_error:
+            # Memory injection failure is non-fatal - server continues without rules
+            logger.warning(f"Memory injection failed (non-fatal): {mem_error}")
 
     except Exception as e:
         logger.warning(f"Lifespan startup error: {e}")
@@ -1640,6 +1825,19 @@ async def manage(
     - Without activation, scope="project" operations return activation instructions
     - Active project persists for the session lifetime
 
+    Memory Rule Management (Task 435 - Memory Injection):
+    - "refresh_memory" -> force re-injection of memory rules from 'memory' collection
+        Returns: rules_loaded, rules_by_authority, rules_by_category, formatted_context
+        Use after adding/updating memory rules to refresh session context
+    - "get_memory_status" -> get current memory injection status
+        Returns: rules_cached, last_injected, cache_age_seconds, cache_is_stale
+
+    Memory Injection Architecture:
+    - Memory rules are loaded on MCP startup from 'memory' collection
+    - Rules are cached with 5-minute TTL to avoid redundant queries
+    - Use refresh_memory after context compaction to re-inject rules
+    - Rules sorted by authority: absolute (non-negotiable) before default
+
     Args:
         action: Management action to perform
         collection: Target collection name (for collection-specific actions)
@@ -1654,8 +1852,9 @@ async def manage(
     await initialize_components()
     logger = logging.getLogger(__name__)
 
-    # Global variables for session state (Task 429)
+    # Global variables for session state (Task 429) and memory injection (Task 435)
     global _session_project_id, _session_project_path, _session_heartbeat
+    global _memory_rules_cache, _memory_last_injected
 
     try:
         if action == "list_collections":
@@ -2357,6 +2556,57 @@ async def manage(
                 if is_deleted else "File is not marked as deleted (will be ingested normally)"
             }
 
+        elif action == "refresh_memory":
+            # Task 435: Force re-injection of memory rules
+            # Use after adding/updating memory rules to refresh session context
+            try:
+                # Force reload from memory collection
+                memory_rules = await _load_memory_rules(force_refresh=True)
+
+                # Format for display
+                formatted_rules = _format_memory_rules_for_llm(memory_rules)
+
+                return {
+                    "success": True,
+                    "action": action,
+                    "rules_loaded": len(memory_rules),
+                    "rules_by_authority": {
+                        "absolute": len([r for r in memory_rules if r["authority"] == "absolute"]),
+                        "default": len([r for r in memory_rules if r["authority"] == "default"]),
+                    },
+                    "rules_by_category": {
+                        "behavior": len([r for r in memory_rules if r["category"] == "behavior"]),
+                        "preference": len([r for r in memory_rules if r["category"] == "preference"]),
+                        "agent": len([r for r in memory_rules if r["category"] == "agent"]),
+                    },
+                    "last_injected": _memory_last_injected.isoformat() if _memory_last_injected else None,
+                    "formatted_context": formatted_rules,
+                    "message": f"Memory rules refreshed: {len(memory_rules)} rules loaded"
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": f"Failed to refresh memory rules: {str(e)}"
+                }
+
+        elif action == "get_memory_status":
+            # Task 435: Get current memory injection status
+            age_secs = None
+            if _memory_last_injected:
+                age_secs = (datetime.now(timezone.utc) - _memory_last_injected).total_seconds()
+
+            return {
+                "success": True,
+                "action": action,
+                "rules_cached": len(_memory_rules_cache) if _memory_rules_cache else 0,
+                "last_injected": _memory_last_injected.isoformat() if _memory_last_injected else None,
+                "cache_age_seconds": age_secs,
+                "cache_stale_threshold_seconds": _MEMORY_INJECTION_STALE_SECS,
+                "cache_is_stale": age_secs > _MEMORY_INJECTION_STALE_SECS if age_secs else True,
+                "message": "Memory cache status retrieved"
+            }
+
         else:
             return {
                 "success": False,
@@ -2367,7 +2617,8 @@ async def manage(
                     "activate_project", "deactivate_project", "cleanup",
                     "add_watch", "list_watches", "remove_watch", "update_watch",
                     "list_tags", "set_tag_watched", "get_watched_tags",
-                    "mark_library_deleted", "re_ingest_deleted", "list_library_deletions", "check_library_deletion"
+                    "mark_library_deleted", "re_ingest_deleted", "list_library_deletions", "check_library_deletion",
+                    "refresh_memory", "get_memory_status"
                 ]
             }
 
