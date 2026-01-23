@@ -1,0 +1,201 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "workspace-qdrant-mcp"
+version = "0.3.0"
+description = "Project-scoped Qdrant MCP server with scratchbook functionality"
+authors = [
+  { name = "Christian C. Berclaz", email = "christian.berclaz@mac.com" },
+]
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+dependencies = [
+  "fastmcp>=0.3.0",
+  "qdrant-client>=1.7.0",
+  "fastembed>=0.2.0",
+  "GitPython>=3.1.0",
+  "pydantic>=2.0.0",
+  "pydantic-settings>=2.0.0",
+  "python-dotenv>=1.0.0",
+  "typer>=0.9.0",
+  "PyYAML>=6.0.0",
+  "rich>=13.0.0",
+  "chardet>=5.0.0",
+  "pypdf>=4.0.0",
+  "psutil>=5.8.0",
+  "tqdm>=4.67.1",
+  "grpcio>=1.60.0",
+  "grpcio-tools>=1.60.0",
+  "fastapi>=0.104.0",
+  "uvicorn>=0.24.0",
+  "jinja2>=3.1.0",
+  "python-multipart>=0.0.6",
+  # Document parsers for extended file type support
+  "python-docx>=1.1.0", # DOCX documents
+  "python-pptx>=0.6.23", # PPTX presentations
+  "ebooklib>=0.18", # EPUB ebooks
+  "python-magic>=0.4.27", # File type detection
+  "beautifulsoup4>=4.12.0", # HTML parsing
+  "lxml>=4.9.0", # XML/HTML processing
+  "markdown>=3.5.0", # Enhanced markdown support
+  "pygments>=2.16.0", # Code syntax highlighting
+  "loguru>=0.7.0", # Simplified logging with better defaults
+  "cachetools>=5.3.0", # LRU and TTL caching for performance optimization
+  # Web crawling and security
+  "aiohttp>=3.9.0", # Async HTTP client for web crawling
+  "aiofiles>=23.0.0", # Async file operations
+  "tldextract>=5.0.0", # Top-level domain extraction for URL analysis
+  "xxhash>=3.0.0", # Fast hashing for content deduplication
+  "maturin>=1.9.4",
+  # Configuration management
+  "toml>=0.10.0",
+  "watchdog>=3.0.0",
+  "fuzzywuzzy>=0.18.0",
+  "python-levenshtein>=0.20.0", # Optional but recommended for fuzzywuzzy performance
+  "playwright>=1.55.0",
+  "tabulate>=0.9.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=7.0.0",
+  "pytest-asyncio>=0.21.0",
+  "pytest-mock>=3.11.0",
+  "pytest-cov>=4.1.0",
+  "pytest-xdist>=3.3.0",
+  "pytest-timeout>=2.1.0",
+  "pytest-benchmark>=4.0.0",
+  "testcontainers>=3.7.0",
+  "httpx>=0.24.0",
+  "respx>=0.20.0",
+  "black>=23.0.0",
+  "ruff>=0.1.0",
+  "mypy>=1.0.0",
+  "pydocstyle>=6.0.0",
+  "docstring-parser>=0.15",
+  "scikit-learn>=1.0.0",
+  "rank-bm25>=0.2.2",
+  "nltk>=3.8.1",
+  # Web UI testing
+  "playwright>=1.40.0",
+  "pytest-playwright>=0.4.0",
+  # Fuzzing
+  "hypothesis>=6.0.0",
+  # Compatibility testing
+  "tox>=4.0.0",
+  "packaging>=23.0",
+  # Type stubs for mypy
+  "types-PyYAML>=6.0.0",
+  "types-Markdown>=3.4.0",
+  "types-psutil>=5.8.0",
+  # Test reporting
+  "matplotlib>=3.7.0",
+  "weasyprint>=60.0",
+]
+full = ["markdown>=3.4.0", "PyYAML>=6.0.0", "pypdf>=4.0.0"]
+tokenizers = [
+  "tiktoken>=0.5.0",  # OpenAI tokenizers (fast, native)
+  "transformers>=4.35.0",  # HuggingFace tokenizers (broad model support)
+]
+
+[project.scripts]
+workspace-qdrant-mcp = "workspace_qdrant_mcp.main:main"
+wqm = "wqm_cli.cli.main:cli_entry_point"
+wqm-install = "wqm_cli.installer:main"
+# workspace-qdrant-health = "wqm_cli.cli.health:main"  # Disabled - needs fixes
+
+[project.urls]
+Homepage = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+Repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+Issues = "https://github.com/ChrisGVE/workspace-qdrant-mcp/issues"
+Changelog = "https://github.com/ChrisGVE/workspace-qdrant-mcp/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src/python"]
+include = ["workspace_qdrant_mcp*", "common*", "wqm_cli*"]
+
+[tool.black]
+line-length = 88
+target-version = ['py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "F",   # pyflakes
+  "I",   # isort
+  "C",   # flake8-comprehensions
+  "B",   # flake8-bugbear
+  "UP",  # pyupgrade
+]
+ignore = [
+  "E501", # line too long (handled by black)
+  "B008", # do not perform function calls in argument defaults
+  "C901", # too complex
+]
+
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]
+"tests/*" = ["F401", "F811"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+asyncio_mode = "auto"
+markers = [
+  "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+  "integration: marks tests as integration tests",
+  "requires_qdrant: marks tests that require a running Qdrant server",
+  "requires_git: marks tests that require git repository",
+  "edge: marks edge case tests",
+  "nominal: marks nominal/happy path tests",
+  "stress: marks stress/load tests",
+  "memory_rules: marks tests for memory rules functionality",
+  "conflict_detection: marks tests for memory conflict detection",
+  "rule_validation: marks tests for memory rule validation",
+  "performance: marks performance and benchmark tests",
+  "fastmcp: marks tests using official fastmcp.Client SDK",
+  "security: marks security-related tests",
+  "sql_injection: marks SQL injection prevention tests",
+  "path_traversal: marks path traversal prevention tests",
+  "command_injection: marks command injection prevention tests",
+  "xss: marks XSS prevention tests",
+  "redos: marks ReDoS prevention tests",
+]
+filterwarnings = [
+  # Ignore testcontainers internal deprecation warnings (third-party library issue)
+  "ignore::DeprecationWarning:testcontainers.core",
+  "ignore::DeprecationWarning:testcontainers.qdrant",
+]

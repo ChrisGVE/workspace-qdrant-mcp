@@ -1193,4 +1193,9 @@ def get_backup_custom_metadata() -> dict[str, Any]:
     return get_config_dict("backup.metadata.custom_metadata", default={})
 
 
+# Legacy alias for backward compatibility
+# Some modules import Config directly - they should use ConfigManager or get_config()
+Config = ConfigManager
+
+
 # End of ConfigManager implementation
