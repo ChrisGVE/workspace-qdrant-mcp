@@ -100,6 +100,7 @@ from qdrant_client.models import (
     Distance,
     FieldCondition,
     Filter,
+    MatchText,
     MatchValue,
     PointStruct,
     VectorParams,
@@ -821,19 +822,28 @@ def build_metadata_filters(
     filters: dict[str, Any] = None,
     branch: str = None,
     file_type: str = None,
-    project_id: str = None
+    project_id: str = None,
+    tag: str = None,
+    tag_prefix: bool = False
 ) -> Filter | None:
     """
-    Build Qdrant filter with branch, file_type, and project_id conditions.
+    Build Qdrant filter with branch, file_type, project_id, and tag conditions.
 
     Args:
         filters: User-provided metadata filters
         branch: Git branch to filter by (None = current branch, "*" = all branches)
         file_type: File type to filter by ("code", "test", "docs", etc.)
         project_id: Project ID to filter by (for multi-tenant unified collections)
+        tag: Tag value to filter by (exact match or prefix based on tag_prefix)
+        tag_prefix: If True, match tags starting with the given tag (e.g., "myproject." matches "myproject.main")
 
     Returns:
         Qdrant Filter object or None if no filters
+
+    Task 431: Tag filtering uses the full_tag field:
+    - Projects: "project_id.branch" (e.g., "myapp.main")
+    - Libraries: "folder1.folder2" (e.g., "docs.api.reference")
+    - Memory: "project_id" (no branch hierarchy)
     """
     conditions = []
 
@@ -851,6 +861,16 @@ def build_metadata_filters(
     # Add file_type filter if specified
     if file_type:
         conditions.append(FieldCondition(key="file_type", match=MatchValue(value=file_type)))
+
+    # Task 431: Add tag filter for dot-separated hierarchy
+    if tag:
+        if tag_prefix:
+            # Match tags starting with the given prefix (e.g., "myproject." matches "myproject.main")
+            # Use text match for prefix matching
+            conditions.append(FieldCondition(key="full_tag", match=MatchText(text=tag)))
+        else:
+            # Exact tag match
+            conditions.append(FieldCondition(key="full_tag", match=MatchValue(value=tag)))
 
     # Add user-provided filters
     if filters:
@@ -1032,6 +1052,36 @@ async def store(
     if metadata:
         doc_metadata.update(metadata)
 
+    # ============================================================================
+    # Task 431: Compute dot-separated tag hierarchy
+    # ============================================================================
+    # Projects: main_tag = project_id, full_tag = "project_id.branch_name"
+    # Libraries: main_tag = library_name, full_tag = "library_name.subfolder1.subfolder2"
+    # Memory: main_tag = project_id or "global", full_tag = main_tag
+    main_tag = project_id
+    full_tag = f"{project_id}.{current_branch}" if project_id and current_branch else project_id
+
+    # Determine collection type for tag_type
+    tag_type = "project"  # Default for projects collection
+    if target_collection == CANONICAL_COLLECTIONS.get("libraries"):
+        tag_type = "library"
+        # For libraries, compute full_tag from file_path subfolder hierarchy
+        if file_path:
+            # Extract relative path within library
+            path_parts = Path(file_path).parts
+            if len(path_parts) > 1:
+                # Use subfolder hierarchy: library_name.subfolder1.subfolder2
+                full_tag = ".".join(path_parts[:-1])  # Exclude filename
+                main_tag = path_parts[0] if path_parts else project_id
+    elif target_collection == CANONICAL_COLLECTIONS.get("memory"):
+        tag_type = "memory"
+        full_tag = main_tag  # Memory tags are flat
+
+    # Add tags to metadata
+    doc_metadata["main_tag"] = main_tag
+    doc_metadata["full_tag"] = full_tag
+    doc_metadata["tag_type"] = tag_type
+
     # Collection basename for daemon - always "projects" for unified collection
     collection_basename = "projects"
     tenant_id = project_id
@@ -1180,7 +1230,9 @@ async def search(
     file_type: str = None,
     workspace_type: str = None,
     scope: str = "project",
-    include_libraries: bool = False
+    include_libraries: bool = False,
+    tag: str = None,
+    tag_prefix: bool = False
 ) -> dict[str, Any]:
     """
     Search across collections with hybrid semantic + keyword matching.
@@ -1190,6 +1242,10 @@ async def search(
     - scope="global": Search all projects (no project_id filter)
     - scope="all": Search projects + libraries collections (broadest)
     - include_libraries: Also search _libraries collection
+
+    NEW: Task 431 - Tag filtering with dot-separated hierarchy
+    - tag: Filter by exact tag value (e.g., "myproject.main")
+    - tag_prefix: If True, filter by tag prefix (e.g., "myproject." matches "myproject.main", "myproject.dev")
 
     Architecture:
     - Searches unified _projects collection with project_id filtering
@@ -1216,6 +1272,12 @@ async def search(
         # Search project + include libraries
         search(query="datetime", include_libraries=True)
 
+        # Task 431: Search by tag (exact match)
+        search(query="auth", tag="myproject.main")
+
+        # Task 431: Search by tag prefix (matches all branches)
+        search(query="auth", tag="myproject.", tag_prefix=True)
+
     Args:
         query: Search query text
         collection: Specific collection to search (overrides scope-based selection)
@@ -1229,6 +1291,8 @@ async def search(
         workspace_type: DEPRECATED - use file_type instead
         scope: Search scope - "project" (default), "global", or "all"
         include_libraries: Also search libraries collection (merged with RRF)
+        tag: Filter by tag value (exact match or prefix based on tag_prefix)
+        tag_prefix: If True, match tags starting with tag value
 
     Returns:
         Dict with search results, metadata, and performance info
@@ -1322,12 +1386,14 @@ async def search(
         if include_libraries and CANONICAL_COLLECTIONS["libraries"] not in search_collections:
             search_collections.append(CANONICAL_COLLECTIONS["libraries"])
 
-    # Build metadata filters with branch, file_type, and project_id
+    # Build metadata filters with branch, file_type, project_id, and tag (Task 431)
     search_filter = build_metadata_filters(
         filters=filters,
         branch=branch,
         file_type=file_type,
-        project_id=project_filter_id
+        project_id=project_filter_id,
+        tag=tag,
+        tag_prefix=tag_prefix
     )
 
     # For libraries, we don't filter by branch (they're external documentation)
@@ -1335,7 +1401,9 @@ async def search(
         filters=filters,
         branch="*",  # Don't filter libraries by branch
         file_type=file_type,
-        project_id=None  # Libraries have library_name, not project_id
+        project_id=None,  # Libraries have library_name, not project_id
+        tag=tag,  # Task 431: Tags work for libraries too (folder-based hierarchy)
+        tag_prefix=tag_prefix
     )
 
     # Execute search based on mode
@@ -1473,6 +1541,8 @@ async def search(
                 "project_id": project_filter_id,
                 "branch": branch if branch != "*" else (get_current_branch(Path.cwd()) if scope == "project" else "*"),
                 "file_type": file_type,
+                "tag": tag,  # Task 431
+                "tag_prefix": tag_prefix,  # Task 431
                 "custom": filters or {}
             },
             # Task 430: Include daemon availability for debugging
@@ -1526,6 +1596,22 @@ async def manage(
     - "list_watches" -> list all configured watch folders
     - "remove_watch" -> remove a watch folder (config: {watch_id})
     - "update_watch" -> update watch configuration (config: {watch_id, enabled, patterns, ...})
+
+    Tag Management (Task 431 - Dot-Separated Tag Hierarchy):
+    - "list_tags" -> list tags with optional filtering
+        config: {tag_type, parent_tag, watched_only, include_hierarchy}
+        tag_type: "project" | "library" | "memory"
+        parent_tag: filter to children of this tag (e.g., "myproject" returns "myproject.main", "myproject.dev")
+        watched_only: only return tags marked as watched
+        include_hierarchy: include parent tags in response
+    - "set_tag_watched" -> mark a tag for daemon monitoring
+        config: {tag_value, watched, collection}
+    - "get_watched_tags" -> get all tags marked as watched
+
+    Tag Hierarchy Format:
+    - Projects: "project_id.branch_name" (e.g., "myapp.main", "myapp.feature-x")
+    - Libraries: "folder1.folder2.folder3" (e.g., "docs.api.reference")
+    - Memory: "project_id" (no branch for memory)
 
     Multi-Tenant Architecture (ADR-001):
     - init_project registers the current project's project_id in 'projects' collection
@@ -2101,6 +2187,69 @@ async def manage(
                 "message": "Watch folder updated. Changes take effect on next daemon poll."
             }
 
+        elif action == "list_tags":
+            # Task 431: List tags with optional filtering
+            # Supports dot-separated tag hierarchy (project.branch, library.folder1.folder2)
+            tag_type = config.get("tag_type") if config else None
+            parent_tag = config.get("parent_tag") if config else None
+            watched_only = config.get("watched_only", False) if config else False
+            include_hierarchy = config.get("include_hierarchy", False) if config else False
+
+            tags = await state_manager.list_tags(
+                collection=collection,
+                tag_type=tag_type,
+                parent_tag=parent_tag,
+                watched_only=watched_only,
+                include_hierarchy=include_hierarchy,
+            )
+
+            return {
+                "success": True,
+                "action": action,
+                "tags": tags,
+                "count": len(tags),
+                "filters": {
+                    "collection": collection,
+                    "tag_type": tag_type,
+                    "parent_tag": parent_tag,
+                    "watched_only": watched_only,
+                }
+            }
+
+        elif action == "set_tag_watched":
+            # Task 431: Mark a tag as watched for daemon monitoring
+            if not config or "tag_value" not in config:
+                return {"success": False, "error": "config.tag_value required for set_tag_watched action"}
+
+            tag_value = config["tag_value"]
+            watched = config.get("watched", True)
+            tag_collection = config.get("collection") or collection
+
+            if not tag_collection:
+                return {"success": False, "error": "collection required for set_tag_watched action"}
+
+            await state_manager.set_tag_watched(tag_value, tag_collection, watched)
+
+            return {
+                "success": True,
+                "action": action,
+                "tag_value": tag_value,
+                "collection": tag_collection,
+                "watched": watched,
+                "message": f"Tag '{tag_value}' {'marked as watched' if watched else 'unmarked from watched'}. Daemon will {'monitor' if watched else 'stop monitoring'} this tag."
+            }
+
+        elif action == "get_watched_tags":
+            # Task 431: Get all tags marked as watched
+            watched_tags = await state_manager.get_watched_tags()
+
+            return {
+                "success": True,
+                "action": action,
+                "watched_tags": watched_tags,
+                "count": len(watched_tags)
+            }
+
         else:
             return {
                 "success": False,
@@ -2109,7 +2258,8 @@ async def manage(
                     "list_collections", "create_collection", "delete_collection",
                     "collection_info", "workspace_status", "init_project",
                     "activate_project", "deactivate_project", "cleanup",
-                    "add_watch", "list_watches", "remove_watch", "update_watch"
+                    "add_watch", "list_watches", "remove_watch", "update_watch",
+                    "list_tags", "set_tag_watched", "get_watched_tags"
                 ]
             }
 
@@ -2129,7 +2279,9 @@ async def retrieve(
     project_name: str = None,
     branch: str = None,
     file_type: str = None,
-    scope: str = "project"
+    scope: str = "project",
+    tag: str = None,
+    tag_prefix: bool = False
 ) -> dict[str, Any]:
     """
     Retrieve documents directly by ID or metadata without search ranking.
@@ -2141,6 +2293,10 @@ async def retrieve(
     - Filters by Git branch (default: current branch, "*" = all branches)
     - Filters by file_type when specified
 
+    NEW: Task 431 - Tag filtering with dot-separated hierarchy
+    - tag: Filter by exact tag value (e.g., "myproject.main")
+    - tag_prefix: If True, filter by tag prefix (e.g., "myproject." matches all branches)
+
     Retrieval methods determined by parameters:
     - document_id specified -> direct ID lookup
     - metadata specified -> filter-based retrieval
@@ -2148,6 +2304,7 @@ async def retrieve(
     - branch -> filters by Git branch
     - file_type -> filters by file type
     - scope -> controls multi-tenant collection and filtering
+    - tag -> filters by tag value
 
     Args:
         document_id: Direct document ID to retrieve
@@ -2158,6 +2315,8 @@ async def retrieve(
         branch: Git branch to filter by (None=current, "*"=all branches)
         file_type: File type filter ("code", "test", "docs", etc.)
         scope: Retrieval scope - "project" (default), "global", or "all"
+        tag: Filter by tag value (exact match or prefix based on tag_prefix)
+        tag_prefix: If True, match tags starting with tag value
 
     Returns:
         Dict with retrieved documents and metadata
@@ -2174,6 +2333,12 @@ async def retrieve(
 
         # Retrieve from all collections (projects + libraries)
         retrieve(metadata={"author": "john"}, scope="all")
+
+        # Task 431: Retrieve by tag (exact match)
+        retrieve(metadata={}, tag="myproject.main")
+
+        # Task 431: Retrieve by tag prefix (matches all branches)
+        retrieve(metadata={}, tag="myproject.", tag_prefix=True)
     """
     await initialize_components()
 
@@ -2276,6 +2441,18 @@ async def retrieve(
                             if doc_file_type and doc_file_type != file_type:
                                 continue
 
+                        # Task 431: Apply tag filter if specified
+                        if tag:
+                            doc_tag = point.payload.get("full_tag", "")
+                            if tag_prefix:
+                                # Prefix match: doc_tag should start with tag
+                                if not doc_tag.startswith(tag):
+                                    continue
+                            else:
+                                # Exact match
+                                if doc_tag != tag:
+                                    continue
+
                         result = {
                             "id": point.id,
                             "collection": search_collection,
@@ -2312,7 +2489,9 @@ async def retrieve(
                     filters=metadata,
                     branch=branch,
                     file_type=file_type,
-                    project_id=collection_project_id
+                    project_id=collection_project_id,
+                    tag=tag,  # Task 431
+                    tag_prefix=tag_prefix
                 )
 
                 # Retrieve from collection (async)
@@ -2355,6 +2534,8 @@ async def retrieve(
                 "project_id": project_filter_id,
                 "branch": branch if branch == "*" else (branch or get_current_branch(Path.cwd())),
                 "file_type": file_type,
+                "tag": tag,  # Task 431
+                "tag_prefix": tag_prefix,  # Task 431
                 "metadata": metadata or {}
             }
         }

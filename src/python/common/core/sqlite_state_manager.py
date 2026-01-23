@@ -328,7 +328,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 8  # Added content_ingestion_queue for daemon-unavailable fallback
+    SCHEMA_VERSION = 9  # Added tag_index for dot-separated tag hierarchy (Task 431)
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -873,6 +873,28 @@ class SQLiteStateManager:
             "CREATE INDEX idx_content_ingestion_queue_priority ON content_ingestion_queue(priority DESC, created_at ASC)",
             "CREATE INDEX idx_content_ingestion_queue_collection ON content_ingestion_queue(target_collection)",
             "CREATE INDEX idx_content_ingestion_queue_idempotency ON content_ingestion_queue(idempotency_key)",
+            # Tag index table for dot-separated tag hierarchy (Task 431, v9)
+            """
+            CREATE TABLE tag_index (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                tag_value TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                tag_type TEXT NOT NULL CHECK (tag_type IN ('project', 'library', 'memory')),
+                parent_tag TEXT,
+                depth INTEGER NOT NULL DEFAULT 1,
+                watched BOOLEAN NOT NULL DEFAULT 0,
+                document_count INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(tag_value, collection)
+            )
+            """,
+            # Indexes for tag_index
+            "CREATE INDEX idx_tag_index_value ON tag_index(tag_value)",
+            "CREATE INDEX idx_tag_index_collection ON tag_index(collection)",
+            "CREATE INDEX idx_tag_index_type ON tag_index(tag_type)",
+            "CREATE INDEX idx_tag_index_parent ON tag_index(parent_tag)",
+            "CREATE INDEX idx_tag_index_watched ON tag_index(watched) WHERE watched = 1",
             # Insert initial schema version
             f"INSERT INTO schema_version (version) VALUES ({self.SCHEMA_VERSION})",
         ]
@@ -1189,6 +1211,41 @@ class SQLiteStateManager:
                     conn.execute(sql)
 
                 logger.info("Successfully migrated to schema version 8 (content ingestion queue)")
+
+            # Migrate from version 8 to version 9 - Add tag_index for dot-separated tag hierarchy (Task 431)
+            if from_version <= 8 and to_version >= 9:
+                logger.info("Applying migration: v8 -> v9 (tag_index table)")
+                tag_index_sql = [
+                    # Tag index table for dot-separated tag hierarchy
+                    # Tags follow pattern: project_id.branch_name for projects
+                    # or library_name.subfolder1.subfolder2 for libraries
+                    """
+                    CREATE TABLE IF NOT EXISTS tag_index (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        tag_value TEXT NOT NULL,
+                        collection TEXT NOT NULL,
+                        tag_type TEXT NOT NULL CHECK (tag_type IN ('project', 'library', 'memory')),
+                        parent_tag TEXT,
+                        depth INTEGER NOT NULL DEFAULT 1,
+                        watched BOOLEAN NOT NULL DEFAULT 0,
+                        document_count INTEGER NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        UNIQUE(tag_value, collection)
+                    )
+                    """,
+                    # Indexes for tag_index queries
+                    "CREATE INDEX IF NOT EXISTS idx_tag_index_value ON tag_index(tag_value)",
+                    "CREATE INDEX IF NOT EXISTS idx_tag_index_collection ON tag_index(collection)",
+                    "CREATE INDEX IF NOT EXISTS idx_tag_index_type ON tag_index(tag_type)",
+                    "CREATE INDEX IF NOT EXISTS idx_tag_index_parent ON tag_index(parent_tag)",
+                    "CREATE INDEX IF NOT EXISTS idx_tag_index_watched ON tag_index(watched) WHERE watched = 1",
+                ]
+
+                for sql in tag_index_sql:
+                    conn.execute(sql)
+
+                logger.info("Successfully migrated to schema version 9 (tag_index table)")
 
             # Record the migration
             conn.execute(
@@ -3518,4 +3575,324 @@ class SQLiteStateManager:
     async def get_high_priority_projects(self) -> list[dict]:
         """Get all projects with high priority (active agent sessions)."""
         return await self.list_projects_by_priority(priority="high")
+
+    # =========================================================================
+    # Tag Index Methods (Task 431: Dot-separated tag hierarchy)
+    # =========================================================================
+
+    async def index_tag(
+        self,
+        tag_value: str,
+        collection: str,
+        tag_type: str = "project",
+        watched: bool = False,
+    ) -> int | None:
+        """
+        Index a tag in the tag_index table.
+
+        Tags follow dot-separated hierarchy:
+        - Projects: project_id.branch_name (e.g., "myapp.main", "myapp.feature-x")
+        - Libraries: library_name.subfolder1.subfolder2 (e.g., "numpy.linalg.solve")
+        - Memory: project_id or "global" (e.g., "myapp", "global")
+
+        Args:
+            tag_value: Full tag value (dot-separated hierarchy)
+            collection: Target collection (projects, libraries, memory)
+            tag_type: Type of tag ("project", "library", or "memory")
+            watched: Whether this tag should trigger file watching
+
+        Returns:
+            ID of the inserted/updated tag, or None on error
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        if tag_type not in ("project", "library", "memory"):
+            raise ValueError(f"Invalid tag_type: {tag_type}")
+
+        # Compute parent tag (everything before last dot)
+        parts = tag_value.split(".")
+        parent_tag = ".".join(parts[:-1]) if len(parts) > 1 else None
+        depth = len(parts)
+
+        try:
+            async with self.transaction() as conn:
+                # Insert or update tag
+                cursor = conn.execute(
+                    """
+                    INSERT INTO tag_index (tag_value, collection, tag_type, parent_tag, depth, watched)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(tag_value, collection) DO UPDATE SET
+                        updated_at = CURRENT_TIMESTAMP,
+                        watched = CASE WHEN ? = 1 THEN 1 ELSE watched END
+                    RETURNING id
+                    """,
+                    (tag_value, collection, tag_type, parent_tag, depth, watched, watched),
+                )
+                row = cursor.fetchone()
+                tag_id = row[0] if row else None
+
+                # Also index parent tags (for hierarchy navigation)
+                if parent_tag:
+                    await self.index_tag(parent_tag, collection, tag_type, watched=False)
+
+                logger.debug(f"Indexed tag: {tag_value} (collection={collection}, type={tag_type})")
+                return tag_id
+
+        except Exception as e:
+            logger.error(f"Failed to index tag {tag_value}: {e}")
+            return None
+
+    async def increment_tag_document_count(
+        self,
+        tag_value: str,
+        collection: str,
+        increment: int = 1,
+    ) -> bool:
+        """
+        Increment the document count for a tag.
+
+        Args:
+            tag_value: Tag to update
+            collection: Target collection
+            increment: Amount to increment (can be negative for decrements)
+
+        Returns:
+            True if updated, False otherwise
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE tag_index
+                    SET document_count = document_count + ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE tag_value = ? AND collection = ?
+                    """,
+                    (increment, tag_value, collection),
+                )
+                return cursor.rowcount > 0
+
+        except Exception as e:
+            logger.error(f"Failed to increment tag document count: {e}")
+            return False
+
+    async def list_tags(
+        self,
+        collection: str | None = None,
+        tag_type: str | None = None,
+        parent_tag: str | None = None,
+        watched_only: bool = False,
+        include_hierarchy: bool = False,
+    ) -> list[dict[str, Any]]:
+        """
+        List tags with optional filtering.
+
+        Args:
+            collection: Filter by collection (projects, libraries, memory)
+            tag_type: Filter by type ("project", "library", "memory")
+            parent_tag: Filter by parent tag (for hierarchy navigation)
+            watched_only: Only return tags with watched=True
+            include_hierarchy: Include computed hierarchy info
+
+        Returns:
+            List of tag dictionaries with fields:
+            - tag_value, collection, tag_type, parent_tag, depth
+            - watched, document_count, created_at, updated_at
+            - children (if include_hierarchy=True)
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            query = "SELECT * FROM tag_index WHERE 1=1"
+            params = []
+
+            if collection:
+                query += " AND collection = ?"
+                params.append(collection)
+
+            if tag_type:
+                query += " AND tag_type = ?"
+                params.append(tag_type)
+
+            if parent_tag is not None:
+                if parent_tag == "":
+                    # Root tags only (no parent)
+                    query += " AND parent_tag IS NULL"
+                else:
+                    query += " AND parent_tag = ?"
+                    params.append(parent_tag)
+
+            if watched_only:
+                query += " AND watched = 1"
+
+            query += " ORDER BY tag_value ASC"
+
+            with self._lock:
+                cursor = self.connection.execute(query, params)
+                rows = cursor.fetchall()
+
+            tags = [
+                {
+                    "id": row["id"],
+                    "tag_value": row["tag_value"],
+                    "collection": row["collection"],
+                    "tag_type": row["tag_type"],
+                    "parent_tag": row["parent_tag"],
+                    "depth": row["depth"],
+                    "watched": bool(row["watched"]),
+                    "document_count": row["document_count"],
+                    "created_at": row["created_at"],
+                    "updated_at": row["updated_at"],
+                }
+                for row in rows
+            ]
+
+            if include_hierarchy:
+                # Build hierarchy by adding children to each tag
+                tag_map = {t["tag_value"]: t for t in tags}
+                for tag in tags:
+                    tag["children"] = [
+                        t["tag_value"]
+                        for t in tags
+                        if t["parent_tag"] == tag["tag_value"]
+                    ]
+
+            return tags
+
+        except Exception as e:
+            logger.error(f"Failed to list tags: {e}")
+            return []
+
+    async def get_tag(
+        self,
+        tag_value: str,
+        collection: str,
+    ) -> dict[str, Any] | None:
+        """
+        Get details of a specific tag.
+
+        Args:
+            tag_value: Tag to retrieve
+            collection: Target collection
+
+        Returns:
+            Tag dictionary or None if not found
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            with self._lock:
+                cursor = self.connection.execute(
+                    "SELECT * FROM tag_index WHERE tag_value = ? AND collection = ?",
+                    (tag_value, collection),
+                )
+                row = cursor.fetchone()
+
+                if row:
+                    return {
+                        "id": row["id"],
+                        "tag_value": row["tag_value"],
+                        "collection": row["collection"],
+                        "tag_type": row["tag_type"],
+                        "parent_tag": row["parent_tag"],
+                        "depth": row["depth"],
+                        "watched": bool(row["watched"]),
+                        "document_count": row["document_count"],
+                        "created_at": row["created_at"],
+                        "updated_at": row["updated_at"],
+                    }
+                return None
+
+        except Exception as e:
+            logger.error(f"Failed to get tag {tag_value}: {e}")
+            return None
+
+    async def set_tag_watched(
+        self,
+        tag_value: str,
+        collection: str,
+        watched: bool = True,
+    ) -> bool:
+        """
+        Set the watched status of a tag.
+
+        When watched=True, the daemon will start file watching for this tag.
+
+        Args:
+            tag_value: Tag to update
+            collection: Target collection
+            watched: Whether to watch this tag
+
+        Returns:
+            True if updated, False otherwise
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE tag_index
+                    SET watched = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE tag_value = ? AND collection = ?
+                    """,
+                    (watched, tag_value, collection),
+                )
+                return cursor.rowcount > 0
+
+        except Exception as e:
+            logger.error(f"Failed to set tag watched status: {e}")
+            return False
+
+    async def get_watched_tags(self) -> list[dict[str, Any]]:
+        """
+        Get all tags marked as watched.
+
+        Returns:
+            List of watched tag dictionaries
+        """
+        return await self.list_tags(watched_only=True)
+
+    async def delete_tag(
+        self,
+        tag_value: str,
+        collection: str,
+    ) -> bool:
+        """
+        Delete a tag from the index.
+
+        Args:
+            tag_value: Tag to delete
+            collection: Target collection
+
+        Returns:
+            True if deleted, False otherwise
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM tag_index WHERE tag_value = ? AND collection = ?",
+                    (tag_value, collection),
+                )
+                deleted = cursor.rowcount > 0
+
+                if deleted:
+                    logger.debug(f"Deleted tag: {tag_value} from {collection}")
+
+                return deleted
+
+        except Exception as e:
+            logger.error(f"Failed to delete tag {tag_value}: {e}")
+            return False
 
