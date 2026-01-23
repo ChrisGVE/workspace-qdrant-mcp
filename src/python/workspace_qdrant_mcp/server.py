@@ -152,6 +152,18 @@ from common.observability.metrics import (
 from common.utils.git_utils import get_current_branch
 from common.utils.project_detection import calculate_tenant_id
 
+# Error response utilities (Task 449)
+from workspace_qdrant_mcp.error_responses import (
+    create_error_response,
+    create_simple_error_response,
+    handle_tool_error,
+    validation_error,
+    not_found_error,
+    daemon_unavailable_error,
+    ErrorCode,
+    ErrorType,
+)
+
 # Global components
 qdrant_client: AsyncQdrantClient | None = None
 embedding_model = None
@@ -1189,10 +1201,11 @@ async def store(
         # Validate collection name against ADR-001
         is_valid, error_msg = validate_collection_name(collection)
         if not is_valid:
-            return {
-                "success": False,
-                "error": error_msg
-            }
+            return create_error_response(
+                ErrorCode.INVALID_COLLECTION_NAME,
+                message_override=error_msg,
+                context={"collection": collection},
+            )
         target_collection = collection
     else:
         # Default: use canonical 'projects' collection (ADR-001)
@@ -1309,11 +1322,10 @@ async def store(
         except DaemonConnectionError as e:
             # Task 430: Update daemon state on failure
             update_daemon_state(available=False)
-            return {
-                "success": False,
-                "error": f"Failed to store document via daemon: {str(e)}",
-                "daemon_available": False
-            }
+            return create_error_response(
+                ErrorCode.DAEMON_CONNECTION_ERROR,
+                context={"operation": "store"},
+            )
     else:
         # Queue-based fallback when daemon unavailable (Task 428)
         # Content is queued to SQLite for processing when daemon becomes available
@@ -1360,10 +1372,10 @@ async def store(
             }
         except Exception as e:
             logger.error(f"Failed to queue content for ingestion: {e}")
-            return {
-                "success": False,
-                "error": f"Failed to queue document: {str(e)}"
-            }
+            return create_error_response(
+                ErrorCode.QUEUE_ERROR,
+                context={"operation": "store"},
+            )
 
 def _merge_with_rrf(
     results_lists: list[list[dict[str, Any]]],
@@ -1499,11 +1511,11 @@ async def search(
     # Validate scope parameter (Task 396)
     valid_scopes = ("project", "global", "all")
     if scope not in valid_scopes:
-        return {
-            "success": False,
-            "error": f"Invalid scope: {scope}. Must be one of: {', '.join(valid_scopes)}",
-            "results": []
-        }
+        return create_error_response(
+            ErrorCode.INVALID_SCOPE,
+            message_override=f"Invalid scope: {scope}",
+            context={"scope": scope, "valid_scopes": valid_scopes},
+        )
 
     # Task 430: Check daemon availability for project-scoped searches
     global _session_project_id, _daemon_state
@@ -1512,14 +1524,12 @@ async def search(
     if scope == "project" and _daemon_state == "UNRESPONSIVE":
         # Attempt to re-check daemon availability
         if not await check_daemon_availability():
-            return {
-                "success": False,
-                "error": "Daemon is unresponsive. Project-scoped searches require daemon "
-                        "for session priority management. Use scope='all' with include_libraries=True "
-                        "to search libraries without daemon dependency.",
-                "results": [],
-                "daemon_available": False
-            }
+            return create_error_response(
+                ErrorCode.DAEMON_UNAVAILABLE,
+                message_override="Daemon is unresponsive. Project-scoped searches require daemon for session priority management.",
+                suggestion_override="Use scope='all' with include_libraries=True to search libraries without daemon dependency.",
+                context={"operation": "search", "scope": scope},
+            )
         # Daemon recovered - continue with search
 
     if scope == "project" and not _session_project_id:
@@ -1543,11 +1553,11 @@ async def search(
         # Validate collection name against ADR-001
         is_valid, error_msg = validate_collection_name(collection)
         if not is_valid:
-            return {
-                "success": False,
-                "error": error_msg,
-                "results": []
-            }
+            return create_error_response(
+                ErrorCode.INVALID_COLLECTION_NAME,
+                message_override=error_msg,
+                context={"collection": collection, "operation": "search"},
+            )
         resolved_collection, alias_used = await resolve_collection_alias(collection)
         search_collections = [resolved_collection]
         # Don't apply project_id filter for explicit collections
@@ -1745,11 +1755,7 @@ async def search(
         return response
 
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Search failed: {str(e)}",
-            "results": []
-        }
+        return handle_tool_error(e, "search", context={"query": query[:50] if query else None})
 
 @app.tool()
 @track_tool("manage")
@@ -1887,16 +1893,21 @@ async def manage(
 
         elif action == "create_collection":
             if not name:
-                return {"success": False, "error": "Collection name required for create action"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="Collection name required for create action",
+                    suggestion_override="Provide 'name' parameter with a valid collection name.",
+                    context={"action": action},
+                )
 
             # Validate collection name against ADR-001
             is_valid, error_msg = validate_collection_name(name)
             if not is_valid:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": error_msg
-                }
+                return create_error_response(
+                    ErrorCode.INVALID_COLLECTION_NAME,
+                    message_override=error_msg,
+                    context={"collection": name, "action": action},
+                )
 
             collection_config = config or DEFAULT_COLLECTION_CONFIG
 
@@ -1910,11 +1921,12 @@ async def manage(
             # ============================================================================
 
             if not daemon_client:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": "Daemon not connected. Collection creation requires daemon (First Principle 10)."
-                }
+                return create_error_response(
+                    ErrorCode.DAEMON_UNAVAILABLE,
+                    message_override="Daemon not connected. Collection creation requires daemon (First Principle 10).",
+                    suggestion_override="Start the daemon with 'wqm service start' and retry.",
+                    context={"action": action},
+                )
 
             try:
                 response = await daemon_client.create_collection_v2(
@@ -1931,32 +1943,36 @@ async def manage(
                         "message": f"Collection '{name}' created successfully via daemon"
                     }
                 else:
-                    return {
-                        "success": False,
-                        "action": action,
-                        "error": f"Daemon failed to create collection: {response.error_message}"
-                    }
+                    return create_error_response(
+                        ErrorCode.STORE_FAILED,
+                        message_override=f"Daemon failed to create collection: {response.error_message}",
+                        context={"action": action, "collection": name},
+                    )
             except DaemonConnectionError as e:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": f"Daemon connection error: {e}"
-                }
+                return create_error_response(
+                    ErrorCode.DAEMON_CONNECTION_ERROR,
+                    context={"action": action, "collection": name},
+                )
 
         elif action == "delete_collection":
             if not name and not collection:
-                return {"success": False, "error": "Collection name required for delete action"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="Collection name required for delete action",
+                    suggestion_override="Provide 'name' or 'collection' parameter.",
+                    context={"action": action},
+                )
 
             target_collection = name or collection
 
             # Validate collection name against ADR-001
             is_valid, error_msg = validate_collection_name(target_collection)
             if not is_valid:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": error_msg
-                }
+                return create_error_response(
+                    ErrorCode.INVALID_COLLECTION_NAME,
+                    message_override=error_msg,
+                    context={"collection": target_collection, "action": action},
+                )
 
             # Get project_id from current directory
             project_id = calculate_tenant_id(str(Path.cwd()))
@@ -1968,11 +1984,12 @@ async def manage(
             # ============================================================================
 
             if not daemon_client:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": "Daemon not connected. Collection deletion requires daemon (First Principle 10)."
-                }
+                return create_error_response(
+                    ErrorCode.DAEMON_UNAVAILABLE,
+                    message_override="Daemon not connected. Collection deletion requires daemon (First Principle 10).",
+                    suggestion_override="Start the daemon with 'wqm service start' and retry.",
+                    context={"action": action, "collection": target_collection},
+                )
 
             try:
                 await daemon_client.delete_collection_v2(
@@ -1987,15 +2004,19 @@ async def manage(
                     "message": f"Collection '{target_collection}' deleted successfully via daemon"
                 }
             except DaemonConnectionError as e:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": f"Daemon connection error: {e}"
-                }
+                return create_error_response(
+                    ErrorCode.DAEMON_CONNECTION_ERROR,
+                    context={"action": action, "collection": target_collection},
+                )
 
         elif action == "collection_info":
             if not name and not collection:
-                return {"success": False, "error": "Collection name required for info action"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="Collection name required for info action",
+                    suggestion_override="Provide 'name' or 'collection' parameter.",
+                    context={"action": action},
+                )
 
             target_collection = name or collection
             col_info = await qdrant_client.get_collection(target_collection)
@@ -2079,11 +2100,12 @@ async def manage(
             # ============================================================================
 
             if not daemon_client:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": "Daemon not connected. Cleanup requires daemon (First Principle 10)."
-                }
+                return create_error_response(
+                    ErrorCode.DAEMON_UNAVAILABLE,
+                    message_override="Daemon not connected. Cleanup requires daemon (First Principle 10).",
+                    suggestion_override="Start the daemon with 'wqm service start' and retry.",
+                    context={"action": action},
+                )
 
             collections_response = await qdrant_client.get_collections()
             cleaned_collections = []
@@ -2130,12 +2152,12 @@ async def manage(
             has_taskmaster = (Path(target_path) / ".taskmaster").exists()
 
             if not is_git_repo and not has_taskmaster:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": f"Invalid project: {target_path} is not a git repository and has no .taskmaster directory",
-                    "hint": "Projects must be git repositories or have a .taskmaster directory marker"
-                }
+                return create_error_response(
+                    ErrorCode.INVALID_PROJECT_PATH,
+                    message_override=f"Invalid project: path is not a git repository and has no .taskmaster directory",
+                    suggestion_override="Projects must be git repositories or have a .taskmaster directory marker.",
+                    context={"action": action},
+                )
 
             # Compute project identifiers
             project_id = calculate_tenant_id(target_path)
@@ -2193,11 +2215,10 @@ async def manage(
             # Task 429: Deactivate current project session
 
             if not _session_project_id:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": "No project is currently activated"
-                }
+                return create_error_response(
+                    ErrorCode.PROJECT_NOT_ACTIVATED,
+                    context={"action": action},
+                )
 
             old_project_id = _session_project_id
 
@@ -2241,13 +2262,24 @@ async def manage(
             # Add a folder to watch with transactional handshake
             # This creates both the watch config AND enqueues initial scan
             if not config or "path" not in config:
-                return {"success": False, "error": "config.path required for add_watch action"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="config.path required for add_watch action",
+                    suggestion_override="Provide config={'path': '/path/to/folder'} to add a watch folder.",
+                    context={"action": action},
+                )
 
             folder_path = config["path"]
             if not Path(folder_path).exists():
-                return {"success": False, "error": f"Path does not exist: {folder_path}"}
+                return create_error_response(
+                    ErrorCode.PATH_NOT_FOUND,
+                    context={"action": action},
+                )
             if not Path(folder_path).is_dir():
-                return {"success": False, "error": f"Path is not a directory: {folder_path}"}
+                return create_error_response(
+                    ErrorCode.PATH_NOT_DIRECTORY,
+                    context={"action": action},
+                )
 
             # Generate watch_id if not provided
             watch_id = config.get("watch_id") or f"watch-{uuid.uuid4().hex[:8]}"
@@ -2257,7 +2289,12 @@ async def manage(
             library_name = config.get("library_name")
 
             if watch_type == "library" and not library_name:
-                return {"success": False, "error": "library_name required when watch_type='library'"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="library_name required when watch_type='library'",
+                    suggestion_override="Provide config={'library_name': 'name'} when using watch_type='library'.",
+                    context={"action": action, "watch_type": watch_type},
+                )
 
             # Default collection based on watch type
             target_collection = config.get("collection")
@@ -2342,14 +2379,23 @@ async def manage(
         elif action == "remove_watch":
             # Remove a watch folder configuration
             if not config or "watch_id" not in config:
-                return {"success": False, "error": "config.watch_id required for remove_watch action"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="config.watch_id required for remove_watch action",
+                    suggestion_override="Provide config={'watch_id': 'watch-id'} to remove a watch folder.",
+                    context={"action": action},
+                )
 
             watch_id = config["watch_id"]
 
             # Get current config before removing (for response)
             current = await state_manager.get_watch_folder_config(watch_id)
             if not current:
-                return {"success": False, "error": f"Watch not found: {watch_id}"}
+                return create_error_response(
+                    ErrorCode.WATCH_NOT_FOUND,
+                    message_override=f"Watch not found: {watch_id}",
+                    context={"action": action, "watch_id": watch_id},
+                )
 
             await state_manager.remove_watch_folder_config(watch_id)
 
@@ -2366,14 +2412,23 @@ async def manage(
         elif action == "update_watch":
             # Update a watch folder configuration (enable/disable, change patterns, etc.)
             if not config or "watch_id" not in config:
-                return {"success": False, "error": "config.watch_id required for update_watch action"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="config.watch_id required for update_watch action",
+                    suggestion_override="Provide config={'watch_id': 'watch-id', ...} to update a watch folder.",
+                    context={"action": action},
+                )
 
             watch_id = config["watch_id"]
 
             # Get current config
             current = await state_manager.get_watch_folder_config(watch_id)
             if not current:
-                return {"success": False, "error": f"Watch not found: {watch_id}"}
+                return create_error_response(
+                    ErrorCode.WATCH_NOT_FOUND,
+                    message_override=f"Watch not found: {watch_id}",
+                    context={"action": action, "watch_id": watch_id},
+                )
 
             # Update fields that were provided
             if "enabled" in config:
@@ -2434,14 +2489,24 @@ async def manage(
         elif action == "set_tag_watched":
             # Task 431: Mark a tag as watched for daemon monitoring
             if not config or "tag_value" not in config:
-                return {"success": False, "error": "config.tag_value required for set_tag_watched action"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="config.tag_value required for set_tag_watched action",
+                    suggestion_override="Provide config={'tag_value': 'tag'} to mark a tag as watched.",
+                    context={"action": action},
+                )
 
             tag_value = config["tag_value"]
             watched = config.get("watched", True)
             tag_collection = config.get("collection") or collection
 
             if not tag_collection:
-                return {"success": False, "error": "collection required for set_tag_watched action"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="collection required for set_tag_watched action",
+                    suggestion_override="Provide 'collection' parameter or config={'collection': 'name'}.",
+                    context={"action": action},
+                )
 
             await state_manager.set_tag_watched(tag_value, tag_collection, watched)
 
@@ -2469,7 +2534,12 @@ async def manage(
             # Task 432: Mark a library file as deleted (additive deletion policy)
             # Vectors remain in Qdrant but file won't be re-ingested
             if not config or "library_name" not in config or "file_path" not in config:
-                return {"success": False, "error": "config.library_name and config.file_path required for mark_library_deleted action"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="config.library_name and config.file_path required for mark_library_deleted action",
+                    suggestion_override="Provide config={'library_name': 'name', 'file_path': '/path'}.",
+                    context={"action": action},
+                )
 
             library_name = config["library_name"]
             file_path = config["file_path"]
@@ -2493,7 +2563,12 @@ async def manage(
         elif action == "re_ingest_deleted":
             # Task 432: Clear deletion mark to allow re-ingestion
             if not config or "library_name" not in config or "file_path" not in config:
-                return {"success": False, "error": "config.library_name and config.file_path required for re_ingest_deleted action"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="config.library_name and config.file_path required for re_ingest_deleted action",
+                    suggestion_override="Provide config={'library_name': 'name', 'file_path': '/path'}.",
+                    context={"action": action},
+                )
 
             library_name = config["library_name"]
             file_path = config["file_path"]
@@ -2536,7 +2611,12 @@ async def manage(
         elif action == "check_library_deletion":
             # Task 432: Check if a specific file is marked as deleted
             if not config or "library_name" not in config or "file_path" not in config:
-                return {"success": False, "error": "config.library_name and config.file_path required for check_library_deletion action"}
+                return create_error_response(
+                    ErrorCode.MISSING_REQUIRED_PARAMETER,
+                    message_override="config.library_name and config.file_path required for check_library_deletion action",
+                    suggestion_override="Provide config={'library_name': 'name', 'file_path': '/path'}.",
+                    context={"action": action},
+                )
 
             library_name = config["library_name"]
             file_path = config["file_path"]
@@ -2584,11 +2664,7 @@ async def manage(
                     "message": f"Memory rules refreshed: {len(memory_rules)} rules loaded"
                 }
             except Exception as e:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": f"Failed to refresh memory rules: {str(e)}"
-                }
+                return handle_tool_error(e, "refresh_memory", context={"action": action})
 
         elif action == "get_memory_status":
             # Task 435: Get current memory injection status
@@ -2608,25 +2684,24 @@ async def manage(
             }
 
         else:
-            return {
-                "success": False,
-                "error": f"Unknown action: {action}",
-                "available_actions": [
-                    "list_collections", "create_collection", "delete_collection",
-                    "collection_info", "workspace_status", "init_project",
-                    "activate_project", "deactivate_project", "cleanup",
-                    "add_watch", "list_watches", "remove_watch", "update_watch",
-                    "list_tags", "set_tag_watched", "get_watched_tags",
-                    "mark_library_deleted", "re_ingest_deleted", "list_library_deletions", "check_library_deletion",
-                    "refresh_memory", "get_memory_status"
-                ]
-            }
+            available_actions = [
+                "list_collections", "create_collection", "delete_collection",
+                "collection_info", "workspace_status", "init_project",
+                "activate_project", "deactivate_project", "cleanup",
+                "add_watch", "list_watches", "remove_watch", "update_watch",
+                "list_tags", "set_tag_watched", "get_watched_tags",
+                "mark_library_deleted", "re_ingest_deleted", "list_library_deletions", "check_library_deletion",
+                "refresh_memory", "get_memory_status"
+            ]
+            return create_error_response(
+                ErrorCode.INVALID_ACTION,
+                message_override=f"Unknown action: {action}",
+                suggestion_override=f"Available actions: {', '.join(available_actions)}",
+                context={"action": action, "available_actions": available_actions},
+            )
 
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Management action '{action}' failed: {str(e)}"
-        }
+        return handle_tool_error(e, f"manage({action})", context={"action": action})
 
 @app.tool()
 @track_tool("retrieve")
@@ -2702,19 +2777,21 @@ async def retrieve(
     await initialize_components()
 
     if not document_id and not metadata:
-        return {
-            "success": False,
-            "error": "Either document_id or metadata filters must be provided"
-        }
+        return create_error_response(
+            ErrorCode.MISSING_REQUIRED_PARAMETER,
+            message_override="Either document_id or metadata filters must be provided",
+            suggestion_override="Provide a document_id for exact retrieval, or metadata filters for filtered retrieval.",
+            context={"operation": "retrieve"},
+        )
 
     # Validate scope parameter (Task 398)
     valid_scopes = ("project", "global", "all")
     if scope not in valid_scopes:
-        return {
-            "success": False,
-            "error": f"Invalid scope: {scope}. Must be one of: {', '.join(valid_scopes)}",
-            "results": []
-        }
+        return create_error_response(
+            ErrorCode.INVALID_SCOPE,
+            message_override=f"Invalid scope: {scope}",
+            context={"scope": scope, "valid_scopes": valid_scopes},
+        )
 
     # Task 429: Check for explicit project activation when using scope="project"
     global _session_project_id
@@ -2744,11 +2821,11 @@ async def retrieve(
             # Validate collection name against ADR-001
             is_valid, error_msg = validate_collection_name(collection)
             if not is_valid:
-                return {
-                    "success": False,
-                    "error": error_msg,
-                    "results": []
-                }
+                return create_error_response(
+                    ErrorCode.INVALID_COLLECTION_NAME,
+                    message_override=error_msg,
+                    context={"collection": collection, "operation": "retrieve"},
+                )
             # Resolve any alias first (Task 405)
             resolved_collection, alias_used = await resolve_collection_alias(collection)
             retrieve_collections = [resolved_collection]
@@ -2910,11 +2987,7 @@ async def retrieve(
         return response
 
     except Exception as e:
-        return {
-            "success": False,
-            "error": f"Retrieval failed: {str(e)}",
-            "results": []
-        }
+        return handle_tool_error(e, "retrieve", context={"document_id": document_id, "collection": collection})
 
 def run_server(
     transport: str = typer.Option(
