@@ -331,11 +331,14 @@ async fn start() -> Result<()> {
                     .status()?;
 
                 if status.success() {
-                    // Wait a moment for daemon to start
+                    // Wait for daemon with progress indicator
+                    output::waiting("Waiting for daemon");
                     tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                     if is_daemon_running().await {
+                        output::waiting_done();
                         output::success("Daemon started");
                     } else {
+                        println!();
                         output::warning("Service loaded but daemon not responding");
                     }
                 } else {
@@ -351,10 +354,13 @@ async fn start() -> Result<()> {
                 .status()?;
 
             if status.success() {
+                output::waiting("Waiting for daemon");
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
                 if is_daemon_running().await {
+                    output::waiting_done();
                     output::success("Daemon started");
                 } else {
+                    println!();
                     output::warning("Service started but daemon not responding");
                 }
             } else {
