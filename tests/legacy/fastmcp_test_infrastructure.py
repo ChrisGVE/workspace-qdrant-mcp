@@ -139,7 +139,7 @@ class FastMCPTestServer:
         mock_qdrant_client = Mock()
         mock_qdrant_client.get_collections.return_value.collections = [
             Mock(name="_test_project_id"),
-            Mock(name="_memory"),
+            Mock(name="memory"),
         ]
 
         # Apply qdrant_client patch

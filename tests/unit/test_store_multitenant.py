@@ -6,7 +6,7 @@ Tests automatic project_id tagging and file type detection.
 import pytest
 from workspace_qdrant_mcp.server import (
     _detect_file_type,
-    UNIFIED_COLLECTIONS,
+    CANONICAL_COLLECTIONS,
 )
 
 
@@ -91,12 +91,12 @@ class TestUnifiedCollectionsUsage:
 
     def test_projects_collection_defined(self):
         """Test that projects collection is defined."""
-        assert "projects" in UNIFIED_COLLECTIONS
-        assert UNIFIED_COLLECTIONS["projects"] == "_projects"
+        assert "projects" in CANONICAL_COLLECTIONS
+        assert CANONICAL_COLLECTIONS["projects"] == "projects"
 
     def test_all_collections_underscore_prefixed(self):
         """Test that all unified collections have underscore prefix."""
-        for name, collection in UNIFIED_COLLECTIONS.items():
+        for name, collection in CANONICAL_COLLECTIONS.items():
             assert collection.startswith("_"), f"Collection {name} should start with underscore"
 
 

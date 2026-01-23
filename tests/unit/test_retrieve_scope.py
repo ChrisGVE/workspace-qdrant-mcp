@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
 
 from workspace_qdrant_mcp.server import (
-    UNIFIED_COLLECTIONS,
+    CANONICAL_COLLECTIONS,
 )
 
 
@@ -87,7 +87,7 @@ class TestRetrieveScopeCollections:
             result = await retrieve_fn(metadata={"test": "value"}, scope="project")
 
             assert result["success"] is True
-            assert result["collections_searched"] == [UNIFIED_COLLECTIONS["projects"]]
+            assert result["collections_searched"] == [CANONICAL_COLLECTIONS["projects"]]
             assert result["filters_applied"]["project_id"] == "abc123def456"
 
     @pytest.mark.asyncio
@@ -104,7 +104,7 @@ class TestRetrieveScopeCollections:
             result = await retrieve_fn(metadata={"test": "value"}, scope="global")
 
             assert result["success"] is True
-            assert result["collections_searched"] == [UNIFIED_COLLECTIONS["projects"]]
+            assert result["collections_searched"] == [CANONICAL_COLLECTIONS["projects"]]
             assert result["filters_applied"]["project_id"] is None
 
     @pytest.mark.asyncio
@@ -121,8 +121,8 @@ class TestRetrieveScopeCollections:
             result = await retrieve_fn(metadata={"test": "value"}, scope="all")
 
             assert result["success"] is True
-            assert UNIFIED_COLLECTIONS["projects"] in result["collections_searched"]
-            assert UNIFIED_COLLECTIONS["libraries"] in result["collections_searched"]
+            assert CANONICAL_COLLECTIONS["projects"] in result["collections_searched"]
+            assert CANONICAL_COLLECTIONS["libraries"] in result["collections_searched"]
             assert result["filters_applied"]["project_id"] is None
 
     @pytest.mark.asyncio

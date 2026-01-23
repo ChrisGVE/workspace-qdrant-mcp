@@ -95,7 +95,7 @@ class TestMultiTenantIsolation:
 
         This is the core multi-tenant isolation test.
         """
-        from workspace_qdrant_mcp.server import search as search_tool, UNIFIED_COLLECTIONS
+        from workspace_qdrant_mcp.server import search as search_tool, CANONICAL_COLLECTIONS
 
         search_fn = search_tool.fn if hasattr(search_tool, 'fn') else search_tool
 
@@ -115,7 +115,7 @@ class TestMultiTenantIsolation:
             assert result["scope"] == "project"
             assert result["filters_applied"]["project_id"] == project_a_context["project_id"]
             # Verify collections searched includes projects
-            assert UNIFIED_COLLECTIONS["projects"] in result["collections_searched"]
+            assert CANONICAL_COLLECTIONS["projects"] in result["collections_searched"]
 
     @pytest.mark.asyncio
     async def test_global_scope_returns_all_projects(
@@ -208,7 +208,7 @@ class TestLibraryIntegration:
         """
         Search with scope='all' should include library documents.
         """
-        from workspace_qdrant_mcp.server import search as search_tool, UNIFIED_COLLECTIONS
+        from workspace_qdrant_mcp.server import search as search_tool, CANONICAL_COLLECTIONS
 
         search_fn = search_tool.fn if hasattr(search_tool, 'fn') else search_tool
 
@@ -231,7 +231,7 @@ class TestLibraryIntegration:
             # Return different results for different collections
             async def mock_search(**kwargs):
                 collection = kwargs.get("collection_name", "")
-                if collection == UNIFIED_COLLECTIONS["libraries"]:
+                if collection == CANONICAL_COLLECTIONS["libraries"]:
                     return library_points
                 return project_points
 
@@ -241,8 +241,8 @@ class TestLibraryIntegration:
 
             # Verify both collections were searched
             assert result["success"] is True
-            assert UNIFIED_COLLECTIONS["projects"] in result["collections_searched"]
-            assert UNIFIED_COLLECTIONS["libraries"] in result["collections_searched"]
+            assert CANONICAL_COLLECTIONS["projects"] in result["collections_searched"]
+            assert CANONICAL_COLLECTIONS["libraries"] in result["collections_searched"]
 
     @pytest.mark.asyncio
     async def test_libraries_not_included_in_project_scope(
@@ -251,7 +251,7 @@ class TestLibraryIntegration:
         """
         Search with scope='project' should NOT include library documents.
         """
-        from workspace_qdrant_mcp.server import search as search_tool, UNIFIED_COLLECTIONS
+        from workspace_qdrant_mcp.server import search as search_tool, CANONICAL_COLLECTIONS
 
         search_fn = search_tool.fn if hasattr(search_tool, 'fn') else search_tool
 
@@ -268,8 +268,8 @@ class TestLibraryIntegration:
 
             # Verify only projects collection was searched
             assert result["success"] is True
-            assert result["collections_searched"] == [UNIFIED_COLLECTIONS["projects"]]
-            assert UNIFIED_COLLECTIONS["libraries"] not in result["collections_searched"]
+            assert result["collections_searched"] == [CANONICAL_COLLECTIONS["projects"]]
+            assert CANONICAL_COLLECTIONS["libraries"] not in result["collections_searched"]
 
 
 # ============================================================================
@@ -610,20 +610,20 @@ class TestUnifiedCollections:
     """Tests for unified collection constants and behavior."""
 
     def test_unified_collections_defined(self):
-        """Test that UNIFIED_COLLECTIONS has required keys."""
-        from workspace_qdrant_mcp.server import UNIFIED_COLLECTIONS
+        """Test that CANONICAL_COLLECTIONS has required keys."""
+        from workspace_qdrant_mcp.server import CANONICAL_COLLECTIONS
 
-        assert "projects" in UNIFIED_COLLECTIONS
-        assert "libraries" in UNIFIED_COLLECTIONS
-        assert "memory" in UNIFIED_COLLECTIONS
+        assert "projects" in CANONICAL_COLLECTIONS
+        assert "libraries" in CANONICAL_COLLECTIONS
+        assert "memory" in CANONICAL_COLLECTIONS
 
     def test_unified_collections_naming(self):
         """Test that collection names follow convention."""
-        from workspace_qdrant_mcp.server import UNIFIED_COLLECTIONS
+        from workspace_qdrant_mcp.server import CANONICAL_COLLECTIONS
 
-        assert UNIFIED_COLLECTIONS["projects"] == "_projects"
-        assert UNIFIED_COLLECTIONS["libraries"] == "_libraries"
-        assert UNIFIED_COLLECTIONS["memory"] == "_memory"
+        assert CANONICAL_COLLECTIONS["projects"] == "projects"
+        assert CANONICAL_COLLECTIONS["libraries"] == "libraries"
+        assert CANONICAL_COLLECTIONS["memory"] == "memory"
 
     def test_build_metadata_filters_project_id(self):
         """Test that build_metadata_filters includes project_id."""

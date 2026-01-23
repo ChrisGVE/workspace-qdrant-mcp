@@ -10,7 +10,7 @@ from pathlib import Path
 from workspace_qdrant_mcp.server import (
     build_metadata_filters,
     _merge_with_rrf,
-    UNIFIED_COLLECTIONS,
+    CANONICAL_COLLECTIONS,
 )
 from qdrant_client.models import FieldCondition, MatchValue
 
@@ -132,19 +132,19 @@ class TestMergeWithRRF:
 
 
 class TestUnifiedCollections:
-    """Tests for UNIFIED_COLLECTIONS constant."""
+    """Tests for CANONICAL_COLLECTIONS constant."""
 
     def test_collections_defined(self):
         """Test that all unified collections are defined."""
-        assert "projects" in UNIFIED_COLLECTIONS
-        assert "libraries" in UNIFIED_COLLECTIONS
-        assert "memory" in UNIFIED_COLLECTIONS
+        assert "projects" in CANONICAL_COLLECTIONS
+        assert "libraries" in CANONICAL_COLLECTIONS
+        assert "memory" in CANONICAL_COLLECTIONS
 
     def test_collection_names_correct(self):
         """Test that collection names follow naming convention."""
-        assert UNIFIED_COLLECTIONS["projects"] == "_projects"
-        assert UNIFIED_COLLECTIONS["libraries"] == "_libraries"
-        assert UNIFIED_COLLECTIONS["memory"] == "_memory"
+        assert CANONICAL_COLLECTIONS["projects"] == "projects"
+        assert CANONICAL_COLLECTIONS["libraries"] == "libraries"
+        assert CANONICAL_COLLECTIONS["memory"] == "memory"
 
 
 class TestScopeValidation:

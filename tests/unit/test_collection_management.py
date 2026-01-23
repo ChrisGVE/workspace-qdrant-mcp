@@ -546,7 +546,7 @@ class TestEdgeCases:
     ):
         """Test collections with special prefixes."""
         special_names = [
-            "_memory",
+            "memory",
             "_library_fastapi",
             "_agent_memory"
         ]

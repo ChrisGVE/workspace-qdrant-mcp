@@ -1400,7 +1400,7 @@ class TestEdgeCases:
 
                 # MEMORY collection (special prefix)
                 memory_col = MagicMock()
-                memory_col.name = "_memory"
+                memory_col.name = "memory"
                 memory_col.points_count = 50
 
                 # Regular library

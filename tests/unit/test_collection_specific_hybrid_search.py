@@ -311,7 +311,7 @@ def memory_collection_results():
             payload={
                 "content": "User prefers pytest for testing",
                 "collection_type": "memory",
-                "collection_name": "_memory",
+                "collection_name": "memory",
                 "memory_type": "preference",
                 "category": "testing",
                 "importance": "high",
@@ -325,7 +325,7 @@ def memory_collection_results():
             payload={
                 "content": "Always use type hints in Python code",
                 "collection_type": "memory",
-                "collection_name": "_memory",
+                "collection_name": "memory",
                 "memory_type": "rule",
                 "category": "coding_style",
                 "importance": "high",
@@ -338,7 +338,7 @@ def memory_collection_results():
             payload={
                 "content": "User previously worked on authentication module",
                 "collection_type": "memory",
-                "collection_name": "_memory",
+                "collection_name": "memory",
                 "memory_type": "context",
                 "category": "work_history",
                 "importance": "medium",
@@ -719,7 +719,7 @@ class TestMemoryCollectionHybridSearch:
         mock_qdrant_client.search.return_value = memory_collection_results
 
         results = await hybrid_search_engine.hybrid_search(
-            collection_name="_memory",  # MEMORY collection name
+            collection_name="memory",  # MEMORY collection name
             query_embeddings=sample_query_embeddings,
             limit=10,
             fusion_method="rrf"
@@ -748,7 +748,7 @@ class TestMemoryCollectionHybridSearch:
         mock_qdrant_client.search.return_value = memory_collection_results
 
         results = await hybrid_search_engine.hybrid_search(
-            collection_name="_memory",
+            collection_name="memory",
             query_embeddings=sample_query_embeddings,
             limit=10,
             fusion_method="rrf"
@@ -779,7 +779,7 @@ class TestMemoryCollectionHybridSearch:
         mock_qdrant_client.search.return_value = memory_collection_results
 
         results = await hybrid_search_engine.hybrid_search(
-            collection_name="_memory",
+            collection_name="memory",
             query_embeddings=sample_query_embeddings,
             limit=10,
             fusion_method="max_score"
@@ -896,7 +896,7 @@ class TestCollectionFilteringWithVectorComponents:
         mock_qdrant_client.search.return_value = memory_collection_results
 
         results = await hybrid_search_engine.hybrid_search(
-            collection_name="_memory",
+            collection_name="memory",
             query_embeddings=sample_query_embeddings,
             limit=10,
             fusion_method="rrf"
@@ -1004,7 +1004,7 @@ class TestCrossCollectionIsolation:
         mock_qdrant_client.search.return_value = memory_collection_results
 
         results = await hybrid_search_engine.hybrid_search(
-            collection_name="_memory",
+            collection_name="memory",
             query_embeddings=sample_query_embeddings,
             limit=10,
             fusion_method="rrf"
@@ -1117,7 +1117,7 @@ class TestCollectionSpecificEdgeCases:
         mock_qdrant_client.search.return_value = []
 
         # Test each collection type
-        collection_names = ["myapp-notes", "_a1b2c3d4e5f6", "_httpx", "_memory"]
+        collection_names = ["myapp-notes", "_a1b2c3d4e5f6", "_httpx", "memory"]
 
         for collection_name in collection_names:
             results = await hybrid_search_engine.hybrid_search(
@@ -1217,7 +1217,7 @@ class TestMultiCollectionTypeScenarios:
             "myapp-notes": ("user", user_collection_results),
             "_a1b2c3d4e5f6": ("project", project_collection_results),
             "_httpx": ("library", library_collection_results),
-            "_memory": ("memory", memory_collection_results)
+            "memory": ("memory", memory_collection_results)
         }
 
         all_results = {}

@@ -235,7 +235,7 @@ def memory_collection_names() -> dict[str, str]:
         Dict mapping collection types to names
     """
     return {
-        "memory": "_memory",
+        "memory": "memory",
         "agent_memory": "_agent_memory",
         "user_preferences": "_user_preferences",
         "behavioral_rules": "_behavioral_rules",

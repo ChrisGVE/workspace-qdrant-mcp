@@ -166,7 +166,7 @@ class TestFixtures:
         assert isinstance(memory_collection_names, dict)
         assert "memory" in memory_collection_names
         assert "agent_memory" in memory_collection_names
-        assert memory_collection_names["memory"] == "_memory"
+        assert memory_collection_names["memory"] == "memory"
 
     def test_rule_conflict_pairs(self, rule_conflict_pairs):
         """Test rule conflict pairs fixture."""

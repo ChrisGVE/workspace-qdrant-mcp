@@ -34,7 +34,7 @@ async def mcp_client():
     mock_collection_1.points_count = 100
 
     mock_collection_2 = Mock()
-    mock_collection_2.name = "_memory"
+    mock_collection_2.name = "memory"
     mock_collection_2.points_count = 50
 
     mock_collections_response = Mock()
@@ -137,7 +137,7 @@ def mock_qdrant_collections():
             status="green",
         ),
         Mock(
-            name="_memory",
+            name="memory",
             points_count=50,
             segments_count=1,
             status="green",

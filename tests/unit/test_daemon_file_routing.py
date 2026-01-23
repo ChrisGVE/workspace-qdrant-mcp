@@ -148,13 +148,13 @@ class TestUnifiedCollectionNames:
     def test_projects_collection_name(self):
         """Test that project watches route to _projects collection."""
         # This is validated by the Rust daemon, but we test the convention
-        expected_collection = "_projects"
+        expected_collection = "projects"
         assert expected_collection.startswith("_")
 
     def test_libraries_collection_name(self):
         """Test that library watches route to _libraries collection."""
         # This is validated by the Rust daemon, but we test the convention
-        expected_collection = "_libraries"
+        expected_collection = "libraries"
         assert expected_collection.startswith("_")
 
 
