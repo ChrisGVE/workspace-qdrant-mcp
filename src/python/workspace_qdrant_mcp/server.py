@@ -142,7 +142,8 @@ if _detect_stdio_mode():
 # Import project detection and branch utilities after stdio setup
 from common.core.collection_aliases import AliasManager
 from common.core.collection_naming import build_project_collection_name
-from common.core.sqlite_state_manager import SQLiteStateManager
+from common.core.sqlite_state_manager import SQLiteStateManager, WatchFolderConfig
+from common.core.queue_client import QueueOperation
 from common.grpc.daemon_client import DaemonClient, DaemonConnectionError
 from common.observability.metrics import (
     track_tool, record_search_scope, record_search_results
@@ -1519,6 +1520,13 @@ async def manage(
     - "deactivate_project" -> deactivate current project session
     - "cleanup" -> remove empty collections and optimize
 
+    Watch Folder Management (Task 433):
+    - "add_watch" -> add folder to watch with transactional handshake
+        config: {path, patterns, ignore_patterns, recursive, debounce_seconds, watch_type, library_name}
+    - "list_watches" -> list all configured watch folders
+    - "remove_watch" -> remove a watch folder (config: {watch_id})
+    - "update_watch" -> update watch configuration (config: {watch_id, enabled, patterns, ...})
+
     Multi-Tenant Architecture (ADR-001):
     - init_project registers the current project's project_id in 'projects' collection
     - Canonical collections: projects, libraries, memory
@@ -1925,6 +1933,174 @@ async def manage(
                 "message": "Project deactivated. Use manage(action='activate_project') to activate a project."
             }
 
+        # ============================================================================
+        # WATCH FOLDER MANAGEMENT (Task 433: Queue/Watch Handshake)
+        # ============================================================================
+        elif action == "add_watch":
+            # Add a folder to watch with transactional handshake
+            # This creates both the watch config AND enqueues initial scan
+            if not config or "path" not in config:
+                return {"success": False, "error": "config.path required for add_watch action"}
+
+            folder_path = config["path"]
+            if not Path(folder_path).exists():
+                return {"success": False, "error": f"Path does not exist: {folder_path}"}
+            if not Path(folder_path).is_dir():
+                return {"success": False, "error": f"Path is not a directory: {folder_path}"}
+
+            # Generate watch_id if not provided
+            watch_id = config.get("watch_id") or f"watch-{uuid.uuid4().hex[:8]}"
+
+            # Determine watch type and target collection
+            watch_type = config.get("watch_type", "project")  # "project" or "library"
+            library_name = config.get("library_name")
+
+            if watch_type == "library" and not library_name:
+                return {"success": False, "error": "library_name required when watch_type='library'"}
+
+            # Default collection based on watch type
+            target_collection = config.get("collection")
+            if not target_collection:
+                target_collection = "_libraries" if watch_type == "library" else "_projects"
+
+            # Create watch folder config
+            watch_config = WatchFolderConfig(
+                watch_id=watch_id,
+                path=str(Path(folder_path).resolve()),
+                collection=target_collection,
+                patterns=config.get("patterns", ["*"]),
+                ignore_patterns=config.get("ignore_patterns", [".*", "__pycache__/*", "*.pyc"]),
+                auto_ingest=config.get("auto_ingest", True),
+                recursive=config.get("recursive", True),
+                recursive_depth=config.get("recursive_depth", 10),
+                debounce_seconds=config.get("debounce_seconds", 2.0),
+                enabled=True,
+                watch_type=watch_type,
+                library_name=library_name,
+            )
+
+            # TRANSACTIONAL HANDSHAKE (Task 433):
+            # 1. Save watch config to SQLite (daemon will detect via polling)
+            # 2. Enqueue scan_folder operation for initial file discovery
+            await state_manager.save_watch_folder_config(watch_id, watch_config)
+
+            # Enqueue scan_folder operation with the folder path
+            # The daemon will process this and discover all matching files
+            await state_manager.enqueue_ingestion(
+                content=f"scan:{folder_path}",
+                target_collection=target_collection,
+                source_type="scan_folder",
+                operation="create",  # Using 'create' since scan_folder isn't a valid operation
+                metadata={
+                    "watch_id": watch_id,
+                    "patterns": watch_config.patterns,
+                    "ignore_patterns": watch_config.ignore_patterns,
+                    "recursive": watch_config.recursive,
+                    "recursive_depth": watch_config.recursive_depth,
+                    "watch_type": watch_type,
+                    "library_name": library_name,
+                },
+                priority=7,  # High priority for initial scan
+            )
+
+            logger.info(f"Added watch folder: {watch_id} at {folder_path}")
+
+            return {
+                "success": True,
+                "action": action,
+                "watch_id": watch_id,
+                "path": str(Path(folder_path).resolve()),
+                "collection": target_collection,
+                "watch_type": watch_type,
+                "patterns": watch_config.patterns,
+                "message": f"Watch folder added. Daemon will scan and ingest matching files."
+            }
+
+        elif action == "list_watches":
+            # List all configured watch folders
+            watches = await state_manager.list_watch_folders()
+            return {
+                "success": True,
+                "action": action,
+                "watches": [
+                    {
+                        "watch_id": w.watch_id,
+                        "path": w.path,
+                        "collection": w.collection,
+                        "patterns": w.patterns,
+                        "enabled": w.enabled,
+                        "watch_type": w.watch_type,
+                        "library_name": w.library_name,
+                        "last_scan": w.last_scan.isoformat() if w.last_scan else None,
+                    }
+                    for w in watches
+                ],
+                "total_watches": len(watches)
+            }
+
+        elif action == "remove_watch":
+            # Remove a watch folder configuration
+            if not config or "watch_id" not in config:
+                return {"success": False, "error": "config.watch_id required for remove_watch action"}
+
+            watch_id = config["watch_id"]
+
+            # Get current config before removing (for response)
+            current = await state_manager.get_watch_folder_config(watch_id)
+            if not current:
+                return {"success": False, "error": f"Watch not found: {watch_id}"}
+
+            await state_manager.remove_watch_folder_config(watch_id)
+
+            logger.info(f"Removed watch folder: {watch_id}")
+
+            return {
+                "success": True,
+                "action": action,
+                "watch_id": watch_id,
+                "removed_path": current.path,
+                "message": "Watch folder removed. Daemon will stop watching on next poll."
+            }
+
+        elif action == "update_watch":
+            # Update a watch folder configuration (enable/disable, change patterns, etc.)
+            if not config or "watch_id" not in config:
+                return {"success": False, "error": "config.watch_id required for update_watch action"}
+
+            watch_id = config["watch_id"]
+
+            # Get current config
+            current = await state_manager.get_watch_folder_config(watch_id)
+            if not current:
+                return {"success": False, "error": f"Watch not found: {watch_id}"}
+
+            # Update fields that were provided
+            if "enabled" in config:
+                current.enabled = config["enabled"]
+            if "patterns" in config:
+                current.patterns = config["patterns"]
+            if "ignore_patterns" in config:
+                current.ignore_patterns = config["ignore_patterns"]
+            if "recursive" in config:
+                current.recursive = config["recursive"]
+            if "recursive_depth" in config:
+                current.recursive_depth = config["recursive_depth"]
+            if "debounce_seconds" in config:
+                current.debounce_seconds = config["debounce_seconds"]
+
+            await state_manager.save_watch_folder_config(watch_id, current)
+
+            logger.info(f"Updated watch folder: {watch_id}")
+
+            return {
+                "success": True,
+                "action": action,
+                "watch_id": watch_id,
+                "enabled": current.enabled,
+                "patterns": current.patterns,
+                "message": "Watch folder updated. Changes take effect on next daemon poll."
+            }
+
         else:
             return {
                 "success": False,
@@ -1932,7 +2108,8 @@ async def manage(
                 "available_actions": [
                     "list_collections", "create_collection", "delete_collection",
                     "collection_info", "workspace_status", "init_project",
-                    "activate_project", "deactivate_project", "cleanup"
+                    "activate_project", "deactivate_project", "cleanup",
+                    "add_watch", "list_watches", "remove_watch", "update_watch"
                 ]
             }
 

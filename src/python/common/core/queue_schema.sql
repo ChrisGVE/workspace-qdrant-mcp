@@ -117,7 +117,8 @@ CREATE TABLE IF NOT EXISTS ingestion_queue (
     branch TEXT DEFAULT 'main',
 
     -- Operation type with validation
-    operation TEXT NOT NULL CHECK (operation IN ('ingest', 'update', 'delete')),
+    -- scan_folder: Task 433 - queue/watch handshake for bulk folder scanning
+    operation TEXT NOT NULL CHECK (operation IN ('ingest', 'update', 'delete', 'scan_folder')),
 
     -- Priority-based processing (0=lowest, 10=highest)
     priority INTEGER NOT NULL DEFAULT 5 CHECK (priority BETWEEN 0 AND 10),

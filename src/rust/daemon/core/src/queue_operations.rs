@@ -118,6 +118,10 @@ pub enum QueueOperation {
     Ingest,
     Update,
     Delete,
+    /// Scan a folder for files to ingest (Task 433: queue/watch handshake)
+    /// When processed, the daemon discovers all matching files in the folder
+    /// and enqueues them with Ingest operations.
+    ScanFolder,
 }
 
 impl QueueOperation {
@@ -126,6 +130,7 @@ impl QueueOperation {
             QueueOperation::Ingest => "ingest",
             QueueOperation::Update => "update",
             QueueOperation::Delete => "delete",
+            QueueOperation::ScanFolder => "scan_folder",
         }
     }
 
@@ -134,6 +139,7 @@ impl QueueOperation {
             "ingest" => Ok(QueueOperation::Ingest),
             "update" => Ok(QueueOperation::Update),
             "delete" => Ok(QueueOperation::Delete),
+            "scan_folder" => Ok(QueueOperation::ScanFolder),
             _ => Err(QueueError::InvalidOperation(s.to_string())),
         }
     }
