@@ -849,14 +849,73 @@ impl FileWatcherQueue {
         }
     }
 
-    /// Calculate priority based on operation type
-    fn calculate_priority(operation: QueueOperation) -> i32 {
+    /// Calculate base priority based on operation type
+    ///
+    /// Returns base priority value. Task 436 adds active project priority boosting
+    /// which is applied separately in `calculate_final_priority`.
+    fn calculate_base_priority(operation: QueueOperation) -> i32 {
+        use crate::queue_priority;
         match operation {
-            QueueOperation::Delete => 8,      // High priority for deletions
-            QueueOperation::Update => 5,      // Normal priority for updates
-            QueueOperation::Ingest => 5,      // Normal priority for ingestion
-            QueueOperation::ScanFolder => 7,  // High priority for initial scans (Task 433)
+            QueueOperation::Delete => queue_priority::HIGH,       // 8 - High priority for deletions
+            QueueOperation::Update => queue_priority::NORMAL,     // 5 - Normal priority for updates
+            QueueOperation::Ingest => queue_priority::NORMAL,     // 5 - Normal priority for ingestion
+            QueueOperation::ScanFolder => queue_priority::HIGH_SCAN, // 7 - High priority for initial scans (Task 433)
         }
+    }
+
+    /// Calculate final priority considering active project status (Task 436)
+    ///
+    /// Boosts priority to HIGH if the project has active MCP sessions.
+    /// Takes the maximum of operation priority and project priority.
+    async fn calculate_final_priority(
+        operation: QueueOperation,
+        project_root: &Path,
+        pool: &Option<SqlitePool>,
+    ) -> i32 {
+        use crate::queue_priority;
+
+        let base_priority = Self::calculate_base_priority(operation);
+
+        // Check if project has active sessions (Task 436)
+        if let Some(db_pool) = pool {
+            let project_root_str = project_root.to_string_lossy();
+            let query = r#"
+                SELECT active_sessions
+                FROM projects
+                WHERE project_root = ?1
+            "#;
+
+            match sqlx::query(query)
+                .bind(project_root_str.as_ref())
+                .fetch_optional(db_pool)
+                .await
+            {
+                Ok(Some(row)) => {
+                    use sqlx::Row;
+                    if let Ok(active_sessions) = row.try_get::<i32, _>("active_sessions") {
+                        if active_sessions > 0 {
+                            let boosted = base_priority.max(queue_priority::HIGH);
+                            if boosted > base_priority {
+                                debug!(
+                                    "Task 436: Boosting priority {} -> {} for active project {}",
+                                    base_priority, boosted, project_root_str
+                                );
+                            }
+                            return boosted;
+                        }
+                    }
+                }
+                Ok(None) => {
+                    // Project not registered - use base priority
+                    debug!("Project {} not registered, using base priority", project_root_str);
+                }
+                Err(e) => {
+                    warn!("Failed to check project priority: {}, using base priority", e);
+                }
+            }
+        }
+
+        base_priority
     }
 
     /// Find project root by looking for .git directory
@@ -930,11 +989,11 @@ impl FileWatcherQueue {
         // Determine operation type
         let operation = Self::determine_operation_type(event.event_kind, &event.path);
 
-        // Calculate priority
-        let priority = Self::calculate_priority(operation);
-
-        // Find project root
+        // Find project root first (needed for priority calculation)
         let project_root = Self::find_project_root(&event.path);
+
+        // Calculate priority with active project boost (Task 436)
+        let priority = Self::calculate_final_priority(operation, &project_root, pool).await;
 
         // Get branch
         let branch = get_current_branch(&project_root);
@@ -2058,5 +2117,150 @@ mod tests {
         assert_eq!(collection, "_projects");
         // Tenant should be path-based hash since temp_dir is not a git repo
         assert!(tenant.starts_with("path_"));
+    }
+
+    #[test]
+    fn test_calculate_base_priority() {
+        // Task 436: Test base priority calculation
+        use crate::queue_priority;
+
+        // Delete operations should have highest priority
+        let delete_priority = FileWatcherQueue::calculate_base_priority(QueueOperation::Delete);
+        assert_eq!(delete_priority, queue_priority::HIGH);
+
+        // Scan folder operations should have high (but not highest) priority
+        let scan_priority = FileWatcherQueue::calculate_base_priority(QueueOperation::ScanFolder);
+        assert_eq!(scan_priority, queue_priority::HIGH_SCAN);
+
+        // Ingest and Update should have normal priority
+        let ingest_priority = FileWatcherQueue::calculate_base_priority(QueueOperation::Ingest);
+        assert_eq!(ingest_priority, queue_priority::NORMAL);
+
+        let update_priority = FileWatcherQueue::calculate_base_priority(QueueOperation::Update);
+        assert_eq!(update_priority, queue_priority::NORMAL);
+
+        // Verify ordering: DELETE > SCAN > INGEST/UPDATE
+        assert!(delete_priority > scan_priority);
+        assert!(scan_priority > ingest_priority);
+        assert_eq!(ingest_priority, update_priority);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_final_priority_without_pool() {
+        // Task 436: Test priority calculation without database pool
+        // Should return base priority when pool is None
+        use crate::queue_priority;
+
+        let temp_dir = tempdir().unwrap();
+        let project_root = temp_dir.path();
+
+        // Without a pool, should just return base priority
+        let priority = FileWatcherQueue::calculate_final_priority(
+            QueueOperation::Ingest,
+            project_root,
+            &None,
+        ).await;
+
+        assert_eq!(priority, queue_priority::NORMAL);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_final_priority_with_active_project() {
+        // Task 436: Test priority boost for active projects
+        use crate::queue_priority;
+
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_priority.db");
+
+        // Create test database with projects table
+        let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
+        let pool = sqlx::SqlitePool::connect(&db_url).await.unwrap();
+
+        // Create projects table
+        sqlx::query(r#"
+            CREATE TABLE IF NOT EXISTS projects (
+                project_id TEXT PRIMARY KEY,
+                project_name TEXT,
+                project_root TEXT NOT NULL UNIQUE,
+                priority TEXT DEFAULT 'normal',
+                active_sessions INTEGER DEFAULT 0,
+                last_active TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        "#)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert project with active session
+        let project_path = "/test/active_project";
+        sqlx::query("INSERT INTO projects (project_id, project_root, active_sessions, priority) VALUES (?, ?, ?, ?)")
+            .bind("abcd12345678")
+            .bind(project_path)
+            .bind(1)
+            .bind("high")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Test priority calculation for active project
+        let priority = FileWatcherQueue::calculate_final_priority(
+            QueueOperation::Ingest,
+            std::path::Path::new(project_path),
+            &Some(pool.clone()),
+        ).await;
+
+        // Should be boosted to HIGH
+        assert_eq!(priority, queue_priority::HIGH);
+    }
+
+    #[tokio::test]
+    async fn test_calculate_final_priority_with_inactive_project() {
+        // Task 436: Test normal priority for inactive projects
+        use crate::queue_priority;
+
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_priority_inactive.db");
+
+        // Create test database with projects table
+        let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
+        let pool = sqlx::SqlitePool::connect(&db_url).await.unwrap();
+
+        // Create projects table
+        sqlx::query(r#"
+            CREATE TABLE IF NOT EXISTS projects (
+                project_id TEXT PRIMARY KEY,
+                project_name TEXT,
+                project_root TEXT NOT NULL UNIQUE,
+                priority TEXT DEFAULT 'normal',
+                active_sessions INTEGER DEFAULT 0,
+                last_active TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        "#)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert project with no active sessions
+        let project_path = "/test/inactive_project";
+        sqlx::query("INSERT INTO projects (project_id, project_root, active_sessions, priority) VALUES (?, ?, ?, ?)")
+            .bind("efgh12345678")
+            .bind(project_path)
+            .bind(0)
+            .bind("normal")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Test priority calculation for inactive project
+        let priority = FileWatcherQueue::calculate_final_priority(
+            QueueOperation::Ingest,
+            std::path::Path::new(project_path),
+            &Some(pool.clone()),
+        ).await;
+
+        // Should remain at NORMAL
+        assert_eq!(priority, queue_priority::NORMAL);
     }
 }
