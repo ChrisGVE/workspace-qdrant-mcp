@@ -1613,6 +1613,22 @@ async def manage(
     - Libraries: "folder1.folder2.folder3" (e.g., "docs.api.reference")
     - Memory: "project_id" (no branch for memory)
 
+    Library Deletion Management (Task 432 - Additive Deletion Policy):
+    - "mark_library_deleted" -> mark a library file as deleted (vectors preserved in Qdrant)
+        config: {library_name, file_path, metadata}
+        File will be skipped during future ingestion runs.
+    - "re_ingest_deleted" -> clear deletion mark to allow re-ingestion
+        config: {library_name, file_path}
+    - "list_library_deletions" -> list deleted library files
+        config: {library_name, include_re_ingested}
+    - "check_library_deletion" -> check if a file is marked as deleted
+        config: {library_name, file_path}
+
+    Additive Deletion Policy:
+    - Deleted files are tracked but vectors remain in Qdrant
+    - Files marked as deleted are skipped during re-ingestion
+    - Use re_ingest_deleted to explicitly allow re-ingestion
+
     Multi-Tenant Architecture (ADR-001):
     - init_project registers the current project's project_id in 'projects' collection
     - Canonical collections: projects, libraries, memory
@@ -2250,6 +2266,97 @@ async def manage(
                 "count": len(watched_tags)
             }
 
+        elif action == "mark_library_deleted":
+            # Task 432: Mark a library file as deleted (additive deletion policy)
+            # Vectors remain in Qdrant but file won't be re-ingested
+            if not config or "library_name" not in config or "file_path" not in config:
+                return {"success": False, "error": "config.library_name and config.file_path required for mark_library_deleted action"}
+
+            library_name = config["library_name"]
+            file_path = config["file_path"]
+            metadata_info = config.get("metadata")
+
+            success = await state_manager.mark_library_deleted(
+                library_name=library_name,
+                file_path=file_path,
+                metadata=metadata_info,
+            )
+
+            return {
+                "success": success,
+                "action": action,
+                "library_name": library_name,
+                "file_path": file_path,
+                "message": f"Library file marked as deleted. Vectors preserved in Qdrant but file will be skipped during re-ingestion."
+                if success else "Failed to mark library file as deleted"
+            }
+
+        elif action == "re_ingest_deleted":
+            # Task 432: Clear deletion mark to allow re-ingestion
+            if not config or "library_name" not in config or "file_path" not in config:
+                return {"success": False, "error": "config.library_name and config.file_path required for re_ingest_deleted action"}
+
+            library_name = config["library_name"]
+            file_path = config["file_path"]
+
+            success = await state_manager.re_ingest_library_file(
+                library_name=library_name,
+                file_path=file_path,
+            )
+
+            return {
+                "success": success,
+                "action": action,
+                "library_name": library_name,
+                "file_path": file_path,
+                "message": "Library file cleared for re-ingestion."
+                if success else "File not found in deletion list or already cleared"
+            }
+
+        elif action == "list_library_deletions":
+            # Task 432: List deleted library files
+            library_name = config.get("library_name") if config else None
+            include_re_ingested = config.get("include_re_ingested", False) if config else False
+
+            deletions = await state_manager.list_library_deletions(
+                library_name=library_name,
+                include_re_ingested=include_re_ingested,
+            )
+
+            return {
+                "success": True,
+                "action": action,
+                "deletions": deletions,
+                "count": len(deletions),
+                "filters": {
+                    "library_name": library_name,
+                    "include_re_ingested": include_re_ingested,
+                }
+            }
+
+        elif action == "check_library_deletion":
+            # Task 432: Check if a specific file is marked as deleted
+            if not config or "library_name" not in config or "file_path" not in config:
+                return {"success": False, "error": "config.library_name and config.file_path required for check_library_deletion action"}
+
+            library_name = config["library_name"]
+            file_path = config["file_path"]
+
+            is_deleted = await state_manager.is_library_file_deleted(
+                library_name=library_name,
+                file_path=file_path,
+            )
+
+            return {
+                "success": True,
+                "action": action,
+                "library_name": library_name,
+                "file_path": file_path,
+                "is_deleted": is_deleted,
+                "message": "File is marked as deleted (will be skipped during ingestion)"
+                if is_deleted else "File is not marked as deleted (will be ingested normally)"
+            }
+
         else:
             return {
                 "success": False,
@@ -2259,7 +2366,8 @@ async def manage(
                     "collection_info", "workspace_status", "init_project",
                     "activate_project", "deactivate_project", "cleanup",
                     "add_watch", "list_watches", "remove_watch", "update_watch",
-                    "list_tags", "set_tag_watched", "get_watched_tags"
+                    "list_tags", "set_tag_watched", "get_watched_tags",
+                    "mark_library_deleted", "re_ingest_deleted", "list_library_deletions", "check_library_deletion"
                 ]
             }
 

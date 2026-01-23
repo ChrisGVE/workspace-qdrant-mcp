@@ -328,7 +328,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 9  # Added tag_index for dot-separated tag hierarchy (Task 431)
+    SCHEMA_VERSION = 10  # Added library_deletions for additive deletion (Task 432)
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -895,6 +895,25 @@ class SQLiteStateManager:
             "CREATE INDEX idx_tag_index_type ON tag_index(tag_type)",
             "CREATE INDEX idx_tag_index_parent ON tag_index(parent_tag)",
             "CREATE INDEX idx_tag_index_watched ON tag_index(watched) WHERE watched = 1",
+            # Library deletions table for additive deletion policy (Task 432, v10)
+            # Tracks deleted library files without removing vectors from Qdrant
+            # Prevents re-ingestion unless explicitly re-ingested
+            """
+            CREATE TABLE library_deletions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                library_name TEXT NOT NULL,
+                file_path TEXT NOT NULL,
+                deleted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                re_ingested BOOLEAN NOT NULL DEFAULT 0,
+                re_ingested_at TIMESTAMP,
+                metadata TEXT,
+                UNIQUE(library_name, file_path)
+            )
+            """,
+            # Indexes for library_deletions
+            "CREATE INDEX idx_library_deletions_library ON library_deletions(library_name)",
+            "CREATE INDEX idx_library_deletions_path ON library_deletions(file_path)",
+            "CREATE INDEX idx_library_deletions_active ON library_deletions(re_ingested) WHERE re_ingested = 0",
             # Insert initial schema version
             f"INSERT INTO schema_version (version) VALUES ({self.SCHEMA_VERSION})",
         ]
@@ -1246,6 +1265,36 @@ class SQLiteStateManager:
                     conn.execute(sql)
 
                 logger.info("Successfully migrated to schema version 9 (tag_index table)")
+
+            # Migrate from version 9 to version 10 - Add library_deletions for additive deletion (Task 432)
+            if from_version <= 9 and to_version >= 10:
+                logger.info("Applying migration: v9 -> v10 (library_deletions table)")
+                library_deletions_sql = [
+                    # Library deletions table for additive deletion policy
+                    # Tracks deleted library files without removing vectors from Qdrant
+                    # Prevents re-ingestion unless explicitly re-ingested
+                    """
+                    CREATE TABLE IF NOT EXISTS library_deletions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        library_name TEXT NOT NULL,
+                        file_path TEXT NOT NULL,
+                        deleted_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        re_ingested BOOLEAN NOT NULL DEFAULT 0,
+                        re_ingested_at TIMESTAMP,
+                        metadata TEXT,
+                        UNIQUE(library_name, file_path)
+                    )
+                    """,
+                    # Indexes for library_deletions queries
+                    "CREATE INDEX IF NOT EXISTS idx_library_deletions_library ON library_deletions(library_name)",
+                    "CREATE INDEX IF NOT EXISTS idx_library_deletions_path ON library_deletions(file_path)",
+                    "CREATE INDEX IF NOT EXISTS idx_library_deletions_active ON library_deletions(re_ingested) WHERE re_ingested = 0",
+                ]
+
+                for sql in library_deletions_sql:
+                    conn.execute(sql)
+
+                logger.info("Successfully migrated to schema version 10 (library_deletions table)")
 
             # Record the migration
             conn.execute(
@@ -3896,3 +3945,286 @@ class SQLiteStateManager:
             logger.error(f"Failed to delete tag {tag_value}: {e}")
             return False
 
+    # =========================================================================
+    # Library Deletion Tracking (Task 432)
+    # =========================================================================
+    # Implements additive deletion policy for libraries:
+    # - Deleted files are tracked but vectors remain in Qdrant
+    # - Files marked as deleted are skipped during re-ingestion
+    # - Explicit re-ingestion clears the deletion mark
+    # =========================================================================
+
+    async def mark_library_deleted(
+        self,
+        library_name: str,
+        file_path: str,
+        metadata: dict | None = None,
+    ) -> bool:
+        """
+        Mark a library file as deleted (additive deletion policy).
+
+        The file's vectors remain in Qdrant but the file will be skipped
+        during subsequent ingestion attempts. This implements the "additive"
+        deletion policy where content is preserved but not re-ingested.
+
+        Args:
+            library_name: Name of the library
+            file_path: Path to the file within the library
+            metadata: Optional metadata about the deletion
+
+        Returns:
+            True if marked as deleted, False otherwise
+
+        Note:
+            If the file was previously marked for deletion and re-ingested,
+            this will reset it to deleted status.
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            import json
+            metadata_json = json.dumps(metadata) if metadata else None
+
+            async with self.transaction() as conn:
+                # Use INSERT OR REPLACE to handle both new and existing entries
+                conn.execute(
+                    """
+                    INSERT INTO library_deletions (library_name, file_path, deleted_at, re_ingested, metadata)
+                    VALUES (?, ?, CURRENT_TIMESTAMP, 0, ?)
+                    ON CONFLICT(library_name, file_path) DO UPDATE SET
+                        deleted_at = CURRENT_TIMESTAMP,
+                        re_ingested = 0,
+                        re_ingested_at = NULL,
+                        metadata = COALESCE(excluded.metadata, metadata)
+                    """,
+                    (library_name, file_path, metadata_json),
+                )
+
+            logger.info(f"Marked library file as deleted: {library_name}/{file_path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to mark library file as deleted: {e}")
+            return False
+
+    async def is_library_file_deleted(
+        self,
+        library_name: str,
+        file_path: str,
+    ) -> bool:
+        """
+        Check if a library file is marked as deleted (and not re-ingested).
+
+        Args:
+            library_name: Name of the library
+            file_path: Path to the file within the library
+
+        Returns:
+            True if the file is marked as deleted and not re-ingested, False otherwise
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    SELECT 1 FROM library_deletions
+                    WHERE library_name = ? AND file_path = ? AND re_ingested = 0
+                    """,
+                    (library_name, file_path),
+                )
+                return cursor.fetchone() is not None
+
+        except Exception as e:
+            logger.error(f"Failed to check library deletion status: {e}")
+            return False
+
+    async def re_ingest_library_file(
+        self,
+        library_name: str,
+        file_path: str,
+    ) -> bool:
+        """
+        Mark a deleted library file as re-ingested.
+
+        This clears the deletion mark, allowing the file to be ingested
+        again during future ingestion runs.
+
+        Args:
+            library_name: Name of the library
+            file_path: Path to the file within the library
+
+        Returns:
+            True if the file was found and marked for re-ingestion, False otherwise
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE library_deletions
+                    SET re_ingested = 1, re_ingested_at = CURRENT_TIMESTAMP
+                    WHERE library_name = ? AND file_path = ? AND re_ingested = 0
+                    """,
+                    (library_name, file_path),
+                )
+                updated = cursor.rowcount > 0
+
+                if updated:
+                    logger.info(f"Marked library file for re-ingestion: {library_name}/{file_path}")
+                else:
+                    logger.debug(f"File not found in deletion list or already re-ingested: {library_name}/{file_path}")
+
+                return updated
+
+        except Exception as e:
+            logger.error(f"Failed to mark library file for re-ingestion: {e}")
+            return False
+
+    async def list_library_deletions(
+        self,
+        library_name: str | None = None,
+        include_re_ingested: bool = False,
+    ) -> list[dict]:
+        """
+        List deleted library files.
+
+        Args:
+            library_name: Optional filter by library name
+            include_re_ingested: If True, include files that were re-ingested
+
+        Returns:
+            List of deletion records with keys:
+            - library_name, file_path, deleted_at, re_ingested, re_ingested_at, metadata
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            conditions = []
+            params = []
+
+            if library_name:
+                conditions.append("library_name = ?")
+                params.append(library_name)
+
+            if not include_re_ingested:
+                conditions.append("re_ingested = 0")
+
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    f"""
+                    SELECT
+                        id, library_name, file_path, deleted_at,
+                        re_ingested, re_ingested_at, metadata
+                    FROM library_deletions
+                    WHERE {where_clause}
+                    ORDER BY deleted_at DESC
+                    """,
+                    params,
+                )
+
+                results = []
+                for row in cursor.fetchall():
+                    import json
+                    results.append({
+                        "id": row[0],
+                        "library_name": row[1],
+                        "file_path": row[2],
+                        "deleted_at": row[3],
+                        "re_ingested": bool(row[4]),
+                        "re_ingested_at": row[5],
+                        "metadata": json.loads(row[6]) if row[6] else None,
+                    })
+
+                return results
+
+        except Exception as e:
+            logger.error(f"Failed to list library deletions: {e}")
+            return []
+
+    async def clear_library_deletion(
+        self,
+        library_name: str,
+        file_path: str,
+    ) -> bool:
+        """
+        Remove a file from the deletion tracking table entirely.
+
+        Unlike re_ingest_library_file(), this completely removes the record
+        rather than marking it as re-ingested.
+
+        Args:
+            library_name: Name of the library
+            file_path: Path to the file within the library
+
+        Returns:
+            True if the record was removed, False otherwise
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM library_deletions WHERE library_name = ? AND file_path = ?",
+                    (library_name, file_path),
+                )
+                deleted = cursor.rowcount > 0
+
+                if deleted:
+                    logger.debug(f"Cleared library deletion record: {library_name}/{file_path}")
+
+                return deleted
+
+        except Exception as e:
+            logger.error(f"Failed to clear library deletion: {e}")
+            return False
+
+    async def get_library_deletion_count(
+        self,
+        library_name: str | None = None,
+        include_re_ingested: bool = False,
+    ) -> int:
+        """
+        Get count of deleted library files.
+
+        Args:
+            library_name: Optional filter by library name
+            include_re_ingested: If True, include files that were re-ingested
+
+        Returns:
+            Count of matching deletion records
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            conditions = []
+            params = []
+
+            if library_name:
+                conditions.append("library_name = ?")
+                params.append(library_name)
+
+            if not include_re_ingested:
+                conditions.append("re_ingested = 0")
+
+            where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    f"SELECT COUNT(*) FROM library_deletions WHERE {where_clause}",
+                    params,
+                )
+                return cursor.fetchone()[0]
+
+        except Exception as e:
+            logger.error(f"Failed to get library deletion count: {e}")
+            return 0
