@@ -18,14 +18,15 @@ Key Features:
     - Comprehensive scratchbook for cross-project note management
     - Production-ready async architecture with comprehensive error handling
 
-Architecture (Task 396/397 Multi-Tenant):
-    - Unified projects collection: _projects (ALL projects in one collection)
-    - Unified libraries collection: _libraries (ALL libraries in one collection)
+Architecture (ADR-001 Canonical Collections):
+    - Canonical projects collection: projects (ALL projects in one collection)
+    - Canonical libraries collection: libraries (ALL libraries in one collection)
+    - Canonical memory collection: memory (LLM rules and preferences)
     - Tenant isolation via tenant_id payload filtering (indexed for O(1) lookup)
     - Branch-scoped queries: All queries filter by Git branch (default: current branch)
     - File type differentiation via metadata: code, test, docs, config, data, build, other
     - User collections: {basename}-{type} for user notes (auto-enriched with project_id)
-    - Memory collections: _memory, _agent_memory (meta-level data, direct writes allowed)
+    - NO underscore prefix on canonical collection names per ADR-001
 
 Tools:
     1. store - Store any content (documents, notes, code, web content)
@@ -34,7 +35,7 @@ Tools:
     4. retrieve - Direct document retrieval by ID or metadata with branch filtering
 
 Example Usage:
-    # Store different content types (all go to _projects collection with tenant_id)
+    # Store different content types (all go to 'projects' collection with tenant_id)
     store(content="user notes", source="scratchbook")  # metadata: file_type="other"
     store(file_path="main.py", content="code")         # metadata: file_type="code"
     store(url="https://docs.com", content="docs")      # metadata: file_type="docs"
@@ -48,21 +49,21 @@ Example Usage:
     # Management operations
     manage(action="list_collections")                  # List all collections
     manage(action="workspace_status")                  # System status
-    manage(action="init_project")                      # Register project in _projects
+    manage(action="init_project")                      # Register project in 'projects'
 
     # Direct retrieval with branch filtering
     retrieve(document_id="uuid-123")                              # Current branch
     retrieve(metadata={"file_type": "test"}, branch="develop")    # develop branch, tests
     retrieve(scope="all")                                         # All collections
 
-Write Path Architecture (First Principle 10):
+Write Path Architecture (First Principle 10, ADR-001):
     DAEMON-ONLY WRITES: All Qdrant write operations MUST route through the daemon
 
-    Collection Types:
-        - PROJECT: _projects - Unified collection, tenant isolation via tenant_id filter
-        - LIBRARY: _libraries - Unified collection, isolation via library_name filter
+    Collection Types (ADR-001 Canonical Names - NO underscore prefix):
+        - PROJECT: projects - Canonical collection, tenant isolation via tenant_id filter
+        - LIBRARY: libraries - Canonical collection, isolation via library_name filter
         - USER: {basename}-{type} - User collections, enriched with project_id
-        - MEMORY: _memory, _agent_memory - EXCEPTION: Direct writes allowed (meta-level data)
+        - MEMORY: memory - EXCEPTION: Direct writes allowed (meta-level data)
 
     Write Priority:
         1. PRIMARY: DaemonClient.ingest_text() / create_collection_v2() / delete_collection_v2()
@@ -430,20 +431,63 @@ BASENAME_MAP = {
     "project": "code",      # PROJECT collections: _{project_id}
     "user": "notes",        # USER collections: {basename}-{type}
     "library": "lib",       # LIBRARY collections: _{library_name}
-    "memory": "memory",     # MEMORY collections: _memory, _agent_memory
+    "memory": "memory",     # MEMORY collections: memory (canonical per ADR-001)
 }
 
-# Unified multi-tenant collection names (Task 394/396)
+# Canonical collection names per ADR-001
 # These collections store data from all projects/libraries with tenant_id filtering
-UNIFIED_COLLECTIONS = {
-    "projects": "_projects",    # All project code/documents
-    "libraries": "_libraries",  # All library documentation
-    "memory": "_memory",        # Agent memory and cross-project notes
+# NO underscore prefix - canonical names only
+CANONICAL_COLLECTIONS = {
+    "projects": "projects",    # All project code/documents
+    "libraries": "libraries",  # All library documentation
+    "memory": "memory",        # Agent memory and rules
 }
+
+# Deprecated patterns - will be rejected with helpful error messages
+DEPRECATED_COLLECTION_PATTERNS = [
+    "_projects", "_libraries", "_memory", "_agent_memory"
+]
+
+
+def validate_collection_name(name: str) -> tuple[bool, str | None]:
+    """Validate collection name is canonical (not deprecated) per ADR-001.
+
+    Args:
+        name: Collection name to validate
+
+    Returns:
+        Tuple of (is_valid, error_message). error_message is None if valid.
+    """
+    if name in DEPRECATED_COLLECTION_PATTERNS:
+        canonical = name.lstrip("_").replace("agent_", "")
+        return False, f"Collection '{name}' is deprecated per ADR-001. Use '{canonical}' instead."
+    if name.startswith("__"):
+        return False, f"Double-underscore prefix is deprecated per ADR-001: {name}"
+    return True, None
+
+
+def get_canonical_collection(collection_type: str) -> str:
+    """Get canonical collection name for a type per ADR-001.
+
+    Args:
+        collection_type: One of "projects", "libraries", "memory"
+
+    Returns:
+        Canonical collection name
+
+    Raises:
+        ValueError: If collection_type is unknown
+    """
+    if collection_type not in CANONICAL_COLLECTIONS:
+        raise ValueError(f"Unknown collection type: {collection_type}. "
+                        f"Valid types: {list(CANONICAL_COLLECTIONS.keys())}")
+    return CANONICAL_COLLECTIONS[collection_type]
 
 
 def get_collection_type(collection_name: str) -> str:
-    """Determine collection type from collection name.
+    """Determine collection type from collection name per ADR-001.
+
+    Supports both canonical names (preferred) and deprecated patterns (for migration).
 
     Args:
         collection_name: Collection name to analyze
@@ -451,14 +495,21 @@ def get_collection_type(collection_name: str) -> str:
     Returns:
         One of: "project", "user", "library", "memory"
     """
+    # Canonical collection names (ADR-001)
+    if collection_name == "memory":
+        return "memory"
+    if collection_name == "projects":
+        return "project"
+    if collection_name == "libraries":
+        return "library"
+
+    # Deprecated patterns (logged as warnings, still supported for migration)
     if collection_name in ("_memory", "_agent_memory"):
         return "memory"
     elif collection_name.startswith("_"):
         # Could be project or library - check for library patterns
         # Libraries typically have recognizable names (e.g., _numpy, _pandas)
         # Projects are hex hashes (e.g., _a1b2c3d4e5f6)
-        # For now, assume underscore-prefixed is project unless it's a known library pattern
-        # This can be refined based on actual usage patterns
         if len(collection_name) == 13:  # _{12-char-hash}
             return "project"
         else:
@@ -871,7 +922,7 @@ async def store(
         target_collection = collection
     else:
         # Default: use unified _projects collection (Task 397)
-        target_collection = UNIFIED_COLLECTIONS["projects"]
+        target_collection = CANONICAL_COLLECTIONS["projects"]
 
     # Detect file_type from file_path if not explicitly provided
     if not file_type and file_path:
@@ -1143,20 +1194,20 @@ async def search(
         # Use unified collections based on scope
         if scope == "project":
             # Search only current project in unified collection
-            search_collections = [UNIFIED_COLLECTIONS["projects"]]
+            search_collections = [CANONICAL_COLLECTIONS["projects"]]
             project_filter_id = current_project_id
         elif scope == "global":
             # Search all projects (no project_id filter)
-            search_collections = [UNIFIED_COLLECTIONS["projects"]]
+            search_collections = [CANONICAL_COLLECTIONS["projects"]]
             project_filter_id = None
         else:  # scope == "all"
             # Search both projects and libraries
-            search_collections = [UNIFIED_COLLECTIONS["projects"], UNIFIED_COLLECTIONS["libraries"]]
+            search_collections = [CANONICAL_COLLECTIONS["projects"], CANONICAL_COLLECTIONS["libraries"]]
             project_filter_id = None
 
         # Add libraries collection if requested
-        if include_libraries and UNIFIED_COLLECTIONS["libraries"] not in search_collections:
-            search_collections.append(UNIFIED_COLLECTIONS["libraries"])
+        if include_libraries and CANONICAL_COLLECTIONS["libraries"] not in search_collections:
+            search_collections.append(CANONICAL_COLLECTIONS["libraries"])
 
     # Build metadata filters with branch, file_type, and project_id
     search_filter = build_metadata_filters(
@@ -1252,7 +1303,7 @@ async def search(
         search_tasks = []
         for coll in search_collections:
             # Use library_filter for libraries collection, search_filter for others
-            if coll == UNIFIED_COLLECTIONS["libraries"]:
+            if coll == CANONICAL_COLLECTIONS["libraries"]:
                 search_tasks.append(search_single_collection(coll, library_filter))
             else:
                 search_tasks.append(search_single_collection(coll, search_filter))
@@ -1721,15 +1772,15 @@ async def retrieve(
             # Use unified collections based on scope
             if scope == "project":
                 # Retrieve from projects with project_id filter
-                retrieve_collections = [UNIFIED_COLLECTIONS["projects"]]
+                retrieve_collections = [CANONICAL_COLLECTIONS["projects"]]
                 project_filter_id = current_project_id
             elif scope == "global":
                 # Retrieve from all projects (no project_id filter)
-                retrieve_collections = [UNIFIED_COLLECTIONS["projects"]]
+                retrieve_collections = [CANONICAL_COLLECTIONS["projects"]]
                 project_filter_id = None
             else:  # scope == "all"
                 # Retrieve from projects + libraries
-                retrieve_collections = [UNIFIED_COLLECTIONS["projects"], UNIFIED_COLLECTIONS["libraries"]]
+                retrieve_collections = [CANONICAL_COLLECTIONS["projects"], CANONICAL_COLLECTIONS["libraries"]]
                 project_filter_id = None
 
         if document_id:
@@ -1794,7 +1845,7 @@ async def retrieve(
             for search_collection in retrieve_collections:
                 # Build filter conditions including branch, file_type, and project_id
                 # Use project_id for projects collection, but not for libraries
-                collection_project_id = project_filter_id if search_collection == UNIFIED_COLLECTIONS["projects"] else None
+                collection_project_id = project_filter_id if search_collection == CANONICAL_COLLECTIONS["projects"] else None
 
                 search_filter = build_metadata_filters(
                     filters=metadata,
