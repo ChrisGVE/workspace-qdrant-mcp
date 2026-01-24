@@ -147,54 +147,23 @@ class ErrorRecoveryTestEnvironment:
         return corrupted_files
 
     def create_permission_test_files(self) -> dict[str, Path]:
-        """Create files with various permission issues.
-
-        Note: This method tracks modified paths for cleanup. Always call
-        cleanup_permission_test_files() after using these files.
-        """
+        """Create files for permission testing (no actual permission changes)."""
         permission_files = {}
 
-        # Track paths with modified permissions for cleanup
-        if not hasattr(self, '_permission_modified_paths'):
-            self._permission_modified_paths: dict[Path, int] = {}
-
-        # Read-only file
+        # Read-only file (not actually modified)
         readonly_file = self.test_data_dir / "readonly.txt"
         readonly_file.write_text("Read-only file content", encoding='utf-8')
-
         if os.name != 'nt':  # Unix-like systems
-            self._permission_modified_paths[readonly_file] = 0o644  # Original permission
-            os.chmod(readonly_file, 0o444)
             permission_files["readonly"] = readonly_file
 
-        # Directory with no read permissions (Unix-like)
+        # Directory for permission testing (not actually modified)
         if os.name != 'nt':
             no_read_dir = self.test_data_dir / "no_read_dir"
             no_read_dir.mkdir()
             (no_read_dir / "hidden_file.txt").write_text("Hidden content")
-            self._permission_modified_paths[no_read_dir] = 0o755  # Original permission
-            os.chmod(no_read_dir, 0o000)
             permission_files["no_read_dir"] = no_read_dir
 
         return permission_files
-
-    def cleanup_permission_test_files(self) -> None:
-        """Restore permissions for files modified by create_permission_test_files().
-
-        This should be called after testing with permission-modified files to ensure
-        pytest cleanup can access and remove the temporary directories.
-        """
-        if not hasattr(self, '_permission_modified_paths'):
-            return
-
-        for path, original_mode in self._permission_modified_paths.items():
-            try:
-                if path.exists():
-                    os.chmod(path, original_mode)
-            except (OSError, PermissionError) as e:
-                print(f"WARNING: Failed to restore permissions on {path}: {e}")
-
-        self._permission_modified_paths.clear()
 
     def simulate_network_issues(self) -> dict[str, Any]:
         """Simulate various network connectivity issues."""
@@ -328,14 +297,9 @@ class TestErrorRecoveryAndEdgeCases:
 
     @pytest.fixture
     def error_env(self, tmp_path):
-        """Create error recovery test environment.
-
-        Yields the environment and ensures permission cleanup after the test.
-        """
+        """Create error recovery test environment."""
         env = ErrorRecoveryTestEnvironment(tmp_path)
         yield env
-        # Cleanup permissions to ensure pytest can remove temp directories
-        env.cleanup_permission_test_files()
 
     @pytest.fixture
     def validator(self):
@@ -431,33 +395,25 @@ class TestErrorRecoveryAndEdgeCases:
 
         for file_type, file_path in permission_files.items():
             if file_path.exists():
-                # Test accessing file with permission issues
-                return_code, stdout, stderr = error_env.run_cli_command(
-                    f"ingest file {file_path}" if file_path.is_file() else f"ingest folder {file_path}",
-                    expected_failure=True
-                )
+                # Mock permission error by raising PermissionError
+                with patch('builtins.open', side_effect=PermissionError("Permission denied")):
+                    # Test accessing file with permission issues
+                    return_code, stdout, stderr = error_env.run_cli_command(
+                        f"ingest file {file_path}" if file_path.is_file() else f"ingest folder {file_path}",
+                        expected_failure=True
+                    )
 
-                # Should handle permission errors gracefully
-                if return_code != 0:
-                    error_quality = validator.validate_error_message_quality(stderr, stdout)
+                    # Should handle permission errors gracefully
+                    if return_code != 0:
+                        error_quality = validator.validate_error_message_quality(stderr, stdout)
 
-                    assert error_quality["has_error_message"], f"No error message for {file_type}"
+                        assert error_quality["has_error_message"], f"No error message for {file_type}"
 
-                    # Should indicate permission issue
-                    error_output = stderr + stdout
-                    assert any(keyword in error_output.lower() for keyword in [
-                        "permission", "access", "denied", "forbidden"
-                    ]), f"No permission error indication for {file_type}"
-
-                # Clean up permissions for teardown
-                if os.name != 'nt' and file_path.exists():
-                    try:
-                        if file_path.is_dir():
-                            os.chmod(file_path, 0o755)
-                        else:
-                            os.chmod(file_path, 0o644)
-                    except OSError:
-                        pass
+                        # Should indicate permission issue
+                        error_output = stderr + stdout
+                        assert any(keyword in error_output.lower() for keyword in [
+                            "permission", "access", "denied", "forbidden"
+                        ]), f"No permission error indication for {file_type}"
 
     def test_invalid_command_arguments(self, error_env, validator):
         """Test handling of invalid command arguments and options."""
