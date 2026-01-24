@@ -251,6 +251,61 @@ def sync_watched_folders(
     handle_async(_sync_watched_folders(path, dry_run, force))
 
 
+@watch_app.command("health")
+def watch_health(
+    status: str | None = typer.Option(
+        None,
+        "--status",
+        "-s",
+        help="Filter by health status: healthy, degraded, backoff, disabled",
+    ),
+    collection: str | None = typer.Option(
+        None, "--collection", "-c", help="Filter by collection"
+    ),
+    format: str = typer.Option(
+        "table", "--format", "-f", help="Output format: table, json"
+    ),
+):
+    """Show health status and error statistics for all watches.
+
+    Examples:
+        wqm watch health                    # Show all watches health
+        wqm watch health --status=failing   # Show only failing watches
+        wqm watch health --collection=_docs # Show health for collection
+    """
+    handle_async(_watch_health(status, collection, format))
+
+
+@watch_app.command("errors")
+def watch_errors(
+    watch_id: str = typer.Argument(..., help="Watch ID or path to show errors for"),
+):
+    """Show detailed error information for a specific watch.
+
+    Examples:
+        wqm watch errors watch_abc123
+        wqm watch errors ~/docs
+    """
+    handle_async(_watch_errors(watch_id))
+
+
+@watch_app.command("reset-errors")
+def reset_watch_errors(
+    watch_id: str = typer.Argument(..., help="Watch ID or path to reset errors for"),
+    force: bool = typer.Option(False, "--force", "-f", help="Skip confirmation"),
+):
+    """Clear error state and reset health status for a watch.
+
+    This resets consecutive_errors to 0, clears backoff_until,
+    and sets health_status back to 'healthy'.
+
+    Examples:
+        wqm watch reset-errors watch_abc123
+        wqm watch reset-errors ~/docs --force
+    """
+    handle_async(_reset_watch_errors(watch_id, force))
+
+
 # Async implementation functions
 async def _configure_watch(
     watch_id: str,
@@ -1079,4 +1134,300 @@ async def _sync_watched_folders(path: str | None, dry_run: bool, force: bool):
 
     except Exception as e:
         print(f"Error: Failed to sync watches: {e}")
+        raise typer.Exit(1)
+
+
+async def _watch_health(status: str | None, collection: str | None, format: str):
+    """Show health status and error statistics for all watches (Task 461.14)."""
+    try:
+        state_manager = await _get_state_manager()
+
+        try:
+            # Get watches based on status filter
+            if status:
+                # Normalize status
+                status_map = {
+                    "failing": "backoff",
+                    "failed": "backoff",
+                    "error": "degraded",
+                }
+                normalized_status = status_map.get(status.lower(), status.lower())
+
+                if normalized_status not in ("healthy", "degraded", "backoff", "disabled"):
+                    error_panel(f"Invalid status filter: {status}")
+                    simple_info("Valid values: healthy, degraded, backoff, disabled (or: failing, failed, error)")
+                    raise typer.Exit(1)
+
+                all_watches = await state_manager.get_watch_folders_by_health_status(normalized_status)
+            else:
+                all_watches = await state_manager.get_all_watch_folder_configs(enabled_only=False)
+
+            # Filter by collection if specified
+            if collection:
+                all_watches = [w for w in all_watches if w.collection == collection]
+
+            if format == "json":
+                # JSON output
+                output = []
+                for watch in all_watches:
+                    watch_dict = {
+                        "watch_id": watch.watch_id,
+                        "path": watch.path,
+                        "collection": watch.collection,
+                        "enabled": watch.enabled,
+                        "health_status": watch.health_status,
+                        "consecutive_errors": watch.consecutive_errors,
+                        "total_errors": watch.total_errors,
+                        "last_error_at": watch.last_error_at.isoformat() if watch.last_error_at else None,
+                        "last_error_message": watch.last_error_message,
+                        "backoff_until": watch.backoff_until.isoformat() if watch.backoff_until else None,
+                        "last_success_at": watch.last_success_at.isoformat() if watch.last_success_at else None,
+                    }
+                    output.append(watch_dict)
+                print(json.dumps(output, indent=2))
+                return
+
+            # Table output
+            if not all_watches:
+                if status:
+                    simple_info(f"No watches found with status: {status}")
+                else:
+                    simple_info("No watches found")
+                return
+
+            # Health status summary
+            health_counts = {"healthy": 0, "degraded": 0, "backoff": 0, "disabled": 0}
+            for watch in all_watches:
+                health_counts[watch.health_status] = health_counts.get(watch.health_status, 0) + 1
+
+            summary_text = f"Watch Health Summary ({len(all_watches)} total)\n"
+            summary_text += f"  Healthy: {health_counts['healthy']}\n"
+            summary_text += f"  Degraded: {health_counts['degraded']}\n"
+            summary_text += f"  Backoff: {health_counts['backoff']}\n"
+            summary_text += f"  Disabled: {health_counts['disabled']}"
+
+            info_panel(summary_text, "Health Overview")
+
+            # Create Rich table
+            table = create_data_table(
+                "Watch Health Status",
+                ["ID", "Path", "Health", "Errors", "Last Error", "Backoff Until"]
+            )
+
+            for watch in all_watches:
+                # Format watch ID
+                watch_id = str(watch.watch_id)
+                if len(watch_id) > 12:
+                    watch_id = watch_id[:12] + "..."
+
+                # Format path
+                path = str(watch.path)
+                if len(path) > 25:
+                    path = "..." + path[-22:]
+
+                # Format health status with color indicator
+                health = watch.health_status.upper()
+
+                # Format errors
+                errors = f"{watch.consecutive_errors}/{watch.total_errors}"
+
+                # Format last error time
+                if watch.last_error_at:
+                    last_error = watch.last_error_at.strftime("%Y-%m-%d %H:%M")
+                else:
+                    last_error = "-"
+
+                # Format backoff until
+                if watch.backoff_until:
+                    now = datetime.now(timezone.utc)
+                    if watch.backoff_until > now:
+                        remaining = watch.backoff_until - now
+                        if remaining.total_seconds() > 3600:
+                            backoff = f"{int(remaining.total_seconds() // 3600)}h"
+                        elif remaining.total_seconds() > 60:
+                            backoff = f"{int(remaining.total_seconds() // 60)}m"
+                        else:
+                            backoff = f"{int(remaining.total_seconds())}s"
+                    else:
+                        backoff = "expired"
+                else:
+                    backoff = "-"
+
+                table.add_row(
+                    watch_id,
+                    path,
+                    health,
+                    errors,
+                    last_error,
+                    backoff
+                )
+
+            display_table_or_empty(table, "No watches found.")
+
+            # Show tips for unhealthy watches
+            if health_counts["backoff"] > 0 or health_counts["disabled"] > 0:
+                simple_info("View detailed errors: wqm watch errors <watch_id>")
+                simple_info("Reset error state: wqm watch reset-errors <watch_id>")
+
+        finally:
+            await state_manager.close()
+
+    except Exception as e:
+        error_panel(f"Failed to get watch health: {e}")
+        raise typer.Exit(1)
+
+
+async def _watch_errors(watch_id: str):
+    """Show detailed error information for a specific watch (Task 461.14)."""
+    try:
+        state_manager = await _get_state_manager()
+
+        try:
+            # Find the watch by ID or path
+            all_watches = await state_manager.get_all_watch_folder_configs(enabled_only=False)
+
+            target_watch = None
+            for watch in all_watches:
+                if watch.watch_id == watch_id or Path(watch.path) == Path(watch_id).resolve():
+                    target_watch = watch
+                    break
+
+            if not target_watch:
+                error_panel(f"No watch found with ID or path: {watch_id}")
+                raise typer.Exit(1)
+
+            # Display watch error details
+            info_text = f"Watch ID: {target_watch.watch_id}\n"
+            info_text += f"Path: {target_watch.path}\n"
+            info_text += f"Collection: {target_watch.collection}"
+            info_panel(info_text, "Watch Information")
+
+            # Health status
+            health_text = f"Status: {target_watch.health_status.upper()}\n"
+            health_text += f"Enabled: {'Yes' if target_watch.enabled else 'No'}\n"
+
+            if target_watch.backoff_until:
+                now = datetime.now(timezone.utc)
+                if target_watch.backoff_until > now:
+                    remaining = target_watch.backoff_until - now
+                    health_text += f"Backoff Until: {target_watch.backoff_until.strftime('%Y-%m-%d %H:%M:%S UTC')}\n"
+                    health_text += f"Time Remaining: {int(remaining.total_seconds())} seconds"
+                else:
+                    health_text += "Backoff: Expired (will resume on next poll)"
+            else:
+                health_text += "Backoff: None"
+
+            if target_watch.health_status == "healthy":
+                success_panel(health_text, "Health Status")
+            elif target_watch.health_status == "degraded":
+                simple_warning(health_text)
+            else:
+                error_panel(health_text)
+
+            # Error statistics
+            stats_text = f"Consecutive Errors: {target_watch.consecutive_errors}\n"
+            stats_text += f"Total Errors: {target_watch.total_errors}\n"
+
+            if target_watch.last_error_at:
+                stats_text += f"Last Error: {target_watch.last_error_at.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+            else:
+                stats_text += "Last Error: Never"
+
+            info_panel(stats_text, "Error Statistics")
+
+            # Last error message
+            if target_watch.last_error_message:
+                error_panel(target_watch.last_error_message)
+            else:
+                simple_info("No error messages recorded")
+
+            # Success information
+            if target_watch.last_success_at:
+                success_text = f"Last Successful Processing: {target_watch.last_success_at.strftime('%Y-%m-%d %H:%M:%S UTC')}"
+                simple_success(success_text)
+            else:
+                simple_info("No successful processing recorded")
+
+            # Provide recommendations based on state
+            if target_watch.health_status == "backoff":
+                simple_info("The watch is in backoff due to repeated errors")
+                simple_info("Reset with: wqm watch reset-errors " + target_watch.watch_id)
+            elif target_watch.health_status == "disabled":
+                simple_warning("This watch has been disabled due to too many errors")
+                simple_info("Re-enable with: wqm watch resume " + target_watch.watch_id)
+                simple_info("Or reset errors with: wqm watch reset-errors " + target_watch.watch_id)
+            elif target_watch.consecutive_errors > 0:
+                simple_info(f"Watch has {target_watch.consecutive_errors} consecutive errors")
+                simple_info("Errors will reset after successful processing")
+
+        finally:
+            await state_manager.close()
+
+    except Exception as e:
+        error_panel(f"Failed to get watch errors: {e}")
+        raise typer.Exit(1)
+
+
+async def _reset_watch_errors(watch_id: str, force: bool):
+    """Clear error state and reset health status for a watch (Task 461.14)."""
+    try:
+        state_manager = await _get_state_manager()
+
+        try:
+            # Find the watch by ID or path
+            all_watches = await state_manager.get_all_watch_folder_configs(enabled_only=False)
+
+            target_watch = None
+            for watch in all_watches:
+                if watch.watch_id == watch_id or Path(watch.path) == Path(watch_id).resolve():
+                    target_watch = watch
+                    break
+
+            if not target_watch:
+                error_panel(f"No watch found with ID or path: {watch_id}")
+                raise typer.Exit(1)
+
+            # Show current state
+            current_state = f"Watch ID: {target_watch.watch_id}\n"
+            current_state += f"Path: {target_watch.path}\n"
+            current_state += f"Current Health: {target_watch.health_status.upper()}\n"
+            current_state += f"Consecutive Errors: {target_watch.consecutive_errors}\n"
+            current_state += f"Total Errors: {target_watch.total_errors}"
+
+            info_panel(current_state, "Current State")
+
+            # Confirm reset
+            if not force:
+                if not confirm("Reset error state and set health to 'healthy'?"):
+                    simple_info("Operation cancelled")
+                    return
+
+            # Reset error state
+            success = await state_manager.update_watch_folder_error_state(
+                watch_id=target_watch.watch_id,
+                consecutive_errors=0,
+                health_status="healthy",
+                clear_backoff=True,
+                # Keep total_errors for statistics, don't reset
+            )
+
+            if success:
+                success_panel(
+                    f"Error state reset for watch: {target_watch.watch_id}\n"
+                    f"Consecutive errors: 0\n"
+                    f"Health status: healthy\n"
+                    f"Backoff: cleared\n"
+                    f"Total errors preserved: {target_watch.total_errors}",
+                    "Reset Complete"
+                )
+                simple_info("The watch will resume normal processing on next poll")
+            else:
+                error_panel("Failed to reset error state")
+                raise typer.Exit(1)
+
+        finally:
+            await state_manager.close()
+
+    except Exception as e:
+        error_panel(f"Failed to reset watch errors: {e}")
         raise typer.Exit(1)
