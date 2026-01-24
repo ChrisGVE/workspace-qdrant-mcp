@@ -225,8 +225,8 @@ def temp_project_workspace():
             full_path = workspace / file_path
             full_path.write_text(content)
 
-        # Make scripts executable
-        (workspace / "scripts/deploy.sh").chmod(0o755)
+        # NOTE: Scripts created with default permissions (no chmod)
+        # If executable bit is needed, tests should mock or adapt expectations
 
         # Initial Git commit
         if git_init.returncode == 0:
