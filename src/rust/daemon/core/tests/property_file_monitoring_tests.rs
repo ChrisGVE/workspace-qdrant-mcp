@@ -16,7 +16,7 @@ use tokio::sync::RwLock;
 // Import core components
 use workspace_qdrant_core::{
     DocumentProcessor, DocumentType, ChunkingConfig,
-    ProcessingError, ProcessingEngine, TaskPriority,
+    ProcessingError, TaskPriority,
     config::Config,
     patterns::{PatternManager, AllPatterns},
 };
