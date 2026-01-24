@@ -212,10 +212,10 @@ class TestServiceBinaryBuild:
         with patch.object(MemexdServiceManager, 'validate_binary'):
             manager = MemexdServiceManager()
 
-            # Mock the paths
+            # Mock the paths and file operations
             with patch('pathlib.Path.exists', return_value=True):
                 with patch('shutil.copy2'):
-                    with patch('os.chmod'):
+                    with patch('pathlib.Path.chmod'):  # Mock chmod as method on Path
                         result = await manager.install_binary_from_source()
 
                         assert result["success"] is True
