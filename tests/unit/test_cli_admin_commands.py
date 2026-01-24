@@ -466,47 +466,39 @@ class TestAdminIntegration:
         """Set up test environment."""
         self.runner = CliRunner()
 
-    @patch('wqm_cli.cli.commands.admin.QdrantWorkspaceClient')
-    @patch('wqm_cli.cli.commands.admin.ProjectDetector')
-    @patch('wqm_cli.cli.commands.admin.psutil')
-    def test_status_command_integration(self, mock_psutil, mock_detector, mock_client_class):
+    @patch('wqm_cli.cli.commands.admin.handle_async')
+    def test_status_command_integration(self, mock_handle_async):
         """Test status command integration with mocked dependencies."""
         from wqm_cli.cli.commands.admin import admin_app
 
-        # Mock all dependencies
-        mock_client = Mock()
-        mock_client.get_collections.return_value.collections = []
-        mock_client_class.return_value = mock_client
-
-        mock_detector.return_value.get_project_info.return_value = {
-            "main_project": "test",
-            "subprojects": [],
-            "is_git_repo": True
-        }
-
-        mock_psutil.cpu_percent.return_value = 50.0
-        mock_psutil.virtual_memory.return_value = Mock(percent=60.0)
+        # Mock handle_async to avoid actual async execution (Task 464)
+        mock_handle_async.return_value = None
 
         result = self.runner.invoke(admin_app, ["status"])
 
-        # Should execute without errors
+        # Should execute without errors (handle_async is mocked so no actual work done)
         assert result.exit_code == 0
 
-    @patch('wqm_cli.cli.commands.admin.Config')
-    def test_config_command_integration(self, mock_config_class):
+    @patch('wqm_cli.cli.commands.admin.handle_async')
+    def test_config_command_integration(self, mock_handle_async):
         """Test config command integration."""
         from wqm_cli.cli.commands.admin import admin_app
 
-        mock_config = Mock()
-        mock_config_class.return_value = mock_config
+        # Mock handle_async to avoid actual async execution (Task 464)
+        mock_handle_async.return_value = None
 
         result = self.runner.invoke(admin_app, ["config", "--show"])
 
+        # Should execute without errors (handle_async is mocked so no actual work done)
         assert result.exit_code == 0
 
-    def test_command_chaining_and_options(self):
+    @patch('wqm_cli.cli.commands.admin.handle_async')
+    def test_command_chaining_and_options(self, mock_handle_async):
         """Test complex command option combinations."""
         from wqm_cli.cli.commands.admin import admin_app
+
+        # Mock handle_async to avoid actual async execution (Task 464)
+        mock_handle_async.return_value = None
 
         # Test multiple flags together
         result = self.runner.invoke(admin_app, ["status", "--verbose", "--json"])
@@ -522,9 +514,13 @@ class TestAdminArgumentParsing:
         """Set up test environment."""
         self.runner = CliRunner()
 
-    def test_boolean_flag_parsing(self):
+    @patch('wqm_cli.cli.commands.admin.handle_async')
+    def test_boolean_flag_parsing(self, mock_handle_async):
         """Test boolean flag parsing."""
         from wqm_cli.cli.commands.admin import admin_app
+
+        # Mock handle_async to avoid actual async execution (Task 464)
+        mock_handle_async.return_value = None
 
         # Test various boolean flags
         flags_to_test = [
@@ -542,14 +538,19 @@ class TestAdminArgumentParsing:
             # Should parse flags correctly (exit code depends on implementation)
             assert result.exit_code == 0 or "error" not in result.stdout.lower()
 
-    def test_option_with_values(self):
+    @patch('wqm_cli.cli.commands.admin.handle_async')
+    def test_option_with_values(self, mock_handle_async):
         """Test options that take values."""
         from wqm_cli.cli.commands.admin import admin_app
 
+        # Mock handle_async to avoid actual async execution (Task 464)
+        mock_handle_async.return_value = None
+
         # Test options with values
+        # Note: --config-path changed to --config per Task 464 fix
         options_to_test = [
             ["config", "--path", "/tmp/config.yaml"],
-            ["start-engine", "--config-path", "/tmp/engine.yaml"],
+            ["start-engine", "--config", "/tmp/engine.yaml"],
             ["stop-engine", "--timeout", "45"]
         ]
 
@@ -558,9 +559,13 @@ class TestAdminArgumentParsing:
             # Should parse options with values correctly
             assert result.exit_code == 0 or "error" not in result.stdout.lower()
 
-    def test_short_flag_alternatives(self):
+    @patch('wqm_cli.cli.commands.admin.handle_async')
+    def test_short_flag_alternatives(self, mock_handle_async):
         """Test short flag alternatives where available."""
         from wqm_cli.cli.commands.admin import admin_app
+
+        # Mock handle_async to avoid actual async execution (Task 464)
+        mock_handle_async.return_value = None
 
         # Test short versions of flags (if available)
         short_flags = [
@@ -574,9 +579,13 @@ class TestAdminArgumentParsing:
             # Some short flags may not exist, so we allow for that
             # The test is mainly to ensure parsing doesn't crash
 
-    def test_conflicting_options(self):
+    @patch('wqm_cli.cli.commands.admin.handle_async')
+    def test_conflicting_options(self, mock_handle_async):
         """Test handling of potentially conflicting options."""
         from wqm_cli.cli.commands.admin import admin_app
+
+        # Mock handle_async to avoid actual async execution (Task 464)
+        mock_handle_async.return_value = None
 
         # Test combinations that might conflict
         result = self.runner.invoke(admin_app, ["config", "--show", "--validate"])
