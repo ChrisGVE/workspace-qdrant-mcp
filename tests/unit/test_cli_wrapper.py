@@ -156,6 +156,7 @@ class TestCLIWrapper:
         assert os.environ.get("WQM_CLI_MODE") == "true"
         assert os.environ.get("WQM_LOG_INIT") == "false"
 
+    @pytest.mark.xfail(reason="cli_wrapper no longer exports logger - uses unified logging system")
     @patch('wqm_cli.cli_wrapper.logger')
     def test_logging_import_and_usage(self, mock_logger):
         """Test that loguru logger is imported and available."""
