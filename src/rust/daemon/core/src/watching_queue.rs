@@ -487,6 +487,9 @@ pub struct FileWatcherQueue {
     event_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<FileEvent>>>>,
     processor_handle: Arc<Mutex<Option<tokio::task::JoinHandle<()>>>>,
 
+    // Error tracking (Task 461.5)
+    error_tracker: Arc<WatchErrorTracker>,
+
     // Statistics
     events_received: Arc<Mutex<u64>>,
     events_processed: Arc<Mutex<u64>>,
@@ -502,6 +505,7 @@ impl FileWatcherQueue {
     ) -> WatchingQueueResult<Self> {
         let patterns = CompiledPatterns::new(&config)?;
         let debouncer = EventDebouncer::new(config.debounce_ms);
+        let error_tracker = WatchErrorTracker::new();
 
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
@@ -511,6 +515,7 @@ impl FileWatcherQueue {
             watcher: Arc::new(Mutex::new(None)),
             event_receiver: Arc::new(Mutex::new(None)),
             processor_handle: Arc::new(Mutex::new(None)),
+            error_tracker: Arc::new(error_tracker),
             events_received: Arc::new(Mutex::new(0)),
             events_processed: Arc::new(Mutex::new(0)),
             events_filtered: Arc::new(Mutex::new(0)),
@@ -631,6 +636,7 @@ impl FileWatcherQueue {
         let patterns = self.patterns.clone();
         let config = self.config.clone();
         let queue_manager = self.queue_manager.clone();
+        let error_tracker = self.error_tracker.clone();
         let events_received = self.events_received.clone();
         let events_processed = self.events_processed.clone();
         let events_filtered = self.events_filtered.clone();
@@ -643,6 +649,7 @@ impl FileWatcherQueue {
                 patterns,
                 config,
                 queue_manager,
+                error_tracker,
                 events_received,
                 events_processed,
                 events_filtered,
@@ -665,6 +672,7 @@ impl FileWatcherQueue {
         patterns: Arc<RwLock<CompiledPatterns>>,
         config: Arc<RwLock<WatchConfig>>,
         queue_manager: Arc<QueueManager>,
+        error_tracker: Arc<WatchErrorTracker>,
         events_received: Arc<Mutex<u64>>,
         events_processed: Arc<Mutex<u64>>,
         events_filtered: Arc<Mutex<u64>>,
@@ -690,6 +698,7 @@ impl FileWatcherQueue {
                             &patterns,
                             &config,
                             &queue_manager,
+                            &error_tracker,
                             &events_received,
                             &events_processed,
                             &events_filtered,
@@ -707,6 +716,7 @@ impl FileWatcherQueue {
                         &patterns,
                         &config,
                         &queue_manager,
+                        &error_tracker,
                         &events_processed,
                         &queue_errors,
                     ).await;
@@ -724,6 +734,7 @@ impl FileWatcherQueue {
         patterns: &Arc<RwLock<CompiledPatterns>>,
         config: &Arc<RwLock<WatchConfig>>,
         queue_manager: &Arc<QueueManager>,
+        error_tracker: &Arc<WatchErrorTracker>,
         events_received: &Arc<Mutex<u64>>,
         events_processed: &Arc<Mutex<u64>>,
         events_filtered: &Arc<Mutex<u64>>,
@@ -756,6 +767,7 @@ impl FileWatcherQueue {
                 event,
                 config,
                 queue_manager,
+                error_tracker,
                 events_processed,
                 queue_errors,
             ).await;
@@ -768,6 +780,7 @@ impl FileWatcherQueue {
         patterns: &Arc<RwLock<CompiledPatterns>>,
         config: &Arc<RwLock<WatchConfig>>,
         queue_manager: &Arc<QueueManager>,
+        error_tracker: &Arc<WatchErrorTracker>,
         events_processed: &Arc<Mutex<u64>>,
         queue_errors: &Arc<Mutex<u64>>,
     ) {
@@ -789,6 +802,7 @@ impl FileWatcherQueue {
                 event,
                 config,
                 queue_manager,
+                error_tracker,
                 events_processed,
                 queue_errors,
             ).await;
@@ -872,16 +886,33 @@ impl FileWatcherQueue {
         }
     }
 
-    /// Enqueue file operation with retry logic and multi-tenant routing
+    /// Enqueue file operation with retry logic, multi-tenant routing, and error tracking (Task 461.5)
     async fn enqueue_file_operation(
         event: FileEvent,
         config: &Arc<RwLock<WatchConfig>>,
         queue_manager: &Arc<QueueManager>,
+        error_tracker: &Arc<WatchErrorTracker>,
         events_processed: &Arc<Mutex<u64>>,
         queue_errors: &Arc<Mutex<u64>>,
     ) {
         // Skip if not a file
         if !event.path.is_file() && !matches!(event.event_kind, EventKind::Remove(_)) {
+            return;
+        }
+
+        // Get watch_id for error tracking
+        let watch_id = {
+            let config_lock = config.read().await;
+            config_lock.id.clone()
+        };
+
+        // Check if this watch is in backoff or disabled (Task 461.5)
+        if !error_tracker.can_process(&watch_id).await {
+            debug!(
+                "Watch {} is in backoff or disabled, skipping file: {}",
+                watch_id,
+                event.path.display()
+            );
             return;
         }
 
@@ -938,6 +969,9 @@ impl FileWatcherQueue {
                     let mut count = events_processed.lock().await;
                     *count += 1;
 
+                    // Record success (Task 461.5)
+                    error_tracker.record_success(&watch_id).await;
+
                     debug!(
                         "Enqueued file: {} (operation={:?}, priority={}, collection={}, tenant={}, branch={}, file_type={})",
                         file_absolute_path, operation, priority, collection, tenant_id, branch, file_type.as_str()
@@ -945,7 +979,7 @@ impl FileWatcherQueue {
                     return;
                 },
                 Err(QueueError::Database(ref e)) if attempt < MAX_RETRIES - 1 => {
-                    // Retry on database errors with backoff
+                    // Retry on database errors with backoff (transient error)
                     let delay = RETRY_DELAYS_MS[attempt as usize];
                     warn!(
                         "Database error enqueueing {}: {}. Retrying in {}ms (attempt {}/{})",
@@ -953,25 +987,49 @@ impl FileWatcherQueue {
                     );
                     tokio::time::sleep(Duration::from_millis(delay)).await;
                 },
-                Err(e) => {
+                Err(ref e) => {
                     let mut count = queue_errors.lock().await;
                     *count += 1;
 
-                    error!(
-                        "Failed to enqueue file {}: {} (attempt {}/{})",
-                        file_absolute_path, e, attempt + 1, MAX_RETRIES
-                    );
+                    // Categorize error and record (Task 461.5)
+                    let error_msg = e.to_string();
+                    let error_category = ErrorCategory::categorize_str(&error_msg);
+
+                    // Only record error for final attempt or permanent errors
+                    if attempt == MAX_RETRIES - 1 || error_category == ErrorCategory::Permanent {
+                        let backoff_delay = error_tracker.record_error(&watch_id, &error_msg).await;
+                        let health_status = error_tracker.get_health_status(&watch_id).await;
+
+                        error!(
+                            "Failed to enqueue file {}: {} (attempt {}/{}, category={}, health={}, backoff_ms={})",
+                            file_absolute_path, e, attempt + 1, MAX_RETRIES,
+                            error_category.as_str(),
+                            health_status.as_str(),
+                            backoff_delay
+                        );
+                    } else {
+                        error!(
+                            "Failed to enqueue file {}: {} (attempt {}/{})",
+                            file_absolute_path, e, attempt + 1, MAX_RETRIES
+                        );
+                    }
                     return;
                 }
             }
         }
 
-        // All retries failed
+        // All retries failed - record as final error (Task 461.5)
+        let error_msg = format!("Failed after {} retries", MAX_RETRIES);
+        let _backoff_delay = error_tracker.record_error(&watch_id, &error_msg).await;
+        let health_status = error_tracker.get_health_status(&watch_id).await;
+
         let mut count = queue_errors.lock().await;
         *count += 1;
         error!(
-            "Failed to enqueue file {} after {} retries",
-            file_absolute_path, MAX_RETRIES
+            "Failed to enqueue file {} after {} retries (watch health: {})",
+            file_absolute_path,
+            MAX_RETRIES,
+            health_status.as_str()
         );
     }
 
@@ -983,6 +1041,31 @@ impl FileWatcherQueue {
             events_filtered: *self.events_filtered.lock().await,
             queue_errors: *self.queue_errors.lock().await,
         }
+    }
+
+    /// Get error state for this watcher (Task 461.5)
+    ///
+    /// This is an async operation to avoid blocking.
+    pub async fn get_error_state(&self) -> Option<WatchErrorState> {
+        let config = self.config.read().await;
+        self.error_tracker.get_state(&config.id)
+    }
+
+    /// Get the error tracker reference (Task 461.5)
+    pub fn error_tracker(&self) -> &Arc<WatchErrorTracker> {
+        &self.error_tracker
+    }
+
+    /// Get the watch_id for this watcher
+    pub async fn watch_id(&self) -> String {
+        let config = self.config.read().await;
+        config.id.clone()
+    }
+
+    /// Get health status for this watcher (Task 461.5)
+    pub async fn get_health_status(&self) -> WatchHealthStatus {
+        let config = self.config.read().await;
+        self.error_tracker.get_health_status(&config.id).await
     }
 }
 
@@ -1026,6 +1109,126 @@ impl WatchHealthStatus {
             WatchHealthStatus::Degraded => "degraded",
             WatchHealthStatus::Backoff => "backoff",
             WatchHealthStatus::Disabled => "disabled",
+        }
+    }
+}
+
+/// Error category for classifying errors as transient or permanent (Task 461.5)
+///
+/// Transient errors are temporary and may succeed on retry (e.g., database busy).
+/// Permanent errors won't succeed on retry (e.g., file not found, permission denied).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorCategory {
+    /// Temporary error that may succeed on retry (e.g., database busy, network timeout)
+    Transient,
+    /// Permanent error that won't succeed on retry (e.g., file not found, permission denied)
+    Permanent,
+    /// Unknown error category (default for uncategorized errors)
+    Unknown,
+}
+
+impl Default for ErrorCategory {
+    fn default() -> Self {
+        ErrorCategory::Unknown
+    }
+}
+
+impl ErrorCategory {
+    /// Categorize an error based on its message and type
+    ///
+    /// # Arguments
+    /// * `error` - The error to categorize
+    ///
+    /// # Returns
+    /// The appropriate error category
+    pub fn categorize<E: std::error::Error>(error: &E) -> Self {
+        let error_msg = error.to_string().to_lowercase();
+
+        // Permanent errors - won't succeed on retry
+        if error_msg.contains("not found")
+            || error_msg.contains("no such file")
+            || error_msg.contains("permission denied")
+            || error_msg.contains("access denied")
+            || error_msg.contains("invalid path")
+            || error_msg.contains("is a directory")
+            || error_msg.contains("not a file")
+            || error_msg.contains("invalid format")
+            || error_msg.contains("unsupported")
+            || error_msg.contains("corrupt")
+        {
+            return ErrorCategory::Permanent;
+        }
+
+        // Transient errors - may succeed on retry
+        if error_msg.contains("busy")
+            || error_msg.contains("locked")
+            || error_msg.contains("timeout")
+            || error_msg.contains("connection")
+            || error_msg.contains("network")
+            || error_msg.contains("temporary")
+            || error_msg.contains("unavailable")
+            || error_msg.contains("retry")
+            || error_msg.contains("again")
+            || error_msg.contains("resource temporarily")
+        {
+            return ErrorCategory::Transient;
+        }
+
+        ErrorCategory::Unknown
+    }
+
+    /// Categorize based on error string (for cases where error type is not available)
+    pub fn categorize_str(error_msg: &str) -> Self {
+        let error_lower = error_msg.to_lowercase();
+
+        // Permanent errors
+        if error_lower.contains("not found")
+            || error_lower.contains("no such file")
+            || error_lower.contains("permission denied")
+            || error_lower.contains("access denied")
+            || error_lower.contains("invalid path")
+            || error_lower.contains("is a directory")
+            || error_lower.contains("not a file")
+            || error_lower.contains("invalid format")
+            || error_lower.contains("unsupported")
+            || error_lower.contains("corrupt")
+        {
+            return ErrorCategory::Permanent;
+        }
+
+        // Transient errors
+        if error_lower.contains("busy")
+            || error_lower.contains("locked")
+            || error_lower.contains("timeout")
+            || error_lower.contains("connection")
+            || error_lower.contains("network")
+            || error_lower.contains("temporary")
+            || error_lower.contains("unavailable")
+            || error_lower.contains("retry")
+            || error_lower.contains("again")
+            || error_lower.contains("resource temporarily")
+        {
+            return ErrorCategory::Transient;
+        }
+
+        ErrorCategory::Unknown
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ErrorCategory::Transient => "transient",
+            ErrorCategory::Permanent => "permanent",
+            ErrorCategory::Unknown => "unknown",
+        }
+    }
+
+    /// Whether retrying this error category is likely to succeed
+    pub fn should_retry(&self) -> bool {
+        match self {
+            ErrorCategory::Transient => true,
+            ErrorCategory::Permanent => false,
+            ErrorCategory::Unknown => true, // Default to retry for unknown errors
         }
     }
 }
@@ -1378,6 +1581,44 @@ impl WatchErrorTracker {
     pub async fn remove_watch(&self, watch_id: &str) {
         let mut states = self.states.write().await;
         states.remove(watch_id);
+    }
+
+    /// Get error state for a specific watch (Task 461.5)
+    ///
+    /// Returns None if the watch has no error state (never had errors).
+    pub fn get_state(&self, watch_id: &str) -> Option<WatchErrorState> {
+        // Use try_read to avoid blocking - if lock is held, return None
+        self.states.try_read().ok().and_then(|states| states.get(watch_id).cloned())
+    }
+
+    /// Set error state for a specific watch (Task 461.5)
+    ///
+    /// Used to restore state from database on startup.
+    pub fn set_state(&self, watch_id: &str, state: WatchErrorState) {
+        // Use try_write to avoid blocking - if lock is held, log warning
+        match self.states.try_write() {
+            Ok(mut states) => {
+                states.insert(watch_id.to_string(), state);
+            }
+            Err(_) => {
+                warn!("Could not set error state for watch {} - lock contention", watch_id);
+            }
+        }
+    }
+
+    /// Get error summary for a specific watch (Task 461.5)
+    pub fn get_summary(&self, watch_id: &str) -> Option<WatchErrorSummary> {
+        self.states.try_read().ok().and_then(|states| {
+            states.get(watch_id).map(|state| WatchErrorSummary {
+                watch_id: watch_id.to_string(),
+                health_status: state.health_status,
+                consecutive_errors: state.consecutive_errors,
+                total_errors: state.total_errors,
+                backoff_level: state.backoff_level,
+                remaining_backoff_ms: state.remaining_backoff_ms(),
+                last_error_message: state.last_error_message.clone(),
+            })
+        })
     }
 }
 
@@ -1804,6 +2045,196 @@ impl WatchManager {
     pub async fn is_watch_active(&self, id: &str) -> bool {
         let watchers = self.watchers.read().await;
         watchers.contains_key(id)
+    }
+
+    /// Get error state for a specific watcher (Task 461.5)
+    pub async fn get_error_state(&self, watch_id: &str) -> Option<WatchErrorState> {
+        let watchers = self.watchers.read().await;
+        watchers.get(watch_id)
+            .and_then(|w| w.error_tracker().get_state(watch_id))
+    }
+
+    /// Get error summaries for all watchers (Task 461.5)
+    pub async fn get_all_error_summaries(&self) -> HashMap<String, WatchErrorSummary> {
+        let watchers = self.watchers.read().await;
+        let mut summaries = HashMap::new();
+
+        for (id, watcher) in watchers.iter() {
+            if let Some(summary) = watcher.error_tracker().get_summary(id) {
+                summaries.insert(id.clone(), summary);
+            }
+        }
+
+        summaries
+    }
+
+    /// Get watches with health status worse than healthy (Task 461.5)
+    pub async fn get_unhealthy_watches(&self) -> Vec<(String, WatchErrorSummary)> {
+        let summaries = self.get_all_error_summaries().await;
+        summaries.into_iter()
+            .filter(|(_, summary)| summary.health_status != WatchHealthStatus::Healthy)
+            .collect()
+    }
+
+    /// Persist error states to SQLite watch_folders table (Task 461.5)
+    ///
+    /// Updates the error tracking columns in watch_folders for all project watches.
+    /// Library watches are stored in a separate table and not updated here.
+    pub async fn persist_error_states(&self) -> WatchingQueueResult<()> {
+        let watchers = self.watchers.read().await;
+
+        for (id, watcher) in watchers.iter() {
+            // Skip library watches (they use library_watches table)
+            if id.starts_with("lib_") {
+                continue;
+            }
+
+            // Get error state from tracker
+            if let Some(state) = watcher.error_tracker().get_state(id) {
+                // Format timestamps as ISO strings
+                let last_error_at = state.last_error_time
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| {
+                        let secs = d.as_secs() as i64;
+                        chrono::DateTime::from_timestamp(secs, 0)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    });
+
+                let last_success_at = state.last_successful_processing
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| {
+                        let secs = d.as_secs() as i64;
+                        chrono::DateTime::from_timestamp(secs, 0)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    });
+
+                let backoff_until = state.backoff_until
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| {
+                        let secs = d.as_secs() as i64;
+                        chrono::DateTime::from_timestamp(secs, 0)
+                            .map(|dt| dt.to_rfc3339())
+                            .unwrap_or_default()
+                    });
+
+                // Update watch_folders table
+                let result = sqlx::query(
+                    r#"
+                    UPDATE watch_folders
+                    SET consecutive_errors = ?,
+                        total_errors = ?,
+                        last_error_at = ?,
+                        last_error_message = ?,
+                        backoff_until = ?,
+                        last_success_at = ?,
+                        health_status = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE watch_id = ?
+                    "#
+                )
+                .bind(state.consecutive_errors as i64)
+                .bind(state.total_errors as i64)
+                .bind(last_error_at)
+                .bind(&state.last_error_message)
+                .bind(backoff_until)
+                .bind(last_success_at)
+                .bind(state.health_status.as_str())
+                .bind(id)
+                .execute(&self.pool)
+                .await;
+
+                if let Err(e) = result {
+                    warn!("Failed to persist error state for watch {}: {}", id, e);
+                } else {
+                    debug!("Persisted error state for watch {}: health={}", id, state.health_status.as_str());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Load error states from SQLite into watchers (Task 461.5)
+    ///
+    /// Called during startup to restore error state from previous daemon session.
+    pub async fn load_error_states(&self) -> WatchingQueueResult<()> {
+        let watchers = self.watchers.read().await;
+
+        // Query error states for all project watches
+        let rows = sqlx::query(
+            r#"
+            SELECT watch_id, consecutive_errors, total_errors, last_error_at,
+                   last_error_message, backoff_until, last_success_at, health_status
+            FROM watch_folders
+            WHERE consecutive_errors > 0 OR health_status != 'healthy'
+            "#
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        for row in rows {
+            let watch_id: String = row.get("watch_id");
+
+            // Get the watcher's error tracker
+            if let Some(watcher) = watchers.get(&watch_id) {
+                let consecutive_errors: i64 = row.get("consecutive_errors");
+                let total_errors: i64 = row.get("total_errors");
+                let last_error_message: Option<String> = row.get("last_error_message");
+                let health_status_str: String = row.get("health_status");
+
+                // Parse health status
+                let health_status = match health_status_str.as_str() {
+                    "healthy" => WatchHealthStatus::Healthy,
+                    "degraded" => WatchHealthStatus::Degraded,
+                    "backoff" => WatchHealthStatus::Backoff,
+                    "disabled" => WatchHealthStatus::Disabled,
+                    _ => WatchHealthStatus::Healthy,
+                };
+
+                // Create a partial state to restore
+                let restored_state = WatchErrorState {
+                    consecutive_errors: consecutive_errors as u32,
+                    total_errors: total_errors as u64,
+                    last_error_time: None, // Would need timestamp parsing
+                    last_error_message,
+                    backoff_level: 0, // Will be recalculated
+                    last_successful_processing: None,
+                    health_status,
+                    consecutive_successes: 0,
+                    backoff_until: None, // Will be recalculated if needed
+                };
+
+                // Set the state in the tracker
+                watcher.error_tracker().set_state(&watch_id, restored_state);
+
+                debug!("Restored error state for watch {}: errors={}, health={}",
+                    watch_id, consecutive_errors, health_status_str);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Start periodic error state persistence (Task 461.5)
+    ///
+    /// Persists error states to SQLite every `persist_interval_secs` seconds.
+    pub fn start_error_state_persistence(self: Arc<Self>, persist_interval_secs: u64) -> tokio::task::JoinHandle<()> {
+        info!("Starting error state persistence (interval: {}s)", persist_interval_secs);
+
+        tokio::spawn(async move {
+            let mut persist_interval = interval(Duration::from_secs(persist_interval_secs));
+
+            loop {
+                persist_interval.tick().await;
+
+                debug!("Persisting error states to SQLite...");
+                if let Err(e) = self.persist_error_states().await {
+                    error!("Failed to persist error states: {}", e);
+                }
+            }
+        })
     }
 }
 
