@@ -437,8 +437,13 @@ class TestAdvancedPriorityQueue:
             enable_resource_monitoring=False  # Disable for most tests
         )
         yield queue
-        # Cleanup
-        asyncio.create_task(queue.stop())
+        # Cleanup - only run stop() if there's a running event loop
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(queue.stop())
+        except RuntimeError:
+            # No running event loop, queue will be cleaned up via garbage collection
+            pass
 
     def test_priority_queue_initialization(self, priority_queue):
         """Test AdvancedPriorityQueue initialization."""
@@ -711,8 +716,10 @@ class TestAdvancedPriorityQueue:
 
         await priority_queue.stop()
 
-        # Monitoring should be stopped
-        assert priority_queue._monitoring_task.cancelled() or priority_queue._monitoring_task.done()
+        # Monitoring should be stopped (task may be cancelled, done, or set to None)
+        assert (priority_queue._monitoring_task is None or
+                priority_queue._monitoring_task.cancelled() or
+                priority_queue._monitoring_task.done())
 
     def test_priority_queue_failed_task_completion(self, priority_queue):
         """Test handling of failed task completion."""
@@ -835,7 +842,13 @@ class TestPriorityQueueEdgeCases:
             enable_resource_monitoring=False
         )
         yield queue
-        asyncio.create_task(queue.stop())
+        # Cleanup - only run stop() if there's a running event loop
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(queue.stop())
+        except RuntimeError:
+            # No running event loop, queue will be cleaned up via garbage collection
+            pass
 
     @pytest.mark.asyncio
     async def test_circular_dependencies(self, priority_queue):
