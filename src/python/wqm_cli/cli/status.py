@@ -43,7 +43,6 @@ from pathlib import Path
 from typing import Any
 
 import typer
-from common.core.client import QdrantWorkspaceClient
 from loguru import logger
 from rich.console import Console
 from rich.layout import Layout
@@ -65,43 +64,207 @@ from workspace_qdrant_mcp.tools.grpc_tools import (
     stream_system_metrics_grpc,
     test_grpc_connection,
 )
-# TEMPORARY FIX: Comment out state_management import that causes hang
-# This needs to be fixed by resolving the state_aware_ingestion import issue
-# from workspace_qdrant_mcp.tools.state_management import (
-#     get_database_stats,
-#     get_failed_files,
-#     get_processing_analytics,
-#     get_processing_status,
-#     get_queue_stats,
-#     get_watch_folder_configs,
-# )
-# TEMPORARY FIX: Comment out watch_management import that also causes hang
-# from workspace_qdrant_mcp.tools.watch_management import WatchToolsManager
 
-# Temporary stub for WatchToolsManager
-class WatchToolsManager:
-    """Temporary stub for WatchToolsManager."""
-    def __init__(self, *args, **kwargs):
-        pass
+# SQLite-based status functions (Task 463: implemented)
+from common.core.sqlite_state_manager import SQLiteStateManager
 
-# logger imported from loguru
 
-# TEMPORARY FIX: Stub functions for disabled state_management imports
-async def get_processing_status(workspace_client, watch_manager):
-    """Temporary stub for get_processing_status."""
-    return {"status": "disabled", "message": "State management temporarily disabled"}
+# Global state manager instance (initialized lazily)
+_state_manager: SQLiteStateManager | None = None
 
-async def get_queue_stats(workspace_client, watch_manager):
-    """Temporary stub for get_queue_stats."""
-    return {"queue_size": 0, "status": "disabled", "message": "Queue stats temporarily disabled"}
 
-async def get_watch_folder_configs(workspace_client, watch_manager):
-    """Temporary stub for get_watch_folder_configs."""
-    return {"configs": [], "status": "disabled", "message": "Watch configs temporarily disabled"}
+async def _get_state_manager() -> SQLiteStateManager:
+    """Get or create the SQLiteStateManager instance."""
+    global _state_manager
+    if _state_manager is None:
+        _state_manager = SQLiteStateManager()
+        await _state_manager.initialize()
+    return _state_manager
 
-async def get_database_stats(workspace_client, watch_manager):
-    """Temporary stub for get_database_stats."""
-    return {"database_size": "unknown", "status": "disabled", "message": "Database stats temporarily disabled"}
+
+async def get_processing_status() -> dict[str, Any]:
+    """
+    Get current processing status from SQLite state manager.
+
+    Returns processing information including:
+    - Currently processing count
+    - Recent successes and failures
+    - Recent file activity
+    """
+    try:
+        state_manager = await _get_state_manager()
+
+        # Get processing states
+        all_states = await state_manager.get_processing_states()
+
+        # Count by status
+        processing_count = sum(1 for s in all_states if s.get("status") == "processing")
+        completed_count = sum(1 for s in all_states if s.get("status") == "completed")
+        failed_count = sum(1 for s in all_states if s.get("status") == "failed")
+
+        # Get recent files (last 20)
+        recent_files = []
+        for state in all_states[:20]:
+            recent_files.append({
+                "file_path": state.get("file_path", ""),
+                "status": state.get("status", "unknown"),
+                "collection": state.get("collection", ""),
+                "timestamp": state.get("updated_at", ""),
+                "processing_duration": None,  # Not tracked in current schema
+                "error_message": state.get("metadata", {}).get("error_message", ""),
+            })
+
+        return {
+            "success": True,
+            "processing_info": {
+                "currently_processing": processing_count,
+                "recent_successful": completed_count,
+                "recent_failed": failed_count,
+            },
+            "recent_files": recent_files,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get processing status: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "processing_info": {"currently_processing": 0, "recent_successful": 0, "recent_failed": 0},
+            "recent_files": [],
+        }
+
+
+async def get_queue_stats() -> dict[str, Any]:
+    """
+    Get queue statistics from SQLite state manager.
+
+    Returns queue information including:
+    - File ingestion queue depth
+    - Content ingestion queue depth
+    - Queue breakdown by priority
+    """
+    try:
+        state_manager = await _get_state_manager()
+
+        # Get file queue depth
+        file_queue_depth = await state_manager.get_queue_depth()
+
+        # Get content queue depth
+        content_queue_depth = await state_manager.get_content_ingestion_queue_depth()
+
+        # Total queue size
+        total_queued = file_queue_depth + content_queue_depth
+
+        return {
+            "success": True,
+            "queue_stats": {
+                "total": total_queued,
+                "file_queue": file_queue_depth,
+                "content_queue": content_queue_depth,
+                # Priority breakdown not directly available without additional queries
+                "urgent_priority": 0,
+                "high_priority": 0,
+                "normal_priority": total_queued,  # Assume all normal for now
+                "low_priority": 0,
+            },
+        }
+    except Exception as e:
+        logger.error(f"Failed to get queue stats: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "queue_stats": {"total": 0, "file_queue": 0, "content_queue": 0},
+        }
+
+
+async def get_watch_folder_configs() -> dict[str, Any]:
+    """
+    Get watch folder configurations from SQLite state manager.
+
+    Returns list of configured watch folders with their status.
+    """
+    try:
+        state_manager = await _get_state_manager()
+
+        # Get all watch folders (including disabled)
+        watch_configs = await state_manager.list_watch_folders(enabled_only=False)
+
+        # Convert to dict format for display
+        configs_list = []
+        for config in watch_configs:
+            configs_list.append({
+                "watch_id": config.watch_id,
+                "path": config.path,
+                "collection": config.collection,
+                "patterns": config.patterns,
+                "enabled": config.enabled,
+                "recursive": config.recursive,
+                "last_scan": config.last_scan.isoformat() if config.last_scan else None,
+                "health_status": config.health_status,
+                "consecutive_errors": config.consecutive_errors,
+                "watch_priority": config.watch_priority,
+            })
+
+        return {
+            "success": True,
+            "watch_configs": configs_list,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get watch folder configs: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "watch_configs": [],
+        }
+
+
+async def get_database_stats() -> dict[str, Any]:
+    """
+    Get database statistics from SQLite state manager.
+
+    Returns database information including:
+    - Database file size
+    - Record counts
+    - Recent processing stats
+    """
+    try:
+        state_manager = await _get_state_manager()
+
+        # Get database file size
+        db_path = state_manager.db_path
+        if db_path.exists():
+            size_bytes = db_path.stat().st_size
+            size_mb = size_bytes / (1024 * 1024)
+        else:
+            size_bytes = 0
+            size_mb = 0.0
+
+        # Get processing states for record count
+        all_states = await state_manager.get_processing_states()
+        total_records = len(all_states)
+
+        # Count by status for recent processing
+        completed_24h = sum(1 for s in all_states if s.get("status") == "completed")
+        failed_24h = sum(1 for s in all_states if s.get("status") == "failed")
+
+        return {
+            "success": True,
+            "database_stats": {
+                "total_size_mb": size_mb,
+                "total_size_bytes": size_bytes,
+                "total_records": total_records,
+                "recent_processing": {
+                    "successful_24h": completed_24h,
+                    "failed_24h": failed_24h,
+                },
+            },
+        }
+    except Exception as e:
+        logger.error(f"Failed to get database stats: {e}")
+        return {
+            "success": False,
+            "error": str(e),
+            "database_stats": {"total_size_mb": 0, "total_records": 0},
+        }
 
 # CLI app for status commands
 status_app = typer.Typer(
@@ -387,30 +550,26 @@ def create_performance_metrics(
 
 
 async def get_comprehensive_status() -> dict[str, Any]:
-    """Get comprehensive status data from all sources."""
+    """
+    Get comprehensive status data from all sources.
+
+    Task 463: Updated to use SQLite-based status functions that don't
+    require Config class initialization.
+    """
     try:
-        # Initialize clients
-        config = Config.get_default_config()
-        workspace_client = QdrantWorkspaceClient(config.qdrant)
-        watch_manager = WatchToolsManager(workspace_client)
-
-        # Gather data in parallel
-        tasks = []
-
-        # Processing status from SQLite
-        tasks.append(get_processing_status(workspace_client, watch_manager))
-
-        # Queue statistics
-        tasks.append(get_queue_stats(workspace_client, watch_manager))
-
-        # Watch folder configurations
-        tasks.append(get_watch_folder_configs(workspace_client, watch_manager))
-
-        # Database statistics
-        tasks.append(get_database_stats(workspace_client, watch_manager))
-
-        # gRPC daemon stats (Task 422: re-enabled)
-        tasks.append(get_grpc_engine_stats())
+        # Gather data in parallel using SQLite-based functions
+        tasks = [
+            # Processing status from SQLite
+            get_processing_status(),
+            # Queue statistics from SQLite
+            get_queue_stats(),
+            # Watch folder configurations from SQLite
+            get_watch_folder_configs(),
+            # Database statistics from SQLite
+            get_database_stats(),
+            # gRPC daemon stats (Task 422: re-enabled)
+            get_grpc_engine_stats(),
+        ]
 
         # Execute all tasks
         results = await asyncio.gather(*tasks, return_exceptions=True)

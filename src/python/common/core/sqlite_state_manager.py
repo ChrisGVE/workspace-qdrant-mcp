@@ -600,6 +600,9 @@ class SQLiteStateManager:
             # Create or migrate schema
             await self._setup_schema()
 
+            # Ensure all expected columns exist (handles partial migrations)
+            await self._ensure_schema_columns()
+
             # Perform crash recovery
             await self._perform_crash_recovery()
 
@@ -1441,6 +1444,9 @@ class SQLiteStateManager:
             if from_version <= 8 and to_version >= 9:
                 logger.info("Applying migration: v8 -> v9 (watch folder error tracking)")
                 error_tracking_sql = [
+                    # Add watch_type and library_name columns (Task 402 - multi-tenant routing)
+                    "ALTER TABLE watch_folders ADD COLUMN watch_type TEXT NOT NULL DEFAULT 'project'",
+                    "ALTER TABLE watch_folders ADD COLUMN library_name TEXT",
                     # Add error tracking columns to watch_folders table
                     "ALTER TABLE watch_folders ADD COLUMN consecutive_errors INTEGER NOT NULL DEFAULT 0",
                     "ALTER TABLE watch_folders ADD COLUMN total_errors INTEGER NOT NULL DEFAULT 0",
@@ -1547,6 +1553,50 @@ class SQLiteStateManager:
             )
 
         logger.info(f"Database migration completed: v{from_version} -> v{to_version}")
+
+    async def _ensure_schema_columns(self):
+        """
+        Ensure all expected columns exist in tables.
+
+        This handles cases where columns were added to the base schema
+        but existing databases might not have been properly migrated.
+        Called after migration to catch any missing columns.
+        """
+        # Expected columns for watch_folders table (added in various versions)
+        watch_folders_columns = [
+            ("watch_type", "TEXT NOT NULL DEFAULT 'project'"),
+            ("library_name", "TEXT"),
+            ("consecutive_errors", "INTEGER NOT NULL DEFAULT 0"),
+            ("total_errors", "INTEGER NOT NULL DEFAULT 0"),
+            ("last_error_at", "TIMESTAMP"),
+            ("last_error_message", "TEXT"),
+            ("backoff_until", "TIMESTAMP"),
+            ("last_success_at", "TIMESTAMP"),
+            ("health_status", "TEXT NOT NULL DEFAULT 'healthy'"),
+            ("watch_priority", "INTEGER NOT NULL DEFAULT 5"),
+        ]
+
+        try:
+            with self._lock:
+                # Get existing columns for watch_folders
+                cursor = self.connection.execute("PRAGMA table_info(watch_folders)")
+                existing_columns = {row[1] for row in cursor.fetchall()}
+
+                # Add missing columns
+                for column_name, column_def in watch_folders_columns:
+                    if column_name not in existing_columns:
+                        try:
+                            sql = f"ALTER TABLE watch_folders ADD COLUMN {column_name} {column_def}"
+                            self.connection.execute(sql)
+                            logger.info(f"Added missing column to watch_folders: {column_name}")
+                        except Exception as e:
+                            # Ignore if column already exists (race condition)
+                            if "duplicate column" not in str(e).lower():
+                                logger.warning(f"Failed to add column {column_name}: {e}")
+
+                self.connection.commit()
+        except Exception as e:
+            logger.error(f"Schema column check failed: {e}")
 
     async def _perform_crash_recovery(self):
         """Perform crash recovery operations on startup."""
