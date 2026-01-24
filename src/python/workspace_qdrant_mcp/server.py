@@ -673,6 +673,157 @@ def get_collection_type(collection_name: str) -> str:
         return "user"
 
 
+# ============================================================================
+# Task 459: Dot-Separated Tag Hierarchy (ADR-001)
+# ============================================================================
+# Tag format: main_tag.sub_tag
+# - Projects: project_id.branch (e.g., workspace-qdrant-mcp.feature-auth)
+# - Libraries: library_name.version (e.g., numpy.1.24.0)
+#
+# Benefits:
+# - Hierarchical filtering (prefix matching)
+# - Clear organization within collections
+# - Enables branch-scoped and version-scoped queries
+# ============================================================================
+
+
+def generate_main_tag(
+    project_id: str | None = None,
+    library_name: str | None = None
+) -> str | None:
+    """
+    Generate main_tag from project_id or library_name.
+
+    Task 459: Dot-separated tag hierarchy (ADR-001)
+
+    Args:
+        project_id: Project identifier (12-char hex)
+        library_name: Library name (e.g., "numpy", "react")
+
+    Returns:
+        Main tag string or None if neither provided
+    """
+    if project_id:
+        return project_id
+    if library_name:
+        return library_name
+    return None
+
+
+def generate_full_tag(
+    main_tag: str,
+    sub_tag: str | None = None
+) -> str:
+    """
+    Generate full dot-separated tag from main_tag and sub_tag.
+
+    Task 459: Dot-separated tag hierarchy (ADR-001)
+
+    Format: main_tag.sub_tag
+    Examples:
+        - project_id.branch: "a1b2c3d4e5f6.feature-auth"
+        - library_name.version: "numpy.1.24.0"
+
+    Args:
+        main_tag: Primary identifier (project_id or library_name)
+        sub_tag: Secondary identifier (branch or version), optional
+
+    Returns:
+        Full tag string (main_tag alone if no sub_tag)
+    """
+    if sub_tag:
+        return f"{main_tag}.{sub_tag}"
+    return main_tag
+
+
+def parse_tag(tag: str) -> tuple[str, str | None]:
+    """
+    Parse dot-separated tag into main_tag and sub_tag components.
+
+    Task 459: Dot-separated tag hierarchy (ADR-001)
+
+    Args:
+        tag: Full tag string (e.g., "myproject.feature-auth")
+
+    Returns:
+        Tuple of (main_tag, sub_tag). sub_tag is None if no dot separator.
+    """
+    if "." in tag:
+        parts = tag.split(".", 1)
+        return parts[0], parts[1]
+    return tag, None
+
+
+def validate_tag(tag: str) -> tuple[bool, str | None]:
+    """
+    Validate tag format per ADR-001 specification.
+
+    Task 459: Dot-separated tag hierarchy (ADR-001)
+
+    Valid tag rules:
+    - main_tag: alphanumeric, hyphens, underscores
+    - sub_tag: alphanumeric, hyphens, underscores, dots (for versions)
+    - Cannot start with dot or end with dot
+    - Cannot have consecutive dots
+
+    Args:
+        tag: Tag string to validate
+
+    Returns:
+        Tuple of (is_valid, error_message). error_message is None if valid.
+    """
+    if not tag:
+        return False, "Tag cannot be empty"
+    if tag.startswith("."):
+        return False, "Tag cannot start with a dot"
+    if tag.endswith("."):
+        return False, "Tag cannot end with a dot"
+    if ".." in tag:
+        return False, "Tag cannot contain consecutive dots"
+
+    # Parse and validate components
+    main_tag, sub_tag = parse_tag(tag)
+
+    # Validate main_tag (alphanumeric, hyphens, underscores)
+    import re
+    main_tag_pattern = r'^[a-zA-Z0-9_-]+$'
+    if not re.match(main_tag_pattern, main_tag):
+        return False, f"Invalid main_tag '{main_tag}': must be alphanumeric with hyphens/underscores"
+
+    # Validate sub_tag if present (alphanumeric, hyphens, underscores, dots for versions)
+    if sub_tag:
+        sub_tag_pattern = r'^[a-zA-Z0-9._-]+$'
+        if not re.match(sub_tag_pattern, sub_tag):
+            return False, f"Invalid sub_tag '{sub_tag}': must be alphanumeric with hyphens/underscores/dots"
+
+    return True, None
+
+
+def matches_tag_prefix(full_tag: str, prefix: str) -> bool:
+    """
+    Check if full_tag matches or starts with the given prefix.
+
+    Task 459: Dot-separated tag hierarchy (ADR-001)
+    Enables hierarchical filtering by prefix matching.
+
+    Examples:
+        - matches_tag_prefix("project.feature", "project") -> True
+        - matches_tag_prefix("project.feature", "project.feature") -> True
+        - matches_tag_prefix("project.feature", "project.other") -> False
+        - matches_tag_prefix("numpy.1.24.0", "numpy") -> True
+
+    Args:
+        full_tag: The complete tag to check
+        prefix: The prefix to match against
+
+    Returns:
+        True if full_tag equals prefix or starts with prefix followed by dot
+    """
+    if full_tag == prefix:
+        return True
+    return full_tag.startswith(f"{prefix}.")
+
+
 # Configuration
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_COLLECTION_CONFIG = {
@@ -926,20 +1077,26 @@ def build_metadata_filters(
     filters: dict[str, Any] = None,
     branch: str = None,
     file_type: str = None,
-    project_id: str = None
+    project_id: str = None,
+    tag: str = None
 ) -> Filter | None:
     """
-    Build Qdrant filter with branch, file_type, and project_id conditions.
+    Build Qdrant filter with branch, file_type, project_id, and tag conditions.
+
+    Task 459: Added tag parameter for dot-separated tag hierarchy filtering.
 
     Args:
         filters: User-provided metadata filters
         branch: Git branch to filter by (None = current branch, "*" = all branches)
         file_type: File type to filter by ("code", "test", "docs", etc.)
         project_id: Project ID to filter by (for multi-tenant unified collections)
+        tag: Tag filter (supports main_tag or full_tag matching)
 
     Returns:
         Qdrant Filter object or None if no filters
     """
+    from qdrant_client.models import MatchText
+
     conditions = []
 
     # Add project_id filter for multi-tenant collections (Task 396)
@@ -956,6 +1113,19 @@ def build_metadata_filters(
     # Add file_type filter if specified
     if file_type:
         conditions.append(FieldCondition(key="file_type", match=MatchValue(value=file_type)))
+
+    # Task 459: Add tag filter for dot-separated tag hierarchy
+    # Supports filtering by main_tag (prefix match) or exact full_tag match
+    if tag:
+        # Check if tag is a prefix or exact match
+        # If tag contains a dot, it's likely a full_tag (exact match)
+        # If no dot, it's a main_tag (can use prefix matching on full_tag)
+        if "." in tag:
+            # Full tag - exact match on full_tag field
+            conditions.append(FieldCondition(key="full_tag", match=MatchValue(value=tag)))
+        else:
+            # Main tag only - match on main_tag field for prefix behavior
+            conditions.append(FieldCondition(key="main_tag", match=MatchValue(value=tag)))
 
     # Add user-provided filters
     if filters:
@@ -1102,6 +1272,11 @@ async def store(
     # Get current branch for metadata
     current_branch = get_current_branch(Path.cwd())
 
+    # Task 459: Generate dot-separated tag hierarchy for project content
+    # Format: main_tag.sub_tag where main_tag=project_id, sub_tag=branch
+    main_tag = generate_main_tag(project_id=project_id)
+    full_tag = generate_full_tag(main_tag, current_branch) if main_tag else None
+
     # Prepare metadata with project_id for multi-tenant filtering
     doc_metadata = {
         "title": title or f"Document {uuid.uuid4().hex[:8]}",
@@ -1110,6 +1285,8 @@ async def store(
         "document_type": document_type,
         "file_type": file_type,  # For file type filtering
         "branch": current_branch,  # For branch filtering
+        "main_tag": main_tag,  # Task 459: Hierarchical tag (project_id)
+        "full_tag": full_tag,  # Task 459: Full dot-separated tag (project_id.branch)
         "created_at": datetime.now(timezone.utc).isoformat(),
         "project": project_name or await get_project_name(),
         "content_preview": content[:200] + "..." if len(content) > 200 else content
@@ -1160,6 +1337,8 @@ async def store(
                 "chunks_created": response.chunks_created,
                 "file_type": file_type,
                 "branch": current_branch,
+                "main_tag": main_tag,  # Task 459: Tag hierarchy
+                "full_tag": full_tag,  # Task 459: Full dot-separated tag
                 "metadata": doc_metadata
             }
             # Task 457: Include activation warning if applicable
@@ -1182,13 +1361,14 @@ async def store(
         try:
             if state_manager:
                 # Queue content for daemon to process later
+                # Task 459: Use generated main_tag/full_tag for consistency
                 queue_id, is_new = await state_manager.enqueue_ingestion(
                     content=content,
                     collection=target_collection,
                     source_type=source,
                     priority=8,  # Default priority for user content
-                    main_tag=project_id,
-                    full_tag=f"{project_id}.{current_branch}" if current_branch else project_id,
+                    main_tag=main_tag,
+                    full_tag=full_tag,
                     metadata=doc_metadata,
                 )
 
@@ -1209,6 +1389,8 @@ async def store(
                     "content_length": len(content),
                     "file_type": file_type,
                     "branch": current_branch,
+                    "main_tag": main_tag,  # Task 459: Tag hierarchy
+                    "full_tag": full_tag,  # Task 459: Full dot-separated tag
                     "fallback_mode": "sqlite_queue",
                     "message": "Content queued for daemon processing. Will be ingested when daemon is available."
                 }
@@ -1321,7 +1503,8 @@ async def search(
     file_type: str = None,
     workspace_type: str = None,
     scope: str = "project",
-    include_libraries: bool = False
+    include_libraries: bool = False,
+    tag: str = None
 ) -> dict[str, Any]:
     """
     Search across collections with hybrid semantic + keyword matching.
@@ -1332,12 +1515,19 @@ async def search(
     - scope="all": Search projects + libraries collections (broadest)
     - include_libraries: Also search _libraries collection
 
+    NEW: Task 459 - Dot-separated tag hierarchy filtering
+    - tag="project_id": Filter by main tag (all branches of a project)
+    - tag="project_id.branch": Filter by full tag (specific project+branch)
+    - tag="numpy": Filter library by name
+    - tag="numpy.1.24.0": Filter library by specific version
+
     Architecture:
     - Searches unified _projects collection with project_id filtering
     - Optional parallel search in _libraries collection
     - Results merged using Reciprocal Rank Fusion (RRF)
     - Filters by Git branch (default: current branch, "*" = all branches)
     - Filters by file_type when specified
+    - Filters by tag for hierarchical organization (Task 459)
 
     Search modes:
     - mode="hybrid" -> combines semantic and keyword search
@@ -1357,6 +1547,11 @@ async def search(
         # Search project + include libraries
         search(query="datetime", include_libraries=True)
 
+        # Search by tag (Task 459)
+        search(query="config", tag="a1b2c3d4e5f6")              # All branches
+        search(query="config", tag="a1b2c3d4e5f6.main")         # main branch only
+        search(query="array", tag="numpy", include_libraries=True)  # numpy library
+
     Args:
         query: Search query text
         collection: Specific collection to search (overrides scope-based selection)
@@ -1370,6 +1565,7 @@ async def search(
         workspace_type: DEPRECATED - use file_type instead
         scope: Search scope - "project" (default), "global", or "all"
         include_libraries: Also search libraries collection (merged with RRF)
+        tag: Tag filter for hierarchical filtering (Task 459, e.g., "project_id" or "project_id.branch")
 
     Returns:
         Dict with search results, metadata, and performance info
@@ -1450,20 +1646,23 @@ async def search(
         if include_libraries and CANONICAL_COLLECTIONS["libraries"] not in search_collections:
             search_collections.append(CANONICAL_COLLECTIONS["libraries"])
 
-    # Build metadata filters with branch, file_type, and project_id
+    # Build metadata filters with branch, file_type, project_id, and tag (Task 459)
     search_filter = build_metadata_filters(
         filters=filters,
         branch=branch,
         file_type=file_type,
-        project_id=project_filter_id
+        project_id=project_filter_id,
+        tag=tag
     )
 
     # For libraries, we don't filter by branch (they're external documentation)
+    # Task 459: Library tag filtering uses library_name.version format
     library_filter = build_metadata_filters(
         filters=filters,
         branch="*",  # Don't filter libraries by branch
         file_type=file_type,
-        project_id=None  # Libraries have library_name, not project_id
+        project_id=None,  # Libraries have library_name, not project_id
+        tag=tag  # Task 459: Allow tag filtering for libraries (e.g., "numpy.1.24.0")
     )
 
     # Execute search based on mode
