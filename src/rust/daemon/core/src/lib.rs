@@ -11,6 +11,7 @@ use thiserror::Error;
 
 pub mod config;
 pub mod deletion_strategy;
+pub mod document_processor;
 pub mod embedding;
 pub mod error;
 pub mod file_classification;
@@ -43,6 +44,9 @@ pub use crate::deletion_strategy::{
     DeletionMode, DeletionCollectionType, DeletionStrategy, DeletionStrategyFactory,
     DynamicDeletionStrategy, CumulativeDeletionStrategy, BatchCleanupManager,
     DeletionError, DeletionResult, CleanupStats
+};
+pub use crate::document_processor::{
+    DocumentProcessor, DocumentProcessorError, DocumentProcessorResult
 };
 pub use crate::embedding::{
     EmbeddingGenerator, EmbeddingConfig, EmbeddingResult,
