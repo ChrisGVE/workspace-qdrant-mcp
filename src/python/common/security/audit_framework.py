@@ -460,6 +460,7 @@ class AuditLogger:
         async with self._lock:
             try:
                 with sqlite3.connect(self.database_path) as conn:
+                    conn.row_factory = sqlite3.Row
                     cursor = conn.cursor()
 
                     # Get all events ordered by timestamp
@@ -476,8 +477,7 @@ class AuditLogger:
 
                     # Verify each event's integrity hash
                     for row in rows:
-                        event_id = row[0]
-                        row[1]
+                        event_id = row['event_id']
 
                         # Get full event and verify
                         cursor.execute("""
@@ -485,8 +485,7 @@ class AuditLogger:
                         """, (event_id,))
 
                         event_row = cursor.fetchone()
-                        event = self._row_to_audit_event(sqlite3.Row(event_row,
-                                                                   [d[0] for d in cursor.description]))
+                        event = self._row_to_audit_event(event_row)
 
                         if event.verify_integrity():
                             verified_events += 1
