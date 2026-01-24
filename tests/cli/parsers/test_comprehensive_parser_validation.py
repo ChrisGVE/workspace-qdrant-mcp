@@ -974,19 +974,19 @@ class TestParserErrorHandling:
     @pytest.mark.asyncio
     async def test_permission_denied_handling(self):
         """Test handling of permission-denied files."""
+        from unittest.mock import patch, mock_open
+
         parsers = [TextParser(), CodeParser(), HtmlParser(), MarkdownParser()]
 
-        # Create a file and remove read permissions (Unix/Linux/Mac)
+        # Create a file for testing
         with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as tmp:
             tmp.write("test content")
             tmp.flush()
-
             restricted_file = Path(tmp.name)
 
-            try:
-                # Remove read permissions
-                restricted_file.chmod(0o000)
-
+        try:
+            # Mock file open to raise PermissionError
+            with patch('builtins.open', side_effect=PermissionError("Permission denied")):
                 for parser in parsers:
                     if parser.can_parse(restricted_file):
                         try:
@@ -996,14 +996,12 @@ class TestParserErrorHandling:
                             pass  # Expected
                         except Exception as e:
                             print(f"Unexpected error from {parser.format_name}: {e}")
-
-            finally:
-                # Restore permissions for cleanup
-                try:
-                    restricted_file.chmod(0o644)
-                    restricted_file.unlink()
-                except Exception:
-                    pass
+        finally:
+            # Cleanup
+            try:
+                restricted_file.unlink()
+            except Exception:
+                pass
 
 
 @pytest.mark.performance
