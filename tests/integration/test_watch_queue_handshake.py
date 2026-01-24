@@ -590,3 +590,175 @@ class TestErrorStatisticsAggregation:
         assert config.last_success_at is not None
         # Error timestamp should be preserved
         assert config.last_error_at == error_time
+
+
+class TestWatchPriorityAdjustment:
+    """Test watch priority adjustment based on health status (Task 461.17)."""
+
+    @pytest.mark.asyncio
+    async def test_default_watch_priority(self, state_manager, sample_watch_config):
+        """Test that watches have default priority of 5."""
+        await state_manager.save_watch_folder_config(sample_watch_config)
+
+        config = await state_manager.get_watch_folder_config(sample_watch_config.watch_id)
+        assert config.watch_priority == 5
+
+    @pytest.mark.asyncio
+    async def test_custom_watch_priority(self, state_manager):
+        """Test setting custom watch priority."""
+        watch = WatchFolderConfig(
+            watch_id="high_priority_watch",
+            path="/tmp/high_priority",
+            collection="_test",
+            patterns=["*.txt"],
+            ignore_patterns=[],
+            enabled=True,
+            watch_priority=8,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        await state_manager.save_watch_folder_config(watch)
+
+        config = await state_manager.get_watch_folder_config("high_priority_watch")
+        assert config.watch_priority == 8
+
+    @pytest.mark.asyncio
+    async def test_priority_clamped_to_valid_range(self):
+        """Test that priority values are clamped to 0-10."""
+        # Too high priority should be clamped to 10
+        watch_high = WatchFolderConfig(
+            watch_id="test_high",
+            path="/tmp/test",
+            collection="_test",
+            patterns=["*.txt"],
+            ignore_patterns=[],
+            enabled=True,
+            watch_priority=15,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        assert watch_high.watch_priority == 10
+
+        # Negative priority should be set to default 5
+        watch_low = WatchFolderConfig(
+            watch_id="test_low",
+            path="/tmp/test",
+            collection="_test",
+            patterns=["*.txt"],
+            ignore_patterns=[],
+            enabled=True,
+            watch_priority=-1,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        assert watch_low.watch_priority == 5
+
+    @pytest.mark.asyncio
+    async def test_effective_priority_healthy_recent_success(self):
+        """Test effective priority boost for healthy watches with recent success."""
+        recent_success = datetime.now(timezone.utc) - timedelta(minutes=30)
+        watch = WatchFolderConfig(
+            watch_id="test",
+            path="/tmp/test",
+            collection="_test",
+            patterns=["*.txt"],
+            ignore_patterns=[],
+            enabled=True,
+            watch_priority=5,
+            health_status="healthy",
+            consecutive_errors=0,
+            last_success_at=recent_success,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        # Healthy with recent success gets +1 boost
+        assert watch.calculate_effective_priority() == 6
+
+    @pytest.mark.asyncio
+    async def test_effective_priority_degraded(self):
+        """Test effective priority decrease for degraded watches."""
+        watch = WatchFolderConfig(
+            watch_id="test",
+            path="/tmp/test",
+            collection="_test",
+            patterns=["*.txt"],
+            ignore_patterns=[],
+            enabled=True,
+            watch_priority=5,
+            health_status="degraded",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        # Degraded gets -1
+        assert watch.calculate_effective_priority() == 4
+
+    @pytest.mark.asyncio
+    async def test_effective_priority_backoff(self):
+        """Test effective priority decrease for watches in backoff."""
+        watch = WatchFolderConfig(
+            watch_id="test",
+            path="/tmp/test",
+            collection="_test",
+            patterns=["*.txt"],
+            ignore_patterns=[],
+            enabled=True,
+            watch_priority=5,
+            health_status="backoff",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        # Backoff gets -2
+        assert watch.calculate_effective_priority() == 3
+
+    @pytest.mark.asyncio
+    async def test_effective_priority_disabled_is_zero(self):
+        """Test that disabled watches have effective priority of 0."""
+        watch = WatchFolderConfig(
+            watch_id="test",
+            path="/tmp/test",
+            collection="_test",
+            patterns=["*.txt"],
+            ignore_patterns=[],
+            enabled=True,
+            watch_priority=8,
+            health_status="disabled",
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
+        )
+        # Disabled always has priority 0
+        assert watch.calculate_effective_priority() == 0
+
+    @pytest.mark.asyncio
+    async def test_order_by_priority(self, state_manager):
+        """Test that watches can be ordered by priority."""
+        watches = [
+            ("watch_low", 2),
+            ("watch_high", 9),
+            ("watch_med", 5),
+        ]
+
+        for watch_id, priority in watches:
+            watch = WatchFolderConfig(
+                watch_id=watch_id,
+                path=f"/tmp/{watch_id}",
+                collection="_test",
+                patterns=["*.txt"],
+                ignore_patterns=[],
+                enabled=True,
+                watch_priority=priority,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            await state_manager.save_watch_folder_config(watch)
+
+        # Get all watches ordered by priority
+        all_watches = await state_manager.get_all_watch_folder_configs(order_by_priority=True)
+
+        assert len(all_watches) == 3
+        # Should be ordered by priority descending
+        assert all_watches[0].watch_id == "watch_high"
+        assert all_watches[0].watch_priority == 9
+        assert all_watches[1].watch_id == "watch_med"
+        assert all_watches[1].watch_priority == 5
+        assert all_watches[2].watch_id == "watch_low"
+        assert all_watches[2].watch_priority == 2

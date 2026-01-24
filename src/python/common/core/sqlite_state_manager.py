@@ -189,6 +189,12 @@ class WatchFolderConfig:
     - backoff_until: When to resume after backoff period
     - last_success_at: Timestamp of most recent successful processing
     - health_status: Current health state (healthy/degraded/backoff/disabled)
+
+    Priority adjustment (Task 461.17):
+    - watch_priority: Priority level 0-10 (default: 5)
+      - degraded watches get -1 priority
+      - backoff watches get -2 priority
+      - healthy watches with recent successes get +1 priority boost
     """
 
     watch_id: str
@@ -216,6 +222,8 @@ class WatchFolderConfig:
     backoff_until: datetime | None = None
     last_success_at: datetime | None = None
     health_status: str = "healthy"  # healthy, degraded, backoff, disabled
+    # Priority adjustment fields (Task 461.17)
+    watch_priority: int = 5  # 0-10, default 5
 
     def __post_init__(self):
         if self.created_at is None:
@@ -228,6 +236,37 @@ class WatchFolderConfig:
         # Validate health_status (Task 461)
         if self.health_status not in ("healthy", "degraded", "backoff", "disabled"):
             self.health_status = "healthy"
+        # Validate watch_priority (Task 461.17)
+        if not isinstance(self.watch_priority, int) or self.watch_priority < 0:
+            self.watch_priority = 5
+        elif self.watch_priority > 10:
+            self.watch_priority = 10
+
+    def calculate_effective_priority(self) -> int:
+        """Calculate effective priority based on health status (Task 461.17).
+
+        Returns:
+            Effective priority (0-10) adjusted for health status
+        """
+        base_priority = self.watch_priority
+
+        # Adjust based on health status
+        if self.health_status == "degraded":
+            base_priority -= 1
+        elif self.health_status == "backoff":
+            base_priority -= 2
+        elif self.health_status == "disabled":
+            base_priority = 0  # Lowest priority
+        elif self.health_status == "healthy":
+            # Boost priority if recent success and no errors
+            if self.last_success_at and self.consecutive_errors == 0:
+                # Check if success was recent (within last hour)
+                now = datetime.now(timezone.utc)
+                if (now - self.last_success_at).total_seconds() < 3600:
+                    base_priority += 1
+
+        # Clamp to valid range
+        return max(0, min(10, base_priority))
 
 
 @dataclass
@@ -321,7 +360,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 9  # v9: Add error tracking fields to watch_folders (Task 461)
+    SCHEMA_VERSION = 10  # v10: Add watch_priority field for priority adjustment (Task 461.17)
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -560,13 +599,17 @@ class SQLiteStateManager:
                 last_error_message TEXT,
                 backoff_until TIMESTAMP,
                 last_success_at TIMESTAMP,
-                health_status TEXT NOT NULL DEFAULT 'healthy'  -- healthy, degraded, backoff, disabled
+                health_status TEXT NOT NULL DEFAULT 'healthy',  -- healthy, degraded, backoff, disabled
+                -- Priority adjustment (Task 461.17)
+                watch_priority INTEGER NOT NULL DEFAULT 5 CHECK (watch_priority >= 0 AND watch_priority <= 10)
             )
             """,
             # Indexes for watch_folders
             "CREATE INDEX idx_watch_folders_path ON watch_folders(path)",
             "CREATE INDEX idx_watch_folders_enabled ON watch_folders(enabled)",
             "CREATE INDEX idx_watch_folders_collection ON watch_folders(collection)",
+            "CREATE INDEX idx_watch_folders_priority ON watch_folders(watch_priority DESC)",
+            "CREATE INDEX idx_watch_folders_health_status ON watch_folders(health_status)",
             # Processing queue
             """
             CREATE TABLE processing_queue (
@@ -1216,6 +1259,26 @@ class SQLiteStateManager:
                             raise
 
                 logger.info("Successfully migrated to schema version 9 (watch folder error tracking)")
+
+            # Migrate from version 9 to version 10 - Watch priority adjustment (Task 461.17)
+            if from_version <= 9 and to_version >= 10:
+                logger.info("Applying migration: v9 -> v10 (watch priority adjustment)")
+                priority_sql = [
+                    # Add watch_priority column to watch_folders table
+                    "ALTER TABLE watch_folders ADD COLUMN watch_priority INTEGER NOT NULL DEFAULT 5",
+                    # Add index for priority-based queries
+                    "CREATE INDEX IF NOT EXISTS idx_watch_folders_priority ON watch_folders(watch_priority DESC)",
+                ]
+
+                for sql in priority_sql:
+                    try:
+                        conn.execute(sql)
+                    except Exception as e:
+                        # Ignore if column already exists (idempotent migration)
+                        if "duplicate column" not in str(e).lower():
+                            raise
+
+                logger.info("Successfully migrated to schema version 10 (watch priority adjustment)")
 
             # Record the migration
             conn.execute(
@@ -2974,10 +3037,10 @@ class SQLiteStateManager:
                      watch_type, library_name,
                      created_at, updated_at, metadata,
                      consecutive_errors, total_errors, last_error_at, last_error_message,
-                     backoff_until, last_success_at, health_status)
+                     backoff_until, last_success_at, health_status, watch_priority)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                            COALESCE((SELECT created_at FROM watch_folders WHERE watch_id = ?), CURRENT_TIMESTAMP),
-                           CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)
+                           CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         config.watch_id,
@@ -3001,10 +3064,11 @@ class SQLiteStateManager:
                         config.backoff_until.isoformat() if config.backoff_until else None,
                         config.last_success_at.isoformat() if config.last_success_at else None,
                         config.health_status,
+                        config.watch_priority,
                     ),
                 )
 
-            logger.debug(f"Saved watch folder config: {config.watch_id} (type={config.watch_type}, health={config.health_status})")
+            logger.debug(f"Saved watch folder config: {config.watch_id} (type={config.watch_type}, health={config.health_status}, priority={config.watch_priority})")
             return True
 
         except Exception as e:
@@ -3024,7 +3088,7 @@ class SQLiteStateManager:
                            watch_type, library_name,
                            created_at, updated_at, last_scan, metadata,
                            consecutive_errors, total_errors, last_error_at, last_error_message,
-                           backoff_until, last_success_at, health_status
+                           backoff_until, last_success_at, health_status, watch_priority
                     FROM watch_folders
                     WHERE watch_id = ?
                     """,
@@ -3081,6 +3145,8 @@ class SQLiteStateManager:
                     if row["last_success_at"]
                     else None,
                     health_status=row["health_status"] or "healthy",
+                    # Priority adjustment (Task 461.17)
+                    watch_priority=row["watch_priority"] if row["watch_priority"] is not None else 5,
                 )
 
         except Exception as e:
@@ -3088,9 +3154,14 @@ class SQLiteStateManager:
             return None
 
     async def get_all_watch_folder_configs(
-        self, enabled_only: bool = True
+        self, enabled_only: bool = True, order_by_priority: bool = False
     ) -> list[WatchFolderConfig]:
-        """Get all watch folder configurations."""
+        """Get all watch folder configurations.
+
+        Args:
+            enabled_only: If True, only return enabled watches (default: True)
+            order_by_priority: If True, order by watch_priority DESC (Task 461.17)
+        """
         try:
             with self._lock:
                 sql = """
@@ -3099,14 +3170,17 @@ class SQLiteStateManager:
                            watch_type, library_name,
                            created_at, updated_at, last_scan, metadata,
                            consecutive_errors, total_errors, last_error_at, last_error_message,
-                           backoff_until, last_success_at, health_status
+                           backoff_until, last_success_at, health_status, watch_priority
                     FROM watch_folders
                 """
 
                 if enabled_only:
                     sql += " WHERE enabled = 1"
 
-                sql += " ORDER BY created_at ASC"
+                if order_by_priority:
+                    sql += " ORDER BY watch_priority DESC, created_at ASC"
+                else:
+                    sql += " ORDER BY created_at ASC"
 
                 cursor = self.connection.execute(sql)
                 rows = cursor.fetchall()
@@ -3162,6 +3236,8 @@ class SQLiteStateManager:
                             if row["last_success_at"]
                             else None,
                             health_status=row["health_status"] or "healthy",
+                            # Priority adjustment (Task 461.17)
+                            watch_priority=row["watch_priority"] if row["watch_priority"] is not None else 5,
                         )
                     )
 
@@ -3427,7 +3503,7 @@ class SQLiteStateManager:
                            watch_type, library_name,
                            created_at, updated_at, last_scan, metadata,
                            consecutive_errors, total_errors, last_error_at, last_error_message,
-                           backoff_until, last_success_at, health_status
+                           backoff_until, last_success_at, health_status, watch_priority
                     FROM watch_folders
                     WHERE health_status = ?
                     ORDER BY created_at ASC
@@ -3484,6 +3560,7 @@ class SQLiteStateManager:
                             if row["last_success_at"]
                             else None,
                             health_status=row["health_status"] or "healthy",
+                            watch_priority=row["watch_priority"] if row["watch_priority"] is not None else 5,
                         )
                     )
 
@@ -3512,7 +3589,7 @@ class SQLiteStateManager:
                            watch_type, library_name,
                            created_at, updated_at, last_scan, metadata,
                            consecutive_errors, total_errors, last_error_at, last_error_message,
-                           backoff_until, last_success_at, health_status
+                           backoff_until, last_success_at, health_status, watch_priority
                     FROM watch_folders
                     WHERE backoff_until IS NOT NULL AND backoff_until > ?
                     ORDER BY backoff_until ASC
@@ -3569,6 +3646,7 @@ class SQLiteStateManager:
                             if row["last_success_at"]
                             else None,
                             health_status=row["health_status"] or "healthy",
+                            watch_priority=row["watch_priority"] if row["watch_priority"] is not None else 5,
                         )
                     )
 
