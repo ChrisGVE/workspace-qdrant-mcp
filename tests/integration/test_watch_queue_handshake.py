@@ -1015,3 +1015,191 @@ class TestErrorPatternDetection:
             sample_watch_config.watch_id,
             "/tmp/temp_exclude.txt"
         )
+
+
+class TestGracefulDegradation:
+    """Test graceful degradation functionality (Task 461.19)."""
+
+    @pytest.mark.asyncio
+    async def test_initial_degradation_state_is_normal(self, state_manager):
+        """Test that initial degradation state is normal."""
+        from common.core.sqlite_state_manager import DegradationLevel
+
+        state = await state_manager.get_degradation_state()
+        assert state.level == DegradationLevel.NORMAL
+        assert not state.is_degraded()
+        assert state.polling_interval_multiplier == 1.0
+
+    @pytest.mark.asyncio
+    async def test_save_and_load_degradation_state(self, state_manager):
+        """Test saving and loading degradation state."""
+        from common.core.sqlite_state_manager import DegradationState, DegradationLevel
+
+        # Create a custom state
+        state = DegradationState(
+            level=DegradationLevel.MODERATE,
+            queue_depth=3500,
+            throughput=50.0,
+            memory_usage=0.6,
+            polling_interval_multiplier=2.0,
+            paused_watch_ids=["watch_1", "watch_2"],
+        )
+
+        # Save it
+        success = await state_manager.save_degradation_state(state)
+        assert success
+
+        # Load it back
+        loaded = await state_manager.get_degradation_state()
+        assert loaded.level == DegradationLevel.MODERATE
+        assert loaded.queue_depth == 3500
+        assert loaded.polling_interval_multiplier == 2.0
+        assert len(loaded.paused_watch_ids) == 2
+
+    @pytest.mark.asyncio
+    async def test_force_degradation_level(self, state_manager):
+        """Test forcing a specific degradation level."""
+        from common.core.sqlite_state_manager import DegradationLevel
+
+        # Force severe degradation
+        state = await state_manager.force_degradation_level(DegradationLevel.SEVERE)
+
+        assert state.level == DegradationLevel.SEVERE
+        assert state.is_degraded()
+        assert state.polling_interval_multiplier == 4.0  # Severe multiplier
+
+    @pytest.mark.asyncio
+    async def test_reset_degradation_state(self, state_manager):
+        """Test resetting degradation state to normal."""
+        from common.core.sqlite_state_manager import DegradationLevel
+
+        # First force degradation
+        await state_manager.force_degradation_level(DegradationLevel.MODERATE)
+
+        # Then reset
+        success = await state_manager.reset_degradation_state()
+        assert success
+
+        # Verify reset
+        state = await state_manager.get_degradation_state()
+        assert state.level == DegradationLevel.NORMAL
+        assert not state.is_degraded()
+        assert state.polling_interval_multiplier == 1.0
+
+    @pytest.mark.asyncio
+    async def test_degradation_pauses_low_priority_watches(self, state_manager):
+        """Test that degradation pauses low priority watches."""
+        from common.core.sqlite_state_manager import DegradationLevel
+
+        # Create watches with different priorities
+        for priority in [2, 5, 8]:
+            watch = WatchFolderConfig(
+                watch_id=f"watch_p{priority}",
+                path=f"/tmp/watch_p{priority}",
+                collection="_test",
+                patterns=["*.txt"],
+                ignore_patterns=[],
+                enabled=True,
+                watch_priority=priority,
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            await state_manager.save_watch_folder_config(watch)
+
+        # Force moderate degradation (pauses priority <= 3)
+        await state_manager.force_degradation_level(DegradationLevel.MODERATE)
+
+        # Check which watches are paused
+        is_p2_paused = await state_manager.is_watch_degradation_paused("watch_p2")
+        is_p5_paused = await state_manager.is_watch_degradation_paused("watch_p5")
+        is_p8_paused = await state_manager.is_watch_degradation_paused("watch_p8")
+
+        assert is_p2_paused  # Priority 2 <= 3
+        assert not is_p5_paused  # Priority 5 > 3
+        assert not is_p8_paused  # Priority 8 > 3
+
+    @pytest.mark.asyncio
+    async def test_get_adjusted_polling_interval(self, state_manager):
+        """Test getting adjusted polling interval."""
+        from common.core.sqlite_state_manager import DegradationLevel
+
+        base_interval = 1000  # 1 second
+
+        # Normal state - no adjustment
+        await state_manager.reset_degradation_state()
+        adjusted = await state_manager.get_adjusted_polling_interval(base_interval)
+        assert adjusted == 1000
+
+        # Moderate degradation - 2x adjustment
+        await state_manager.force_degradation_level(DegradationLevel.MODERATE)
+        adjusted = await state_manager.get_adjusted_polling_interval(base_interval)
+        assert adjusted == 2000
+
+        # Severe degradation - 4x adjustment
+        await state_manager.force_degradation_level(DegradationLevel.SEVERE)
+        adjusted = await state_manager.get_adjusted_polling_interval(base_interval)
+        assert adjusted == 4000
+
+    @pytest.mark.asyncio
+    async def test_get_degradation_summary(self, state_manager):
+        """Test getting degradation summary."""
+        from common.core.sqlite_state_manager import DegradationLevel
+
+        # Set a degraded state
+        await state_manager.force_degradation_level(DegradationLevel.MODERATE)
+
+        summary = await state_manager.get_degradation_summary()
+
+        assert summary["level"] == "moderate"
+        assert summary["is_degraded"] == True
+        assert "metrics" in summary
+        assert "thresholds" in summary
+        assert "actions" in summary
+        assert summary["actions"]["polling_interval_multiplier"] == 2.0
+
+    @pytest.mark.asyncio
+    async def test_degradation_level_order(self):
+        """Test degradation level ordering."""
+        from common.core.sqlite_state_manager import DegradationLevel
+
+        levels = [
+            DegradationLevel.NORMAL,
+            DegradationLevel.LIGHT,
+            DegradationLevel.MODERATE,
+            DegradationLevel.SEVERE,
+            DegradationLevel.CRITICAL,
+        ]
+
+        # Verify ordering by value
+        assert levels[0].value == "normal"
+        assert levels[4].value == "critical"
+
+    @pytest.mark.asyncio
+    async def test_degradation_state_to_dict(self):
+        """Test DegradationState to_dict method."""
+        from common.core.sqlite_state_manager import DegradationState, DegradationLevel
+
+        state = DegradationState(
+            level=DegradationLevel.MODERATE,
+            queue_depth=1500,
+            throughput=75.0,
+            paused_watch_ids=["w1"],
+        )
+
+        data = state.to_dict()
+
+        assert data["level"] == "moderate"
+        assert data["queue_depth"] == 1500
+        assert data["throughput"] == 75.0
+        assert data["paused_watch_ids"] == ["w1"]
+
+    @pytest.mark.asyncio
+    async def test_check_and_update_degradation(self, state_manager):
+        """Test automatic degradation check and update."""
+        # This test checks that the method runs without error
+        # Actual threshold-based testing requires mocking metrics
+        state = await state_manager.check_and_update_degradation()
+
+        assert state is not None
+        assert hasattr(state, "level")
+        assert hasattr(state, "queue_depth")

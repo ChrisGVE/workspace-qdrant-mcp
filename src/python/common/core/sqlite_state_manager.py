@@ -342,6 +342,92 @@ class WatchExclusion:
         return datetime.now(timezone.utc) > self.expires_at
 
 
+class DegradationLevel(Enum):
+    """System degradation level (Task 461.19)."""
+
+    NORMAL = "normal"  # Operating normally
+    LIGHT = "light"  # Slight load increase, minor adjustments
+    MODERATE = "moderate"  # Moderate load, throttling enabled
+    SEVERE = "severe"  # High load, aggressive throttling
+    CRITICAL = "critical"  # System overloaded, emergency measures
+
+
+@dataclass
+class DegradationConfig:
+    """Configuration for graceful degradation (Task 461.19)."""
+
+    # Queue depth thresholds
+    queue_depth_light: int = 1000  # Enter light degradation
+    queue_depth_moderate: int = 3000  # Enter moderate degradation
+    queue_depth_severe: int = 5000  # Enter severe degradation
+    queue_depth_critical: int = 10000  # Enter critical degradation
+
+    # Throughput thresholds (as percentage of target)
+    throughput_target: float = 100.0  # Items per second target
+    throughput_warning: float = 0.75  # 75% of target
+    throughput_critical: float = 0.50  # 50% of target
+
+    # Memory thresholds (as percentage of available)
+    memory_warning: float = 0.70  # 70% memory usage
+    memory_critical: float = 0.85  # 85% memory usage
+
+    # Polling interval adjustments (multipliers)
+    polling_interval_light: float = 1.5  # 50% slower
+    polling_interval_moderate: float = 2.0  # 2x slower
+    polling_interval_severe: float = 4.0  # 4x slower
+    polling_interval_critical: float = 10.0  # 10x slower
+
+    # Priority thresholds for pausing watches
+    pause_priority_moderate: int = 3  # Pause watches with priority <= 3 in moderate
+    pause_priority_severe: int = 5  # Pause watches with priority <= 5 in severe
+    pause_priority_critical: int = 8  # Pause watches with priority <= 8 in critical
+
+    # Recovery parameters
+    recovery_cooldown_seconds: int = 60  # Wait before recovering
+    recovery_steps: int = 3  # Number of steps to full recovery
+
+
+@dataclass
+class DegradationState:
+    """Current state of graceful degradation (Task 461.19)."""
+
+    level: DegradationLevel = DegradationLevel.NORMAL
+    entered_at: datetime = None
+    last_check_at: datetime = None
+    queue_depth: int = 0
+    throughput: float = 0.0
+    memory_usage: float = 0.0
+    paused_watch_ids: list[str] = None
+    polling_interval_multiplier: float = 1.0
+    recovery_step: int = 0  # 0 = not recovering, 1-3 = in recovery
+
+    def __post_init__(self):
+        if self.entered_at is None:
+            self.entered_at = datetime.now(timezone.utc)
+        if self.last_check_at is None:
+            self.last_check_at = self.entered_at
+        if self.paused_watch_ids is None:
+            self.paused_watch_ids = []
+
+    def is_degraded(self) -> bool:
+        """Check if system is in any degraded state."""
+        return self.level != DegradationLevel.NORMAL
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "level": self.level.value,
+            "entered_at": self.entered_at.isoformat() if self.entered_at else None,
+            "last_check_at": self.last_check_at.isoformat() if self.last_check_at else None,
+            "queue_depth": self.queue_depth,
+            "throughput": self.throughput,
+            "memory_usage": self.memory_usage,
+            "paused_watch_ids": self.paused_watch_ids,
+            "polling_interval_multiplier": self.polling_interval_multiplier,
+            "recovery_step": self.recovery_step,
+        }
+
+
 @dataclass
 class ProcessingQueueItem:
     """Item in the processing queue."""
@@ -4491,6 +4577,496 @@ class SQLiteStateManager:
         except Exception as e:
             logger.error(f"Failed to clear error patterns: {e}")
             return 0
+
+    # Graceful Degradation Management (Task 461.19)
+
+    def _get_degradation_state_key(self) -> str:
+        """Get the system state key for degradation state."""
+        return "graceful_degradation_state"
+
+    async def get_degradation_state(self) -> DegradationState:
+        """Get current degradation state (Task 461.19).
+
+        Returns:
+            Current degradation state
+        """
+        try:
+            with self._lock:
+                cursor = self.connection.execute(
+                    "SELECT value FROM system_state WHERE key = ?",
+                    (self._get_degradation_state_key(),),
+                )
+                row = cursor.fetchone()
+
+                if row and row["value"]:
+                    data = self._deserialize_json(row["value"])
+                    if data:
+                        return DegradationState(
+                            level=DegradationLevel(data.get("level", "normal")),
+                            entered_at=datetime.fromisoformat(data["entered_at"].replace("Z", "+00:00"))
+                                if data.get("entered_at") else datetime.now(timezone.utc),
+                            last_check_at=datetime.fromisoformat(data["last_check_at"].replace("Z", "+00:00"))
+                                if data.get("last_check_at") else datetime.now(timezone.utc),
+                            queue_depth=data.get("queue_depth", 0),
+                            throughput=data.get("throughput", 0.0),
+                            memory_usage=data.get("memory_usage", 0.0),
+                            paused_watch_ids=data.get("paused_watch_ids", []),
+                            polling_interval_multiplier=data.get("polling_interval_multiplier", 1.0),
+                            recovery_step=data.get("recovery_step", 0),
+                        )
+
+            return DegradationState()
+
+        except Exception as e:
+            logger.error(f"Failed to get degradation state: {e}")
+            return DegradationState()
+
+    async def save_degradation_state(self, state: DegradationState) -> bool:
+        """Save degradation state (Task 461.19).
+
+        Args:
+            state: The degradation state to save
+
+        Returns:
+            True if saved successfully
+        """
+        try:
+            state.last_check_at = datetime.now(timezone.utc)
+
+            async with self.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO system_state (key, value, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                    ON CONFLICT(key) DO UPDATE SET
+                        value = excluded.value,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (self._get_degradation_state_key(), self._serialize_json(state.to_dict())),
+                )
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to save degradation state: {e}")
+            return False
+
+    async def check_and_update_degradation(
+        self,
+        config: DegradationConfig | None = None,
+    ) -> DegradationState:
+        """Check system metrics and update degradation state (Task 461.19).
+
+        Monitors queue depth, throughput, and memory usage to determine
+        the appropriate degradation level.
+
+        Args:
+            config: Degradation configuration (uses defaults if None)
+
+        Returns:
+            Updated degradation state
+        """
+        try:
+            config = config or DegradationConfig()
+            current_state = await self.get_degradation_state()
+            now = datetime.now(timezone.utc)
+
+            # Get current metrics
+            queue_depth = await self._get_total_queue_depth()
+            throughput = await self._get_recent_throughput()
+            memory_usage = self._get_memory_usage()
+
+            # Determine new degradation level
+            new_level = self._calculate_degradation_level(
+                config, queue_depth, throughput, memory_usage
+            )
+
+            # Check if we should transition
+            old_level = current_state.level
+            should_transition = False
+
+            if new_level.value != old_level.value:
+                # Determine transition direction
+                level_order = [
+                    DegradationLevel.NORMAL,
+                    DegradationLevel.LIGHT,
+                    DegradationLevel.MODERATE,
+                    DegradationLevel.SEVERE,
+                    DegradationLevel.CRITICAL,
+                ]
+                old_idx = level_order.index(old_level)
+                new_idx = level_order.index(new_level)
+
+                if new_idx > old_idx:
+                    # Degrading - transition immediately
+                    should_transition = True
+                    current_state.recovery_step = 0
+                elif new_idx < old_idx:
+                    # Recovering - check cooldown and use gradual recovery
+                    time_since_entered = (now - current_state.entered_at).total_seconds()
+                    if time_since_entered >= config.recovery_cooldown_seconds:
+                        # Recover one step at a time
+                        current_state.recovery_step += 1
+                        if current_state.recovery_step >= config.recovery_steps:
+                            should_transition = True
+                            current_state.recovery_step = 0
+
+            if should_transition:
+                logger.warning(
+                    f"Degradation level changed: {old_level.value} -> {new_level.value} "
+                    f"(queue={queue_depth}, throughput={throughput:.1f}, memory={memory_usage:.1%})"
+                )
+                current_state.level = new_level
+                current_state.entered_at = now
+
+                # Apply degradation actions
+                await self._apply_degradation_actions(config, current_state)
+
+            # Update metrics
+            current_state.queue_depth = queue_depth
+            current_state.throughput = throughput
+            current_state.memory_usage = memory_usage
+            current_state.polling_interval_multiplier = self._get_polling_multiplier(config, current_state.level)
+
+            # Save state
+            await self.save_degradation_state(current_state)
+
+            return current_state
+
+        except Exception as e:
+            logger.error(f"Failed to check degradation: {e}")
+            return DegradationState()
+
+    def _calculate_degradation_level(
+        self,
+        config: DegradationConfig,
+        queue_depth: int,
+        throughput: float,
+        memory_usage: float,
+    ) -> DegradationLevel:
+        """Calculate appropriate degradation level based on metrics."""
+        # Check queue depth
+        if queue_depth >= config.queue_depth_critical:
+            return DegradationLevel.CRITICAL
+        if queue_depth >= config.queue_depth_severe:
+            return DegradationLevel.SEVERE
+        if queue_depth >= config.queue_depth_moderate:
+            return DegradationLevel.MODERATE
+        if queue_depth >= config.queue_depth_light:
+            return DegradationLevel.LIGHT
+
+        # Check throughput
+        if config.throughput_target > 0:
+            throughput_ratio = throughput / config.throughput_target
+            if throughput_ratio < config.throughput_critical:
+                return DegradationLevel.SEVERE
+            if throughput_ratio < config.throughput_warning:
+                return DegradationLevel.MODERATE
+
+        # Check memory
+        if memory_usage >= config.memory_critical:
+            return DegradationLevel.SEVERE
+        if memory_usage >= config.memory_warning:
+            return DegradationLevel.MODERATE
+
+        return DegradationLevel.NORMAL
+
+    def _get_polling_multiplier(
+        self,
+        config: DegradationConfig,
+        level: DegradationLevel,
+    ) -> float:
+        """Get polling interval multiplier for degradation level."""
+        multipliers = {
+            DegradationLevel.NORMAL: 1.0,
+            DegradationLevel.LIGHT: config.polling_interval_light,
+            DegradationLevel.MODERATE: config.polling_interval_moderate,
+            DegradationLevel.SEVERE: config.polling_interval_severe,
+            DegradationLevel.CRITICAL: config.polling_interval_critical,
+        }
+        return multipliers.get(level, 1.0)
+
+    async def _apply_degradation_actions(
+        self,
+        config: DegradationConfig,
+        state: DegradationState,
+    ) -> None:
+        """Apply degradation actions based on current level."""
+        try:
+            level = state.level
+            previously_paused = set(state.paused_watch_ids)
+            newly_paused = set()
+
+            # Determine which watches to pause based on priority
+            pause_threshold = {
+                DegradationLevel.NORMAL: -1,  # Don't pause any
+                DegradationLevel.LIGHT: -1,  # Don't pause any
+                DegradationLevel.MODERATE: config.pause_priority_moderate,
+                DegradationLevel.SEVERE: config.pause_priority_severe,
+                DegradationLevel.CRITICAL: config.pause_priority_critical,
+            }.get(level, -1)
+
+            if pause_threshold >= 0:
+                # Get watches with priority at or below threshold
+                watches = await self.get_all_watch_folder_configs()
+                for watch in watches:
+                    effective_priority = watch.calculate_effective_priority()
+                    if effective_priority <= pause_threshold and watch.enabled:
+                        newly_paused.add(watch.watch_id)
+
+            # Resume watches that no longer need to be paused
+            to_resume = previously_paused - newly_paused
+            for watch_id in to_resume:
+                await self._set_watch_degradation_paused(watch_id, False)
+                logger.info(f"Resumed watch {watch_id} after degradation recovery")
+
+            # Pause watches that need to be paused
+            to_pause = newly_paused - previously_paused
+            for watch_id in to_pause:
+                await self._set_watch_degradation_paused(watch_id, True)
+                logger.warning(f"Paused watch {watch_id} due to degradation level {level.value}")
+
+            state.paused_watch_ids = list(newly_paused)
+
+        except Exception as e:
+            logger.error(f"Failed to apply degradation actions: {e}")
+
+    async def _set_watch_degradation_paused(self, watch_id: str, paused: bool) -> None:
+        """Set watch paused state due to degradation."""
+        try:
+            config = await self.get_watch_folder_config(watch_id)
+            if config:
+                # Store paused state in metadata
+                metadata = config.metadata or {}
+                metadata["degradation_paused"] = paused
+                metadata["degradation_paused_at"] = datetime.now(timezone.utc).isoformat() if paused else None
+
+                async with self.transaction() as conn:
+                    conn.execute(
+                        """
+                        UPDATE watch_folders
+                        SET metadata = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE watch_id = ?
+                        """,
+                        (self._serialize_json(metadata), watch_id),
+                    )
+
+        except Exception as e:
+            logger.error(f"Failed to set watch degradation pause: {e}")
+
+    async def _get_total_queue_depth(self) -> int:
+        """Get total queue depth across all collections."""
+        try:
+            with self._lock:
+                # Check ingestion_queue
+                cursor = self.connection.execute(
+                    "SELECT COUNT(*) as count FROM ingestion_queue"
+                )
+                row = cursor.fetchone()
+                ingestion_count = row["count"] if row else 0
+
+                # Check processing_queue
+                cursor = self.connection.execute(
+                    "SELECT COUNT(*) as count FROM processing_queue"
+                )
+                row = cursor.fetchone()
+                processing_count = row["count"] if row else 0
+
+                return ingestion_count + processing_count
+
+        except Exception as e:
+            logger.error(f"Failed to get queue depth: {e}")
+            return 0
+
+    async def _get_recent_throughput(self, window_seconds: int = 60) -> float:
+        """Get recent processing throughput (items per second)."""
+        try:
+            now = datetime.now(timezone.utc)
+            window_start = now - __import__("datetime").timedelta(seconds=window_seconds)
+
+            with self._lock:
+                cursor = self.connection.execute(
+                    """
+                    SELECT COUNT(*) as count
+                    FROM processing_history
+                    WHERE created_at >= ? AND status = 'completed'
+                    """,
+                    (window_start.isoformat(),),
+                )
+                row = cursor.fetchone()
+                count = row["count"] if row else 0
+
+            return count / window_seconds if window_seconds > 0 else 0.0
+
+        except Exception as e:
+            logger.error(f"Failed to get throughput: {e}")
+            return 0.0
+
+    def _get_memory_usage(self) -> float:
+        """Get current memory usage as fraction (0.0-1.0)."""
+        try:
+            import psutil
+            process = psutil.Process()
+            memory_info = process.memory_info()
+            virtual_memory = psutil.virtual_memory()
+            return memory_info.rss / virtual_memory.total
+
+        except ImportError:
+            # psutil not available, return safe value
+            return 0.0
+        except Exception as e:
+            logger.error(f"Failed to get memory usage: {e}")
+            return 0.0
+
+    async def is_watch_degradation_paused(self, watch_id: str) -> bool:
+        """Check if a watch is paused due to degradation (Task 461.19).
+
+        Args:
+            watch_id: The watch folder ID
+
+        Returns:
+            True if watch is paused due to degradation
+        """
+        try:
+            config = await self.get_watch_folder_config(watch_id)
+            if config and config.metadata:
+                return config.metadata.get("degradation_paused", False)
+            return False
+
+        except Exception as e:
+            logger.error(f"Failed to check watch degradation pause: {e}")
+            return False
+
+    async def get_adjusted_polling_interval(
+        self,
+        base_interval_ms: int,
+    ) -> int:
+        """Get adjusted polling interval based on degradation state (Task 461.19).
+
+        Args:
+            base_interval_ms: Base polling interval in milliseconds
+
+        Returns:
+            Adjusted polling interval
+        """
+        try:
+            state = await self.get_degradation_state()
+            return int(base_interval_ms * state.polling_interval_multiplier)
+
+        except Exception as e:
+            logger.error(f"Failed to get adjusted polling interval: {e}")
+            return base_interval_ms
+
+    async def get_degradation_summary(self) -> dict[str, Any]:
+        """Get summary of current degradation state (Task 461.19).
+
+        Returns:
+            Summary dictionary with degradation information
+        """
+        try:
+            state = await self.get_degradation_state()
+            config = DegradationConfig()
+
+            return {
+                "level": state.level.value,
+                "is_degraded": state.is_degraded(),
+                "entered_at": state.entered_at.isoformat() if state.entered_at else None,
+                "duration_seconds": (datetime.now(timezone.utc) - state.entered_at).total_seconds()
+                    if state.entered_at else 0,
+                "metrics": {
+                    "queue_depth": state.queue_depth,
+                    "throughput": state.throughput,
+                    "memory_usage": state.memory_usage,
+                },
+                "thresholds": {
+                    "queue_depth_critical": config.queue_depth_critical,
+                    "throughput_target": config.throughput_target,
+                    "memory_critical": config.memory_critical,
+                },
+                "actions": {
+                    "polling_interval_multiplier": state.polling_interval_multiplier,
+                    "paused_watch_count": len(state.paused_watch_ids),
+                    "paused_watch_ids": state.paused_watch_ids,
+                },
+                "recovery": {
+                    "step": state.recovery_step,
+                    "total_steps": config.recovery_steps,
+                    "in_recovery": state.recovery_step > 0,
+                },
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to get degradation summary: {e}")
+            return {"error": str(e)}
+
+    async def force_degradation_level(
+        self,
+        level: DegradationLevel,
+        config: DegradationConfig | None = None,
+    ) -> DegradationState:
+        """Force a specific degradation level (for testing) (Task 461.19).
+
+        Args:
+            level: The degradation level to force
+            config: Optional configuration
+
+        Returns:
+            Updated degradation state
+        """
+        try:
+            config = config or DegradationConfig()
+            state = await self.get_degradation_state()
+
+            old_level = state.level
+            state.level = level
+            state.entered_at = datetime.now(timezone.utc)
+            state.recovery_step = 0
+            state.polling_interval_multiplier = self._get_polling_multiplier(config, level)
+
+            await self._apply_degradation_actions(config, state)
+            await self.save_degradation_state(state)
+
+            logger.warning(f"Forced degradation level: {old_level.value} -> {level.value}")
+
+            return state
+
+        except Exception as e:
+            logger.error(f"Failed to force degradation level: {e}")
+            return DegradationState()
+
+    async def reset_degradation_state(self) -> bool:
+        """Reset degradation state to normal (Task 461.19).
+
+        Resumes all paused watches and resets metrics.
+
+        Returns:
+            True if reset successfully
+        """
+        try:
+            state = await self.get_degradation_state()
+
+            # Resume all paused watches
+            for watch_id in state.paused_watch_ids:
+                await self._set_watch_degradation_paused(watch_id, False)
+                logger.info(f"Resumed watch {watch_id} after degradation reset")
+
+            # Reset state
+            new_state = DegradationState(
+                level=DegradationLevel.NORMAL,
+                entered_at=datetime.now(timezone.utc),
+                paused_watch_ids=[],
+                polling_interval_multiplier=1.0,
+                recovery_step=0,
+            )
+
+            await self.save_degradation_state(new_state)
+            logger.info("Degradation state reset to normal")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to reset degradation state: {e}")
+            return False
 
     # Processing Queue Management
 
