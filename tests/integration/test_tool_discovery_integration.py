@@ -456,7 +456,7 @@ async def test_project_specific_tool_discovery_integration(
     node_bin = mock_project_root / "node_modules" / ".bin"
     venv_bin = mock_project_root / ".venv" / "bin"
 
-    # Create mock executables (with executable bit on Unix)
+    # Create mock executables
     mock_executables = {
         "typescript-language-server": node_bin,
         "pyright": venv_bin,
@@ -466,58 +466,56 @@ async def test_project_specific_tool_discovery_integration(
         exe_path = exe_dir / exe_name
         exe_path.write_text("#!/bin/sh\necho 'mock'")
 
-        # Make executable on Unix-like systems
-        if platform.system() != "Windows":
-            exe_path.chmod(0o755)
-
     # Create ToolDiscovery with project root
     discovery = ToolDiscovery(project_root=mock_project_root)
 
-    # Find project-local tools
-    ts_server_path = discovery.find_lsp_executable(
-        "typescript", "typescript-language-server", mock_project_root
-    )
-    pyright_path = discovery.find_lsp_executable(
-        "python", "pyright", mock_project_root
-    )
-
-    # Verify project-local paths are found
-    if platform.system() != "Windows":
-        assert ts_server_path is not None
-        assert "node_modules/.bin" in ts_server_path
-
-        assert pyright_path is not None
-        assert ".venv/bin" in pyright_path
-
-        # Update database with project-local paths
-        await db_integration.update_tool_path(
-            "typescript-language-server", ts_server_path, "lsp_server"
+    # Mock os.access to simulate executable files
+    with patch('os.access', return_value=True):
+        # Find project-local tools
+        ts_server_path = discovery.find_lsp_executable(
+            "typescript", "typescript-language-server", mock_project_root
         )
-        await db_integration.update_tool_path(
-            "pyright", pyright_path, "lsp_server"
+        pyright_path = discovery.find_lsp_executable(
+            "python", "pyright", mock_project_root
         )
 
-        # Verify database records
-        with state_manager._lock:
-            cursor = state_manager.connection.execute(
-                """
-                SELECT tool_name, absolute_path
-                FROM tools
-                WHERE tool_name IN ('typescript-language-server', 'pyright')
-                """
+        # Verify project-local paths are found
+        if platform.system() != "Windows":
+            assert ts_server_path is not None
+            assert "node_modules/.bin" in ts_server_path
+
+            assert pyright_path is not None
+            assert ".venv/bin" in pyright_path
+
+            # Update database with project-local paths
+            await db_integration.update_tool_path(
+                "typescript-language-server", ts_server_path, "lsp_server"
             )
-            rows = cursor.fetchall()
+            await db_integration.update_tool_path(
+                "pyright", pyright_path, "lsp_server"
+            )
 
-            assert len(rows) == 2
-
-            for row in rows:
-                # Verify paths contain project-local directories
-                path = row["absolute_path"]
-                assert (
-                    "node_modules/.bin" in path or
-                    ".venv/bin" in path or
-                    ".venv\\Scripts" in path  # Windows
+            # Verify database records
+            with state_manager._lock:
+                cursor = state_manager.connection.execute(
+                    """
+                    SELECT tool_name, absolute_path
+                    FROM tools
+                    WHERE tool_name IN ('typescript-language-server', 'pyright')
+                    """
                 )
+                rows = cursor.fetchall()
+
+                assert len(rows) == 2
+
+                for row in rows:
+                    # Verify paths contain project-local directories
+                    path = row["absolute_path"]
+                    assert (
+                        "node_modules/.bin" in path or
+                        ".venv/bin" in path or
+                        ".venv\\Scripts" in path  # Windows
+                    )
 
 
 @pytest.mark.asyncio
@@ -674,20 +672,19 @@ async def test_custom_paths_configuration(tool_discovery):
         mock_exe = temp_path / "custom-tool"
         mock_exe.write_text("#!/bin/sh\necho 'custom'")
 
-        # Make executable on Unix-like systems
+        # Mock os.access to simulate executable on Unix-like systems
         if platform.system() != "Windows":
-            mock_exe.chmod(0o755)
+            with patch('os.access', return_value=True):
+                # Create discovery with custom path
+                discovery = ToolDiscovery(
+                    config={"custom_paths": [str(temp_path)]}
+                )
 
-            # Create discovery with custom path
-            discovery = ToolDiscovery(
-                config={"custom_paths": [str(temp_path)]}
-            )
+                # Should find custom tool
+                found_path = discovery.find_executable("custom-tool")
 
-            # Should find custom tool
-            found_path = discovery.find_executable("custom-tool")
-
-            assert found_path is not None
-            assert temp_dir in found_path
+                assert found_path is not None
+                assert temp_dir in found_path
 
 
 @pytest.mark.asyncio
