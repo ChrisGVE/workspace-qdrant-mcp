@@ -1212,44 +1212,38 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_update_system_with_readonly_backup_dir(self, temp_backup_dir):
         """Test update system with read-only backup directory."""
-        # Make backup directory read-only
-        os.chmod(temp_backup_dir, 0o444)
+        system = IncrementalUpdateSystem(temp_backup_dir)
+
+        # Set up minimal test
+        async def test_callback(file_path, change_record):
+            pass
+
+        system.set_processing_callback(test_callback)
+
+        with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
+            f.write("Test content")
+            test_file = Path(f.name)
 
         try:
-            system = IncrementalUpdateSystem(temp_backup_dir)
+            await system.initialize_baseline([test_file])
 
-            # Set up minimal test
-            async def test_callback(file_path, change_record):
-                pass
+            # Modify file
+            with open(test_file, 'a') as f:
+                f.write("\nModified")
 
-            system.set_processing_callback(test_callback)
-
-            with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-                f.write("Test content")
-                test_file = Path(f.name)
-
-            try:
-                await system.initialize_baseline([test_file])
-
-                # Modify file
-                with open(test_file, 'a') as f:
-                    f.write("\nModified")
-
+            # Mock backup creation to simulate permission error
+            with patch.object(system.update_processor, '_create_backup', side_effect=PermissionError("Permission denied")):
                 # Process should handle backup creation failure gracefully
                 results = await system.process_file_changes([test_file])
 
                 # Should still detect changes even if backup fails
                 assert results["changes_detected"] >= 0
 
-            finally:
-                try:
-                    os.unlink(test_file)
-                except FileNotFoundError:
-                    pass
-
         finally:
-            # Restore permissions for cleanup
-            os.chmod(temp_backup_dir, 0o755)
+            try:
+                os.unlink(test_file)
+            except FileNotFoundError:
+                pass
 
     def test_checksum_with_extreme_cache_size(self):
         """Test checksum calculator with extreme cache sizes."""
