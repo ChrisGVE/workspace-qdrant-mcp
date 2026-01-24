@@ -4,6 +4,7 @@ import os
 import stat
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -26,7 +27,7 @@ class TestBinaryValidator:
         """Create a test binary file."""
         binary_path = tmp_path / "test_binary"
         binary_path.write_bytes(b"test binary content")
-        os.chmod(binary_path, 0o700)  # Owner execute permission
+        # Mock file as executable with owner-only permissions
         return binary_path
 
     def test_compute_checksum_success(self, validator, test_binary):
@@ -111,52 +112,58 @@ class TestBinaryValidator:
 
     def test_validate_ownership_success(self, validator, test_binary):
         """Test successful ownership validation."""
-        valid, message = validator.validate_ownership(test_binary)
-        assert valid is True
-        assert "valid" in message.lower()
+        # Mock file stat to simulate proper ownership (owner-only read/write/execute)
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_mode = stat.S_IFREG | stat.S_IRWXU  # 0o100700
+            valid, message = validator.validate_ownership(test_binary)
+            assert valid is True
+            assert "valid" in message.lower()
 
     def test_validate_ownership_world_writable(self, validator, test_binary):
         """Test ownership validation fails for world-writable binary."""
-        # Make binary world-writable
-        os.chmod(test_binary, 0o777)
-
-        valid, message = validator.validate_ownership(test_binary)
-        assert valid is False
-        assert "world-writable" in message.lower()
+        # Mock file stat to simulate world-writable permissions
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_mode = stat.S_IFREG | 0o777
+            valid, message = validator.validate_ownership(test_binary)
+            assert valid is False
+            assert "world-writable" in message.lower()
 
     def test_validate_ownership_group_writable(self, validator, test_binary):
         """Test ownership validation fails for group-writable binary."""
-        # Make binary group-writable
-        os.chmod(test_binary, 0o770)
-
-        valid, message = validator.validate_ownership(test_binary)
-        assert valid is False
-        assert "group-writable" in message.lower()
+        # Mock file stat to simulate group-writable permissions
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_mode = stat.S_IFREG | 0o770
+            valid, message = validator.validate_ownership(test_binary)
+            assert valid is False
+            assert "group-writable" in message.lower()
 
     def test_validate_ownership_not_executable(self, validator, test_binary):
         """Test ownership validation fails for non-executable binary."""
-        # Remove execute permission
-        os.chmod(test_binary, 0o600)
-
-        valid, message = validator.validate_ownership(test_binary)
-        assert valid is False
-        assert "not executable" in message.lower()
+        # Mock file stat to simulate non-executable permissions
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_mode = stat.S_IFREG | 0o600
+            valid, message = validator.validate_ownership(test_binary)
+            assert valid is False
+            assert "not executable" in message.lower()
 
     def test_validate_binary_comprehensive_success(self, validator, test_binary):
         """Test comprehensive binary validation succeeds."""
         # Store checksum
         validator.store_checksum(test_binary)
 
-        # Validate
-        result = validator.validate_binary(test_binary)
+        # Mock file stat to simulate proper ownership
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_mode = stat.S_IFREG | stat.S_IRWXU  # 0o100700
+            # Validate
+            result = validator.validate_binary(test_binary)
 
-        assert result["valid"] is True
-        assert result["checks"]["existence"] is True
-        assert result["checks"]["is_file"] is True
-        assert result["checks"]["ownership"] is True
-        assert result["checks"]["checksum"] is True
-        assert result["checks"]["executable"] is True
-        assert len(result["errors"]) == 0
+            assert result["valid"] is True
+            assert result["checks"]["existence"] is True
+            assert result["checks"]["is_file"] is True
+            assert result["checks"]["ownership"] is True
+            assert result["checks"]["checksum"] is True
+            assert result["checks"]["executable"] is True
+            assert len(result["errors"]) == 0
 
     def test_validate_binary_missing_file(self, validator, tmp_path):
         """Test binary validation fails for missing file."""
@@ -186,18 +193,19 @@ class TestBinaryValidator:
 
     def test_validate_binary_skip_ownership(self, validator, test_binary):
         """Test binary validation skipping ownership checks."""
-        # Make binary world-writable
-        os.chmod(test_binary, 0o777)
+        # Mock file stat to simulate world-writable permissions (would fail strict check)
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_mode = stat.S_IFREG | 0o777
 
-        result = validator.validate_binary(
-            test_binary,
-            strict_ownership=False,
-            verify_checksum=False  # Also skip checksum for this test
-        )
+            result = validator.validate_binary(
+                test_binary,
+                strict_ownership=False,
+                verify_checksum=False  # Also skip checksum for this test
+            )
 
-        assert result["valid"] is True  # Should pass without ownership/checksum checks
-        assert "ownership" not in result["checks"]
-        assert "checksum" not in result["checks"]
+            assert result["valid"] is True  # Should pass without ownership/checksum checks
+            assert "ownership" not in result["checks"]
+            assert "checksum" not in result["checks"]
 
     def test_checksum_deterministic(self, validator, test_binary):
         """Test checksum computation is deterministic."""
@@ -251,52 +259,65 @@ class TestRealWorldScenarios:
         # Simulate building a binary
         binary_path = tmp_path / "memexd"
         binary_path.write_bytes(b"compiled daemon binary")
-        os.chmod(binary_path, 0o700)
 
-        # Step 1: Compute and store checksum after build
-        checksum = validator.compute_checksum(binary_path)
-        validator.store_checksum(binary_path, checksum)
+        # Mock file stat to simulate proper ownership
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_mode = stat.S_IFREG | 0o700
 
-        # Step 2: Validate binary before first use
-        result = validator.validate_binary(binary_path)
-        assert result["valid"] is True
+            # Step 1: Compute and store checksum after build
+            checksum = validator.compute_checksum(binary_path)
+            validator.store_checksum(binary_path, checksum)
+
+            # Step 2: Validate binary before first use
+            result = validator.validate_binary(binary_path)
+            assert result["valid"] is True
 
         # Step 3: Detect tampering
         binary_path.write_bytes(b"malicious code injected")
 
-        # Validation should fail
-        result = validator.validate_binary(binary_path)
-        assert result["valid"] is False
-        assert result["checks"]["checksum"] is False
+        # Mock file stat again for tampered binary validation
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_mode = stat.S_IFREG | 0o700
+            # Validation should fail
+            result = validator.validate_binary(binary_path)
+            assert result["valid"] is False
+            assert result["checks"]["checksum"] is False
 
     def test_detect_malicious_replacement(self, validator, tmp_path):
         """Test detection of malicious binary replacement attack."""
         # Original legitimate binary
         legitimate_binary = tmp_path / "memexd"
         legitimate_binary.write_bytes(b"legitimate daemon")
-        os.chmod(legitimate_binary, 0o700)
-        validator.store_checksum(legitimate_binary)
+
+        # Mock file stat to simulate proper ownership
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_mode = stat.S_IFREG | 0o700
+            validator.store_checksum(legitimate_binary)
 
         # Attacker replaces binary (same path, different content)
         legitimate_binary.write_bytes(b"malicious replacement")
 
-        # Validation should fail due to checksum mismatch
-        result = validator.validate_binary(legitimate_binary)
-        assert result["valid"] is False
-        assert not result["checks"]["checksum"]
+        # Mock file stat again for validation
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_mode = stat.S_IFREG | 0o700
+            # Validation should fail due to checksum mismatch
+            result = validator.validate_binary(legitimate_binary)
+            assert result["valid"] is False
+            assert not result["checks"]["checksum"]
 
     def test_detect_privilege_escalation_attempt(self, validator, tmp_path):
         """Test detection of privilege escalation via world-writable binary."""
         binary_path = tmp_path / "memexd"
         binary_path.write_bytes(b"daemon binary")
 
-        # Attacker makes binary world-writable to replace it
-        os.chmod(binary_path, 0o777)
+        # Mock file stat to simulate world-writable permissions (attacker scenario)
+        with patch('os.stat') as mock_stat:
+            mock_stat.return_value.st_mode = stat.S_IFREG | 0o777
 
-        # Validation should fail due to insecure permissions
-        result = validator.validate_binary(binary_path)
-        assert result["valid"] is False
-        assert not result["checks"]["ownership"]
+            # Validation should fail due to insecure permissions
+            result = validator.validate_binary(binary_path)
+            assert result["valid"] is False
+            assert not result["checks"]["ownership"]
 
     def test_upgrade_workflow(self, validator, tmp_path):
         """Test binary upgrade workflow with checksum update."""
@@ -304,7 +325,6 @@ class TestRealWorldScenarios:
 
         # Install v1
         binary_path.write_bytes(b"daemon v1.0")
-        os.chmod(binary_path, 0o700)
         checksum_v1 = validator.compute_checksum(binary_path)
         validator.store_checksum(binary_path, checksum_v1)
 
