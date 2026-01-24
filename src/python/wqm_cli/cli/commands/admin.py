@@ -91,9 +91,18 @@ def config_management(
     show: bool = typer.Option(False, "--show", help="Show current configuration"),
     validate: bool = typer.Option(False, "--validate", help="Validate configuration"),
     path: str | None = typer.Option(None, "--path", help="Configuration file path"),
+    get: str | None = typer.Option(None, "--get", help="Get a specific configuration value (e.g., --get qdrant.url)"),
+    set_value: str | None = typer.Option(None, "--set", help="Set a configuration value (e.g., --set server.port=8080)"),
 ):
-    """Configuration management."""
-    handle_async(_config_management(show, validate, path))
+    """Configuration management.
+
+    Examples:
+        wqm admin config --show                 # Show all configuration
+        wqm admin config --get qdrant.url       # Get a specific value
+        wqm admin config --set server.port=8080 # Set a value (requires restart)
+        wqm admin config --validate             # Validate configuration
+    """
+    handle_async(_config_management(show, validate, path, get, set_value))
 
 
 @admin_app.command("start-engine")
@@ -617,46 +626,174 @@ def _display_status_panel(status_data: dict[str, Any], verbose: bool) -> None:
         )
 
 
-async def _config_management(show: bool, validate: bool, path: str | None) -> None:
+def _parse_config_value(value_str: str) -> str | int | float | bool | list[str]:
+    """Parse a configuration value string to the appropriate Python type.
+
+    Args:
+        value_str: String value to parse
+
+    Returns:
+        Parsed value with appropriate type (str, int, float, bool, or list)
+    """
+    # Handle boolean values
+    if value_str.lower() in ("true", "yes", "on", "1"):
+        return True
+    if value_str.lower() in ("false", "no", "off", "0"):
+        return False
+
+    # Handle comma-separated lists
+    if "," in value_str:
+        return [item.strip() for item in value_str.split(",") if item.strip()]
+
+    # Handle numeric values
+    try:
+        # Try integer first
+        if "." not in value_str:
+            return int(value_str)
+        else:
+            return float(value_str)
+    except ValueError:
+        pass
+
+    # Return as string
+    return value_str
+
+
+async def _config_management(
+    show: bool,
+    validate: bool,
+    path: str | None,
+    get: str | None = None,
+    set_value: str | None = None,
+) -> None:
     """Configuration management operations."""
     try:
         config = get_config_manager()
+
+        # Handle --get option
+        if get:
+            value = config.get(get)
+            if value is None:
+                print(f"Configuration key '{get}' not found")
+                raise typer.Exit(1)
+
+            # Format output based on type
+            if isinstance(value, dict):
+                print(json.dumps(value, indent=2))
+            elif isinstance(value, list):
+                for item in value:
+                    print(f"  - {item}")
+            else:
+                print(f"{get} = {value}")
+            return
+
+        # Handle --set option
+        if set_value:
+            # Parse key=value format
+            if "=" not in set_value:
+                print("Error: --set requires key=value format (e.g., --set server.port=8080)")
+                raise typer.Exit(1)
+
+            key, value_str = set_value.split("=", 1)
+            key = key.strip()
+            value_str = value_str.strip()
+
+            if not key:
+                print("Error: Configuration key cannot be empty")
+                raise typer.Exit(1)
+
+            # Parse the value to appropriate type
+            parsed_value = _parse_config_value(value_str)
+
+            # Check if this setting requires restart
+            needs_restart = config.requires_restart(key)
+
+            # Get the old value for display
+            old_value = config.get(key)
+
+            # Set the new value
+            config.set(key, parsed_value)
+
+            # Save to file
+            save_path = config.save_to_file(path)
+
+            print(f"Configuration updated: {key}")
+            print(f"  Old value: {old_value}")
+            print(f"  New value: {parsed_value}")
+            print(f"  Saved to: {save_path}")
+
+            if needs_restart:
+                print("\n  Note: This setting requires a daemon restart to take effect.")
+                print("        Run 'wqm service restart' to apply the change.")
+
+            return
 
         if show:
             print("Current Configuration")
             print("=" * 50)
 
-            # Add key configuration values
-            if hasattr(config, "qdrant"):
-                print(f"Qdrant URL:         {config.qdrant.url}")
-            if hasattr(config, "embedding"):
-                print(f"Embedding Model:    {config.embedding.model}")
-            if hasattr(config, "workspace"):
-                # Note: Collection prefix field removed as part of multi-tenant architecture
-                pass
+            # Show config file path
+            config_file = config.get_config_file_path()
+            if config_file:
+                print(f"Config File:        {config_file}")
+            else:
+                print("Config File:        (using defaults)")
+            print()
+
+            # Add key configuration values using dot notation access
+            qdrant_url = config.get("qdrant.url")
+            if qdrant_url:
+                print(f"Qdrant URL:         {qdrant_url}")
+
+            embedding_model = config.get("embedding.model")
+            if embedding_model:
+                print(f"Embedding Model:    {embedding_model}")
+
+            server_host = config.get("server.host")
+            server_port = config.get("server.port")
+            if server_host and server_port:
+                print(f"Server:             {server_host}:{server_port}")
+
+            grpc_host = config.get("grpc.host")
+            grpc_port = config.get("grpc.port")
+            if grpc_host and grpc_port:
+                print(f"gRPC:               {grpc_host}:{grpc_port}")
+
+            auto_ingestion = config.get("auto_ingestion.enabled")
+            print(f"Auto Ingestion:     {'Enabled' if auto_ingestion else 'Disabled'}")
 
         if validate:
             print("\nConfiguration Validation")
             print("=" * 50)
 
-            validation_results = []
+            # Use the built-in validate method
+            issues = config.validate()
 
-            # Validate Qdrant connection
+            if issues:
+                print("Validation Issues:")
+                for issue in issues:
+                    print(f"  - {issue}")
+            else:
+                print("  Configuration is valid")
+
+            # Also test Qdrant connection
+            print("\nConnectivity Tests:")
             try:
                 # Use configured client for validation
                 raw_client = get_configured_client(config)
                 raw_client.get_collections()
                 raw_client.close()
-                validation_results.append(("Qdrant Connection", "Valid"))
+                print("  Qdrant Connection: Valid")
             except Exception as e:
-                validation_results.append(("Qdrant Connection", f"Failed: {e}"))
+                print(f"  Qdrant Connection: Failed - {e}")
 
-            # Display validation results
-            for setting, result in validation_results:
-                print(f"  {setting}: {result}")
-
-        if not show and not validate:
-            print("Use --show or --validate flags to perform operations")
+        if not show and not validate and not get and not set_value:
+            print("Use --show, --validate, --get, or --set flags to perform operations")
+            print("\nExamples:")
+            print("  wqm admin config --show                 # Show all configuration")
+            print("  wqm admin config --get qdrant.url       # Get a specific value")
+            print("  wqm admin config --set server.port=8080 # Set a value")
+            print("  wqm admin config --validate             # Validate configuration")
 
     except Exception as e:
         print(f"Configuration error: {e}")

@@ -212,6 +212,18 @@ class ConfigManager:
     _instance: Optional['ConfigManager'] = None
     _lock = threading.Lock()
 
+    # Settings that require daemon restart to take effect (Task 466)
+    RESTART_REQUIRED_SETTINGS: set[str] = {
+        "server.host",
+        "server.port",
+        "qdrant.url",
+        "qdrant.api_key",
+        "grpc.host",
+        "grpc.port",
+        "embedding.model",
+        "auto_ingestion.enabled",
+    }
+
     def __init__(self, config_file: str | None = None, **kwargs) -> None:
         """Initialize configuration manager with dictionary-based architecture.
 
@@ -220,6 +232,7 @@ class ConfigManager:
             **kwargs: Override values for configuration parameters
         """
         self._config: dict[str, Any] = {}
+        self._config_file_path: str | None = None  # Track loaded config file path
         self._load_configuration(config_file, **kwargs)
 
     @classmethod
@@ -258,12 +271,14 @@ class ConfigManager:
         yaml_config = {}
         if config_file:
             yaml_config = self._load_yaml_config(config_file)
+            self._config_file_path = config_file  # Track loaded file path
         else:
             # Auto-discover configuration file only if not in test mode
             if not os.environ.get('WQM_TEST_MODE'):
                 auto_config_file = self._find_default_config_file()
                 if auto_config_file:
                     yaml_config = self._load_yaml_config(auto_config_file)
+                    self._config_file_path = auto_config_file  # Track loaded file path
 
         # Apply unit conversions to YAML config
         yaml_config = self._apply_unit_conversions(yaml_config)
@@ -573,6 +588,112 @@ class ConfigManager:
             issues.append("Too many global collections configured (max 50 recommended)")
 
         return issues
+
+    def set(self, path: str, value: Any) -> None:
+        """Set configuration value using dot notation path.
+
+        Modifies the in-memory configuration. Use save_to_file() to persist changes.
+
+        Args:
+            path: Dot-separated configuration path (e.g., "qdrant.url", "embedding.model")
+            value: Value to set (will be converted to appropriate type)
+
+        Raises:
+            ValueError: If path is empty or invalid
+
+        Example:
+            config.set("server.port", 8080)
+            config.set("embedding.model", "all-MiniLM-L6-v2")
+        """
+        if not path:
+            raise ValueError("Configuration path cannot be empty")
+
+        keys = path.split('.')
+        if not keys:
+            raise ValueError("Invalid configuration path")
+
+        # Navigate to parent and set the value
+        current = self._config
+        for key in keys[:-1]:
+            if key not in current:
+                current[key] = {}
+            elif not isinstance(current[key], dict):
+                # Convert non-dict to dict to allow nested setting
+                current[key] = {}
+            current = current[key]
+
+        # Set the final value
+        current[keys[-1]] = value
+
+    def save_to_file(self, file_path: str | None = None) -> str:
+        """Save current configuration to a YAML file.
+
+        Args:
+            file_path: Path to save the configuration file. If None, uses the
+                       originally loaded config file path, or creates a new file
+                       in the default config directory.
+
+        Returns:
+            str: Path to the saved configuration file
+
+        Raises:
+            ValueError: If no file path is specified and no config file was loaded
+            OSError: If the file cannot be written
+        """
+        if file_path is None:
+            if self._config_file_path:
+                file_path = self._config_file_path
+            else:
+                # Use default XDG config directory
+                config_dirs = self._get_xdg_config_dirs()
+                if config_dirs:
+                    config_dir = config_dirs[0]
+                    config_dir.mkdir(parents=True, exist_ok=True)
+                    file_path = str(config_dir / "config.yaml")
+                else:
+                    raise ValueError(
+                        "No config file path specified and no config file was loaded. "
+                        "Please provide a file_path argument."
+                    )
+
+        # Write configuration to YAML file
+        output_path = Path(file_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        with output_path.open("w", encoding="utf-8") as f:
+            yaml.dump(
+                self._config,
+                f,
+                default_flow_style=False,
+                allow_unicode=True,
+                sort_keys=False,
+                indent=2
+            )
+
+        # Update tracked config file path
+        self._config_file_path = str(output_path)
+        logger.info(f"Configuration saved to: {output_path}")
+
+        return str(output_path)
+
+    def get_config_file_path(self) -> str | None:
+        """Get the path to the currently loaded configuration file.
+
+        Returns:
+            str | None: Path to the config file, or None if no file was loaded
+        """
+        return self._config_file_path
+
+    def requires_restart(self, path: str) -> bool:
+        """Check if changing a configuration setting requires daemon restart.
+
+        Args:
+            path: Dot-separated configuration path to check
+
+        Returns:
+            bool: True if the setting requires restart, False otherwise
+        """
+        return path in self.RESTART_REQUIRED_SETTINGS
 
     def _load_yaml_config(self, config_file: str) -> dict[str, Any]:
         """Load configuration from YAML file.
