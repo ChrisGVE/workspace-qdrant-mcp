@@ -598,10 +598,15 @@ class TestTokenLimitBehavior:
 
 
 class TestTiktokenIntegration:
-    """Test tiktoken integration and validation."""
+    """Test tiktoken integration and validation.
+
+    NOTE: These tests require tiktoken which is an optional dependency.
+    Install with: pip install tiktoken
+    """
 
     def test_tiktoken_initialization(self):
         """Test that tiktoken counter initializes correctly."""
+        pytest.importorskip("tiktoken", reason="tiktoken not installed")
         counter = TokenCounter(method=TokenizationMethod.TIKTOKEN)
 
         assert counter.method == TokenizationMethod.TIKTOKEN
@@ -731,6 +736,7 @@ class TestTiktokenIntegration:
 
     def test_tiktoken_uses_correct_model(self):
         """Test that tiktoken uses correct model for encoding."""
+        pytest.importorskip("tiktoken", reason="tiktoken not installed")
         with patch("tiktoken.encoding_for_model") as mock_encoding:
             mock_encoder = Mock()
             mock_encoder.encode = Mock(return_value=[1, 2, 3])
