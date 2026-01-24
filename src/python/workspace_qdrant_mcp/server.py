@@ -168,6 +168,36 @@ _session_project_path: str | None = None
 _session_heartbeat: "SessionHeartbeat | None" = None
 
 
+def is_project_activated() -> bool:
+    """
+    Check if a project is currently activated in this session.
+
+    Task 457: Explicit project activation flow
+    Projects must be activated via manage(action="activate_project") before
+    project-scoped operations have full daemon priority support.
+
+    Returns:
+        True if project is activated (session has project_id and heartbeat running),
+        False otherwise.
+    """
+    return _session_project_id is not None and (
+        _session_heartbeat is not None and _session_heartbeat.is_running
+    )
+
+
+def get_activation_warning() -> str:
+    """
+    Get warning message for operations performed without project activation.
+
+    Task 457: Explicit project activation flow
+    """
+    return (
+        "Project not activated. Use manage(action='activate_project') to enable "
+        "high-priority daemon processing and session heartbeat. Operations will "
+        "still work but may have lower priority."
+    )
+
+
 class SessionHeartbeat:
     """
     Background heartbeat task for MCP server session lifecycle.
@@ -326,8 +356,12 @@ async def lifespan(app):
 
     Task 395: Multi-tenant session lifecycle
     Task 407: Heartbeat mechanism for session liveness
-    - On startup: Detect project, compute project_id, register with daemon, start heartbeat
-    - On shutdown: Stop heartbeat, deprioritize project
+    Task 457: Explicit project activation flow (ADR-001)
+
+    Changes (Task 457):
+    - On startup: Initialize daemon client only (NO auto-registration)
+    - User must explicitly call manage(action="activate_project") to register
+    - On shutdown: Stop heartbeat (if running), deprioritize project (if activated)
 
     The daemon uses session registration to:
     - Set HIGH priority for actively-edited projects
@@ -338,13 +372,18 @@ async def lifespan(app):
     - Sends periodic heartbeat every 30 seconds
     - Daemon timeout is 60 seconds for orphaned session detection
     - Without heartbeat, crashed sessions are detected and demoted
+
+    Project activation (Task 457):
+    - Projects must be explicitly activated via manage(action="activate_project")
+    - Using scope="project" without activation generates warnings
+    - Deactivation via manage(action="deactivate_project")
     """
     global daemon_client, _session_project_id, _session_project_path, _session_heartbeat
 
     logger = logging.getLogger(__name__)
 
     # =========================================================================
-    # STARTUP: Register project with daemon for high-priority processing
+    # STARTUP: Initialize daemon client only (Task 457: NO auto-registration)
     # =========================================================================
     try:
         # Initialize daemon client if not already done
@@ -352,42 +391,17 @@ async def lifespan(app):
             daemon_client = DaemonClient()
             try:
                 await daemon_client.connect()
+                logger.info("Daemon client connected (project activation required)")
             except DaemonConnectionError:
                 # Daemon connection is optional - server works without it
                 daemon_client = None
                 logger.warning("Daemon not available - session lifecycle disabled")
 
-        if daemon_client:
-            # Detect current project
-            project_path = str(Path.cwd())
-            project_id = calculate_tenant_id(project_path)
-            project_name = await get_project_name()
-            git_remote = await _get_git_remote()
+        # Task 457: NO auto-registration on startup
+        # User must explicitly call manage(action="activate_project")
+        # This ensures projects are only prioritized when actively being worked on
+        logger.debug("Server started. Use manage(action='activate_project') to register project.")
 
-            # Store for shutdown cleanup
-            _session_project_id = project_id
-            _session_project_path = project_path
-
-            # Register project with daemon
-            try:
-                response = await daemon_client.register_project(
-                    path=project_path,
-                    project_id=project_id,
-                    name=project_name,
-                    git_remote=git_remote
-                )
-                logger.info(
-                    f"Project registered: {project_name} ({project_id}), "
-                    f"priority={response.priority}, sessions={response.active_sessions}"
-                )
-
-                # Task 407: Start heartbeat after successful registration
-                _session_heartbeat = SessionHeartbeat(daemon_client, project_id)
-                await _session_heartbeat.start()
-
-            except Exception as e:
-                logger.warning(f"Failed to register project: {e}")
-                # Continue without registration - daemon features degraded
     except Exception as e:
         logger.warning(f"Lifespan startup error: {e}")
 
@@ -919,6 +933,10 @@ async def store(
     global _session_project_id
     project_id = _session_project_id or calculate_tenant_id(str(Path.cwd()))
 
+    # Task 457: Track if project activation warning should be shown
+    # Warning applies when storing to project-scoped collection without activation
+    activation_warning = None
+
     # Determine target collection based on override or default to unified projects
     if collection:
         # Explicit collection override (e.g., for libraries or memory)
@@ -926,6 +944,9 @@ async def store(
     else:
         # Default: use unified _projects collection (Task 397)
         target_collection = CANONICAL_COLLECTIONS["projects"]
+        # Task 457: Warn if storing to project collection without activation
+        if not is_project_activated():
+            activation_warning = get_activation_warning()
 
     # Detect file_type from file_path if not explicitly provided
     if not file_type and file_path:
@@ -989,7 +1010,7 @@ async def store(
                 chunk_text=True
             )
 
-            return {
+            result = {
                 "success": True,
                 "document_id": response.document_id,
                 "collection": target_collection,
@@ -1001,6 +1022,10 @@ async def store(
                 "branch": current_branch,
                 "metadata": doc_metadata
             }
+            # Task 457: Include activation warning if applicable
+            if activation_warning:
+                result["project_activation_warning"] = activation_warning
+            return result
         except DaemonConnectionError as e:
             return {
                 "success": False,
@@ -1030,7 +1055,7 @@ async def store(
                 else:
                     logger.debug(f"Content already queued (idempotency): {queue_id}")
 
-                return {
+                result = {
                     "success": True,
                     "queue_id": queue_id,
                     "queued": True,
@@ -1043,6 +1068,10 @@ async def store(
                     "fallback_mode": "sqlite_queue",
                     "message": "Content queued for daemon processing. Will be ingested when daemon is available."
                 }
+                # Task 457: Include activation warning if applicable
+                if activation_warning:
+                    result["project_activation_warning"] = activation_warning
+                return result
             else:
                 # No state_manager available - last resort direct write
                 # This should rarely happen as state_manager is initialized early
@@ -1074,7 +1103,7 @@ async def store(
                     points=[point]
                 )
 
-                return {
+                result = {
                     "success": True,
                     "document_id": document_id,
                     "collection": target_collection,
@@ -1087,6 +1116,10 @@ async def store(
                     "fallback_mode": "direct_qdrant_write",
                     "warning": "Direct write used as last resort - daemon and queue unavailable"
                 }
+                # Task 457: Include activation warning if applicable
+                if activation_warning:
+                    result["project_activation_warning"] = activation_warning
+                return result
         except Exception as e:
             logger.error(f"Failed to store/queue document: {e}")
             return {
@@ -1219,6 +1252,12 @@ async def search(
             "error": f"Invalid scope: {scope}. Must be one of: {', '.join(valid_scopes)}",
             "results": []
         }
+
+    # Task 457: Track if project activation warning should be shown
+    # Warning applies when using project scope without activation
+    activation_warning = None
+    if scope == "project" and not is_project_activated():
+        activation_warning = get_activation_warning()
 
     # Determine current project_id for filtering
     current_project_id = calculate_tenant_id(str(Path.cwd()))
@@ -1415,6 +1454,10 @@ async def search(
                 f"Please update your code to use the new collection name."
             )
 
+        # Task 457: Include activation warning if applicable
+        if activation_warning:
+            response["project_activation_warning"] = activation_warning
+
         return response
 
     except Exception as e:
@@ -1444,6 +1487,14 @@ async def manage(
     - "collection_info" -> detailed info about specific collection
     - "init_project" -> register project in unified _projects collection
     - "cleanup" -> remove empty collections and optimize
+    - "activate_project" -> register project with daemon, start heartbeat (Task 457)
+    - "deactivate_project" -> stop heartbeat, deprioritize project (Task 457)
+
+    Project Activation (Task 457 / ADR-001):
+    - Projects must be explicitly activated for high-priority daemon processing
+    - activate_project: Register project with daemon, start heartbeat
+    - deactivate_project: Stop heartbeat, deprioritize project, clear session state
+    - Using scope="project" without activation generates warnings
 
     Multi-Tenant Architecture:
     - init_project registers the current project's tenant_id in _projects
@@ -1462,6 +1513,9 @@ async def manage(
     """
     await initialize_components()
     logger = logging.getLogger(__name__)
+
+    # Task 457: Declare globals for session state modification in activate/deactivate actions
+    global _session_project_id, _session_project_path, _session_heartbeat
 
     try:
         if action == "list_collections":
@@ -1706,13 +1760,143 @@ async def manage(
                 "message": f"Cleaned up {len(cleaned_collections)} empty collections"
             }
 
+        elif action == "activate_project":
+            # Task 457: Explicit project activation flow
+            # Register project with daemon, start heartbeat, validate project signature
+
+            # Check if already activated
+            if is_project_activated():
+                return {
+                    "success": True,
+                    "action": action,
+                    "already_activated": True,
+                    "project_id": _session_project_id,
+                    "project_path": _session_project_path,
+                    "message": "Project already activated"
+                }
+
+            # Require daemon client for activation
+            if not daemon_client:
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": "Daemon not connected. Project activation requires daemon."
+                }
+
+            # Detect current project
+            project_path = str(Path.cwd())
+            project_id = calculate_tenant_id(project_path)
+            detected_project_name = project_name or await get_project_name()
+            git_remote = await _get_git_remote()
+
+            # Register project with daemon
+            try:
+                response = await daemon_client.register_project(
+                    path=project_path,
+                    project_id=project_id,
+                    name=detected_project_name,
+                    git_remote=git_remote
+                )
+
+                # Store session state
+                _session_project_id = project_id
+                _session_project_path = project_path
+
+                # Start heartbeat after successful registration
+                _session_heartbeat = SessionHeartbeat(daemon_client, project_id)
+                await _session_heartbeat.start()
+
+                logger.info(
+                    f"Project activated: {detected_project_name} ({project_id}), "
+                    f"priority={response.priority}, sessions={response.active_sessions}"
+                )
+
+                return {
+                    "success": True,
+                    "action": action,
+                    "project_id": project_id,
+                    "project_name": detected_project_name,
+                    "project_path": project_path,
+                    "priority": response.priority,
+                    "active_sessions": response.active_sessions,
+                    "heartbeat_started": True,
+                    "message": f"Project '{detected_project_name}' activated with high priority"
+                }
+
+            except Exception as e:
+                logger.error(f"Failed to activate project: {e}")
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": f"Failed to activate project: {str(e)}"
+                }
+
+        elif action == "deactivate_project":
+            # Task 457: Explicit project deactivation flow
+            # Stop heartbeat, deprioritize project, clear session state
+
+            # Check if project is activated
+            if not _session_project_id:
+                return {
+                    "success": True,
+                    "action": action,
+                    "already_deactivated": True,
+                    "message": "No project currently activated"
+                }
+
+            deactivated_project_id = _session_project_id
+            deactivated_project_path = _session_project_path
+
+            # Stop heartbeat first
+            if _session_heartbeat and _session_heartbeat.is_running:
+                try:
+                    await _session_heartbeat.stop()
+                    logger.info(f"Heartbeat stopped for project {deactivated_project_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to stop heartbeat: {e}")
+
+            # Deprioritize project with daemon
+            deprioritize_result = None
+            if daemon_client:
+                try:
+                    response = await daemon_client.deprioritize_project(
+                        project_id=deactivated_project_id
+                    )
+                    deprioritize_result = {
+                        "remaining_sessions": response.remaining_sessions,
+                        "new_priority": response.new_priority
+                    }
+                    logger.info(
+                        f"Project deprioritized: {deactivated_project_id}, "
+                        f"remaining_sessions={response.remaining_sessions}, "
+                        f"new_priority={response.new_priority}"
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to deprioritize project: {e}")
+
+            # Clear session state
+            _session_project_id = None
+            _session_project_path = None
+            _session_heartbeat = None
+
+            return {
+                "success": True,
+                "action": action,
+                "deactivated_project_id": deactivated_project_id,
+                "deactivated_project_path": deactivated_project_path,
+                "heartbeat_stopped": True,
+                "deprioritize_result": deprioritize_result,
+                "message": f"Project '{deactivated_project_id}' deactivated"
+            }
+
         else:
             return {
                 "success": False,
                 "error": f"Unknown action: {action}",
                 "available_actions": [
                     "list_collections", "create_collection", "delete_collection",
-                    "collection_info", "workspace_status", "init_project", "cleanup"
+                    "collection_info", "workspace_status", "init_project", "cleanup",
+                    "activate_project", "deactivate_project"
                 ]
             }
 
@@ -1794,6 +1978,12 @@ async def retrieve(
             "error": f"Invalid scope: {scope}. Must be one of: {', '.join(valid_scopes)}",
             "results": []
         }
+
+    # Task 457: Track if project activation warning should be shown
+    # Warning applies when using project scope without activation
+    activation_warning = None
+    if scope == "project" and not is_project_activated():
+        activation_warning = get_activation_warning()
 
     try:
         results = []
@@ -1948,6 +2138,10 @@ async def retrieve(
                 f"Old collection names will be removed in a future version. "
                 f"Please update your code to use the new collection name."
             )
+
+        # Task 457: Include activation warning if applicable
+        if activation_warning:
+            response["project_activation_warning"] = activation_warning
 
         return response
 
