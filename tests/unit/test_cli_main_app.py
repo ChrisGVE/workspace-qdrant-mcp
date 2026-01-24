@@ -41,7 +41,7 @@ class TestMainCLIApp:
         # Verify app is properly configured
         assert app.info.name == "wqm"
         assert "Workspace Qdrant MCP" in app.info.help
-        assert app.info.add_completion is False
+        # Note: add_completion is not exposed via TyperInfo in recent Typer versions
         assert app.info.no_args_is_help is False
 
     def test_cli_app_has_all_subcommands(self):
