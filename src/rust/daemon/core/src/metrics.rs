@@ -74,6 +74,30 @@ pub struct DaemonMetrics {
     /// Heartbeat latency in seconds
     /// Labels: project_id
     pub heartbeat_latency_seconds: HistogramVec,
+
+    // Watch error metrics (Task 461.12)
+    /// Total watch errors by watch_id
+    /// Labels: watch_id
+    pub watch_errors_total: IntCounterVec,
+
+    /// Current consecutive errors by watch_id
+    /// Labels: watch_id
+    pub watch_consecutive_errors: IntGaugeVec,
+
+    /// Watch health status (1 = in this state, 0 = not)
+    /// Labels: watch_id, health_status (healthy, degraded, backoff, disabled)
+    pub watch_health_status: IntGaugeVec,
+
+    /// Number of watches currently in backoff
+    pub watches_in_backoff: IntGaugeVec,
+
+    /// Watch error recovery time in seconds (from first error to recovery)
+    /// Labels: watch_id
+    pub watch_recovery_time_seconds: HistogramVec,
+
+    /// Events throttled due to queue depth
+    /// Labels: watch_id, load_level (high, critical)
+    pub watch_events_throttled_total: IntCounterVec,
 }
 
 impl DaemonMetrics {
@@ -204,6 +228,68 @@ impl DaemonMetrics {
         )
         .expect("metric can be created");
 
+        // Watch error metrics (Task 461.12)
+        let watch_errors_total = IntCounterVec::new(
+            Opts::new(
+                "memexd_watch_errors_total",
+                "Total watch errors by watch_id",
+            )
+            .namespace("memexd"),
+            &["watch_id"],
+        )
+        .expect("metric can be created");
+
+        let watch_consecutive_errors = IntGaugeVec::new(
+            Opts::new(
+                "memexd_watch_consecutive_errors",
+                "Current consecutive errors by watch_id",
+            )
+            .namespace("memexd"),
+            &["watch_id"],
+        )
+        .expect("metric can be created");
+
+        let watch_health_status = IntGaugeVec::new(
+            Opts::new(
+                "memexd_watch_health_status",
+                "Watch health status (1 = in this state)",
+            )
+            .namespace("memexd"),
+            &["watch_id", "health_status"],
+        )
+        .expect("metric can be created");
+
+        let watches_in_backoff = IntGaugeVec::new(
+            Opts::new(
+                "memexd_watches_in_backoff",
+                "Number of watches currently in backoff",
+            )
+            .namespace("memexd"),
+            &[],
+        )
+        .expect("metric can be created");
+
+        let watch_recovery_time_seconds = HistogramVec::new(
+            prometheus::HistogramOpts::new(
+                "memexd_watch_recovery_time_seconds",
+                "Watch error recovery time in seconds",
+            )
+            .namespace("memexd")
+            .buckets(vec![1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1800.0, 3600.0]),
+            &["watch_id"],
+        )
+        .expect("metric can be created");
+
+        let watch_events_throttled_total = IntCounterVec::new(
+            Opts::new(
+                "memexd_watch_events_throttled_total",
+                "Events throttled due to queue depth",
+            )
+            .namespace("memexd"),
+            &["watch_id", "load_level"],
+        )
+        .expect("metric can be created");
+
         // Register all metrics
         registry
             .register(Box::new(active_sessions.clone()))
@@ -241,6 +327,24 @@ impl DaemonMetrics {
         registry
             .register(Box::new(heartbeat_latency_seconds.clone()))
             .expect("metric can be registered");
+        registry
+            .register(Box::new(watch_errors_total.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(watch_consecutive_errors.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(watch_health_status.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(watches_in_backoff.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(watch_recovery_time_seconds.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(watch_events_throttled_total.clone()))
+            .expect("metric can be registered");
 
         Self {
             registry,
@@ -256,6 +360,12 @@ impl DaemonMetrics {
             uptime_seconds,
             ingestion_errors_total,
             heartbeat_latency_seconds,
+            watch_errors_total,
+            watch_consecutive_errors,
+            watch_health_status,
+            watches_in_backoff,
+            watch_recovery_time_seconds,
+            watch_events_throttled_total,
         }
     }
 
@@ -364,6 +474,76 @@ impl DaemonMetrics {
         self.heartbeat_latency_seconds
             .with_label_values(&[project_id])
             .observe(latency_secs);
+    }
+
+    // Watch error tracking helpers (Task 461.12)
+
+    /// Record a watch error
+    pub fn watch_error(&self, watch_id: &str) {
+        self.watch_errors_total
+            .with_label_values(&[watch_id])
+            .inc();
+    }
+
+    /// Set the current consecutive error count for a watch
+    pub fn set_watch_consecutive_errors(&self, watch_id: &str, count: i64) {
+        self.watch_consecutive_errors
+            .with_label_values(&[watch_id])
+            .set(count);
+    }
+
+    /// Update watch health status
+    ///
+    /// Sets the new status to 1 and clears the old status to 0.
+    /// Valid statuses: "healthy", "degraded", "backoff", "disabled"
+    pub fn set_watch_health_status(&self, watch_id: &str, old_status: Option<&str>, new_status: &str) {
+        // Clear the old status if provided
+        if let Some(old) = old_status {
+            self.watch_health_status
+                .with_label_values(&[watch_id, old])
+                .set(0);
+        }
+        // Set the new status
+        self.watch_health_status
+            .with_label_values(&[watch_id, new_status])
+            .set(1);
+    }
+
+    /// Set the total number of watches currently in backoff
+    pub fn set_watches_in_backoff(&self, count: i64) {
+        self.watches_in_backoff
+            .with_label_values(&[])
+            .set(count);
+    }
+
+    /// Increment watches in backoff count
+    pub fn inc_watches_in_backoff(&self) {
+        self.watches_in_backoff
+            .with_label_values(&[])
+            .inc();
+    }
+
+    /// Decrement watches in backoff count
+    pub fn dec_watches_in_backoff(&self) {
+        self.watches_in_backoff
+            .with_label_values(&[])
+            .dec();
+    }
+
+    /// Record watch recovery time (from first error to recovery)
+    pub fn watch_recovered(&self, watch_id: &str, recovery_time_secs: f64) {
+        self.watch_recovery_time_seconds
+            .with_label_values(&[watch_id])
+            .observe(recovery_time_secs);
+        // Clear consecutive errors when recovered
+        self.set_watch_consecutive_errors(watch_id, 0);
+    }
+
+    /// Record a throttled event due to queue depth
+    pub fn watch_event_throttled(&self, watch_id: &str, load_level: &str) {
+        self.watch_events_throttled_total
+            .with_label_values(&[watch_id, load_level])
+            .inc();
     }
 }
 

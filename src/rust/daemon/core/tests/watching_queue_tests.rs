@@ -2,12 +2,12 @@
 
 use workspace_qdrant_core::{
     FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats,
-    QueueManager,
+    QueueManager, WatchType,
 };
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
-use sqlx::SqlitePool;
+use sqlx::{Row, SqlitePool};
 use tokio::time::{sleep, Duration};
 
 /// Helper to create in-memory SQLite database with queue schema
@@ -81,6 +81,8 @@ async fn test_file_watcher_queue_creation() {
         recursive: true,
         debounce_ms: 1000,
         enabled: true,
+        watch_type: WatchType::Project,
+        library_name: None,
     };
 
     let watcher = FileWatcherQueue::new(config, queue_manager);
