@@ -71,7 +71,11 @@ def temp_service_dir():
 
 @pytest.fixture
 def mock_daemon_binary(temp_service_dir):
-    """Create a mock daemon binary for testing."""
+    """Create a mock daemon binary for testing.
+
+    Note: Does not set executable permissions. Tests requiring executability checks
+    should mock os.access(path, os.X_OK) instead.
+    """
     binary_name = "memexd-priority"
     if platform.system().lower() == "windows":
         binary_name += ".exe"
@@ -79,7 +83,6 @@ def mock_daemon_binary(temp_service_dir):
     mock_binary = temp_service_dir / "target" / "release" / binary_name
     mock_binary.parent.mkdir(parents=True, exist_ok=True)
     mock_binary.write_text("#!/bin/bash\necho 'Mock daemon binary'")
-    mock_binary.chmod(0o755)
 
     return mock_binary
 
