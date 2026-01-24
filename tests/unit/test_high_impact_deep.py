@@ -205,19 +205,17 @@ class TestProjectDetectionDeep:
 
     def test_detect_project_structure_error_handling(self, tmp_path):
         """Test project detection error handling."""
-        # Create unreadable directory
-        unreadable_dir = tmp_path / "unreadable"
-        unreadable_dir.mkdir(mode=0o000)
+        # Create directory for testing
+        test_dir = tmp_path / "test_dir"
+        test_dir.mkdir()
 
-        try:
-            detector = ProjectDetector(root_path=str(unreadable_dir))
+        # Mock os.access to simulate read permission denied
+        with patch('os.access', return_value=False):
+            detector = ProjectDetector(root_path=str(test_dir))
             project_info = detector.detect_project_structure()
 
             # Should handle errors gracefully
             assert project_info is not None or project_info is None  # Either case is acceptable
-        finally:
-            # Restore permissions for cleanup
-            unreadable_dir.chmod(0o755)
 
     def test_extract_github_info_edge_cases(self):
         """Test GitHub info extraction with edge cases."""
