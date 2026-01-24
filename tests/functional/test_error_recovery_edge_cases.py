@@ -147,14 +147,23 @@ class ErrorRecoveryTestEnvironment:
         return corrupted_files
 
     def create_permission_test_files(self) -> dict[str, Path]:
-        """Create files with various permission issues."""
+        """Create files with various permission issues.
+
+        Note: This method tracks modified paths for cleanup. Always call
+        cleanup_permission_test_files() after using these files.
+        """
         permission_files = {}
+
+        # Track paths with modified permissions for cleanup
+        if not hasattr(self, '_permission_modified_paths'):
+            self._permission_modified_paths: dict[Path, int] = {}
 
         # Read-only file
         readonly_file = self.test_data_dir / "readonly.txt"
         readonly_file.write_text("Read-only file content", encoding='utf-8')
 
         if os.name != 'nt':  # Unix-like systems
+            self._permission_modified_paths[readonly_file] = 0o644  # Original permission
             os.chmod(readonly_file, 0o444)
             permission_files["readonly"] = readonly_file
 
@@ -163,10 +172,29 @@ class ErrorRecoveryTestEnvironment:
             no_read_dir = self.test_data_dir / "no_read_dir"
             no_read_dir.mkdir()
             (no_read_dir / "hidden_file.txt").write_text("Hidden content")
+            self._permission_modified_paths[no_read_dir] = 0o755  # Original permission
             os.chmod(no_read_dir, 0o000)
             permission_files["no_read_dir"] = no_read_dir
 
         return permission_files
+
+    def cleanup_permission_test_files(self) -> None:
+        """Restore permissions for files modified by create_permission_test_files().
+
+        This should be called after testing with permission-modified files to ensure
+        pytest cleanup can access and remove the temporary directories.
+        """
+        if not hasattr(self, '_permission_modified_paths'):
+            return
+
+        for path, original_mode in self._permission_modified_paths.items():
+            try:
+                if path.exists():
+                    os.chmod(path, original_mode)
+            except (OSError, PermissionError) as e:
+                print(f"WARNING: Failed to restore permissions on {path}: {e}")
+
+        self._permission_modified_paths.clear()
 
     def simulate_network_issues(self) -> dict[str, Any]:
         """Simulate various network connectivity issues."""
@@ -300,8 +328,14 @@ class TestErrorRecoveryAndEdgeCases:
 
     @pytest.fixture
     def error_env(self, tmp_path):
-        """Create error recovery test environment."""
-        return ErrorRecoveryTestEnvironment(tmp_path)
+        """Create error recovery test environment.
+
+        Yields the environment and ensures permission cleanup after the test.
+        """
+        env = ErrorRecoveryTestEnvironment(tmp_path)
+        yield env
+        # Cleanup permissions to ensure pytest can remove temp directories
+        env.cleanup_permission_test_files()
 
     @pytest.fixture
     def validator(self):
