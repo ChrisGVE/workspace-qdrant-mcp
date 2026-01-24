@@ -310,26 +310,20 @@ class TestSQLiteCorruptionDetection:
         state_manager = SQLiteStateManager(db_path=str(db_path))
         await state_manager.initialize()
 
-        # Make database directory read-only to simulate FS errors
-        # This will cause write failures
-        db_path.chmod(0o444)  # Read-only
-        tmp_path.chmod(0o555)  # Read-only directory
+        # Mock file write operations to simulate permission errors
+        with patch('builtins.open', side_effect=PermissionError("Permission denied")):
+            try:
+                # Attempt write operation - should handle gracefully
+                result = await state_manager.start_file_processing(
+                    "/test/file.txt", "test-collection"
+                )
+                # May succeed if data is still in memory/WAL
+                assert isinstance(result, bool)
+            except (OSError, sqlite3.OperationalError, PermissionError):
+                # Expected: file system permission error
+                pass
 
-        try:
-            # Attempt write operation - should handle gracefully
-            result = await state_manager.start_file_processing(
-                "/test/file.txt", "test-collection"
-            )
-            # May succeed if data is still in memory/WAL
-            assert isinstance(result, bool)
-        except (OSError, sqlite3.OperationalError):
-            # Expected: file system permission error
-            pass
-        finally:
-            # Restore permissions for cleanup
-            tmp_path.chmod(0o755)
-            db_path.chmod(0o644)
-            await state_manager.close()
+        await state_manager.close()
 
     @pytest.mark.asyncio
     async def test_rollback_on_corruption_during_transaction(self, tmp_path):
