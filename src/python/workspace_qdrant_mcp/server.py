@@ -84,6 +84,7 @@ import logging
 import os
 import subprocess
 from contextlib import asynccontextmanager
+from enum import Enum
 
 # CRITICAL: Complete stdio silence must be set up before ANY other imports
 # This prevents ALL console output in MCP stdio mode for protocol compliance
@@ -195,6 +196,142 @@ def get_activation_warning() -> str:
         "Project not activated. Use manage(action='activate_project') to enable "
         "high-priority daemon processing and session heartbeat. Operations will "
         "still work but may have lower priority."
+    )
+
+
+# ============================================================================
+# Task 458: Daemon Unresponsive State Machine
+# ============================================================================
+# Tracks daemon availability with 2-attempt 10s deadline policy to handle
+# daemon unavailability gracefully.
+# ============================================================================
+
+
+class DaemonState(Enum):
+    """Daemon availability state."""
+    AVAILABLE = "available"
+    UNRESPONSIVE = "unresponsive"
+
+
+# Daemon state machine constants
+_DAEMON_CHECK_TIMEOUT_SECS = 10  # Timeout for each health check attempt
+_DAEMON_CHECK_MAX_ATTEMPTS = 2   # Max attempts before marking as unresponsive
+
+# Global daemon state (protected by _daemon_state_lock for thread safety)
+_daemon_state: DaemonState = DaemonState.AVAILABLE
+_daemon_state_lock = asyncio.Lock()
+
+
+async def check_daemon_availability() -> bool:
+    """
+    Check if daemon is available using 2-attempt 10s deadline policy.
+
+    Task 458: Daemon unresponsive state machine
+    Performs up to 2 health checks with 10s timeout each before
+    marking daemon as unresponsive.
+
+    Returns:
+        True if daemon is available, False if unresponsive
+    """
+    global _daemon_state
+
+    if not daemon_client:
+        async with _daemon_state_lock:
+            _daemon_state = DaemonState.UNRESPONSIVE
+        return False
+
+    logger = logging.getLogger(__name__)
+
+    for attempt in range(1, _DAEMON_CHECK_MAX_ATTEMPTS + 1):
+        try:
+            # Try health check with timeout
+            health = await asyncio.wait_for(
+                daemon_client.health_check(),
+                timeout=_DAEMON_CHECK_TIMEOUT_SECS
+            )
+            if health.healthy:
+                async with _daemon_state_lock:
+                    _daemon_state = DaemonState.AVAILABLE
+                logger.debug(f"Daemon health check passed (attempt {attempt})")
+                return True
+            else:
+                logger.warning(f"Daemon health check failed (attempt {attempt}): not healthy")
+        except asyncio.TimeoutError:
+            logger.warning(
+                f"Daemon health check timeout after {_DAEMON_CHECK_TIMEOUT_SECS}s "
+                f"(attempt {attempt}/{_DAEMON_CHECK_MAX_ATTEMPTS})"
+            )
+        except Exception as e:
+            logger.warning(
+                f"Daemon health check error (attempt {attempt}): {e}"
+            )
+
+    # All attempts failed - mark as unresponsive
+    async with _daemon_state_lock:
+        _daemon_state = DaemonState.UNRESPONSIVE
+    logger.error(
+        f"Daemon marked as UNRESPONSIVE after {_DAEMON_CHECK_MAX_ATTEMPTS} failed attempts"
+    )
+    return False
+
+
+async def update_daemon_state(success: bool) -> None:
+    """
+    Update daemon state based on operation result.
+
+    Task 458: Daemon unresponsive state machine
+    Called after daemon operations to update the state machine.
+
+    Args:
+        success: True if daemon operation succeeded, False if failed
+    """
+    global _daemon_state
+
+    async with _daemon_state_lock:
+        if success:
+            _daemon_state = DaemonState.AVAILABLE
+        else:
+            _daemon_state = DaemonState.UNRESPONSIVE
+
+
+def get_daemon_state() -> DaemonState:
+    """
+    Get current daemon state.
+
+    Task 458: Daemon unresponsive state machine
+
+    Returns:
+        Current DaemonState (AVAILABLE or UNRESPONSIVE)
+    """
+    return _daemon_state
+
+
+def is_daemon_available() -> bool:
+    """
+    Check if daemon is currently marked as available.
+
+    Task 458: Daemon unresponsive state machine
+
+    Returns:
+        True if daemon state is AVAILABLE, False otherwise
+    """
+    return _daemon_state == DaemonState.AVAILABLE
+
+
+def get_daemon_unavailable_message() -> str:
+    """
+    Get message explaining daemon unavailability and suggesting fallback.
+
+    Task 458: Daemon unresponsive state machine
+
+    Returns:
+        User-friendly message with fallback suggestion
+    """
+    return (
+        "Daemon is currently unresponsive. Project-scoped operations require "
+        "an available daemon for high-priority processing. "
+        "Suggested fallback: Use scope='global' with include_libraries=True "
+        "to search across all collections without daemon dependency."
     )
 
 
@@ -1010,6 +1147,9 @@ async def store(
                 chunk_text=True
             )
 
+            # Task 458: Update daemon state to AVAILABLE on successful write
+            await update_daemon_state(success=True)
+
             result = {
                 "success": True,
                 "document_id": response.document_id,
@@ -1027,9 +1167,13 @@ async def store(
                 result["project_activation_warning"] = activation_warning
             return result
         except DaemonConnectionError as e:
+            # Task 458: Update daemon state to UNRESPONSIVE on connection error
+            await update_daemon_state(success=False)
             return {
                 "success": False,
-                "error": f"Failed to store document via daemon: {str(e)}"
+                "error": f"Failed to store document via daemon: {str(e)}",
+                "daemon_available": False,
+                "suggestion": "Content will be queued for later processing if state_manager is available."
             }
     else:
         # Fallback: Queue content for later daemon processing (Task 456/ADR-001)
@@ -1258,6 +1402,21 @@ async def search(
     activation_warning = None
     if scope == "project" and not is_project_activated():
         activation_warning = get_activation_warning()
+
+    # Task 458: Check daemon availability for project-scoped searches
+    # When daemon is marked as unresponsive, verify and potentially return error
+    if scope == "project" and not is_daemon_available():
+        # Try to verify daemon is actually unresponsive
+        daemon_is_available = await check_daemon_availability()
+        if not daemon_is_available:
+            return {
+                "success": False,
+                "error": get_daemon_unavailable_message(),
+                "daemon_available": False,
+                "scope": scope,
+                "suggestion": "Use scope='global' with include_libraries=True to search without daemon dependency.",
+                "results": []
+            }
 
     # Determine current project_id for filtering
     current_project_id = calculate_tenant_id(str(Path.cwd()))
