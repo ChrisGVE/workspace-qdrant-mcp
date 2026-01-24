@@ -37,6 +37,7 @@ Example:
 import asyncio
 import hashlib
 import json
+import uuid
 
 # Use unified logging system to prevent console interference in MCP mode
 import re
@@ -87,6 +88,55 @@ class LSPServerStatus(Enum):
     ACTIVE = "active"
     ERROR = "error"
     UNAVAILABLE = "unavailable"
+
+
+class ContentIngestionStatus(Enum):
+    """Content ingestion queue status (Task 456/ADR-001).
+
+    Used for MCP store() content that goes through SQLite queue
+    when daemon is unavailable.
+    """
+
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    DONE = "done"
+    FAILED = "failed"
+
+
+@dataclass
+class ContentIngestionQueueItem:
+    """Item in the content ingestion queue (Task 456/ADR-001).
+
+    Used to queue content from MCP store() operations when daemon
+    is unavailable, ensuring daemon-only writes per First Principle 10.
+
+    The idempotency_key prevents duplicate processing if the same
+    content is submitted multiple times.
+    """
+
+    queue_id: str  # UUID for queue item
+    idempotency_key: str  # SHA256(content + collection + source_type + metadata)[:32]
+    content: str  # The actual content to store
+    collection: str  # Target collection name
+    source_type: str  # "scratchbook", "file", "web", "chat", etc.
+    priority: int = 8  # 0-10, default HIGH for MCP context
+    status: ContentIngestionStatus = ContentIngestionStatus.PENDING
+    main_tag: str | None = None  # project_id or library_name
+    full_tag: str | None = None  # main_tag.branch or main_tag.version
+    metadata: dict[str, Any] | None = None
+    created_at: datetime = None
+    updated_at: datetime = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    retry_count: int = 0
+    max_retries: int = 3
+    error_message: str | None = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc)
+        if self.updated_at is None:
+            self.updated_at = self.created_at
 
 
 @dataclass
@@ -251,7 +301,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 7  # Updated for multi-tenant architecture (priority, sessions, library_watches)
+    SCHEMA_VERSION = 8  # v8: Add content_ingestion_queue for daemon fallback (Task 456/ADR-001)
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -770,6 +820,32 @@ class SQLiteStateManager:
             # Indexes for library_watches
             "CREATE INDEX idx_library_watches_path ON library_watches(path)",
             "CREATE INDEX idx_library_watches_enabled ON library_watches(enabled)",
+            # Content ingestion queue for MCP store fallback (v8, Task 456/ADR-001)
+            """
+            CREATE TABLE content_ingestion_queue (
+                queue_id TEXT PRIMARY KEY,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                content TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                source_type TEXT NOT NULL DEFAULT 'scratchbook',
+                priority INTEGER NOT NULL DEFAULT 8 CHECK (priority BETWEEN 0 AND 10),
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'done', 'failed')),
+                main_tag TEXT,
+                full_tag TEXT,
+                metadata TEXT,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                started_at TIMESTAMP,
+                completed_at TIMESTAMP,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                max_retries INTEGER NOT NULL DEFAULT 3,
+                error_message TEXT
+            )
+            """,
+            # Indexes for content_ingestion_queue
+            "CREATE INDEX idx_content_queue_status_priority ON content_ingestion_queue(status, priority DESC, created_at ASC)",
+            "CREATE INDEX idx_content_queue_idempotency ON content_ingestion_queue(idempotency_key)",
+            "CREATE INDEX idx_content_queue_collection ON content_ingestion_queue(collection)",
             # Insert initial schema version
             f"INSERT INTO schema_version (version) VALUES ({self.SCHEMA_VERSION})",
         ]
@@ -1049,6 +1125,43 @@ class SQLiteStateManager:
                 )
 
                 logger.info("Successfully migrated to schema version 7 (multi-tenant architecture support)")
+
+            # Migrate from version 7 to version 8 - Content ingestion queue for daemon fallback (Task 456/ADR-001)
+            if from_version <= 7 and to_version >= 8:
+                logger.info("Applying migration: v7 -> v8 (content ingestion queue for daemon fallback)")
+                content_queue_sql = [
+                    # Content ingestion queue for MCP store fallback when daemon unavailable
+                    """
+                    CREATE TABLE IF NOT EXISTS content_ingestion_queue (
+                        queue_id TEXT PRIMARY KEY,
+                        idempotency_key TEXT NOT NULL UNIQUE,
+                        content TEXT NOT NULL,
+                        collection TEXT NOT NULL,
+                        source_type TEXT NOT NULL DEFAULT 'scratchbook',
+                        priority INTEGER NOT NULL DEFAULT 8 CHECK (priority BETWEEN 0 AND 10),
+                        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'done', 'failed')),
+                        main_tag TEXT,
+                        full_tag TEXT,
+                        metadata TEXT,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        started_at TIMESTAMP,
+                        completed_at TIMESTAMP,
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        max_retries INTEGER NOT NULL DEFAULT 3,
+                        error_message TEXT
+                    )
+                    """,
+                    # Indexes for content_ingestion_queue
+                    "CREATE INDEX IF NOT EXISTS idx_content_queue_status_priority ON content_ingestion_queue(status, priority DESC, created_at ASC)",
+                    "CREATE INDEX IF NOT EXISTS idx_content_queue_idempotency ON content_ingestion_queue(idempotency_key)",
+                    "CREATE INDEX IF NOT EXISTS idx_content_queue_collection ON content_ingestion_queue(collection)",
+                ]
+
+                for sql in content_queue_sql:
+                    conn.execute(sql)
+
+                logger.info("Successfully migrated to schema version 8 (content ingestion queue)")
 
             # Record the migration
             conn.execute(
@@ -1579,6 +1692,404 @@ class SQLiteStateManager:
 
         except Exception as e:
             logger.error(f"Failed to remove from queue {queue_id}: {e}")
+            raise
+
+    # Content Ingestion Queue Methods (Task 456/ADR-001)
+    # These methods support MCP store() fallback when daemon is unavailable
+
+    async def enqueue_ingestion(
+        self,
+        content: str,
+        collection: str,
+        source_type: str = "scratchbook",
+        priority: int = 8,
+        main_tag: str | None = None,
+        full_tag: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[str, bool]:
+        """
+        Enqueue content for ingestion with idempotency support.
+
+        Uses SHA256 hash of (content + collection + source_type + metadata) as idempotency key.
+        If content with same idempotency key already exists, returns existing queue_id without
+        creating a duplicate.
+
+        Args:
+            content: Text content to ingest
+            collection: Target collection name (canonical per ADR-001)
+            source_type: Content source type (scratchbook, file, etc.)
+            priority: Priority level (0-10, where 10 is highest)
+            main_tag: Main tag for hierarchical organization (e.g., project_id)
+            full_tag: Full tag with subtag (e.g., project_id.branch)
+            metadata: Optional metadata dictionary
+
+        Returns:
+            Tuple of (queue_id, is_new) where is_new indicates if item was newly created
+
+        Raises:
+            ValueError: If priority is out of valid range (0-10)
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        if not 0 <= priority <= 10:
+            raise ValueError(f"Priority must be between 0 and 10, got {priority}")
+
+        try:
+            # Calculate idempotency key from content + collection + source_type + metadata
+            idempotency_input = f"{content}|{collection}|{source_type}|{json.dumps(metadata or {}, sort_keys=True)}"
+            idempotency_key = hashlib.sha256(idempotency_input.encode("utf-8")).hexdigest()[:32]
+
+            # Generate queue_id
+            queue_id = str(uuid.uuid4())
+
+            async with self.transaction() as conn:
+                # Check if item with same idempotency key already exists
+                cursor = conn.execute(
+                    "SELECT queue_id FROM content_ingestion_queue WHERE idempotency_key = ?",
+                    (idempotency_key,)
+                )
+                existing = cursor.fetchone()
+
+                if existing:
+                    logger.debug(f"Content already queued (idempotency): {existing['queue_id']}")
+                    return existing["queue_id"], False
+
+                # Insert new queue item
+                conn.execute(
+                    """
+                    INSERT INTO content_ingestion_queue
+                    (queue_id, idempotency_key, content, collection, source_type, priority,
+                     status, main_tag, full_tag, metadata, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        queue_id,
+                        idempotency_key,
+                        content,
+                        collection,
+                        source_type,
+                        priority,
+                        main_tag,
+                        full_tag,
+                        self._serialize_json(metadata) if metadata else None,
+                    ),
+                )
+
+                logger.debug(
+                    f"Enqueued content: {queue_id} "
+                    f"(collection={collection}, priority={priority}, source={source_type})"
+                )
+
+                return queue_id, True
+
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to enqueue content ingestion: {e}")
+            raise
+
+    async def dequeue_content_ingestion(
+        self,
+        batch_size: int = 10,
+        collection: str | None = None,
+    ) -> list[ContentIngestionQueueItem]:
+        """
+        Retrieve pending content items from queue for processing.
+
+        Items are returned in priority order (DESC) then by creation time (ASC).
+        Retrieved items are marked as 'in_progress'.
+
+        Args:
+            batch_size: Maximum number of items to retrieve
+            collection: Optional filter by collection name
+
+        Returns:
+            List of ContentIngestionQueueItem objects ready for processing
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                # Build query with optional collection filter
+                query = """
+                    SELECT queue_id, idempotency_key, content, collection, source_type,
+                           priority, status, main_tag, full_tag, metadata, created_at,
+                           updated_at, started_at, completed_at, retry_count, max_retries,
+                           error_message
+                    FROM content_ingestion_queue
+                    WHERE status = 'pending'
+                """
+                params: list[Any] = []
+
+                if collection:
+                    query += " AND collection = ?"
+                    params.append(collection)
+
+                query += " ORDER BY priority DESC, created_at ASC LIMIT ?"
+                params.append(batch_size)
+
+                cursor = conn.execute(query, params)
+                rows = cursor.fetchall()
+
+                items = []
+                queue_ids = []
+
+                for row in rows:
+                    queue_ids.append(row["queue_id"])
+
+                # Mark retrieved items as in_progress first
+                now = datetime.now(timezone.utc)
+                if queue_ids:
+                    placeholders = ",".join("?" * len(queue_ids))
+                    conn.execute(
+                        f"""
+                        UPDATE content_ingestion_queue
+                        SET status = 'in_progress', started_at = CURRENT_TIMESTAMP,
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE queue_id IN ({placeholders})
+                        """,
+                        queue_ids,
+                    )
+
+                # Now create items with the updated status
+                for row in rows:
+                    item = ContentIngestionQueueItem(
+                        queue_id=row["queue_id"],
+                        idempotency_key=row["idempotency_key"],
+                        content=row["content"],
+                        collection=row["collection"],
+                        source_type=row["source_type"],
+                        priority=row["priority"],
+                        status=ContentIngestionStatus.IN_PROGRESS,  # Status after update
+                        main_tag=row["main_tag"],
+                        full_tag=row["full_tag"],
+                        metadata=self._deserialize_json(row["metadata"]),
+                        created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+                        updated_at=now,  # Updated timestamp
+                        started_at=now,  # Started timestamp (set by update)
+                        completed_at=datetime.fromisoformat(row["completed_at"]) if row["completed_at"] else None,
+                        retry_count=row["retry_count"],
+                        max_retries=row["max_retries"],
+                        error_message=row["error_message"],
+                    )
+                    items.append(item)
+
+                logger.debug(f"Dequeued {len(items)} content ingestion items")
+                return items
+
+        except Exception as e:
+            logger.error(f"Failed to dequeue content ingestion items: {e}")
+            raise
+
+    async def update_content_ingestion_status(
+        self,
+        queue_id: str,
+        status: ContentIngestionStatus,
+        error_message: str | None = None,
+    ) -> bool:
+        """
+        Update the status of a content ingestion queue item.
+
+        Args:
+            queue_id: Queue ID of the item to update
+            status: New status (PENDING, IN_PROGRESS, DONE, FAILED)
+            error_message: Optional error message (for FAILED status)
+
+        Returns:
+            True if item was updated, False if item not found
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                update_fields = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
+                params: list[Any] = [status.value]
+
+                if status == ContentIngestionStatus.IN_PROGRESS:
+                    update_fields.append("started_at = CURRENT_TIMESTAMP")
+
+                if status in (ContentIngestionStatus.DONE, ContentIngestionStatus.FAILED):
+                    update_fields.append("completed_at = CURRENT_TIMESTAMP")
+
+                if error_message:
+                    update_fields.append("error_message = ?")
+                    params.append(error_message)
+
+                if status == ContentIngestionStatus.FAILED:
+                    update_fields.append("retry_count = retry_count + 1")
+
+                params.append(queue_id)
+
+                cursor = conn.execute(
+                    f"UPDATE content_ingestion_queue SET {', '.join(update_fields)} WHERE queue_id = ?",
+                    params,
+                )
+
+                updated = cursor.rowcount > 0
+
+                if updated:
+                    logger.debug(f"Updated content ingestion status: {queue_id} -> {status.value}")
+                else:
+                    logger.warning(f"Content ingestion item not found: {queue_id}")
+
+                return updated
+
+        except Exception as e:
+            logger.error(f"Failed to update content ingestion status {queue_id}: {e}")
+            raise
+
+    async def get_content_ingestion_queue_depth(
+        self,
+        collection: str | None = None,
+        status: ContentIngestionStatus | None = None,
+    ) -> int:
+        """
+        Get the current depth (count) of the content ingestion queue.
+
+        Args:
+            collection: Optional filter by collection name
+            status: Optional filter by status
+
+        Returns:
+            Number of items in the queue matching the filters
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            query = "SELECT COUNT(*) FROM content_ingestion_queue WHERE 1=1"
+            params: list[Any] = []
+
+            if collection:
+                query += " AND collection = ?"
+                params.append(collection)
+
+            if status:
+                query += " AND status = ?"
+                params.append(status.value)
+
+            with self._lock:
+                cursor = self.connection.execute(query, params)
+                count = cursor.fetchone()[0]
+                return count
+
+        except Exception as e:
+            logger.error(f"Failed to get content ingestion queue depth: {e}")
+            raise
+
+    async def reset_in_progress_content_items(
+        self,
+        max_retries: int = 3,
+    ) -> int:
+        """
+        Reset 'in_progress' content items back to 'pending' for crash recovery.
+
+        Items that have exceeded max_retries are marked as 'failed' instead.
+
+        Args:
+            max_retries: Maximum retry count before marking as failed
+
+        Returns:
+            Number of items reset
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            reset_count = 0
+
+            async with self.transaction() as conn:
+                # Reset items within retry limit back to pending (increment retry_count)
+                cursor = conn.execute(
+                    """
+                    UPDATE content_ingestion_queue
+                    SET status = 'pending', started_at = NULL, updated_at = CURRENT_TIMESTAMP,
+                        retry_count = retry_count + 1
+                    WHERE status = 'in_progress' AND retry_count < ?
+                    """,
+                    (max_retries,),
+                )
+                reset_count = cursor.rowcount
+
+                # Mark items that will exceed retry limit after increment as failed
+                cursor = conn.execute(
+                    """
+                    UPDATE content_ingestion_queue
+                    SET status = 'failed', error_message = 'Max retries exceeded during crash recovery',
+                        completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP,
+                        retry_count = retry_count + 1
+                    WHERE status = 'in_progress' AND retry_count >= ?
+                    """,
+                    (max_retries,),
+                )
+                failed_count = cursor.rowcount
+
+            if reset_count > 0 or failed_count > 0:
+                logger.info(
+                    f"Content ingestion crash recovery: reset {reset_count} items, "
+                    f"marked {failed_count} as failed"
+                )
+
+            return reset_count
+
+        except Exception as e:
+            logger.error(f"Failed to reset in-progress content items: {e}")
+            raise
+
+    async def remove_completed_content_items(
+        self,
+        older_than_hours: int = 24,
+    ) -> int:
+        """
+        Remove completed content ingestion items older than specified hours.
+
+        Args:
+            older_than_hours: Remove items completed more than this many hours ago
+
+        Returns:
+            Number of items removed
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    DELETE FROM content_ingestion_queue
+                    WHERE status = 'done'
+                    AND completed_at < datetime('now', '-' || ? || ' hours')
+                    """,
+                    (older_than_hours,),
+                )
+                removed = cursor.rowcount
+
+                if removed > 0:
+                    logger.debug(f"Removed {removed} completed content ingestion items")
+
+                return removed
+
+        except Exception as e:
+            logger.error(f"Failed to remove completed content items: {e}")
             raise
 
     # Multi-Component Communication Support Methods

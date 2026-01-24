@@ -143,7 +143,10 @@ if _detect_stdio_mode():
 # Import project detection and branch utilities after stdio setup
 from common.core.collection_aliases import AliasManager
 from common.core.collection_naming import build_project_collection_name
-from common.core.sqlite_state_manager import SQLiteStateManager
+from common.core.sqlite_state_manager import (
+    SQLiteStateManager,
+    ContentIngestionStatus,
+)
 from common.grpc.daemon_client import DaemonClient, DaemonConnectionError
 from common.observability.metrics import (
     track_tool, record_search_scope, record_search_results
@@ -1004,48 +1007,88 @@ async def store(
                 "error": f"Failed to store document via daemon: {str(e)}"
             }
     else:
-        # Fallback to direct Qdrant write if daemon unavailable
-        # This maintains backwards compatibility but violates First Principle 10
+        # Fallback: Queue content for later daemon processing (Task 456/ADR-001)
+        # Instead of direct Qdrant writes (which violate First Principle 10),
+        # queue content in SQLite for daemon to process when available.
         try:
-            # Ensure collection exists
-            if not await ensure_collection_exists(target_collection):
+            if state_manager:
+                # Queue content for daemon to process later
+                queue_id, is_new = await state_manager.enqueue_ingestion(
+                    content=content,
+                    collection=target_collection,
+                    source_type=source,
+                    priority=8,  # Default priority for user content
+                    main_tag=project_id,
+                    full_tag=f"{project_id}.{current_branch}" if current_branch else project_id,
+                    metadata=doc_metadata,
+                )
+
+                if is_new:
+                    logger.warning(
+                        f"Daemon unavailable - content queued for later processing: {queue_id}"
+                    )
+                else:
+                    logger.debug(f"Content already queued (idempotency): {queue_id}")
+
                 return {
-                    "success": False,
-                    "error": f"Failed to create/access collection: {target_collection}"
+                    "success": True,
+                    "queue_id": queue_id,
+                    "queued": True,
+                    "collection": target_collection,
+                    "project_id": project_id,
+                    "title": doc_metadata["title"],
+                    "content_length": len(content),
+                    "file_type": file_type,
+                    "branch": current_branch,
+                    "fallback_mode": "sqlite_queue",
+                    "message": "Content queued for daemon processing. Will be ingested when daemon is available."
                 }
+            else:
+                # No state_manager available - last resort direct write
+                # This should rarely happen as state_manager is initialized early
+                logger.error("Neither daemon nor state_manager available - attempting direct write")
 
-            # Generate document ID and embeddings
-            document_id = str(uuid.uuid4())
-            embeddings = await generate_embeddings(content)
+                # Ensure collection exists
+                if not await ensure_collection_exists(target_collection):
+                    return {
+                        "success": False,
+                        "error": f"Failed to create/access collection: {target_collection}"
+                    }
 
-            # Store in Qdrant (async)
-            point = PointStruct(
-                id=document_id,
-                vector=embeddings,
-                payload={
-                    "content": content,
-                    **doc_metadata
+                # Generate document ID and embeddings
+                document_id = str(uuid.uuid4())
+                embeddings = await generate_embeddings(content)
+
+                # Store in Qdrant (async)
+                point = PointStruct(
+                    id=document_id,
+                    vector=embeddings,
+                    payload={
+                        "content": content,
+                        **doc_metadata
+                    }
+                )
+
+                await qdrant_client.upsert(
+                    collection_name=target_collection,
+                    points=[point]
+                )
+
+                return {
+                    "success": True,
+                    "document_id": document_id,
+                    "collection": target_collection,
+                    "project_id": project_id,
+                    "title": doc_metadata["title"],
+                    "content_length": len(content),
+                    "file_type": file_type,
+                    "branch": current_branch,
+                    "metadata": doc_metadata,
+                    "fallback_mode": "direct_qdrant_write",
+                    "warning": "Direct write used as last resort - daemon and queue unavailable"
                 }
-            )
-
-            await qdrant_client.upsert(
-                collection_name=target_collection,
-                points=[point]
-            )
-
-            return {
-                "success": True,
-                "document_id": document_id,
-                "collection": target_collection,
-                "project_id": project_id,  # Task 397: Include for multi-tenant reference
-                "title": doc_metadata["title"],
-                "content_length": len(content),
-                "file_type": file_type,
-                "branch": current_branch,
-                "metadata": doc_metadata,
-                "fallback_mode": "direct_qdrant_write"
-            }
         except Exception as e:
+            logger.error(f"Failed to store/queue document: {e}")
             return {
                 "success": False,
                 "error": f"Failed to store document: {str(e)}"
