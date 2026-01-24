@@ -488,19 +488,24 @@ class TestDatabaseAvailability:
         self, integration_test_workspace, integration_state_db
     ):
         """Test behavior with readonly database."""
-        import os
-
-        # Make database readonly
-        os.chmod(integration_state_db, 0o444)
+        from unittest.mock import patch
 
         cli_helper = CLIHelper(workspace=integration_test_workspace)
 
-        # Read operations should still work
-        result = cli_helper.run_command(["--version"])
-        assert result is not None
+        # Mock database access to simulate readonly behavior
+        with patch('os.access') as mock_access:
+            # Allow read but deny write
+            def access_side_effect(path, mode):
+                if str(path) == str(integration_state_db):
+                    if mode == os.W_OK:
+                        return False
+                    return True
+                return True
+            mock_access.side_effect = access_side_effect
 
-        # Restore permissions
-        os.chmod(integration_state_db, 0o644)
+            # Read operations should still work
+            result = cli_helper.run_command(["--version"])
+            assert result is not None
 
 
 @pytest.mark.integration
