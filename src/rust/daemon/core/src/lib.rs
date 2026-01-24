@@ -123,7 +123,9 @@ pub use crate::watching_queue::{
     // Watch-queue coordination types (Task 461.9)
     WatchQueueCoordinator, CoordinatorConfig, CoordinatorSummary,
     // Circuit breaker types (Task 461.15)
-    WatchHealthStatus, WatchErrorState, BackoffConfig, CircuitBreakerState
+    WatchHealthStatus, WatchErrorState, BackoffConfig, CircuitBreakerState,
+    // Processing error feedback types (Task 461.13)
+    ProcessingErrorType, ProcessingErrorFeedback, ErrorFeedbackManager, ProcessingErrorSummary
 };
 pub use crate::tool_monitor::{
     ToolMonitor, MonitoringError, MonitoringResult, RequeueStats

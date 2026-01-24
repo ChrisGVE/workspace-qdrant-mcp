@@ -1356,6 +1356,289 @@ pub struct CircuitBreakerState {
     pub errors_in_window: u32,
 }
 
+//
+// ========== PROCESSING ERROR FEEDBACK (Task 461.13) ==========
+//
+
+/// Type of processing error for categorization (Task 461.13)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ProcessingErrorType {
+    /// File was not found at the expected path
+    FileNotFound,
+    /// Error parsing the file content
+    ParsingError,
+    /// Error communicating with or storing in Qdrant
+    QdrantError,
+    /// Error generating embeddings
+    EmbeddingError,
+    /// General/unknown error
+    Unknown,
+}
+
+impl ProcessingErrorType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProcessingErrorType::FileNotFound => "file_not_found",
+            ProcessingErrorType::ParsingError => "parsing_error",
+            ProcessingErrorType::QdrantError => "qdrant_error",
+            ProcessingErrorType::EmbeddingError => "embedding_error",
+            ProcessingErrorType::Unknown => "unknown",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "file_not_found" => ProcessingErrorType::FileNotFound,
+            "parsing_error" => ProcessingErrorType::ParsingError,
+            "qdrant_error" => ProcessingErrorType::QdrantError,
+            "embedding_error" => ProcessingErrorType::EmbeddingError,
+            _ => ProcessingErrorType::Unknown,
+        }
+    }
+
+    /// Determine if this error type should cause permanent file skip
+    pub fn should_skip_permanently(&self) -> bool {
+        match self {
+            ProcessingErrorType::FileNotFound => true,  // File doesn't exist
+            ProcessingErrorType::ParsingError => false, // May be fixed with code changes
+            ProcessingErrorType::QdrantError => false,  // Transient issue
+            ProcessingErrorType::EmbeddingError => false, // Transient issue
+            ProcessingErrorType::Unknown => false,
+        }
+    }
+}
+
+/// Processing error feedback from queue processor to watch system (Task 461.13)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessingErrorFeedback {
+    /// Watch ID that originated the file
+    pub watch_id: String,
+    /// File path that failed processing
+    pub file_path: String,
+    /// Type of error that occurred
+    pub error_type: ProcessingErrorType,
+    /// Detailed error message
+    pub error_message: String,
+    /// Queue item ID (if available)
+    pub queue_item_id: Option<String>,
+    /// Timestamp of the error
+    pub timestamp: SystemTime,
+    /// Additional context (e.g., file hash, chunk index)
+    pub context: HashMap<String, String>,
+}
+
+impl ProcessingErrorFeedback {
+    /// Create new error feedback
+    pub fn new(
+        watch_id: impl Into<String>,
+        file_path: impl Into<String>,
+        error_type: ProcessingErrorType,
+        error_message: impl Into<String>,
+    ) -> Self {
+        Self {
+            watch_id: watch_id.into(),
+            file_path: file_path.into(),
+            error_type,
+            error_message: error_message.into(),
+            queue_item_id: None,
+            timestamp: SystemTime::now(),
+            context: HashMap::new(),
+        }
+    }
+
+    /// Add queue item ID
+    pub fn with_queue_item_id(mut self, id: impl Into<String>) -> Self {
+        self.queue_item_id = Some(id.into());
+        self
+    }
+
+    /// Add context key-value pair
+    pub fn with_context(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.context.insert(key.into(), value.into());
+        self
+    }
+}
+
+/// Error feedback callback signature (Task 461.13)
+pub type ErrorFeedbackCallback = Box<dyn Fn(&ProcessingErrorFeedback) + Send + Sync>;
+
+/// Manager for processing error feedback (Task 461.13)
+///
+/// Collects error feedback from queue processors and routes it to the appropriate
+/// watch error trackers for behavior adjustment.
+#[derive(Default)]
+pub struct ErrorFeedbackManager {
+    /// Recent errors by watch_id for querying
+    recent_errors: Arc<RwLock<HashMap<String, Vec<ProcessingErrorFeedback>>>>,
+    /// Files to permanently skip (by watch_id -> file_path set)
+    permanent_skips: Arc<RwLock<HashMap<String, std::collections::HashSet<String>>>>,
+    /// Maximum recent errors to keep per watch
+    max_recent_per_watch: usize,
+    /// Error callback (optional)
+    callback: Option<ErrorFeedbackCallback>,
+}
+
+impl std::fmt::Debug for ErrorFeedbackManager {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ErrorFeedbackManager")
+            .field("max_recent_per_watch", &self.max_recent_per_watch)
+            .field("has_callback", &self.callback.is_some())
+            .finish()
+    }
+}
+
+impl ErrorFeedbackManager {
+    /// Create a new error feedback manager
+    pub fn new() -> Self {
+        Self {
+            recent_errors: Arc::new(RwLock::new(HashMap::new())),
+            permanent_skips: Arc::new(RwLock::new(HashMap::new())),
+            max_recent_per_watch: 100,
+            callback: None,
+        }
+    }
+
+    /// Create with custom max recent errors
+    pub fn with_max_recent(mut self, max: usize) -> Self {
+        self.max_recent_per_watch = max;
+        self
+    }
+
+    /// Set error callback
+    pub fn with_callback(mut self, callback: ErrorFeedbackCallback) -> Self {
+        self.callback = Some(callback);
+        self
+    }
+
+    /// Record a processing error (called by queue processor)
+    ///
+    /// This is the main error_callback(watch_id, error_type, context) entry point.
+    pub async fn record_error(&self, feedback: ProcessingErrorFeedback) {
+        let watch_id = feedback.watch_id.clone();
+        let file_path = feedback.file_path.clone();
+        let should_skip = feedback.error_type.should_skip_permanently();
+
+        // Add to recent errors
+        {
+            let mut recent = self.recent_errors.write().await;
+            let errors = recent.entry(watch_id.clone()).or_insert_with(Vec::new);
+            errors.push(feedback.clone());
+
+            // Trim to max
+            if errors.len() > self.max_recent_per_watch {
+                errors.remove(0);
+            }
+        }
+
+        // Add to permanent skip list if appropriate
+        if should_skip {
+            let mut skips = self.permanent_skips.write().await;
+            skips.entry(watch_id.clone())
+                .or_insert_with(std::collections::HashSet::new)
+                .insert(file_path.clone());
+
+            info!(
+                "Added {} to permanent skip list for watch {} (error: {:?})",
+                file_path, watch_id, feedback.error_type
+            );
+        }
+
+        // Invoke callback if set
+        if let Some(ref callback) = self.callback {
+            callback(&feedback);
+        }
+    }
+
+    /// Check if a file should be skipped permanently
+    pub async fn should_skip_file(&self, watch_id: &str, file_path: &str) -> bool {
+        let skips = self.permanent_skips.read().await;
+        skips.get(watch_id)
+            .map(|set| set.contains(file_path))
+            .unwrap_or(false)
+    }
+
+    /// Get recent errors for a watch
+    pub async fn get_recent_errors(&self, watch_id: &str) -> Vec<ProcessingErrorFeedback> {
+        let recent = self.recent_errors.read().await;
+        recent.get(watch_id).cloned().unwrap_or_default()
+    }
+
+    /// Get error counts by type for a watch
+    pub async fn get_error_counts(&self, watch_id: &str) -> HashMap<ProcessingErrorType, usize> {
+        let recent = self.recent_errors.read().await;
+        let mut counts = HashMap::new();
+
+        if let Some(errors) = recent.get(watch_id) {
+            for error in errors {
+                *counts.entry(error.error_type).or_insert(0) += 1;
+            }
+        }
+
+        counts
+    }
+
+    /// Get all permanently skipped files for a watch
+    pub async fn get_skipped_files(&self, watch_id: &str) -> Vec<String> {
+        let skips = self.permanent_skips.read().await;
+        skips.get(watch_id)
+            .map(|set| set.iter().cloned().collect())
+            .unwrap_or_default()
+    }
+
+    /// Remove a file from the permanent skip list (manual override)
+    pub async fn remove_skip(&self, watch_id: &str, file_path: &str) -> bool {
+        let mut skips = self.permanent_skips.write().await;
+        if let Some(set) = skips.get_mut(watch_id) {
+            set.remove(file_path)
+        } else {
+            false
+        }
+    }
+
+    /// Clear all skipped files for a watch
+    pub async fn clear_skips(&self, watch_id: &str) {
+        let mut skips = self.permanent_skips.write().await;
+        skips.remove(watch_id);
+    }
+
+    /// Clear all recent errors for a watch
+    pub async fn clear_recent_errors(&self, watch_id: &str) {
+        let mut recent = self.recent_errors.write().await;
+        recent.remove(watch_id);
+    }
+
+    /// Get summary of all watches with processing errors
+    pub async fn get_processing_error_summary(&self) -> Vec<ProcessingErrorSummary> {
+        let recent = self.recent_errors.read().await;
+        let skips = self.permanent_skips.read().await;
+
+        recent.keys().map(|watch_id| {
+            let errors = recent.get(watch_id).map(|e| e.len()).unwrap_or(0);
+            let skipped = skips.get(watch_id).map(|s| s.len()).unwrap_or(0);
+            let last_error = recent.get(watch_id)
+                .and_then(|e| e.last())
+                .map(|e| e.timestamp);
+
+            ProcessingErrorSummary {
+                watch_id: watch_id.clone(),
+                recent_error_count: errors,
+                skipped_file_count: skipped,
+                last_error_time: last_error,
+            }
+        }).collect()
+    }
+}
+
+/// Summary of processing errors for a watch (Task 461.13)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcessingErrorSummary {
+    pub watch_id: String,
+    pub recent_error_count: usize,
+    pub skipped_file_count: usize,
+    pub last_error_time: Option<SystemTime>,
+}
+
 /// Error state tracking for a single watch folder (Task 461)
 ///
 /// Tracks consecutive errors, backoff state, and health status for coordinated
@@ -3682,5 +3965,218 @@ mod tests {
     #[test]
     fn test_watch_health_status_half_open_as_str() {
         assert_eq!(WatchHealthStatus::HalfOpen.as_str(), "half_open");
+    }
+
+    // ========== Processing Error Feedback Tests (Task 461.13) ==========
+
+    #[test]
+    fn test_processing_error_type_as_str() {
+        assert_eq!(ProcessingErrorType::FileNotFound.as_str(), "file_not_found");
+        assert_eq!(ProcessingErrorType::ParsingError.as_str(), "parsing_error");
+        assert_eq!(ProcessingErrorType::QdrantError.as_str(), "qdrant_error");
+        assert_eq!(ProcessingErrorType::EmbeddingError.as_str(), "embedding_error");
+        assert_eq!(ProcessingErrorType::Unknown.as_str(), "unknown");
+    }
+
+    #[test]
+    fn test_processing_error_type_from_str() {
+        assert_eq!(ProcessingErrorType::from_str("file_not_found"), ProcessingErrorType::FileNotFound);
+        assert_eq!(ProcessingErrorType::from_str("parsing_error"), ProcessingErrorType::ParsingError);
+        assert_eq!(ProcessingErrorType::from_str("qdrant_error"), ProcessingErrorType::QdrantError);
+        assert_eq!(ProcessingErrorType::from_str("embedding_error"), ProcessingErrorType::EmbeddingError);
+        assert_eq!(ProcessingErrorType::from_str("other"), ProcessingErrorType::Unknown);
+    }
+
+    #[test]
+    fn test_processing_error_type_should_skip_permanently() {
+        assert!(ProcessingErrorType::FileNotFound.should_skip_permanently());
+        assert!(!ProcessingErrorType::ParsingError.should_skip_permanently());
+        assert!(!ProcessingErrorType::QdrantError.should_skip_permanently());
+        assert!(!ProcessingErrorType::EmbeddingError.should_skip_permanently());
+        assert!(!ProcessingErrorType::Unknown.should_skip_permanently());
+    }
+
+    #[test]
+    fn test_processing_error_feedback_new() {
+        let feedback = ProcessingErrorFeedback::new(
+            "watch-1",
+            "/path/to/file.txt",
+            ProcessingErrorType::ParsingError,
+            "Failed to parse file"
+        );
+
+        assert_eq!(feedback.watch_id, "watch-1");
+        assert_eq!(feedback.file_path, "/path/to/file.txt");
+        assert_eq!(feedback.error_type, ProcessingErrorType::ParsingError);
+        assert_eq!(feedback.error_message, "Failed to parse file");
+        assert!(feedback.queue_item_id.is_none());
+        assert!(feedback.context.is_empty());
+    }
+
+    #[test]
+    fn test_processing_error_feedback_with_context() {
+        let feedback = ProcessingErrorFeedback::new(
+            "watch-1",
+            "/path/to/file.txt",
+            ProcessingErrorType::EmbeddingError,
+            "Embedding failed"
+        )
+        .with_queue_item_id("queue-123")
+        .with_context("chunk_index", "5")
+        .with_context("model", "all-MiniLM-L6-v2");
+
+        assert_eq!(feedback.queue_item_id, Some("queue-123".to_string()));
+        assert_eq!(feedback.context.get("chunk_index"), Some(&"5".to_string()));
+        assert_eq!(feedback.context.get("model"), Some(&"all-MiniLM-L6-v2".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_error_feedback_manager_record_and_query() {
+        let manager = ErrorFeedbackManager::new();
+
+        // Record an error
+        let feedback = ProcessingErrorFeedback::new(
+            "watch-1",
+            "/path/to/file.txt",
+            ProcessingErrorType::ParsingError,
+            "Parse error"
+        );
+        manager.record_error(feedback).await;
+
+        // Query recent errors
+        let errors = manager.get_recent_errors("watch-1").await;
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].file_path, "/path/to/file.txt");
+    }
+
+    #[tokio::test]
+    async fn test_error_feedback_manager_permanent_skip() {
+        let manager = ErrorFeedbackManager::new();
+
+        // Record FileNotFound - should add to permanent skip
+        let feedback = ProcessingErrorFeedback::new(
+            "watch-1",
+            "/missing/file.txt",
+            ProcessingErrorType::FileNotFound,
+            "File not found"
+        );
+        manager.record_error(feedback).await;
+
+        // Check if file is skipped
+        assert!(manager.should_skip_file("watch-1", "/missing/file.txt").await);
+        assert!(!manager.should_skip_file("watch-1", "/other/file.txt").await);
+        assert!(!manager.should_skip_file("watch-2", "/missing/file.txt").await);
+    }
+
+    #[tokio::test]
+    async fn test_error_feedback_manager_error_counts() {
+        let manager = ErrorFeedbackManager::new();
+
+        // Record multiple errors of different types
+        manager.record_error(ProcessingErrorFeedback::new(
+            "watch-1", "file1.txt", ProcessingErrorType::ParsingError, "error"
+        )).await;
+        manager.record_error(ProcessingErrorFeedback::new(
+            "watch-1", "file2.txt", ProcessingErrorType::ParsingError, "error"
+        )).await;
+        manager.record_error(ProcessingErrorFeedback::new(
+            "watch-1", "file3.txt", ProcessingErrorType::QdrantError, "error"
+        )).await;
+
+        let counts = manager.get_error_counts("watch-1").await;
+        assert_eq!(counts.get(&ProcessingErrorType::ParsingError), Some(&2));
+        assert_eq!(counts.get(&ProcessingErrorType::QdrantError), Some(&1));
+        assert_eq!(counts.get(&ProcessingErrorType::FileNotFound), None);
+    }
+
+    #[tokio::test]
+    async fn test_error_feedback_manager_remove_skip() {
+        let manager = ErrorFeedbackManager::new();
+
+        // Add to skip list
+        let feedback = ProcessingErrorFeedback::new(
+            "watch-1",
+            "/missing/file.txt",
+            ProcessingErrorType::FileNotFound,
+            "Not found"
+        );
+        manager.record_error(feedback).await;
+        assert!(manager.should_skip_file("watch-1", "/missing/file.txt").await);
+
+        // Remove from skip list
+        let removed = manager.remove_skip("watch-1", "/missing/file.txt").await;
+        assert!(removed);
+        assert!(!manager.should_skip_file("watch-1", "/missing/file.txt").await);
+    }
+
+    #[tokio::test]
+    async fn test_error_feedback_manager_clear_skips() {
+        let manager = ErrorFeedbackManager::new();
+
+        // Add multiple files to skip list
+        for i in 0..5 {
+            let feedback = ProcessingErrorFeedback::new(
+                "watch-1",
+                format!("/missing/file{}.txt", i),
+                ProcessingErrorType::FileNotFound,
+                "Not found"
+            );
+            manager.record_error(feedback).await;
+        }
+
+        let skipped = manager.get_skipped_files("watch-1").await;
+        assert_eq!(skipped.len(), 5);
+
+        // Clear all skips
+        manager.clear_skips("watch-1").await;
+        let skipped = manager.get_skipped_files("watch-1").await;
+        assert!(skipped.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_error_feedback_manager_summary() {
+        let manager = ErrorFeedbackManager::new();
+
+        // Add errors for multiple watches
+        manager.record_error(ProcessingErrorFeedback::new(
+            "watch-1", "file1.txt", ProcessingErrorType::ParsingError, "error"
+        )).await;
+        manager.record_error(ProcessingErrorFeedback::new(
+            "watch-1", "file2.txt", ProcessingErrorType::FileNotFound, "error"
+        )).await;
+        manager.record_error(ProcessingErrorFeedback::new(
+            "watch-2", "file3.txt", ProcessingErrorType::QdrantError, "error"
+        )).await;
+
+        let summary = manager.get_processing_error_summary().await;
+        assert_eq!(summary.len(), 2);
+
+        let watch1_summary = summary.iter().find(|s| s.watch_id == "watch-1");
+        assert!(watch1_summary.is_some());
+        let watch1 = watch1_summary.unwrap();
+        assert_eq!(watch1.recent_error_count, 2);
+        assert_eq!(watch1.skipped_file_count, 1); // FileNotFound adds to skip
+    }
+
+    #[tokio::test]
+    async fn test_error_feedback_manager_max_recent() {
+        let manager = ErrorFeedbackManager::new().with_max_recent(3);
+
+        // Add more errors than max
+        for i in 0..5 {
+            manager.record_error(ProcessingErrorFeedback::new(
+                "watch-1",
+                format!("file{}.txt", i),
+                ProcessingErrorType::ParsingError,
+                format!("error {}", i)
+            )).await;
+        }
+
+        let errors = manager.get_recent_errors("watch-1").await;
+        assert_eq!(errors.len(), 3); // Should be capped at max
+        // Should have the most recent 3 (indices 2, 3, 4)
+        assert!(errors.iter().any(|e| e.file_path == "file2.txt"));
+        assert!(errors.iter().any(|e| e.file_path == "file3.txt"));
+        assert!(errors.iter().any(|e| e.file_path == "file4.txt"));
     }
 }
