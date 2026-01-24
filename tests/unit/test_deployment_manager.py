@@ -704,16 +704,11 @@ class TestDeploymentEdgeCases:
 
     def test_save_deployments_permission_error(self):
         """Test saving deployments with permission error."""
-        # Make deployment directory read-only
-        self.deployment_manager.deployment_dir.chmod(0o444)
-
-        try:
+        # Mock os.access to simulate write permission denied
+        with patch('os.access', return_value=False):
             self.deployment_manager.deploy_model("test_model", DeploymentStage.STAGING)
             # Should not raise exception even if save fails
             self.deployment_manager._save_deployments()
-        finally:
-            # Restore permissions for cleanup
-            self.deployment_manager.deployment_dir.chmod(0o755)
 
     def test_load_deployments_corrupted_file(self):
         """Test loading deployments from corrupted file."""
