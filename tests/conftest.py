@@ -66,6 +66,14 @@ if str(src_path) not in sys.path:
 # These need to be fixed before being re-enabled
 # Quarantined on 2026-01-18 during Phase 1 stabilization
 collect_ignore = [
+    # CRITICAL: Tests causing permission issues or infinite hangs (2026-01-24)
+    # These tests blindly execute CLI commands and async functions without proper mocking
+    # causing os.chmod calls that break project folder permissions or infinite blocking
+    "unit/test_complete_100_percent_coverage.py",
+    "unit/test_final_100_percent_push.py",
+    "unit/test_final_coverage_push.py",
+    "unit/test_final_100_percent_comprehensive.py",
+    "unit/test_maximum_coverage_push.py",
     # Tests referencing missing workspace_qdrant_mcp.utils module
     "unit/test_config_validator.py",
     "unit/test_config_validator_comprehensive.py",
