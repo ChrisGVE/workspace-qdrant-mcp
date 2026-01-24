@@ -332,5 +332,14 @@ def handle_async_command(coro: Coroutine[Any, Any, Any], debug: bool = False) ->
 
 
 
+def cli_entry_point() -> None:
+    """Entry point for the wqm CLI command.
+
+    This function serves as the entry point for the console script
+    defined in pyproject.toml. It simply invokes the Typer app.
+    """
+    app()
+
+
 if __name__ == "__main__":
     app()

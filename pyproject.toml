@@ -102,6 +102,7 @@ tokenizers = [
 ]
 
 [project.scripts]
+wqm = "wqm_cli.cli.main:cli_entry_point"
 workspace-qdrant-mcp = "workspace_qdrant_mcp.main:main"
 wqm-install = "wqm_cli.installer:main"
 
