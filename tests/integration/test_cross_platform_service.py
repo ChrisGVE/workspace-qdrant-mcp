@@ -87,7 +87,6 @@ class ServiceTestHelper:
         else:
             # Create a mock Unix executable
             binary_path.write_text("#!/bin/bash\necho 'Mock daemon'")
-            binary_path.chmod(0o755)
 
         return binary_path
 
