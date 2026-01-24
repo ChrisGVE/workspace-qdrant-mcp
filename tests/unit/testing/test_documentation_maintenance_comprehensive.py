@@ -872,19 +872,20 @@ def test_normal():
 
     def test_permission_denied_scenarios(self):
         """Test handling of permission denied errors."""
-        # Create read-only file
+        # Create file
         readonly_file = self.temp_dir / "test_readonly.py"
         readonly_file.write_text("def test_readonly(): pass")
-        readonly_file.chmod(0o444)  # Read-only
 
         parser = TestFileParser()
 
-        try:
-            file_info = parser.parse_file(readonly_file)
-            assert len(file_info.tests) >= 0  # Should handle gracefully
-        except PermissionError:
-            # Permission errors should be handled or properly raised
-            pass
+        # Mock file operations to simulate permission error
+        with patch('builtins.open', side_effect=PermissionError("Permission denied")):
+            try:
+                file_info = parser.parse_file(readonly_file)
+                assert len(file_info.tests) >= 0  # Should handle gracefully
+            except PermissionError:
+                # Permission errors should be handled or properly raised
+                pass
 
     def test_interrupted_operations(self):
         """Test handling of interrupted operations."""
