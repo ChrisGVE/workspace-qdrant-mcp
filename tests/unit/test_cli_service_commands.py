@@ -32,6 +32,8 @@ from typer.testing import CliRunner
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root / "src" / "python"))
 
+from wqm_cli.cli.binary_security import BinarySecurityError
+
 
 class TestMemexdServiceManager:
     """Test MemexdServiceManager class methods."""
@@ -58,8 +60,8 @@ class TestMemexdServiceManager:
 
         manager = MemexdServiceManager()
         assert manager.system == "darwin"
-        assert manager.service_name == "workspace-qdrant-daemon"
-        assert manager.service_id == "com.workspace-qdrant.workspace-qdrant-daemon"
+        assert manager.service_name == "memexd"
+        assert manager.service_id == "com.workspace-qdrant.memexd"
         # Binary path should be OS-specific user path
         assert ".local/bin" in str(manager.memexd_binary)
         assert manager.memexd_binary.name == "memexd"
@@ -94,7 +96,7 @@ class TestMemexdServiceManager:
 
         from wqm_cli.cli.commands.service import MemexdServiceManager
 
-        with pytest.raises(PermissionError, match="not executable"):
+        with pytest.raises(BinarySecurityError, match="not executable"):
             MemexdServiceManager()
 
     @patch('platform.system')
@@ -161,7 +163,7 @@ class TestServiceInstallCommand:
         # Mock successful installation
         mock_service_manager.install_service = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "binary_path": "/usr/local/bin/memexd",
             "message": "Service installed successfully"
         })
@@ -180,7 +182,7 @@ class TestServiceInstallCommand:
 
         mock_service_manager.install_service = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "binary_path": "/usr/local/bin/memexd",
             "message": "Service installed successfully"
         })
@@ -236,7 +238,7 @@ class TestServiceUninstallCommand:
 
         mock_service_manager.uninstall_service = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "message": "Service uninstalled successfully"
         })
 
@@ -277,7 +279,7 @@ class TestServiceStartCommand:
 
         mock_service_manager.start_service = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "message": "Service started successfully"
         })
 
@@ -320,7 +322,7 @@ class TestServiceStopCommand:
 
         mock_service_manager.stop_service = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "message": "Service stopped successfully"
         })
 
@@ -361,7 +363,7 @@ class TestServiceRestartCommand:
 
         mock_service_manager.restart_service = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "message": "Service restarted successfully"
         })
 
@@ -402,7 +404,7 @@ class TestServiceStatusCommand:
 
         mock_service_manager.get_service_status = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "status": "running",
             "running": True,
             "pid": 1234,
@@ -424,7 +426,7 @@ class TestServiceStatusCommand:
 
         mock_service_manager.get_service_status = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "status": "loaded",
             "running": False,
             "platform": "macOS"
@@ -443,7 +445,7 @@ class TestServiceStatusCommand:
 
         mock_service_manager.get_service_status = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "status": "not_installed",
             "running": False,
             "platform": "macOS"
@@ -462,7 +464,7 @@ class TestServiceStatusCommand:
 
         mock_service_manager.get_service_status = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "status": "running",
             "running": True,
             "pid": 1234,
@@ -506,7 +508,7 @@ class TestServiceLogsCommand:
 
         mock_service_manager.get_service_logs = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "logs": [
                 "2024-01-15 10:30:00 INFO Service started",
                 "2024-01-15 10:30:01 INFO Processing events",
@@ -529,7 +531,7 @@ class TestServiceLogsCommand:
 
         mock_service_manager.get_service_logs = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "logs": ["Log line 1", "Log line 2"]
         })
 
@@ -545,7 +547,7 @@ class TestServiceLogsCommand:
 
         mock_service_manager.get_service_logs = AsyncMock(return_value={
             "success": True,
-            "service_id": "com.workspace-qdrant.workspace-qdrant-daemon",
+            "service_id": "com.workspace-qdrant.memexd",
             "logs": []
         })
 
@@ -584,12 +586,14 @@ class TestServiceAppHelp:
 
         result = self.runner.invoke(service_app, [])
 
-        assert result.exit_code == 0
-        assert "Usage:" in result.stdout
-        assert "install" in result.stdout
-        assert "start" in result.stdout
-        assert "stop" in result.stdout
-        assert "status" in result.stdout
+        # With no_args_is_help=True, Typer shows help but exits with code 2
+        # (indicating missing required command)
+        assert result.exit_code == 2
+        assert "Usage:" in result.output
+        assert "install" in result.output
+        assert "start" in result.output
+        assert "stop" in result.output
+        assert "status" in result.output
 
     def test_service_app_help_flag(self):
         """Test service app help flag."""
@@ -780,7 +784,7 @@ class TestServiceManagerCrossPlatform:
 
         # Test service paths are correctly set for macOS
         assert manager.system == "darwin"
-        assert manager.service_id == "com.workspace-qdrant.workspace-qdrant-daemon"
+        assert manager.service_id == "com.workspace-qdrant.memexd"
 
     @patch('platform.system', return_value='Linux')
     @patch('pathlib.Path.exists', return_value=True)
@@ -793,7 +797,7 @@ class TestServiceManagerCrossPlatform:
 
         # Test service paths are correctly set for Linux
         assert manager.system == "linux"
-        assert manager.service_name == "workspace-qdrant-daemon"
+        assert manager.service_name == "memexd"
 
     @pytest.mark.xfail(reason="Path.exists mock cannot receive path argument - needs rewrite with temp directory")
     @patch('platform.system', return_value='Darwin')
