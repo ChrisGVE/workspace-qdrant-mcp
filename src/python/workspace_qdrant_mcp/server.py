@@ -1078,12 +1078,14 @@ def build_metadata_filters(
     branch: str = None,
     file_type: str = None,
     project_id: str = None,
-    tag: str = None
+    tag: str = None,
+    exclude_deleted: bool = False
 ) -> Filter | None:
     """
-    Build Qdrant filter with branch, file_type, project_id, and tag conditions.
+    Build Qdrant filter with branch, file_type, project_id, tag, and deletion conditions.
 
     Task 459: Added tag parameter for dot-separated tag hierarchy filtering.
+    Task 460: Added exclude_deleted parameter for additive library deletion policy.
 
     Args:
         filters: User-provided metadata filters
@@ -1091,6 +1093,7 @@ def build_metadata_filters(
         file_type: File type to filter by ("code", "test", "docs", etc.)
         project_id: Project ID to filter by (for multi-tenant unified collections)
         tag: Tag filter (supports main_tag or full_tag matching)
+        exclude_deleted: If True, exclude documents with deleted=true (Task 460)
 
     Returns:
         Qdrant Filter object or None if no filters
@@ -1126,6 +1129,11 @@ def build_metadata_filters(
         else:
             # Main tag only - match on main_tag field for prefix behavior
             conditions.append(FieldCondition(key="main_tag", match=MatchValue(value=tag)))
+
+    # Task 460: Add deletion filter for additive library deletion policy
+    # When exclude_deleted=True, filter out documents marked as deleted
+    if exclude_deleted:
+        conditions.append(FieldCondition(key="deleted", match=MatchValue(value=False)))
 
     # Add user-provided filters
     if filters:
@@ -1504,7 +1512,8 @@ async def search(
     workspace_type: str = None,
     scope: str = "project",
     include_libraries: bool = False,
-    tag: str = None
+    tag: str = None,
+    include_deleted: bool = False
 ) -> dict[str, Any]:
     """
     Search across collections with hybrid semantic + keyword matching.
@@ -1521,6 +1530,11 @@ async def search(
     - tag="numpy": Filter library by name
     - tag="numpy.1.24.0": Filter library by specific version
 
+    NEW: Task 460 - Additive library deletion policy (ADR-001)
+    - Libraries marked as deleted are excluded from search by default
+    - Set include_deleted=True to search deleted libraries
+    - Use manage(action="restore_deleted_library") to restore deleted libraries
+
     Architecture:
     - Searches unified _projects collection with project_id filtering
     - Optional parallel search in _libraries collection
@@ -1528,6 +1542,7 @@ async def search(
     - Filters by Git branch (default: current branch, "*" = all branches)
     - Filters by file_type when specified
     - Filters by tag for hierarchical organization (Task 459)
+    - Excludes deleted libraries by default (Task 460)
 
     Search modes:
     - mode="hybrid" -> combines semantic and keyword search
@@ -1552,6 +1567,9 @@ async def search(
         search(query="config", tag="a1b2c3d4e5f6.main")         # main branch only
         search(query="array", tag="numpy", include_libraries=True)  # numpy library
 
+        # Include deleted libraries in search (Task 460)
+        search(query="old_lib", include_libraries=True, include_deleted=True)
+
     Args:
         query: Search query text
         collection: Specific collection to search (overrides scope-based selection)
@@ -1566,6 +1584,7 @@ async def search(
         scope: Search scope - "project" (default), "global", or "all"
         include_libraries: Also search libraries collection (merged with RRF)
         tag: Tag filter for hierarchical filtering (Task 459, e.g., "project_id" or "project_id.branch")
+        include_deleted: If True, include deleted libraries in search (Task 460, default: False)
 
     Returns:
         Dict with search results, metadata, and performance info
@@ -1657,12 +1676,14 @@ async def search(
 
     # For libraries, we don't filter by branch (they're external documentation)
     # Task 459: Library tag filtering uses library_name.version format
+    # Task 460: Exclude deleted libraries by default (additive deletion policy)
     library_filter = build_metadata_filters(
         filters=filters,
         branch="*",  # Don't filter libraries by branch
         file_type=file_type,
         project_id=None,  # Libraries have library_name, not project_id
-        tag=tag  # Task 459: Allow tag filtering for libraries (e.g., "numpy.1.24.0")
+        tag=tag,  # Task 459: Allow tag filtering for libraries (e.g., "numpy.1.24.0")
+        exclude_deleted=not include_deleted  # Task 460: Exclude deleted unless explicitly requested
     )
 
     # Execute search based on mode
@@ -1847,12 +1868,23 @@ async def manage(
     - "cleanup" -> remove empty collections and optimize
     - "activate_project" -> register project with daemon, start heartbeat (Task 457)
     - "deactivate_project" -> stop heartbeat, deprioritize project (Task 457)
+    - "mark_library_deleted" -> mark library as deleted without removing (Task 460)
+    - "restore_deleted_library" -> restore previously deleted library (Task 460)
+    - "list_deleted_libraries" -> list all libraries marked as deleted (Task 460)
 
     Project Activation (Task 457 / ADR-001):
     - Projects must be explicitly activated for high-priority daemon processing
     - activate_project: Register project with daemon, start heartbeat
     - deactivate_project: Stop heartbeat, deprioritize project, clear session state
     - Using scope="project" without activation generates warnings
+
+    Additive Library Deletion (Task 460 / ADR-001):
+    - Libraries are NEVER physically deleted from Qdrant
+    - mark_library_deleted: Sets deleted=true, deleted_at=timestamp
+    - restore_deleted_library: Clears deletion markers, restores searchability
+    - list_deleted_libraries: Lists all libraries currently marked as deleted
+    - Deleted libraries are excluded from search by default (use include_deleted=True)
+    - Re-ingestion of a library automatically clears deletion markers
 
     Multi-Tenant Architecture:
     - init_project registers the current project's tenant_id in _projects
@@ -1862,7 +1894,7 @@ async def manage(
     Args:
         action: Management action to perform
         collection: Target collection name (for collection-specific actions)
-        name: Name for new collections or operations
+        name: Name for new collections or operations (library name for deletion actions)
         project_name: Project context for workspace operations
         config: Additional configuration for operations
 
@@ -2247,6 +2279,262 @@ async def manage(
                 "message": f"Project '{deactivated_project_id}' deactivated"
             }
 
+        elif action == "mark_library_deleted":
+            # Task 460: Additive library deletion policy (ADR-001)
+            # Mark library documents as deleted rather than physically removing them
+            # Preserves historical context, enables undo, and maintains audit trail
+
+            if not name:
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": "Library name required for mark_library_deleted action"
+                }
+
+            library_name = name
+            library_collection = CANONICAL_COLLECTIONS["libraries"]
+
+            try:
+                # Check if collection exists
+                if not await ensure_collection_exists(library_collection):
+                    return {
+                        "success": False,
+                        "action": action,
+                        "error": f"Libraries collection '{library_collection}' does not exist"
+                    }
+
+                # Find all documents with matching library_name
+                # Use scroll to get all matching documents
+                scroll_result = await qdrant_client.scroll(
+                    collection_name=library_collection,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="library_name",
+                                match=MatchValue(value=library_name)
+                            ),
+                            # Only mark non-deleted documents
+                            FieldCondition(
+                                key="deleted",
+                                match=MatchValue(value=False)
+                            )
+                        ]
+                    ),
+                    limit=1000  # Reasonable batch size
+                )
+
+                documents, _ = scroll_result
+                if not documents:
+                    # Try without the deleted filter in case deleted field doesn't exist
+                    scroll_result = await qdrant_client.scroll(
+                        collection_name=library_collection,
+                        scroll_filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="library_name",
+                                    match=MatchValue(value=library_name)
+                                )
+                            ]
+                        ),
+                        limit=1000
+                    )
+                    documents, _ = scroll_result
+
+                if not documents:
+                    return {
+                        "success": False,
+                        "action": action,
+                        "error": f"No documents found for library '{library_name}'"
+                    }
+
+                # Mark each document as deleted with timestamp
+                deletion_timestamp = datetime.now(timezone.utc).isoformat()
+                marked_count = 0
+
+                for doc in documents:
+                    # Update payload with deletion markers
+                    payload_update = {
+                        "deleted": True,
+                        "deleted_at": deletion_timestamp
+                    }
+
+                    await qdrant_client.set_payload(
+                        collection_name=library_collection,
+                        payload=payload_update,
+                        points=[doc.id]
+                    )
+                    marked_count += 1
+
+                logger.info(
+                    f"Marked {marked_count} documents as deleted for library '{library_name}'"
+                )
+
+                return {
+                    "success": True,
+                    "action": action,
+                    "library_name": library_name,
+                    "documents_marked": marked_count,
+                    "deleted_at": deletion_timestamp,
+                    "message": f"Library '{library_name}' marked as deleted ({marked_count} documents). Use restore_deleted_library to undo."
+                }
+
+            except Exception as e:
+                logger.error(f"Failed to mark library as deleted: {e}")
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": f"Failed to mark library as deleted: {str(e)}"
+                }
+
+        elif action == "restore_deleted_library":
+            # Task 460: Restore a previously deleted library (ADR-001)
+            # Clears deletion markers, making library searchable again
+
+            if not name:
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": "Library name required for restore_deleted_library action"
+                }
+
+            library_name = name
+            library_collection = CANONICAL_COLLECTIONS["libraries"]
+
+            try:
+                # Check if collection exists
+                if not await ensure_collection_exists(library_collection):
+                    return {
+                        "success": False,
+                        "action": action,
+                        "error": f"Libraries collection '{library_collection}' does not exist"
+                    }
+
+                # Find all deleted documents with matching library_name
+                scroll_result = await qdrant_client.scroll(
+                    collection_name=library_collection,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="library_name",
+                                match=MatchValue(value=library_name)
+                            ),
+                            FieldCondition(
+                                key="deleted",
+                                match=MatchValue(value=True)
+                            )
+                        ]
+                    ),
+                    limit=1000
+                )
+
+                documents, _ = scroll_result
+                if not documents:
+                    return {
+                        "success": False,
+                        "action": action,
+                        "error": f"No deleted documents found for library '{library_name}'"
+                    }
+
+                # Clear deletion markers from each document
+                restored_count = 0
+                restore_timestamp = datetime.now(timezone.utc).isoformat()
+
+                for doc in documents:
+                    # Update payload to clear deletion markers
+                    payload_update = {
+                        "deleted": False,
+                        "deleted_at": None,
+                        "restored_at": restore_timestamp
+                    }
+
+                    await qdrant_client.set_payload(
+                        collection_name=library_collection,
+                        payload=payload_update,
+                        points=[doc.id]
+                    )
+                    restored_count += 1
+
+                logger.info(
+                    f"Restored {restored_count} documents for library '{library_name}'"
+                )
+
+                return {
+                    "success": True,
+                    "action": action,
+                    "library_name": library_name,
+                    "documents_restored": restored_count,
+                    "restored_at": restore_timestamp,
+                    "message": f"Library '{library_name}' restored ({restored_count} documents)"
+                }
+
+            except Exception as e:
+                logger.error(f"Failed to restore library: {e}")
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": f"Failed to restore library: {str(e)}"
+                }
+
+        elif action == "list_deleted_libraries":
+            # Task 460: List all libraries marked as deleted (ADR-001)
+
+            library_collection = CANONICAL_COLLECTIONS["libraries"]
+
+            try:
+                # Check if collection exists
+                if not await ensure_collection_exists(library_collection):
+                    return {
+                        "success": True,
+                        "action": action,
+                        "deleted_libraries": [],
+                        "message": "Libraries collection does not exist"
+                    }
+
+                # Find all deleted documents
+                scroll_result = await qdrant_client.scroll(
+                    collection_name=library_collection,
+                    scroll_filter=Filter(
+                        must=[
+                            FieldCondition(
+                                key="deleted",
+                                match=MatchValue(value=True)
+                            )
+                        ]
+                    ),
+                    limit=1000
+                )
+
+                documents, _ = scroll_result
+
+                # Group by library_name
+                deleted_libraries = {}
+                for doc in documents:
+                    lib_name = doc.payload.get("library_name", "unknown")
+                    deleted_at = doc.payload.get("deleted_at")
+                    if lib_name not in deleted_libraries:
+                        deleted_libraries[lib_name] = {
+                            "library_name": lib_name,
+                            "document_count": 0,
+                            "deleted_at": deleted_at
+                        }
+                    deleted_libraries[lib_name]["document_count"] += 1
+
+                return {
+                    "success": True,
+                    "action": action,
+                    "deleted_libraries": list(deleted_libraries.values()),
+                    "total_deleted_documents": len(documents),
+                    "message": f"Found {len(deleted_libraries)} deleted libraries"
+                }
+
+            except Exception as e:
+                logger.error(f"Failed to list deleted libraries: {e}")
+                return {
+                    "success": False,
+                    "action": action,
+                    "error": f"Failed to list deleted libraries: {str(e)}"
+                }
+
         else:
             return {
                 "success": False,
@@ -2254,7 +2542,8 @@ async def manage(
                 "available_actions": [
                     "list_collections", "create_collection", "delete_collection",
                     "collection_info", "workspace_status", "init_project", "cleanup",
-                    "activate_project", "deactivate_project"
+                    "activate_project", "deactivate_project",
+                    "mark_library_deleted", "restore_deleted_library", "list_deleted_libraries"
                 ]
             }
 
