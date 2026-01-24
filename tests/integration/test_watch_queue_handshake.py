@@ -762,3 +762,256 @@ class TestWatchPriorityAdjustment:
         assert all_watches[1].watch_priority == 5
         assert all_watches[2].watch_id == "watch_low"
         assert all_watches[2].watch_priority == 2
+
+
+class TestErrorPatternDetection:
+    """Test error pattern detection functionality (Task 461.18)."""
+
+    @pytest.mark.asyncio
+    async def test_record_error_creates_patterns(self, state_manager, sample_watch_config):
+        """Test that recording errors creates pattern entries."""
+        await state_manager.save_watch_folder_config(sample_watch_config)
+
+        # Record an error
+        await state_manager.record_error_for_pattern_analysis(
+            watch_id=sample_watch_config.watch_id,
+            file_path="/tmp/test.txt",
+            error_type="parsing",
+            error_message="Failed to parse file",
+        )
+
+        # Check patterns were created
+        patterns = await state_manager.analyze_error_patterns(sample_watch_config.watch_id)
+        assert len(patterns) > 0
+
+        # Should have file_repeated pattern
+        file_patterns = [p for p in patterns if p.pattern_type.value == "file_repeated"]
+        assert len(file_patterns) >= 1
+        assert file_patterns[0].pattern_key == "/tmp/test.txt"
+
+    @pytest.mark.asyncio
+    async def test_repeated_errors_increase_occurrence_count(self, state_manager, sample_watch_config):
+        """Test that repeated errors increment occurrence count."""
+        await state_manager.save_watch_folder_config(sample_watch_config)
+
+        # Record same error multiple times
+        for i in range(5):
+            await state_manager.record_error_for_pattern_analysis(
+                watch_id=sample_watch_config.watch_id,
+                file_path="/tmp/repeated_fail.txt",
+                error_type="parsing",
+                error_message=f"Error iteration {i}",
+            )
+
+        patterns = await state_manager.analyze_error_patterns(sample_watch_config.watch_id)
+        file_patterns = [p for p in patterns if p.pattern_type.value == "file_repeated" and p.pattern_key == "/tmp/repeated_fail.txt"]
+        assert len(file_patterns) == 1
+        assert file_patterns[0].occurrence_count == 5
+
+    @pytest.mark.asyncio
+    async def test_systematic_pattern_detection(self, state_manager, sample_watch_config):
+        """Test that patterns are marked as systematic after threshold."""
+        await state_manager.save_watch_folder_config(sample_watch_config)
+
+        # Record enough errors to trigger systematic classification
+        for i in range(6):  # Default threshold is 5
+            await state_manager.record_error_for_pattern_analysis(
+                watch_id=sample_watch_config.watch_id,
+                file_path="/tmp/systematic_fail.txt",
+                error_type="parsing",
+                error_message="Systematic error",
+            )
+
+        patterns = await state_manager.analyze_error_patterns(
+            sample_watch_config.watch_id,
+            threshold_file_repeated=5,
+        )
+
+        systematic = [p for p in patterns if p.is_systematic and p.pattern_key == "/tmp/systematic_fail.txt"]
+        assert len(systematic) >= 1
+        assert systematic[0].confidence_score >= 1.0
+
+    @pytest.mark.asyncio
+    async def test_file_type_pattern_tracking(self, state_manager, sample_watch_config):
+        """Test that file type patterns are tracked."""
+        await state_manager.save_watch_folder_config(sample_watch_config)
+
+        # Record errors for different PDF files
+        for i in range(3):
+            await state_manager.record_error_for_pattern_analysis(
+                watch_id=sample_watch_config.watch_id,
+                file_path=f"/tmp/file{i}.pdf",
+                error_type="parsing",
+                error_message="PDF parsing failed",
+            )
+
+        patterns = await state_manager.analyze_error_patterns(sample_watch_config.watch_id)
+        type_patterns = [p for p in patterns if p.pattern_type.value == "file_type" and p.pattern_key == ".pdf"]
+        assert len(type_patterns) == 1
+        assert type_patterns[0].occurrence_count == 3
+
+    @pytest.mark.asyncio
+    async def test_add_watch_exclusion(self, state_manager, sample_watch_config):
+        """Test adding file exclusions."""
+        from common.core.sqlite_state_manager import ExclusionType
+
+        await state_manager.save_watch_folder_config(sample_watch_config)
+
+        # Add an exclusion
+        success = await state_manager.add_watch_exclusion(
+            watch_id=sample_watch_config.watch_id,
+            exclusion_type=ExclusionType.FILE,
+            exclusion_value="/tmp/excluded.txt",
+            reason="Systematic failure",
+            is_permanent=True,
+        )
+        assert success
+
+        # Check file is excluded
+        is_excluded = await state_manager.is_file_excluded(
+            sample_watch_config.watch_id,
+            "/tmp/excluded.txt"
+        )
+        assert is_excluded
+
+        # Other files should not be excluded
+        is_other_excluded = await state_manager.is_file_excluded(
+            sample_watch_config.watch_id,
+            "/tmp/other.txt"
+        )
+        assert not is_other_excluded
+
+    @pytest.mark.asyncio
+    async def test_pattern_exclusion(self, state_manager, sample_watch_config):
+        """Test pattern-based exclusions."""
+        from common.core.sqlite_state_manager import ExclusionType
+
+        await state_manager.save_watch_folder_config(sample_watch_config)
+
+        # Add pattern exclusion
+        await state_manager.add_watch_exclusion(
+            watch_id=sample_watch_config.watch_id,
+            exclusion_type=ExclusionType.PATTERN,
+            exclusion_value="*.corrupted",
+            reason="Corrupted files",
+            is_permanent=True,
+        )
+
+        # Check pattern matching
+        assert await state_manager.is_file_excluded(
+            sample_watch_config.watch_id,
+            "/tmp/file.corrupted"
+        )
+        assert not await state_manager.is_file_excluded(
+            sample_watch_config.watch_id,
+            "/tmp/file.txt"
+        )
+
+    @pytest.mark.asyncio
+    async def test_auto_exclude_systematic_failures(self, state_manager, sample_watch_config):
+        """Test automatic exclusion of systematic failures."""
+        await state_manager.save_watch_folder_config(sample_watch_config)
+
+        # Record enough errors for a file to become systematic
+        for i in range(6):
+            await state_manager.record_error_for_pattern_analysis(
+                watch_id=sample_watch_config.watch_id,
+                file_path="/tmp/always_fails.txt",
+                error_type="parsing",
+                error_message="Always fails",
+            )
+
+        # Run auto-exclusion
+        excluded = await state_manager.auto_exclude_systematic_failures(
+            sample_watch_config.watch_id,
+            threshold_file_repeated=5,
+        )
+        assert excluded >= 1
+
+        # File should now be excluded
+        is_excluded = await state_manager.is_file_excluded(
+            sample_watch_config.watch_id,
+            "/tmp/always_fails.txt"
+        )
+        assert is_excluded
+
+    @pytest.mark.asyncio
+    async def test_get_error_pattern_summary(self, state_manager, sample_watch_config):
+        """Test getting error pattern summary."""
+        await state_manager.save_watch_folder_config(sample_watch_config)
+
+        # Record various errors
+        for i in range(3):
+            await state_manager.record_error_for_pattern_analysis(
+                watch_id=sample_watch_config.watch_id,
+                file_path=f"/tmp/file{i}.txt",
+                error_type="parsing",
+                error_message="Parsing error",
+            )
+
+        summary = await state_manager.get_error_pattern_summary(sample_watch_config.watch_id)
+
+        assert summary["watch_id"] == sample_watch_config.watch_id
+        assert summary["total_patterns"] > 0
+        assert "by_type" in summary
+        assert "top_failing_files" in summary
+
+    @pytest.mark.asyncio
+    async def test_clear_error_patterns(self, state_manager, sample_watch_config):
+        """Test clearing all error patterns."""
+        await state_manager.save_watch_folder_config(sample_watch_config)
+
+        # Record some errors
+        await state_manager.record_error_for_pattern_analysis(
+            watch_id=sample_watch_config.watch_id,
+            file_path="/tmp/test.txt",
+            error_type="parsing",
+            error_message="Error",
+        )
+
+        # Verify patterns exist
+        patterns = await state_manager.analyze_error_patterns(sample_watch_config.watch_id)
+        assert len(patterns) > 0
+
+        # Clear patterns
+        cleared = await state_manager.clear_error_patterns(sample_watch_config.watch_id)
+        assert cleared > 0
+
+        # Verify patterns are cleared
+        patterns = await state_manager.analyze_error_patterns(sample_watch_config.watch_id)
+        assert len(patterns) == 0
+
+    @pytest.mark.asyncio
+    async def test_remove_exclusion(self, state_manager, sample_watch_config):
+        """Test removing an exclusion."""
+        from common.core.sqlite_state_manager import ExclusionType
+
+        await state_manager.save_watch_folder_config(sample_watch_config)
+
+        # Add and then remove exclusion
+        await state_manager.add_watch_exclusion(
+            watch_id=sample_watch_config.watch_id,
+            exclusion_type=ExclusionType.FILE,
+            exclusion_value="/tmp/temp_exclude.txt",
+            reason="Temporary",
+            is_permanent=False,
+        )
+
+        assert await state_manager.is_file_excluded(
+            sample_watch_config.watch_id,
+            "/tmp/temp_exclude.txt"
+        )
+
+        # Remove exclusion
+        removed = await state_manager.remove_watch_exclusion(
+            watch_id=sample_watch_config.watch_id,
+            exclusion_type=ExclusionType.FILE,
+            exclusion_value="/tmp/temp_exclude.txt",
+        )
+        assert removed
+
+        # File should no longer be excluded
+        assert not await state_manager.is_file_excluded(
+            sample_watch_config.watch_id,
+            "/tmp/temp_exclude.txt"
+        )

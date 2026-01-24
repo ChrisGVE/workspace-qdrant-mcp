@@ -269,6 +269,79 @@ class WatchFolderConfig:
         return max(0, min(10, base_priority))
 
 
+class ErrorPatternType(Enum):
+    """Types of error patterns that can be detected (Task 461.18)."""
+
+    FILE_REPEATED = "file_repeated"  # Same file failing repeatedly
+    FILE_TYPE = "file_type"  # Specific file types causing errors
+    TIME_BASED = "time_based"  # Time-based patterns (e.g., network issues)
+    NETWORK = "network"  # Network-related errors
+    PERMISSION = "permission"  # Permission-related errors
+
+
+class ExclusionType(Enum):
+    """Types of exclusions for files that should not be processed (Task 461.18)."""
+
+    FILE = "file"  # Specific file path
+    PATTERN = "pattern"  # Glob pattern (e.g., *.corrupted)
+    DIRECTORY = "directory"  # Entire directory
+
+
+@dataclass
+class ErrorPattern:
+    """Record for tracking error patterns (Task 461.18).
+
+    Stores detected patterns in errors to identify systematic vs transient failures.
+    """
+
+    id: int | None
+    watch_id: str
+    pattern_type: ErrorPatternType
+    pattern_key: str  # File path, extension, time window, etc.
+    occurrence_count: int = 1
+    first_seen_at: datetime = None
+    last_seen_at: datetime = None
+    is_systematic: bool = False  # True if pattern indicates systematic failure
+    confidence_score: float = 0.0  # 0.0-1.0 confidence in pattern
+    metadata: dict[str, Any] | None = None
+
+    def __post_init__(self):
+        if self.first_seen_at is None:
+            self.first_seen_at = datetime.now(timezone.utc)
+        if self.last_seen_at is None:
+            self.last_seen_at = self.first_seen_at
+
+
+@dataclass
+class WatchExclusion:
+    """Record for files/patterns excluded from processing (Task 461.18).
+
+    Systematic failures result in permanent exclusions.
+    Transient failures may have temporary exclusions with expiry.
+    """
+
+    id: int | None
+    watch_id: str
+    exclusion_type: ExclusionType
+    exclusion_value: str  # File path, pattern, or directory
+    reason: str  # Why this was excluded
+    error_count: int = 1  # Number of errors that led to exclusion
+    created_at: datetime = None
+    expires_at: datetime | None = None  # None for permanent exclusions
+    is_permanent: bool = False
+    metadata: dict[str, Any] | None = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc)
+
+    def is_expired(self) -> bool:
+        """Check if this exclusion has expired."""
+        if self.is_permanent or self.expires_at is None:
+            return False
+        return datetime.now(timezone.utc) > self.expires_at
+
+
 @dataclass
 class ProcessingQueueItem:
     """Item in the processing queue."""
@@ -360,7 +433,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 10  # v10: Add watch_priority field for priority adjustment (Task 461.17)
+    SCHEMA_VERSION = 11  # v11: Add error pattern detection tables (Task 461.18)
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -917,6 +990,50 @@ class SQLiteStateManager:
             "CREATE INDEX idx_content_queue_status_priority ON content_ingestion_queue(status, priority DESC, created_at ASC)",
             "CREATE INDEX idx_content_queue_idempotency ON content_ingestion_queue(idempotency_key)",
             "CREATE INDEX idx_content_queue_collection ON content_ingestion_queue(collection)",
+            # Error pattern detection tables (v11, Task 461.18)
+            """
+            CREATE TABLE watch_error_patterns (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                watch_id TEXT NOT NULL,
+                pattern_type TEXT NOT NULL CHECK (pattern_type IN ('file_repeated', 'file_type', 'time_based', 'network', 'permission')),
+                pattern_key TEXT NOT NULL,
+                occurrence_count INTEGER NOT NULL DEFAULT 1,
+                first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                is_systematic BOOLEAN NOT NULL DEFAULT 0,
+                confidence_score REAL NOT NULL DEFAULT 0.0,
+                metadata TEXT,
+                UNIQUE(watch_id, pattern_type, pattern_key),
+                FOREIGN KEY (watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
+            )
+            """,
+            # Indexes for watch_error_patterns
+            "CREATE INDEX idx_error_patterns_watch_id ON watch_error_patterns(watch_id)",
+            "CREATE INDEX idx_error_patterns_type ON watch_error_patterns(pattern_type)",
+            "CREATE INDEX idx_error_patterns_systematic ON watch_error_patterns(is_systematic)",
+            "CREATE INDEX idx_error_patterns_last_seen ON watch_error_patterns(last_seen_at)",
+            # Watch exclusions for permanently excluded files (v11, Task 461.18)
+            """
+            CREATE TABLE watch_exclusions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                watch_id TEXT NOT NULL,
+                exclusion_type TEXT NOT NULL CHECK (exclusion_type IN ('file', 'pattern', 'directory')),
+                exclusion_value TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                error_count INTEGER NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP,
+                is_permanent BOOLEAN NOT NULL DEFAULT 0,
+                metadata TEXT,
+                UNIQUE(watch_id, exclusion_type, exclusion_value),
+                FOREIGN KEY (watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
+            )
+            """,
+            # Indexes for watch_exclusions
+            "CREATE INDEX idx_exclusions_watch_id ON watch_exclusions(watch_id)",
+            "CREATE INDEX idx_exclusions_type ON watch_exclusions(exclusion_type)",
+            "CREATE INDEX idx_exclusions_permanent ON watch_exclusions(is_permanent)",
+            "CREATE INDEX idx_exclusions_expires ON watch_exclusions(expires_at)",
             # Insert initial schema version
             f"INSERT INTO schema_version (version) VALUES ({self.SCHEMA_VERSION})",
         ]
@@ -1279,6 +1396,64 @@ class SQLiteStateManager:
                             raise
 
                 logger.info("Successfully migrated to schema version 10 (watch priority adjustment)")
+
+            # Migrate from version 10 to version 11 - Error pattern detection (Task 461.18)
+            if from_version <= 10 and to_version >= 11:
+                logger.info("Applying migration: v10 -> v11 (error pattern detection)")
+                pattern_sql = [
+                    # Error pattern detection table
+                    """
+                    CREATE TABLE IF NOT EXISTS watch_error_patterns (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        watch_id TEXT NOT NULL,
+                        pattern_type TEXT NOT NULL CHECK (pattern_type IN ('file_repeated', 'file_type', 'time_based', 'network', 'permission')),
+                        pattern_key TEXT NOT NULL,
+                        occurrence_count INTEGER NOT NULL DEFAULT 1,
+                        first_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        is_systematic BOOLEAN NOT NULL DEFAULT 0,
+                        confidence_score REAL NOT NULL DEFAULT 0.0,
+                        metadata TEXT,
+                        UNIQUE(watch_id, pattern_type, pattern_key),
+                        FOREIGN KEY (watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
+                    )
+                    """,
+                    "CREATE INDEX IF NOT EXISTS idx_error_patterns_watch_id ON watch_error_patterns(watch_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_error_patterns_type ON watch_error_patterns(pattern_type)",
+                    "CREATE INDEX IF NOT EXISTS idx_error_patterns_systematic ON watch_error_patterns(is_systematic)",
+                    "CREATE INDEX IF NOT EXISTS idx_error_patterns_last_seen ON watch_error_patterns(last_seen_at)",
+                    # Watch exclusions table for permanently excluded files
+                    """
+                    CREATE TABLE IF NOT EXISTS watch_exclusions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        watch_id TEXT NOT NULL,
+                        exclusion_type TEXT NOT NULL CHECK (exclusion_type IN ('file', 'pattern', 'directory')),
+                        exclusion_value TEXT NOT NULL,
+                        reason TEXT NOT NULL,
+                        error_count INTEGER NOT NULL DEFAULT 1,
+                        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        expires_at TIMESTAMP,
+                        is_permanent BOOLEAN NOT NULL DEFAULT 0,
+                        metadata TEXT,
+                        UNIQUE(watch_id, exclusion_type, exclusion_value),
+                        FOREIGN KEY (watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
+                    )
+                    """,
+                    "CREATE INDEX IF NOT EXISTS idx_exclusions_watch_id ON watch_exclusions(watch_id)",
+                    "CREATE INDEX IF NOT EXISTS idx_exclusions_type ON watch_exclusions(exclusion_type)",
+                    "CREATE INDEX IF NOT EXISTS idx_exclusions_permanent ON watch_exclusions(is_permanent)",
+                    "CREATE INDEX IF NOT EXISTS idx_exclusions_expires ON watch_exclusions(expires_at)",
+                ]
+
+                for sql in pattern_sql:
+                    try:
+                        conn.execute(sql)
+                    except Exception as e:
+                        # Ignore if table already exists (idempotent migration)
+                        if "already exists" not in str(e).lower():
+                            raise
+
+                logger.info("Successfully migrated to schema version 11 (error pattern detection)")
 
             # Record the migration
             conn.execute(
@@ -3655,6 +3830,667 @@ class SQLiteStateManager:
         except Exception as e:
             logger.error(f"Failed to get watch folders in backoff: {e}")
             return []
+
+    # Error Pattern Analysis (Task 461.18)
+
+    async def record_error_for_pattern_analysis(
+        self,
+        watch_id: str,
+        file_path: str,
+        error_type: str,
+        error_message: str,
+    ) -> None:
+        """Record an error for pattern analysis (Task 461.18).
+
+        Tracks errors to detect patterns like:
+        - Same file failing repeatedly
+        - Specific file types causing errors
+        - Time-based error patterns
+
+        Args:
+            watch_id: The watch folder ID
+            file_path: Path of the file that caused the error
+            error_type: Type of error (network, permission, parsing, etc.)
+            error_message: Detailed error message
+        """
+        try:
+            now = datetime.now(timezone.utc)
+            file_ext = Path(file_path).suffix.lower() or "no_extension"
+            hour_of_day = now.hour
+
+            async with self.transaction() as conn:
+                # Track file-specific pattern
+                conn.execute(
+                    """
+                    INSERT INTO watch_error_patterns
+                    (watch_id, pattern_type, pattern_key, occurrence_count, first_seen_at, last_seen_at, metadata)
+                    VALUES (?, 'file_repeated', ?, 1, ?, ?, ?)
+                    ON CONFLICT(watch_id, pattern_type, pattern_key) DO UPDATE SET
+                        occurrence_count = occurrence_count + 1,
+                        last_seen_at = excluded.last_seen_at,
+                        metadata = excluded.metadata
+                    """,
+                    (
+                        watch_id,
+                        file_path,
+                        now.isoformat(),
+                        now.isoformat(),
+                        self._serialize_json({"error_type": error_type, "error_message": error_message[:500]}),
+                    ),
+                )
+
+                # Track file type pattern
+                conn.execute(
+                    """
+                    INSERT INTO watch_error_patterns
+                    (watch_id, pattern_type, pattern_key, occurrence_count, first_seen_at, last_seen_at, metadata)
+                    VALUES (?, 'file_type', ?, 1, ?, ?, ?)
+                    ON CONFLICT(watch_id, pattern_type, pattern_key) DO UPDATE SET
+                        occurrence_count = occurrence_count + 1,
+                        last_seen_at = excluded.last_seen_at
+                    """,
+                    (watch_id, file_ext, now.isoformat(), now.isoformat(), None),
+                )
+
+                # Track time-based pattern (by hour of day)
+                time_key = f"hour_{hour_of_day:02d}"
+                conn.execute(
+                    """
+                    INSERT INTO watch_error_patterns
+                    (watch_id, pattern_type, pattern_key, occurrence_count, first_seen_at, last_seen_at)
+                    VALUES (?, 'time_based', ?, 1, ?, ?)
+                    ON CONFLICT(watch_id, pattern_type, pattern_key) DO UPDATE SET
+                        occurrence_count = occurrence_count + 1,
+                        last_seen_at = excluded.last_seen_at
+                    """,
+                    (watch_id, time_key, now.isoformat(), now.isoformat()),
+                )
+
+                # Track error type pattern (network, permission, etc.)
+                pattern_type_map = {
+                    "network": "network",
+                    "timeout": "network",
+                    "connection": "network",
+                    "permission": "permission",
+                    "access": "permission",
+                    "denied": "permission",
+                }
+                detected_type = "file_repeated"  # Default
+                error_lower = error_type.lower() + " " + error_message.lower()
+                for keyword, ptype in pattern_type_map.items():
+                    if keyword in error_lower:
+                        detected_type = ptype
+                        break
+
+                if detected_type in ("network", "permission"):
+                    conn.execute(
+                        """
+                        INSERT INTO watch_error_patterns
+                        (watch_id, pattern_type, pattern_key, occurrence_count, first_seen_at, last_seen_at, metadata)
+                        VALUES (?, ?, ?, 1, ?, ?, ?)
+                        ON CONFLICT(watch_id, pattern_type, pattern_key) DO UPDATE SET
+                            occurrence_count = occurrence_count + 1,
+                            last_seen_at = excluded.last_seen_at
+                        """,
+                        (
+                            watch_id,
+                            detected_type,
+                            error_type,
+                            now.isoformat(),
+                            now.isoformat(),
+                            self._serialize_json({"sample_message": error_message[:200]}),
+                        ),
+                    )
+
+            logger.debug(f"Recorded error pattern for watch {watch_id}: {file_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to record error pattern: {e}")
+
+    async def analyze_error_patterns(
+        self,
+        watch_id: str,
+        threshold_file_repeated: int = 5,
+        threshold_file_type: int = 10,
+        threshold_time_based: int = 20,
+    ) -> list[ErrorPattern]:
+        """Analyze error patterns for a watch folder (Task 461.18).
+
+        Identifies systematic vs transient failures based on pattern thresholds.
+
+        Args:
+            watch_id: The watch folder ID
+            threshold_file_repeated: Errors needed to mark file as systematic
+            threshold_file_type: Errors needed to mark file type as systematic
+            threshold_time_based: Errors needed to mark time pattern as systematic
+
+        Returns:
+            List of error patterns with systematic flag updated
+        """
+        try:
+            thresholds = {
+                "file_repeated": threshold_file_repeated,
+                "file_type": threshold_file_type,
+                "time_based": threshold_time_based,
+                "network": 10,
+                "permission": 3,
+            }
+
+            patterns = []
+
+            with self._lock:
+                cursor = self.connection.execute(
+                    """
+                    SELECT id, watch_id, pattern_type, pattern_key, occurrence_count,
+                           first_seen_at, last_seen_at, is_systematic, confidence_score, metadata
+                    FROM watch_error_patterns
+                    WHERE watch_id = ?
+                    ORDER BY occurrence_count DESC
+                    """,
+                    (watch_id,),
+                )
+
+                for row in cursor.fetchall():
+                    pattern_type_str = row["pattern_type"]
+                    occurrence_count = row["occurrence_count"]
+                    threshold = thresholds.get(pattern_type_str, 10)
+
+                    # Calculate confidence score based on threshold
+                    confidence = min(1.0, occurrence_count / threshold)
+                    is_systematic = occurrence_count >= threshold
+
+                    # Update the pattern if classification changed
+                    if is_systematic != row["is_systematic"] or abs(confidence - (row["confidence_score"] or 0)) > 0.1:
+                        self.connection.execute(
+                            """
+                            UPDATE watch_error_patterns
+                            SET is_systematic = ?, confidence_score = ?
+                            WHERE id = ?
+                            """,
+                            (is_systematic, confidence, row["id"]),
+                        )
+                        self.connection.commit()
+
+                    patterns.append(
+                        ErrorPattern(
+                            id=row["id"],
+                            watch_id=row["watch_id"],
+                            pattern_type=ErrorPatternType(pattern_type_str),
+                            pattern_key=row["pattern_key"],
+                            occurrence_count=occurrence_count,
+                            first_seen_at=datetime.fromisoformat(
+                                row["first_seen_at"].replace("Z", "+00:00")
+                            ) if row["first_seen_at"] else None,
+                            last_seen_at=datetime.fromisoformat(
+                                row["last_seen_at"].replace("Z", "+00:00")
+                            ) if row["last_seen_at"] else None,
+                            is_systematic=is_systematic,
+                            confidence_score=confidence,
+                            metadata=self._deserialize_json(row["metadata"]),
+                        )
+                    )
+
+            return patterns
+
+        except Exception as e:
+            logger.error(f"Failed to analyze error patterns: {e}")
+            return []
+
+    async def get_systematic_patterns(self, watch_id: str) -> list[ErrorPattern]:
+        """Get patterns classified as systematic failures (Task 461.18).
+
+        Args:
+            watch_id: The watch folder ID
+
+        Returns:
+            List of error patterns that are systematic
+        """
+        try:
+            patterns = []
+
+            with self._lock:
+                cursor = self.connection.execute(
+                    """
+                    SELECT id, watch_id, pattern_type, pattern_key, occurrence_count,
+                           first_seen_at, last_seen_at, is_systematic, confidence_score, metadata
+                    FROM watch_error_patterns
+                    WHERE watch_id = ? AND is_systematic = 1
+                    ORDER BY confidence_score DESC
+                    """,
+                    (watch_id,),
+                )
+
+                for row in cursor.fetchall():
+                    patterns.append(
+                        ErrorPattern(
+                            id=row["id"],
+                            watch_id=row["watch_id"],
+                            pattern_type=ErrorPatternType(row["pattern_type"]),
+                            pattern_key=row["pattern_key"],
+                            occurrence_count=row["occurrence_count"],
+                            first_seen_at=datetime.fromisoformat(
+                                row["first_seen_at"].replace("Z", "+00:00")
+                            ) if row["first_seen_at"] else None,
+                            last_seen_at=datetime.fromisoformat(
+                                row["last_seen_at"].replace("Z", "+00:00")
+                            ) if row["last_seen_at"] else None,
+                            is_systematic=True,
+                            confidence_score=row["confidence_score"] or 0.0,
+                            metadata=self._deserialize_json(row["metadata"]),
+                        )
+                    )
+
+            return patterns
+
+        except Exception as e:
+            logger.error(f"Failed to get systematic patterns: {e}")
+            return []
+
+    async def add_watch_exclusion(
+        self,
+        watch_id: str,
+        exclusion_type: ExclusionType,
+        exclusion_value: str,
+        reason: str,
+        error_count: int = 1,
+        is_permanent: bool = False,
+        expiry_hours: int | None = None,
+    ) -> bool:
+        """Add a file/pattern/directory to the exclusion list (Task 461.18).
+
+        Args:
+            watch_id: The watch folder ID
+            exclusion_type: Type of exclusion (file, pattern, directory)
+            exclusion_value: The value to exclude
+            reason: Why this is being excluded
+            error_count: Number of errors that led to exclusion
+            is_permanent: Whether this is a permanent exclusion
+            expiry_hours: Hours until exclusion expires (for transient failures)
+
+        Returns:
+            True if exclusion was added successfully
+        """
+        try:
+            now = datetime.now(timezone.utc)
+            expires_at = None
+            if expiry_hours and not is_permanent:
+                from datetime import timedelta
+                expires_at = now + timedelta(hours=expiry_hours)
+
+            async with self.transaction() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO watch_exclusions
+                    (watch_id, exclusion_type, exclusion_value, reason, error_count, created_at, expires_at, is_permanent)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(watch_id, exclusion_type, exclusion_value) DO UPDATE SET
+                        error_count = error_count + excluded.error_count,
+                        reason = excluded.reason,
+                        expires_at = excluded.expires_at,
+                        is_permanent = excluded.is_permanent
+                    """,
+                    (
+                        watch_id,
+                        exclusion_type.value,
+                        exclusion_value,
+                        reason,
+                        error_count,
+                        now.isoformat(),
+                        expires_at.isoformat() if expires_at else None,
+                        is_permanent,
+                    ),
+                )
+
+            logger.info(
+                f"Added exclusion for watch {watch_id}: {exclusion_type.value}={exclusion_value} "
+                f"(permanent={is_permanent})"
+            )
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to add watch exclusion: {e}")
+            return False
+
+    async def get_watch_exclusions(
+        self,
+        watch_id: str,
+        include_expired: bool = False,
+    ) -> list[WatchExclusion]:
+        """Get all exclusions for a watch folder (Task 461.18).
+
+        Args:
+            watch_id: The watch folder ID
+            include_expired: Whether to include expired exclusions
+
+        Returns:
+            List of exclusions
+        """
+        try:
+            exclusions = []
+            now = datetime.now(timezone.utc)
+
+            with self._lock:
+                if include_expired:
+                    cursor = self.connection.execute(
+                        """
+                        SELECT id, watch_id, exclusion_type, exclusion_value, reason,
+                               error_count, created_at, expires_at, is_permanent, metadata
+                        FROM watch_exclusions
+                        WHERE watch_id = ?
+                        ORDER BY created_at DESC
+                        """,
+                        (watch_id,),
+                    )
+                else:
+                    cursor = self.connection.execute(
+                        """
+                        SELECT id, watch_id, exclusion_type, exclusion_value, reason,
+                               error_count, created_at, expires_at, is_permanent, metadata
+                        FROM watch_exclusions
+                        WHERE watch_id = ? AND (is_permanent = 1 OR expires_at IS NULL OR expires_at > ?)
+                        ORDER BY created_at DESC
+                        """,
+                        (watch_id, now.isoformat()),
+                    )
+
+                for row in cursor.fetchall():
+                    exclusions.append(
+                        WatchExclusion(
+                            id=row["id"],
+                            watch_id=row["watch_id"],
+                            exclusion_type=ExclusionType(row["exclusion_type"]),
+                            exclusion_value=row["exclusion_value"],
+                            reason=row["reason"],
+                            error_count=row["error_count"],
+                            created_at=datetime.fromisoformat(
+                                row["created_at"].replace("Z", "+00:00")
+                            ) if row["created_at"] else None,
+                            expires_at=datetime.fromisoformat(
+                                row["expires_at"].replace("Z", "+00:00")
+                            ) if row["expires_at"] else None,
+                            is_permanent=bool(row["is_permanent"]),
+                            metadata=self._deserialize_json(row["metadata"]),
+                        )
+                    )
+
+            return exclusions
+
+        except Exception as e:
+            logger.error(f"Failed to get watch exclusions: {e}")
+            return []
+
+    async def is_file_excluded(self, watch_id: str, file_path: str) -> bool:
+        """Check if a file is excluded from processing (Task 461.18).
+
+        Checks against:
+        - Exact file path exclusions
+        - Pattern exclusions (glob matching)
+        - Directory exclusions
+
+        Args:
+            watch_id: The watch folder ID
+            file_path: Path to check
+
+        Returns:
+            True if file should be excluded
+        """
+        try:
+            import fnmatch
+            now = datetime.now(timezone.utc)
+            file_path_obj = Path(file_path)
+
+            with self._lock:
+                cursor = self.connection.execute(
+                    """
+                    SELECT exclusion_type, exclusion_value
+                    FROM watch_exclusions
+                    WHERE watch_id = ? AND (is_permanent = 1 OR expires_at IS NULL OR expires_at > ?)
+                    """,
+                    (watch_id, now.isoformat()),
+                )
+
+                for row in cursor.fetchall():
+                    exclusion_type = row["exclusion_type"]
+                    exclusion_value = row["exclusion_value"]
+
+                    if exclusion_type == "file" and file_path == exclusion_value:
+                        return True
+                    elif exclusion_type == "pattern" and fnmatch.fnmatch(file_path, exclusion_value):
+                        return True
+                    elif exclusion_type == "directory":
+                        try:
+                            if file_path_obj.is_relative_to(exclusion_value):
+                                return True
+                        except (ValueError, TypeError):
+                            if file_path.startswith(exclusion_value):
+                                return True
+
+            return False
+
+        except Exception as e:
+            logger.error(f"Failed to check file exclusion: {e}")
+            return False
+
+    async def remove_watch_exclusion(
+        self,
+        watch_id: str,
+        exclusion_type: ExclusionType,
+        exclusion_value: str,
+    ) -> bool:
+        """Remove an exclusion (Task 461.18).
+
+        Args:
+            watch_id: The watch folder ID
+            exclusion_type: Type of exclusion
+            exclusion_value: Value to remove
+
+        Returns:
+            True if exclusion was removed
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    DELETE FROM watch_exclusions
+                    WHERE watch_id = ? AND exclusion_type = ? AND exclusion_value = ?
+                    """,
+                    (watch_id, exclusion_type.value, exclusion_value),
+                )
+                return cursor.rowcount > 0
+
+        except Exception as e:
+            logger.error(f"Failed to remove watch exclusion: {e}")
+            return False
+
+    async def cleanup_expired_exclusions(self) -> int:
+        """Remove expired exclusions from all watches (Task 461.18).
+
+        Returns:
+            Number of exclusions removed
+        """
+        try:
+            now = datetime.now(timezone.utc)
+
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    DELETE FROM watch_exclusions
+                    WHERE is_permanent = 0 AND expires_at IS NOT NULL AND expires_at < ?
+                    """,
+                    (now.isoformat(),),
+                )
+                removed = cursor.rowcount
+
+            if removed > 0:
+                logger.info(f"Cleaned up {removed} expired exclusions")
+
+            return removed
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup expired exclusions: {e}")
+            return 0
+
+    async def auto_exclude_systematic_failures(
+        self,
+        watch_id: str,
+        threshold_file_repeated: int = 5,
+    ) -> int:
+        """Auto-exclude files with systematic failures (Task 461.18).
+
+        Analyzes error patterns and automatically adds exclusions for
+        files that repeatedly fail.
+
+        Args:
+            watch_id: The watch folder ID
+            threshold_file_repeated: Errors needed to auto-exclude a file
+
+        Returns:
+            Number of files excluded
+        """
+        try:
+            excluded_count = 0
+
+            # Analyze patterns first
+            patterns = await self.analyze_error_patterns(
+                watch_id,
+                threshold_file_repeated=threshold_file_repeated,
+            )
+
+            for pattern in patterns:
+                if pattern.is_systematic and pattern.pattern_type == ErrorPatternType.FILE_REPEATED:
+                    # This is a file that repeatedly fails - add to exclusions
+                    file_path = pattern.pattern_key
+                    reason = f"Systematic failure: {pattern.occurrence_count} errors"
+                    if pattern.metadata and pattern.metadata.get("error_message"):
+                        reason += f" - {pattern.metadata['error_message'][:100]}"
+
+                    success = await self.add_watch_exclusion(
+                        watch_id=watch_id,
+                        exclusion_type=ExclusionType.FILE,
+                        exclusion_value=file_path,
+                        reason=reason,
+                        error_count=pattern.occurrence_count,
+                        is_permanent=True,  # Systematic failures are permanent
+                    )
+                    if success:
+                        excluded_count += 1
+
+            if excluded_count > 0:
+                logger.info(f"Auto-excluded {excluded_count} files for watch {watch_id}")
+
+            return excluded_count
+
+        except Exception as e:
+            logger.error(f"Failed to auto-exclude systematic failures: {e}")
+            return 0
+
+    async def get_error_pattern_summary(self, watch_id: str) -> dict[str, Any]:
+        """Get summary of error patterns for a watch (Task 461.18).
+
+        Args:
+            watch_id: The watch folder ID
+
+        Returns:
+            Summary dictionary with pattern statistics
+        """
+        try:
+            summary = {
+                "watch_id": watch_id,
+                "total_patterns": 0,
+                "systematic_patterns": 0,
+                "by_type": {},
+                "top_failing_files": [],
+                "top_failing_extensions": [],
+            }
+
+            with self._lock:
+                # Count patterns by type
+                cursor = self.connection.execute(
+                    """
+                    SELECT pattern_type, COUNT(*) as count,
+                           SUM(CASE WHEN is_systematic = 1 THEN 1 ELSE 0 END) as systematic_count,
+                           SUM(occurrence_count) as total_occurrences
+                    FROM watch_error_patterns
+                    WHERE watch_id = ?
+                    GROUP BY pattern_type
+                    """,
+                    (watch_id,),
+                )
+
+                for row in cursor.fetchall():
+                    summary["by_type"][row["pattern_type"]] = {
+                        "patterns": row["count"],
+                        "systematic": row["systematic_count"],
+                        "total_occurrences": row["total_occurrences"],
+                    }
+                    summary["total_patterns"] += row["count"]
+                    summary["systematic_patterns"] += row["systematic_count"]
+
+                # Get top failing files
+                cursor = self.connection.execute(
+                    """
+                    SELECT pattern_key, occurrence_count, confidence_score
+                    FROM watch_error_patterns
+                    WHERE watch_id = ? AND pattern_type = 'file_repeated'
+                    ORDER BY occurrence_count DESC
+                    LIMIT 10
+                    """,
+                    (watch_id,),
+                )
+                summary["top_failing_files"] = [
+                    {"file": row["pattern_key"], "errors": row["occurrence_count"], "confidence": row["confidence_score"]}
+                    for row in cursor.fetchall()
+                ]
+
+                # Get top failing extensions
+                cursor = self.connection.execute(
+                    """
+                    SELECT pattern_key, occurrence_count, confidence_score
+                    FROM watch_error_patterns
+                    WHERE watch_id = ? AND pattern_type = 'file_type'
+                    ORDER BY occurrence_count DESC
+                    LIMIT 10
+                    """,
+                    (watch_id,),
+                )
+                summary["top_failing_extensions"] = [
+                    {"extension": row["pattern_key"], "errors": row["occurrence_count"], "confidence": row["confidence_score"]}
+                    for row in cursor.fetchall()
+                ]
+
+            return summary
+
+        except Exception as e:
+            logger.error(f"Failed to get error pattern summary: {e}")
+            return {"watch_id": watch_id, "error": str(e)}
+
+    async def clear_error_patterns(self, watch_id: str) -> int:
+        """Clear all error patterns for a watch (Task 461.18).
+
+        Useful when resetting a watch's error state.
+
+        Args:
+            watch_id: The watch folder ID
+
+        Returns:
+            Number of patterns cleared
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM watch_error_patterns WHERE watch_id = ?",
+                    (watch_id,),
+                )
+                cleared = cursor.rowcount
+
+            if cleared > 0:
+                logger.info(f"Cleared {cleared} error patterns for watch {watch_id}")
+
+            return cleared
+
+        except Exception as e:
+            logger.error(f"Failed to clear error patterns: {e}")
+            return 0
 
     # Processing Queue Management
 
