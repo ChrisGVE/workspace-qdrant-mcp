@@ -198,3 +198,11 @@ filterwarnings = [
   "ignore::DeprecationWarning:testcontainers.core",
   "ignore::DeprecationWarning:testcontainers.qdrant",
 ]
+
+[dependency-groups]
+dev = [
+    "memory-profiler>=0.61.0",
+    "pytest-bdd>=8.1.0",
+    "pytest-benchmark>=5.1.0",
+    "respx>=0.22.0",
+]
