@@ -1,70 +1,106 @@
-[38;2;127;132;156m   1[0m [38;2;205;214;244m# Example daemon configuration for workspace-qdrant-mcp[0m
-[38;2;127;132;156m   2[0m [38;2;205;214;244m# This file demonstrates all available configuration options[0m
-[38;2;127;132;156m   3[0m 
-[38;2;127;132;156m   4[0m [38;2;205;214;244m# Core daemon settings[0m
-[38;2;127;132;156m   5[0m [38;2;205;214;244mlog_level: "info"  # error, warn, info, debug, trace[0m
-[38;2;127;132;156m   6[0m [38;2;205;214;244menable_metrics: true[0m
-[38;2;127;132;156m   7[0m [38;2;205;214;244mmetrics_interval_secs: 60[0m
-[38;2;127;132;156m   8[0m [38;2;205;214;244mmax_concurrent_tasks: 4[0m
-[38;2;127;132;156m   9[0m [38;2;205;214;244mdefault_timeout_ms: 30000[0m
-[38;2;127;132;156m  10[0m [38;2;205;214;244menable_preemption: true[0m
-[38;2;127;132;156m  11[0m [38;2;205;214;244mchunk_size: 1000[0m
-[38;2;127;132;156m  12[0m 
-[38;2;127;132;156m  13[0m [38;2;205;214;244m# Qdrant connection configuration[0m
-[38;2;127;132;156m  14[0m [38;2;205;214;244mqdrant:[0m
-[38;2;127;132;156m  15[0m [38;2;205;214;244m  url: "http://localhost:6333"[0m
-[38;2;127;132;156m  16[0m [38;2;205;214;244m  # api_key: "your-api-key-here"  # Optional for Qdrant Cloud[0m
-[38;2;127;132;156m  17[0m [38;2;205;214;244m  transport: "http"  # http or grpc[0m
-[38;2;127;132;156m  18[0m [38;2;205;214;244m  timeout: 30[0m
-[38;2;127;132;156m  19[0m [38;2;205;214;244m  max_retries: 3[0m
-[38;2;127;132;156m  20[0m [38;2;205;214;244m  check_compatibility: true[0m
-[38;2;127;132;156m  21[0m 
-[38;2;127;132;156m  22[0m [38;2;205;214;244m# Auto-ingestion configuration[0m
-[38;2;127;132;156m  23[0m [38;2;205;214;244mauto_ingestion:[0m
-[38;2;127;132;156m  24[0m [38;2;205;214;244m  enabled: true[0m
-[38;2;127;132;156m  25[0m [38;2;205;214;244m  auto_create_watches: true[0m
-[38;2;127;132;156m  26[0m [38;2;205;214;244m  include_common_files: true[0m
-[38;2;127;132;156m  27[0m [38;2;205;214;244m  include_source_files: true[0m
-[38;2;127;132;156m  28[0m [38;2;205;214;244m  target_collection_suffix: "scratchbook"[0m
-[38;2;127;132;156m  29[0m [38;2;205;214;244m  max_files_per_batch: 5[0m
-[38;2;127;132;156m  30[0m [38;2;205;214;244m  batch_delay_seconds: 2.0[0m
-[38;2;127;132;156m  31[0m [38;2;205;214;244m  max_file_size_mb: 50[0m
-[38;2;127;132;156m  32[0m [38;2;205;214;244m  recursive_depth: 5[0m
-[38;2;127;132;156m  33[0m [38;2;205;214;244m  debounce_seconds: 10[0m
-[38;2;127;132;156m  34[0m 
-[38;2;127;132;156m  35[0m [38;2;205;214;244m# Queue processor configuration[0m
-[38;2;127;132;156m  36[0m [38;2;205;214;244mqueue_processor:[0m
-[38;2;127;132;156m  37[0m [38;2;205;214;244m  # Number of items to dequeue per batch (1-1000)[0m
-[38;2;127;132;156m  38[0m [38;2;205;214;244m  batch_size: 10[0m
-[38;2;127;132;156m  39[0m [38;2;205;214;244m  [0m
-[38;2;127;132;156m  40[0m [38;2;205;214;244m  # Poll interval in milliseconds (1-60000)[0m
-[38;2;127;132;156m  41[0m [38;2;205;214;244m  poll_interval_ms: 500[0m
-[38;2;127;132;156m  42[0m [38;2;205;214;244m  [0m
-[38;2;127;132;156m  43[0m [38;2;205;214;244m  # Maximum retry attempts before marking failed (0-20)[0m
-[38;2;127;132;156m  44[0m [38;2;205;214;244m  max_retries: 5[0m
-[38;2;127;132;156m  45[0m [38;2;205;214;244m  [0m
-[38;2;127;132;156m  46[0m [38;2;205;214;244m  # Retry delays in seconds [1m, 5m, 15m, 1h][0m
-[38;2;127;132;156m  47[0m [38;2;205;214;244m  # Exponential backoff pattern[0m
-[38;2;127;132;156m  48[0m [38;2;205;214;244m  retry_delays_seconds: [60, 300, 900, 3600][0m
-[38;2;127;132;156m  49[0m [38;2;205;214;244m  [0m
-[38;2;127;132;156m  50[0m [38;2;205;214;244m  # Target throughput for monitoring (docs per minute)[0m
-[38;2;127;132;156m  51[0m [38;2;205;214;244m  target_throughput: 1000[0m
-[38;2;127;132;156m  52[0m [38;2;205;214;244m  [0m
-[38;2;127;132;156m  53[0m [38;2;205;214;244m  # Enable detailed metrics logging[0m
-[38;2;127;132;156m  54[0m [38;2;205;214;244m  enable_metrics: true[0m
-[38;2;127;132;156m  55[0m 
-[38;2;127;132;156m  56[0m [38;2;205;214;244m# Enhanced logging configuration[0m
-[38;2;127;132;156m  57[0m [38;2;205;214;244mlogging:[0m
-[38;2;127;132;156m  58[0m [38;2;205;214;244m  info_includes_connection_events: true[0m
-[38;2;127;132;156m  59[0m [38;2;205;214;244m  info_includes_transport_details: true[0m
-[38;2;127;132;156m  60[0m [38;2;205;214;244m  info_includes_retry_attempts: true[0m
-[38;2;127;132;156m  61[0m [38;2;205;214;244m  info_includes_fallback_behavior: true[0m
-[38;2;127;132;156m  62[0m [38;2;205;214;244m  error_includes_stack_trace: true[0m
-[38;2;127;132;156m  63[0m [38;2;205;214;244m  error_includes_connection_state: true[0m
-[38;2;127;132;156m  64[0m 
-[38;2;127;132;156m  65[0m [38;2;205;214;244m# Environment variable overrides:[0m
-[38;2;127;132;156m  66[0m [38;2;205;214;244m# WQM_QUEUE_BATCH_SIZE - Override batch_size[0m
-[38;2;127;132;156m  67[0m [38;2;205;214;244m# WQM_QUEUE_POLL_INTERVAL_MS - Override poll_interval_ms[0m
-[38;2;127;132;156m  68[0m [38;2;205;214;244m# WQM_QUEUE_MAX_RETRIES - Override max_retries[0m
-[38;2;127;132;156m  69[0m [38;2;205;214;244m# WQM_QUEUE_TARGET_THROUGHPUT - Override target_throughput[0m
-[38;2;127;132;156m  70[0m [38;2;205;214;244m# WQM_QUEUE_ENABLE_METRICS - Override enable_metrics (true/false or 1/0)[0m
+# Example daemon configuration for workspace-qdrant-mcp
+# This file demonstrates all available configuration options
+
+# Core daemon settings
+log_level: "info"  # error, warn, info, debug, trace
+enable_metrics: true
+metrics_interval_secs: 60
+max_concurrent_tasks: 4
+default_timeout_ms: 30000
+enable_preemption: true
+chunk_size: 1000
+
+# Qdrant connection configuration
+qdrant:
+  url: "http://localhost:6333"
+  # api_key: "your-api-key-here"  # Optional for Qdrant Cloud
+  transport: "http"  # http or grpc
+  timeout: 30
+  max_retries: 3
+  check_compatibility: true
+
+# Auto-ingestion configuration
+auto_ingestion:
+  enabled: true
+  auto_create_watches: true
+  include_common_files: true
+  include_source_files: true
+  target_collection_suffix: "scratchbook"
+  max_files_per_batch: 5
+  batch_delay_seconds: 2.0
+  max_file_size_mb: 50
+  recursive_depth: 5
+  debounce_seconds: 10
+
+# Optimized auto-ingestion for large file sets
+optimized_ingestion:
+  # Control parallel file processing (1-50)
+  max_concurrent_files: 10
+  # Configure batch processing size (1-500)
+  batch_size: 50
+  # Enable adaptive batch sizing based on system resources
+  adaptive_batch_sizing: true
+  # Toggle file deduplication within sessions
+  enable_deduplication: true
+  # Deduplication strategy: "path", "content_hash", "mtime"
+  deduplication_strategy: "content_hash"
+  # Set progress update frequency in seconds
+  progress_interval_seconds: 1.0
+  # Enable progress callbacks
+  enable_progress_callbacks: true
+  # Maximum memory usage in MB (100-2048)
+  max_memory_usage_mb: 512.0
+  # Maximum CPU percent to use (10-100)
+  max_cpu_percent: 80.0
+  # Enable adaptive resource scaling
+  adaptive_resource_scaling: true
+  # File processing timeout in seconds
+  file_timeout_seconds: 60.0
+  # Batch processing timeout in seconds
+  batch_timeout_seconds: 300.0
+  # Maximum operation timeout in seconds (1 hour default)
+  operation_timeout_seconds: 3600.0
+  # Maximum retry attempts for failed files
+  max_retries: 3
+  # Delay between retries in seconds
+  retry_delay_seconds: 1.0
+
+# Queue processor configuration
+queue_processor:
+  # Number of items to dequeue per batch (1-1000)
+  batch_size: 10
+
+  # Poll interval in milliseconds (1-60000)
+  poll_interval_ms: 500
+
+  # Maximum retry attempts before marking failed (0-20)
+  max_retries: 5
+
+  # Retry delays in seconds [1m, 5m, 15m, 1h]
+  # Exponential backoff pattern
+  retry_delays_seconds: [60, 300, 900, 3600]
+
+  # Target throughput for monitoring (docs per minute)
+  target_throughput: 1000
+
+  # Enable detailed metrics logging
+  enable_metrics: true
+
+# Enhanced logging configuration
+logging:
+  info_includes_connection_events: true
+  info_includes_transport_details: true
+  info_includes_retry_attempts: true
+  info_includes_fallback_behavior: true
+  error_includes_stack_trace: true
+  error_includes_connection_state: true
+
+# Environment variable overrides:
+# WQM_QUEUE_BATCH_SIZE - Override batch_size
+# WQM_QUEUE_POLL_INTERVAL_MS - Override poll_interval_ms
+# WQM_QUEUE_MAX_RETRIES - Override max_retries
+# WQM_QUEUE_TARGET_THROUGHPUT - Override target_throughput
+# WQM_QUEUE_ENABLE_METRICS - Override enable_metrics (true/false or 1/0)
+# WQM_OPTIMIZED_MAX_CONCURRENT - Override optimized_ingestion.max_concurrent_files
+# WQM_OPTIMIZED_BATCH_SIZE - Override optimized_ingestion.batch_size
+# WQM_OPTIMIZED_DEDUP_ENABLED - Override optimized_ingestion.enable_deduplication
