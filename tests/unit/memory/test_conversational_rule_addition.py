@@ -576,16 +576,20 @@ class TestConversationalRuleEdgeCases:
             assert "pytest" in updates[0].extracted_rule.lower()
 
     def test_mixed_case_patterns(self, claude_integration):
-        """Test case-insensitive pattern matching."""
+        """Test case-insensitive pattern matching.
+
+        Uses 'Always use X for Y' pattern which requires additional context
+        after the tool/item name.
+        """
         texts = [
-            "ALWAYS USE PYTEST",
-            "always use pytest",
-            "AlWaYs UsE PyTeSt",
+            "ALWAYS USE PYTEST FOR TESTING",
+            "always use pytest for testing",
+            "AlWaYs UsE PyTeSt FoR TeStInG",
         ]
 
         for text in texts:
             updates = claude_integration.detect_conversational_updates(text)
-            assert len(updates) > 0
+            assert len(updates) > 0, f"Failed to match: {text}"
             assert "pytest" in updates[0].extracted_rule.lower()
 
     def test_minimal_valid_pattern(self, claude_integration):
