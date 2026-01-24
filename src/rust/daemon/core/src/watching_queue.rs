@@ -490,11 +490,15 @@ pub struct FileWatcherQueue {
     // Error tracking (Task 461.5)
     error_tracker: Arc<WatchErrorTracker>,
 
+    // Queue depth throttling (Task 461.8)
+    throttle_state: Arc<QueueThrottleState>,
+
     // Statistics
     events_received: Arc<Mutex<u64>>,
     events_processed: Arc<Mutex<u64>>,
     events_filtered: Arc<Mutex<u64>>,
     queue_errors: Arc<Mutex<u64>>,
+    events_throttled: Arc<Mutex<u64>>,
 }
 
 impl FileWatcherQueue {
@@ -506,6 +510,7 @@ impl FileWatcherQueue {
         let patterns = CompiledPatterns::new(&config)?;
         let debouncer = EventDebouncer::new(config.debounce_ms);
         let error_tracker = WatchErrorTracker::new();
+        let throttle_state = QueueThrottleState::new();
 
         Ok(Self {
             config: Arc::new(RwLock::new(config)),
@@ -516,10 +521,12 @@ impl FileWatcherQueue {
             event_receiver: Arc::new(Mutex::new(None)),
             processor_handle: Arc::new(Mutex::new(None)),
             error_tracker: Arc::new(error_tracker),
+            throttle_state: Arc::new(throttle_state),
             events_received: Arc::new(Mutex::new(0)),
             events_processed: Arc::new(Mutex::new(0)),
             events_filtered: Arc::new(Mutex::new(0)),
             queue_errors: Arc::new(Mutex::new(0)),
+            events_throttled: Arc::new(Mutex::new(0)),
         })
     }
 
@@ -637,10 +644,12 @@ impl FileWatcherQueue {
         let config = self.config.clone();
         let queue_manager = self.queue_manager.clone();
         let error_tracker = self.error_tracker.clone();
+        let throttle_state = self.throttle_state.clone();
         let events_received = self.events_received.clone();
         let events_processed = self.events_processed.clone();
         let events_filtered = self.events_filtered.clone();
         let queue_errors = self.queue_errors.clone();
+        let events_throttled = self.events_throttled.clone();
 
         let handle = tokio::spawn(async move {
             Self::event_processing_loop(
@@ -650,10 +659,12 @@ impl FileWatcherQueue {
                 config,
                 queue_manager,
                 error_tracker,
+                throttle_state,
                 events_received,
                 events_processed,
                 events_filtered,
                 queue_errors,
+                events_throttled,
             ).await;
         });
 
@@ -673,10 +684,12 @@ impl FileWatcherQueue {
         config: Arc<RwLock<WatchConfig>>,
         queue_manager: Arc<QueueManager>,
         error_tracker: Arc<WatchErrorTracker>,
+        throttle_state: Arc<QueueThrottleState>,
         events_received: Arc<Mutex<u64>>,
         events_processed: Arc<Mutex<u64>>,
         events_filtered: Arc<Mutex<u64>>,
         queue_errors: Arc<Mutex<u64>>,
+        events_throttled: Arc<Mutex<u64>>,
     ) {
         let mut debounce_interval = interval(Duration::from_millis(500));
 
@@ -699,10 +712,12 @@ impl FileWatcherQueue {
                             &config,
                             &queue_manager,
                             &error_tracker,
+                            &throttle_state,
                             &events_received,
                             &events_processed,
                             &events_filtered,
                             &queue_errors,
+                            &events_throttled,
                         ).await;
                     } else {
                         break;
@@ -717,8 +732,10 @@ impl FileWatcherQueue {
                         &config,
                         &queue_manager,
                         &error_tracker,
+                        &throttle_state,
                         &events_processed,
                         &queue_errors,
+                        &events_throttled,
                     ).await;
                 },
             }
@@ -735,10 +752,12 @@ impl FileWatcherQueue {
         config: &Arc<RwLock<WatchConfig>>,
         queue_manager: &Arc<QueueManager>,
         error_tracker: &Arc<WatchErrorTracker>,
+        throttle_state: &Arc<QueueThrottleState>,
         events_received: &Arc<Mutex<u64>>,
         events_processed: &Arc<Mutex<u64>>,
         events_filtered: &Arc<Mutex<u64>>,
         queue_errors: &Arc<Mutex<u64>>,
+        events_throttled: &Arc<Mutex<u64>>,
     ) {
         // Update stats
         {
@@ -768,8 +787,10 @@ impl FileWatcherQueue {
                 config,
                 queue_manager,
                 error_tracker,
+                throttle_state,
                 events_processed,
                 queue_errors,
+                events_throttled,
             ).await;
         }
     }
@@ -781,8 +802,10 @@ impl FileWatcherQueue {
         config: &Arc<RwLock<WatchConfig>>,
         queue_manager: &Arc<QueueManager>,
         error_tracker: &Arc<WatchErrorTracker>,
+        throttle_state: &Arc<QueueThrottleState>,
         events_processed: &Arc<Mutex<u64>>,
         queue_errors: &Arc<Mutex<u64>>,
+        events_throttled: &Arc<Mutex<u64>>,
     ) {
         let ready_events = {
             let mut debouncer_lock = debouncer.lock().await;
@@ -803,8 +826,10 @@ impl FileWatcherQueue {
                 config,
                 queue_manager,
                 error_tracker,
+                throttle_state,
                 events_processed,
                 queue_errors,
+                events_throttled,
             ).await;
         }
     }
@@ -886,14 +911,17 @@ impl FileWatcherQueue {
         }
     }
 
-    /// Enqueue file operation with retry logic, multi-tenant routing, and error tracking (Task 461.5)
+    /// Enqueue file operation with retry logic, multi-tenant routing, error tracking (Task 461.5),
+    /// and queue depth throttling (Task 461.8)
     async fn enqueue_file_operation(
         event: FileEvent,
         config: &Arc<RwLock<WatchConfig>>,
         queue_manager: &Arc<QueueManager>,
         error_tracker: &Arc<WatchErrorTracker>,
+        throttle_state: &Arc<QueueThrottleState>,
         events_processed: &Arc<Mutex<u64>>,
         queue_errors: &Arc<Mutex<u64>>,
+        events_throttled: &Arc<Mutex<u64>>,
     ) {
         // Skip if not a file
         if !event.path.is_file() && !matches!(event.event_kind, EventKind::Remove(_)) {
@@ -913,6 +941,25 @@ impl FileWatcherQueue {
                 watch_id,
                 event.path.display()
             );
+            return;
+        }
+
+        // Refresh queue depth if needed (Task 461.8)
+        if throttle_state.needs_refresh().await {
+            throttle_state.update_from_queue(queue_manager).await;
+        }
+
+        // Check if we should throttle based on queue depth (Task 461.8)
+        if throttle_state.should_throttle().await {
+            let load_level = throttle_state.get_load_level().await;
+            debug!(
+                "Throttling event due to {} queue load (depth: {}): {}",
+                load_level.as_str(),
+                throttle_state.get_depth().await,
+                event.path.display()
+            );
+            let mut count = events_throttled.lock().await;
+            *count += 1;
             return;
         }
 
@@ -1040,7 +1087,18 @@ impl FileWatcherQueue {
             events_processed: *self.events_processed.lock().await,
             events_filtered: *self.events_filtered.lock().await,
             queue_errors: *self.queue_errors.lock().await,
+            events_throttled: *self.events_throttled.lock().await,
         }
+    }
+
+    /// Get the throttle state reference (Task 461.8)
+    pub fn throttle_state(&self) -> &Arc<QueueThrottleState> {
+        &self.throttle_state
+    }
+
+    /// Get throttle summary for this watcher (Task 461.8)
+    pub async fn get_throttle_summary(&self) -> QueueThrottleSummary {
+        self.throttle_state.get_summary().await
     }
 
     /// Get error state for this watcher (Task 461.5)
@@ -1076,6 +1134,7 @@ pub struct WatchingQueueStats {
     pub events_processed: u64,
     pub events_filtered: u64,
     pub queue_errors: u64,
+    pub events_throttled: u64,  // Task 461.8: Events skipped due to queue depth
 }
 
 //
@@ -1638,6 +1697,211 @@ pub struct WatchErrorSummary {
     pub backoff_level: u8,
     pub remaining_backoff_ms: u64,
     pub last_error_message: Option<String>,
+}
+
+//
+// ========== QUEUE DEPTH MONITORING (Task 461.8) ==========
+//
+
+/// Queue load level for adaptive throttling
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueLoadLevel {
+    /// Normal load - no throttling needed
+    Normal,
+    /// High load - moderate throttling recommended
+    High,
+    /// Critical load - aggressive throttling required
+    Critical,
+}
+
+impl QueueLoadLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            QueueLoadLevel::Normal => "normal",
+            QueueLoadLevel::High => "high",
+            QueueLoadLevel::Critical => "critical",
+        }
+    }
+}
+
+/// Configuration for queue depth throttling
+#[derive(Debug, Clone)]
+pub struct QueueThrottleConfig {
+    /// Queue depth threshold for high load (default: 1000)
+    pub high_threshold: i64,
+    /// Queue depth threshold for critical load (default: 5000)
+    pub critical_threshold: i64,
+    /// How often to check queue depth in milliseconds (default: 5000)
+    pub check_interval_ms: u64,
+    /// Skip ratio when in high load (skip 1 in N events, default: 2)
+    pub high_skip_ratio: u64,
+    /// Skip ratio when in critical load (skip 1 in N events, default: 4)
+    pub critical_skip_ratio: u64,
+}
+
+impl Default for QueueThrottleConfig {
+    fn default() -> Self {
+        Self {
+            high_threshold: 1000,
+            critical_threshold: 5000,
+            check_interval_ms: 5000,   // Check every 5 seconds
+            high_skip_ratio: 2,         // Skip every 2nd event
+            critical_skip_ratio: 4,     // Skip every 4th event
+        }
+    }
+}
+
+/// State for queue depth throttling
+#[derive(Debug)]
+pub struct QueueThrottleState {
+    /// Current queue depth (periodically updated)
+    current_depth: Arc<tokio::sync::RwLock<i64>>,
+    /// Current load level
+    load_level: Arc<tokio::sync::RwLock<QueueLoadLevel>>,
+    /// Per-collection depths
+    collection_depths: Arc<tokio::sync::RwLock<HashMap<String, i64>>>,
+    /// Event counter for skip ratio calculation
+    event_counter: Arc<std::sync::atomic::AtomicU64>,
+    /// Configuration
+    config: QueueThrottleConfig,
+    /// Last check timestamp
+    last_check: Arc<tokio::sync::RwLock<SystemTime>>,
+}
+
+impl QueueThrottleState {
+    /// Create a new throttle state with default configuration
+    pub fn new() -> Self {
+        Self::with_config(QueueThrottleConfig::default())
+    }
+
+    /// Create a new throttle state with custom configuration
+    pub fn with_config(config: QueueThrottleConfig) -> Self {
+        Self {
+            current_depth: Arc::new(tokio::sync::RwLock::new(0)),
+            load_level: Arc::new(tokio::sync::RwLock::new(QueueLoadLevel::Normal)),
+            collection_depths: Arc::new(tokio::sync::RwLock::new(HashMap::new())),
+            event_counter: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+            config,
+            last_check: Arc::new(tokio::sync::RwLock::new(SystemTime::UNIX_EPOCH)),
+        }
+    }
+
+    /// Update queue depth from queue manager
+    pub async fn update_from_queue(&self, queue_manager: &QueueManager) {
+        match queue_manager.get_queue_depth(None, None).await {
+            Ok(depth) => {
+                let mut current = self.current_depth.write().await;
+                *current = depth;
+
+                // Update load level
+                let new_level = if depth >= self.config.critical_threshold {
+                    QueueLoadLevel::Critical
+                } else if depth >= self.config.high_threshold {
+                    QueueLoadLevel::High
+                } else {
+                    QueueLoadLevel::Normal
+                };
+
+                let mut level = self.load_level.write().await;
+                if *level != new_level {
+                    info!(
+                        "Queue load level changed: {:?} -> {:?} (depth: {})",
+                        *level, new_level, depth
+                    );
+                }
+                *level = new_level;
+
+                // Update last check time
+                let mut last = self.last_check.write().await;
+                *last = SystemTime::now();
+            }
+            Err(e) => {
+                warn!("Failed to get queue depth: {}", e);
+            }
+        }
+
+        // Also update per-collection depths
+        match queue_manager.get_queue_depth_all_collections().await {
+            Ok(depths) => {
+                let mut collection_depths = self.collection_depths.write().await;
+                *collection_depths = depths;
+            }
+            Err(e) => {
+                warn!("Failed to get per-collection queue depths: {}", e);
+            }
+        }
+    }
+
+    /// Check if we should throttle (skip this event)
+    pub async fn should_throttle(&self) -> bool {
+        let level = *self.load_level.read().await;
+        match level {
+            QueueLoadLevel::Normal => false,
+            QueueLoadLevel::High => {
+                // Skip every Nth event based on high_skip_ratio
+                let count = self.event_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                count % self.config.high_skip_ratio != 0
+            }
+            QueueLoadLevel::Critical => {
+                // Skip every Nth event based on critical_skip_ratio
+                let count = self.event_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                count % self.config.critical_skip_ratio != 0
+            }
+        }
+    }
+
+    /// Check if we need to refresh queue depth (time-based)
+    pub async fn needs_refresh(&self) -> bool {
+        let last = *self.last_check.read().await;
+        let elapsed = SystemTime::now()
+            .duration_since(last)
+            .unwrap_or(Duration::ZERO);
+        elapsed >= Duration::from_millis(self.config.check_interval_ms)
+    }
+
+    /// Get current queue depth
+    pub async fn get_depth(&self) -> i64 {
+        *self.current_depth.read().await
+    }
+
+    /// Get current load level
+    pub async fn get_load_level(&self) -> QueueLoadLevel {
+        *self.load_level.read().await
+    }
+
+    /// Get queue depth for a specific collection
+    pub async fn get_collection_depth(&self, collection: &str) -> i64 {
+        let depths = self.collection_depths.read().await;
+        depths.get(collection).copied().unwrap_or(0)
+    }
+
+    /// Get throttle summary for telemetry
+    pub async fn get_summary(&self) -> QueueThrottleSummary {
+        QueueThrottleSummary {
+            total_depth: *self.current_depth.read().await,
+            load_level: *self.load_level.read().await,
+            events_processed: self.event_counter.load(std::sync::atomic::Ordering::SeqCst),
+            high_threshold: self.config.high_threshold,
+            critical_threshold: self.config.critical_threshold,
+        }
+    }
+}
+
+impl Default for QueueThrottleState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Summary of throttle state for telemetry (Task 461.8)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueThrottleSummary {
+    pub total_depth: i64,
+    pub load_level: QueueLoadLevel,
+    pub events_processed: u64,
+    pub high_threshold: i64,
+    pub critical_threshold: i64,
 }
 
 /// Watch manager for multiple watchers

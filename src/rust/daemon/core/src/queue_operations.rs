@@ -211,6 +211,45 @@ pub struct QueueStats {
     pub newest_item: Option<DateTime<Utc>>,
 }
 
+/// Queue load level for adaptive throttling
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueLoadLevel {
+    /// Normal load - no throttling needed
+    Normal,
+    /// High load - moderate throttling recommended
+    High,
+    /// Critical load - aggressive throttling required
+    Critical,
+}
+
+impl QueueLoadLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            QueueLoadLevel::Normal => "normal",
+            QueueLoadLevel::High => "high",
+            QueueLoadLevel::Critical => "critical",
+        }
+    }
+}
+
+/// Queue throttling summary for adaptive rate control
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueueThrottlingSummary {
+    /// Total items across all collections
+    pub total_depth: i64,
+    /// Per-collection queue depths
+    pub by_collection: HashMap<String, i64>,
+    /// Current load level
+    pub load_level: QueueLoadLevel,
+    /// Suggested polling interval multiplier (1.0-4.0)
+    pub throttle_factor: f64,
+    /// Threshold for high load
+    pub high_threshold: i64,
+    /// Threshold for critical load
+    pub critical_threshold: i64,
+}
+
 #[derive(Clone)]
 /// Queue manager for Rust daemon operations
 pub struct QueueManager {
@@ -1245,6 +1284,80 @@ impl QueueManager {
         let count = query_builder.fetch_one(&self.pool).await?;
 
         Ok(count)
+    }
+
+    /// Get queue depth for a specific collection.
+    ///
+    /// Used for coordination between file watchers and queue processor
+    /// to implement adaptive throttling when queue is overloaded.
+    ///
+    /// # Arguments
+    /// * `collection` - Collection name to filter by
+    ///
+    /// # Returns
+    /// Number of items in queue for the specified collection
+    pub async fn get_queue_depth_by_collection(&self, collection: &str) -> QueueResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM ingestion_queue WHERE collection_name = ?",
+        )
+        .bind(collection)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count)
+    }
+
+    /// Get queue depth grouped by collection.
+    ///
+    /// Useful for monitoring and load balancing across collections.
+    ///
+    /// # Returns
+    /// HashMap mapping collection names to their queue depths
+    pub async fn get_queue_depth_all_collections(&self) -> QueueResult<HashMap<String, i64>> {
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT collection_name, COUNT(*) as depth FROM ingestion_queue GROUP BY collection_name",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
+    /// Get queue summary for adaptive throttling decisions.
+    ///
+    /// Provides actionable information for file watchers to adjust
+    /// their polling frequency based on queue load.
+    ///
+    /// # Arguments
+    /// * `high_threshold` - Queue depth considered high load (default: 1000)
+    /// * `critical_threshold` - Queue depth considered critical (default: 5000)
+    ///
+    /// # Returns
+    /// QueueThrottlingSummary with load level and throttle factor
+    pub async fn get_queue_summary_for_throttling(
+        &self,
+        high_threshold: i64,
+        critical_threshold: i64,
+    ) -> QueueResult<QueueThrottlingSummary> {
+        let total_depth = self.get_queue_depth(None, None).await?;
+        let by_collection = self.get_queue_depth_all_collections().await?;
+
+        let (load_level, throttle_factor) = if total_depth >= critical_threshold {
+            (QueueLoadLevel::Critical, 4.0)
+        } else if total_depth >= high_threshold {
+            (QueueLoadLevel::High, 2.0)
+        } else {
+            (QueueLoadLevel::Normal, 1.0)
+        };
+
+        Ok(QueueThrottlingSummary {
+            total_depth,
+            by_collection,
+            load_level,
+            throttle_factor,
+            high_threshold,
+            critical_threshold,
+        })
     }
 }
 

@@ -103,7 +103,9 @@ pub use crate::priority_manager::{
     priority
 };
 pub use crate::queue_operations::{
-    QueueManager, QueueOperation, QueueItem, QueueError
+    QueueManager, QueueOperation, QueueItem, QueueError,
+    // Queue depth monitoring types (Task 461.8)
+    QueueLoadLevel as QueueOpsLoadLevel, QueueThrottlingSummary
 };
 pub use crate::queue_types::{
     MissingTool, ProcessorConfig
@@ -115,7 +117,9 @@ pub use crate::watching_queue::{
     FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats, WatchingQueueError,
     calculate_tenant_id, sanitize_remote_url, generate_path_hash_tenant_id, get_current_branch,
     // Multi-tenant routing types and constants
-    WatchType, UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION
+    WatchType, UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION,
+    // Queue depth monitoring types (Task 461.8)
+    QueueLoadLevel, QueueThrottleConfig, QueueThrottleState, QueueThrottleSummary
 };
 pub use crate::tool_monitor::{
     ToolMonitor, MonitoringError, MonitoringResult, RequeueStats

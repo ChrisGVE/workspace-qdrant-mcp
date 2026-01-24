@@ -1015,3 +1015,89 @@ class SQLiteQueueClient:
         async with self.connection_pool.get_connection_async() as conn:
             cursor = conn.execute(query, tuple(params))
             return cursor.fetchone()[0]
+
+    async def get_queue_depth_by_collection(
+        self,
+        collection: str
+    ) -> int:
+        """
+        Get current queue depth for a specific collection.
+
+        Used for coordination between file watchers and queue processor
+        to implement adaptive throttling when queue is overloaded.
+
+        Args:
+            collection: Collection name to filter by
+
+        Returns:
+            Number of items in queue for the specified collection
+        """
+        query = "SELECT COUNT(*) FROM ingestion_queue WHERE collection_name = ?"
+
+        async with self.connection_pool.get_connection_async() as conn:
+            cursor = conn.execute(query, (collection,))
+            return cursor.fetchone()[0]
+
+    async def get_queue_depth_all_collections(self) -> dict[str, int]:
+        """
+        Get queue depth grouped by collection.
+
+        Useful for monitoring and load balancing across collections.
+
+        Returns:
+            Dictionary mapping collection names to their queue depths
+        """
+        query = """
+            SELECT collection_name, COUNT(*) as depth
+            FROM ingestion_queue
+            GROUP BY collection_name
+        """
+
+        async with self.connection_pool.get_connection_async() as conn:
+            cursor = conn.execute(query)
+            rows = cursor.fetchall()
+            return {row["collection_name"]: row["depth"] for row in rows}
+
+    async def get_queue_summary_for_throttling(
+        self,
+        high_threshold: int = 1000,
+        critical_threshold: int = 5000
+    ) -> dict[str, Any]:
+        """
+        Get queue summary for adaptive throttling decisions.
+
+        Provides actionable information for file watchers to adjust
+        their polling frequency based on queue load.
+
+        Args:
+            high_threshold: Queue depth considered high load
+            critical_threshold: Queue depth considered critical
+
+        Returns:
+            Dictionary with throttling recommendations:
+            - total_depth: Total items in queue
+            - by_collection: Per-collection depths
+            - load_level: "normal", "high", or "critical"
+            - throttle_factor: Suggested polling interval multiplier (1.0-4.0)
+        """
+        total_depth = await self.get_queue_depth()
+        by_collection = await self.get_queue_depth_all_collections()
+
+        if total_depth >= critical_threshold:
+            load_level = "critical"
+            throttle_factor = 4.0
+        elif total_depth >= high_threshold:
+            load_level = "high"
+            throttle_factor = 2.0
+        else:
+            load_level = "normal"
+            throttle_factor = 1.0
+
+        return {
+            "total_depth": total_depth,
+            "by_collection": by_collection,
+            "load_level": load_level,
+            "throttle_factor": throttle_factor,
+            "high_threshold": high_threshold,
+            "critical_threshold": critical_threshold,
+        }
