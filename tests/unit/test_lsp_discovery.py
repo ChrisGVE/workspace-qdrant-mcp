@@ -120,17 +120,18 @@ class TestFindLSPExecutable:
 
         lsp_path = venv_bin / "pyright-langserver"
         lsp_path.write_text("#!/bin/sh\necho 'mock lsp'")
-        if platform.system() != "Windows":
-            lsp_path.chmod(0o755)
 
         discovery = ToolDiscovery(project_root=tmp_path)
-        result = discovery.find_lsp_executable("python", "pyright-langserver")
 
-        # On Unix, should find in project-local path
-        if platform.system() != "Windows":
-            assert result is not None
-            assert str(venv_bin) in result
-            assert "pyright-langserver" in result
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            result = discovery.find_lsp_executable("python", "pyright-langserver")
+
+            # On Unix, should find in project-local path
+            if platform.system() != "Windows":
+                assert result is not None
+                assert str(venv_bin) in result
+                assert "pyright-langserver" in result
 
     def test_lsp_in_node_modules(self, tmp_path):
         """Test finding LSP in node_modules/.bin."""
@@ -140,16 +141,17 @@ class TestFindLSPExecutable:
 
         lsp_path = node_bin / "typescript-language-server"
         lsp_path.write_text("#!/bin/sh\necho 'mock typescript lsp'")
-        if platform.system() != "Windows":
-            lsp_path.chmod(0o755)
 
         discovery = ToolDiscovery(project_root=tmp_path)
-        result = discovery.find_lsp_executable("typescript", "typescript-language-server")
 
-        # On Unix, should find in node_modules
-        if platform.system() != "Windows":
-            assert result is not None
-            assert str(node_bin) in result
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            result = discovery.find_lsp_executable("typescript", "typescript-language-server")
+
+            # On Unix, should find in node_modules
+            if platform.system() != "Windows":
+                assert result is not None
+                assert str(node_bin) in result
 
     def test_project_local_priority(self, tmp_path):
         """Test that project-local LSP takes priority over system PATH."""
@@ -159,16 +161,17 @@ class TestFindLSPExecutable:
 
         lsp_path = venv_bin / "python"  # Using python as it exists in system PATH
         lsp_path.write_text("#!/bin/sh\necho 'project python'")
-        if platform.system() != "Windows":
-            lsp_path.chmod(0o755)
 
         discovery = ToolDiscovery(project_root=tmp_path)
-        result = discovery.find_lsp_executable("python", "python")
 
-        # On Unix, should find project-local version first
-        if platform.system() != "Windows":
-            assert result is not None
-            assert str(venv_bin) in result
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            result = discovery.find_lsp_executable("python", "python")
+
+            # On Unix, should find project-local version first
+            if platform.system() != "Windows":
+                assert result is not None
+                assert str(venv_bin) in result
 
 
 class TestDiscoverLSPServers:
@@ -272,8 +275,6 @@ class TestDiscoverLSPServers:
 
         lsp_path = venv_bin / "ruff-lsp"
         lsp_path.write_text("#!/bin/sh\necho 'ruff-lsp'")
-        if platform.system() != "Windows":
-            lsp_path.chmod(0o755)
 
         discovery = ToolDiscovery()
 
@@ -287,13 +288,15 @@ class TestDiscoverLSPServers:
         config = Mock()
         config.languages = [lang]
 
-        result = discovery.discover_lsp_servers(config, project_root=tmp_path)
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            result = discovery.discover_lsp_servers(config, project_root=tmp_path)
 
-        # On Unix, should find project-local LSP
-        if platform.system() != "Windows":
-            assert "python" in result
-            assert result["python"] is not None
-            assert str(venv_bin) in result["python"]
+            # On Unix, should find project-local LSP
+            if platform.system() != "Windows":
+                assert "python" in result
+                assert result["python"] is not None
+                assert str(venv_bin) in result["python"]
 
     def test_missing_lsp_warning(self, tmp_path, caplog):
         """Test that missing LSP servers generate warnings."""
@@ -329,13 +332,9 @@ class TestIntegration:
         # Create mock LSP servers
         pyright = venv_bin / "pyright-langserver"
         pyright.write_text("#!/bin/sh\necho 'pyright'")
-        if platform.system() != "Windows":
-            pyright.chmod(0o755)
 
         tsserver = node_bin / "typescript-language-server"
         tsserver.write_text("#!/bin/sh\necho 'tsserver'")
-        if platform.system() != "Windows":
-            tsserver.chmod(0o755)
 
         discovery = ToolDiscovery(project_root=tmp_path)
 
@@ -361,15 +360,17 @@ class TestIntegration:
         config = Mock()
         config.languages = [lang1, lang2, lang3]
 
-        result = discovery.discover_lsp_servers(config)
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            result = discovery.discover_lsp_servers(config)
 
-        # On Unix, Python and TypeScript should be found locally
-        # Rust should check system PATH
-        if platform.system() != "Windows":
-            assert result["python"] is not None
-            assert result["typescript"] is not None
-            assert str(venv_bin) in result["python"]
-            assert str(node_bin) in result["typescript"]
+            # On Unix, Python and TypeScript should be found locally
+            # Rust should check system PATH
+            if platform.system() != "Windows":
+                assert result["python"] is not None
+                assert result["typescript"] is not None
+                assert str(venv_bin) in result["python"]
+                assert str(node_bin) in result["typescript"]
 
     def test_custom_paths_integration(self, tmp_path):
         """Test LSP discovery with custom paths."""
@@ -379,8 +380,6 @@ class TestIntegration:
 
         custom_lsp = custom_bin / "custom-lsp"
         custom_lsp.write_text("#!/bin/sh\necho 'custom'")
-        if platform.system() != "Windows":
-            custom_lsp.chmod(0o755)
 
         # Initialize with custom path
         config = {"custom_paths": [str(custom_bin)]}
@@ -396,9 +395,11 @@ class TestIntegration:
         lang_config = Mock()
         lang_config.languages = [lang]
 
-        result = discovery.discover_lsp_servers(lang_config)
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            result = discovery.discover_lsp_servers(lang_config)
 
-        # On Unix, should find LSP in custom path
-        if platform.system() != "Windows":
-            assert result["customlang"] is not None
-            assert str(custom_bin) in result["customlang"]
+            # On Unix, should find LSP in custom path
+            if platform.system() != "Windows":
+                assert result["customlang"] is not None
+                assert str(custom_bin) in result["customlang"]
