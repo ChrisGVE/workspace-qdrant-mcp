@@ -173,7 +173,7 @@ class TestServiceInstallCommand:
         assert result.exit_code == 0
         assert "Service installed successfully" in result.stdout
         assert "✅" in result.stdout
-        mock_service_manager.install_service.assert_called_once_with(auto_start=True)
+        mock_service_manager.install_service.assert_called_once_with(auto_start=True, build=False)
 
     @patch('wqm_cli.cli.commands.service.service_manager')
     def test_install_service_no_auto_start(self, mock_service_manager):
@@ -190,7 +190,7 @@ class TestServiceInstallCommand:
         result = self.runner.invoke(service_app, ["install", "--no-auto-start"])
 
         assert result.exit_code == 0
-        mock_service_manager.install_service.assert_called_once_with(auto_start=False)
+        mock_service_manager.install_service.assert_called_once_with(auto_start=False, build=False)
 
     @patch('wqm_cli.cli.commands.service.service_manager')
     def test_install_service_failure(self, mock_service_manager):
@@ -221,7 +221,7 @@ class TestServiceInstallCommand:
         result = self.runner.invoke(service_app, ["install"])
 
         assert result.exit_code == 1
-        assert "Unexpected error" in result.stdout
+        assert "Unexpected error" in result.output
 
 
 class TestServiceUninstallCommand:
@@ -695,12 +695,15 @@ class TestServiceManagerAsyncMethods:
         assert result["success"] is True
         assert "service_name" in result
 
+    @patch('wqm_cli.cli.commands.service.MemexdServiceManager.validate_binary')
     @patch('platform.system', return_value='Windows')
     @patch('pathlib.Path.exists', return_value=True)
     @patch('os.access', return_value=True)
-    async def test_install_unsupported_platform(self, mock_access, mock_exists, mock_system):
+    async def test_install_unsupported_platform(self, mock_access, mock_exists, mock_system, mock_validate):
         """Test installation on unsupported platform."""
         from wqm_cli.cli.commands.service import MemexdServiceManager
+
+        mock_validate.return_value = None  # Skip binary validation
 
         manager = MemexdServiceManager()
         result = await manager.install_service()
