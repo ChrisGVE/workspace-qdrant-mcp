@@ -119,7 +119,9 @@ pub use crate::watching_queue::{
     // Multi-tenant routing types and constants
     WatchType, UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION,
     // Queue depth monitoring types (Task 461.8)
-    QueueLoadLevel, QueueThrottleConfig, QueueThrottleState, QueueThrottleSummary
+    QueueLoadLevel, QueueThrottleConfig, QueueThrottleState, QueueThrottleSummary,
+    // Watch-queue coordination types (Task 461.9)
+    WatchQueueCoordinator, CoordinatorConfig, CoordinatorSummary
 };
 pub use crate::tool_monitor::{
     ToolMonitor, MonitoringError, MonitoringResult, RequeueStats
