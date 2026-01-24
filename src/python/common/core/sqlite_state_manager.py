@@ -180,6 +180,15 @@ class WatchFolderConfig:
     Multi-tenant routing (Task 402):
     - watch_type: "project" routes to _projects collection with project_id as tenant
     - watch_type: "library" routes to _libraries collection with library_name as tenant
+
+    Error tracking (Task 461):
+    - consecutive_errors: Number of consecutive processing errors
+    - total_errors: Cumulative error count since watch created
+    - last_error_at: Timestamp of most recent error
+    - last_error_message: Description of most recent error
+    - backoff_until: When to resume after backoff period
+    - last_success_at: Timestamp of most recent successful processing
+    - health_status: Current health state (healthy/degraded/backoff/disabled)
     """
 
     watch_id: str
@@ -199,6 +208,14 @@ class WatchFolderConfig:
     updated_at: datetime = None
     last_scan: datetime | None = None
     metadata: dict[str, Any] | None = None
+    # Error tracking fields (Task 461)
+    consecutive_errors: int = 0
+    total_errors: int = 0
+    last_error_at: datetime | None = None
+    last_error_message: str | None = None
+    backoff_until: datetime | None = None
+    last_success_at: datetime | None = None
+    health_status: str = "healthy"  # healthy, degraded, backoff, disabled
 
     def __post_init__(self):
         if self.created_at is None:
@@ -208,6 +225,9 @@ class WatchFolderConfig:
         # Validate watch_type
         if self.watch_type not in ("project", "library"):
             self.watch_type = "project"  # Default to project
+        # Validate health_status (Task 461)
+        if self.health_status not in ("healthy", "degraded", "backoff", "disabled"):
+            self.health_status = "healthy"
 
 
 @dataclass
@@ -301,7 +321,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 8  # v8: Add content_ingestion_queue for daemon fallback (Task 456/ADR-001)
+    SCHEMA_VERSION = 9  # v9: Add error tracking fields to watch_folders (Task 461)
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -532,7 +552,15 @@ class SQLiteStateManager:
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 last_scan TIMESTAMP,
-                metadata TEXT  -- JSON
+                metadata TEXT,  -- JSON
+                -- Error tracking fields (Task 461)
+                consecutive_errors INTEGER NOT NULL DEFAULT 0,
+                total_errors INTEGER NOT NULL DEFAULT 0,
+                last_error_at TIMESTAMP,
+                last_error_message TEXT,
+                backoff_until TIMESTAMP,
+                last_success_at TIMESTAMP,
+                health_status TEXT NOT NULL DEFAULT 'healthy'  -- healthy, degraded, backoff, disabled
             )
             """,
             # Indexes for watch_folders
@@ -1162,6 +1190,32 @@ class SQLiteStateManager:
                     conn.execute(sql)
 
                 logger.info("Successfully migrated to schema version 8 (content ingestion queue)")
+
+            # Migrate from version 8 to version 9 - Error tracking fields for watch_folders (Task 461)
+            if from_version <= 8 and to_version >= 9:
+                logger.info("Applying migration: v8 -> v9 (watch folder error tracking)")
+                error_tracking_sql = [
+                    # Add error tracking columns to watch_folders table
+                    "ALTER TABLE watch_folders ADD COLUMN consecutive_errors INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE watch_folders ADD COLUMN total_errors INTEGER NOT NULL DEFAULT 0",
+                    "ALTER TABLE watch_folders ADD COLUMN last_error_at TIMESTAMP",
+                    "ALTER TABLE watch_folders ADD COLUMN last_error_message TEXT",
+                    "ALTER TABLE watch_folders ADD COLUMN backoff_until TIMESTAMP",
+                    "ALTER TABLE watch_folders ADD COLUMN last_success_at TIMESTAMP",
+                    "ALTER TABLE watch_folders ADD COLUMN health_status TEXT NOT NULL DEFAULT 'healthy'",
+                    # Add index for health monitoring
+                    "CREATE INDEX IF NOT EXISTS idx_watch_folders_health_status ON watch_folders(health_status)",
+                ]
+
+                for sql in error_tracking_sql:
+                    try:
+                        conn.execute(sql)
+                    except Exception as e:
+                        # Ignore if column already exists (idempotent migration)
+                        if "duplicate column" not in str(e).lower():
+                            raise
+
+                logger.info("Successfully migrated to schema version 9 (watch folder error tracking)")
 
             # Record the migration
             conn.execute(
@@ -2918,10 +2972,12 @@ class SQLiteStateManager:
                     (watch_id, path, collection, patterns, ignore_patterns, auto_ingest,
                      recursive, recursive_depth, debounce_seconds, enabled,
                      watch_type, library_name,
-                     created_at, updated_at, metadata)
+                     created_at, updated_at, metadata,
+                     consecutive_errors, total_errors, last_error_at, last_error_message,
+                     backoff_until, last_success_at, health_status)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                            COALESCE((SELECT created_at FROM watch_folders WHERE watch_id = ?), CURRENT_TIMESTAMP),
-                           CURRENT_TIMESTAMP, ?)
+                           CURRENT_TIMESTAMP, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         config.watch_id,
@@ -2938,10 +2994,17 @@ class SQLiteStateManager:
                         config.library_name,
                         config.watch_id,
                         self._serialize_json(config.metadata),
+                        config.consecutive_errors,
+                        config.total_errors,
+                        config.last_error_at.isoformat() if config.last_error_at else None,
+                        config.last_error_message,
+                        config.backoff_until.isoformat() if config.backoff_until else None,
+                        config.last_success_at.isoformat() if config.last_success_at else None,
+                        config.health_status,
                     ),
                 )
 
-            logger.debug(f"Saved watch folder config: {config.watch_id} (type={config.watch_type})")
+            logger.debug(f"Saved watch folder config: {config.watch_id} (type={config.watch_type}, health={config.health_status})")
             return True
 
         except Exception as e:
@@ -2959,7 +3022,9 @@ class SQLiteStateManager:
                     SELECT watch_id, path, collection, patterns, ignore_patterns, auto_ingest,
                            recursive, recursive_depth, debounce_seconds, enabled,
                            watch_type, library_name,
-                           created_at, updated_at, last_scan, metadata
+                           created_at, updated_at, last_scan, metadata,
+                           consecutive_errors, total_errors, last_error_at, last_error_message,
+                           backoff_until, last_success_at, health_status
                     FROM watch_folders
                     WHERE watch_id = ?
                     """,
@@ -2996,6 +3061,26 @@ class SQLiteStateManager:
                     if row["last_scan"]
                     else None,
                     metadata=self._deserialize_json(row["metadata"]),
+                    # Error tracking fields (Task 461)
+                    consecutive_errors=row["consecutive_errors"] or 0,
+                    total_errors=row["total_errors"] or 0,
+                    last_error_at=datetime.fromisoformat(
+                        row["last_error_at"].replace("Z", "+00:00")
+                    )
+                    if row["last_error_at"]
+                    else None,
+                    last_error_message=row["last_error_message"],
+                    backoff_until=datetime.fromisoformat(
+                        row["backoff_until"].replace("Z", "+00:00")
+                    )
+                    if row["backoff_until"]
+                    else None,
+                    last_success_at=datetime.fromisoformat(
+                        row["last_success_at"].replace("Z", "+00:00")
+                    )
+                    if row["last_success_at"]
+                    else None,
+                    health_status=row["health_status"] or "healthy",
                 )
 
         except Exception as e:
@@ -3012,7 +3097,9 @@ class SQLiteStateManager:
                     SELECT watch_id, path, collection, patterns, ignore_patterns, auto_ingest,
                            recursive, recursive_depth, debounce_seconds, enabled,
                            watch_type, library_name,
-                           created_at, updated_at, last_scan, metadata
+                           created_at, updated_at, last_scan, metadata,
+                           consecutive_errors, total_errors, last_error_at, last_error_message,
+                           backoff_until, last_success_at, health_status
                     FROM watch_folders
                 """
 
@@ -3055,6 +3142,26 @@ class SQLiteStateManager:
                             if row["last_scan"]
                             else None,
                             metadata=self._deserialize_json(row["metadata"]),
+                            # Error tracking fields (Task 461)
+                            consecutive_errors=row["consecutive_errors"] or 0,
+                            total_errors=row["total_errors"] or 0,
+                            last_error_at=datetime.fromisoformat(
+                                row["last_error_at"].replace("Z", "+00:00")
+                            )
+                            if row["last_error_at"]
+                            else None,
+                            last_error_message=row["last_error_message"],
+                            backoff_until=datetime.fromisoformat(
+                                row["backoff_until"].replace("Z", "+00:00")
+                            )
+                            if row["backoff_until"]
+                            else None,
+                            last_success_at=datetime.fromisoformat(
+                                row["last_success_at"].replace("Z", "+00:00")
+                            )
+                            if row["last_success_at"]
+                            else None,
+                            health_status=row["health_status"] or "healthy",
                         )
                     )
 
@@ -3098,6 +3205,378 @@ class SQLiteStateManager:
         except Exception as e:
             logger.error(f"Failed to update scan time for watch folder {watch_id}: {e}")
             return False
+
+    async def update_watch_folder_error_state(
+        self,
+        watch_id: str,
+        consecutive_errors: int | None = None,
+        total_errors: int | None = None,
+        last_error_at: datetime | None = None,
+        last_error_message: str | None = None,
+        backoff_until: datetime | None = None,
+        last_success_at: datetime | None = None,
+        health_status: str | None = None,
+        clear_backoff: bool = False,
+    ) -> bool:
+        """Update only error tracking fields for a watch folder (Task 461).
+
+        This method efficiently updates error tracking fields without
+        reading/writing the entire config. Useful for the Rust daemon
+        to update error state frequently.
+
+        Args:
+            watch_id: The watch folder identifier
+            consecutive_errors: Number of consecutive errors (None = no change)
+            total_errors: Cumulative error count (None = no change)
+            last_error_at: Timestamp of most recent error (None = no change)
+            last_error_message: Description of most recent error (None = no change)
+            backoff_until: When to resume after backoff (None = no change)
+            last_success_at: Timestamp of most recent success (None = no change)
+            health_status: Health state (None = no change)
+            clear_backoff: If True, clears backoff_until (sets to NULL)
+
+        Returns:
+            True if update succeeded, False otherwise
+        """
+        try:
+            # Build dynamic UPDATE statement
+            updates = []
+            params = []
+
+            if consecutive_errors is not None:
+                updates.append("consecutive_errors = ?")
+                params.append(consecutive_errors)
+
+            if total_errors is not None:
+                updates.append("total_errors = ?")
+                params.append(total_errors)
+
+            if last_error_at is not None:
+                updates.append("last_error_at = ?")
+                params.append(last_error_at.isoformat())
+
+            if last_error_message is not None:
+                updates.append("last_error_message = ?")
+                params.append(last_error_message)
+
+            if backoff_until is not None:
+                updates.append("backoff_until = ?")
+                params.append(backoff_until.isoformat())
+            elif clear_backoff:
+                updates.append("backoff_until = NULL")
+
+            if last_success_at is not None:
+                updates.append("last_success_at = ?")
+                params.append(last_success_at.isoformat())
+
+            if health_status is not None:
+                if health_status not in ("healthy", "degraded", "backoff", "disabled"):
+                    logger.warning(f"Invalid health_status '{health_status}', using 'healthy'")
+                    health_status = "healthy"
+                updates.append("health_status = ?")
+                params.append(health_status)
+
+            if not updates:
+                logger.debug(f"No error state updates for watch folder {watch_id}")
+                return True
+
+            # Always update updated_at
+            updates.append("updated_at = CURRENT_TIMESTAMP")
+
+            sql = f"UPDATE watch_folders SET {', '.join(updates)} WHERE watch_id = ?"
+            params.append(watch_id)
+
+            with self._lock:
+                cursor = self.connection.execute(sql, params)
+                self.connection.commit()
+
+                success = cursor.rowcount > 0
+                if success:
+                    logger.debug(f"Updated error state for watch folder {watch_id}: health={health_status}")
+                else:
+                    logger.warning(f"Watch folder not found for error state update: {watch_id}")
+
+                return success
+
+        except Exception as e:
+            logger.error(f"Failed to update error state for watch folder {watch_id}: {e}")
+            return False
+
+    async def record_watch_folder_error(
+        self,
+        watch_id: str,
+        error_message: str,
+        health_status: str = "degraded",
+        backoff_until: datetime | None = None,
+    ) -> bool:
+        """Record an error for a watch folder (Task 461).
+
+        Convenience method that increments error counters and updates
+        error tracking fields atomically.
+
+        Args:
+            watch_id: The watch folder identifier
+            error_message: Description of the error
+            health_status: New health status (default: degraded)
+            backoff_until: When to resume after backoff (optional)
+
+        Returns:
+            True if update succeeded, False otherwise
+        """
+        try:
+            now = datetime.now(timezone.utc)
+
+            # Build UPDATE with increment
+            sql = """
+                UPDATE watch_folders
+                SET consecutive_errors = consecutive_errors + 1,
+                    total_errors = total_errors + 1,
+                    last_error_at = ?,
+                    last_error_message = ?,
+                    health_status = ?,
+                    backoff_until = ?,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE watch_id = ?
+            """
+            params = [
+                now.isoformat(),
+                error_message,
+                health_status,
+                backoff_until.isoformat() if backoff_until else None,
+                watch_id,
+            ]
+
+            with self._lock:
+                cursor = self.connection.execute(sql, params)
+                self.connection.commit()
+
+                success = cursor.rowcount > 0
+                if success:
+                    logger.debug(f"Recorded error for watch folder {watch_id}: {error_message[:50]}...")
+                else:
+                    logger.warning(f"Watch folder not found for error recording: {watch_id}")
+
+                return success
+
+        except Exception as e:
+            logger.error(f"Failed to record error for watch folder {watch_id}: {e}")
+            return False
+
+    async def record_watch_folder_success(self, watch_id: str) -> bool:
+        """Record a successful processing for a watch folder (Task 461).
+
+        Resets consecutive error count and clears backoff, keeping
+        total_errors for statistics.
+
+        Args:
+            watch_id: The watch folder identifier
+
+        Returns:
+            True if update succeeded, False otherwise
+        """
+        try:
+            now = datetime.now(timezone.utc)
+
+            sql = """
+                UPDATE watch_folders
+                SET consecutive_errors = 0,
+                    last_success_at = ?,
+                    health_status = 'healthy',
+                    backoff_until = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE watch_id = ?
+            """
+
+            with self._lock:
+                cursor = self.connection.execute(sql, [now.isoformat(), watch_id])
+                self.connection.commit()
+
+                success = cursor.rowcount > 0
+                if success:
+                    logger.debug(f"Recorded success for watch folder {watch_id}")
+                else:
+                    logger.warning(f"Watch folder not found for success recording: {watch_id}")
+
+                return success
+
+        except Exception as e:
+            logger.error(f"Failed to record success for watch folder {watch_id}: {e}")
+            return False
+
+    async def get_watch_folders_by_health_status(
+        self, health_status: str
+    ) -> list[WatchFolderConfig]:
+        """Get all watch folders with a specific health status (Task 461).
+
+        Args:
+            health_status: The health status to filter by (healthy, degraded, backoff, disabled)
+
+        Returns:
+            List of watch folder configurations matching the health status
+        """
+        try:
+            if health_status not in ("healthy", "degraded", "backoff", "disabled"):
+                logger.warning(f"Invalid health_status filter '{health_status}'")
+                return []
+
+            with self._lock:
+                cursor = self.connection.execute(
+                    """
+                    SELECT watch_id, path, collection, patterns, ignore_patterns, auto_ingest,
+                           recursive, recursive_depth, debounce_seconds, enabled,
+                           watch_type, library_name,
+                           created_at, updated_at, last_scan, metadata,
+                           consecutive_errors, total_errors, last_error_at, last_error_message,
+                           backoff_until, last_success_at, health_status
+                    FROM watch_folders
+                    WHERE health_status = ?
+                    ORDER BY created_at ASC
+                    """,
+                    (health_status,),
+                )
+
+                rows = cursor.fetchall()
+                configs = []
+
+                for row in rows:
+                    configs.append(
+                        WatchFolderConfig(
+                            watch_id=row["watch_id"],
+                            path=row["path"],
+                            collection=row["collection"],
+                            patterns=self._deserialize_json(row["patterns"]) or [],
+                            ignore_patterns=self._deserialize_json(row["ignore_patterns"]) or [],
+                            auto_ingest=bool(row["auto_ingest"]),
+                            recursive=bool(row["recursive"]),
+                            recursive_depth=row["recursive_depth"],
+                            debounce_seconds=row["debounce_seconds"],
+                            enabled=bool(row["enabled"]),
+                            watch_type=row["watch_type"] or "project",
+                            library_name=row["library_name"],
+                            created_at=datetime.fromisoformat(
+                                row["created_at"].replace("Z", "+00:00")
+                            ),
+                            updated_at=datetime.fromisoformat(
+                                row["updated_at"].replace("Z", "+00:00")
+                            ),
+                            last_scan=datetime.fromisoformat(
+                                row["last_scan"].replace("Z", "+00:00")
+                            )
+                            if row["last_scan"]
+                            else None,
+                            metadata=self._deserialize_json(row["metadata"]),
+                            consecutive_errors=row["consecutive_errors"] or 0,
+                            total_errors=row["total_errors"] or 0,
+                            last_error_at=datetime.fromisoformat(
+                                row["last_error_at"].replace("Z", "+00:00")
+                            )
+                            if row["last_error_at"]
+                            else None,
+                            last_error_message=row["last_error_message"],
+                            backoff_until=datetime.fromisoformat(
+                                row["backoff_until"].replace("Z", "+00:00")
+                            )
+                            if row["backoff_until"]
+                            else None,
+                            last_success_at=datetime.fromisoformat(
+                                row["last_success_at"].replace("Z", "+00:00")
+                            )
+                            if row["last_success_at"]
+                            else None,
+                            health_status=row["health_status"] or "healthy",
+                        )
+                    )
+
+                return configs
+
+        except Exception as e:
+            logger.error(f"Failed to get watch folders by health status {health_status}: {e}")
+            return []
+
+    async def get_watch_folders_in_backoff(self) -> list[WatchFolderConfig]:
+        """Get all watch folders currently in backoff state (Task 461).
+
+        Returns watch folders where backoff_until is set and in the future.
+
+        Returns:
+            List of watch folder configurations in backoff
+        """
+        try:
+            now = datetime.now(timezone.utc)
+
+            with self._lock:
+                cursor = self.connection.execute(
+                    """
+                    SELECT watch_id, path, collection, patterns, ignore_patterns, auto_ingest,
+                           recursive, recursive_depth, debounce_seconds, enabled,
+                           watch_type, library_name,
+                           created_at, updated_at, last_scan, metadata,
+                           consecutive_errors, total_errors, last_error_at, last_error_message,
+                           backoff_until, last_success_at, health_status
+                    FROM watch_folders
+                    WHERE backoff_until IS NOT NULL AND backoff_until > ?
+                    ORDER BY backoff_until ASC
+                    """,
+                    (now.isoformat(),),
+                )
+
+                rows = cursor.fetchall()
+                configs = []
+
+                for row in rows:
+                    configs.append(
+                        WatchFolderConfig(
+                            watch_id=row["watch_id"],
+                            path=row["path"],
+                            collection=row["collection"],
+                            patterns=self._deserialize_json(row["patterns"]) or [],
+                            ignore_patterns=self._deserialize_json(row["ignore_patterns"]) or [],
+                            auto_ingest=bool(row["auto_ingest"]),
+                            recursive=bool(row["recursive"]),
+                            recursive_depth=row["recursive_depth"],
+                            debounce_seconds=row["debounce_seconds"],
+                            enabled=bool(row["enabled"]),
+                            watch_type=row["watch_type"] or "project",
+                            library_name=row["library_name"],
+                            created_at=datetime.fromisoformat(
+                                row["created_at"].replace("Z", "+00:00")
+                            ),
+                            updated_at=datetime.fromisoformat(
+                                row["updated_at"].replace("Z", "+00:00")
+                            ),
+                            last_scan=datetime.fromisoformat(
+                                row["last_scan"].replace("Z", "+00:00")
+                            )
+                            if row["last_scan"]
+                            else None,
+                            metadata=self._deserialize_json(row["metadata"]),
+                            consecutive_errors=row["consecutive_errors"] or 0,
+                            total_errors=row["total_errors"] or 0,
+                            last_error_at=datetime.fromisoformat(
+                                row["last_error_at"].replace("Z", "+00:00")
+                            )
+                            if row["last_error_at"]
+                            else None,
+                            last_error_message=row["last_error_message"],
+                            backoff_until=datetime.fromisoformat(
+                                row["backoff_until"].replace("Z", "+00:00")
+                            )
+                            if row["backoff_until"]
+                            else None,
+                            last_success_at=datetime.fromisoformat(
+                                row["last_success_at"].replace("Z", "+00:00")
+                            )
+                            if row["last_success_at"]
+                            else None,
+                            health_status=row["health_status"] or "healthy",
+                        )
+                    )
+
+                return configs
+
+        except Exception as e:
+            logger.error(f"Failed to get watch folders in backoff: {e}")
+            return []
 
     # Processing Queue Management
 
