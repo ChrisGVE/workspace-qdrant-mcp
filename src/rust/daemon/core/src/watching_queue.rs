@@ -995,6 +995,410 @@ pub struct WatchingQueueStats {
     pub queue_errors: u64,
 }
 
+//
+// ========== WATCH ERROR TRACKING (Task 461) ==========
+//
+
+/// Health status of a watch folder
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum WatchHealthStatus {
+    /// Watch is operating normally
+    Healthy,
+    /// Watch has experienced errors but is still operational
+    Degraded,
+    /// Watch is in backoff due to repeated failures
+    Backoff,
+    /// Watch has been disabled due to too many failures (circuit breaker open)
+    Disabled,
+}
+
+impl Default for WatchHealthStatus {
+    fn default() -> Self {
+        WatchHealthStatus::Healthy
+    }
+}
+
+impl WatchHealthStatus {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            WatchHealthStatus::Healthy => "healthy",
+            WatchHealthStatus::Degraded => "degraded",
+            WatchHealthStatus::Backoff => "backoff",
+            WatchHealthStatus::Disabled => "disabled",
+        }
+    }
+}
+
+/// Configuration for backoff strategy
+#[derive(Debug, Clone)]
+pub struct BackoffConfig {
+    /// Base delay in milliseconds for backoff calculation
+    pub base_delay_ms: u64,
+    /// Maximum delay in milliseconds (cap for exponential backoff)
+    pub max_delay_ms: u64,
+    /// Number of consecutive errors before entering degraded state
+    pub degraded_threshold: u32,
+    /// Number of consecutive errors before entering backoff state
+    pub backoff_threshold: u32,
+    /// Number of consecutive errors before disabling (circuit breaker)
+    pub disable_threshold: u32,
+    /// Number of successful operations to reset error state
+    pub success_reset_count: u32,
+}
+
+impl Default for BackoffConfig {
+    fn default() -> Self {
+        Self {
+            base_delay_ms: 1000,        // 1 second base delay
+            max_delay_ms: 300_000,      // 5 minutes max delay
+            degraded_threshold: 3,       // 3 errors -> degraded
+            backoff_threshold: 5,        // 5 errors -> backoff
+            disable_threshold: 10,       // 10 errors -> disabled
+            success_reset_count: 3,      // 3 successes to fully reset
+        }
+    }
+}
+
+/// Error state tracking for a single watch folder (Task 461)
+///
+/// Tracks consecutive errors, backoff state, and health status for coordinated
+/// error handling between file watchers and queue processors.
+#[derive(Debug, Clone)]
+pub struct WatchErrorState {
+    /// Number of consecutive errors for this watch
+    pub consecutive_errors: u32,
+    /// Total errors since watch started
+    pub total_errors: u64,
+    /// Timestamp of the last error
+    pub last_error_time: Option<SystemTime>,
+    /// Description of the last error
+    pub last_error_message: Option<String>,
+    /// Current backoff level (0 = no backoff, increases with each failure)
+    pub backoff_level: u8,
+    /// Timestamp of last successful processing
+    pub last_successful_processing: Option<SystemTime>,
+    /// Current health status
+    pub health_status: WatchHealthStatus,
+    /// Count of consecutive successes (for recovery tracking)
+    pub consecutive_successes: u32,
+    /// Time when backoff period ends (if in backoff)
+    pub backoff_until: Option<SystemTime>,
+}
+
+impl Default for WatchErrorState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl WatchErrorState {
+    /// Create a new error state with all fields initialized to healthy defaults
+    pub fn new() -> Self {
+        Self {
+            consecutive_errors: 0,
+            total_errors: 0,
+            last_error_time: None,
+            last_error_message: None,
+            backoff_level: 0,
+            last_successful_processing: None,
+            health_status: WatchHealthStatus::Healthy,
+            consecutive_successes: 0,
+            backoff_until: None,
+        }
+    }
+
+    /// Record an error occurrence
+    ///
+    /// Increments error counters and updates health status based on thresholds.
+    /// Returns the calculated backoff delay in milliseconds (0 if no backoff needed).
+    pub fn record_error(&mut self, error_message: &str, config: &BackoffConfig) -> u64 {
+        self.consecutive_errors += 1;
+        self.total_errors += 1;
+        self.last_error_time = Some(SystemTime::now());
+        self.last_error_message = Some(error_message.to_string());
+        self.consecutive_successes = 0;
+
+        // Update health status based on thresholds
+        self.health_status = if self.consecutive_errors >= config.disable_threshold {
+            WatchHealthStatus::Disabled
+        } else if self.consecutive_errors >= config.backoff_threshold {
+            WatchHealthStatus::Backoff
+        } else if self.consecutive_errors >= config.degraded_threshold {
+            WatchHealthStatus::Degraded
+        } else {
+            WatchHealthStatus::Healthy
+        };
+
+        // Calculate backoff delay if needed
+        let backoff_delay = if self.health_status == WatchHealthStatus::Backoff
+            || self.health_status == WatchHealthStatus::Disabled
+        {
+            self.backoff_level = self.backoff_level.saturating_add(1);
+            self.calculate_backoff_delay(config)
+        } else {
+            0
+        };
+
+        // Set backoff_until if there's a delay
+        if backoff_delay > 0 {
+            self.backoff_until = Some(
+                SystemTime::now() + Duration::from_millis(backoff_delay)
+            );
+        }
+
+        backoff_delay
+    }
+
+    /// Record a successful operation
+    ///
+    /// Resets error state on success, allowing recovery from degraded states.
+    /// Returns true if health status changed (recovered to healthy).
+    pub fn record_success(&mut self, config: &BackoffConfig) -> bool {
+        let previous_status = self.health_status;
+
+        self.last_successful_processing = Some(SystemTime::now());
+        self.consecutive_successes += 1;
+
+        // Check if we've had enough consecutive successes to reset
+        if self.consecutive_successes >= config.success_reset_count {
+            self.reset();
+            return previous_status != WatchHealthStatus::Healthy;
+        }
+
+        // Gradual recovery: decrease backoff level on each success
+        if self.backoff_level > 0 {
+            self.backoff_level = self.backoff_level.saturating_sub(1);
+        }
+
+        // Clear backoff_until if backoff level is 0
+        if self.backoff_level == 0 {
+            self.backoff_until = None;
+        }
+
+        // Update health status based on recovery
+        if self.consecutive_errors > 0 && self.consecutive_successes > 0 {
+            // Still recovering
+            self.health_status = if self.backoff_level > 0 {
+                WatchHealthStatus::Backoff
+            } else if self.consecutive_errors >= config.degraded_threshold {
+                WatchHealthStatus::Degraded
+            } else {
+                WatchHealthStatus::Healthy
+            };
+        }
+
+        previous_status != self.health_status
+    }
+
+    /// Reset error state to healthy defaults
+    pub fn reset(&mut self) {
+        self.consecutive_errors = 0;
+        self.backoff_level = 0;
+        self.health_status = WatchHealthStatus::Healthy;
+        self.consecutive_successes = 0;
+        self.backoff_until = None;
+        // Note: We keep total_errors, last_error_time, and last_error_message
+        // for historical tracking purposes
+    }
+
+    /// Calculate backoff delay using exponential backoff with jitter
+    ///
+    /// Formula: min(max_delay, base_delay * 2^level + random_jitter)
+    pub fn calculate_backoff_delay(&self, config: &BackoffConfig) -> u64 {
+        if self.backoff_level == 0 {
+            return 0;
+        }
+
+        // Exponential backoff: base_delay * 2^(level-1)
+        let exponential_delay = config.base_delay_ms
+            .saturating_mul(1u64 << (self.backoff_level.saturating_sub(1) as u64).min(10));
+
+        // Cap at max delay
+        let capped_delay = exponential_delay.min(config.max_delay_ms);
+
+        // Add jitter (±10% of delay) to prevent thundering herd
+        let jitter_range = capped_delay / 10;
+        let jitter = if jitter_range > 0 {
+            // Simple deterministic jitter based on current time
+            let now = SystemTime::now()
+                .duration_since(SystemTime::UNIX_EPOCH)
+                .unwrap_or(Duration::ZERO)
+                .as_nanos() as u64;
+            (now % (jitter_range * 2)).saturating_sub(jitter_range)
+        } else {
+            0
+        };
+
+        capped_delay.saturating_add(jitter)
+    }
+
+    /// Check if currently in backoff period
+    pub fn is_in_backoff(&self) -> bool {
+        if let Some(backoff_until) = self.backoff_until {
+            SystemTime::now() < backoff_until
+        } else {
+            false
+        }
+    }
+
+    /// Get remaining backoff time in milliseconds (0 if not in backoff)
+    pub fn remaining_backoff_ms(&self) -> u64 {
+        if let Some(backoff_until) = self.backoff_until {
+            backoff_until
+                .duration_since(SystemTime::now())
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
+    /// Check if watch should be disabled (circuit breaker open)
+    pub fn should_disable(&self) -> bool {
+        self.health_status == WatchHealthStatus::Disabled
+    }
+
+    /// Check if watch can process (not in backoff and not disabled)
+    pub fn can_process(&self) -> bool {
+        !self.should_disable() && !self.is_in_backoff()
+    }
+}
+
+/// Manager for tracking error states across all watches (Task 461)
+///
+/// Thread-safe container for WatchErrorState instances keyed by watch_id.
+#[derive(Debug)]
+pub struct WatchErrorTracker {
+    /// Error states keyed by watch_id
+    states: Arc<RwLock<HashMap<String, WatchErrorState>>>,
+    /// Shared backoff configuration
+    config: BackoffConfig,
+}
+
+impl WatchErrorTracker {
+    /// Create a new error tracker with default configuration
+    pub fn new() -> Self {
+        Self {
+            states: Arc::new(RwLock::new(HashMap::new())),
+            config: BackoffConfig::default(),
+        }
+    }
+
+    /// Create a new error tracker with custom configuration
+    pub fn with_config(config: BackoffConfig) -> Self {
+        Self {
+            states: Arc::new(RwLock::new(HashMap::new())),
+            config,
+        }
+    }
+
+    /// Get or create error state for a watch_id
+    pub async fn get_or_create(&self, watch_id: &str) -> WatchErrorState {
+        let states = self.states.read().await;
+        states.get(watch_id).cloned().unwrap_or_default()
+    }
+
+    /// Record an error for a watch
+    ///
+    /// Returns the backoff delay in milliseconds.
+    pub async fn record_error(&self, watch_id: &str, error_message: &str) -> u64 {
+        let mut states = self.states.write().await;
+        let state = states.entry(watch_id.to_string()).or_insert_with(WatchErrorState::new);
+        let delay = state.record_error(error_message, &self.config);
+
+        debug!(
+            "Watch '{}' error recorded: consecutive={}, status={:?}, backoff_ms={}",
+            watch_id, state.consecutive_errors, state.health_status, delay
+        );
+
+        delay
+    }
+
+    /// Record a successful operation for a watch
+    ///
+    /// Returns true if health status improved.
+    pub async fn record_success(&self, watch_id: &str) -> bool {
+        let mut states = self.states.write().await;
+        let state = states.entry(watch_id.to_string()).or_insert_with(WatchErrorState::new);
+        let improved = state.record_success(&self.config);
+
+        if improved {
+            debug!(
+                "Watch '{}' health improved: status={:?}, consecutive_successes={}",
+                watch_id, state.health_status, state.consecutive_successes
+            );
+        }
+
+        improved
+    }
+
+    /// Check if a watch can process (not in backoff and not disabled)
+    pub async fn can_process(&self, watch_id: &str) -> bool {
+        let states = self.states.read().await;
+        states.get(watch_id).map(|s| s.can_process()).unwrap_or(true)
+    }
+
+    /// Get health status for a watch
+    pub async fn get_health_status(&self, watch_id: &str) -> WatchHealthStatus {
+        let states = self.states.read().await;
+        states.get(watch_id).map(|s| s.health_status).unwrap_or(WatchHealthStatus::Healthy)
+    }
+
+    /// Get all watch health statuses
+    pub async fn get_all_health_statuses(&self) -> HashMap<String, WatchHealthStatus> {
+        let states = self.states.read().await;
+        states.iter().map(|(k, v)| (k.clone(), v.health_status)).collect()
+    }
+
+    /// Get error summary for all watches
+    pub async fn get_error_summary(&self) -> Vec<WatchErrorSummary> {
+        let states = self.states.read().await;
+        states.iter().map(|(id, state)| WatchErrorSummary {
+            watch_id: id.clone(),
+            health_status: state.health_status,
+            consecutive_errors: state.consecutive_errors,
+            total_errors: state.total_errors,
+            backoff_level: state.backoff_level,
+            remaining_backoff_ms: state.remaining_backoff_ms(),
+            last_error_message: state.last_error_message.clone(),
+        }).collect()
+    }
+
+    /// Reset error state for a watch (manual recovery)
+    pub async fn reset_watch(&self, watch_id: &str) {
+        let mut states = self.states.write().await;
+        if let Some(state) = states.get_mut(watch_id) {
+            state.reset();
+            info!("Watch '{}' error state manually reset", watch_id);
+        }
+    }
+
+    /// Remove error tracking for a watch (when watch is removed)
+    pub async fn remove_watch(&self, watch_id: &str) {
+        let mut states = self.states.write().await;
+        states.remove(watch_id);
+    }
+}
+
+impl Default for WatchErrorTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Summary of error state for reporting (Task 461)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WatchErrorSummary {
+    pub watch_id: String,
+    pub health_status: WatchHealthStatus,
+    pub consecutive_errors: u32,
+    pub total_errors: u64,
+    pub backoff_level: u8,
+    pub remaining_backoff_ms: u64,
+    pub last_error_message: Option<String>,
+}
+
 /// Watch manager for multiple watchers
 pub struct WatchManager {
     pool: SqlitePool,
@@ -1596,5 +2000,258 @@ mod tests {
         assert_eq!(collection, "_projects");
         // Tenant should be path-based hash since temp_dir is not a git repo
         assert!(tenant.starts_with("path_"));
+    }
+
+    // ========== Task 461: Watch Error State Tests ==========
+
+    #[test]
+    fn test_watch_error_state_new() {
+        let state = WatchErrorState::new();
+        assert_eq!(state.consecutive_errors, 0);
+        assert_eq!(state.total_errors, 0);
+        assert_eq!(state.backoff_level, 0);
+        assert_eq!(state.health_status, WatchHealthStatus::Healthy);
+        assert!(state.last_error_time.is_none());
+        assert!(state.can_process());
+    }
+
+    #[test]
+    fn test_watch_error_state_record_error() {
+        let config = BackoffConfig::default();
+        let mut state = WatchErrorState::new();
+
+        // First error - should remain healthy
+        let delay = state.record_error("test error 1", &config);
+        assert_eq!(state.consecutive_errors, 1);
+        assert_eq!(state.total_errors, 1);
+        assert_eq!(state.health_status, WatchHealthStatus::Healthy);
+        assert_eq!(delay, 0); // No backoff yet
+
+        // Third error - should become degraded
+        state.record_error("test error 2", &config);
+        let delay = state.record_error("test error 3", &config);
+        assert_eq!(state.consecutive_errors, 3);
+        assert_eq!(state.health_status, WatchHealthStatus::Degraded);
+        assert_eq!(delay, 0); // Degraded but no backoff yet
+    }
+
+    #[test]
+    fn test_watch_error_state_backoff_threshold() {
+        let config = BackoffConfig::default();
+        let mut state = WatchErrorState::new();
+
+        // Record errors up to backoff threshold
+        for i in 1..=5 {
+            let delay = state.record_error(&format!("error {}", i), &config);
+            if i >= 5 {
+                // Should be in backoff now
+                assert_eq!(state.health_status, WatchHealthStatus::Backoff);
+                assert!(delay > 0, "Should have backoff delay");
+            }
+        }
+    }
+
+    #[test]
+    fn test_watch_error_state_disable_threshold() {
+        let config = BackoffConfig::default();
+        let mut state = WatchErrorState::new();
+
+        // Record errors up to disable threshold
+        for _ in 0..10 {
+            state.record_error("repeated error", &config);
+        }
+
+        assert_eq!(state.health_status, WatchHealthStatus::Disabled);
+        assert!(state.should_disable());
+        assert!(!state.can_process());
+    }
+
+    #[test]
+    fn test_watch_error_state_record_success() {
+        let config = BackoffConfig::default();
+        let mut state = WatchErrorState::new();
+
+        // Get into degraded state
+        for _ in 0..3 {
+            state.record_error("error", &config);
+        }
+        assert_eq!(state.health_status, WatchHealthStatus::Degraded);
+
+        // Record successes to recover
+        for _ in 0..3 {
+            state.record_success(&config);
+        }
+
+        // Should be fully reset after success_reset_count successes
+        assert_eq!(state.health_status, WatchHealthStatus::Healthy);
+        assert_eq!(state.consecutive_errors, 0);
+        assert_eq!(state.backoff_level, 0);
+    }
+
+    #[test]
+    fn test_watch_error_state_reset() {
+        let config = BackoffConfig::default();
+        let mut state = WatchErrorState::new();
+
+        // Record some errors
+        for _ in 0..5 {
+            state.record_error("error", &config);
+        }
+        assert_eq!(state.health_status, WatchHealthStatus::Backoff);
+
+        // Reset
+        state.reset();
+
+        assert_eq!(state.consecutive_errors, 0);
+        assert_eq!(state.backoff_level, 0);
+        assert_eq!(state.health_status, WatchHealthStatus::Healthy);
+        // Total errors should still be tracked
+        assert_eq!(state.total_errors, 5);
+    }
+
+    #[test]
+    fn test_backoff_delay_calculation() {
+        let config = BackoffConfig {
+            base_delay_ms: 1000,
+            max_delay_ms: 60_000,
+            ..BackoffConfig::default()
+        };
+        let mut state = WatchErrorState::new();
+
+        // Level 0 - no delay
+        assert_eq!(state.calculate_backoff_delay(&config), 0);
+
+        // Level 1 - base delay (~1000ms with jitter)
+        state.backoff_level = 1;
+        let delay1 = state.calculate_backoff_delay(&config);
+        assert!(delay1 >= 900 && delay1 <= 1100, "Level 1 delay should be ~1000ms, got {}", delay1);
+
+        // Level 2 - 2x base delay (~2000ms with jitter)
+        state.backoff_level = 2;
+        let delay2 = state.calculate_backoff_delay(&config);
+        assert!(delay2 >= 1800 && delay2 <= 2200, "Level 2 delay should be ~2000ms, got {}", delay2);
+
+        // Level 3 - 4x base delay (~4000ms with jitter)
+        state.backoff_level = 3;
+        let delay3 = state.calculate_backoff_delay(&config);
+        assert!(delay3 >= 3600 && delay3 <= 4400, "Level 3 delay should be ~4000ms, got {}", delay3);
+    }
+
+    #[test]
+    fn test_backoff_delay_max_cap() {
+        let config = BackoffConfig {
+            base_delay_ms: 1000,
+            max_delay_ms: 5000,
+            ..BackoffConfig::default()
+        };
+        let mut state = WatchErrorState::new();
+
+        // Very high level should be capped
+        state.backoff_level = 20;
+        let delay = state.calculate_backoff_delay(&config);
+        assert!(delay <= 5500, "Delay should be capped at max_delay + jitter, got {}", delay);
+    }
+
+    #[test]
+    fn test_watch_health_status_as_str() {
+        assert_eq!(WatchHealthStatus::Healthy.as_str(), "healthy");
+        assert_eq!(WatchHealthStatus::Degraded.as_str(), "degraded");
+        assert_eq!(WatchHealthStatus::Backoff.as_str(), "backoff");
+        assert_eq!(WatchHealthStatus::Disabled.as_str(), "disabled");
+    }
+
+    #[test]
+    fn test_backoff_config_default() {
+        let config = BackoffConfig::default();
+        assert_eq!(config.base_delay_ms, 1000);
+        assert_eq!(config.max_delay_ms, 300_000);
+        assert_eq!(config.degraded_threshold, 3);
+        assert_eq!(config.backoff_threshold, 5);
+        assert_eq!(config.disable_threshold, 10);
+        assert_eq!(config.success_reset_count, 3);
+    }
+
+    #[tokio::test]
+    async fn test_watch_error_tracker_basic() {
+        let tracker = WatchErrorTracker::new();
+
+        // Record error
+        let delay = tracker.record_error("watch-1", "test error").await;
+        assert_eq!(delay, 0); // First error, no backoff
+
+        // Check status
+        let status = tracker.get_health_status("watch-1").await;
+        assert_eq!(status, WatchHealthStatus::Healthy);
+
+        // Record success
+        tracker.record_success("watch-1").await;
+
+        // Should still be able to process
+        assert!(tracker.can_process("watch-1").await);
+    }
+
+    #[tokio::test]
+    async fn test_watch_error_tracker_multiple_watches() {
+        let tracker = WatchErrorTracker::new();
+
+        // Record errors for multiple watches
+        for _ in 0..5 {
+            tracker.record_error("watch-bad", "error").await;
+        }
+        tracker.record_error("watch-good", "single error").await;
+
+        // Check different states
+        let bad_status = tracker.get_health_status("watch-bad").await;
+        let good_status = tracker.get_health_status("watch-good").await;
+
+        assert_eq!(bad_status, WatchHealthStatus::Backoff);
+        assert_eq!(good_status, WatchHealthStatus::Healthy);
+    }
+
+    #[tokio::test]
+    async fn test_watch_error_tracker_get_error_summary() {
+        let tracker = WatchErrorTracker::new();
+
+        tracker.record_error("watch-1", "error 1").await;
+        tracker.record_error("watch-2", "error 2").await;
+        tracker.record_error("watch-2", "error 3").await;
+
+        let summary = tracker.get_error_summary().await;
+        assert_eq!(summary.len(), 2);
+
+        let watch1_summary = summary.iter().find(|s| s.watch_id == "watch-1").unwrap();
+        assert_eq!(watch1_summary.consecutive_errors, 1);
+
+        let watch2_summary = summary.iter().find(|s| s.watch_id == "watch-2").unwrap();
+        assert_eq!(watch2_summary.consecutive_errors, 2);
+    }
+
+    #[tokio::test]
+    async fn test_watch_error_tracker_reset_watch() {
+        let tracker = WatchErrorTracker::new();
+
+        // Get into bad state
+        for _ in 0..10 {
+            tracker.record_error("watch-1", "error").await;
+        }
+        assert_eq!(tracker.get_health_status("watch-1").await, WatchHealthStatus::Disabled);
+
+        // Reset
+        tracker.reset_watch("watch-1").await;
+
+        // Should be healthy again
+        assert_eq!(tracker.get_health_status("watch-1").await, WatchHealthStatus::Healthy);
+        assert!(tracker.can_process("watch-1").await);
+    }
+
+    #[tokio::test]
+    async fn test_watch_error_tracker_remove_watch() {
+        let tracker = WatchErrorTracker::new();
+
+        tracker.record_error("watch-1", "error").await;
+        assert_eq!(tracker.get_error_summary().await.len(), 1);
+
+        tracker.remove_watch("watch-1").await;
+        assert_eq!(tracker.get_error_summary().await.len(), 0);
     }
 }
