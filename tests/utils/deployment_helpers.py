@@ -43,7 +43,11 @@ class DeploymentTestHelper:
         self.mock_processes.clear()
 
     def create_mock_binary(self, binary_dir: Path, binary_name: str) -> Path:
-        """Create a mock binary file for testing."""
+        """Create a mock binary file for testing.
+
+        Note: This creates a mock binary file but does not set executable permissions.
+        Use mocking for os.access(path, os.X_OK) in tests that need to verify executability.
+        """
         binary_dir.mkdir(parents=True, exist_ok=True)
         binary_path = binary_dir / binary_name
 
@@ -54,7 +58,6 @@ echo "Args: $@"
 exit 0
 """
         binary_path.write_text(binary_content)
-        binary_path.chmod(0o755)
 
         return binary_path
 
