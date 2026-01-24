@@ -6,10 +6,9 @@ This conftest provides:
 - Pytest configuration hooks
 - Integration of shared fixtures from tests/shared/
 - Test categorization and marker management
-- Permission protection for the project root directory
+- Permission diagnostic utilities
 """
 
-import atexit
 import os
 import stat
 import sys
@@ -18,41 +17,10 @@ from pathlib import Path
 import pytest
 
 
-# Permission protection constants
+# Permission diagnostic constants (read-only, for diagnostics only)
 _PROJECT_ROOT = Path(__file__).parent.parent
 _EXPECTED_DIR_MODE = 0o755  # drwxr-xr-x
 _ORIGINAL_PERMISSIONS: dict[str, int] = {}
-
-# Key directories to protect (relative to project root)
-_PROTECTED_SUBDIRS = ["src", "tests", ".git"]
-
-
-def _emergency_permission_restore():
-    """
-    Emergency atexit handler to restore project permissions on crash.
-
-    This runs even if pytest crashes or is killed with SIGTERM.
-    """
-    try:
-        current_mode = _get_permission_mode(_PROJECT_ROOT)
-        if current_mode is not None and current_mode != _EXPECTED_DIR_MODE:
-            os.chmod(_PROJECT_ROOT, _EXPECTED_DIR_MODE)
-            print(f"\n[ATEXIT] Restored project root permissions to {oct(_EXPECTED_DIR_MODE)}")
-
-        # Also restore protected subdirectories
-        for subdir in _PROTECTED_SUBDIRS:
-            subdir_path = _PROJECT_ROOT / subdir
-            if subdir_path.exists():
-                current_mode = _get_permission_mode(subdir_path)
-                if current_mode is not None and current_mode != _EXPECTED_DIR_MODE:
-                    os.chmod(subdir_path, _EXPECTED_DIR_MODE)
-                    print(f"[ATEXIT] Restored {subdir} permissions to {oct(_EXPECTED_DIR_MODE)}")
-    except Exception as e:
-        print(f"[ATEXIT] Failed to restore permissions: {e}")
-
-
-# Register the emergency handler immediately on module load
-atexit.register(_emergency_permission_restore)
 
 
 def _get_permission_mode(path: Path) -> int | None:
@@ -63,62 +31,31 @@ def _get_permission_mode(path: Path) -> int | None:
         return None
 
 
-def _restore_directory_permissions(path: Path, mode: int) -> bool:
-    """Restore directory permissions. Returns True if successful."""
-    try:
-        os.chmod(path, mode)
-        return True
-    except (OSError, PermissionError) as e:
-        print(f"WARNING: Failed to restore permissions on {path}: {e}")
-        return False
-
-
 def _check_and_restore_project_permissions() -> bool:
     """
-    Check if project root and key subdirectory permissions are corrupted and restore if needed.
+    Check project root permissions for diagnostic purposes only.
 
-    Returns True if permissions are OK (or were restored), False if restoration failed.
+    NOTE: This function NO LONGER modifies permissions. It only logs status.
+    Returns True if permissions are OK, False if they appear incorrect.
     """
-    all_ok = True
-
     # Check project root
     current_mode = _get_permission_mode(_PROJECT_ROOT)
 
     if current_mode is None:
-        print(f"ERROR: Cannot access project root: {_PROJECT_ROOT}")
+        print(f"DIAGNOSTIC: Cannot access project root: {_PROJECT_ROOT}")
         return False
 
     # Check if permissions match expected or original
     original_mode = _ORIGINAL_PERMISSIONS.get("project_root", _EXPECTED_DIR_MODE)
 
     if current_mode != original_mode and current_mode != _EXPECTED_DIR_MODE:
-        print(f"WARNING: Project root permissions corrupted!")
+        print(f"DIAGNOSTIC: Project root permissions differ from expected!")
         print(f"  Current: {oct(current_mode)} ({stat.filemode(current_mode | stat.S_IFDIR)})")
         print(f"  Expected: {oct(original_mode)} ({stat.filemode(original_mode | stat.S_IFDIR)})")
-        print(f"  Attempting to restore...")
+        print(f"  NOTE: No automatic restoration - permissions left as-is")
+        return False
 
-        if _restore_directory_permissions(_PROJECT_ROOT, original_mode):
-            print(f"  Successfully restored permissions to {oct(original_mode)}")
-        else:
-            # Try with expected default
-            if _restore_directory_permissions(_PROJECT_ROOT, _EXPECTED_DIR_MODE):
-                print(f"  Restored to default permissions {oct(_EXPECTED_DIR_MODE)}")
-            else:
-                all_ok = False
-
-    # Also check protected subdirectories
-    for subdir in _PROTECTED_SUBDIRS:
-        subdir_path = _PROJECT_ROOT / subdir
-        if subdir_path.exists():
-            current_mode = _get_permission_mode(subdir_path)
-            original_mode = _ORIGINAL_PERMISSIONS.get(subdir, _EXPECTED_DIR_MODE)
-
-            if current_mode is not None and current_mode != original_mode and current_mode != _EXPECTED_DIR_MODE:
-                print(f"WARNING: {subdir} permissions corrupted! Restoring...")
-                if not _restore_directory_permissions(subdir_path, _EXPECTED_DIR_MODE):
-                    all_ok = False
-
-    return all_ok
+    return True
 
 # Add src to path for imports
 src_path = Path(__file__).parent.parent / "src" / "python"
@@ -205,23 +142,15 @@ def pytest_configure(config):
     Configure pytest for workspace-qdrant-mcp testing.
 
     Registers custom markers and sets up test environment.
-    Records original permissions for the project root to enable restoration.
+    Records original permissions for diagnostic purposes only.
     """
-    # Record original project root permissions for restoration
+    # Record original project root permissions for diagnostic purposes
     original_mode = _get_permission_mode(_PROJECT_ROOT)
     if original_mode is not None:
         _ORIGINAL_PERMISSIONS["project_root"] = original_mode
-        print(f"\nRecorded project root permissions: {oct(original_mode)}")
+        print(f"\nDIAGNOSTIC: Project root permissions: {oct(original_mode)}")
     else:
-        print(f"\nWARNING: Could not record project root permissions")
-
-    # Also record permissions for key subdirectories
-    for subdir in ["src", "tests", "docs", ".git"]:
-        subdir_path = _PROJECT_ROOT / subdir
-        if subdir_path.exists():
-            mode = _get_permission_mode(subdir_path)
-            if mode is not None:
-                _ORIGINAL_PERMISSIONS[subdir] = mode
+        print(f"\nDIAGNOSTIC: Could not read project root permissions")
 
     # Set environment variable to indicate testing mode
     os.environ["WQM_TESTING"] = "true"
@@ -298,44 +227,25 @@ def pytest_runtest_teardown(item, nextitem):
     """
     Teardown hook called after each test.
 
-    CRITICAL: Checks and restores project root permissions after EVERY test.
-    This ensures that any test that corrupts permissions is immediately detected
-    and fixed, preventing the corruption from affecting subsequent tests or
-    being left behind if pytest crashes.
+    Performs cleanup tasks but does NOT modify filesystem permissions.
     """
-    # Check after EVERY test - permission corruption can happen anywhere
-    if not _check_and_restore_project_permissions():
-        print(f"WARNING: Permission restoration failed after test: {item.name}")
-        print(f"         The test '{item.name}' may have corrupted project permissions!")
+    # NOTE: Permission restoration logic removed - tests should not modify permissions
+    pass
 
 
 def pytest_sessionfinish(session, exitstatus):
     """
-    Session finish hook to ensure permissions are restored.
+    Session finish hook called at the end of the test session.
 
-    This runs at the end of the entire test session.
+    Logs diagnostic information but does NOT modify permissions.
     """
     print("\n" + "-" * 70)
-    print("Checking project permissions after test session...")
+    print("Test session complete - permission diagnostic check...")
 
-    # Restore project root permissions
-    if not _check_and_restore_project_permissions():
-        print("ERROR: Could not restore project root permissions!")
-        print("       You may need to manually fix permissions with:")
-        print(f"       chmod 755 {_PROJECT_ROOT}")
+    # Check (but don't restore) project root permissions
+    _check_and_restore_project_permissions()
 
-    # Also check and restore key subdirectories
-    for subdir, original_mode in _ORIGINAL_PERMISSIONS.items():
-        if subdir == "project_root":
-            continue
-        subdir_path = _PROJECT_ROOT / subdir
-        if subdir_path.exists():
-            current_mode = _get_permission_mode(subdir_path)
-            if current_mode is not None and current_mode != original_mode:
-                print(f"Restoring {subdir} permissions from {oct(current_mode)} to {oct(original_mode)}")
-                _restore_directory_permissions(subdir_path, original_mode)
-
-    print("Permission check complete.")
+    print("Diagnostic check complete.")
     print("-" * 70)
 
 
@@ -343,14 +253,8 @@ def pytest_runtest_setup(item):
     """
     Setup hook called before each test.
 
-    Includes permission protection and conditional test skipping.
+    Handles conditional test skipping based on requirements.
     """
-    # CRITICAL: Check and restore project root permissions BEFORE EVERY test
-    # This prevents permission corruption from propagating between tests
-    if not _check_and_restore_project_permissions():
-        print(f"ERROR: Permission restoration failed before test: {item.name}")
-        print(f"       Manual fix required: chmod 755 {_PROJECT_ROOT}")
-
     # Skip tests requiring Docker if Docker is not available
     if item.get_closest_marker("requires_docker"):
         try:
@@ -387,39 +291,24 @@ def test_environment_setup():
     Session-wide test environment setup.
 
     Runs once at the start of the test session to prepare the environment.
-    Includes permission protection for the project root directory and key subdirectories.
+    Logs permission status for diagnostics but does NOT modify permissions.
     """
     print("\n" + "=" * 70)
     print("Starting workspace-qdrant-mcp test session")
     print("=" * 70)
 
-    # Verify and record project root permissions at session start
+    # Log project root permissions at session start (diagnostic only)
     current_mode = _get_permission_mode(_PROJECT_ROOT)
     if current_mode is not None:
-        print(f"Project root permissions at session start: {oct(current_mode)}")
+        print(f"DIAGNOSTIC: Project root permissions at session start: {oct(current_mode)}")
         # Store in _ORIGINAL_PERMISSIONS if not already set
         if "project_root" not in _ORIGINAL_PERMISSIONS:
             _ORIGINAL_PERMISSIONS["project_root"] = current_mode
 
-        # If permissions are already corrupted at start, fix them immediately
+        # Log if permissions differ from expected (but don't fix)
         if current_mode != _EXPECTED_DIR_MODE:
-            print(f"WARNING: Project root permissions incorrect at start! Fixing to {oct(_EXPECTED_DIR_MODE)}")
-            _restore_directory_permissions(_PROJECT_ROOT, _EXPECTED_DIR_MODE)
-
-    # Also record permissions for protected subdirectories
-    for subdir in _PROTECTED_SUBDIRS:
-        subdir_path = _PROJECT_ROOT / subdir
-        if subdir_path.exists():
-            current_mode = _get_permission_mode(subdir_path)
-            if current_mode is not None:
-                if subdir not in _ORIGINAL_PERMISSIONS:
-                    _ORIGINAL_PERMISSIONS[subdir] = current_mode
-                # Fix if corrupted at start
-                if current_mode != _EXPECTED_DIR_MODE:
-                    print(f"WARNING: {subdir} permissions incorrect at start! Fixing to {oct(_EXPECTED_DIR_MODE)}")
-                    _restore_directory_permissions(subdir_path, _EXPECTED_DIR_MODE)
-
-    print(f"Protected directories: {_PROJECT_ROOT}, {', '.join(_PROTECTED_SUBDIRS)}")
+            print(f"DIAGNOSTIC: Project root permissions differ from expected {oct(_EXPECTED_DIR_MODE)}")
+            print(f"            No automatic modification - leaving as-is")
 
     # Set additional environment variables for testing
     os.environ["WQM_LOG_LEVEL"] = os.getenv("WQM_LOG_LEVEL", "WARNING")
@@ -435,10 +324,8 @@ def test_environment_setup():
     os.environ.pop("WQM_TESTING", None)
     # Note: PYTEST_CURRENT_TEST is managed by pytest internally, don't remove it manually
 
-    # Final permission check and restoration
-    if not _check_and_restore_project_permissions():
-        print("WARNING: Permission restoration failed during cleanup!")
-        print(f"         Run: chmod 755 {_PROJECT_ROOT}")
+    # Final permission check (diagnostic only, no restoration)
+    _check_and_restore_project_permissions()
 
 
 @pytest.fixture
@@ -459,74 +346,6 @@ def src_root() -> Path:
     return Path(__file__).parent.parent / "src" / "python"
 
 
-@pytest.fixture
-def permission_guard():
-    """
-    Fixture to restore directory permissions after a test that modifies them.
-
-    Usage:
-        def test_permission_changes(permission_guard, tmp_path):
-            path = tmp_path / "test_dir"
-            path.mkdir()
-            permission_guard.track(path)  # Track this path for restoration
-            path.chmod(0o000)  # Modify permissions
-            # ... test code ...
-            # Permissions are automatically restored after the test
-    """
-    tracked_paths: dict[Path, int] = {}
-
-    class PermissionGuard:
-        def track(self, path: Path) -> None:
-            """Track a path's current permissions for restoration."""
-            try:
-                mode = stat.S_IMODE(path.stat().st_mode)
-                tracked_paths[path] = mode
-            except (OSError, PermissionError):
-                pass
-
-        def restore_all(self) -> None:
-            """Restore all tracked paths to their original permissions."""
-            for path, mode in tracked_paths.items():
-                try:
-                    os.chmod(path, mode)
-                except (OSError, PermissionError) as e:
-                    print(f"WARNING: Failed to restore permissions on {path}: {e}")
-
-    guard = PermissionGuard()
-    yield guard
-    guard.restore_all()
-
-
-@pytest.fixture
-def safe_chmod():
-    """
-    Fixture that provides a safe chmod function that tracks and restores permissions.
-
-    Usage:
-        def test_readonly_file(safe_chmod, tmp_path):
-            test_file = tmp_path / "test.txt"
-            test_file.write_text("test")
-            safe_chmod(test_file, 0o444)  # Make read-only
-            # ... test code ...
-            # Original permissions are automatically restored
-    """
-    original_permissions: dict[Path, int] = {}
-
-    def _safe_chmod(path: Path, mode: int) -> None:
-        """Change permissions while tracking original for restoration."""
-        path = Path(path)
-        if path not in original_permissions:
-            try:
-                original_permissions[path] = stat.S_IMODE(path.stat().st_mode)
-            except (OSError, PermissionError):
-                pass
-        os.chmod(path, mode)
-
-    yield _safe_chmod
-
-    # Restore all permissions
-    for path, mode in original_permissions.items():
-        try:
-            os.chmod(path, mode)
-        except (OSError, PermissionError) as e:
-            print(f"WARNING: Failed to restore permissions on {path}: {e}")
+# NOTE: permission_guard and safe_chmod fixtures removed
+# Tests should not modify filesystem permissions
+# Use mocking or temporary directories if permission testing is needed
