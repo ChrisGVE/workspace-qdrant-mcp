@@ -1153,6 +1153,8 @@ pub enum WatchHealthStatus {
     Backoff,
     /// Watch has been disabled due to too many failures (circuit breaker open)
     Disabled,
+    /// Circuit breaker half-open - allowing periodic retry attempts (Task 461.15)
+    HalfOpen,
 }
 
 impl Default for WatchHealthStatus {
@@ -1168,6 +1170,7 @@ impl WatchHealthStatus {
             WatchHealthStatus::Degraded => "degraded",
             WatchHealthStatus::Backoff => "backoff",
             WatchHealthStatus::Disabled => "disabled",
+            WatchHealthStatus::HalfOpen => "half_open",
         }
     }
 }
@@ -1303,23 +1306,54 @@ pub struct BackoffConfig {
     pub degraded_threshold: u32,
     /// Number of consecutive errors before entering backoff state
     pub backoff_threshold: u32,
-    /// Number of consecutive errors before disabling (circuit breaker)
+    /// Number of consecutive errors before disabling (circuit breaker open)
     pub disable_threshold: u32,
     /// Number of successful operations to reset error state
     pub success_reset_count: u32,
+    // Circuit breaker settings (Task 461.15)
+    /// Number of errors within the time window that triggers circuit breaker
+    pub window_error_threshold: u32,
+    /// Time window duration in seconds for counting errors (default: 1 hour)
+    pub window_duration_secs: u64,
+    /// Cooldown period in seconds before auto-retry in half-open state (default: 1 hour)
+    pub cooldown_secs: u64,
+    /// Number of successful operations in half-open state to close circuit
+    pub half_open_success_threshold: u32,
 }
 
 impl Default for BackoffConfig {
     fn default() -> Self {
         Self {
-            base_delay_ms: 1000,        // 1 second base delay
-            max_delay_ms: 300_000,      // 5 minutes max delay
-            degraded_threshold: 3,       // 3 errors -> degraded
-            backoff_threshold: 5,        // 5 errors -> backoff
-            disable_threshold: 10,       // 10 errors -> disabled
-            success_reset_count: 3,      // 3 successes to fully reset
+            base_delay_ms: 1000,             // 1 second base delay
+            max_delay_ms: 300_000,           // 5 minutes max delay
+            degraded_threshold: 3,           // 3 errors -> degraded
+            backoff_threshold: 5,            // 5 errors -> backoff
+            disable_threshold: 20,           // 20 consecutive errors -> circuit open (Task 461.15)
+            success_reset_count: 3,          // 3 successes to fully reset
+            // Circuit breaker settings (Task 461.15)
+            window_error_threshold: 50,      // 50 errors in window -> circuit open
+            window_duration_secs: 3600,      // 1 hour time window
+            cooldown_secs: 3600,             // 1 hour cooldown before half-open
+            half_open_success_threshold: 3,  // 3 successes in half-open to close
         }
     }
+}
+
+/// Circuit breaker state summary for telemetry (Task 461.15)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CircuitBreakerState {
+    /// Whether the circuit is currently open (disabled)
+    pub is_open: bool,
+    /// Whether the circuit is in half-open state (allowing retry)
+    pub is_half_open: bool,
+    /// When the circuit was opened (if currently open or half-open)
+    pub opened_at: Option<SystemTime>,
+    /// Number of retry attempts while in half-open state
+    pub half_open_attempts: u32,
+    /// Number of consecutive successes in half-open state
+    pub half_open_successes: u32,
+    /// Number of errors in the current time window
+    pub errors_in_window: u32,
 }
 
 /// Error state tracking for a single watch folder (Task 461)
@@ -1346,6 +1380,15 @@ pub struct WatchErrorState {
     pub consecutive_successes: u32,
     /// Time when backoff period ends (if in backoff)
     pub backoff_until: Option<SystemTime>,
+    // Circuit breaker fields (Task 461.15)
+    /// Timestamps of errors within the time window (for window-based threshold)
+    pub errors_in_window: Vec<SystemTime>,
+    /// When the circuit breaker was opened (if Disabled or HalfOpen)
+    pub circuit_opened_at: Option<SystemTime>,
+    /// Number of retry attempts in half-open state
+    pub half_open_attempts: u32,
+    /// Consecutive successes in half-open state
+    pub half_open_successes: u32,
 }
 
 impl Default for WatchErrorState {
@@ -1367,22 +1410,56 @@ impl WatchErrorState {
             health_status: WatchHealthStatus::Healthy,
             consecutive_successes: 0,
             backoff_until: None,
+            // Circuit breaker fields (Task 461.15)
+            errors_in_window: Vec::new(),
+            circuit_opened_at: None,
+            half_open_attempts: 0,
+            half_open_successes: 0,
         }
     }
 
     /// Record an error occurrence
     ///
     /// Increments error counters and updates health status based on thresholds.
+    /// Implements circuit breaker pattern with both consecutive error and time-window thresholds.
     /// Returns the calculated backoff delay in milliseconds (0 if no backoff needed).
     pub fn record_error(&mut self, error_message: &str, config: &BackoffConfig) -> u64 {
+        let now = SystemTime::now();
+
         self.consecutive_errors += 1;
         self.total_errors += 1;
-        self.last_error_time = Some(SystemTime::now());
+        self.last_error_time = Some(now);
         self.last_error_message = Some(error_message.to_string());
         self.consecutive_successes = 0;
 
+        // Track errors in time window (Task 461.15)
+        self.errors_in_window.push(now);
+
+        // Remove errors outside the time window
+        let window_start = now - Duration::from_secs(config.window_duration_secs);
+        self.errors_in_window.retain(|t| *t >= window_start);
+
+        // Check window-based threshold for circuit breaker
+        let errors_in_window = self.errors_in_window.len() as u32;
+
+        // If in half-open state, any error immediately reopens the circuit
+        if self.health_status == WatchHealthStatus::HalfOpen {
+            self.health_status = WatchHealthStatus::Disabled;
+            self.circuit_opened_at = Some(now);
+            self.half_open_attempts += 1;
+            self.half_open_successes = 0;
+            return self.calculate_backoff_delay(config);
+        }
+
         // Update health status based on thresholds
-        self.health_status = if self.consecutive_errors >= config.disable_threshold {
+        // Circuit opens on: consecutive errors >= disable_threshold OR window errors >= window_threshold
+        let should_open_circuit = self.consecutive_errors >= config.disable_threshold
+            || errors_in_window >= config.window_error_threshold;
+
+        self.health_status = if should_open_circuit {
+            if self.circuit_opened_at.is_none() {
+                self.circuit_opened_at = Some(now);
+            }
             WatchHealthStatus::Disabled
         } else if self.consecutive_errors >= config.backoff_threshold {
             WatchHealthStatus::Backoff
@@ -1404,9 +1481,7 @@ impl WatchErrorState {
 
         // Set backoff_until if there's a delay
         if backoff_delay > 0 {
-            self.backoff_until = Some(
-                SystemTime::now() + Duration::from_millis(backoff_delay)
-            );
+            self.backoff_until = Some(now + Duration::from_millis(backoff_delay));
         }
 
         backoff_delay
@@ -1415,12 +1490,27 @@ impl WatchErrorState {
     /// Record a successful operation
     ///
     /// Resets error state on success, allowing recovery from degraded states.
+    /// Handles half-open state for circuit breaker pattern.
     /// Returns true if health status changed (recovered to healthy).
     pub fn record_success(&mut self, config: &BackoffConfig) -> bool {
         let previous_status = self.health_status;
 
         self.last_successful_processing = Some(SystemTime::now());
         self.consecutive_successes += 1;
+
+        // Handle half-open state (Task 461.15)
+        if self.health_status == WatchHealthStatus::HalfOpen {
+            self.half_open_successes += 1;
+
+            // If we've had enough successes in half-open, close the circuit
+            if self.half_open_successes >= config.half_open_success_threshold {
+                self.reset();
+                return true;
+            }
+
+            // Stay in half-open until threshold is met
+            return false;
+        }
 
         // Check if we've had enough consecutive successes to reset
         if self.consecutive_successes >= config.success_reset_count {
@@ -1453,15 +1543,69 @@ impl WatchErrorState {
         previous_status != self.health_status
     }
 
-    /// Reset error state to healthy defaults
+    /// Reset error state to healthy defaults (close circuit)
     pub fn reset(&mut self) {
         self.consecutive_errors = 0;
         self.backoff_level = 0;
         self.health_status = WatchHealthStatus::Healthy;
         self.consecutive_successes = 0;
         self.backoff_until = None;
+        // Circuit breaker reset (Task 461.15)
+        self.circuit_opened_at = None;
+        self.half_open_attempts = 0;
+        self.half_open_successes = 0;
+        self.errors_in_window.clear();
         // Note: We keep total_errors, last_error_time, and last_error_message
         // for historical tracking purposes
+    }
+
+    /// Check if circuit should transition to half-open (cooldown elapsed) (Task 461.15)
+    ///
+    /// Returns true if the circuit is currently Disabled and the cooldown period has elapsed.
+    /// When true, the caller should attempt a retry and transition to HalfOpen state.
+    pub fn should_attempt_half_open(&self, config: &BackoffConfig) -> bool {
+        if self.health_status != WatchHealthStatus::Disabled {
+            return false;
+        }
+
+        if let Some(opened_at) = self.circuit_opened_at {
+            let elapsed = SystemTime::now()
+                .duration_since(opened_at)
+                .unwrap_or(Duration::ZERO);
+            elapsed >= Duration::from_secs(config.cooldown_secs)
+        } else {
+            false
+        }
+    }
+
+    /// Transition to half-open state for retry attempt (Task 461.15)
+    ///
+    /// Call this when `should_attempt_half_open` returns true.
+    pub fn transition_to_half_open(&mut self) {
+        if self.health_status == WatchHealthStatus::Disabled {
+            self.health_status = WatchHealthStatus::HalfOpen;
+            self.half_open_successes = 0;
+            self.consecutive_successes = 0;
+        }
+    }
+
+    /// Manually reset the circuit breaker (for CLI use) (Task 461.15)
+    ///
+    /// This is equivalent to `reset()` but provides a semantic name for manual intervention.
+    pub fn manual_circuit_reset(&mut self) {
+        self.reset();
+    }
+
+    /// Get circuit breaker state information (Task 461.15)
+    pub fn get_circuit_state(&self) -> CircuitBreakerState {
+        CircuitBreakerState {
+            is_open: self.health_status == WatchHealthStatus::Disabled,
+            is_half_open: self.health_status == WatchHealthStatus::HalfOpen,
+            opened_at: self.circuit_opened_at,
+            half_open_attempts: self.half_open_attempts,
+            half_open_successes: self.half_open_successes,
+            errors_in_window: self.errors_in_window.len() as u32,
+        }
     }
 
     /// Calculate backoff delay using exponential backoff with jitter
@@ -2740,6 +2884,7 @@ impl WatchManager {
                     "degraded" => WatchHealthStatus::Degraded,
                     "backoff" => WatchHealthStatus::Backoff,
                     "disabled" => WatchHealthStatus::Disabled,
+                    "half_open" => WatchHealthStatus::HalfOpen,
                     _ => WatchHealthStatus::Healthy,
                 };
 
@@ -2754,6 +2899,11 @@ impl WatchManager {
                     health_status,
                     consecutive_successes: 0,
                     backoff_until: None, // Will be recalculated if needed
+                    // Circuit breaker fields (Task 461.15)
+                    errors_in_window: Vec::new(), // Cannot restore from SQLite
+                    circuit_opened_at: None,      // Cannot restore from SQLite
+                    half_open_attempts: 0,
+                    half_open_successes: 0,
                 };
 
                 // Set the state in the tracker
@@ -3037,8 +3187,8 @@ mod tests {
         let config = BackoffConfig::default();
         let mut state = WatchErrorState::new();
 
-        // Record errors up to disable threshold
-        for _ in 0..10 {
+        // Record errors up to disable threshold (Task 461.15: threshold is now 20)
+        for _ in 0..20 {
             state.record_error("repeated error", &config);
         }
 
@@ -3148,8 +3298,13 @@ mod tests {
         assert_eq!(config.max_delay_ms, 300_000);
         assert_eq!(config.degraded_threshold, 3);
         assert_eq!(config.backoff_threshold, 5);
-        assert_eq!(config.disable_threshold, 10);
+        assert_eq!(config.disable_threshold, 20);  // Task 461.15: updated threshold
         assert_eq!(config.success_reset_count, 3);
+        // Circuit breaker settings (Task 461.15)
+        assert_eq!(config.window_error_threshold, 50);
+        assert_eq!(config.window_duration_secs, 3600);
+        assert_eq!(config.cooldown_secs, 3600);
+        assert_eq!(config.half_open_success_threshold, 3);
     }
 
     #[tokio::test]
@@ -3211,8 +3366,8 @@ mod tests {
     async fn test_watch_error_tracker_reset_watch() {
         let tracker = WatchErrorTracker::new();
 
-        // Get into bad state
-        for _ in 0..10 {
+        // Get into bad state (Task 461.15: threshold is now 20)
+        for _ in 0..20 {
             tracker.record_error("watch-1", "error").await;
         }
         assert_eq!(tracker.get_health_status("watch-1").await, WatchHealthStatus::Disabled);
@@ -3370,5 +3525,162 @@ mod tests {
         // Should not panic, just log a warning
         coordinator.release_capacity("unknown-watch", 100).await;
         assert_eq!(coordinator.get_allocated_capacity(), 0);
+    }
+
+    // ========== Circuit Breaker Tests (Task 461.15) ==========
+
+    #[test]
+    fn test_circuit_breaker_config_defaults() {
+        let config = BackoffConfig::default();
+        assert_eq!(config.disable_threshold, 20);
+        assert_eq!(config.window_error_threshold, 50);
+        assert_eq!(config.window_duration_secs, 3600);
+        assert_eq!(config.cooldown_secs, 3600);
+        assert_eq!(config.half_open_success_threshold, 3);
+    }
+
+    #[test]
+    fn test_circuit_breaker_opens_on_consecutive_errors() {
+        let config = BackoffConfig::default();
+        let mut state = WatchErrorState::new();
+
+        // Record 19 errors - should not open circuit yet
+        for _ in 0..19 {
+            state.record_error("test error", &config);
+        }
+        assert_ne!(state.health_status, WatchHealthStatus::Disabled);
+
+        // 20th error should open circuit
+        state.record_error("test error", &config);
+        assert_eq!(state.health_status, WatchHealthStatus::Disabled);
+        assert!(state.circuit_opened_at.is_some());
+    }
+
+    #[test]
+    fn test_circuit_breaker_state_info() {
+        let config = BackoffConfig::default();
+        let mut state = WatchErrorState::new();
+
+        // Initially closed
+        let circuit_state = state.get_circuit_state();
+        assert!(!circuit_state.is_open);
+        assert!(!circuit_state.is_half_open);
+
+        // Open the circuit
+        for _ in 0..20 {
+            state.record_error("test error", &config);
+        }
+
+        let circuit_state = state.get_circuit_state();
+        assert!(circuit_state.is_open);
+        assert!(!circuit_state.is_half_open);
+        assert!(circuit_state.opened_at.is_some());
+        assert_eq!(circuit_state.errors_in_window, 20);
+    }
+
+    #[test]
+    fn test_half_open_state_transition() {
+        let mut config = BackoffConfig::default();
+        config.cooldown_secs = 0; // Immediate cooldown for testing
+        let mut state = WatchErrorState::new();
+
+        // Open the circuit
+        for _ in 0..20 {
+            state.record_error("test error", &config);
+        }
+        assert_eq!(state.health_status, WatchHealthStatus::Disabled);
+
+        // Should transition to half-open after cooldown
+        assert!(state.should_attempt_half_open(&config));
+        state.transition_to_half_open();
+        assert_eq!(state.health_status, WatchHealthStatus::HalfOpen);
+
+        let circuit_state = state.get_circuit_state();
+        assert!(!circuit_state.is_open);
+        assert!(circuit_state.is_half_open);
+    }
+
+    #[test]
+    fn test_half_open_error_reopens_circuit() {
+        let mut config = BackoffConfig::default();
+        config.cooldown_secs = 0;
+        let mut state = WatchErrorState::new();
+
+        // Open and transition to half-open
+        for _ in 0..20 {
+            state.record_error("test error", &config);
+        }
+        state.transition_to_half_open();
+        assert_eq!(state.health_status, WatchHealthStatus::HalfOpen);
+
+        // Error in half-open should reopen circuit
+        state.record_error("retry failed", &config);
+        assert_eq!(state.health_status, WatchHealthStatus::Disabled);
+        assert_eq!(state.half_open_attempts, 1);
+    }
+
+    #[test]
+    fn test_half_open_success_closes_circuit() {
+        let mut config = BackoffConfig::default();
+        config.cooldown_secs = 0;
+        config.half_open_success_threshold = 2;
+        let mut state = WatchErrorState::new();
+
+        // Open and transition to half-open
+        for _ in 0..20 {
+            state.record_error("test error", &config);
+        }
+        state.transition_to_half_open();
+
+        // First success - still half-open
+        let changed = state.record_success(&config);
+        assert!(!changed);
+        assert_eq!(state.health_status, WatchHealthStatus::HalfOpen);
+        assert_eq!(state.half_open_successes, 1);
+
+        // Second success - closes circuit
+        let changed = state.record_success(&config);
+        assert!(changed);
+        assert_eq!(state.health_status, WatchHealthStatus::Healthy);
+        assert!(state.circuit_opened_at.is_none());
+    }
+
+    #[test]
+    fn test_manual_circuit_reset() {
+        let config = BackoffConfig::default();
+        let mut state = WatchErrorState::new();
+
+        // Open the circuit
+        for _ in 0..20 {
+            state.record_error("test error", &config);
+        }
+        assert_eq!(state.health_status, WatchHealthStatus::Disabled);
+
+        // Manual reset
+        state.manual_circuit_reset();
+        assert_eq!(state.health_status, WatchHealthStatus::Healthy);
+        assert!(state.circuit_opened_at.is_none());
+        assert_eq!(state.consecutive_errors, 0);
+        assert!(state.errors_in_window.is_empty());
+    }
+
+    #[test]
+    fn test_errors_in_window_tracking() {
+        let config = BackoffConfig::default();
+        let mut state = WatchErrorState::new();
+
+        // Record some errors
+        for _ in 0..10 {
+            state.record_error("test error", &config);
+        }
+
+        let circuit_state = state.get_circuit_state();
+        assert_eq!(circuit_state.errors_in_window, 10);
+        assert_eq!(state.errors_in_window.len(), 10);
+    }
+
+    #[test]
+    fn test_watch_health_status_half_open_as_str() {
+        assert_eq!(WatchHealthStatus::HalfOpen.as_str(), "half_open");
     }
 }

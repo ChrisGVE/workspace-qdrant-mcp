@@ -121,7 +121,9 @@ pub use crate::watching_queue::{
     // Queue depth monitoring types (Task 461.8)
     QueueLoadLevel, QueueThrottleConfig, QueueThrottleState, QueueThrottleSummary,
     // Watch-queue coordination types (Task 461.9)
-    WatchQueueCoordinator, CoordinatorConfig, CoordinatorSummary
+    WatchQueueCoordinator, CoordinatorConfig, CoordinatorSummary,
+    // Circuit breaker types (Task 461.15)
+    WatchHealthStatus, WatchErrorState, BackoffConfig, CircuitBreakerState
 };
 pub use crate::tool_monitor::{
     ToolMonitor, MonitoringError, MonitoringResult, RequeueStats
