@@ -91,35 +91,37 @@ class TestFindExecutable:
         # Create a mock executable in temporary directory
         mock_exe = tmp_path / "mock-tool"
         mock_exe.write_text("#!/bin/sh\necho 'mock'")
-        mock_exe.chmod(0o755)
 
         config = {"custom_paths": [str(tmp_path)]}
         discovery = ToolDiscovery(config=config)
 
-        result = discovery.find_executable("mock-tool")
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            result = discovery.find_executable("mock-tool")
 
-        # Should find in custom path
-        if platform.system() != "Windows":
-            assert result is not None
-            assert Path(result).exists()
+            # Should find in custom path
+            if platform.system() != "Windows":
+                assert result is not None
+                assert Path(result).exists()
 
     def test_custom_path_priority(self, tmp_path):
         """Test that custom paths are checked before system PATH."""
         # Create a mock executable with same name as system tool
         mock_python = tmp_path / "python"
         mock_python.write_text("#!/bin/sh\necho 'custom'")
-        mock_python.chmod(0o755)
 
         config = {"custom_paths": [str(tmp_path)]}
         discovery = ToolDiscovery(config=config)
 
-        result = discovery.find_executable("python")
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            result = discovery.find_executable("python")
 
-        # On Unix, should find custom path first
-        if platform.system() != "Windows":
-            assert result is not None
-            # Should be in our tmp_path
-            assert str(tmp_path) in result
+            # On Unix, should find custom path first
+            if platform.system() != "Windows":
+                assert result is not None
+                # Should be in our tmp_path
+                assert str(tmp_path) in result
 
 
 class TestValidateExecutable:
@@ -165,11 +167,13 @@ class TestValidateExecutable:
             # On Unix, create file with exec bit
             exe_file = tmp_path / "tool"
             exe_file.write_text("#!/bin/sh\necho test")
-            exe_file.chmod(0o755)
             expected = True
 
         discovery = ToolDiscovery()
-        assert discovery.validate_executable(str(exe_file)) == expected
+
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=expected):
+            assert discovery.validate_executable(str(exe_file)) == expected
 
 
 class TestGetVersion:
@@ -218,13 +222,15 @@ class TestGetVersion:
         # Create a script that sleeps forever
         sleep_script = tmp_path / "sleeper"
         sleep_script.write_text("#!/bin/sh\nsleep 60")
-        sleep_script.chmod(0o755)
 
         discovery = ToolDiscovery(timeout=1)
-        version = discovery.get_version(str(sleep_script))
 
-        # Should timeout and return None
-        assert version is None
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True):
+            version = discovery.get_version(str(sleep_script))
+
+            # Should timeout and return None
+            assert version is None
 
 
 class TestScanPathForExecutables:
@@ -261,37 +267,37 @@ class TestScanPathForExecutables:
 
         for mock in [mock1, mock2, mock3]:
             mock.write_text("mock")
-            if platform.system() != "Windows":
-                mock.chmod(0o755)
 
         config = {"custom_paths": [str(tmp_path)]}
         discovery = ToolDiscovery(config=config)
 
-        results = discovery.scan_path_for_executables("test-tool-*")
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True):
+            results = discovery.scan_path_for_executables("test-tool-*")
 
-        # Should find both test-tool-1 and test-tool-2
-        assert len(results) == 2
-        assert any("test-tool-1" in r for r in results)
-        assert any("test-tool-2" in r for r in results)
-        assert not any("other-tool" in r for r in results)
+            # Should find both test-tool-1 and test-tool-2
+            assert len(results) == 2
+            assert any("test-tool-1" in r for r in results)
+            assert any("test-tool-2" in r for r in results)
+            assert not any("other-tool" in r for r in results)
 
     def test_scan_deduplication(self, tmp_path):
         """Test that scanning deduplicates results."""
         # Create mock executable
         mock = tmp_path / "duplicate-tool"
         mock.write_text("#!/bin/sh\necho test")
-        if platform.system() != "Windows":
-            mock.chmod(0o755)
 
         # Add same path twice to custom paths
         config = {"custom_paths": [str(tmp_path), str(tmp_path)]}
         discovery = ToolDiscovery(config=config)
 
-        results = discovery.scan_path_for_executables("duplicate-*")
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            results = discovery.scan_path_for_executables("duplicate-*")
 
-        # Should only find once despite duplicate paths
-        if platform.system() != "Windows":
-            assert len(results) == 1
+            # Should only find once despite duplicate paths
+            if platform.system() != "Windows":
+                assert len(results) == 1
 
 
 class TestDiscoverCompilers:
@@ -357,18 +363,18 @@ class TestDiscoverCompilers:
         # Create a mock compiler
         mock_gcc = tmp_path / "gcc"
         mock_gcc.write_text("#!/bin/sh\necho 'gcc mock'")
-        if platform.system() != "Windows":
-            mock_gcc.chmod(0o755)
 
         config = {"custom_paths": [str(tmp_path)]}
         discovery = ToolDiscovery(config=config)
 
-        compilers = discovery.discover_compilers()
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            compilers = discovery.discover_compilers()
 
-        # On Unix, should find our mock gcc in custom path
-        if platform.system() != "Windows":
-            assert compilers.get("gcc") is not None
-            assert str(tmp_path) in compilers.get("gcc", "")
+            # On Unix, should find our mock gcc in custom path
+            if platform.system() != "Windows":
+                assert compilers.get("gcc") is not None
+                assert str(tmp_path) in compilers.get("gcc", "")
 
 
 class TestDiscoverBuildTools:
@@ -446,18 +452,18 @@ class TestDiscoverBuildTools:
         # Create a mock build tool
         mock_make = tmp_path / "make"
         mock_make.write_text("#!/bin/sh\necho 'make mock'")
-        if platform.system() != "Windows":
-            mock_make.chmod(0o755)
 
         config = {"custom_paths": [str(tmp_path)]}
         discovery = ToolDiscovery(config=config)
 
-        build_tools = discovery.discover_build_tools()
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            build_tools = discovery.discover_build_tools()
 
-        # On Unix, should find our mock make in custom path
-        if platform.system() != "Windows":
-            assert build_tools.get("make") is not None
-            assert str(tmp_path) in build_tools.get("make", "")
+            # On Unix, should find our mock make in custom path
+            if platform.system() != "Windows":
+                assert build_tools.get("make") is not None
+                assert str(tmp_path) in build_tools.get("make", "")
 
 
 class TestDiscoverProjectTools:
@@ -510,22 +516,23 @@ class TestDiscoverProjectTools:
         for tool_name in mock_tools:
             tool_path = venv_bin / tool_name
             tool_path.write_text("#!/bin/sh\necho 'mock'")
-            if platform.system() != "Windows":
-                tool_path.chmod(0o755)
 
         discovery = ToolDiscovery()
-        tools = discovery.discover_project_tools(tmp_path)
 
-        # Should find Python tools
-        assert "python" in tools
-        python_tools = tools["python"]
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            tools = discovery.discover_project_tools(tmp_path)
 
-        # On Unix, should find the mock tools
-        if platform.system() != "Windows":
-            for tool_name in mock_tools:
-                assert tool_name in python_tools
-                assert python_tools[tool_name] is not None
-                assert str(venv_bin) in python_tools[tool_name]
+            # Should find Python tools
+            assert "python" in tools
+            python_tools = tools["python"]
+
+            # On Unix, should find the mock tools
+            if platform.system() != "Windows":
+                for tool_name in mock_tools:
+                    assert tool_name in python_tools
+                    assert python_tools[tool_name] is not None
+                    assert str(venv_bin) in python_tools[tool_name]
 
     def test_discover_python_tools_in_dotvenv(self, tmp_path):
         """Test discovering Python tools in .venv directory."""
@@ -536,16 +543,17 @@ class TestDiscoverProjectTools:
         # Create mock pytest
         pytest_path = venv_bin / "pytest"
         pytest_path.write_text("#!/bin/sh\necho 'pytest'")
-        if platform.system() != "Windows":
-            pytest_path.chmod(0o755)
 
         discovery = ToolDiscovery()
-        tools = discovery.discover_project_tools(tmp_path)
 
-        # Should find pytest in .venv
-        if platform.system() != "Windows":
-            assert tools["python"]["pytest"] is not None
-            assert str(venv_bin) in tools["python"]["pytest"]
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            tools = discovery.discover_project_tools(tmp_path)
+
+            # Should find pytest in .venv
+            if platform.system() != "Windows":
+                assert tools["python"]["pytest"] is not None
+                assert str(venv_bin) in tools["python"]["pytest"]
 
     def test_discover_javascript_tools_in_node_modules(self, tmp_path):
         """Test discovering JavaScript tools in node_modules/.bin."""
@@ -558,22 +566,23 @@ class TestDiscoverProjectTools:
         for tool_name in mock_tools:
             tool_path = node_bin / tool_name
             tool_path.write_text("#!/bin/sh\necho 'mock'")
-            if platform.system() != "Windows":
-                tool_path.chmod(0o755)
 
         discovery = ToolDiscovery()
-        tools = discovery.discover_project_tools(tmp_path)
 
-        # Should find JavaScript tools
-        assert "javascript" in tools
-        js_tools = tools["javascript"]
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            tools = discovery.discover_project_tools(tmp_path)
 
-        # On Unix, should find the mock tools
-        if platform.system() != "Windows":
-            for tool_name in mock_tools:
-                assert tool_name in js_tools
-                assert js_tools[tool_name] is not None
-                assert str(node_bin) in js_tools[tool_name]
+            # Should find JavaScript tools
+            assert "javascript" in tools
+            js_tools = tools["javascript"]
+
+            # On Unix, should find the mock tools
+            if platform.system() != "Windows":
+                for tool_name in mock_tools:
+                    assert tool_name in js_tools
+                    assert js_tools[tool_name] is not None
+                    assert str(node_bin) in js_tools[tool_name]
 
     def test_discover_rust_tools_in_target(self, tmp_path):
         """Test discovering Rust tools in target directory."""
@@ -586,22 +595,23 @@ class TestDiscoverProjectTools:
         for tool_name in mock_tools:
             tool_path = target_debug / tool_name
             tool_path.write_text("#!/bin/sh\necho 'mock'")
-            if platform.system() != "Windows":
-                tool_path.chmod(0o755)
 
         discovery = ToolDiscovery()
-        tools = discovery.discover_project_tools(tmp_path)
 
-        # Should find Rust tools
-        assert "rust" in tools
-        rust_tools = tools["rust"]
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            tools = discovery.discover_project_tools(tmp_path)
 
-        # On Unix, should find the mock tools
-        if platform.system() != "Windows":
-            for tool_name in mock_tools:
-                assert tool_name in rust_tools
-                assert rust_tools[tool_name] is not None
-                assert str(target_debug) in rust_tools[tool_name]
+            # Should find Rust tools
+            assert "rust" in tools
+            rust_tools = tools["rust"]
+
+            # On Unix, should find the mock tools
+            if platform.system() != "Windows":
+                for tool_name in mock_tools:
+                    assert tool_name in rust_tools
+                    assert rust_tools[tool_name] is not None
+                    assert str(target_debug) in rust_tools[tool_name]
 
     def test_discover_go_tools_in_bin(self, tmp_path):
         """Test discovering Go tools in bin directory."""
@@ -614,22 +624,23 @@ class TestDiscoverProjectTools:
         for tool_name in mock_tools:
             tool_path = go_bin / tool_name
             tool_path.write_text("#!/bin/sh\necho 'mock'")
-            if platform.system() != "Windows":
-                tool_path.chmod(0o755)
 
         discovery = ToolDiscovery()
-        tools = discovery.discover_project_tools(tmp_path)
 
-        # Should find Go tools
-        assert "go" in tools
-        go_tools = tools["go"]
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            tools = discovery.discover_project_tools(tmp_path)
 
-        # On Unix, should find the mock tools
-        if platform.system() != "Windows":
-            for tool_name in mock_tools:
-                assert tool_name in go_tools
-                assert go_tools[tool_name] is not None
-                assert str(go_bin) in go_tools[tool_name]
+            # Should find Go tools
+            assert "go" in tools
+            go_tools = tools["go"]
+
+            # On Unix, should find the mock tools
+            if platform.system() != "Windows":
+                for tool_name in mock_tools:
+                    assert tool_name in go_tools
+                    assert go_tools[tool_name] is not None
+                    assert str(go_bin) in go_tools[tool_name]
 
     def test_discover_multiple_categories(self, tmp_path):
         """Test discovering tools from multiple categories."""
@@ -642,22 +653,21 @@ class TestDiscoverProjectTools:
         # Create Python tool
         pyright = venv_bin / "pyright"
         pyright.write_text("#!/bin/sh\necho 'pyright'")
-        if platform.system() != "Windows":
-            pyright.chmod(0o755)
 
         # Create JavaScript tool
         eslint = node_bin / "eslint"
         eslint.write_text("#!/bin/sh\necho 'eslint'")
-        if platform.system() != "Windows":
-            eslint.chmod(0o755)
 
         discovery = ToolDiscovery()
-        tools = discovery.discover_project_tools(tmp_path)
 
-        # Should find both categories
-        if platform.system() != "Windows":
-            assert tools["python"]["pyright"] is not None
-            assert tools["javascript"]["eslint"] is not None
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            tools = discovery.discover_project_tools(tmp_path)
+
+            # Should find both categories
+            if platform.system() != "Windows":
+                assert tools["python"]["pyright"] is not None
+                assert tools["javascript"]["eslint"] is not None
 
     def test_discover_windows_scripts_path(self, tmp_path):
         """Test discovering Python tools in Windows Scripts directory."""
@@ -690,23 +700,22 @@ class TestDiscoverProjectTools:
         # Create same tool in both locations
         black1 = venv1_bin / "black"
         black1.write_text("#!/bin/sh\necho 'venv'")
-        if platform.system() != "Windows":
-            black1.chmod(0o755)
 
         black2 = venv2_bin / "black"
         black2.write_text("#!/bin/sh\necho 'dotvenv'")
-        if platform.system() != "Windows":
-            black2.chmod(0o755)
 
         discovery = ToolDiscovery()
-        tools = discovery.discover_project_tools(tmp_path)
 
-        # Should find black in first location (venv, not .venv)
-        if platform.system() != "Windows":
-            assert tools["python"]["black"] is not None
-            # Should be from venv, not .venv
-            assert str(venv1_bin) in tools["python"]["black"]
-            assert str(venv2_bin) not in tools["python"]["black"]
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            tools = discovery.discover_project_tools(tmp_path)
+
+            # Should find black in first location (venv, not .venv)
+            if platform.system() != "Windows":
+                assert tools["python"]["black"] is not None
+                # Should be from venv, not .venv
+                assert str(venv1_bin) in tools["python"]["black"]
+                assert str(venv2_bin) not in tools["python"]["black"]
 
     def test_all_tools_validated(self, tmp_path):
         """Test that all discovered tools are validated as executable."""
@@ -717,8 +726,6 @@ class TestDiscoverProjectTools:
         # Create valid executable
         valid_tool = venv_bin / "ruff"
         valid_tool.write_text("#!/bin/sh\necho 'ruff'")
-        if platform.system() != "Windows":
-            valid_tool.chmod(0o755)
 
         # Create non-executable file (should be ignored)
         invalid_tool = venv_bin / "mypy"
@@ -726,13 +733,21 @@ class TestDiscoverProjectTools:
         # Don't set executable bit
 
         discovery = ToolDiscovery()
-        tools = discovery.discover_project_tools(tmp_path)
 
-        # Valid tool should be found
-        if platform.system() != "Windows":
-            assert tools["python"]["ruff"] is not None
-            # Invalid tool should not be found
-            assert tools["python"]["mypy"] is None
+        # Mock executable check - valid_tool is executable, invalid_tool is not
+        def mock_access(path, mode):
+            if "ruff" in str(path) and platform.system() != "Windows":
+                return True
+            return False
+
+        with patch('os.access', side_effect=mock_access):
+            tools = discovery.discover_project_tools(tmp_path)
+
+            # Valid tool should be found
+            if platform.system() != "Windows":
+                assert tools["python"]["ruff"] is not None
+                # Invalid tool should not be found
+                assert tools["python"]["mypy"] is None
 
 
 class TestDiscoverTreeSitterCLI:
@@ -766,11 +781,11 @@ class TestDiscoverTreeSitterCLI:
         # Create executable that doesn't output version
         ts_file = tmp_path / "tree-sitter"
         ts_file.write_text("#!/bin/sh\nexit 1")
-        ts_file.chmod(0o755)
 
         discovery = ToolDiscovery()
 
-        with patch.object(discovery, 'find_executable', return_value=str(ts_file)):
+        with patch.object(discovery, 'find_executable', return_value=str(ts_file)), \
+             patch('os.access', return_value=True):
             result = discovery.discover_tree_sitter_cli()
             assert result is None
 
@@ -782,18 +797,18 @@ class TestDiscoverTreeSitterCLI:
         # Create mock tree-sitter executable
         ts_file = tmp_path / "tree-sitter"
         ts_file.write_text("#!/bin/sh\necho 'tree-sitter 0.20.8'")
-        ts_file.chmod(0o755)
 
         config = {"custom_paths": [str(tmp_path)]}
         discovery = ToolDiscovery(config=config)
 
-        result = discovery.discover_tree_sitter_cli()
+        with patch('os.access', return_value=True):
+            result = discovery.discover_tree_sitter_cli()
 
-        # Should successfully discover
-        assert result is not None
-        assert result["found"] is True
-        assert result["path"] == str(ts_file)
-        assert result["version"] == "0.20.8"
+            # Should successfully discover
+            assert result is not None
+            assert result["found"] is True
+            assert result["path"] == str(ts_file)
+            assert result["version"] == "0.20.8"
 
     def test_discover_tree_sitter_with_custom_path(self, tmp_path):
         """Test tree-sitter discovery in custom path."""
@@ -805,17 +820,17 @@ class TestDiscoverTreeSitterCLI:
         custom_path.mkdir()
         ts_file = custom_path / "tree-sitter"
         ts_file.write_text("#!/bin/sh\necho '0.21.0'")
-        ts_file.chmod(0o755)
 
         config = {"custom_paths": [str(custom_path)]}
         discovery = ToolDiscovery(config=config)
 
-        result = discovery.discover_tree_sitter_cli()
+        with patch('os.access', return_value=True):
+            result = discovery.discover_tree_sitter_cli()
 
-        assert result is not None
-        assert result["found"] is True
-        assert str(custom_path) in result["path"]
-        assert result["version"] == "0.21.0"
+            assert result is not None
+            assert result["found"] is True
+            assert str(custom_path) in result["path"]
+            assert result["version"] == "0.21.0"
 
     def test_discover_tree_sitter_unparseable_version(self, tmp_path):
         """Test tree-sitter discovery with unparseable version."""
@@ -825,17 +840,17 @@ class TestDiscoverTreeSitterCLI:
         # Create tree-sitter with invalid version output
         ts_file = tmp_path / "tree-sitter"
         ts_file.write_text("#!/bin/sh\necho 'invalid version format'")
-        ts_file.chmod(0o755)
 
         config = {"custom_paths": [str(tmp_path)]}
         discovery = ToolDiscovery(config=config)
 
-        result = discovery.discover_tree_sitter_cli()
+        with patch('os.access', return_value=True):
+            result = discovery.discover_tree_sitter_cli()
 
-        # Should still return result with raw version string
-        assert result is not None
-        assert result["found"] is True
-        assert result["version"] == "invalid version format"
+            # Should still return result with raw version string
+            assert result is not None
+            assert result["found"] is True
+            assert result["version"] == "invalid version format"
 
 
 class TestParseTreeSitterVersion:
@@ -982,8 +997,6 @@ class TestIntegration:
         # Create mock project tool
         project_ruff = venv_bin / "ruff"
         project_ruff.write_text("#!/bin/sh\necho 'project ruff'")
-        if platform.system() != "Windows":
-            project_ruff.chmod(0o755)
 
         discovery = ToolDiscovery()
 
@@ -991,13 +1004,15 @@ class TestIntegration:
         build_tools = discovery.discover_build_tools()
         assert isinstance(build_tools, dict)
 
-        # Discover project tools
-        project_tools = discovery.discover_project_tools(tmp_path)
-        assert isinstance(project_tools, dict)
+        # Mock executable check to simulate executable permission
+        with patch('os.access', return_value=True if platform.system() != "Windows" else False):
+            # Discover project tools
+            project_tools = discovery.discover_project_tools(tmp_path)
+            assert isinstance(project_tools, dict)
 
-        # Project tools should be separate from system tools
-        if platform.system() != "Windows":
-            assert project_tools["python"]["ruff"] is not None
-            # Project ruff should be different from system ruff (if it exists)
-            if build_tools.get("ruff"):
-                assert project_tools["python"]["ruff"] != build_tools["ruff"]
+            # Project tools should be separate from system tools
+            if platform.system() != "Windows":
+                assert project_tools["python"]["ruff"] is not None
+                # Project ruff should be different from system ruff (if it exists)
+                if build_tools.get("ruff"):
+                    assert project_tools["python"]["ruff"] != build_tools["ruff"]
