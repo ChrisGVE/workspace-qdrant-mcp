@@ -63,7 +63,8 @@ class GrpcWorkspaceClient:
         self.project_path = project_path or str(Path.cwd())
 
         # Initialize direct client (always available as fallback)
-        self.direct_client = QdrantWorkspaceClient(config)
+        # QdrantWorkspaceClient uses get_config() internally, no args needed
+        self.direct_client = QdrantWorkspaceClient()
 
         # gRPC client and daemon info - will be initialized during startup
         self.grpc_client: AsyncIngestClient | None = None

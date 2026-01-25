@@ -128,7 +128,8 @@ class WorkspaceQdrantAdmin:
     async def get_client(self):
         """Async context manager for client lifecycle."""
         if not self.client:
-            self.client = QdrantWorkspaceClient(self.config)
+            # QdrantWorkspaceClient uses get_config() internally, no args needed
+            self.client = QdrantWorkspaceClient()
         try:
             yield self.client
         finally:

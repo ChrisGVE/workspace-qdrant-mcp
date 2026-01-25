@@ -21,10 +21,9 @@ The client automatically creates collections based on detected project structure
 Example:
     ```python
     from workspace_qdrant_mcp.core.client import QdrantWorkspaceClient
-    from workspace_qdrant_mcp.core.config import Config
 
-    config = get_config()
-    client = QdrantWorkspaceClient(config)
+    # No config parameter needed - uses get_config() internally
+    client = QdrantWorkspaceClient()
     await client.initialize()
 
     # Client automatically detects project and creates collections
@@ -83,8 +82,8 @@ class QdrantWorkspaceClient:
 
     Example:
         ```python
-        config = get_config()
-        workspace_client = QdrantWorkspaceClient(config)
+        # No config parameter needed - uses get_config() internally
+        workspace_client = QdrantWorkspaceClient()
 
         # Initialize connections and detect project structure
         await workspace_client.initialize()
@@ -132,7 +131,7 @@ class QdrantWorkspaceClient:
 
         Example:
             ```python
-            client = QdrantWorkspaceClient(config)
+            client = QdrantWorkspaceClient()  # No config needed
             await client.initialize()  # Safe to call multiple times
             ```
         """

@@ -63,12 +63,14 @@ class MemoryManager:
         if qdrant_client:
             self.qdrant_client = qdrant_client
         else:
-            self.qdrant_client = QdrantWorkspaceClient(self.config)
+            # QdrantWorkspaceClient uses get_config() internally, no args needed
+            self.qdrant_client = QdrantWorkspaceClient()
 
         if embedding_service:
             self.embedding_service = embedding_service
         else:
-            self.embedding_service = EmbeddingService(self.config)
+            # EmbeddingService uses get_config() internally, no args needed
+            self.embedding_service = EmbeddingService()
 
         # Initialize memory components
         self.schema = MemoryCollectionSchema(self.qdrant_client, self.embedding_service)
