@@ -1642,57 +1642,23 @@ async def store(
                     result["project_activation_warning"] = activation_warning
                 return result
             else:
-                # No state_manager available - last resort direct write
-                # This should rarely happen as state_manager is initialized early
-                logger.error("Neither daemon nor state_manager available - attempting direct write")
-
-                # Ensure collection exists
-                if not await ensure_collection_exists(target_collection):
-                    return {
-                        "success": False,
-                        "error": f"Failed to create/access collection: {target_collection}"
-                    }
-
-                # Generate document ID and embeddings
-                document_id = str(uuid.uuid4())
-                embeddings = await generate_embeddings(content)
-
-                # Store in Qdrant (async)
-                point = PointStruct(
-                    id=document_id,
-                    vector=embeddings,
-                    payload={
-                        "content": content,
-                        **doc_metadata
-                    }
+                # No state_manager available - cannot proceed (ADR-002)
+                # Direct Qdrant writes are PROHIBITED per daemon-only write policy.
+                # Both daemon and SQLite queue must be unavailable for this to happen.
+                logger.error(
+                    "Neither daemon nor state_manager available - "
+                    "cannot store content (ADR-002 prohibits direct Qdrant writes)"
                 )
-
-                await qdrant_client.upsert(
-                    collection_name=target_collection,
-                    points=[point]
-                )
-
-                # Task 452: Record successful fallback operation
-                record_operation_result(success=True)
-                manage_cache_size()  # Task 452: Prevent memory leaks
-
-                result = {
-                    "success": True,
-                    "document_id": document_id,
-                    "collection": target_collection,
-                    "project_id": project_id,
-                    "title": doc_metadata["title"],
-                    "content_length": len(content),
-                    "file_type": file_type,
-                    "branch": current_branch,
-                    "metadata": doc_metadata,
-                    "fallback_mode": "direct_qdrant_write",
-                    "warning": "Direct write used as last resort - daemon and queue unavailable"
+                return {
+                    "success": False,
+                    "error": "storage_unavailable",
+                    "message": (
+                        "Cannot store content: both daemon and SQLite queue are unavailable. "
+                        "Start the daemon with: wqm service start"
+                    ),
+                    "suggestion": "Ensure daemon is running or SQLite state database is accessible.",
+                    "adr_reference": "ADR-002: Daemon-Only Write Policy"
                 }
-                # Task 457: Include activation warning if applicable
-                if activation_warning:
-                    result["project_activation_warning"] = activation_warning
-                return result
         except Exception as e:
             logger.error(f"Failed to store/queue document: {e}")
             # Task 452: Record failed operation
