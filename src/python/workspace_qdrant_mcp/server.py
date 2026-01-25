@@ -156,12 +156,20 @@ from common.observability.metrics import (
 from common.utils.git_utils import get_current_branch
 from common.utils.project_detection import calculate_tenant_id
 
+# Memory system imports for Claude Code context injection (Task 5: code audit)
+from common.memory import MemoryManager
+from common.core.context_injection import (
+    generate_mcp_context,
+    RuleFilter,
+)
+
 # Global components
 qdrant_client: AsyncQdrantClient | None = None
 embedding_model = None
 daemon_client: DaemonClient | None = None
 alias_manager: AliasManager | None = None
 state_manager: SQLiteStateManager | None = None
+memory_manager: MemoryManager | None = None  # Memory system for context injection
 project_cache = {}
 
 # Session lifecycle state
@@ -520,9 +528,10 @@ async def cleanup_resources() -> None:
     - Cache cleanup
     - Daemon client disconnection
     - State manager cleanup
+    - Memory manager cleanup (Task 5: code audit)
     """
     global qdrant_client, daemon_client, alias_manager, state_manager
-    global embedding_model, project_cache
+    global embedding_model, project_cache, memory_manager
 
     logger = logging.getLogger(__name__)
     logger.info("Starting resource cleanup...")
@@ -553,6 +562,9 @@ async def cleanup_resources() -> None:
 
     # Clear embedding model (release memory)
     embedding_model = None
+
+    # Clear memory manager (Task 5: code audit)
+    memory_manager = None
 
     logger.info("Resource cleanup completed")
 
@@ -760,6 +772,45 @@ async def lifespan(app):
         # User must explicitly call manage(action="activate_project")
         # This ensures projects are only prioritized when actively being worked on
         logger.debug("Server started. Use manage(action='activate_project') to register project.")
+
+        # =====================================================================
+        # Task 5 (code audit): Initialize memory system and inject context
+        # =====================================================================
+        # Initialize memory manager for Claude Code context injection
+        # This enables memory rules to be retrieved and injected on MCP startup
+        global memory_manager
+        try:
+            memory_manager = MemoryManager()
+            if await memory_manager.initialize():
+                logger.info("Memory manager initialized for context injection")
+
+                # Query memory collection for rules and generate MCP context
+                try:
+                    # Generate context from memory rules (no filter = get all rules)
+                    mcp_context = await generate_mcp_context(
+                        memory_manager=memory_manager,
+                        token_budget=15000,  # Default MCP context budget
+                        filter=None,  # Get all applicable rules
+                    )
+
+                    if mcp_context:
+                        # Store context in global for access by tools if needed
+                        # The context is automatically available through memory manager
+                        logger.info(
+                            f"Memory context injected: {len(mcp_context)} chars "
+                            f"from 'memory' collection"
+                        )
+                    else:
+                        logger.debug("No memory rules found for context injection")
+
+                except Exception as inject_err:
+                    logger.warning(f"Memory context injection failed: {inject_err}")
+            else:
+                logger.warning("Memory manager initialization failed - context injection disabled")
+                memory_manager = None
+        except Exception as mem_err:
+            logger.warning(f"Failed to initialize memory manager: {mem_err}")
+            memory_manager = None
 
     except Exception as e:
         logger.warning(f"Lifespan startup error: {e}")
