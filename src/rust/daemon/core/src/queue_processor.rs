@@ -850,16 +850,14 @@ impl QueueProcessor {
             return Ok(());
         }
 
-        // TODO: Implement point deletion by file_path filter
-        // This requires Qdrant delete_points with filter capability
-        // For now, log the operation
-        warn!(
-            "Point deletion not fully implemented - would delete points with file_path={}",
-            item.file_absolute_path
-        );
+        // Delete all points matching the file_path
+        storage_client
+            .delete_points_by_filter(&item.collection_name, &item.file_absolute_path)
+            .await
+            .map_err(|e| ProcessorError::Storage(e.to_string()))?;
 
         info!(
-            "Successfully deleted {} from {}",
+            "Successfully deleted points for {} from {}",
             item.file_absolute_path, item.collection_name
         );
 

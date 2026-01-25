@@ -13,8 +13,8 @@ use qdrant_client::qdrant::{PointStruct, SearchPoints, UpsertPoints};
 use qdrant_client::qdrant::{CreateCollection, DeleteCollection, Distance, VectorParams, VectorsConfig};
 use qdrant_client::qdrant::Datatype;
 use qdrant_client::qdrant::{
-    CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
-    FieldType, HnswConfigDiffBuilder, VectorParamsBuilder,
+    Condition, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
+    DeletePointsBuilder, FieldType, Filter, HnswConfigDiffBuilder, VectorParamsBuilder,
 };
 use serde::{Serialize, Deserialize};
 use tokio::time::sleep;
@@ -583,7 +583,93 @@ impl StorageClient {
         info!("Successfully deleted collection: {}", collection_name);
         Ok(())
     }
-    
+
+    /// Delete points from a collection by file_path filter
+    ///
+    /// Uses Qdrant's delete_points API with a filter condition to remove all points
+    /// that match the specified file_path. This is the primary deletion method for
+    /// file-based operations.
+    ///
+    /// # Arguments
+    /// * `collection_name` - The collection to delete points from
+    /// * `file_path` - The file_path to match for deletion
+    ///
+    /// # Returns
+    /// * `Ok(u64)` - Number of points deleted (estimated from operation)
+    /// * `Err(StorageError)` - If deletion fails
+    pub async fn delete_points_by_filter(
+        &self,
+        collection_name: &str,
+        file_path: &str,
+    ) -> Result<u64, StorageError> {
+        info!(
+            "Deleting points with file_path='{}' from collection '{}'",
+            file_path, collection_name
+        );
+
+        // Build filter to match file_path
+        let filter = Filter::must([Condition::matches("file_path", file_path.to_string())]);
+
+        // Build delete request
+        let delete_request = DeletePointsBuilder::new(collection_name)
+            .points(filter)
+            .wait(true);
+
+        // Execute deletion with retry
+        self.retry_operation(|| async {
+            self.client
+                .delete_points(delete_request.clone())
+                .await
+                .map_err(|e| StorageError::Point(format!("Failed to delete points: {}", e)))
+        })
+        .await?;
+
+        // Note: Qdrant's delete_points doesn't return count of deleted points directly
+        // We log success and return 0 as placeholder - caller should verify if needed
+        info!(
+            "Successfully deleted points with file_path='{}' from '{}'",
+            file_path, collection_name
+        );
+
+        Ok(0) // Qdrant delete doesn't return count
+    }
+
+    /// Delete points from a collection by tenant_id filter
+    ///
+    /// Deletes all points belonging to a specific tenant/project from the collection.
+    /// Used for tenant-wide cleanup operations.
+    pub async fn delete_points_by_tenant(
+        &self,
+        collection_name: &str,
+        tenant_id: &str,
+    ) -> Result<u64, StorageError> {
+        info!(
+            "Deleting points with tenant_id='{}' from collection '{}'",
+            tenant_id, collection_name
+        );
+
+        let filter = Filter::must([Condition::matches("tenant_id", tenant_id.to_string())]);
+
+        let delete_request = DeletePointsBuilder::new(collection_name)
+            .points(filter)
+            .wait(true);
+
+        self.retry_operation(|| async {
+            self.client
+                .delete_points(delete_request.clone())
+                .await
+                .map_err(|e| StorageError::Point(format!("Failed to delete points by tenant: {}", e)))
+        })
+        .await?;
+
+        info!(
+            "Successfully deleted points with tenant_id='{}' from '{}'",
+            tenant_id, collection_name
+        );
+
+        Ok(0)
+    }
+
     /// Check if a collection exists
     pub async fn collection_exists(&self, collection_name: &str) -> Result<bool, StorageError> {
         debug!("Checking if collection exists: {}", collection_name);

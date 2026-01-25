@@ -162,13 +162,11 @@ impl DeletionStrategy for DynamicDeletionStrategy {
             return Ok(());
         }
 
-        // TODO: Implement actual point deletion by file_path filter
-        // This requires extending StorageClient with delete_points_by_filter method
-        // For now, we log the operation
-        warn!(
-            "Point deletion not fully implemented - would delete points with file_path={} from collection {}",
-            item.file_absolute_path, item.collection_name
-        );
+        // Delete all points matching the file_path
+        storage_client
+            .delete_points_by_filter(&item.collection_name, &item.file_absolute_path)
+            .await
+            .map_err(|e| DeletionError::Storage(e.to_string()))?;
 
         info!(
             "Successfully executed dynamic deletion for {} from {}",
@@ -446,12 +444,11 @@ impl BatchCleanupManager {
             return Ok(());
         }
 
-        // TODO: Implement actual point deletion by file_path filter
-        // For now, we just mark as deleted
-        warn!(
-            "Point deletion not fully implemented - would delete points with file_path={} from {}",
-            item.file_absolute_path, item.collection_name
-        );
+        // Delete all points matching the file_path
+        self.storage_client
+            .delete_points_by_filter(&item.collection_name, &item.file_absolute_path)
+            .await
+            .map_err(|e| DeletionError::Storage(e.to_string()))?;
 
         self.mark_cleanup_complete(item).await?;
         Ok(())
