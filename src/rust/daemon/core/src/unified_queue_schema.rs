@@ -1,0 +1,444 @@
+//! Unified Queue Schema Definitions (Task 22)
+//!
+//! This module defines the types and schema for the unified ingestion queue.
+//! All queue operations (content, file, folder, etc.) are processed through
+//! a single unified queue table with type discriminators.
+
+use serde::{Deserialize, Serialize};
+use std::fmt;
+
+/// Item types that can be enqueued for processing
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemType {
+    /// Direct text content (scratchbook, notes, clipboard)
+    Content,
+    /// Single file ingestion with path reference
+    File,
+    /// Folder scan operation (generates child file items)
+    Folder,
+    /// Project initialization/scan (top-level container)
+    Project,
+    /// Library documentation ingestion
+    Library,
+    /// Tenant-wide deletion operation
+    DeleteTenant,
+    /// Single document deletion by ID
+    DeleteDocument,
+    /// File/folder rename tracking
+    Rename,
+}
+
+impl fmt::Display for ItemType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ItemType::Content => write!(f, "content"),
+            ItemType::File => write!(f, "file"),
+            ItemType::Folder => write!(f, "folder"),
+            ItemType::Project => write!(f, "project"),
+            ItemType::Library => write!(f, "library"),
+            ItemType::DeleteTenant => write!(f, "delete_tenant"),
+            ItemType::DeleteDocument => write!(f, "delete_document"),
+            ItemType::Rename => write!(f, "rename"),
+        }
+    }
+}
+
+impl ItemType {
+    /// Parse item type from string
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "content" => Some(ItemType::Content),
+            "file" => Some(ItemType::File),
+            "folder" => Some(ItemType::Folder),
+            "project" => Some(ItemType::Project),
+            "library" => Some(ItemType::Library),
+            "delete_tenant" => Some(ItemType::DeleteTenant),
+            "delete_document" => Some(ItemType::DeleteDocument),
+            "rename" => Some(ItemType::Rename),
+            _ => None,
+        }
+    }
+
+    /// Get all valid item types
+    pub fn all() -> &'static [ItemType] {
+        &[
+            ItemType::Content,
+            ItemType::File,
+            ItemType::Folder,
+            ItemType::Project,
+            ItemType::Library,
+            ItemType::DeleteTenant,
+            ItemType::DeleteDocument,
+            ItemType::Rename,
+        ]
+    }
+}
+
+/// Operation types for queue items
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueOperation {
+    /// Initial ingestion or re-ingestion of content
+    Ingest,
+    /// Update existing content (delete + reingest)
+    Update,
+    /// Remove content from vector database
+    Delete,
+    /// Scan directory/project without immediate ingestion
+    Scan,
+}
+
+impl fmt::Display for QueueOperation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QueueOperation::Ingest => write!(f, "ingest"),
+            QueueOperation::Update => write!(f, "update"),
+            QueueOperation::Delete => write!(f, "delete"),
+            QueueOperation::Scan => write!(f, "scan"),
+        }
+    }
+}
+
+impl QueueOperation {
+    /// Parse operation from string
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "ingest" => Some(QueueOperation::Ingest),
+            "update" => Some(QueueOperation::Update),
+            "delete" => Some(QueueOperation::Delete),
+            "scan" => Some(QueueOperation::Scan),
+            _ => None,
+        }
+    }
+
+    /// Check if this operation is valid for the given item type
+    pub fn is_valid_for(&self, item_type: ItemType) -> bool {
+        match (item_type, self) {
+            // Content: ingest, update, delete
+            (ItemType::Content, QueueOperation::Ingest) => true,
+            (ItemType::Content, QueueOperation::Update) => true,
+            (ItemType::Content, QueueOperation::Delete) => true,
+            (ItemType::Content, QueueOperation::Scan) => false,
+
+            // File: ingest, update, delete
+            (ItemType::File, QueueOperation::Ingest) => true,
+            (ItemType::File, QueueOperation::Update) => true,
+            (ItemType::File, QueueOperation::Delete) => true,
+            (ItemType::File, QueueOperation::Scan) => false,
+
+            // Folder: ingest, delete, scan (no update)
+            (ItemType::Folder, QueueOperation::Ingest) => true,
+            (ItemType::Folder, QueueOperation::Update) => false,
+            (ItemType::Folder, QueueOperation::Delete) => true,
+            (ItemType::Folder, QueueOperation::Scan) => true,
+
+            // Project: ingest, delete, scan (no update)
+            (ItemType::Project, QueueOperation::Ingest) => true,
+            (ItemType::Project, QueueOperation::Update) => false,
+            (ItemType::Project, QueueOperation::Delete) => true,
+            (ItemType::Project, QueueOperation::Scan) => true,
+
+            // Library: ingest, update, delete
+            (ItemType::Library, QueueOperation::Ingest) => true,
+            (ItemType::Library, QueueOperation::Update) => true,
+            (ItemType::Library, QueueOperation::Delete) => true,
+            (ItemType::Library, QueueOperation::Scan) => false,
+
+            // DeleteTenant: only delete
+            (ItemType::DeleteTenant, QueueOperation::Delete) => true,
+            (ItemType::DeleteTenant, _) => false,
+
+            // DeleteDocument: only delete
+            (ItemType::DeleteDocument, QueueOperation::Delete) => true,
+            (ItemType::DeleteDocument, _) => false,
+
+            // Rename: only update
+            (ItemType::Rename, QueueOperation::Update) => true,
+            (ItemType::Rename, _) => false,
+        }
+    }
+}
+
+/// Queue item status
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueueStatus {
+    /// Ready to be picked up by processor
+    Pending,
+    /// Currently being processed (lease acquired)
+    InProgress,
+    /// Successfully completed
+    Done,
+    /// Max retries exceeded
+    Failed,
+}
+
+impl fmt::Display for QueueStatus {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            QueueStatus::Pending => write!(f, "pending"),
+            QueueStatus::InProgress => write!(f, "in_progress"),
+            QueueStatus::Done => write!(f, "done"),
+            QueueStatus::Failed => write!(f, "failed"),
+        }
+    }
+}
+
+impl QueueStatus {
+    /// Parse status from string
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "pending" => Some(QueueStatus::Pending),
+            "in_progress" => Some(QueueStatus::InProgress),
+            "done" => Some(QueueStatus::Done),
+            "failed" => Some(QueueStatus::Failed),
+            _ => None,
+        }
+    }
+}
+
+/// Payload for content items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContentPayload {
+    /// The actual text content
+    pub content: String,
+    /// Source type: scratchbook, mcp, clipboard
+    pub source_type: String,
+    /// Primary categorization tag
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub main_tag: Option<String>,
+    /// Full hierarchical tag
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub full_tag: Option<String>,
+}
+
+/// Payload for file items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilePayload {
+    /// Absolute path to the file
+    pub file_path: String,
+    /// File type classification
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_type: Option<String>,
+    /// SHA256 hash for change detection
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file_hash: Option<String>,
+    /// File size in bytes
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size_bytes: Option<u64>,
+}
+
+/// Payload for folder items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FolderPayload {
+    /// Absolute path to the folder
+    pub folder_path: String,
+    /// Whether to scan recursively
+    #[serde(default = "default_true")]
+    pub recursive: bool,
+    /// Maximum recursion depth
+    #[serde(default = "default_recursive_depth")]
+    pub recursive_depth: u32,
+    /// File patterns to include
+    #[serde(default)]
+    pub patterns: Vec<String>,
+    /// Patterns to ignore
+    #[serde(default)]
+    pub ignore_patterns: Vec<String>,
+}
+
+fn default_true() -> bool { true }
+fn default_recursive_depth() -> u32 { 10 }
+
+/// Payload for project items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectPayload {
+    /// Absolute path to project root
+    pub project_root: String,
+    /// Git remote URL (if available)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub git_remote: Option<String>,
+    /// Project type classification
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project_type: Option<String>,
+}
+
+/// Payload for library items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryPayload {
+    /// Library name
+    pub library_name: String,
+    /// Library version
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library_version: Option<String>,
+    /// Source URL for documentation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
+}
+
+/// Payload for delete_tenant items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteTenantPayload {
+    /// Tenant ID to delete
+    pub tenant_id_to_delete: String,
+    /// Reason for deletion
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
+/// Payload for delete_document items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteDocumentPayload {
+    /// Document identifier (UUID or path)
+    pub document_id: String,
+    /// Specific point IDs to delete (optional)
+    #[serde(default)]
+    pub point_ids: Vec<String>,
+}
+
+/// Payload for rename items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RenamePayload {
+    /// Original path
+    pub old_path: String,
+    /// New path
+    pub new_path: String,
+    /// Whether this is a folder rename
+    #[serde(default)]
+    pub is_folder: bool,
+}
+
+/// Generate an idempotency key for a queue item
+pub fn generate_idempotency_key(
+    item_type: ItemType,
+    collection: &str,
+    identifier: &str,
+) -> String {
+    use sha2::{Sha256, Digest};
+    let mut hasher = Sha256::new();
+    hasher.update(identifier.as_bytes());
+    let hash = hasher.finalize();
+    // Encode first 8 bytes as hex manually
+    let hash_hex: String = hash[..8]
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
+    format!("{}:{}:{}", item_type, collection, hash_hex)
+}
+
+/// SQL to create the unified queue schema
+pub const CREATE_UNIFIED_QUEUE_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS unified_queue (
+    queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
+    item_type TEXT NOT NULL CHECK (item_type IN (
+        'content', 'file', 'folder', 'project', 'library',
+        'delete_tenant', 'delete_document', 'rename'
+    )),
+    op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
+    tenant_id TEXT NOT NULL,
+    collection TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+        'pending', 'in_progress', 'done', 'failed'
+    )),
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    lease_until TEXT,
+    worker_id TEXT,
+    idempotency_key TEXT NOT NULL UNIQUE,
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    error_message TEXT,
+    last_error_at TEXT,
+    branch TEXT DEFAULT 'main',
+    metadata TEXT DEFAULT '{}'
+)
+"#;
+
+/// SQL to create indexes for the unified queue
+pub const CREATE_UNIFIED_QUEUE_INDEXES_SQL: &[&str] = &[
+    r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_dequeue
+       ON unified_queue(status, priority DESC, created_at ASC)
+       WHERE status = 'pending'"#,
+    r#"CREATE UNIQUE INDEX IF NOT EXISTS idx_unified_queue_idempotency
+       ON unified_queue(idempotency_key)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_lease_expiry
+       ON unified_queue(lease_until)
+       WHERE status = 'in_progress'"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_collection_tenant
+       ON unified_queue(collection, tenant_id)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_item_type
+       ON unified_queue(item_type, status)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_failed
+       ON unified_queue(status, last_error_at DESC)
+       WHERE status = 'failed'"#,
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_item_type_display() {
+        assert_eq!(ItemType::Content.to_string(), "content");
+        assert_eq!(ItemType::DeleteTenant.to_string(), "delete_tenant");
+    }
+
+    #[test]
+    fn test_item_type_from_str() {
+        assert_eq!(ItemType::from_str("content"), Some(ItemType::Content));
+        assert_eq!(ItemType::from_str("delete_tenant"), Some(ItemType::DeleteTenant));
+        assert_eq!(ItemType::from_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_operation_validity() {
+        // Content can be ingested, updated, deleted
+        assert!(QueueOperation::Ingest.is_valid_for(ItemType::Content));
+        assert!(QueueOperation::Update.is_valid_for(ItemType::Content));
+        assert!(QueueOperation::Delete.is_valid_for(ItemType::Content));
+        assert!(!QueueOperation::Scan.is_valid_for(ItemType::Content));
+
+        // Folder cannot be updated
+        assert!(!QueueOperation::Update.is_valid_for(ItemType::Folder));
+        assert!(QueueOperation::Scan.is_valid_for(ItemType::Folder));
+
+        // DeleteTenant can only delete
+        assert!(!QueueOperation::Ingest.is_valid_for(ItemType::DeleteTenant));
+        assert!(QueueOperation::Delete.is_valid_for(ItemType::DeleteTenant));
+
+        // Rename can only update
+        assert!(QueueOperation::Update.is_valid_for(ItemType::Rename));
+        assert!(!QueueOperation::Ingest.is_valid_for(ItemType::Rename));
+    }
+
+    #[test]
+    fn test_idempotency_key_generation() {
+        let key1 = generate_idempotency_key(
+            ItemType::File,
+            "my-collection",
+            "/path/to/file.txt",
+        );
+        let key2 = generate_idempotency_key(
+            ItemType::File,
+            "my-collection",
+            "/path/to/file.txt",
+        );
+        assert_eq!(key1, key2); // Same inputs = same key
+
+        let key3 = generate_idempotency_key(
+            ItemType::File,
+            "my-collection",
+            "/path/to/other.txt",
+        );
+        assert_ne!(key1, key3); // Different inputs = different key
+    }
+
+    #[test]
+    fn test_queue_status_display() {
+        assert_eq!(QueueStatus::Pending.to_string(), "pending");
+        assert_eq!(QueueStatus::InProgress.to_string(), "in_progress");
+    }
+}

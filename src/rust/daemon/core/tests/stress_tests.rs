@@ -22,7 +22,8 @@ use tokio::time::{sleep, timeout};
 use workspace_qdrant_core::{
     queue_config::QueueConnectionConfig,
     queue_operations::{QueueManager, QueueOperation},
-    queue_processor::{ProcessorConfig, QueueProcessor},
+    queue_processor::QueueProcessor,
+    queue_types::ProcessorConfig,
     DocumentProcessor, EmbeddingGenerator, EmbeddingConfig,
     storage::{StorageClient, StorageConfig},
 };

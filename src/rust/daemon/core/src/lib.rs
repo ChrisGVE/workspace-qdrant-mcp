@@ -35,6 +35,7 @@ pub mod storage;
 pub mod tool_monitor;
 pub mod type_aware_processor;
 pub mod unified_config;
+pub mod unified_queue_schema;
 pub mod watching;
 pub mod watching_queue;
 
@@ -137,6 +138,12 @@ pub use crate::file_classification::{
 };
 pub use crate::metadata_enrichment::{
     enrich_metadata, CollectionType
+};
+pub use crate::unified_queue_schema::{
+    ItemType, QueueOperation as UnifiedQueueOp, QueueStatus,
+    ContentPayload, FilePayload, FolderPayload, ProjectPayload,
+    LibraryPayload, DeleteTenantPayload, DeleteDocumentPayload, RenamePayload,
+    generate_idempotency_key, CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL
 };
 pub use crate::storage::{
     StorageClient, StorageConfig, StorageError,
