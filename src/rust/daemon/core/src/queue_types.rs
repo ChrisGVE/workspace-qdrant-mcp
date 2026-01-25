@@ -57,6 +57,17 @@ pub struct ProcessorConfig {
 
     /// Enable performance monitoring
     pub enable_metrics: bool,
+
+    /// Number of parallel workers for batch processing (Task 21)
+    /// Higher values increase throughput but use more resources
+    pub worker_count: usize,
+
+    /// Maximum queue depth before enabling backpressure (Task 21)
+    /// When exceeded, enqueue operations may be slowed
+    pub backpressure_threshold: i64,
+
+    /// Enable parallel processing within batches (Task 21)
+    pub parallel_processing: bool,
 }
 
 impl Default for ProcessorConfig {
@@ -66,14 +77,16 @@ impl Default for ProcessorConfig {
             poll_interval_ms: 500,
             max_retries: 5,
             retry_delays: vec![
-                ChronoDuration::milliseconds(1000),
-                ChronoDuration::milliseconds(2000),
-                ChronoDuration::milliseconds(5000),
-                ChronoDuration::milliseconds(10000),
-                ChronoDuration::milliseconds(30000),
+                ChronoDuration::minutes(1),
+                ChronoDuration::minutes(5),
+                ChronoDuration::minutes(15),
+                ChronoDuration::hours(1),
             ],
-            target_throughput: 60,
+            target_throughput: 1000, // 1000+ docs/min
             enable_metrics: true,
+            worker_count: 4,  // Default to 4 parallel workers
+            backpressure_threshold: 1000,  // Start backpressure at 1000 items
+            parallel_processing: true,
         }
     }
 }

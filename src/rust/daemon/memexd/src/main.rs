@@ -7,6 +7,7 @@ use clap::{Arg, Command};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process;
+use std::sync::Arc;
 use tokio::signal;
 use tracing::{error, info, warn};
 
@@ -16,6 +17,11 @@ use workspace_qdrant_core::{
     unified_config::{UnifiedConfigManager, UnifiedConfigError},
     ipc::IpcServer,
     MetricsServer, METRICS,
+    // Queue processor imports (Task 21)
+    QueueProcessor, ProcessorConfig,
+    DocumentProcessor, EmbeddingGenerator, EmbeddingConfig,
+    StorageClient, StorageConfig,
+    queue_config::QueueConnectionConfig,
 };
 
 // gRPC server for Python MCP server and CLI communication (Task 421)
@@ -465,6 +471,69 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
     })?;
 
     info!("IPC server started successfully");
+
+    // Initialize queue processor (Task 21)
+    info!("Initializing queue processor...");
+
+    // Get SQLite database path from config or use default
+    let db_path = config.database_path.clone().unwrap_or_else(|| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        PathBuf::from(format!("{}/.workspace-qdrant/state.db", home))
+    });
+
+    // Ensure parent directory exists
+    if let Some(parent) = db_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    // Create SQLite connection pool for queue operations
+    let queue_config = QueueConnectionConfig::with_database_path(&db_path);
+    let queue_pool = queue_config.create_pool().await
+        .map_err(|e| format!("Failed to create queue database pool: {}", e))?;
+
+    info!("Queue database initialized at: {}", db_path.display());
+
+    // Initialize queue processor components
+    let processor_config = ProcessorConfig {
+        batch_size: config.queue_batch_size.unwrap_or(10) as i32,
+        poll_interval_ms: config.queue_poll_interval_ms.unwrap_or(500),
+        worker_count: config.queue_worker_count.unwrap_or(4),
+        parallel_processing: config.queue_parallel_processing.unwrap_or(true),
+        backpressure_threshold: config.queue_backpressure_threshold.unwrap_or(1000),
+        ..ProcessorConfig::default()
+    };
+
+    // Create processing components
+    let document_processor = Arc::new(DocumentProcessor::new());
+    let embedding_config = EmbeddingConfig::default();
+    let embedding_generator = Arc::new(
+        EmbeddingGenerator::new(embedding_config)
+            .map_err(|e| format!("Failed to create embedding generator: {}", e))?
+    );
+    let storage_config = StorageConfig::default();
+    let storage_client = Arc::new(StorageClient::with_config(storage_config));
+
+    // Create and start queue processor
+    let mut queue_processor = QueueProcessor::with_components(
+        queue_pool,
+        processor_config.clone(),
+        document_processor,
+        embedding_generator,
+        storage_client,
+    );
+
+    queue_processor.start()
+        .map_err(|e| format!("Failed to start queue processor: {}", e))?;
+
+    info!(
+        "Queue processor started (workers={}, batch_size={}, poll_interval={}ms)",
+        processor_config.worker_count,
+        processor_config.batch_size,
+        processor_config.poll_interval_ms
+    );
+
     info!("memexd daemon is running. gRPC on port {}, send SIGTERM or SIGINT to stop.", grpc_port);
 
     let shutdown_future = setup_signal_handlers();
@@ -472,7 +541,14 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
         error!("Error in signal handling: {}", e);
     }
 
-    // Cleanup
+    // Cleanup - stop queue processor first for graceful shutdown
+    info!("Stopping queue processor...");
+    if let Err(e) = queue_processor.stop().await {
+        error!("Error stopping queue processor: {}", e);
+    } else {
+        info!("Queue processor stopped");
+    }
+
     uptime_handle.abort();
     grpc_handle.abort();
     info!("gRPC server stopped");

@@ -190,6 +190,10 @@ impl From<QueueProcessorSettings> for ProcessorConfig {
                 .collect(),
             target_throughput: settings.target_throughput,
             enable_metrics: settings.enable_metrics,
+            // Task 21: Use defaults for new fields
+            worker_count: 4,
+            backpressure_threshold: 1000,
+            parallel_processing: true,
         }
     }
 }
@@ -471,6 +475,18 @@ pub struct Config {
     pub enable_metrics: bool,
     /// Metrics collection interval in seconds (derived from observability.collection_interval)
     pub metrics_interval_secs: u64,
+    /// Database path for SQLite state/queue (Task 21)
+    pub database_path: Option<PathBuf>,
+    /// Queue processor batch size
+    pub queue_batch_size: Option<i32>,
+    /// Queue processor poll interval in milliseconds
+    pub queue_poll_interval_ms: Option<u64>,
+    /// Number of queue processor workers
+    pub queue_worker_count: Option<usize>,
+    /// Enable parallel queue processing
+    pub queue_parallel_processing: Option<bool>,
+    /// Queue backpressure threshold
+    pub queue_backpressure_threshold: Option<i64>,
 }
 
 impl From<DaemonConfig> for Config {
@@ -483,6 +499,13 @@ impl From<DaemonConfig> for Config {
             log_level: daemon_config.log_level,
             enable_metrics: daemon_config.observability.metrics.enabled,
             metrics_interval_secs: daemon_config.observability.collection_interval,
+            // Queue processor configuration (Task 21)
+            database_path: None, // Will use default path in daemon
+            queue_batch_size: Some(daemon_config.queue_processor.batch_size),
+            queue_poll_interval_ms: Some(daemon_config.queue_processor.poll_interval_ms),
+            queue_worker_count: Some(4), // Default worker count
+            queue_parallel_processing: Some(true), // Default to parallel processing
+            queue_backpressure_threshold: Some(1000), // Default backpressure threshold
         }
     }
 }
@@ -498,6 +521,13 @@ impl Config {
             log_level: "info".to_string(),
             enable_metrics: true,
             metrics_interval_secs: 60,
+            // Queue processor defaults (Task 21)
+            database_path: None,
+            queue_batch_size: Some(10),
+            queue_poll_interval_ms: Some(500),
+            queue_worker_count: Some(4),
+            queue_parallel_processing: Some(true),
+            queue_backpressure_threshold: Some(1000),
         }
     }
 
