@@ -19,7 +19,10 @@
 //!   - Otherwise → `libraries` with library_name metadata
 
 use std::collections::HashMap;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
 use std::sync::{Arc, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
 use uuid::Uuid;
@@ -27,10 +30,50 @@ use workspace_qdrant_core::storage::{StorageClient, DocumentPoint, StorageError}
 use workspace_qdrant_core::{UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION};
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 use tokio::sync::Mutex as TokioMutex;
+use lru::LruCache;
+use std::num::NonZeroUsize;
 
 /// Global embedding model instance (lazy-initialized, thread-safe)
 /// Uses Mutex because TextEmbedding is not Send+Sync
 static EMBEDDING_MODEL: OnceLock<TokioMutex<TextEmbedding>> = OnceLock::new();
+
+/// Global embedding cache (content hash → embedding vector)
+/// Improves performance by caching embeddings for repeated content
+static EMBEDDING_CACHE: OnceLock<TokioMutex<LruCache<u64, Vec<f32>>>> = OnceLock::new();
+
+/// Default cache size (number of entries)
+const DEFAULT_CACHE_SIZE: usize = 1000;
+
+/// Cache metrics for monitoring
+pub struct EmbeddingCacheMetrics {
+    pub hits: AtomicU64,
+    pub misses: AtomicU64,
+    pub evictions: AtomicU64,
+}
+
+impl EmbeddingCacheMetrics {
+    pub const fn new() -> Self {
+        Self {
+            hits: AtomicU64::new(0),
+            misses: AtomicU64::new(0),
+            evictions: AtomicU64::new(0),
+        }
+    }
+
+    pub fn hit_rate(&self) -> f64 {
+        let hits = self.hits.load(Ordering::Relaxed);
+        let misses = self.misses.load(Ordering::Relaxed);
+        let total = hits + misses;
+        if total == 0 {
+            0.0
+        } else {
+            hits as f64 / total as f64
+        }
+    }
+}
+
+/// Global cache metrics instance
+pub static CACHE_METRICS: EmbeddingCacheMetrics = EmbeddingCacheMetrics::new();
 
 use crate::proto::{
     document_service_server::DocumentService,
@@ -258,8 +301,9 @@ impl DocumentServiceImpl {
         chunks
     }
 
-    /// Initialize the global embedding model if not already initialized
+    /// Initialize the global embedding model and cache if not already initialized
     fn init_embedding_model() -> Result<(), Status> {
+        // Initialize the embedding model
         EMBEDDING_MODEL.get_or_init(|| {
             info!("Initializing FastEmbed model (all-MiniLM-L6-v2)...");
             let model = TextEmbedding::try_new(
@@ -269,14 +313,45 @@ impl DocumentServiceImpl {
             info!("FastEmbed model initialized successfully");
             TokioMutex::new(model)
         });
+
+        // Initialize the embedding cache
+        EMBEDDING_CACHE.get_or_init(|| {
+            let cache_size = NonZeroUsize::new(DEFAULT_CACHE_SIZE)
+                .expect("Cache size must be non-zero");
+            info!("Initializing embedding cache with {} entries", DEFAULT_CACHE_SIZE);
+            TokioMutex::new(LruCache::new(cache_size))
+        });
+
         Ok(())
+    }
+
+    /// Compute a hash of the input text for cache lookup
+    fn content_hash(text: &str) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        text.hash(&mut hasher);
+        hasher.finish()
     }
 
     /// Generate embedding for text using FastEmbed (all-MiniLM-L6-v2)
     /// Returns 384-dimensional dense vector for semantic search
+    /// Uses LRU cache to avoid redundant computation for repeated content
     async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>, Status> {
-        // Ensure model is initialized
+        // Ensure model and cache are initialized
         Self::init_embedding_model()?;
+
+        // Check cache first
+        let content_hash = Self::content_hash(text);
+        if let Some(cache) = EMBEDDING_CACHE.get() {
+            let mut cache_guard = cache.lock().await;
+            if let Some(cached_embedding) = cache_guard.get(&content_hash) {
+                CACHE_METRICS.hits.fetch_add(1, Ordering::Relaxed);
+                debug!("Cache hit for content hash {}", content_hash);
+                return Ok(cached_embedding.clone());
+            }
+        }
+
+        // Cache miss - generate embedding
+        CACHE_METRICS.misses.fetch_add(1, Ordering::Relaxed);
 
         let model = EMBEDDING_MODEL.get()
             .ok_or_else(|| Status::internal("Embedding model not initialized"))?;
@@ -321,8 +396,27 @@ impl DocumentServiceImpl {
             );
         }
 
-        debug!("Generated {}-dimensional embedding", embedding.len());
+        // Store in cache
+        if let Some(cache) = EMBEDDING_CACHE.get() {
+            let mut cache_guard = cache.lock().await;
+            // Check if cache is at capacity (LRU will auto-evict, but we track it)
+            if cache_guard.len() >= DEFAULT_CACHE_SIZE {
+                CACHE_METRICS.evictions.fetch_add(1, Ordering::Relaxed);
+            }
+            cache_guard.put(content_hash, embedding.clone());
+        }
+
+        debug!("Generated {}-dimensional embedding (cached)", embedding.len());
         Ok(embedding)
+    }
+
+    /// Get embedding cache metrics for monitoring
+    pub fn get_cache_metrics() -> (u64, u64, u64, f64) {
+        let hits = CACHE_METRICS.hits.load(Ordering::Relaxed);
+        let misses = CACHE_METRICS.misses.load(Ordering::Relaxed);
+        let evictions = CACHE_METRICS.evictions.load(Ordering::Relaxed);
+        let hit_rate = CACHE_METRICS.hit_rate();
+        (hits, misses, evictions, hit_rate)
     }
 
     /// Generate embeddings for multiple texts in a batch (more efficient)
@@ -897,5 +991,51 @@ mod tests {
         let different_embedding = service.generate_embedding("Different text for comparison").await
             .expect("Failed to generate different embedding");
         assert_ne!(embedding, different_embedding, "Different text should produce different embedding");
+    }
+
+    #[tokio::test]
+    async fn test_embedding_cache() {
+        let service = DocumentServiceImpl::default();
+
+        // Reset cache metrics for this test
+        CACHE_METRICS.hits.store(0, Ordering::Relaxed);
+        CACHE_METRICS.misses.store(0, Ordering::Relaxed);
+        CACHE_METRICS.evictions.store(0, Ordering::Relaxed);
+
+        // First call should be a cache miss
+        let text = "Text for cache testing";
+        let embedding1 = service.generate_embedding(text).await
+            .expect("Failed to generate embedding");
+
+        // Second call with same text should be a cache hit
+        let embedding2 = service.generate_embedding(text).await
+            .expect("Failed to generate cached embedding");
+
+        // Embeddings should be identical
+        assert_eq!(embedding1, embedding2, "Cached embedding should match original");
+
+        // Verify cache metrics
+        let (hits, misses, _evictions, _hit_rate) = DocumentServiceImpl::get_cache_metrics();
+        assert!(misses >= 1, "Expected at least 1 cache miss, got {}", misses);
+        assert!(hits >= 1, "Expected at least 1 cache hit, got {}", hits);
+
+        // Different text should produce cache miss
+        let _embedding3 = service.generate_embedding("Different unique text").await
+            .expect("Failed to generate different embedding");
+
+        let (_hits2, misses2, _, _) = DocumentServiceImpl::get_cache_metrics();
+        assert!(misses2 > misses, "Expected additional cache miss for different text");
+    }
+
+    #[test]
+    fn test_content_hash() {
+        // Same content should produce same hash
+        let hash1 = DocumentServiceImpl::content_hash("test content");
+        let hash2 = DocumentServiceImpl::content_hash("test content");
+        assert_eq!(hash1, hash2);
+
+        // Different content should produce different hash
+        let hash3 = DocumentServiceImpl::content_hash("different content");
+        assert_ne!(hash1, hash3);
     }
 }

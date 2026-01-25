@@ -421,6 +421,30 @@ embedding:
   # Format: Integer > 0
   batch_size: 50
 
+  # cache_enabled: Enable embedding result caching for performance optimization
+  # Purpose: Caches generated embeddings to avoid redundant computation
+  # Performance benefit: Significant speedup for repeated content (file re-indexing)
+  # Memory trade-off: Consumes memory proportional to cache size
+  # Use case: Highly beneficial when same content is re-processed frequently
+  # Format: Boolean
+  cache_enabled: true
+
+  # cache_max_entries: Maximum number of cached embedding results
+  # Purpose: Limits memory consumption by capping cache size
+  # Eviction policy: LRU (Least Recently Used) eviction when limit reached
+  # Memory estimation: ~1.5KB per entry (384-dim vector + key overhead)
+  # Sizing guideline: 1000 entries ≈ 1.5MB memory usage
+  # Format: Integer > 0
+  cache_max_entries: 1000
+
+  # model_cache_dir: Directory for storing downloaded model files
+  # Purpose: Persists model weights to avoid re-downloading on restart
+  # Default behavior: Uses system-appropriate cache directory if null
+  # Custom path: Useful for shared caches across multiple instances
+  # Disk usage: all-MiniLM-L6-v2 requires approximately 90MB
+  # Format: String path or null for default
+  model_cache_dir: null
+
 # =============================================================================
 # WORKSPACE MANAGEMENT CONFIGURATION
 # =============================================================================
