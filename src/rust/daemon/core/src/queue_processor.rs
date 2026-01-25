@@ -532,7 +532,7 @@ impl QueueProcessor {
     /// Check if required tools are available for processing
     async fn check_tool_availability(
         item: &QueueItem,
-        embedding_generator: &Arc<EmbeddingGenerator>,
+        _embedding_generator: &Arc<EmbeddingGenerator>,
         storage_client: &Arc<StorageClient>,
     ) -> ProcessorResult<()> {
         let mut missing_tools = Vec::new();

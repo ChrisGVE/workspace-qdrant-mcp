@@ -507,7 +507,7 @@ impl DocumentService for DocumentServiceImpl {
         Self::validate_document_id(&req.document_id)?;
 
         // Determine collection name - for updates, the collection_name should be
-        // the actual collection (e.g., _projects, _libraries, or memory_xxx)
+        // the actual collection (e.g., projects, libraries, or memory)
         let collection_name = if let Some(coll_name) = req.collection_name {
             Self::validate_collection_name(&coll_name)?;
             coll_name
@@ -597,9 +597,14 @@ mod tests {
         assert!(DocumentServiceImpl::validate_collection_name("memory_tenant1").is_ok());
         assert!(DocumentServiceImpl::validate_collection_name("scratchbook_user123").is_ok());
         assert!(DocumentServiceImpl::validate_collection_name("notes-project").is_ok());
-        // Unified collection names are valid
+        // Legacy underscore-prefixed names are syntactically valid (migration compatibility)
         assert!(DocumentServiceImpl::validate_collection_name("_projects").is_ok());
         assert!(DocumentServiceImpl::validate_collection_name("_libraries").is_ok());
+
+        // Canonical collection names (ADR-001)
+        assert!(DocumentServiceImpl::validate_collection_name("projects").is_ok());
+        assert!(DocumentServiceImpl::validate_collection_name("libraries").is_ok());
+        assert!(DocumentServiceImpl::validate_collection_name("memory").is_ok());
 
         // Invalid: too short
         assert!(DocumentServiceImpl::validate_collection_name("ab").is_err());
