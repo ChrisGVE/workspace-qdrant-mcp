@@ -102,9 +102,7 @@ tokenizers = [
 ]
 
 [project.scripts]
-wqm = "wqm_cli.cli.main:cli_entry_point"
 workspace-qdrant-mcp = "workspace_qdrant_mcp.main:main"
-wqm-install = "wqm_cli.installer:main"
 
 [project.urls]
 Homepage = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
@@ -114,7 +112,7 @@ Changelog = "https://github.com/ChrisGVE/workspace-qdrant-mcp/blob/main/CHANGELO
 
 [tool.setuptools.packages.find]
 where = ["src/python"]
-include = ["workspace_qdrant_mcp*", "common*", "wqm_cli*"]
+include = ["workspace_qdrant_mcp*", "common*"]
 
 [tool.black]
 line-length = 88
