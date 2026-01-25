@@ -850,6 +850,32 @@ queue_processor:
   # Format: Boolean
   enable_metrics: true
 
+  # worker_count: Number of parallel workers for batch processing
+  # Purpose: Controls parallelism within each batch for improved throughput
+  # CPU usage: Higher values use more CPU but process faster
+  # Memory: Each worker may hold a document in memory during processing
+  # Recommended: Set to number of CPU cores for optimal performance
+  # Format: Integer > 0
+  # Default reasoning: 4 workers balances parallelism with resource usage
+  worker_count: 4
+
+  # parallel_processing: Enable parallel processing within batches
+  # Purpose: Process multiple items concurrently using worker pool
+  # Throughput: Significantly increases items/second when enabled
+  # Resource usage: Higher CPU and memory when enabled
+  # Development: Disable for easier debugging and sequential behavior
+  # Format: Boolean
+  parallel_processing: true
+
+  # backpressure_threshold: Queue depth threshold for backpressure handling
+  # Purpose: Triggers backpressure when queue depth exceeds this value
+  # Flow control: Slows processing to allow queue to drain
+  # Memory protection: Prevents unbounded queue growth
+  # Upstream signaling: Allows enqueue sources to slow down
+  # Format: Integer > 0
+  # Default reasoning: 1000 items provides buffer before triggering
+  backpressure_threshold: 1000
+
   # graceful_shutdown_timeout_secs: Time to wait for clean shutdown
   # Purpose: Maximum time to wait for current batch to complete on shutdown
   # Data integrity: Prevents partial processing during shutdown

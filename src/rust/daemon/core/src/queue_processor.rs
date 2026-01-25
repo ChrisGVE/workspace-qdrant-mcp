@@ -74,6 +74,17 @@ pub struct ProcessorConfig {
 
     /// Enable performance monitoring
     pub enable_metrics: bool,
+
+    /// Number of parallel workers for batch processing
+    /// Higher values increase throughput but use more resources
+    pub worker_count: usize,
+
+    /// Maximum queue depth before enabling backpressure
+    /// When exceeded, enqueue operations may be slowed
+    pub backpressure_threshold: i64,
+
+    /// Enable parallel processing within batches
+    pub parallel_processing: bool,
 }
 
 impl Default for ProcessorConfig {
@@ -90,6 +101,9 @@ impl Default for ProcessorConfig {
             ],
             target_throughput: 1000, // 1000+ docs/min
             enable_metrics: true,
+            worker_count: 4,  // Default to 4 parallel workers
+            backpressure_threshold: 1000,  // Start backpressure at 1000 items
+            parallel_processing: true,
         }
     }
 }
@@ -120,6 +134,12 @@ pub struct ProcessingMetrics {
 
     /// Total errors by type
     pub error_counts: std::collections::HashMap<String, u64>,
+
+    /// Number of backpressure events (queue depth exceeded threshold)
+    pub backpressure_events: u64,
+
+    /// Number of parallel workers currently active
+    pub active_workers: u64,
 }
 
 impl ProcessingMetrics {
@@ -301,13 +321,40 @@ impl QueueProcessor {
         let mut last_metrics_log = Utc::now();
         let metrics_log_interval = ChronoDuration::minutes(1);
 
-        info!("Processing loop started");
+        info!(
+            "Processing loop started (workers={}, batch_size={}, parallel={})",
+            config.worker_count, config.batch_size, config.parallel_processing
+        );
 
         loop {
             // Check for shutdown signal
             if cancellation_token.is_cancelled() {
                 info!("Shutdown signal received");
                 break;
+            }
+
+            // Check queue depth for backpressure handling
+            if let Ok(depth) = queue_manager.get_queue_depth(None, None).await {
+                // Update queue depth in metrics
+                {
+                    let mut m = metrics.write().await;
+                    m.queue_depth = depth;
+                }
+
+                // Backpressure: if queue is very deep, add delay to let it drain
+                if depth > config.backpressure_threshold {
+                    warn!(
+                        "Backpressure triggered: queue depth {} exceeds threshold {}",
+                        depth, config.backpressure_threshold
+                    );
+                    // Record backpressure event
+                    {
+                        let mut m = metrics.write().await;
+                        m.backpressure_events += 1;
+                    }
+                    // Slow down polling to let upstream slow down
+                    tokio::time::sleep(Duration::from_millis(config.poll_interval_ms * 2)).await;
+                }
             }
 
             // Dequeue batch of items
@@ -325,41 +372,113 @@ impl QueueProcessor {
 
                     info!("Dequeued {} items for processing", items.len());
 
-                    // Process each item
-                    for item in items {
-                        // Check shutdown signal before processing each item
-                        if cancellation_token.is_cancelled() {
-                            warn!("Shutdown requested, stopping batch processing");
-                            return Ok(());
+                    // Check shutdown signal before processing batch
+                    if cancellation_token.is_cancelled() {
+                        warn!("Shutdown requested, stopping batch processing");
+                        return Ok(());
+                    }
+
+                    // Process items in parallel or sequentially based on config
+                    if config.parallel_processing && items.len() > 1 {
+                        // Parallel processing: spawn tasks for each item
+                        let mut tasks = Vec::with_capacity(items.len());
+                        let semaphore = Arc::new(tokio::sync::Semaphore::new(config.worker_count));
+
+                        for item in items {
+                            let queue_manager = queue_manager.clone();
+                            let config = config.clone();
+                            let document_processor = document_processor.clone();
+                            let embedding_generator = embedding_generator.clone();
+                            let storage_client = storage_client.clone();
+                            let metrics = metrics.clone();
+                            let permit = semaphore.clone().acquire_owned().await.unwrap();
+                            let cancellation = cancellation_token.clone();
+
+                            let task = tokio::spawn(async move {
+                                let _permit = permit; // Hold permit until task completes
+
+                                // Check cancellation
+                                if cancellation.is_cancelled() {
+                                    return;
+                                }
+
+                                let start_time = std::time::Instant::now();
+
+                                match Self::process_item(
+                                    &queue_manager,
+                                    &item,
+                                    &config,
+                                    &document_processor,
+                                    &embedding_generator,
+                                    &storage_client,
+                                )
+                                .await
+                                {
+                                    Ok(()) => {
+                                        let processing_time = start_time.elapsed().as_millis() as u64;
+                                        Self::update_metrics_success(
+                                            &metrics,
+                                            processing_time,
+                                            &queue_manager,
+                                        )
+                                        .await;
+                                    }
+                                    Err(e) => {
+                                        error!(
+                                            "Failed to process item {}: {}",
+                                            item.file_absolute_path, e
+                                        );
+                                        Self::update_metrics_failure(&metrics, &e).await;
+                                    }
+                                }
+                            });
+
+                            tasks.push(task);
                         }
 
-                        let start_time = std::time::Instant::now();
+                        // Wait for all tasks to complete
+                        for task in tasks {
+                            let _ = task.await;
+                        }
 
-                        match Self::process_item(
-                            &queue_manager,
-                            &item,
-                            &config,
-                            &document_processor,
-                            &embedding_generator,
-                            &storage_client,
-                        )
-                        .await
-                        {
-                            Ok(()) => {
-                                let processing_time = start_time.elapsed().as_millis() as u64;
-                                Self::update_metrics_success(
-                                    &metrics,
-                                    processing_time,
-                                    &queue_manager,
-                                )
-                                .await;
+                        debug!("Parallel batch processing complete");
+                    } else {
+                        // Sequential processing (original behavior)
+                        for item in items {
+                            // Check shutdown signal before processing each item
+                            if cancellation_token.is_cancelled() {
+                                warn!("Shutdown requested, stopping batch processing");
+                                return Ok(());
                             }
-                            Err(e) => {
-                                error!(
-                                    "Failed to process item {}: {}",
-                                    item.file_absolute_path, e
-                                );
-                                Self::update_metrics_failure(&metrics, &e).await;
+
+                            let start_time = std::time::Instant::now();
+
+                            match Self::process_item(
+                                &queue_manager,
+                                &item,
+                                &config,
+                                &document_processor,
+                                &embedding_generator,
+                                &storage_client,
+                            )
+                            .await
+                            {
+                                Ok(()) => {
+                                    let processing_time = start_time.elapsed().as_millis() as u64;
+                                    Self::update_metrics_success(
+                                        &metrics,
+                                        processing_time,
+                                        &queue_manager,
+                                    )
+                                    .await;
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Failed to process item {}: {}",
+                                        item.file_absolute_path, e
+                                    );
+                                    Self::update_metrics_failure(&metrics, &e).await;
+                                }
                             }
                         }
                     }
