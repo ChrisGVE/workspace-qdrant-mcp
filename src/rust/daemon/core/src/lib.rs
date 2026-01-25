@@ -49,7 +49,7 @@ pub use crate::document_processor::{
 };
 pub use crate::embedding::{
     EmbeddingGenerator, EmbeddingConfig, EmbeddingResult,
-    DenseEmbedding, SparseEmbedding, EmbeddingError
+    DenseEmbedding, SparseEmbedding, EmbeddingError, BM25, PreprocessedText
 };
 pub use crate::processing::{
     Pipeline, TaskPriority, TaskPayload, TaskSource, TaskResult, TaskResultData,

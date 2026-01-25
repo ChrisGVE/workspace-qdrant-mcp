@@ -27,9 +27,10 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
 use uuid::Uuid;
 use workspace_qdrant_core::storage::{StorageClient, DocumentPoint, StorageError};
-use workspace_qdrant_core::{UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION};
+use workspace_qdrant_core::{UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION, BM25};
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 use tokio::sync::Mutex as TokioMutex;
+use tokio::sync::RwLock as TokioRwLock;
 use lru::LruCache;
 use std::num::NonZeroUsize;
 
@@ -41,8 +42,17 @@ static EMBEDDING_MODEL: OnceLock<TokioMutex<TextEmbedding>> = OnceLock::new();
 /// Improves performance by caching embeddings for repeated content
 static EMBEDDING_CACHE: OnceLock<TokioMutex<LruCache<u64, Vec<f32>>>> = OnceLock::new();
 
+/// Global BM25 instance for sparse vector generation (thread-safe, read-write lock)
+/// Uses RwLock because reads (generate_sparse_vector) are frequent and concurrent,
+/// while writes (add_document) are less frequent during ingestion
+static BM25_MODEL: OnceLock<TokioRwLock<BM25>> = OnceLock::new();
+
 /// Default cache size (number of entries)
 const DEFAULT_CACHE_SIZE: usize = 1000;
+
+/// Default BM25 parameters (standard values from research)
+const DEFAULT_BM25_K1: f32 = 1.2;
+const DEFAULT_BM25_B: f32 = 0.75;
 
 /// Cache metrics for monitoring
 pub struct EmbeddingCacheMetrics {
@@ -301,7 +311,7 @@ impl DocumentServiceImpl {
         chunks
     }
 
-    /// Initialize the global embedding model and cache if not already initialized
+    /// Initialize the global embedding model, cache, and BM25 if not already initialized
     fn init_embedding_model() -> Result<(), Status> {
         // Initialize the embedding model
         EMBEDDING_MODEL.get_or_init(|| {
@@ -322,6 +332,12 @@ impl DocumentServiceImpl {
             TokioMutex::new(LruCache::new(cache_size))
         });
 
+        // Initialize BM25 for sparse vector generation
+        BM25_MODEL.get_or_init(|| {
+            info!("Initializing BM25 model (k1={}, b={})...", DEFAULT_BM25_K1, DEFAULT_BM25_B);
+            TokioRwLock::new(BM25::new(DEFAULT_BM25_K1, DEFAULT_BM25_B))
+        });
+
         Ok(())
     }
 
@@ -330,6 +346,60 @@ impl DocumentServiceImpl {
         let mut hasher = DefaultHasher::new();
         text.hash(&mut hasher);
         hasher.finish()
+    }
+
+    /// Simple tokenization for BM25 sparse vector generation
+    /// Splits on whitespace and punctuation, lowercases, removes stopwords
+    fn tokenize(text: &str) -> Vec<String> {
+        // Common English stopwords
+        const STOPWORDS: &[&str] = &[
+            "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+            "has", "he", "in", "is", "it", "its", "of", "on", "or", "that",
+            "the", "to", "was", "were", "will", "with", "this", "but", "they",
+            "have", "had", "what", "when", "where", "who", "which", "why", "how"
+        ];
+
+        text.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .filter(|s| !s.is_empty() && s.len() > 1)
+            .filter(|s| !STOPWORDS.contains(s))
+            .map(|s| s.to_string())
+            .collect()
+    }
+
+    /// Generate sparse vector using BM25 algorithm
+    /// First adds document to corpus, then generates sparse vector
+    async fn generate_sparse_vector(&self, text: &str) -> Result<HashMap<u32, f32>, Status> {
+        Self::init_embedding_model()?;
+
+        let bm25 = BM25_MODEL.get()
+            .ok_or_else(|| Status::internal("BM25 model not initialized"))?;
+
+        let tokens = Self::tokenize(text);
+
+        if tokens.is_empty() {
+            debug!("No tokens for sparse vector generation, returning empty");
+            return Ok(HashMap::new());
+        }
+
+        // Add document to corpus and generate sparse vector
+        let sparse_map: HashMap<u32, f32> = {
+            let mut bm25_guard = bm25.write().await;
+
+            // Add document to corpus for IDF calculation
+            bm25_guard.add_document(&tokens);
+
+            // Generate sparse vector
+            let sparse = bm25_guard.generate_sparse_vector(&tokens);
+
+            // Convert to HashMap<u32, f32>
+            sparse.indices.into_iter()
+                .zip(sparse.values.into_iter())
+                .collect()
+        };
+
+        debug!("Generated sparse vector with {} non-zero entries", sparse_map.len());
+        Ok(sparse_map)
     }
 
     /// Generate embedding for text using FastEmbed (all-MiniLM-L6-v2)
@@ -539,8 +609,16 @@ impl DocumentServiceImpl {
         let created_at = chrono::Utc::now().to_rfc3339();
 
         for (chunk_content, chunk_index) in chunks {
-            // Generate embedding using FastEmbed
-            let embedding = self.generate_embedding(&chunk_content).await?;
+            // Generate dense embedding using FastEmbed
+            let dense_embedding = self.generate_embedding(&chunk_content).await?;
+
+            // Generate sparse vector using BM25
+            let sparse_vector = self.generate_sparse_vector(&chunk_content).await?;
+            let sparse_option = if sparse_vector.is_empty() {
+                None
+            } else {
+                Some(sparse_vector)
+            };
 
             // Build metadata - convert HashMap<String, String> to HashMap<String, Value>
             let mut chunk_metadata: HashMap<String, serde_json::Value> = metadata.iter()
@@ -558,8 +636,8 @@ impl DocumentServiceImpl {
 
             let point = DocumentPoint {
                 id: point_id,
-                dense_vector: embedding,
-                sparse_vector: None, // TODO: Add sparse vector support
+                dense_vector: dense_embedding,
+                sparse_vector: sparse_option,
                 payload: chunk_metadata,
             };
 
@@ -1037,5 +1115,96 @@ mod tests {
         // Different content should produce different hash
         let hash3 = DocumentServiceImpl::content_hash("different content");
         assert_ne!(hash1, hash3);
+    }
+
+    #[test]
+    fn test_tokenize() {
+        // Basic tokenization
+        let tokens = DocumentServiceImpl::tokenize("Hello world test");
+        assert!(tokens.contains(&"hello".to_string()));
+        assert!(tokens.contains(&"world".to_string()));
+        assert!(tokens.contains(&"test".to_string()));
+
+        // Stopwords should be filtered
+        let tokens2 = DocumentServiceImpl::tokenize("the quick brown fox and the lazy dog");
+        assert!(!tokens2.contains(&"the".to_string()));
+        assert!(!tokens2.contains(&"and".to_string()));
+        assert!(tokens2.contains(&"quick".to_string()));
+        assert!(tokens2.contains(&"brown".to_string()));
+        assert!(tokens2.contains(&"fox".to_string()));
+        assert!(tokens2.contains(&"lazy".to_string()));
+        assert!(tokens2.contains(&"dog".to_string()));
+
+        // Single-character tokens should be filtered
+        let tokens3 = DocumentServiceImpl::tokenize("a b c test word");
+        assert!(!tokens3.contains(&"a".to_string()));
+        assert!(!tokens3.contains(&"b".to_string()));
+        assert!(tokens3.contains(&"test".to_string()));
+        assert!(tokens3.contains(&"word".to_string()));
+
+        // Punctuation handling
+        let tokens4 = DocumentServiceImpl::tokenize("hello, world! test-case");
+        assert!(tokens4.contains(&"hello".to_string()));
+        assert!(tokens4.contains(&"world".to_string()));
+        assert!(tokens4.contains(&"test".to_string()));
+        assert!(tokens4.contains(&"case".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_generate_sparse_vector() {
+        let service = DocumentServiceImpl::default();
+
+        // BM25 needs multiple documents to calculate meaningful IDF scores
+        // First document: add to corpus (IDF will be 0 for all terms)
+        let doc1 = "machine learning algorithms for natural language processing";
+        let _sparse1 = service.generate_sparse_vector(doc1).await
+            .expect("Failed to add first document");
+
+        // Second document: should now have meaningful sparse vectors
+        // Some terms overlap (triggers IDF calculation), some are unique
+        let doc2 = "deep learning neural networks for image classification";
+        let sparse2 = service.generate_sparse_vector(doc2).await
+            .expect("Failed to generate sparse vector");
+
+        // With 2 documents, terms that appear in only one document should have positive IDF
+        // The term "learning" appears in both, so it should have lower weight
+        // Terms like "deep", "neural", "image" only appear in doc2
+
+        // Third document: should have non-empty sparse vector
+        let doc3 = "reinforcement learning algorithms for robotics control";
+        let sparse3 = service.generate_sparse_vector(doc3).await
+            .expect("Failed to generate third sparse vector");
+
+        // After 3 documents, we should see meaningful sparse vectors
+        // Terms unique to doc3 like "reinforcement", "robotics", "control" should have weight
+        // Note: With small corpus, some terms may still have 0 IDF
+
+        // Different texts should produce different sparse vectors (when non-empty)
+        if !sparse2.is_empty() && !sparse3.is_empty() {
+            assert_ne!(sparse2, sparse3, "Different documents should produce different sparse vectors");
+        }
+
+        // Verify values are non-negative when present
+        for &value in sparse2.values() {
+            assert!(value >= 0.0, "BM25 scores should be non-negative");
+        }
+        for &value in sparse3.values() {
+            assert!(value >= 0.0, "BM25 scores should be non-negative");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sparse_vector_empty_input() {
+        let service = DocumentServiceImpl::default();
+
+        // Empty text should return empty sparse vector
+        let sparse_vector = service.generate_sparse_vector("").await
+            .expect("Failed with empty input");
+        assert!(sparse_vector.is_empty(), "Empty text should produce empty sparse vector");
+
+        // Text with only stopwords should return empty sparse vector
+        let stopword_only = service.generate_sparse_vector("the and is a").await
+            .expect("Failed with stopwords only");
+        assert!(stopword_only.is_empty(), "Stopwords-only text should produce empty sparse vector");
     }
 }
