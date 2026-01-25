@@ -1491,13 +1491,13 @@ async def store(
     Store any type of content in the unified multi-tenant vector database.
 
     NEW: Task 397 - Multi-tenant storage with automatic project_id tagging
-    - All content stored in unified _projects collection
+    - All content stored in unified 'projects' collection (canonical per ADR-001)
     - Automatic project_id tagging from session context
     - File type differentiation via metadata
     - Enables cross-project search while maintaining project isolation
 
     Storage location:
-    - All project content → _projects collection
+    - All project content → 'projects' collection
     - project_id automatically set from current session
     - Differentiation via metadata: file_type, branch, source
 
@@ -1535,7 +1535,7 @@ async def store(
         # Explicit collection override (e.g., for libraries or memory)
         target_collection = collection
     else:
-        # Default: use unified _projects collection (Task 397)
+        # Default: use unified 'projects' collection (Task 397, ADR-001)
         target_collection = CANONICAL_COLLECTIONS["projects"]
         # Task 457: Warn if storing to project collection without activation
         if not is_project_activated():
@@ -1780,7 +1780,7 @@ async def search(
     - scope="project": Filter by current project_id (default, most focused)
     - scope="global": Search all projects (no project_id filter)
     - scope="all": Search projects + libraries collections (broadest)
-    - include_libraries: Also search _libraries collection
+    - include_libraries: Also search 'libraries' collection
 
     NEW: Task 459 - Dot-separated tag hierarchy filtering
     - tag="project_id": Filter by main tag (all branches of a project)
@@ -1794,8 +1794,8 @@ async def search(
     - Use manage(action="restore_deleted_library") to restore deleted libraries
 
     Architecture:
-    - Searches unified _projects collection with project_id filtering
-    - Optional parallel search in _libraries collection
+    - Searches unified 'projects' collection with project_id filtering
+    - Optional parallel search in 'libraries' collection
     - Results merged using Reciprocal Rank Fusion (RRF)
     - Filters by Git branch (default: current branch, "*" = all branches)
     - Filters by file_type when specified
@@ -2127,7 +2127,7 @@ async def manage(
     - "delete_collection" -> delete collection (name required)
     - "workspace_status" -> system status and health check
     - "collection_info" -> detailed info about specific collection
-    - "init_project" -> register project in unified _projects collection
+    - "init_project" -> register project in unified 'projects' collection
     - "cleanup" -> remove empty collections and optimize
     - "activate_project" -> register project with daemon, start heartbeat (Task 457)
     - "deactivate_project" -> stop heartbeat, deprioritize project (Task 457)
@@ -2150,8 +2150,8 @@ async def manage(
     - Re-ingestion of a library automatically clears deletion markers
 
     Multi-Tenant Architecture:
-    - init_project registers the current project's tenant_id in _projects
-    - The _projects and _libraries collections are unified (multi-tenant)
+    - init_project registers the current project's tenant_id in 'projects' collection
+    - The 'projects' and 'libraries' collections are unified (multi-tenant per ADR-001)
     - create_collection can create additional user collections
 
     Args:
