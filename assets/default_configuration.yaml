@@ -746,6 +746,95 @@ auto_ingestion:
   debounce: 10s
 
 # =============================================================================
+# QUEUE PROCESSOR CONFIGURATION
+# =============================================================================
+# Purpose: Controls the background queue processing loop that dequeues and
+# processes items from the SQLite ingestion queue. This is the core processing
+# engine for the daemon's document ingestion pipeline.
+#
+# The queue processor handles:
+# - Batch dequeuing of pending items
+# - Retry logic with exponential backoff
+# - Performance monitoring and metrics
+# - Graceful shutdown coordination
+queue_processor:
+  # enabled: Master control for queue processor
+  # Purpose: Enables or disables the background queue processing loop
+  # Development: Set to false to manually control processing
+  # Debugging: Disable to pause processing while investigating issues
+  # Format: Boolean
+  enabled: true
+
+  # batch_size: Number of items to dequeue in each processing batch
+  # Purpose: Controls memory usage and throughput characteristics
+  # Memory management: Smaller batches use less memory per cycle
+  # Throughput: Larger batches reduce dequeue overhead per item
+  # Error isolation: Smaller batches limit blast radius of failures
+  # Tuning: Adjust based on average document size and available memory
+  # Format: Integer > 0
+  # Default reasoning: 10 items balances throughput with resource usage
+  batch_size: 10
+
+  # poll_interval_ms: Milliseconds between batch processing cycles
+  # Purpose: Controls how frequently the processor checks for new items
+  # Latency tradeoff: Lower = faster processing but higher CPU usage
+  # Idle efficiency: Higher = less CPU when queue is empty
+  # System load: Affects background CPU utilization
+  # Format: Integer > 0 (milliseconds)
+  # Default reasoning: 500ms provides good balance of latency and efficiency
+  poll_interval_ms: 500
+
+  # max_retries: Maximum retry attempts for failed items
+  # Purpose: Limits retry attempts to prevent infinite retry loops
+  # Persistent errors: Items exceeding max_retries are marked as failed
+  # Resource protection: Prevents runaway retry cycles
+  # Error handling: Consider investigating items that consistently fail
+  # Format: Integer >= 0
+  # Default reasoning: 5 retries with exponential backoff provides good coverage
+  max_retries: 5
+
+  # retry_backoff_base_ms: Base delay for retry backoff calculation
+  # Purpose: Initial delay before first retry attempt
+  # Transient errors: Short delay handles brief network hiccups
+  # Exponential growth: Base is multiplied by 2^retry_count
+  # Format: Integer > 0 (milliseconds)
+  # Default reasoning: 60000ms (1 min) prevents rapid retry hammering
+  retry_backoff_base_ms: 60000
+
+  # retry_backoff_max_ms: Maximum delay cap for retry backoff
+  # Purpose: Caps exponential backoff growth
+  # Reasonable ceiling: Prevents multi-day retry delays
+  # User experience: Items don't get stuck for too long
+  # Format: Integer > retry_backoff_base_ms (milliseconds)
+  # Default reasoning: 3600000ms (1 hour) provides reasonable upper bound
+  retry_backoff_max_ms: 3600000
+
+  # target_throughput: Target documents processed per minute
+  # Purpose: Performance target for monitoring and alerting
+  # Monitoring: Compare actual throughput against target
+  # Alerting: Trigger alerts when throughput falls below target
+  # Capacity planning: Helps size infrastructure appropriately
+  # Format: Integer > 0
+  # Default reasoning: 1000 docs/min is achievable on modern hardware
+  target_throughput: 1000
+
+  # enable_metrics: Enable performance metrics collection
+  # Purpose: Controls whether metrics are collected and exposed
+  # Monitoring: Required for observability and alerting
+  # Performance: Minimal overhead, generally leave enabled
+  # Debugging: Metrics help identify processing bottlenecks
+  # Format: Boolean
+  enable_metrics: true
+
+  # graceful_shutdown_timeout_secs: Time to wait for clean shutdown
+  # Purpose: Maximum time to wait for current batch to complete on shutdown
+  # Data integrity: Prevents partial processing during shutdown
+  # Responsiveness: Limits shutdown delay
+  # Format: Integer > 0 (seconds)
+  # Default reasoning: 30s allows most batches to complete
+  graceful_shutdown_timeout_secs: 30
+
+# =============================================================================
 # ERROR MESSAGE RETENTION CONFIGURATION
 # =============================================================================
 # Purpose: Controls retention policies and cleanup operations for error messages
