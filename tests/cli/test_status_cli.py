@@ -338,10 +338,13 @@ class TestStatusCLIIntegration:
     @pytest.mark.asyncio
     async def test_export_unsupported_format(self):
         """Test error handling for unsupported export formats."""
+        import click.exceptions
+
         status_data = {"test": "data"}
 
         # Test with unsupported format
-        try:
+        # typer.Exit raises click.exceptions.Exit
+        with pytest.raises((SystemExit, click.exceptions.Exit)) as exc_info:
             await export_status_data(
                 status_data=status_data,
                 export_format="xml",  # Unsupported
@@ -351,9 +354,8 @@ class TestStatusCLIIntegration:
                 days=7,
                 limit=100
             )
-        except SystemExit:
-            # export_status_data raises typer.Exit(1) for unsupported formats
-            pass
+        # export_status_data raises typer.Exit(1) for unsupported formats
+        assert exc_info.value.exit_code == 1
 
 
 class TestStatusFiltering:
