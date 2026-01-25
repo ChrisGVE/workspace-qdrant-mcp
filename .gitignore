@@ -260,6 +260,7 @@ affected_commits.txt
 .file_watch_cache.json
 .wqm/cache/
 *_cache.json
+.fastembed_cache/
 
 # Backup directories
 .workspace-qdrant/backups/

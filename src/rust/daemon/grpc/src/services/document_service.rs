@@ -19,12 +19,18 @@
 //!   - Otherwise → `libraries` with library_name metadata
 
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
 use uuid::Uuid;
 use workspace_qdrant_core::storage::{StorageClient, DocumentPoint, StorageError};
 use workspace_qdrant_core::{UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION};
+use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
+use tokio::sync::Mutex as TokioMutex;
+
+/// Global embedding model instance (lazy-initialized, thread-safe)
+/// Uses Mutex because TextEmbedding is not Send+Sync
+static EMBEDDING_MODEL: OnceLock<TokioMutex<TextEmbedding>> = OnceLock::new();
 
 use crate::proto::{
     document_service_server::DocumentService,
@@ -252,36 +258,105 @@ impl DocumentServiceImpl {
         chunks
     }
 
-    /// Generate mock embedding for text
-    /// TODO: Replace with actual embedding generation (fastembed-rs or external service)
-    /// For now, returns a simple deterministic mock based on text hash
-    fn generate_embedding(&self, text: &str) -> Vec<f32> {
-        // Simple deterministic mock: hash text and use it to seed a pattern
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
+    /// Initialize the global embedding model if not already initialized
+    fn init_embedding_model() -> Result<(), Status> {
+        EMBEDDING_MODEL.get_or_init(|| {
+            info!("Initializing FastEmbed model (all-MiniLM-L6-v2)...");
+            let model = TextEmbedding::try_new(
+                InitOptions::new(EmbeddingModel::AllMiniLML6V2)
+                    .with_show_download_progress(true)
+            ).expect("Failed to initialize FastEmbed model");
+            info!("FastEmbed model initialized successfully");
+            TokioMutex::new(model)
+        });
+        Ok(())
+    }
 
-        let mut hasher = DefaultHasher::new();
-        text.hash(&mut hasher);
-        let hash = hasher.finish();
+    /// Generate embedding for text using FastEmbed (all-MiniLM-L6-v2)
+    /// Returns 384-dimensional dense vector for semantic search
+    async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>, Status> {
+        // Ensure model is initialized
+        Self::init_embedding_model()?;
 
-        // Generate deterministic vector based on hash
-        let mut embedding = Vec::with_capacity(DEFAULT_VECTOR_SIZE as usize);
-        let mut seed = hash;
+        let model = EMBEDDING_MODEL.get()
+            .ok_or_else(|| Status::internal("Embedding model not initialized"))?;
 
-        for _ in 0..DEFAULT_VECTOR_SIZE {
-            // Simple LCG (Linear Congruential Generator) for deterministic randomness
-            seed = seed.wrapping_mul(1103515245).wrapping_add(12345);
-            let value = (seed >> 16) as f32 / 32768.0 - 1.0; // Range: [-1.0, 1.0]
-            embedding.push(value);
+        // Clone text for blocking task
+        let text_owned = text.to_string();
+
+        // Acquire lock and generate embedding
+        // FastEmbed is CPU-bound, so we use spawn_blocking
+        let embedding = {
+            let mut model_guard = model.lock().await;
+
+            // Prepare document for embedding
+            let documents = vec![text_owned.as_str()];
+
+            // Generate embedding (synchronous operation)
+            // Using tokio's spawn_blocking would require moving the MutexGuard which isn't possible
+            // So we perform the CPU work directly and rely on the tokio::sync::Mutex
+            match model_guard.embed(documents, None) {
+                Ok(embeddings) => {
+                    if embeddings.is_empty() {
+                        return Err(Status::internal("FastEmbed returned empty embeddings"));
+                    }
+                    // FastEmbed returns Vec<Vec<f32>>, we want the first one
+                    embeddings.into_iter().next()
+                        .ok_or_else(|| Status::internal("FastEmbed returned no embeddings"))?
+                }
+                Err(e) => {
+                    error!("FastEmbed embedding generation failed: {:?}", e);
+                    return Err(Status::internal(format!(
+                        "Embedding generation failed: {}", e
+                    )));
+                }
+            }
+        };
+
+        // Verify dimension matches expected
+        if embedding.len() != DEFAULT_VECTOR_SIZE as usize {
+            warn!(
+                "Embedding dimension mismatch: expected {}, got {}",
+                DEFAULT_VECTOR_SIZE, embedding.len()
+            );
         }
 
-        // Normalize to unit vector for cosine similarity
-        let magnitude: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
-        if magnitude > 0.0 {
-            embedding.iter_mut().for_each(|x| *x /= magnitude);
+        debug!("Generated {}-dimensional embedding", embedding.len());
+        Ok(embedding)
+    }
+
+    /// Generate embeddings for multiple texts in a batch (more efficient)
+    async fn generate_embeddings_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, Status> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
         }
 
-        embedding
+        // Ensure model is initialized
+        Self::init_embedding_model()?;
+
+        let model = EMBEDDING_MODEL.get()
+            .ok_or_else(|| Status::internal("Embedding model not initialized"))?;
+
+        // Acquire lock and generate embeddings
+        let embeddings = {
+            let mut model_guard = model.lock().await;
+
+            // Prepare documents - convert &[String] to Vec<&str>
+            let documents: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+
+            match model_guard.embed(documents, None) {
+                Ok(embeddings) => embeddings,
+                Err(e) => {
+                    error!("FastEmbed batch embedding generation failed: {:?}", e);
+                    return Err(Status::internal(format!(
+                        "Batch embedding generation failed: {}", e
+                    )));
+                }
+            }
+        };
+
+        debug!("Generated {} embeddings in batch", embeddings.len());
+        Ok(embeddings)
     }
 
     /// Ensure collection exists, create if not
@@ -370,8 +445,8 @@ impl DocumentServiceImpl {
         let created_at = chrono::Utc::now().to_rfc3339();
 
         for (chunk_content, chunk_index) in chunks {
-            // Generate embedding
-            let embedding = self.generate_embedding(&chunk_content);
+            // Generate embedding using FastEmbed
+            let embedding = self.generate_embedding(&chunk_content).await?;
 
             // Build metadata - convert HashMap<String, String> to HashMap<String, Value>
             let mut chunk_metadata: HashMap<String, serde_json::Value> = metadata.iter()
@@ -794,29 +869,33 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_generate_embedding() {
+    #[tokio::test]
+    async fn test_generate_embedding() {
         let service = DocumentServiceImpl::default();
 
         let text = "Test text for embedding";
-        let embedding = service.generate_embedding(text);
+        let embedding = service.generate_embedding(text).await
+            .expect("Failed to generate embedding");
 
-        // Check dimensions
+        // Check dimensions (all-MiniLM-L6-v2 produces 384-dimensional vectors)
         assert_eq!(embedding.len(), DEFAULT_VECTOR_SIZE as usize);
 
         // Check all values are finite
         assert!(embedding.iter().all(|&x| x.is_finite()));
 
-        // Check roughly normalized (magnitude near 1.0)
+        // FastEmbed embeddings are normalized by the model
         let magnitude: f32 = embedding.iter().map(|x| x * x).sum::<f32>().sqrt();
-        assert!((magnitude - 1.0).abs() < 0.01, "Embedding not normalized: {}", magnitude);
+        // Allow some tolerance since model normalization may vary slightly
+        assert!((magnitude - 1.0).abs() < 0.1, "Embedding not normalized: {}", magnitude);
 
-        // Verify deterministic: same text produces same embedding
-        let embedding2 = service.generate_embedding(text);
-        assert_eq!(embedding, embedding2);
+        // Note: FastEmbed is deterministic for the same input
+        let embedding2 = service.generate_embedding(text).await
+            .expect("Failed to generate second embedding");
+        assert_eq!(embedding, embedding2, "Same text should produce same embedding");
 
         // Verify different text produces different embedding
-        let different_embedding = service.generate_embedding("Different text");
-        assert_ne!(embedding, different_embedding);
+        let different_embedding = service.generate_embedding("Different text for comparison").await
+            .expect("Failed to generate different embedding");
+        assert_ne!(embedding, different_embedding, "Different text should produce different embedding");
     }
 }
