@@ -158,11 +158,13 @@ impl DocumentServiceImpl {
             return Err(Status::invalid_argument("Tenant ID cannot be empty"));
         }
 
-        // Memory collections use direct naming (no multi-tenant routing)
+        // Memory collection uses single canonical name with tenant isolation via metadata
+        // Per ADR-001: All memory items go to `memory` collection, filtered by project_id
+        // NOTE: `agent_memory` is deprecated - route to canonical `memory` collection
         if basename == "memory" || basename == "agent_memory" {
-            let collection_name = Self::format_collection_name(basename, tenant_id)?;
-            // Memory uses project_id for consistency
-            return Ok((collection_name, "project_id".to_string(), tenant_id.to_string()));
+            // Route to canonical `memory` collection (not per-tenant collections)
+            // Tenant isolation achieved via project_id in metadata payload
+            return Ok(("memory".to_string(), "project_id".to_string(), tenant_id.to_string()));
         }
 
         // Multi-tenant routing based on tenant_id format
@@ -637,19 +639,21 @@ mod tests {
 
     #[test]
     fn test_determine_collection_routing_memory() {
-        // Memory collection bypasses multi-tenant routing
+        // Memory routes to canonical `memory` collection with tenant in metadata
         let result = DocumentServiceImpl::determine_collection_routing("memory", "a1b2c3d4e5f6");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
-        assert_eq!(collection, "memory_a1b2c3d4e5f6");
+        // All memory items go to single canonical `memory` collection
+        assert_eq!(collection, "memory");
         assert_eq!(tenant_type, "project_id");
         assert_eq!(tenant_value, "a1b2c3d4e5f6");
 
-        // agent_memory also bypasses routing
+        // agent_memory is deprecated but routes to canonical `memory` collection
         let result = DocumentServiceImpl::determine_collection_routing("agent_memory", "user123");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
-        assert_eq!(collection, "agent_memory_user123");
+        // Deprecated agent_memory also routes to canonical `memory`
+        assert_eq!(collection, "memory");
         assert_eq!(tenant_type, "project_id");
         assert_eq!(tenant_value, "user123");
     }
