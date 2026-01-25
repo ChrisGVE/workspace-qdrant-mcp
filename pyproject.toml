@@ -200,7 +200,9 @@ filterwarnings = [
 [dependency-groups]
 dev = [
     "memory-profiler>=0.61.0",
+    "pytest-asyncio>=1.2.0",
     "pytest-bdd>=8.1.0",
     "pytest-benchmark>=5.1.0",
     "respx>=0.22.0",
+    "testcontainers>=4.13.0",
 ]

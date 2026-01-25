@@ -5108,9 +5108,11 @@ tokenizers = [
 [package.dev-dependencies]
 dev = [
     { name = "memory-profiler" },
+    { name = "pytest-asyncio" },
     { name = "pytest-bdd" },
     { name = "pytest-benchmark" },
     { name = "respx" },
+    { name = "testcontainers" },
 ]
 
 [package.metadata]
@@ -5195,9 +5197,11 @@ provides-extras = ["dev", "full", "tokenizers"]
 [package.metadata.requires-dev]
 dev = [
     { name = "memory-profiler", specifier = ">=0.61.0" },
+    { name = "pytest-asyncio", specifier = ">=1.2.0" },
     { name = "pytest-bdd", specifier = ">=8.1.0" },
     { name = "pytest-benchmark", specifier = ">=5.1.0" },
     { name = "respx", specifier = ">=0.22.0" },
+    { name = "testcontainers", specifier = ">=4.13.0" },
 ]
 
 [[package]]
