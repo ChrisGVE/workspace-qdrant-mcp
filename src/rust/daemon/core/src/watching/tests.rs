@@ -655,3 +655,102 @@ mod project_auto_watch_tests {
     }
 }
 
+/// Platform-specific tests for macOS FSEvents watcher
+#[cfg(target_os = "macos")]
+mod platform_macos_tests {
+    use super::*;
+    use crate::watching::platform::{MacOSConfig, MacOSWatcher, PlatformWatcher};
+
+    fn test_macos_config() -> MacOSConfig {
+        MacOSConfig {
+            latency: 0.1,
+            use_kqueue: false,
+            stream_flags: 0,
+            watch_file_events: true,
+            watch_dir_events: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_macos_watcher_creation() -> TestResult<()> {
+        let config = test_macos_config();
+        let watcher = MacOSWatcher::new(config, 4096)?;
+
+        assert!(!watcher.is_active());
+        assert_eq!(watcher.watched_path_count(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_macos_watcher_watch_and_stop() -> TestResult<()> {
+        let config = test_macos_config();
+        let mut watcher = MacOSWatcher::new(config, 4096)?;
+
+        let temp_dir = TempDir::new()?;
+        let watch_path = temp_dir.path();
+
+        // Start watching
+        watcher.watch(watch_path).await?;
+        assert!(watcher.is_active());
+        assert_eq!(watcher.watched_path_count(), 1);
+
+        // Stop watching
+        watcher.stop().await?;
+        assert!(!watcher.is_active());
+        assert_eq!(watcher.watched_path_count(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_macos_watcher_nonexistent_path() -> TestResult<()> {
+        let config = test_macos_config();
+        let mut watcher = MacOSWatcher::new(config, 4096)?;
+
+        let result = watcher.watch(Path::new("/nonexistent/path/that/does/not/exist")).await;
+        assert!(result.is_err());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_macos_watcher_symlink_resolution() -> TestResult<()> {
+        let config = test_macos_config();
+        let mut watcher = MacOSWatcher::new(config, 4096)?;
+
+        let temp_dir = TempDir::new()?;
+        let actual_dir = temp_dir.path().join("actual");
+        fs::create_dir(&actual_dir)?;
+
+        // Create a symlink
+        let symlink_path = temp_dir.path().join("symlink");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&actual_dir, &symlink_path)?;
+
+        // Watch the symlink - should resolve to actual path
+        watcher.watch(&symlink_path).await?;
+        assert!(watcher.is_active());
+        assert_eq!(watcher.watched_path_count(), 1);
+
+        watcher.stop().await?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_macos_watcher_event_receiver() -> TestResult<()> {
+        let config = test_macos_config();
+        let mut watcher = MacOSWatcher::new(config, 4096)?;
+
+        // Take the event receiver before watching
+        let receiver = watcher.take_event_receiver();
+        assert!(receiver.is_some());
+
+        // Second call should return None
+        let receiver2 = watcher.take_event_receiver();
+        assert!(receiver2.is_none());
+
+        Ok(())
+    }
+}
+
