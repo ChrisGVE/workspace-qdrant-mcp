@@ -82,6 +82,7 @@ Write Path Architecture (First Principle 10, ADR-001):
 import asyncio
 import logging
 import os
+import random
 import subprocess
 from contextlib import asynccontextmanager
 from enum import Enum
@@ -167,6 +168,24 @@ project_cache = {}
 _session_project_id: str | None = None
 _session_project_path: str | None = None
 _session_heartbeat: "SessionHeartbeat | None" = None
+
+# ============================================================================
+# Task 452: Stability and Reliability Improvements
+# ============================================================================
+# Constants for connection retry with exponential backoff
+_RETRY_BASE_DELAY_SECS = 1.0  # Base delay for exponential backoff
+_RETRY_MAX_DELAY_SECS = 30.0  # Maximum delay cap
+_RETRY_JITTER_FACTOR = 0.1  # Random jitter factor (±10%)
+
+# Cache management constants
+_CACHE_MAX_SIZE = 1000  # Maximum entries in project_cache
+_CACHE_TTL_SECS = 3600  # Cache TTL in seconds (1 hour)
+
+# Health monitoring state
+_last_health_check: datetime | None = None
+_consecutive_failures: int = 0
+_total_operations: int = 0
+_successful_operations: int = 0
 
 
 def is_project_activated() -> bool:
@@ -333,6 +352,209 @@ def get_daemon_unavailable_message() -> str:
         "Suggested fallback: Use scope='global' with include_libraries=True "
         "to search across all collections without daemon dependency."
     )
+
+
+# ============================================================================
+# Task 452: Stability and Reliability Helper Functions
+# ============================================================================
+
+
+def calculate_retry_delay(attempt: int) -> float:
+    """
+    Calculate retry delay with exponential backoff and jitter.
+
+    Task 452: Connection retry logic with exponential backoff
+
+    Uses exponential backoff formula: base_delay * (2 ^ attempt)
+    with jitter to prevent thundering herd problems.
+
+    Args:
+        attempt: Current attempt number (0-indexed)
+
+    Returns:
+        Delay in seconds before next retry
+    """
+    # Exponential backoff: 1s, 2s, 4s, 8s, 16s, ...
+    delay = _RETRY_BASE_DELAY_SECS * (2 ** attempt)
+
+    # Cap at maximum delay
+    delay = min(delay, _RETRY_MAX_DELAY_SECS)
+
+    # Add jitter (±10%) to prevent thundering herd
+    jitter = delay * _RETRY_JITTER_FACTOR * (2 * random.random() - 1)
+    delay += jitter
+
+    return max(0.1, delay)  # Minimum 100ms delay
+
+
+async def retry_with_backoff(
+    operation,
+    max_attempts: int = 3,
+    operation_name: str = "operation",
+    on_retry=None,
+) -> Any:
+    """
+    Execute operation with exponential backoff retry.
+
+    Task 452: Connection retry logic
+
+    Args:
+        operation: Async callable to execute
+        max_attempts: Maximum number of attempts
+        operation_name: Name for logging
+        on_retry: Optional callback called on retry with (attempt, exception)
+
+    Returns:
+        Result of successful operation
+
+    Raises:
+        Last exception if all attempts fail
+    """
+    logger = logging.getLogger(__name__)
+    last_exception = None
+
+    for attempt in range(max_attempts):
+        try:
+            return await operation()
+        except Exception as e:
+            last_exception = e
+            remaining = max_attempts - attempt - 1
+
+            if remaining > 0:
+                delay = calculate_retry_delay(attempt)
+                logger.warning(
+                    f"{operation_name} failed (attempt {attempt + 1}/{max_attempts}): {e}. "
+                    f"Retrying in {delay:.1f}s ({remaining} attempts left)"
+                )
+
+                if on_retry:
+                    on_retry(attempt, e)
+
+                await asyncio.sleep(delay)
+            else:
+                logger.error(
+                    f"{operation_name} failed after {max_attempts} attempts: {e}"
+                )
+
+    raise last_exception
+
+
+def manage_cache_size():
+    """
+    Manage project_cache size to prevent memory leaks.
+
+    Task 452: Memory leak prevention
+
+    Evicts oldest entries when cache exceeds maximum size.
+    """
+    global project_cache
+
+    if len(project_cache) > _CACHE_MAX_SIZE:
+        # Evict oldest half of entries
+        entries_to_remove = len(project_cache) - (_CACHE_MAX_SIZE // 2)
+        keys_to_remove = list(project_cache.keys())[:entries_to_remove]
+        for key in keys_to_remove:
+            del project_cache[key]
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"Cache cleanup: removed {len(keys_to_remove)} entries")
+
+
+def record_operation_result(success: bool) -> None:
+    """
+    Record operation result for health monitoring.
+
+    Task 452: Health monitoring
+
+    Args:
+        success: Whether the operation succeeded
+    """
+    global _total_operations, _successful_operations, _consecutive_failures
+
+    _total_operations += 1
+    if success:
+        _successful_operations += 1
+        _consecutive_failures = 0
+    else:
+        _consecutive_failures += 1
+
+
+def get_health_metrics() -> dict[str, Any]:
+    """
+    Get health metrics for monitoring.
+
+    Task 452: Health monitoring endpoints
+
+    Returns:
+        Dict with health metrics including success rate and failure counts
+    """
+    global _total_operations, _successful_operations, _consecutive_failures
+    global _last_health_check
+
+    success_rate = (
+        (_successful_operations / _total_operations * 100)
+        if _total_operations > 0
+        else 100.0
+    )
+
+    return {
+        "total_operations": _total_operations,
+        "successful_operations": _successful_operations,
+        "failed_operations": _total_operations - _successful_operations,
+        "success_rate_percent": round(success_rate, 2),
+        "consecutive_failures": _consecutive_failures,
+        "last_health_check": _last_health_check.isoformat() if _last_health_check else None,
+        "daemon_state": _daemon_state.value,
+        "cache_size": len(project_cache),
+        "cache_max_size": _CACHE_MAX_SIZE,
+    }
+
+
+async def cleanup_resources() -> None:
+    """
+    Cleanup resources for graceful shutdown or error recovery.
+
+    Task 452: Resource cleanup on errors
+
+    Performs:
+    - Cache cleanup
+    - Daemon client disconnection
+    - State manager cleanup
+    """
+    global qdrant_client, daemon_client, alias_manager, state_manager
+    global embedding_model, project_cache
+
+    logger = logging.getLogger(__name__)
+    logger.info("Starting resource cleanup...")
+
+    # Clear caches
+    project_cache.clear()
+
+    # Cleanup daemon client
+    if daemon_client:
+        try:
+            await daemon_client.disconnect()
+        except Exception as e:
+            logger.warning(f"Error disconnecting daemon client: {e}")
+
+    # Cleanup state manager
+    if state_manager:
+        try:
+            await state_manager.close()
+        except Exception as e:
+            logger.warning(f"Error closing state manager: {e}")
+
+    # Close Qdrant client
+    if qdrant_client:
+        try:
+            await qdrant_client.close()
+        except Exception as e:
+            logger.warning(f"Error closing Qdrant client: {e}")
+
+    # Clear embedding model (release memory)
+    embedding_model = None
+
+    logger.info("Resource cleanup completed")
 
 
 class SessionHeartbeat:
@@ -547,6 +769,7 @@ async def lifespan(app):
 
     # =========================================================================
     # SHUTDOWN: Stop heartbeat and deprioritize project with daemon
+    # Task 452: Graceful shutdown handling with comprehensive cleanup
     # =========================================================================
     try:
         # Task 407: Stop heartbeat first to prevent orphan detection race
@@ -569,11 +792,15 @@ async def lifespan(app):
             except Exception as e:
                 logger.warning(f"Failed to deprioritize project: {e}")
 
-        # Clean up daemon client
-        if daemon_client:
-            await daemon_client.disconnect()
+        # Task 452: Comprehensive resource cleanup
+        await cleanup_resources()
     except Exception as e:
         logger.warning(f"Lifespan shutdown error: {e}")
+        # Task 452: Ensure cleanup happens even on error
+        try:
+            await cleanup_resources()
+        except Exception as cleanup_error:
+            logger.error(f"Cleanup during shutdown error also failed: {cleanup_error}")
 
 
 # Initialize the FastMCP app with lifespan management
@@ -1335,6 +1562,10 @@ async def store(
             # Task 458: Update daemon state to AVAILABLE on successful write
             await update_daemon_state(success=True)
 
+            # Task 452: Record successful operation for health monitoring
+            record_operation_result(success=True)
+            manage_cache_size()  # Task 452: Prevent memory leaks
+
             result = {
                 "success": True,
                 "document_id": response.document_id,
@@ -1356,6 +1587,10 @@ async def store(
         except DaemonConnectionError as e:
             # Task 458: Update daemon state to UNRESPONSIVE on connection error
             await update_daemon_state(success=False)
+
+            # Task 452: Record failed operation for health monitoring
+            record_operation_result(success=False)
+
             return {
                 "success": False,
                 "error": f"Failed to store document via daemon: {str(e)}",
@@ -1437,6 +1672,10 @@ async def store(
                     points=[point]
                 )
 
+                # Task 452: Record successful fallback operation
+                record_operation_result(success=True)
+                manage_cache_size()  # Task 452: Prevent memory leaks
+
                 result = {
                     "success": True,
                     "document_id": document_id,
@@ -1456,6 +1695,8 @@ async def store(
                 return result
         except Exception as e:
             logger.error(f"Failed to store/queue document: {e}")
+            # Task 452: Record failed operation
+            record_operation_result(success=False)
             return {
                 "success": False,
                 "error": f"Failed to store document: {str(e)}"
@@ -1808,6 +2049,9 @@ async def search(
         record_search_scope(scope)
         record_search_results(scope, len(final_results), search_duration)
 
+        # Task 452: Record successful operation for health monitoring
+        record_operation_result(success=True)
+
         response = {
             "success": True,
             "query": query,
@@ -1840,6 +2084,8 @@ async def search(
         return response
 
     except Exception as e:
+        # Task 452: Record failed operation for health monitoring
+        record_operation_result(success=False)
         return {
             "success": False,
             "error": f"Search failed: {str(e)}",
@@ -2050,6 +2296,10 @@ async def manage(
 
         elif action == "workspace_status":
             # System health check (async)
+            # Task 452: Enhanced health monitoring
+            global _last_health_check
+            _last_health_check = datetime.now(timezone.utc)
+
             current_project = project_name or await get_project_name()
             project_collection = get_project_collection()
 
@@ -2068,6 +2318,36 @@ async def manage(
             # Get Qdrant cluster info (async)
             cluster_info = await qdrant_client.get_cluster_info()
 
+            # Task 452: Check daemon health
+            daemon_health = None
+            daemon_available = False
+            if daemon_client:
+                try:
+                    health = await asyncio.wait_for(
+                        daemon_client.health_check(),
+                        timeout=_DAEMON_CHECK_TIMEOUT_SECS
+                    )
+                    daemon_health = {
+                        "healthy": health.healthy,
+                        "version": getattr(health, 'version', 'unknown'),
+                        "uptime_seconds": getattr(health, 'uptime_seconds', None),
+                    }
+                    daemon_available = health.healthy
+                except asyncio.TimeoutError:
+                    daemon_health = {"healthy": False, "error": "timeout"}
+                except Exception as e:
+                    daemon_health = {"healthy": False, "error": str(e)}
+
+            # Task 452: Get health metrics
+            health_metrics = get_health_metrics()
+
+            # Task 452: Get memory usage info
+            import sys
+            memory_info = {
+                "project_cache_entries": len(project_cache),
+                "project_cache_max": _CACHE_MAX_SIZE,
+            }
+
             return {
                 "success": True,
                 "action": action,
@@ -2082,7 +2362,15 @@ async def manage(
                 },
                 "project_collections": project_collections,
                 "total_collections": len(collections_response.collections),
-                "embedding_model": os.getenv("FASTEMBED_MODEL", DEFAULT_EMBEDDING_MODEL)
+                "embedding_model": os.getenv("FASTEMBED_MODEL", DEFAULT_EMBEDDING_MODEL),
+                # Task 452: Enhanced health monitoring
+                "daemon_health": daemon_health,
+                "daemon_available": daemon_available,
+                "daemon_state": _daemon_state.value,
+                "session_activated": is_project_activated(),
+                "session_project_id": _session_project_id,
+                "health_metrics": health_metrics,
+                "memory_info": memory_info,
             }
 
         elif action == "init_project":

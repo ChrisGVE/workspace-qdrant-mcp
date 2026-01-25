@@ -727,15 +727,19 @@ async def _async_tool_wrapper(tool_name: str, coro):
         raise
 
 
-def track_tool(tool_name: str):
+def track_tool(tool_name: str, operation_callback=None):
     """Decorator for tracking MCP tool call metrics.
 
     Task 412.10: Wraps async tool functions to record:
     - wqm_tool_calls_total{tool_name, status}
     - wqm_tool_duration_seconds{tool_name}
 
+    Task 452: Enhanced to track logical success/failure from return values.
+    If the result is a dict with a 'success' key, tracks logical success/failure.
+
     Args:
         tool_name: Name of the tool being tracked
+        operation_callback: Optional callback(success: bool) for operation tracking
 
     Example:
         ```python
@@ -753,11 +757,34 @@ def track_tool(tool_name: str):
             try:
                 result = await func(*args, **kwargs)
                 duration = time.perf_counter() - start_time
-                record_tool_call(tool_name, "success", duration)
+
+                # Task 452: Check for logical success/failure in return value
+                logical_success = True
+                if isinstance(result, dict):
+                    logical_success = result.get("success", True)
+
+                status = "success" if logical_success else "logical_failure"
+                record_tool_call(tool_name, status, duration)
+
+                # Task 452: Call operation callback if provided
+                if operation_callback:
+                    try:
+                        operation_callback(logical_success)
+                    except Exception:
+                        pass  # Don't let callback failures affect tool result
+
                 return result
             except Exception as e:
                 duration = time.perf_counter() - start_time
                 record_tool_call(tool_name, "error", duration)
+
+                # Task 452: Call operation callback on exception
+                if operation_callback:
+                    try:
+                        operation_callback(False)
+                    except Exception:
+                        pass
+
                 raise
         return wrapper
     return decorator
