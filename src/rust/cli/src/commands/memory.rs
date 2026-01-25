@@ -3,7 +3,7 @@
 //! Phase 2 MEDIUM priority command for LLM memory rules.
 //! Subcommands: list, add, remove, search
 //!
-//! Memory rules are stored in the _memory collection and guide LLM behavior.
+//! Memory rules are stored in the `memory` collection and guide LLM behavior.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
@@ -106,8 +106,8 @@ async fn list_rules(
     }
     output::separator();
 
-    // Memory rules are stored in _memory collection
-    output::info("Memory rules stored in _memory collection.");
+    // Memory rules are stored in canonical `memory` collection
+    output::info("Memory rules stored in memory collection.");
     output::info("Query via MCP:");
     output::info("  mcp__workspace_qdrant__search(scope=\"memory\", query=\"*\")");
     output::separator();
@@ -124,7 +124,7 @@ async fn list_rules(
         filter.push_str(&format!("rule_type={}", t));
     }
 
-    output::info("  curl 'http://localhost:6333/collections/_memory/points/scroll' \\");
+    output::info("  curl 'http://localhost:6333/collections/memory/points/scroll' \\");
     output::info("    -H 'Content-Type: application/json' \\");
     output::info("    -d '{\"limit\": 100}'");
 
@@ -196,7 +196,7 @@ async fn remove_rule(rule_id: &str) -> Result<()> {
         Ok(mut client) => {
             let request = crate::grpc::proto::DeleteTextRequest {
                 document_id: rule_id.to_string(),
-                collection_name: "_memory".to_string(),
+                collection_name: "memory".to_string(),
             };
 
             match client.document().delete_text(request).await {

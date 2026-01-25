@@ -1009,11 +1009,11 @@ mod tests {
     fn test_queue_metrics() {
         let metrics = DaemonMetrics::new();
 
-        // Set queue depth
-        metrics.set_queue_depth("high", "_projects", 100);
+        // Set queue depth (using canonical collection name)
+        metrics.set_queue_depth("high", "projects", 100);
         let value = metrics
             .queue_depth
-            .with_label_values(&["high", "_projects"])
+            .with_label_values(&["high", "projects"])
             .get();
         assert_eq!(value, 100);
 
@@ -1030,11 +1030,11 @@ mod tests {
     fn test_tenant_metrics() {
         let metrics = DaemonMetrics::new();
 
-        // Set tenant documents
-        metrics.set_tenant_documents("tenant-123", "_projects", 500);
+        // Set tenant documents (using canonical collection name)
+        metrics.set_tenant_documents("tenant-123", "projects", 500);
         let value = metrics
             .tenant_documents_total
-            .with_label_values(&["tenant-123", "_projects"])
+            .with_label_values(&["tenant-123", "projects"])
             .get();
         assert_eq!(value, 500);
 
@@ -1051,9 +1051,9 @@ mod tests {
     fn test_encode_prometheus_format() {
         let metrics = DaemonMetrics::new();
 
-        // Add some metrics
+        // Add some metrics (using canonical collection name)
         metrics.session_started("test-project", "normal");
-        metrics.set_queue_depth("normal", "_projects", 50);
+        metrics.set_queue_depth("normal", "projects", 50);
 
         // Encode
         let output = metrics.encode().expect("encoding should succeed");
@@ -1067,7 +1067,7 @@ mod tests {
     fn test_metrics_snapshot() {
         // Use global METRICS for snapshot test
         METRICS.session_started("snapshot-test", "low");
-        METRICS.set_queue_depth("low", "_memory", 25);
+        METRICS.set_queue_depth("low", "memory", 25);
 
         let snapshot = MetricsSnapshot::capture();
         assert!(snapshot.active_sessions >= 1);

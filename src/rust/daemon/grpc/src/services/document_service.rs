@@ -14,9 +14,9 @@
 //!
 //! Routes content to unified collections based on collection_basename:
 //! - `memory`, `agent_memory` → Direct collection names (no multi-tenant)
-//! - Other basenames → Routes to `_projects` or `_libraries`:
-//!   - If tenant_id is 12-char hex → `_projects` with project_id metadata
-//!   - Otherwise → `_libraries` with library_name metadata
+//! - Other basenames → Routes to canonical `projects` or `libraries`:
+//!   - If tenant_id is 12-char hex → `projects` with project_id metadata
+//!   - Otherwise → `libraries` with library_name metadata
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -141,8 +141,8 @@ impl DocumentServiceImpl {
     /// Routing logic:
     /// - `memory`, `agent_memory` → Direct collection name (no multi-tenant)
     /// - Other basenames:
-    ///   - If tenant_id is 12-char hex → `_projects` with project_id
-    ///   - Otherwise → `_libraries` with library_name
+    ///   - If tenant_id is 12-char hex → `projects` with project_id
+    ///   - Otherwise → `libraries` with library_name
     ///
     /// Returns: (collection_name, tenant_type, tenant_value)
     /// - tenant_type: "project_id" or "library_name"
@@ -167,14 +167,14 @@ impl DocumentServiceImpl {
 
         // Multi-tenant routing based on tenant_id format
         if Self::is_project_id(tenant_id) {
-            // 12-char hex = project_id → route to _projects
+            // 12-char hex = project_id → route to canonical `projects` collection
             Ok((
                 UNIFIED_PROJECTS_COLLECTION.to_string(),
                 "project_id".to_string(),
                 tenant_id.to_string(),
             ))
         } else {
-            // Non-hex = library_name → route to _libraries
+            // Non-hex = library_name → route to canonical `libraries` collection
             Ok((
                 UNIFIED_LIBRARIES_COLLECTION.to_string(),
                 "library_name".to_string(),
@@ -656,11 +656,11 @@ mod tests {
 
     #[test]
     fn test_determine_collection_routing_projects() {
-        // Project routing: 12-char hex tenant_id → _projects
+        // Project routing: 12-char hex tenant_id → projects (canonical name)
         let result = DocumentServiceImpl::determine_collection_routing("notes", "a1b2c3d4e5f6");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
-        assert_eq!(collection, "_projects");
+        assert_eq!(collection, "projects");
         assert_eq!(tenant_type, "project_id");
         assert_eq!(tenant_value, "a1b2c3d4e5f6");
 
@@ -668,18 +668,18 @@ mod tests {
         let result = DocumentServiceImpl::determine_collection_routing("code", "123456789abc");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
-        assert_eq!(collection, "_projects");
+        assert_eq!(collection, "projects");
         assert_eq!(tenant_type, "project_id");
         assert_eq!(tenant_value, "123456789abc");
     }
 
     #[test]
     fn test_determine_collection_routing_libraries() {
-        // Library routing: non-hex tenant_id → _libraries
+        // Library routing: non-hex tenant_id → libraries (canonical name)
         let result = DocumentServiceImpl::determine_collection_routing("docs", "langchain");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
-        assert_eq!(collection, "_libraries");
+        assert_eq!(collection, "libraries");
         assert_eq!(tenant_type, "library_name");
         assert_eq!(tenant_value, "langchain");
 
@@ -687,7 +687,7 @@ mod tests {
         let result = DocumentServiceImpl::determine_collection_routing("reference", "react-docs");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
-        assert_eq!(collection, "_libraries");
+        assert_eq!(collection, "libraries");
         assert_eq!(tenant_type, "library_name");
         assert_eq!(tenant_value, "react-docs");
     }

@@ -26,17 +26,21 @@ use serde::{Deserialize, Serialize};
 // ========== MULTI-TENANT TYPES ==========
 //
 
-/// Unified collection names for multi-tenant architecture
-pub const UNIFIED_PROJECTS_COLLECTION: &str = "_projects";
-pub const UNIFIED_LIBRARIES_COLLECTION: &str = "_libraries";
+/// Unified collection names for multi-tenant architecture (canonical names)
+///
+/// These are the canonical collection names used by both MCP server and daemon.
+/// All projects are stored in `projects` with tenant_id metadata filtering.
+/// All libraries are stored in `libraries` with library_name metadata filtering.
+pub const UNIFIED_PROJECTS_COLLECTION: &str = "projects";
+pub const UNIFIED_LIBRARIES_COLLECTION: &str = "libraries";
 
 /// Watch type distinguishing project vs library watches
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WatchType {
-    /// Project watch - files are routed to _projects collection with project_id
+    /// Project watch - files are routed to `projects` collection with project_id metadata
     Project,
-    /// Library watch - files are routed to _libraries collection with library_name
+    /// Library watch - files are routed to `libraries` collection with library_name metadata
     Library,
 }
 
@@ -3283,8 +3287,9 @@ mod tests {
 
     #[test]
     fn test_unified_collection_constants() {
-        assert_eq!(UNIFIED_PROJECTS_COLLECTION, "_projects");
-        assert_eq!(UNIFIED_LIBRARIES_COLLECTION, "_libraries");
+        // Canonical collection names (without underscore prefix)
+        assert_eq!(UNIFIED_PROJECTS_COLLECTION, "projects");
+        assert_eq!(UNIFIED_LIBRARIES_COLLECTION, "libraries");
     }
 
     #[test]
@@ -3395,7 +3400,8 @@ mod tests {
             "_legacy",
         );
 
-        assert_eq!(collection, "_libraries");
+        // Now routes to canonical `libraries` collection
+        assert_eq!(collection, "libraries");
         assert_eq!(tenant, "langchain");
     }
 
@@ -3411,7 +3417,8 @@ mod tests {
             "_legacy",
         );
 
-        assert_eq!(collection, "_projects");
+        // Now routes to canonical `projects` collection
+        assert_eq!(collection, "projects");
         // Tenant should be path-based hash since temp_dir is not a git repo
         assert!(tenant.starts_with("path_"));
     }

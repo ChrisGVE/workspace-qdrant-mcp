@@ -23,18 +23,18 @@ use tracing::{debug, info, warn, error};
 // Note: tonic, hyper, and url imports removed as they're not currently used
 // They would be needed for advanced gRPC HTTP/2 configuration
 
-/// Multi-tenant collection names (unified architecture)
+/// Multi-tenant collection names (unified architecture - canonical names)
 pub mod collections {
     /// Projects collection - stores code and documents from all projects
     /// Filtered by project_id payload field
-    pub const PROJECTS: &str = "_projects";
+    pub const PROJECTS: &str = "projects";
 
     /// Libraries collection - stores library documentation
     /// Filtered by library_name payload field
-    pub const LIBRARIES: &str = "_libraries";
+    pub const LIBRARIES: &str = "libraries";
 
     /// Memory collection - stores agent memory and cross-project notes
-    pub const MEMORY: &str = "_memory";
+    pub const MEMORY: &str = "memory";
 }
 
 /// Multi-tenant collection configuration
@@ -64,11 +64,11 @@ impl Default for MultiTenantConfig {
 /// Result of multi-tenant collection initialization
 #[derive(Debug, Clone, Default)]
 pub struct MultiTenantInitResult {
-    /// Whether _projects collection was created
+    /// Whether `projects` collection was created
     pub projects_created: bool,
     /// Whether project_id index was created
     pub projects_indexed: bool,
-    /// Whether _libraries collection was created
+    /// Whether `libraries` collection was created
     pub libraries_created: bool,
     /// Whether library_name index was created
     pub libraries_indexed: bool,
@@ -1264,9 +1264,10 @@ mod tests {
 
     #[test]
     fn test_collection_names() {
-        assert_eq!(collections::PROJECTS, "_projects");
-        assert_eq!(collections::LIBRARIES, "_libraries");
-        assert_eq!(collections::MEMORY, "_memory");
+        // Canonical collection names (without underscore prefix)
+        assert_eq!(collections::PROJECTS, "projects");
+        assert_eq!(collections::LIBRARIES, "libraries");
+        assert_eq!(collections::MEMORY, "memory");
     }
 
     #[test]
