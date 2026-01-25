@@ -519,7 +519,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 11  # v11: Add error pattern detection tables (Task 461.18)
+    SCHEMA_VERSION = 12  # v12: Add dead letter queue table (Task 14 - code audit)
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -1123,6 +1123,34 @@ class SQLiteStateManager:
             "CREATE INDEX idx_exclusions_type ON watch_exclusions(exclusion_type)",
             "CREATE INDEX idx_exclusions_permanent ON watch_exclusions(is_permanent)",
             "CREATE INDEX idx_exclusions_expires ON watch_exclusions(expires_at)",
+            # Dead letter queue for permanently failed items (v12, Task 14)
+            """
+            CREATE TABLE dead_letter_queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                file_path TEXT NOT NULL,
+                collection_name TEXT NOT NULL,
+                tenant_id TEXT,
+                branch TEXT,
+                operation TEXT NOT NULL DEFAULT 'ingest',
+                error_category TEXT NOT NULL CHECK (error_category IN ('permanent', 'max_retries', 'circuit_breaker')),
+                error_type TEXT NOT NULL,
+                error_message TEXT NOT NULL,
+                original_priority INTEGER DEFAULT 5,
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                retry_history TEXT,  -- JSON array of retry attempts
+                failed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                original_queued_at TIMESTAMP,
+                reprocessed_at TIMESTAMP,
+                reprocess_count INTEGER NOT NULL DEFAULT 0,
+                metadata TEXT  -- JSON for additional context
+            )
+            """,
+            # Indexes for dead_letter_queue
+            "CREATE INDEX idx_dlq_error_category ON dead_letter_queue(error_category)",
+            "CREATE INDEX idx_dlq_error_type ON dead_letter_queue(error_type)",
+            "CREATE INDEX idx_dlq_collection ON dead_letter_queue(collection_name)",
+            "CREATE INDEX idx_dlq_failed_at ON dead_letter_queue(failed_at)",
+            "CREATE INDEX idx_dlq_file_path ON dead_letter_queue(file_path)",
             # Insert initial schema version
             f"INSERT INTO schema_version (version) VALUES ({self.SCHEMA_VERSION})",
         ]
@@ -1546,6 +1574,49 @@ class SQLiteStateManager:
                             raise
 
                 logger.info("Successfully migrated to schema version 11 (error pattern detection)")
+
+            # Migrate from version 11 to version 12 - Add dead_letter_queue table
+            if from_version < 12 <= to_version:
+                dlq_sql = [
+                    # Dead letter queue for permanently failed items
+                    """
+                    CREATE TABLE IF NOT EXISTS dead_letter_queue (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        file_path TEXT NOT NULL,
+                        collection_name TEXT NOT NULL,
+                        tenant_id TEXT,
+                        branch TEXT,
+                        operation TEXT NOT NULL DEFAULT 'ingest',
+                        error_category TEXT NOT NULL CHECK (error_category IN ('permanent', 'max_retries', 'circuit_breaker')),
+                        error_type TEXT NOT NULL,
+                        error_message TEXT NOT NULL,
+                        original_priority INTEGER DEFAULT 5,
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        retry_history TEXT,
+                        failed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        original_queued_at TIMESTAMP,
+                        reprocessed_at TIMESTAMP,
+                        reprocess_count INTEGER NOT NULL DEFAULT 0,
+                        metadata TEXT
+                    )
+                    """,
+                    # Indexes for dead_letter_queue
+                    "CREATE INDEX IF NOT EXISTS idx_dlq_error_category ON dead_letter_queue(error_category)",
+                    "CREATE INDEX IF NOT EXISTS idx_dlq_error_type ON dead_letter_queue(error_type)",
+                    "CREATE INDEX IF NOT EXISTS idx_dlq_collection ON dead_letter_queue(collection_name)",
+                    "CREATE INDEX IF NOT EXISTS idx_dlq_failed_at ON dead_letter_queue(failed_at)",
+                    "CREATE INDEX IF NOT EXISTS idx_dlq_file_path ON dead_letter_queue(file_path)",
+                ]
+
+                for sql in dlq_sql:
+                    try:
+                        conn.execute(sql)
+                    except Exception as e:
+                        # Ignore if table already exists (idempotent migration)
+                        if "already exists" not in str(e).lower():
+                            raise
+
+                logger.info("Successfully migrated to schema version 12 (dead letter queue)")
 
             # Record the migration
             conn.execute(
@@ -2120,6 +2191,331 @@ class SQLiteStateManager:
 
         except Exception as e:
             logger.error(f"Failed to remove from queue {queue_id}: {e}")
+            raise
+
+    # Dead Letter Queue Methods (Task 14 - code audit)
+    # These methods manage permanently failed items for debugging and reprocessing
+
+    async def move_to_dead_letter_queue(
+        self,
+        file_path: str,
+        collection_name: str,
+        error_category: str,
+        error_type: str,
+        error_message: str,
+        tenant_id: str | None = None,
+        branch: str | None = None,
+        operation: str = "ingest",
+        original_priority: int = 5,
+        retry_count: int = 0,
+        retry_history: list[dict] | None = None,
+        original_queued_at: datetime | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> int:
+        """
+        Move a failed item to the dead letter queue.
+
+        Args:
+            file_path: Path of the failed file
+            collection_name: Target collection name
+            error_category: Category of failure (permanent, max_retries, circuit_breaker)
+            error_type: Specific error type
+            error_message: Human-readable error message
+            tenant_id: Optional tenant identifier
+            branch: Optional git branch
+            operation: Operation type (ingest, update, delete)
+            original_priority: Original queue priority
+            retry_count: Number of retry attempts made
+            retry_history: JSON-serializable history of retry attempts
+            original_queued_at: When item was originally queued
+            metadata: Additional context
+
+        Returns:
+            ID of the dead letter queue entry
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    INSERT INTO dead_letter_queue (
+                        file_path, collection_name, tenant_id, branch, operation,
+                        error_category, error_type, error_message,
+                        original_priority, retry_count, retry_history,
+                        original_queued_at, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        file_path,
+                        collection_name,
+                        tenant_id,
+                        branch,
+                        operation,
+                        error_category,
+                        error_type,
+                        error_message,
+                        original_priority,
+                        retry_count,
+                        json.dumps(retry_history) if retry_history else None,
+                        original_queued_at.isoformat() if original_queued_at else None,
+                        json.dumps(metadata) if metadata else None,
+                    )
+                )
+
+                dlq_id = cursor.lastrowid
+                logger.info(f"Moved to dead letter queue: {file_path} (id={dlq_id}, category={error_category})")
+                return dlq_id
+
+        except Exception as e:
+            logger.error(f"Failed to move to dead letter queue: {e}")
+            raise
+
+    async def list_dead_letter_items(
+        self,
+        error_category: str | None = None,
+        error_type: str | None = None,
+        collection: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[dict]:
+        """
+        List items in the dead letter queue.
+
+        Args:
+            error_category: Filter by error category
+            error_type: Filter by error type
+            collection: Filter by collection name
+            limit: Maximum items to return
+            offset: Offset for pagination
+
+        Returns:
+            List of dead letter queue items
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            query = "SELECT * FROM dead_letter_queue WHERE 1=1"
+            params = []
+
+            if error_category:
+                query += " AND error_category = ?"
+                params.append(error_category)
+
+            if error_type:
+                query += " AND error_type = ?"
+                params.append(error_type)
+
+            if collection:
+                query += " AND collection_name = ?"
+                params.append(collection)
+
+            query += " ORDER BY failed_at DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+
+            with self._lock:
+                cursor = self.connection.execute(query, params)
+                rows = cursor.fetchall()
+
+                items = []
+                for row in rows:
+                    item = dict(row)
+                    # Parse JSON fields
+                    if item.get("retry_history"):
+                        item["retry_history"] = json.loads(item["retry_history"])
+                    if item.get("metadata"):
+                        item["metadata"] = json.loads(item["metadata"])
+                    items.append(item)
+
+                return items
+
+        except Exception as e:
+            logger.error(f"Failed to list dead letter items: {e}")
+            raise
+
+    async def reprocess_dead_letter_item(
+        self,
+        dlq_id: int,
+        priority: int | None = None,
+    ) -> str | None:
+        """
+        Move a dead letter item back to the main queue for reprocessing.
+
+        Args:
+            dlq_id: ID of the dead letter queue item
+            priority: Override priority for reprocessing (default: original priority)
+
+        Returns:
+            Queue ID if successfully requeued, None if item not found
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                # Get the DLQ item
+                cursor = conn.execute(
+                    "SELECT * FROM dead_letter_queue WHERE id = ?",
+                    (dlq_id,)
+                )
+                row = cursor.fetchone()
+
+                if not row:
+                    logger.warning(f"Dead letter item not found: {dlq_id}")
+                    return None
+
+                item = dict(row)
+                use_priority = priority if priority is not None else item["original_priority"]
+
+                # Re-enqueue to the ingestion queue
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO ingestion_queue (
+                        file_absolute_path, collection_name, tenant_id, branch,
+                        operation, priority, retry_count, metadata
+                    ) VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+                    """,
+                    (
+                        item["file_path"],
+                        item["collection_name"],
+                        item["tenant_id"],
+                        item["branch"],
+                        item["operation"],
+                        use_priority,
+                        item["metadata"],
+                    )
+                )
+
+                # Update DLQ item to mark as reprocessed
+                conn.execute(
+                    """
+                    UPDATE dead_letter_queue
+                    SET reprocessed_at = CURRENT_TIMESTAMP,
+                        reprocess_count = reprocess_count + 1
+                    WHERE id = ?
+                    """,
+                    (dlq_id,)
+                )
+
+                logger.info(f"Reprocessing dead letter item {dlq_id}: {item['file_path']}")
+                return item["file_path"]
+
+        except Exception as e:
+            logger.error(f"Failed to reprocess dead letter item {dlq_id}: {e}")
+            raise
+
+    async def get_dead_letter_stats(self) -> dict[str, Any]:
+        """
+        Get statistics about the dead letter queue.
+
+        Returns:
+            Dictionary with DLQ statistics
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            with self._lock:
+                stats = {}
+
+                # Total count
+                cursor = self.connection.execute(
+                    "SELECT COUNT(*) FROM dead_letter_queue"
+                )
+                stats["total_count"] = cursor.fetchone()[0]
+
+                # Count by error category
+                cursor = self.connection.execute(
+                    """
+                    SELECT error_category, COUNT(*) as count
+                    FROM dead_letter_queue
+                    GROUP BY error_category
+                    """
+                )
+                stats["by_category"] = {row[0]: row[1] for row in cursor.fetchall()}
+
+                # Count by error type
+                cursor = self.connection.execute(
+                    """
+                    SELECT error_type, COUNT(*) as count
+                    FROM dead_letter_queue
+                    GROUP BY error_type
+                    ORDER BY count DESC
+                    LIMIT 10
+                    """
+                )
+                stats["by_error_type"] = {row[0]: row[1] for row in cursor.fetchall()}
+
+                # Count by collection
+                cursor = self.connection.execute(
+                    """
+                    SELECT collection_name, COUNT(*) as count
+                    FROM dead_letter_queue
+                    GROUP BY collection_name
+                    """
+                )
+                stats["by_collection"] = {row[0]: row[1] for row in cursor.fetchall()}
+
+                # Reprocess stats
+                cursor = self.connection.execute(
+                    """
+                    SELECT
+                        COUNT(*) FILTER (WHERE reprocessed_at IS NOT NULL) as reprocessed,
+                        SUM(reprocess_count) as total_reprocess_attempts
+                    FROM dead_letter_queue
+                    """
+                )
+                row = cursor.fetchone()
+                stats["reprocessed_count"] = row[0] or 0
+                stats["total_reprocess_attempts"] = row[1] or 0
+
+                # Recent failures (last 24 hours)
+                cursor = self.connection.execute(
+                    """
+                    SELECT COUNT(*) FROM dead_letter_queue
+                    WHERE failed_at > datetime('now', '-1 day')
+                    """
+                )
+                stats["recent_failures_24h"] = cursor.fetchone()[0]
+
+                return stats
+
+        except Exception as e:
+            logger.error(f"Failed to get dead letter stats: {e}")
+            raise
+
+    async def delete_dead_letter_item(self, dlq_id: int) -> bool:
+        """
+        Delete an item from the dead letter queue.
+
+        Args:
+            dlq_id: ID of the dead letter queue item
+
+        Returns:
+            True if deleted, False if not found
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM dead_letter_queue WHERE id = ?",
+                    (dlq_id,)
+                )
+                deleted = cursor.rowcount > 0
+
+                if deleted:
+                    logger.info(f"Deleted dead letter item: {dlq_id}")
+                else:
+                    logger.warning(f"Dead letter item not found: {dlq_id}")
+
+                return deleted
+
+        except Exception as e:
+            logger.error(f"Failed to delete dead letter item {dlq_id}: {e}")
             raise
 
     # Content Ingestion Queue Methods (Task 456/ADR-001)

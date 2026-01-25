@@ -59,6 +59,50 @@ enum AdminCommand {
         #[arg(short, long)]
         verbose: bool,
     },
+
+    /// Manage dead letter queue (failed items)
+    DeadLetter {
+        #[command(subcommand)]
+        action: DeadLetterAction,
+    },
+}
+
+/// Dead letter queue actions
+#[derive(Subcommand)]
+enum DeadLetterAction {
+    /// List items in the dead letter queue
+    List {
+        /// Filter by error category (permanent, max_retries, circuit_breaker)
+        #[arg(short = 'c', long)]
+        category: Option<String>,
+
+        /// Filter by error type
+        #[arg(short = 't', long)]
+        error_type: Option<String>,
+
+        /// Maximum items to show
+        #[arg(short, long, default_value = "20")]
+        limit: i32,
+    },
+
+    /// Show dead letter queue statistics
+    Stats,
+
+    /// Reprocess a dead letter item
+    Reprocess {
+        /// ID of the item to reprocess (use 'all' for all items)
+        id: String,
+
+        /// Override priority for reprocessing
+        #[arg(short, long)]
+        priority: Option<i32>,
+    },
+
+    /// Delete a dead letter item
+    Delete {
+        /// ID of the item to delete
+        id: i32,
+    },
 }
 
 /// Execute admin command
@@ -75,6 +119,7 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
             active_only,
         } => projects(&priority, active_only).await,
         AdminCommand::Queue { verbose } => queue(verbose).await,
+        AdminCommand::DeadLetter { action } => dead_letter(action).await,
     }
 }
 
@@ -383,6 +428,68 @@ async fn queue(verbose: bool) -> Result<()> {
         }
         Err(_) => {
             output::error("Cannot connect to daemon");
+        }
+    }
+
+    Ok(())
+}
+
+async fn dead_letter(action: DeadLetterAction) -> Result<()> {
+    output::section("Dead Letter Queue");
+
+    match action {
+        DeadLetterAction::List { category, error_type, limit } => {
+            output::info("Listing dead letter queue items...");
+            output::info("Note: Dead letter queue data is stored in SQLite.");
+            output::info("Use 'wqm-py admin dead-letter list' for full functionality.");
+
+            // Show filter info
+            if let Some(cat) = category {
+                output::kv("Category Filter", &cat);
+            }
+            if let Some(et) = error_type {
+                output::kv("Error Type Filter", &et);
+            }
+            output::kv("Limit", &limit.to_string());
+
+            // Future: Add gRPC endpoint for DLQ listing
+            output::warning("gRPC endpoint for DLQ listing not yet implemented");
+        }
+
+        DeadLetterAction::Stats => {
+            output::info("Dead letter queue statistics:");
+            output::info("Note: DLQ stats are stored in SQLite.");
+            output::info("Use 'wqm-py admin dead-letter stats' for full functionality.");
+
+            // Show placeholder stats structure
+            output::separator();
+            output::kv("Total Items", "N/A");
+            output::kv("By Category", "N/A");
+            output::kv("Recent (24h)", "N/A");
+
+            // Future: Add gRPC endpoint for DLQ stats
+            output::warning("gRPC endpoint for DLQ stats not yet implemented");
+        }
+
+        DeadLetterAction::Reprocess { id, priority } => {
+            if id == "all" {
+                output::info("Reprocessing all dead letter items...");
+            } else {
+                output::info(format!("Reprocessing dead letter item: {}", id));
+            }
+
+            if let Some(p) = priority {
+                output::kv("Priority Override", &p.to_string());
+            }
+
+            output::info("Use 'wqm-py admin dead-letter reprocess' for full functionality.");
+            output::warning("gRPC endpoint for DLQ reprocessing not yet implemented");
+        }
+
+        DeadLetterAction::Delete { id } => {
+            output::info(format!("Deleting dead letter item: {}", id));
+            output::info("Use 'wqm-py admin dead-letter delete' for full functionality.");
+            output::warning("gRPC endpoint for DLQ deletion not yet implemented");
         }
     }
 
