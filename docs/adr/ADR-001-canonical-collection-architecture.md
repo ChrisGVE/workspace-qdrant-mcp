@@ -66,23 +66,23 @@ search(collection="libraries", filter={"library_name": "numpy"})
 
 #### 3. Daemon-Only Writes (First Principle 10)
 
+> **NOTE:** This section has been SUPERSEDED by ADR-002 (Daemon-Only Write Policy).
+> ADR-002 removes ALL direct Qdrant write exceptions, including for memory collection.
+> See ADR-002 for the current write architecture.
+
 **Decision:** ALL Qdrant write operations MUST route through the Rust daemon.
 
-**Exception:** Memory collection allows direct writes (meta-level data).
+**NO EXCEPTIONS.** (Updated per ADR-002)
 
 **Write Path:**
 ```
-MCP Server → SQLite Queue → Daemon → Qdrant
-         ↓
-    (fallback with warning)
-         ↓
-    Direct Qdrant Write
+MCP Server/CLI → SQLite Queue → Daemon → Qdrant
 ```
 
 **Fallback Behavior:**
 - When daemon unavailable, content queued in SQLite
 - Daemon processes queue when available
-- Clear logging indicates fallback mode
+- NO direct Qdrant writes from MCP/CLI (see ADR-002)
 
 #### 4. Explicit Project Activation
 
