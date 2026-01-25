@@ -103,6 +103,168 @@ class ContentIngestionStatus(Enum):
     FAILED = "failed"
 
 
+class UnifiedQueueItemType(Enum):
+    """Item types for the unified queue (Task 22/24).
+
+    Cross-language compatible with Rust ItemType enum.
+    """
+
+    CONTENT = "content"
+    FILE = "file"
+    FOLDER = "folder"
+    PROJECT = "project"
+    LIBRARY = "library"
+    DELETE_TENANT = "delete_tenant"
+    DELETE_DOCUMENT = "delete_document"
+    RENAME = "rename"
+
+
+class UnifiedQueueOperation(Enum):
+    """Operation types for the unified queue (Task 22/24).
+
+    Cross-language compatible with Rust QueueOperation enum.
+    """
+
+    INGEST = "ingest"
+    UPDATE = "update"
+    DELETE = "delete"
+    SCAN = "scan"
+
+    def is_valid_for(self, item_type: "UnifiedQueueItemType") -> bool:
+        """Check if this operation is valid for the given item type.
+
+        Matches Rust's QueueOperation::is_valid_for() implementation.
+        """
+        validity_map = {
+            UnifiedQueueItemType.CONTENT: {
+                UnifiedQueueOperation.INGEST,
+                UnifiedQueueOperation.UPDATE,
+                UnifiedQueueOperation.DELETE,
+            },
+            UnifiedQueueItemType.FILE: {
+                UnifiedQueueOperation.INGEST,
+                UnifiedQueueOperation.UPDATE,
+                UnifiedQueueOperation.DELETE,
+            },
+            UnifiedQueueItemType.FOLDER: {
+                UnifiedQueueOperation.INGEST,
+                UnifiedQueueOperation.DELETE,
+                UnifiedQueueOperation.SCAN,
+            },
+            UnifiedQueueItemType.PROJECT: {
+                UnifiedQueueOperation.INGEST,
+                UnifiedQueueOperation.DELETE,
+                UnifiedQueueOperation.SCAN,
+            },
+            UnifiedQueueItemType.LIBRARY: {
+                UnifiedQueueOperation.INGEST,
+                UnifiedQueueOperation.UPDATE,
+                UnifiedQueueOperation.DELETE,
+            },
+            UnifiedQueueItemType.DELETE_TENANT: {UnifiedQueueOperation.DELETE},
+            UnifiedQueueItemType.DELETE_DOCUMENT: {UnifiedQueueOperation.DELETE},
+            UnifiedQueueItemType.RENAME: {UnifiedQueueOperation.UPDATE},
+        }
+        return self in validity_map.get(item_type, set())
+
+
+class IdempotencyKeyError(Exception):
+    """Errors that can occur during idempotency key generation."""
+
+    pass
+
+
+def generate_unified_idempotency_key(
+    item_type: UnifiedQueueItemType | str,
+    op: UnifiedQueueOperation | str,
+    tenant_id: str,
+    collection: str,
+    payload: dict[str, Any] | str,
+) -> str:
+    """Generate a comprehensive idempotency key for unified queue deduplication.
+
+    Creates a deterministic key from all relevant queue item attributes to prevent
+    duplicate processing. This function is cross-language compatible with the
+    matching Rust implementation in unified_queue_schema.rs.
+
+    Format:
+        Input string: {item_type}|{op}|{tenant_id}|{collection}|{payload_json}
+        Output: SHA256 hash truncated to 32 hex characters
+
+    Args:
+        item_type: Type of queue item (content, file, folder, etc.)
+        op: Operation type (ingest, update, delete, scan)
+        tenant_id: Project/tenant identifier
+        collection: Target Qdrant collection name
+        payload: Payload dict (will be JSON serialized with sorted keys) or JSON string
+
+    Returns:
+        32-character hexadecimal string
+
+    Raises:
+        IdempotencyKeyError: If tenant_id or collection is empty, or operation invalid
+
+    Example:
+        >>> key = generate_unified_idempotency_key(
+        ...     UnifiedQueueItemType.FILE,
+        ...     UnifiedQueueOperation.INGEST,
+        ...     "proj_abc123",
+        ...     "my-project-code",
+        ...     {"file_path": "/path/to/file.rs"}
+        ... )
+        >>> len(key)
+        32
+    """
+    # Convert enums to strings if needed
+    if isinstance(item_type, UnifiedQueueItemType):
+        item_type_str = item_type.value
+    else:
+        item_type_str = str(item_type)
+
+    if isinstance(op, UnifiedQueueOperation):
+        op_str = op.value
+    else:
+        op_str = str(op)
+
+    # Validate inputs
+    if not tenant_id:
+        raise IdempotencyKeyError("tenant_id cannot be empty")
+    if not collection:
+        raise IdempotencyKeyError("collection cannot be empty")
+
+    # Validate operation for item type
+    try:
+        item_type_enum = (
+            item_type
+            if isinstance(item_type, UnifiedQueueItemType)
+            else UnifiedQueueItemType(item_type_str)
+        )
+        op_enum = (
+            op if isinstance(op, UnifiedQueueOperation) else UnifiedQueueOperation(op_str)
+        )
+        if not op_enum.is_valid_for(item_type_enum):
+            raise IdempotencyKeyError(
+                f"operation '{op_str}' is not valid for item type '{item_type_str}'"
+            )
+    except ValueError:
+        # If enum conversion fails, skip validation (allows flexibility)
+        pass
+
+    # Convert payload to sorted JSON string if it's a dict
+    if isinstance(payload, dict):
+        payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    else:
+        payload_json = str(payload)
+
+    # Construct canonical input string (must match Rust implementation exactly)
+    input_string = f"{item_type_str}|{op_str}|{tenant_id}|{collection}|{payload_json}"
+
+    # Hash and truncate to 32 hex chars (16 bytes)
+    hash_result = hashlib.sha256(input_string.encode("utf-8")).hexdigest()[:32]
+
+    return hash_result
+
+
 @dataclass
 class ContentIngestionQueueItem:
     """Item in the content ingestion queue (Task 456/ADR-001).

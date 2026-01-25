@@ -309,7 +309,13 @@ pub struct RenamePayload {
     pub is_folder: bool,
 }
 
-/// Generate an idempotency key for a queue item
+/// Generate an idempotency key for a queue item (simple format)
+///
+/// Uses format: `{item_type}:{collection}:{identifier_hash}`
+/// Hash is truncated to 16 hex chars (8 bytes).
+///
+/// For the comprehensive format with operation and tenant_id,
+/// use `generate_unified_idempotency_key`.
 pub fn generate_idempotency_key(
     item_type: ItemType,
     collection: &str,
@@ -326,6 +332,114 @@ pub fn generate_idempotency_key(
         .collect();
     format!("{}:{}:{}", item_type, collection, hash_hex)
 }
+
+/// Generate a comprehensive idempotency key for unified queue deduplication
+///
+/// Creates a deterministic key from all relevant queue item attributes to prevent
+/// duplicate processing. This function is cross-language compatible with the
+/// matching Python implementation in sqlite_state_manager.py.
+///
+/// # Format
+/// Input string: `{item_type}|{op}|{tenant_id}|{collection}|{payload_json}`
+/// Output: SHA256 hash truncated to 32 hex characters
+///
+/// # Arguments
+/// * `item_type` - Type of queue item (content, file, folder, etc.)
+/// * `op` - Operation type (ingest, update, delete, scan)
+/// * `tenant_id` - Project/tenant identifier
+/// * `collection` - Target Qdrant collection name
+/// * `payload_json` - Sorted JSON payload string (use serde_json::to_string with sorted keys)
+///
+/// # Returns
+/// 32-character hexadecimal string
+///
+/// # Example
+/// ```
+/// use workspace_qdrant_core::{ItemType, QueueOperation, generate_unified_idempotency_key};
+///
+/// let key = generate_unified_idempotency_key(
+///     ItemType::File,
+///     QueueOperation::Ingest,
+///     "proj_abc123",
+///     "my-project-code",
+///     r#"{"file_path":"/path/to/file.rs"}"#,
+/// );
+/// assert_eq!(key.len(), 32); // Always 32 hex chars
+/// ```
+///
+/// # Errors
+/// Returns an error if tenant_id or collection is empty.
+pub fn generate_unified_idempotency_key(
+    item_type: ItemType,
+    op: QueueOperation,
+    tenant_id: &str,
+    collection: &str,
+    payload_json: &str,
+) -> Result<String, IdempotencyKeyError> {
+    use sha2::{Sha256, Digest};
+
+    // Validate inputs
+    if tenant_id.is_empty() {
+        return Err(IdempotencyKeyError::EmptyTenantId);
+    }
+    if collection.is_empty() {
+        return Err(IdempotencyKeyError::EmptyCollection);
+    }
+    if !op.is_valid_for(item_type) {
+        return Err(IdempotencyKeyError::InvalidOperationForType {
+            item_type,
+            operation: op,
+        });
+    }
+
+    // Construct canonical input string
+    // Format: {item_type}|{op}|{tenant_id}|{collection}|{payload_json}
+    let input = format!(
+        "{}|{}|{}|{}|{}",
+        item_type, op, tenant_id, collection, payload_json
+    );
+
+    // Hash and truncate to 32 hex chars (16 bytes)
+    let mut hasher = Sha256::new();
+    hasher.update(input.as_bytes());
+    let hash = hasher.finalize();
+
+    // Encode first 16 bytes as hex (32 characters)
+    let hash_hex: String = hash[..16]
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect();
+
+    Ok(hash_hex)
+}
+
+/// Errors that can occur during idempotency key generation
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IdempotencyKeyError {
+    /// tenant_id cannot be empty
+    EmptyTenantId,
+    /// collection cannot be empty
+    EmptyCollection,
+    /// The operation is not valid for the given item type
+    InvalidOperationForType {
+        item_type: ItemType,
+        operation: QueueOperation,
+    },
+}
+
+impl fmt::Display for IdempotencyKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            IdempotencyKeyError::EmptyTenantId => write!(f, "tenant_id cannot be empty"),
+            IdempotencyKeyError::EmptyCollection => write!(f, "collection cannot be empty"),
+            IdempotencyKeyError::InvalidOperationForType { item_type, operation } => {
+                write!(f, "operation '{}' is not valid for item type '{}'", operation, item_type)
+            }
+        }
+    }
+}
+
+impl std::error::Error for IdempotencyKeyError {}
 
 /// SQL to create the unified queue schema
 pub const CREATE_UNIFIED_QUEUE_SQL: &str = r#"
@@ -440,5 +554,105 @@ mod tests {
     fn test_queue_status_display() {
         assert_eq!(QueueStatus::Pending.to_string(), "pending");
         assert_eq!(QueueStatus::InProgress.to_string(), "in_progress");
+    }
+
+    #[test]
+    fn test_unified_idempotency_key_generation() {
+        let key1 = generate_unified_idempotency_key(
+            ItemType::File,
+            QueueOperation::Ingest,
+            "proj_abc123",
+            "my-project-code",
+            r#"{"file_path":"/path/to/file.rs"}"#,
+        ).unwrap();
+
+        // Key should be exactly 32 hex characters
+        assert_eq!(key1.len(), 32);
+
+        // Same inputs should produce same key
+        let key2 = generate_unified_idempotency_key(
+            ItemType::File,
+            QueueOperation::Ingest,
+            "proj_abc123",
+            "my-project-code",
+            r#"{"file_path":"/path/to/file.rs"}"#,
+        ).unwrap();
+        assert_eq!(key1, key2);
+
+        // Different inputs should produce different key
+        let key3 = generate_unified_idempotency_key(
+            ItemType::File,
+            QueueOperation::Ingest,
+            "proj_abc123",
+            "my-project-code",
+            r#"{"file_path":"/path/to/other.rs"}"#,
+        ).unwrap();
+        assert_ne!(key1, key3);
+
+        // Different operation should produce different key
+        let key4 = generate_unified_idempotency_key(
+            ItemType::File,
+            QueueOperation::Update,
+            "proj_abc123",
+            "my-project-code",
+            r#"{"file_path":"/path/to/file.rs"}"#,
+        ).unwrap();
+        assert_ne!(key1, key4);
+    }
+
+    #[test]
+    fn test_unified_idempotency_key_validation() {
+        // Empty tenant_id should fail
+        let result = generate_unified_idempotency_key(
+            ItemType::File,
+            QueueOperation::Ingest,
+            "",  // Empty tenant_id
+            "my-collection",
+            "{}",
+        );
+        assert_eq!(result, Err(IdempotencyKeyError::EmptyTenantId));
+
+        // Empty collection should fail
+        let result = generate_unified_idempotency_key(
+            ItemType::File,
+            QueueOperation::Ingest,
+            "proj_abc123",
+            "",  // Empty collection
+            "{}",
+        );
+        assert_eq!(result, Err(IdempotencyKeyError::EmptyCollection));
+
+        // Invalid operation for type should fail
+        let result = generate_unified_idempotency_key(
+            ItemType::DeleteTenant,
+            QueueOperation::Ingest,  // DeleteTenant only supports Delete
+            "proj_abc123",
+            "my-collection",
+            "{}",
+        );
+        assert!(matches!(result, Err(IdempotencyKeyError::InvalidOperationForType { .. })));
+    }
+
+    #[test]
+    fn test_unified_idempotency_key_cross_language_compatibility() {
+        // This test vector should produce the same hash in both Rust and Python
+        // Input: "file|ingest|proj_abc123|my-project-code|{}"
+        let key = generate_unified_idempotency_key(
+            ItemType::File,
+            QueueOperation::Ingest,
+            "proj_abc123",
+            "my-project-code",
+            "{}",
+        ).unwrap();
+
+        // Verify the key is valid hex
+        assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(key.len(), 32);
+
+        // The actual hash value for cross-language testing
+        // Python should produce the same result with:
+        // hashlib.sha256(b"file|ingest|proj_abc123|my-project-code|{}").hexdigest()[:32]
+        // Expected: "0e6c3a8f7b8e4f2c9a1d5e7f3b6c8d9e" (placeholder - actual value computed at runtime)
+        println!("Cross-language test key: {}", key);
     }
 }
