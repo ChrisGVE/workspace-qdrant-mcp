@@ -338,6 +338,19 @@ mod tests {
     }
 
     #[test]
+    fn test_validate_canonical_collection_names() {
+        // Canonical collection names per ADR-001 must be valid
+        assert!(CollectionServiceImpl::validate_collection_name("projects").is_ok());
+        assert!(CollectionServiceImpl::validate_collection_name("libraries").is_ok());
+        assert!(CollectionServiceImpl::validate_collection_name("memory").is_ok());
+
+        // Legacy underscore-prefixed names are syntactically valid for migration compatibility
+        assert!(CollectionServiceImpl::validate_collection_name("_projects").is_ok());
+        assert!(CollectionServiceImpl::validate_collection_name("_libraries").is_ok());
+        assert!(CollectionServiceImpl::validate_collection_name("_memory").is_ok());
+    }
+
+    #[test]
     fn test_validate_vector_size() {
         // Valid sizes
         assert!(CollectionServiceImpl::validate_vector_size(384).is_ok());
