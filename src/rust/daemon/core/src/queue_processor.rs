@@ -5,7 +5,6 @@
 //! logic, and performance monitoring.
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::path::Path;
 use std::sync::Arc;
@@ -17,42 +16,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::queue_operations::{QueueError, QueueItem, QueueManager, QueueOperation};
-// TODO: DocumentProcessor not yet implemented in core - placeholder for future implementation
-// use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig};
-use crate::{EmbeddingGenerator, EmbeddingConfig};
+use crate::queue_types::MissingTool;
+use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
-
-/// Enumeration of tools that might be missing during processing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum MissingTool {
-    /// LSP server not available for the specified language
-    LspServer { language: String },
-    /// Tree-sitter parser not available for the specified language
-    TreeSitterParser { language: String },
-    /// Embedding model not loaded or unavailable
-    EmbeddingModel { reason: String },
-    /// Qdrant connection unavailable
-    QdrantConnection { reason: String },
-}
-
-impl std::fmt::Display for MissingTool {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            MissingTool::LspServer { language } => {
-                write!(f, "LSP server unavailable for language: {}", language)
-            }
-            MissingTool::TreeSitterParser { language } => {
-                write!(f, "Tree-sitter parser unavailable for language: {}", language)
-            }
-            MissingTool::EmbeddingModel { reason } => {
-                write!(f, "Embedding model unavailable: {}", reason)
-            }
-            MissingTool::QdrantConnection { reason } => {
-                write!(f, "Qdrant connection unavailable: {}", reason)
-            }
-        }
-    }
-}
 
 /// Queue processor errors
 #[derive(Error, Debug)]
@@ -507,28 +473,30 @@ impl QueueProcessor {
         file_path
             .extension()
             .and_then(|ext| ext.to_str())
-            .map(|ext| match ext.to_lowercase().as_str() {
-                "rs" => "rust",
-                "py" => "python",
-                "js" | "mjs" => "javascript",
-                "ts" => "typescript",
-                "json" => "json",
-                "yaml" | "yml" => "yaml",
-                "toml" => "toml",
-                "c" | "h" => "c",
-                "cpp" | "cc" | "cxx" | "hpp" => "cpp",
-                "java" => "java",
-                "go" => "go",
-                "rb" => "ruby",
-                "php" => "php",
-                "sh" | "bash" => "bash",
-                "css" => "css",
-                "html" | "htm" => "html",
-                "xml" => "xml",
-                "sql" => "sql",
-                ext => ext,
+            .map(|ext| {
+                let lower = ext.to_lowercase();
+                match lower.as_str() {
+                    "rs" => "rust".to_string(),
+                    "py" => "python".to_string(),
+                    "js" | "mjs" => "javascript".to_string(),
+                    "ts" => "typescript".to_string(),
+                    "json" => "json".to_string(),
+                    "yaml" | "yml" => "yaml".to_string(),
+                    "toml" => "toml".to_string(),
+                    "c" | "h" => "c".to_string(),
+                    "cpp" | "cc" | "cxx" | "hpp" => "cpp".to_string(),
+                    "java" => "java".to_string(),
+                    "go" => "go".to_string(),
+                    "rb" => "ruby".to_string(),
+                    "php" => "php".to_string(),
+                    "sh" | "bash" => "bash".to_string(),
+                    "css" => "css".to_string(),
+                    "html" | "htm" => "html".to_string(),
+                    "xml" => "xml".to_string(),
+                    "sql" => "sql".to_string(),
+                    _ => lower,
+                }
             })
-            .map(String::from)
     }
 
     /// Determine if file requires LSP server
@@ -699,7 +667,7 @@ impl QueueProcessor {
 
         // Extract document content and create chunks
         let document_content = document_processor
-            .extract_document_content(file_path)
+            .process_file_content(file_path, &item.collection_name)
             .await
             .map_err(|e| ProcessorError::ProcessingFailed(e.to_string()))?;
 
