@@ -754,3 +754,104 @@ mod platform_macos_tests {
     }
 }
 
+/// Platform-specific tests for Windows ReadDirectoryChangesW watcher
+#[cfg(target_os = "windows")]
+mod platform_windows_tests {
+    use super::*;
+    use crate::watching::platform::{WindowsConfig, WindowsWatcher, PlatformWatcher};
+
+    fn test_windows_config() -> WindowsConfig {
+        WindowsConfig {
+            watch_subtree: true,
+            buffer_size: 65536,
+            filter_flags: 0,
+            use_completion_ports: true,
+            monitor_file_name: true,
+            monitor_dir_name: true,
+            monitor_size: true,
+            monitor_last_write: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_windows_watcher_creation() -> TestResult<()> {
+        let config = test_windows_config();
+        let watcher = WindowsWatcher::new(config, 4096)?;
+
+        assert!(!watcher.is_active());
+        assert_eq!(watcher.watched_path_count(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_windows_watcher_watch_and_stop() -> TestResult<()> {
+        let config = test_windows_config();
+        let mut watcher = WindowsWatcher::new(config, 4096)?;
+
+        let temp_dir = TempDir::new()?;
+        let watch_path = temp_dir.path();
+
+        // Start watching
+        watcher.watch(watch_path).await?;
+        assert!(watcher.is_active());
+        assert_eq!(watcher.watched_path_count(), 1);
+
+        // Stop watching
+        watcher.stop().await?;
+        assert!(!watcher.is_active());
+        assert_eq!(watcher.watched_path_count(), 0);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_windows_watcher_nonexistent_path() -> TestResult<()> {
+        let config = test_windows_config();
+        let mut watcher = WindowsWatcher::new(config, 4096)?;
+
+        let result = watcher.watch(Path::new("C:\\nonexistent\\path\\that\\does\\not\\exist")).await;
+        assert!(result.is_err());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_windows_watcher_event_receiver() -> TestResult<()> {
+        let config = test_windows_config();
+        let mut watcher = WindowsWatcher::new(config, 4096)?;
+
+        // Take the event receiver before watching
+        let receiver = watcher.take_event_receiver();
+        assert!(receiver.is_some());
+
+        // Second call should return None
+        let receiver2 = watcher.take_event_receiver();
+        assert!(receiver2.is_none());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_windows_watcher_non_recursive() -> TestResult<()> {
+        let mut config = test_windows_config();
+        config.watch_subtree = false; // Non-recursive mode
+
+        let mut watcher = WindowsWatcher::new(config, 4096)?;
+
+        let temp_dir = TempDir::new()?;
+        let watch_path = temp_dir.path();
+
+        // Create a subdirectory
+        let subdir = watch_path.join("subdir");
+        fs::create_dir(&subdir)?;
+
+        // Watch non-recursively
+        watcher.watch(watch_path).await?;
+        assert!(watcher.is_active());
+
+        watcher.stop().await?;
+        Ok(())
+    }
+}
+
