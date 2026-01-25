@@ -519,7 +519,7 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    SCHEMA_VERSION = 12  # v12: Add dead letter queue table (Task 14 - code audit)
+    SCHEMA_VERSION = 13  # v13: Add unified_queue table (Task 22/23 - code audit round 3)
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -1151,6 +1151,44 @@ class SQLiteStateManager:
             "CREATE INDEX idx_dlq_collection ON dead_letter_queue(collection_name)",
             "CREATE INDEX idx_dlq_failed_at ON dead_letter_queue(failed_at)",
             "CREATE INDEX idx_dlq_file_path ON dead_letter_queue(file_path)",
+            # Unified queue table (Task 22/23 - consolidates all queue types)
+            # See docs/QUEUE_SCHEMA.md for full schema documentation
+            """
+            CREATE TABLE unified_queue (
+                queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
+                item_type TEXT NOT NULL CHECK (item_type IN (
+                    'content', 'file', 'folder', 'project', 'library',
+                    'delete_tenant', 'delete_document', 'rename'
+                )),
+                op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
+                tenant_id TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
+                status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+                    'pending', 'in_progress', 'done', 'failed'
+                )),
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                lease_until TEXT,
+                worker_id TEXT,
+                idempotency_key TEXT NOT NULL UNIQUE,
+                payload_json TEXT NOT NULL DEFAULT '{}',
+                retry_count INTEGER NOT NULL DEFAULT 0,
+                max_retries INTEGER NOT NULL DEFAULT 3,
+                error_message TEXT,
+                last_error_at TEXT,
+                branch TEXT DEFAULT 'main',
+                metadata TEXT DEFAULT '{}'
+            )
+            """,
+            # Unified queue indexes
+            "CREATE INDEX idx_unified_queue_dequeue ON unified_queue(status, priority DESC, created_at ASC) WHERE status = 'pending'",
+            "CREATE UNIQUE INDEX idx_unified_queue_idempotency ON unified_queue(idempotency_key)",
+            "CREATE INDEX idx_unified_queue_lease_expiry ON unified_queue(lease_until) WHERE status = 'in_progress'",
+            "CREATE INDEX idx_unified_queue_collection_tenant ON unified_queue(collection, tenant_id)",
+            "CREATE INDEX idx_unified_queue_item_type ON unified_queue(item_type, status)",
+            "CREATE INDEX idx_unified_queue_failed ON unified_queue(status, last_error_at DESC) WHERE status = 'failed'",
+            "CREATE INDEX idx_unified_queue_worker ON unified_queue(worker_id, status) WHERE status = 'in_progress'",
             # Insert initial schema version
             f"INSERT INTO schema_version (version) VALUES ({self.SCHEMA_VERSION})",
         ]
@@ -1617,6 +1655,83 @@ class SQLiteStateManager:
                             raise
 
                 logger.info("Successfully migrated to schema version 12 (dead letter queue)")
+
+            # Migrate from version 12 to version 13 - Add unified_queue table (Task 22/23)
+            if from_version < 13 <= to_version:
+                logger.info("Applying migration: v12 -> v13 (unified queue table)")
+                unified_queue_sql = [
+                    # Unified queue table consolidating all queue types
+                    # See docs/QUEUE_SCHEMA.md for full schema documentation
+                    """
+                    CREATE TABLE IF NOT EXISTS unified_queue (
+                        queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
+                        item_type TEXT NOT NULL CHECK (item_type IN (
+                            'content', 'file', 'folder', 'project', 'library',
+                            'delete_tenant', 'delete_document', 'rename'
+                        )),
+                        op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
+                        tenant_id TEXT NOT NULL,
+                        collection TEXT NOT NULL,
+                        priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
+                        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+                            'pending', 'in_progress', 'done', 'failed'
+                        )),
+                        created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                        updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                        lease_until TEXT,
+                        worker_id TEXT,
+                        idempotency_key TEXT NOT NULL UNIQUE,
+                        payload_json TEXT NOT NULL DEFAULT '{}',
+                        retry_count INTEGER NOT NULL DEFAULT 0,
+                        max_retries INTEGER NOT NULL DEFAULT 3,
+                        error_message TEXT,
+                        last_error_at TEXT,
+                        branch TEXT DEFAULT 'main',
+                        metadata TEXT DEFAULT '{}'
+                    )
+                    """,
+                    # Indexes for unified_queue - optimized for common access patterns
+                    # Fast priority-based dequeue (partial index for pending items only)
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_unified_queue_dequeue
+                    ON unified_queue(status, priority DESC, created_at ASC)
+                    WHERE status = 'pending'
+                    """,
+                    # Unique index for idempotency (already UNIQUE constraint, but explicit index)
+                    "CREATE UNIQUE INDEX IF NOT EXISTS idx_unified_queue_idempotency ON unified_queue(idempotency_key)",
+                    # Lease expiry detection (partial index for in_progress items)
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_unified_queue_lease_expiry
+                    ON unified_queue(lease_until)
+                    WHERE status = 'in_progress'
+                    """,
+                    # Per-project/tenant queries
+                    "CREATE INDEX IF NOT EXISTS idx_unified_queue_collection_tenant ON unified_queue(collection, tenant_id)",
+                    # Type distribution analysis
+                    "CREATE INDEX IF NOT EXISTS idx_unified_queue_item_type ON unified_queue(item_type, status)",
+                    # Failed item monitoring (partial index for failed items)
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_unified_queue_failed
+                    ON unified_queue(status, last_error_at DESC)
+                    WHERE status = 'failed'
+                    """,
+                    # Worker tracking (partial index for in_progress items)
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_unified_queue_worker
+                    ON unified_queue(worker_id, status)
+                    WHERE status = 'in_progress'
+                    """,
+                ]
+
+                for sql in unified_queue_sql:
+                    try:
+                        conn.execute(sql)
+                    except Exception as e:
+                        # Ignore if table/index already exists (idempotent migration)
+                        if "already exists" not in str(e).lower():
+                            raise
+
+                logger.info("Successfully migrated to schema version 13 (unified queue table)")
 
             # Record the migration
             conn.execute(
