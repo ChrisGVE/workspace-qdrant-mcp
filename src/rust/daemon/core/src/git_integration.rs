@@ -146,8 +146,8 @@ impl GitBranchDetector {
 
     /// Query Git directly for the current branch
     fn query_git_branch(&self, repo_path: &Path) -> GitResult<String> {
-        // Open repository - git2 will search parent directories
-        let repo = Repository::open(repo_path).map_err(|e| {
+        // Open repository - discover searches parent directories
+        let repo = Repository::discover(repo_path).map_err(|e| {
             if e.code() == git2::ErrorCode::NotFound {
                 GitError::NotARepository {
                     path: repo_path.display().to_string(),

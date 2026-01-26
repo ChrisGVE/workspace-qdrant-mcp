@@ -372,7 +372,7 @@ mod tests {
     #[test]
     fn test_enrich_project_collection_metadata() {
         let temp_dir = tempdir().unwrap();
-        let test_file = temp_dir.path().join("test.py");
+        let test_file = temp_dir.path().join("main.py");
         fs::write(&test_file, "print('hello')").unwrap();
 
         let metadata = enrich_metadata(

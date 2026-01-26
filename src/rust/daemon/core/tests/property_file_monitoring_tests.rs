@@ -325,14 +325,6 @@ proptest! {
         rt.block_on(async {
             init_test_tracing();
 
-            // Create pattern manager with random patterns
-            let patterns = AllPatterns {
-                project_indicators: Default::default(),
-                exclude_patterns: exclude_patterns.clone().into(),
-                include_patterns: include_patterns.clone().into(),
-                language_extensions: Default::default(),
-            };
-
             let pattern_manager = PatternManager::new().expect("Failed to create PatternManager");
 
             // Test pattern matching consistency

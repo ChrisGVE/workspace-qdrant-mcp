@@ -13,7 +13,7 @@ use tempfile::{NamedTempFile, TempDir};
 
 // Import core components
 use workspace_qdrant_core::{
-    DocumentProcessor, ProcessingError,
+    DocumentProcessor, DocumentProcessorError,
     ipc::IpcServer,
     config::Config,
     daemon_state::DaemonStateManager,
@@ -27,11 +27,11 @@ use shared_test_utils::{
 };
 
 /// Test helper for creating test documents with various content types
-async fn create_test_document(content: &str, extension: &str) -> Result<NamedTempFile, ProcessingError> {
+async fn create_test_document(content: &str, extension: &str) -> TestResult<NamedTempFile> {
     let temp_file = NamedTempFile::with_suffix(&format!(".{}", extension))
-        .map_err(|e| ProcessingError::Io(e))?;
+        ?;
     tokio::fs::write(temp_file.path(), content).await
-        .map_err(|e| ProcessingError::Io(e))?;
+        ?;
     Ok(temp_file)
 }
 
@@ -92,8 +92,7 @@ async_test!(test_async_file_processing_text, {
     
     let processor = DocumentProcessor::new();
     let test_content = "This is a test document for async processing.\nIt has multiple lines.";
-    let temp_file = create_test_document(test_content, "txt").await
-        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e.to_string()))?;
+    let temp_file = create_test_document(test_content, "txt").await?;
     
     // Test async file processing with timing verification
     let result = verify_async_timing(
@@ -129,8 +128,7 @@ async fn example() {
 ## Section 2
 More content to ensure proper chunking."#;
     
-    let temp_file = create_test_document(test_content, "md").await
-        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e.to_string()))?;
+    let temp_file = create_test_document(test_content, "md").await?;
     
     let result = processor.process_file(temp_file.path(), "markdown_test").await?;
     
@@ -161,8 +159,7 @@ async fn process_async_data() -> Result<String, &'static str> {
     Ok(\"async data\".to_string())
 }"#;
     
-    let temp_file = create_test_document(test_content, "rs").await
-        .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e.to_string()))?;
+    let temp_file = create_test_document(test_content, "rs").await?;
     
     let result = processor.process_file(temp_file.path(), "code_test").await?;
     
@@ -187,8 +184,7 @@ async_test!(test_async_concurrent_file_processing, {
     
     let mut temp_files = Vec::new();
     for (content, ext) in files {
-        let temp_file = create_test_document(content, ext).await
-            .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e.to_string()))?;
+        let temp_file = create_test_document(content, ext).await?;
         temp_files.push(temp_file);
     }
     
@@ -234,7 +230,7 @@ async_test!(test_async_file_processing_error_handling, {
     assert!(result.is_err());
     
     match result {
-        Err(ProcessingError::Io(_)) => {}, // Expected
+        Err(DocumentProcessorError::FileNotFound(_)) => {}, // Expected
         Err(e) => panic!("Unexpected error type: {:?}", e),
         Ok(_) => panic!("Expected error but got success"),
     }
@@ -367,16 +363,16 @@ async_test!(test_async_error_propagation, {
     let processor = DocumentProcessor::new();
     
     // Test error propagation through async chains
-    let result = async {
-        let temp_file = create_test_document("test", "txt").await
-            .map_err(|e| ProcessingError::Processing(e.to_string()))?;
+    let result: TestResult<()> = async {
+        let temp_file = create_test_document("test", "txt").await?;
         
         // Drop the temp file to cause an error
         drop(temp_file);
         
         // This should fail because file no longer exists
         let non_existent_path = Path::new("/tmp/dropped_file.txt");
-        processor.process_file(non_existent_path, "error_prop_test").await
+        processor.process_file(non_existent_path, "error_prop_test").await?;
+        Ok(())
     }.await;
     
     assert!(result.is_err());
@@ -418,10 +414,12 @@ async_test!(test_async_memory_usage, {
         let processor_clone = Arc::clone(&processor);
         let handle = tokio::spawn(async move {
             let content = format!("Test document {} with some content", i);
-            let temp_file = create_test_document(&content, "txt").await
-                .map_err(|e| ProcessingError::Processing(e.to_string()))?;
+            let temp_file = create_test_document(&content, "txt").await?;
 
-            processor_clone.process_file(temp_file.path(), &format!("memory_test_{}", i)).await
+            let result = processor_clone
+                .process_file(temp_file.path(), &format!("memory_test_{}", i))
+                .await?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(result)
         });
         handles.push(handle);
     }
@@ -515,11 +513,11 @@ async_test!(test_async_throughput, {
         let processor_clone = Arc::clone(&processor);
         let handle = tokio::spawn(async move {
             let content = format!("Throughput test document {}", i);
-            let temp_file = match create_test_document(&content, "txt").await {
-                Ok(file) => file,
-                Err(e) => return Err(ProcessingError::Processing(e.to_string())),
-            };
-            processor_clone.process_file(temp_file.path(), &format!("throughput_{}", i)).await
+            let temp_file = create_test_document(&content, "txt").await?;
+            let result = processor_clone
+                .process_file(temp_file.path(), &format!("throughput_{}", i))
+                .await?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(result)
         });
         handles.push(handle);
     }
@@ -621,9 +619,11 @@ mod async_stress_tests {
             let processor_clone = Arc::clone(&processor);
             let handle = tokio::spawn(async move {
                 let content = format!("Stress test document {} with content", i);
-                let temp_file = create_test_document(&content, "txt").await
-                    .map_err(|e| ProcessingError::Processing(e.to_string()))?;
-                processor_clone.process_file(temp_file.path(), &format!("stress_{}", i)).await
+                let temp_file = create_test_document(&content, "txt").await?;
+                let result = processor_clone
+                    .process_file(temp_file.path(), &format!("stress_{}", i))
+                    .await?;
+                Ok::<_, Box<dyn std::error::Error + Send + Sync>>(result)
             });
             handles.push(handle);
         }

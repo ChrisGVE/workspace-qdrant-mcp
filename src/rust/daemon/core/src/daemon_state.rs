@@ -8,7 +8,7 @@ use std::path::Path;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions};
+use sqlx::{Row, SqlitePool, sqlite::{SqlitePoolOptions, SqliteConnectOptions}};
 use tracing::{error, info};
 use uuid::Uuid;
 
@@ -147,11 +147,13 @@ impl DaemonStateManager {
         info!("Initializing daemon state manager with database: {}", 
             database_path.as_ref().display());
 
-        let database_url = format!("sqlite:{}", database_path.as_ref().display());
+        let connect_options = SqliteConnectOptions::new()
+            .filename(database_path.as_ref())
+            .create_if_missing(true);
         
         let pool = SqlitePoolOptions::new()
             .max_connections(5)
-            .connect(&database_url)
+            .connect_with(connect_options)
             .await?;
 
         Ok(Self { pool })
@@ -847,6 +849,25 @@ mod tests {
         manager.initialize().await.unwrap();
 
         let daemon_id = Uuid::new_v4();
+
+        let state = DaemonStateRecord {
+            id: daemon_id,
+            pid: Some(12345),
+            status: DaemonStatus::Running,
+            started_at: Utc::now(),
+            last_active_at: Utc::now(),
+            metrics: ProcessingMetrics {
+                documents_processed: 0,
+                chunks_created: 0,
+                total_processing_time_ms: 0,
+                error_count: 0,
+                last_processed_at: None,
+            },
+            configuration: HashMap::new(),
+            metadata: HashMap::new(),
+        };
+
+        manager.store_daemon_state(&state).await.unwrap();
         
         manager.log_processing_event(
             &daemon_id,

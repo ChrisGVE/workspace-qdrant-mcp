@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy_grpc_tests")]
 //! Comprehensive streaming response validation tests for gRPC daemon-MCP communication
 //!
 //! This module provides exhaustive testing of gRPC streaming responses including:

@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy_grpc_tests")]
 //! Enhanced gRPC streaming response tests for Task 321.2
 //!
 //! This module provides comprehensive testing of gRPC streaming operations including:

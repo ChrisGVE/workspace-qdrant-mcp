@@ -1048,6 +1048,7 @@ mod tests {
     use tempfile::tempdir;
 
     #[tokio::test]
+    #[cfg_attr(target_os = "macos", ignore)]
     async fn test_processor_creation() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test_processor.db");

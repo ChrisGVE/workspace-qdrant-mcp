@@ -23,7 +23,7 @@ fn test_watcher_config() -> WatcherConfig {
         default_collection: "test_collection".to_string(),
         process_existing: false,
         max_file_size: Some(1024 * 1024), // 1MB
-        use_polling: false,
+        use_polling: true,
         batch_processing: BatchConfig {
             enabled: true,
             max_batch_size: 5,
@@ -45,10 +45,12 @@ fn test_watcher_config() -> WatcherConfig {
     }
 }
 
-/// Create a test task submitter
-async fn create_test_task_submitter() -> TaskSubmitter {
-    let pipeline = Pipeline::new(4);
-    pipeline.task_submitter()
+/// Create a test task submitter and keep the pipeline alive
+async fn create_test_task_submitter() -> (TaskSubmitter, Pipeline) {
+    let mut pipeline = Pipeline::new(4);
+    pipeline.start().await.expect("Failed to start test pipeline");
+    let submitter = pipeline.task_submitter();
+    (submitter, pipeline)
 }
 
 #[cfg(test)]
@@ -61,7 +63,7 @@ mod single_folder_watch_tests {
 
         let temp_dir = TempDir::new()?;
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
 
@@ -86,7 +88,7 @@ mod single_folder_watch_tests {
 
         let temp_dir = TempDir::new()?;
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
@@ -118,7 +120,7 @@ mod single_folder_watch_tests {
         fs::write(&test_file, "Initial content")?;
 
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
@@ -153,7 +155,7 @@ mod single_folder_watch_tests {
         fs::write(&test_file, "Content to delete")?;
 
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
@@ -188,7 +190,7 @@ mod single_folder_watch_tests {
         fs::write(&old_file, "Content to rename")?;
 
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
@@ -219,7 +221,7 @@ mod single_folder_watch_tests {
 
         let temp_dir = TempDir::new()?;
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
@@ -251,7 +253,7 @@ mod single_folder_watch_tests {
 
         let temp_dir = TempDir::new()?;
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
@@ -266,16 +268,15 @@ mod single_folder_watch_tests {
         fs::write(&test_file, "Timing test")?;
 
         // Wait for event to be detected (poll every 50ms)
-        let detected = wait_for_condition(
-            || {
-                let rt = tokio::runtime::Handle::current();
-                let stats_future = watcher.stats();
-                let stats = rt.block_on(stats_future);
-                stats.events_received > initial_stats.events_received
-            },
-            Duration::from_secs(2),
-            Duration::from_millis(50)
-        ).await;
+        let detected = tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                let stats = watcher.stats().await;
+                if stats.events_received > initial_stats.events_received {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        }).await;
 
         let elapsed = start_time.elapsed();
 
@@ -292,7 +293,7 @@ mod single_folder_watch_tests {
 
         let temp_dir = TempDir::new()?;
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
@@ -322,7 +323,7 @@ mod single_folder_watch_tests {
 
         let temp_dir = TempDir::new()?;
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
@@ -355,7 +356,7 @@ mod single_folder_watch_tests {
         let mut config = test_watcher_config();
         config.max_file_size = Some(100); // 100 bytes limit
 
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
@@ -389,7 +390,7 @@ mod edge_cases_tests {
         init_test_tracing();
 
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
 
@@ -408,7 +409,7 @@ mod edge_cases_tests {
 
         let temp_dir = TempDir::new()?;
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
 
@@ -434,7 +435,7 @@ mod edge_cases_tests {
 
         let temp_dir = TempDir::new()?;
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
@@ -458,7 +459,7 @@ mod edge_cases_tests {
         fs::create_dir(&subdir)?;
 
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
@@ -494,7 +495,7 @@ mod project_auto_watch_tests {
 
         let temp_dir = TempDir::new()?;
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         // Create a file watcher that could be used at startup
         let watcher = FileWatcher::new(config, task_submitter)?;
@@ -520,7 +521,7 @@ mod project_auto_watch_tests {
         let temp_dir3 = TempDir::new()?;
 
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
 
@@ -543,7 +544,7 @@ mod project_auto_watch_tests {
 
         let temp_dir = TempDir::new()?;
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config.clone(), task_submitter.clone())?;
 
@@ -581,7 +582,7 @@ mod project_auto_watch_tests {
         fs::create_dir_all(&tests_dir)?;
 
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
 
@@ -618,7 +619,7 @@ mod project_auto_watch_tests {
         let mut config = test_watcher_config();
         config.process_existing = true;
 
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
         let watcher = FileWatcher::new(config, task_submitter)?;
 
         // When watching starts, it should process existing files
@@ -640,7 +641,7 @@ mod project_auto_watch_tests {
         init_test_tracing();
 
         let config = test_watcher_config();
-        let task_submitter = create_test_task_submitter().await;
+        let (task_submitter, _pipeline) = create_test_task_submitter().await;
 
         let watcher = FileWatcher::new(config, task_submitter)?;
 
@@ -854,4 +855,3 @@ mod platform_windows_tests {
         Ok(())
     }
 }
-

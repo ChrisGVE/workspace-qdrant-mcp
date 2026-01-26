@@ -48,6 +48,11 @@ sqlx = { version = "0.7", features = ["runtime-tokio", "sqlite", "chrono"] }
 tonic-build = { version = "0.12", features = ["prost"] }
 prost-build = "0.13"
 
+[features]
+# Legacy gRPC tests targeting the deprecated ingest service/proto.
+# Enable explicitly with: cargo test -p workspace-qdrant-grpc --features legacy_grpc_tests
+legacy_grpc_tests = []
+
 [dev-dependencies]
 # Shared test utilities
 shared-test-utils = { path = "../shared-test-utils" }

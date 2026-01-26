@@ -207,6 +207,14 @@ fn convert_comprehensive_to_patterns(
 
     let config = comprehensive.config();
 
+    fn normalize_pattern(pattern: &str) -> String {
+        if pattern.contains('*') || pattern.contains('?') || pattern.contains('[') {
+            pattern.to_string()
+        } else {
+            format!("*{}*", pattern)
+        }
+    }
+
     // Create project indicators from comprehensive config
     let mut ecosystems = HashMap::new();
 
@@ -271,7 +279,7 @@ fn convert_comprehensive_to_patterns(
     ] {
         for pattern in patterns {
             all_exclude_patterns.push(PatternWithMetadata {
-                pattern: pattern.clone(),
+                pattern: normalize_pattern(pattern),
                 description: format!("Auto-generated from comprehensive config: {}", pattern),
                 ecosystems: vec!["all".to_string()],
             });
@@ -309,7 +317,35 @@ fn convert_comprehensive_to_patterns(
         research_coverage: "500+ languages from comprehensive A-Z research".to_string(),
         source_code: source_code_patterns,
         documentation: Vec::new(),
-        configuration: Vec::new(),
+        configuration: {
+            let mut config_patterns = Vec::new();
+            for patterns in [
+                &config.project_indicators.version_control,
+                &config.project_indicators.language_ecosystems,
+                &config.project_indicators.build_systems,
+                &config.project_indicators.ci_cd,
+                &config.project_indicators.containerization,
+                &config.project_indicators.config_management,
+            ] {
+                for pattern in patterns {
+                    config_patterns.push(PatternWithMetadata {
+                        pattern: normalize_pattern(pattern),
+                        description: format!("Config indicator: {}", pattern),
+                        ecosystems: vec!["all".to_string()],
+                    });
+                }
+            }
+            for build in config.build_systems.values() {
+                for pattern in &build.files {
+                    config_patterns.push(PatternWithMetadata {
+                        pattern: normalize_pattern(pattern),
+                        description: format!("Build system file: {}", pattern),
+                        ecosystems: vec!["all".to_string()],
+                    });
+                }
+            }
+            config_patterns
+        },
         schema_and_data: Vec::new(),
         templates_and_resources: Vec::new(),
         project_management: Vec::new(),

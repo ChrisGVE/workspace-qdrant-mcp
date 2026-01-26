@@ -1367,6 +1367,53 @@ mod tests {
     use crate::queue_config::QueueConnectionConfig;
     use tempfile::tempdir;
 
+    async fn apply_sql_script(pool: &SqlitePool, script: &str) -> Result<(), sqlx::Error> {
+        let mut conn = pool.acquire().await?;
+        let mut statement = String::new();
+        let mut in_trigger = false;
+
+        for line in script.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with("--") {
+                continue;
+            }
+
+            if trimmed.to_uppercase().starts_with("CREATE TRIGGER") {
+                in_trigger = true;
+            }
+
+            statement.push_str(line);
+            statement.push('\n');
+
+            if in_trigger {
+                if trimmed.eq_ignore_ascii_case("END;") || trimmed.eq_ignore_ascii_case("END") {
+                    in_trigger = false;
+                    let stmt = statement.trim();
+                    if !stmt.is_empty() {
+                        sqlx::query(stmt).execute(&mut *conn).await?;
+                    }
+                    statement.clear();
+                }
+                continue;
+            }
+
+            if trimmed.ends_with(';') {
+                let stmt = statement.trim();
+                if !stmt.is_empty() {
+                    sqlx::query(stmt).execute(&mut *conn).await?;
+                }
+                statement.clear();
+            }
+        }
+
+        let remainder = statement.trim();
+        if !remainder.is_empty() {
+            sqlx::query(remainder).execute(&mut *conn).await?;
+        }
+
+        Ok(())
+    }
+
     #[tokio::test]
     async fn test_enqueue_dequeue() {
         let temp_dir = tempdir().unwrap();
@@ -1376,10 +1423,12 @@ mod tests {
         let pool = config.create_pool().await.unwrap();
 
         // Initialize schema
-        sqlx::query(include_str!("../../../../python/common/core/queue_schema.sql"))
-            .execute(&pool)
-            .await
-            .unwrap();
+        apply_sql_script(
+            &pool,
+            include_str!("../../../../python/common/core/queue_schema.sql"),
+        )
+        .await
+        .unwrap();
 
         let manager = QueueManager::new(pool);
 
@@ -1439,11 +1488,20 @@ mod tests {
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
 
-        // Initialize schema (with migration)
-        sqlx::query(include_str!("../../../../python/common/core/schema/queue_retry_timestamp_migration.sql"))
-            .execute(&pool)
-            .await
-            .unwrap();
+        // Initialize base schema, then apply migration
+        apply_sql_script(
+            &pool,
+            include_str!("../../../../python/common/core/queue_schema.sql"),
+        )
+        .await
+        .unwrap();
+
+        apply_sql_script(
+            &pool,
+            include_str!("../../../../python/common/core/schema/queue_retry_timestamp_migration.sql"),
+        )
+        .await
+        .unwrap();
 
         let manager = QueueManager::new(pool);
 
@@ -1494,10 +1552,12 @@ mod tests {
         let pool = config.create_pool().await.unwrap();
 
         // Initialize schema
-        sqlx::query(include_str!("../../../../python/common/core/queue_schema.sql"))
-            .execute(&pool)
-            .await
-            .unwrap();
+        apply_sql_script(
+            &pool,
+            include_str!("../../../../python/common/core/queue_schema.sql"),
+        )
+        .await
+        .unwrap();
 
         let manager = QueueManager::new(pool);
 
@@ -1536,10 +1596,12 @@ mod tests {
         let pool = config.create_pool().await.unwrap();
 
         // Initialize schemas
-        sqlx::query(include_str!("../../../../python/common/core/queue_schema.sql"))
-            .execute(&pool)
-            .await
-            .unwrap();
+        apply_sql_script(
+            &pool,
+            include_str!("../../../../python/common/core/queue_schema.sql"),
+        )
+        .await
+        .unwrap();
 
         let manager = QueueManager::new(pool);
         manager.init_missing_metadata_queue().await.unwrap();

@@ -73,6 +73,14 @@ static CONFIG_EXTENSIONS: phf::Set<&'static str> = phf_set! {
     ".gitconfig", ".gitignore", ".gitattributes",  // Git config
 };
 
+/// Configuration file names without extensions
+static CONFIG_FILENAMES: phf::Set<&'static str> = phf_set! {
+    ".env", ".env.local", ".env.example",
+    ".editorconfig",
+    ".gitconfig", ".gitignore", ".gitattributes",
+    ".npmrc", ".dockerignore",
+};
+
 /// Data file extensions
 static DATA_EXTENSIONS: phf::Set<&'static str> = phf_set! {
     ".csv", ".tsv",  // CSV/TSV
@@ -194,12 +202,17 @@ pub fn classify_file_type(file_path: &Path) -> FileType {
         return FileType::Test;
     }
 
-    // Priority 2: Documentation
+    // Priority 2: Configuration dotfiles without extensions
+    if CONFIG_FILENAMES.contains(filename.as_str()) {
+        return FileType::Config;
+    }
+
+    // Priority 3: Documentation
     if DOCS_EXTENSIONS.contains(extension.as_str()) {
         return FileType::Docs;
     }
 
-    // Priority 3: Configuration
+    // Priority 4: Configuration
     // Special handling for JSON/XML which can be data or config
     if CONFIG_EXTENSIONS.contains(extension.as_str()) {
         // If it's JSON/XML in typical config locations, classify as config
@@ -214,17 +227,17 @@ pub fn classify_file_type(file_path: &Path) -> FileType {
         return FileType::Config;
     }
 
-    // Priority 4: Code files
+    // Priority 5: Code files
     if CODE_EXTENSIONS.contains(extension.as_str()) {
         return FileType::Code;
     }
 
-    // Priority 5: Data files
+    // Priority 6: Data files
     if DATA_EXTENSIONS.contains(extension.as_str()) {
         return FileType::Data;
     }
 
-    // Priority 6: Build artifacts
+    // Priority 7: Build artifacts
     if BUILD_EXTENSIONS.contains(extension.as_str()) {
         return FileType::Build;
     }
@@ -235,7 +248,7 @@ pub fn classify_file_type(file_path: &Path) -> FileType {
         return FileType::Build;
     }
 
-    // Priority 7: Fallback to "other"
+    // Priority 8: Fallback to "other"
     FileType::Other
 }
 

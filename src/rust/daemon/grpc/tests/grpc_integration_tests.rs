@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy_grpc_tests")]
 //! Comprehensive gRPC service layer integration tests
 //!
 //! This module provides exhaustive testing of the gRPC communication layer

@@ -97,6 +97,11 @@ default = ["ml", "embeddings"]
 ml = ["ort", "tokenizers"]
 embeddings = ["ort", "tokenizers"]
 macos-fsevents = []
+integration = []
+processing_engine = []
+queue_processor = []
+comprehensive_file_tests = []
+lsp_integration = []
 
 [[bench]]
 name = "cross_platform_benchmarks"

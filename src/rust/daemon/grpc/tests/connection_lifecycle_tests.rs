@@ -1,3 +1,4 @@
+#![cfg(feature = "legacy_grpc_tests")]
 //! Enhanced connection lifecycle and management tests for gRPC daemon-MCP communication
 //!
 //! This module provides comprehensive testing of gRPC connection establishment, teardown,

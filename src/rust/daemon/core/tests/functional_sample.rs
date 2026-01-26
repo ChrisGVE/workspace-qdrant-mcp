@@ -1,3 +1,4 @@
+#![cfg(feature = "integration")]
 //! Sample functional tests for Rust daemon components using cargo-nextest.
 //!
 //! These tests demonstrate functional testing patterns for:

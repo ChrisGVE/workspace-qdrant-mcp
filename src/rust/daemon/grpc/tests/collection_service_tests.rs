@@ -191,9 +191,9 @@ async fn test_alias_operations_unimplemented() {
     let result = service.create_collection_alias(request).await;
     assert!(result.is_err());
     // Should be unimplemented since StorageClient lacks alias methods
+    let err = result.unwrap_err();
     assert!(
-        result.unwrap_err().code() == Code::Unimplemented
-        || result.unwrap_err().code() == Code::Unavailable
+        err.code() == Code::Unimplemented || err.code() == Code::Unavailable
     );
 
     // Delete alias
@@ -273,16 +273,16 @@ async fn test_edge_case_names() {
 
     // Valid edge cases
     let valid_names = vec![
-        "abc",           // Minimum length
-        "a_b_c",         // Underscores
-        "a-b-c",         // Hyphens
-        "collection123", // Numbers (not at start)
-        &"a".repeat(255), // Maximum length
+        "abc".to_string(),           // Minimum length
+        "a_b_c".to_string(),         // Underscores
+        "a-b-c".to_string(),         // Hyphens
+        "collection123".to_string(), // Numbers (not at start)
+        "a".repeat(255),             // Maximum length
     ];
 
-    for name in valid_names {
+    for name in &valid_names {
         let request = Request::new(CreateCollectionRequest {
-            collection_name: name.to_string(),
+            collection_name: name.clone(),
             project_id: "test".to_string(),
             config: Some(create_test_config(384, "Cosine")),
         });
@@ -299,15 +299,15 @@ async fn test_edge_case_names() {
 
     // Invalid edge cases
     let invalid_names = vec![
-        "ab",            // Too short
-        "1abc",          // Starts with number
-        "a.b",           // Invalid character
-        &"a".repeat(256), // Too long
+        "ab".to_string(),      // Too short
+        "1abc".to_string(),    // Starts with number
+        "a.b".to_string(),     // Invalid character
+        "a".repeat(256),       // Too long
     ];
 
-    for name in invalid_names {
+    for name in &invalid_names {
         let request = Request::new(CreateCollectionRequest {
-            collection_name: name.to_string(),
+            collection_name: name.clone(),
             project_id: "test".to_string(),
             config: Some(create_test_config(384, "Cosine")),
         });

@@ -6,6 +6,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -174,6 +175,8 @@ pub struct IpcServer {
     settings: Arc<RwLock<EngineSettings>>,
     /// Shutdown signal
     shutdown_signal: Arc<tokio::sync::Notify>,
+    /// Shutdown completion flag
+    shutdown_complete: Arc<AtomicBool>,
 }
 
 impl IpcServer {
@@ -205,6 +208,7 @@ impl IpcServer {
             response_sender,
             settings,
             shutdown_signal: Arc::new(tokio::sync::Notify::new()),
+            shutdown_complete: Arc::new(AtomicBool::new(false)),
         };
         
         let client = IpcClient {
@@ -235,6 +239,7 @@ impl IpcServer {
         let response_sender = self.response_sender.clone();
         let settings = Arc::clone(&self.settings);
         let shutdown_signal = Arc::clone(&self.shutdown_signal);
+        let shutdown_complete = Arc::clone(&self.shutdown_complete);
         
         tokio::spawn(async move {
             Self::request_processing_loop(
@@ -245,6 +250,7 @@ impl IpcServer {
                 response_sender,
                 settings,
                 shutdown_signal,
+                shutdown_complete,
             ).await;
         });
         
@@ -260,6 +266,7 @@ impl IpcServer {
         response_sender: mpsc::UnboundedSender<IpcResponse>,
         settings: Arc<RwLock<EngineSettings>>,
         shutdown_signal: Arc<tokio::sync::Notify>,
+        shutdown_complete: Arc<AtomicBool>,
     ) {
         let mut cleanup_interval = tokio::time::interval(Duration::from_secs(1));
         
@@ -277,6 +284,7 @@ impl IpcServer {
                                 &pipeline,
                                 &settings,
                                 &shutdown_signal,
+                                &shutdown_complete,
                             ).await {
                                 tracing::error!("Error handling IPC request: {}", e);
                             }
@@ -311,6 +319,7 @@ impl IpcServer {
         pipeline: &Arc<Mutex<Pipeline>>,
         settings: &Arc<RwLock<EngineSettings>>,
         shutdown_signal: &Arc<tokio::sync::Notify>,
+        shutdown_complete: &Arc<AtomicBool>,
     ) -> Result<(), IpcError> {
         match request {
             IpcRequest::SubmitTask { 
@@ -410,7 +419,8 @@ impl IpcServer {
                     request_id,
                 };
                 response_sender.send(response)?;
-                shutdown_signal.notify_one();
+                shutdown_complete.store(true, Ordering::Release);
+                shutdown_signal.notify_waiters();
             }
         }
         
@@ -431,6 +441,9 @@ impl IpcServer {
     
     /// Wait for the server to shut down
     pub async fn wait_for_shutdown(&self) {
+        if self.shutdown_complete.load(Ordering::Acquire) {
+            return;
+        }
         self.shutdown_signal.notified().await;
     }
 }
