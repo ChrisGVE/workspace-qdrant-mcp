@@ -309,6 +309,144 @@ pub struct RenamePayload {
     pub is_folder: bool,
 }
 
+/// Complete unified queue item representation
+///
+/// This struct represents a full row from the unified_queue table,
+/// used for dequeuing and processing operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnifiedQueueItem {
+    /// Unique queue item identifier
+    pub queue_id: String,
+    /// Idempotency key for deduplication
+    pub idempotency_key: String,
+    /// Type of item (content, file, folder, etc.)
+    pub item_type: ItemType,
+    /// Operation to perform (ingest, update, delete, scan)
+    pub op: QueueOperation,
+    /// Project/tenant identifier
+    pub tenant_id: String,
+    /// Target Qdrant collection
+    pub collection: String,
+    /// Processing priority (0-10, higher = more urgent)
+    pub priority: i32,
+    /// Current status (pending, in_progress, done, failed)
+    pub status: QueueStatus,
+    /// Git branch (default: main)
+    pub branch: String,
+    /// JSON payload with operation-specific data
+    pub payload_json: String,
+    /// Additional metadata as JSON
+    #[serde(default)]
+    pub metadata: Option<String>,
+    /// Creation timestamp (RFC3339)
+    pub created_at: String,
+    /// Last update timestamp (RFC3339)
+    pub updated_at: String,
+    /// Lease expiry timestamp (RFC3339, None if not leased)
+    #[serde(default)]
+    pub lease_until: Option<String>,
+    /// Worker ID holding the lease
+    #[serde(default)]
+    pub worker_id: Option<String>,
+    /// Number of retry attempts
+    #[serde(default)]
+    pub retry_count: i32,
+    /// Maximum allowed retries
+    #[serde(default = "default_max_retries")]
+    pub max_retries: i32,
+    /// Last error message if failed
+    #[serde(default)]
+    pub error_message: Option<String>,
+    /// Timestamp of last error (RFC3339)
+    #[serde(default)]
+    pub last_error_at: Option<String>,
+}
+
+fn default_max_retries() -> i32 { 3 }
+
+impl UnifiedQueueItem {
+    /// Parse the payload JSON into a typed payload struct
+    pub fn parse_content_payload(&self) -> Result<ContentPayload, serde_json::Error> {
+        serde_json::from_str(&self.payload_json)
+    }
+
+    /// Parse the payload JSON into a FilePayload
+    pub fn parse_file_payload(&self) -> Result<FilePayload, serde_json::Error> {
+        serde_json::from_str(&self.payload_json)
+    }
+
+    /// Parse the payload JSON into a FolderPayload
+    pub fn parse_folder_payload(&self) -> Result<FolderPayload, serde_json::Error> {
+        serde_json::from_str(&self.payload_json)
+    }
+
+    /// Parse the payload JSON into a ProjectPayload
+    pub fn parse_project_payload(&self) -> Result<ProjectPayload, serde_json::Error> {
+        serde_json::from_str(&self.payload_json)
+    }
+
+    /// Parse the payload JSON into a LibraryPayload
+    pub fn parse_library_payload(&self) -> Result<LibraryPayload, serde_json::Error> {
+        serde_json::from_str(&self.payload_json)
+    }
+
+    /// Parse the payload JSON into a DeleteTenantPayload
+    pub fn parse_delete_tenant_payload(&self) -> Result<DeleteTenantPayload, serde_json::Error> {
+        serde_json::from_str(&self.payload_json)
+    }
+
+    /// Parse the payload JSON into a DeleteDocumentPayload
+    pub fn parse_delete_document_payload(&self) -> Result<DeleteDocumentPayload, serde_json::Error> {
+        serde_json::from_str(&self.payload_json)
+    }
+
+    /// Parse the payload JSON into a RenamePayload
+    pub fn parse_rename_payload(&self) -> Result<RenamePayload, serde_json::Error> {
+        serde_json::from_str(&self.payload_json)
+    }
+
+    /// Check if the item can be retried
+    pub fn can_retry(&self) -> bool {
+        self.retry_count < self.max_retries
+    }
+
+    /// Check if the lease has expired
+    pub fn is_lease_expired(&self) -> bool {
+        if let Some(ref lease_until) = self.lease_until {
+            if let Ok(lease_time) = chrono::DateTime::parse_from_rfc3339(lease_until) {
+                return chrono::Utc::now() > lease_time;
+            }
+        }
+        // No lease or invalid timestamp means not leased
+        true
+    }
+}
+
+/// Statistics for the unified queue
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UnifiedQueueStats {
+    /// Total items in queue (all statuses)
+    pub total_items: i64,
+    /// Items with pending status
+    pub pending_items: i64,
+    /// Items with in_progress status
+    pub in_progress_items: i64,
+    /// Items with done status (not yet cleaned up)
+    pub done_items: i64,
+    /// Items with failed status
+    pub failed_items: i64,
+    /// Items by type
+    pub by_item_type: std::collections::HashMap<String, i64>,
+    /// Items by operation
+    pub by_operation: std::collections::HashMap<String, i64>,
+    /// Oldest pending item timestamp
+    pub oldest_pending: Option<String>,
+    /// Newest item timestamp
+    pub newest_item: Option<String>,
+    /// Number of items with expired leases (stale)
+    pub stale_leases: i64,
+}
+
 /// Generate an idempotency key for a queue item (simple format)
 ///
 /// Uses format: `{item_type}:{collection}:{identifier_hash}`

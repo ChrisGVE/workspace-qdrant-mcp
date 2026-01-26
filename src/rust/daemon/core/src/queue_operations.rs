@@ -3,12 +3,18 @@
 //! Provides Rust interface to the ingestion queue system with full compatibility
 //! with Python queue client operations.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
+
+use crate::unified_queue_schema::{
+    ItemType, QueueOperation as UnifiedOp, QueueStatus,
+    UnifiedQueueItem, UnifiedQueueStats,
+    generate_unified_idempotency_key,
+};
 
 // Import MissingTool from queue_processor module
 use crate::queue_types::MissingTool;
@@ -1359,6 +1365,585 @@ impl QueueManager {
             critical_threshold,
         })
     }
+
+    // ========================================================================
+    // Unified Queue Operations (Task 37.21-37.29)
+    // ========================================================================
+
+    /// Initialize the unified_queue table schema
+    ///
+    /// Creates the table and indexes if they don't exist.
+    pub async fn init_unified_queue(&self) -> QueueResult<()> {
+        use crate::unified_queue_schema::{CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL};
+
+        // Create the table
+        sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        // Create all indexes
+        for index_sql in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
+            sqlx::query(index_sql).execute(&self.pool).await?;
+        }
+
+        debug!("Unified queue table initialized");
+        Ok(())
+    }
+
+    /// Enqueue an item to the unified queue with idempotency support
+    ///
+    /// Returns (queue_id, is_new) where is_new indicates if this was a new insertion
+    /// or if an existing item with the same idempotency key was found.
+    ///
+    /// # Arguments
+    /// * `item_type` - Type of queue item (content, file, folder, etc.)
+    /// * `op` - Operation to perform (ingest, update, delete, scan)
+    /// * `tenant_id` - Project/tenant identifier
+    /// * `collection` - Target Qdrant collection
+    /// * `payload_json` - JSON payload with operation-specific data
+    /// * `priority` - Processing priority (0-10, higher = more urgent)
+    /// * `branch` - Git branch (default: main)
+    /// * `metadata` - Optional additional metadata as JSON
+    pub async fn enqueue_unified(
+        &self,
+        item_type: ItemType,
+        op: UnifiedOp,
+        tenant_id: &str,
+        collection: &str,
+        payload_json: &str,
+        priority: i32,
+        branch: Option<&str>,
+        metadata: Option<&str>,
+    ) -> QueueResult<(String, bool)> {
+        // Validate priority
+        if !(0..=10).contains(&priority) {
+            return Err(QueueError::InvalidPriority(priority));
+        }
+
+        // Generate idempotency key
+        let idempotency_key = generate_unified_idempotency_key(
+            item_type,
+            op,
+            tenant_id,
+            collection,
+            payload_json,
+        ).map_err(|e| QueueError::InvalidOperation(e.to_string()))?;
+
+        let branch = branch.unwrap_or("main");
+        let metadata = metadata.unwrap_or("{}");
+
+        // Use INSERT OR IGNORE to handle race conditions, then check what happened
+        let insert_query = r#"
+            INSERT OR IGNORE INTO unified_queue (
+                item_type, op, tenant_id, collection, priority,
+                branch, payload_json, metadata, idempotency_key
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+        "#;
+
+        let result = sqlx::query(insert_query)
+            .bind(item_type.to_string())
+            .bind(op.to_string())
+            .bind(tenant_id)
+            .bind(collection)
+            .bind(priority)
+            .bind(branch)
+            .bind(payload_json)
+            .bind(metadata)
+            .bind(&idempotency_key)
+            .execute(&self.pool)
+            .await?;
+
+        let is_new = result.rows_affected() > 0;
+
+        // Get the queue_id (either newly inserted or existing)
+        let queue_id: String = sqlx::query_scalar(
+            "SELECT queue_id FROM unified_queue WHERE idempotency_key = ?1"
+        )
+            .bind(&idempotency_key)
+            .fetch_one(&self.pool)
+            .await?;
+
+        if is_new {
+            debug!(
+                "Enqueued unified item: {} (type={}, op={}, collection={})",
+                queue_id, item_type, op, collection
+            );
+        } else {
+            // Update timestamp to show we tried to enqueue again
+            sqlx::query(
+                "UPDATE unified_queue SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE idempotency_key = ?1"
+            )
+                .bind(&idempotency_key)
+                .execute(&self.pool)
+                .await?;
+
+            debug!(
+                "Unified item already exists: {} (idempotency_key={})",
+                queue_id, idempotency_key
+            );
+        }
+
+        Ok((queue_id, is_new))
+    }
+
+    /// Dequeue a batch of items from the unified queue with lease-based locking
+    ///
+    /// Acquires a lease on the items to prevent concurrent processing.
+    /// Items with expired leases are also considered for dequeuing.
+    ///
+    /// # Arguments
+    /// * `batch_size` - Maximum number of items to dequeue
+    /// * `worker_id` - Identifier for this worker (for lease tracking)
+    /// * `lease_duration_secs` - How long to hold the lease (default: 300 seconds)
+    /// * `tenant_id` - Optional filter by tenant
+    /// * `item_type` - Optional filter by item type
+    pub async fn dequeue_unified(
+        &self,
+        batch_size: i32,
+        worker_id: &str,
+        lease_duration_secs: Option<i64>,
+        tenant_id: Option<&str>,
+        item_type: Option<ItemType>,
+    ) -> QueueResult<Vec<UnifiedQueueItem>> {
+        let lease_duration = lease_duration_secs.unwrap_or(300);
+        let lease_until = Utc::now() + ChronoDuration::seconds(lease_duration);
+        let lease_until_str = lease_until.to_rfc3339();
+        let now_str = Utc::now().to_rfc3339();
+
+        // First, select the queue_ids to process using a simpler approach
+        let queue_ids: Vec<String> = match (tenant_id, item_type) {
+            (Some(tid), Some(itype)) => {
+                sqlx::query_scalar::<_, String>(
+                    r#"
+                    SELECT queue_id FROM unified_queue
+                    WHERE (status = 'pending' OR (status = 'in_progress' AND lease_until < ?1))
+                    AND tenant_id = ?2
+                    AND item_type = ?3
+                    ORDER BY priority DESC, created_at ASC
+                    LIMIT ?4
+                    "#,
+                )
+                    .bind(&now_str)
+                    .bind(tid)
+                    .bind(itype.to_string())
+                    .bind(batch_size)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+            (Some(tid), None) => {
+                sqlx::query_scalar::<_, String>(
+                    r#"
+                    SELECT queue_id FROM unified_queue
+                    WHERE (status = 'pending' OR (status = 'in_progress' AND lease_until < ?1))
+                    AND tenant_id = ?2
+                    ORDER BY priority DESC, created_at ASC
+                    LIMIT ?3
+                    "#,
+                )
+                    .bind(&now_str)
+                    .bind(tid)
+                    .bind(batch_size)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+            (None, Some(itype)) => {
+                sqlx::query_scalar::<_, String>(
+                    r#"
+                    SELECT queue_id FROM unified_queue
+                    WHERE (status = 'pending' OR (status = 'in_progress' AND lease_until < ?1))
+                    AND item_type = ?2
+                    ORDER BY priority DESC, created_at ASC
+                    LIMIT ?3
+                    "#,
+                )
+                    .bind(&now_str)
+                    .bind(itype.to_string())
+                    .bind(batch_size)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+            (None, None) => {
+                sqlx::query_scalar::<_, String>(
+                    r#"
+                    SELECT queue_id FROM unified_queue
+                    WHERE (status = 'pending' OR (status = 'in_progress' AND lease_until < ?1))
+                    ORDER BY priority DESC, created_at ASC
+                    LIMIT ?2
+                    "#,
+                )
+                    .bind(&now_str)
+                    .bind(batch_size)
+                    .fetch_all(&self.pool)
+                    .await?
+            }
+        };
+
+        if queue_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Update the selected items to in_progress
+        let placeholders: Vec<String> = (1..=queue_ids.len())
+            .map(|i| format!("?{}", i + 2))
+            .collect();
+        let update_query = format!(
+            r#"
+            UPDATE unified_queue
+            SET status = 'in_progress',
+                worker_id = ?1,
+                lease_until = ?2,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE queue_id IN ({})
+            "#,
+            placeholders.join(", ")
+        );
+
+        let mut update_builder = sqlx::query(&update_query)
+            .bind(worker_id)
+            .bind(&lease_until_str);
+
+        for queue_id in &queue_ids {
+            update_builder = update_builder.bind(queue_id);
+        }
+
+        update_builder.execute(&self.pool).await?;
+
+        // Fetch the updated items
+        let fetch_placeholders: Vec<String> = (1..=queue_ids.len())
+            .map(|i| format!("?{}", i))
+            .collect();
+        let fetch_query = format!(
+            "SELECT * FROM unified_queue WHERE queue_id IN ({})",
+            fetch_placeholders.join(", ")
+        );
+
+        let mut fetch_builder = sqlx::query(&fetch_query);
+        for queue_id in &queue_ids {
+            fetch_builder = fetch_builder.bind(queue_id);
+        }
+
+        let rows = fetch_builder.fetch_all(&self.pool).await?;
+
+        let mut items = Vec::new();
+        for row in rows {
+            let item_type_str: String = row.try_get("item_type")?;
+            let op_str: String = row.try_get("op")?;
+            let status_str: String = row.try_get("status")?;
+
+            items.push(UnifiedQueueItem {
+                queue_id: row.try_get("queue_id")?,
+                idempotency_key: row.try_get("idempotency_key")?,
+                item_type: ItemType::from_str(&item_type_str)
+                    .ok_or_else(|| QueueError::InvalidOperation(item_type_str.clone()))?,
+                op: UnifiedOp::from_str(&op_str)
+                    .ok_or_else(|| QueueError::InvalidOperation(op_str.clone()))?,
+                tenant_id: row.try_get("tenant_id")?,
+                collection: row.try_get("collection")?,
+                priority: row.try_get("priority")?,
+                status: QueueStatus::from_str(&status_str)
+                    .ok_or_else(|| QueueError::InvalidOperation(status_str.clone()))?,
+                branch: row.try_get("branch")?,
+                payload_json: row.try_get("payload_json")?,
+                metadata: row.try_get("metadata")?,
+                created_at: row.try_get("created_at")?,
+                updated_at: row.try_get("updated_at")?,
+                lease_until: row.try_get("lease_until")?,
+                worker_id: row.try_get("worker_id")?,
+                retry_count: row.try_get("retry_count")?,
+                max_retries: row.try_get("max_retries")?,
+                error_message: row.try_get("error_message")?,
+                last_error_at: row.try_get("last_error_at")?,
+            });
+        }
+
+        debug!(
+            "Dequeued {} unified items for worker {}",
+            items.len(),
+            worker_id
+        );
+
+        Ok(items)
+    }
+
+    /// Mark a unified queue item as successfully completed
+    ///
+    /// Sets status to 'done' and clears the lease.
+    pub async fn mark_unified_done(&self, queue_id: &str) -> QueueResult<bool> {
+        let query = r#"
+            UPDATE unified_queue
+            SET status = 'done',
+                lease_until = NULL,
+                worker_id = NULL,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE queue_id = ?1 AND status = 'in_progress'
+        "#;
+
+        let result = sqlx::query(query)
+            .bind(queue_id)
+            .execute(&self.pool)
+            .await?;
+
+        let updated = result.rows_affected() > 0;
+
+        if updated {
+            debug!("Marked unified item as done: {}", queue_id);
+            METRICS.queue_item_processed("unified", "success", 0.0);
+        } else {
+            warn!("Failed to mark unified item as done: {} (not in_progress)", queue_id);
+        }
+
+        Ok(updated)
+    }
+
+    /// Mark a unified queue item as failed
+    ///
+    /// If retries remain, increments retry_count and resets to pending.
+    /// If max retries exceeded, sets status to 'failed'.
+    ///
+    /// Returns true if the item will be retried, false if permanently failed.
+    pub async fn mark_unified_failed(
+        &self,
+        queue_id: &str,
+        error_message: &str,
+    ) -> QueueResult<bool> {
+        // Get current retry state
+        let row = sqlx::query(
+            "SELECT retry_count, max_retries FROM unified_queue WHERE queue_id = ?1"
+        )
+            .bind(queue_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        if let Some(row) = row {
+            let retry_count: i32 = row.try_get("retry_count")?;
+            let max_retries: i32 = row.try_get("max_retries")?;
+            let new_retry_count = retry_count + 1;
+
+            if new_retry_count < max_retries {
+                // Can retry - reset to pending with incremented retry count
+                let query = r#"
+                    UPDATE unified_queue
+                    SET status = 'pending',
+                        retry_count = ?1,
+                        error_message = ?2,
+                        last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                        lease_until = NULL,
+                        worker_id = NULL,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    WHERE queue_id = ?3
+                "#;
+
+                sqlx::query(query)
+                    .bind(new_retry_count)
+                    .bind(error_message)
+                    .bind(queue_id)
+                    .execute(&self.pool)
+                    .await?;
+
+                info!(
+                    "Unified item {} failed, will retry ({}/{}): {}",
+                    queue_id, new_retry_count, max_retries, error_message
+                );
+
+                Ok(true)
+            } else {
+                // Max retries exceeded - mark as permanently failed
+                let query = r#"
+                    UPDATE unified_queue
+                    SET status = 'failed',
+                        retry_count = ?1,
+                        error_message = ?2,
+                        last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                        lease_until = NULL,
+                        worker_id = NULL,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    WHERE queue_id = ?3
+                "#;
+
+                sqlx::query(query)
+                    .bind(new_retry_count)
+                    .bind(error_message)
+                    .bind(queue_id)
+                    .execute(&self.pool)
+                    .await?;
+
+                warn!(
+                    "Unified item {} permanently failed after {} retries: {}",
+                    queue_id, new_retry_count, error_message
+                );
+
+                METRICS.queue_item_processed("unified", "failure", 0.0);
+                METRICS.ingestion_error("max_retries_exceeded");
+
+                Ok(false)
+            }
+        } else {
+            warn!("Unified queue item not found: {}", queue_id);
+            Err(QueueError::NotFound(queue_id.to_string()))
+        }
+    }
+
+    /// Recover stale leases from crashed workers
+    ///
+    /// Finds items with status 'in_progress' and expired leases,
+    /// resets them to 'pending' for reprocessing.
+    ///
+    /// Should be called at daemon startup and periodically.
+    ///
+    /// Returns the number of recovered items.
+    pub async fn recover_stale_unified_leases(&self) -> QueueResult<u64> {
+        let now_str = Utc::now().to_rfc3339();
+
+        let query = r#"
+            UPDATE unified_queue
+            SET status = 'pending',
+                lease_until = NULL,
+                worker_id = NULL,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE status = 'in_progress' AND lease_until < ?1
+        "#;
+
+        let result = sqlx::query(query)
+            .bind(&now_str)
+            .execute(&self.pool)
+            .await?;
+
+        let recovered = result.rows_affected();
+
+        if recovered > 0 {
+            info!("Recovered {} stale unified queue leases", recovered);
+        } else {
+            debug!("No stale unified queue leases to recover");
+        }
+
+        Ok(recovered)
+    }
+
+    /// Get statistics for the unified queue
+    pub async fn get_unified_queue_stats(&self) -> QueueResult<UnifiedQueueStats> {
+        let now_str = Utc::now().to_rfc3339();
+
+        // Get counts by status
+        let status_query = r#"
+            SELECT
+                COUNT(*) as total_items,
+                SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_items,
+                SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress_items,
+                SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_items,
+                SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed_items,
+                SUM(CASE WHEN status = 'in_progress' AND lease_until < ?1 THEN 1 ELSE 0 END) as stale_leases,
+                MIN(CASE WHEN status = 'pending' THEN created_at END) as oldest_pending,
+                MAX(created_at) as newest_item
+            FROM unified_queue
+        "#;
+
+        let row = sqlx::query(status_query)
+            .bind(&now_str)
+            .fetch_one(&self.pool)
+            .await?;
+
+        // Get counts by item_type
+        let type_rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT item_type, COUNT(*) FROM unified_queue GROUP BY item_type"
+        )
+            .fetch_all(&self.pool)
+            .await?;
+
+        // Get counts by operation
+        let op_rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT op, COUNT(*) FROM unified_queue GROUP BY op"
+        )
+            .fetch_all(&self.pool)
+            .await?;
+
+        Ok(UnifiedQueueStats {
+            total_items: row.try_get("total_items")?,
+            pending_items: row.try_get("pending_items")?,
+            in_progress_items: row.try_get("in_progress_items")?,
+            done_items: row.try_get("done_items")?,
+            failed_items: row.try_get("failed_items")?,
+            stale_leases: row.try_get("stale_leases")?,
+            oldest_pending: row.try_get("oldest_pending")?,
+            newest_item: row.try_get("newest_item")?,
+            by_item_type: type_rows.into_iter().collect(),
+            by_operation: op_rows.into_iter().collect(),
+        })
+    }
+
+    /// Get the depth of the unified queue (pending items only)
+    pub async fn get_unified_queue_depth(
+        &self,
+        item_type: Option<ItemType>,
+        tenant_id: Option<&str>,
+    ) -> QueueResult<i64> {
+        let count: i64 = match (item_type, tenant_id) {
+            (Some(itype), Some(tid)) => {
+                sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM unified_queue WHERE status = 'pending' AND item_type = ?1 AND tenant_id = ?2"
+                )
+                    .bind(itype.to_string())
+                    .bind(tid)
+                    .fetch_one(&self.pool)
+                    .await?
+            }
+            (Some(itype), None) => {
+                sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM unified_queue WHERE status = 'pending' AND item_type = ?1"
+                )
+                    .bind(itype.to_string())
+                    .fetch_one(&self.pool)
+                    .await?
+            }
+            (None, Some(tid)) => {
+                sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM unified_queue WHERE status = 'pending' AND tenant_id = ?1"
+                )
+                    .bind(tid)
+                    .fetch_one(&self.pool)
+                    .await?
+            }
+            (None, None) => {
+                sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM unified_queue WHERE status = 'pending'"
+                )
+                    .fetch_one(&self.pool)
+                    .await?
+            }
+        };
+        Ok(count)
+    }
+
+    /// Clean up completed items older than the specified retention period
+    ///
+    /// Removes items with status 'done' that were completed before the cutoff.
+    ///
+    /// # Arguments
+    /// * `retention_hours` - How many hours to keep completed items (default: 24)
+    ///
+    /// Returns the number of items cleaned up.
+    pub async fn cleanup_completed_unified_items(
+        &self,
+        retention_hours: Option<i64>,
+    ) -> QueueResult<u64> {
+        let hours = retention_hours.unwrap_or(24);
+
+        let query = format!(
+            "DELETE FROM unified_queue WHERE status = 'done' AND updated_at < datetime('now', '-{} hours')",
+            hours
+        );
+
+        let result = sqlx::query(&query).execute(&self.pool).await?;
+
+        let deleted = result.rows_affected();
+
+        if deleted > 0 {
+            info!("Cleaned up {} completed unified queue items", deleted);
+        } else {
+            debug!("No completed unified queue items to clean up");
+        }
+
+        Ok(deleted)
+    }
 }
 
 #[cfg(test)]
@@ -1661,5 +2246,379 @@ mod tests {
 
         let depth_after = manager.get_missing_metadata_queue_depth().await.unwrap();
         assert_eq!(depth_after, 0);
+    }
+
+    // ========================================================================
+    // Unified Queue Tests (Task 37.21-37.29)
+    // ========================================================================
+
+    use crate::unified_queue_schema::{
+        ItemType, QueueOperation as UnifiedOp, QueueStatus,
+    };
+
+    #[tokio::test]
+    async fn test_unified_queue_enqueue_dequeue() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_unified_queue.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue an item
+        let (queue_id, is_new) = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"file_path":"/test/file.rs"}"#,
+                5,
+                Some("main"),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert!(is_new);
+        assert!(!queue_id.is_empty());
+
+        // Enqueue same item again (idempotent)
+        let (queue_id2, is_new2) = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"file_path":"/test/file.rs"}"#,
+                5,
+                Some("main"),
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(queue_id, queue_id2);
+        assert!(!is_new2); // Should be duplicate
+
+        // Dequeue
+        let items = manager
+            .dequeue_unified(10, "worker-1", Some(300), None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].queue_id, queue_id);
+        assert_eq!(items[0].status, QueueStatus::InProgress);
+        assert_eq!(items[0].worker_id, Some("worker-1".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_unified_queue_mark_done() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_unified_done.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue and dequeue
+        let (queue_id, _) = manager
+            .enqueue_unified(
+                ItemType::Content,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"content":"test"}"#,
+                5,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let items = manager
+            .dequeue_unified(10, "worker-1", None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(items.len(), 1);
+
+        // Mark as done
+        let marked = manager.mark_unified_done(&queue_id).await.unwrap();
+        assert!(marked);
+
+        // Verify status changed
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+        assert_eq!(stats.done_items, 1);
+        assert_eq!(stats.in_progress_items, 0);
+    }
+
+    #[tokio::test]
+    async fn test_unified_queue_mark_failed_retry() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_unified_failed.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue
+        let (queue_id, _) = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"file_path":"/test/file.rs"}"#,
+                5,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Dequeue
+        manager
+            .dequeue_unified(10, "worker-1", None, None, None)
+            .await
+            .unwrap();
+
+        // First failure - should retry
+        let will_retry = manager
+            .mark_unified_failed(&queue_id, "Test error 1")
+            .await
+            .unwrap();
+        assert!(will_retry);
+
+        // Check it's back to pending
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+        assert_eq!(stats.pending_items, 1);
+
+        // Dequeue again and fail until max retries
+        for i in 2..=3 {
+            manager
+                .dequeue_unified(10, "worker-1", None, None, None)
+                .await
+                .unwrap();
+            let will_retry = manager
+                .mark_unified_failed(&queue_id, &format!("Test error {}", i))
+                .await
+                .unwrap();
+
+            if i < 3 {
+                assert!(will_retry);
+            } else {
+                assert!(!will_retry); // Max retries exceeded
+            }
+        }
+
+        // Verify permanently failed
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+        assert_eq!(stats.failed_items, 1);
+        assert_eq!(stats.pending_items, 0);
+    }
+
+    #[tokio::test]
+    async fn test_unified_queue_recover_stale_leases() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_unified_stale.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue
+        manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"file_path":"/test/file.rs"}"#,
+                5,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Dequeue with very short lease (1 second)
+        manager
+            .dequeue_unified(10, "worker-1", Some(1), None, None)
+            .await
+            .unwrap();
+
+        // Wait for lease to expire
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        // Recover stale leases
+        let recovered = manager.recover_stale_unified_leases().await.unwrap();
+        assert_eq!(recovered, 1);
+
+        // Verify it's back to pending
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+        assert_eq!(stats.pending_items, 1);
+        assert_eq!(stats.in_progress_items, 0);
+    }
+
+    #[tokio::test]
+    async fn test_unified_queue_stats() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_unified_stats.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue items of different types
+        manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"file_path":"/test/file1.rs"}"#,
+                5,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        manager
+            .enqueue_unified(
+                ItemType::Content,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"content":"test content"}"#,
+                8,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Delete,
+                "test-tenant",
+                "test-collection",
+                r#"{"file_path":"/test/file2.rs"}"#,
+                3,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+
+        assert_eq!(stats.total_items, 3);
+        assert_eq!(stats.pending_items, 3);
+        assert_eq!(stats.by_item_type.get("file"), Some(&2));
+        assert_eq!(stats.by_item_type.get("content"), Some(&1));
+        assert_eq!(stats.by_operation.get("ingest"), Some(&2));
+        assert_eq!(stats.by_operation.get("delete"), Some(&1));
+    }
+
+    #[tokio::test]
+    async fn test_unified_queue_cleanup() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_unified_cleanup.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue and complete an item
+        let (queue_id, _) = manager
+            .enqueue_unified(
+                ItemType::Content,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"content":"test"}"#,
+                5,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        manager
+            .dequeue_unified(10, "worker-1", None, None, None)
+            .await
+            .unwrap();
+        manager.mark_unified_done(&queue_id).await.unwrap();
+
+        // With 0 hours retention, it should be cleaned up immediately
+        // But since it was just completed, it won't be older than now
+        // So we test with a longer retention to verify no cleanup happens
+        let cleaned = manager.cleanup_completed_unified_items(Some(24)).await.unwrap();
+        assert_eq!(cleaned, 0); // Item is too recent
+
+        // Verify item still exists
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+        assert_eq!(stats.done_items, 1);
+    }
+
+    #[tokio::test]
+    async fn test_unified_queue_depth() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_unified_depth.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue items
+        for i in 0..5 {
+            manager
+                .enqueue_unified(
+                    ItemType::File,
+                    UnifiedOp::Ingest,
+                    "test-tenant",
+                    "test-collection",
+                    &format!(r#"{{"file_path":"/test/file{}.rs"}}"#, i),
+                    5,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+        }
+
+        // Check depth
+        let depth = manager.get_unified_queue_depth(None, None).await.unwrap();
+        assert_eq!(depth, 5);
+
+        // Check depth filtered by type
+        let depth_file = manager
+            .get_unified_queue_depth(Some(ItemType::File), None)
+            .await
+            .unwrap();
+        assert_eq!(depth_file, 5);
+
+        let depth_content = manager
+            .get_unified_queue_depth(Some(ItemType::Content), None)
+            .await
+            .unwrap();
+        assert_eq!(depth_content, 0);
     }
 }

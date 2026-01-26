@@ -144,7 +144,9 @@ pub use crate::unified_queue_schema::{
     ContentPayload, FilePayload, FolderPayload, ProjectPayload,
     LibraryPayload, DeleteTenantPayload, DeleteDocumentPayload, RenamePayload,
     generate_idempotency_key, generate_unified_idempotency_key, IdempotencyKeyError,
-    CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL
+    CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL,
+    // Unified queue item types (Task 37.21)
+    UnifiedQueueItem, UnifiedQueueStats
 };
 pub use crate::storage::{
     StorageClient, StorageConfig, StorageError,
