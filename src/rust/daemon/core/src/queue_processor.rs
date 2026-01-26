@@ -505,6 +505,31 @@ impl QueueProcessor {
                         queue_manager
                             .mark_complete(&item.file_absolute_path)
                             .await?;
+
+                        // Update active project activity for fairness scheduler (Task 36)
+                        // Use tenant_id as project_id for activity tracking
+                        if let Err(e) = queue_manager
+                            .update_active_project_activity(&item.tenant_id, 1)
+                            .await
+                        {
+                            // Log but don't fail - activity tracking is non-critical
+                            debug!(
+                                "Failed to update active project activity for {}: {}",
+                                item.tenant_id, e
+                            );
+                        }
+
+                        // Decrement queue count for this project (Task 36)
+                        if let Err(e) = queue_manager
+                            .update_active_project_queue_count(&item.tenant_id, -1)
+                            .await
+                        {
+                            debug!(
+                                "Failed to update queue count for {}: {}",
+                                item.tenant_id, e
+                            );
+                        }
+
                         info!("Successfully processed: {}", item.file_absolute_path);
                         Ok(())
                     }

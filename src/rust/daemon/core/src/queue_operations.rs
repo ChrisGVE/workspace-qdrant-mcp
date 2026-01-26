@@ -378,6 +378,15 @@ impl QueueManager {
             METRICS.set_queue_depth(priority_str, collection, depth);
         }
 
+        // Increment active project queue count for fairness scheduler (Task 36)
+        // Use tenant_id as project_id for tracking
+        if let Err(e) = self.update_active_project_queue_count(tenant_id, 1).await {
+            debug!(
+                "Failed to increment queue count for project {}: {}",
+                tenant_id, e
+            );
+        }
+
         Ok(file_path.to_string())
     }
 
@@ -1256,7 +1265,16 @@ impl QueueManager {
             .await;
 
             match result {
-                Ok(_) => successful += 1,
+                Ok(_) => {
+                    successful += 1;
+                    // Increment active project queue count for fairness scheduler (Task 36)
+                    if let Err(e) = self.update_active_project_queue_count(&item.tenant_id, 1).await {
+                        debug!(
+                            "Failed to increment queue count for project {}: {}",
+                            item.tenant_id, e
+                        );
+                    }
+                }
                 Err(e) => {
                     error!("Failed to enqueue {}: {}", item.file_absolute_path, e);
                     failed.push(item.file_absolute_path);
@@ -1522,6 +1540,16 @@ impl QueueManager {
                 "Unified item already exists: {} (idempotency_key={})",
                 queue_id, idempotency_key
             );
+        }
+
+        // Increment active project queue count only for new items (Task 36)
+        if is_new {
+            if let Err(e) = self.update_active_project_queue_count(tenant_id, 1).await {
+                debug!(
+                    "Failed to increment queue count for project {}: {}",
+                    tenant_id, e
+                );
+            }
         }
 
         Ok((queue_id, is_new))
