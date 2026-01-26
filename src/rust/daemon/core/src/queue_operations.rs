@@ -37,6 +37,19 @@ pub enum QueueError {
 
     #[error("Queue item not found: {0}")]
     NotFound(String),
+
+    // Task 46: Strict validation errors
+    #[error("tenant_id is required and cannot be empty or whitespace")]
+    EmptyTenantId,
+
+    #[error("collection is required and cannot be empty or whitespace")]
+    EmptyCollection,
+
+    #[error("Invalid payload JSON: {0}")]
+    InvalidPayloadJson(String),
+
+    #[error("Missing required field '{field}' in payload for item_type '{item_type}'")]
+    MissingPayloadField { item_type: String, field: String },
 }
 
 /// Result type for queue operations
@@ -312,6 +325,95 @@ impl QueueManager {
     /// Get reference to the connection pool
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    /// Validate payload contains required fields for the given item type (Task 46)
+    ///
+    /// Returns Ok(()) if valid, or an error describing the missing field.
+    fn validate_payload_for_type(item_type: ItemType, payload: &serde_json::Value) -> QueueResult<()> {
+        match item_type {
+            ItemType::File => {
+                if !payload.get("file_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                    error!("Queue validation failed: file item missing 'file_path' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "file".to_string(),
+                        field: "file_path".to_string(),
+                    });
+                }
+            }
+            ItemType::Folder => {
+                if !payload.get("folder_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                    error!("Queue validation failed: folder item missing 'folder_path' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "folder".to_string(),
+                        field: "folder_path".to_string(),
+                    });
+                }
+            }
+            ItemType::Project => {
+                if !payload.get("project_root").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                    error!("Queue validation failed: project item missing 'project_root' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "project".to_string(),
+                        field: "project_root".to_string(),
+                    });
+                }
+            }
+            ItemType::Library => {
+                if !payload.get("library_name").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                    error!("Queue validation failed: library item missing 'library_name' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "library".to_string(),
+                        field: "library_name".to_string(),
+                    });
+                }
+            }
+            ItemType::DeleteTenant => {
+                if !payload.get("tenant_id_to_delete").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                    error!("Queue validation failed: delete_tenant item missing 'tenant_id_to_delete' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "delete_tenant".to_string(),
+                        field: "tenant_id_to_delete".to_string(),
+                    });
+                }
+            }
+            ItemType::DeleteDocument => {
+                if !payload.get("document_id").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                    error!("Queue validation failed: delete_document item missing 'document_id' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "delete_document".to_string(),
+                        field: "document_id".to_string(),
+                    });
+                }
+            }
+            ItemType::Rename => {
+                if !payload.get("old_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                    error!("Queue validation failed: rename item missing 'old_path' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "rename".to_string(),
+                        field: "old_path".to_string(),
+                    });
+                }
+                if !payload.get("new_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                    error!("Queue validation failed: rename item missing 'new_path' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "rename".to_string(),
+                        field: "new_path".to_string(),
+                    });
+                }
+            }
+            ItemType::Content => {
+                // Content items must have a 'content' field (can be empty string for some operations)
+                if !payload.get("content").map_or(false, |v| v.is_string()) {
+                    error!("Queue validation failed: content item missing 'content' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "content".to_string(),
+                        field: "content".to_string(),
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Initialize the missing_metadata_queue table
@@ -1474,10 +1576,35 @@ impl QueueManager {
         branch: Option<&str>,
         metadata: Option<&str>,
     ) -> QueueResult<(String, bool)> {
+        // Task 46: Strict validation
+        // Validate tenant_id (cannot be empty or whitespace-only)
+        let tenant_id = tenant_id.trim();
+        if tenant_id.is_empty() {
+            error!("Queue validation failed: tenant_id is empty or whitespace-only");
+            return Err(QueueError::EmptyTenantId);
+        }
+
+        // Validate collection (cannot be empty or whitespace-only)
+        let collection = collection.trim();
+        if collection.is_empty() {
+            error!("Queue validation failed: collection is empty or whitespace-only");
+            return Err(QueueError::EmptyCollection);
+        }
+
         // Validate priority
         if !(0..=10).contains(&priority) {
             return Err(QueueError::InvalidPriority(priority));
         }
+
+        // Validate payload_json is valid JSON
+        let payload: serde_json::Value = serde_json::from_str(payload_json)
+            .map_err(|e| {
+                error!("Queue validation failed: invalid payload JSON - {}", e);
+                QueueError::InvalidPayloadJson(e.to_string())
+            })?;
+
+        // Type-specific payload validation
+        Self::validate_payload_for_type(item_type, &payload)?;
 
         // Generate idempotency key
         let idempotency_key = generate_unified_idempotency_key(
@@ -3341,5 +3468,382 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(items_after.len(), 0, "No items should be available - lease still held by worker-1");
+    }
+
+    // Queue Validation Tests (Task 46)
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_validation_empty_tenant_id() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_validation_tenant.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Empty tenant_id should fail
+        let result = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "",
+                "test-collection",
+                r#"{"file_path":"/test/file.rs"}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), QueueError::EmptyTenantId));
+    }
+
+    #[tokio::test]
+    async fn test_validation_whitespace_tenant_id() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_validation_ws_tenant.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Whitespace-only tenant_id should fail
+        let result = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "   ",
+                "test-collection",
+                r#"{"file_path":"/test/file.rs"}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), QueueError::EmptyTenantId));
+    }
+
+    #[tokio::test]
+    async fn test_validation_empty_collection() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_validation_collection.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Empty collection should fail
+        let result = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "",
+                r#"{"file_path":"/test/file.rs"}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), QueueError::EmptyCollection));
+    }
+
+    #[tokio::test]
+    async fn test_validation_invalid_json_payload() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_validation_json.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Invalid JSON should fail
+        let result = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                "not valid json",
+                5,
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), QueueError::InvalidPayloadJson(_)));
+    }
+
+    #[tokio::test]
+    async fn test_validation_file_missing_file_path() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_validation_file_path.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // File item without file_path should fail
+        let result = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"other_field":"value"}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QueueError::MissingPayloadField { item_type, field }
+            if item_type == "file" && field == "file_path"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_validation_content_missing_content() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_validation_content.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Content item without content field should fail
+        let result = manager
+            .enqueue_unified(
+                ItemType::Content,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"source_type":"mcp"}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QueueError::MissingPayloadField { item_type, field }
+            if item_type == "content" && field == "content"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_validation_delete_document_missing_document_id() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_validation_delete_doc.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // DeleteDocument without document_id should fail
+        let result = manager
+            .enqueue_unified(
+                ItemType::DeleteDocument,
+                UnifiedOp::Delete,
+                "test-tenant",
+                "test-collection",
+                r#"{"point_ids":["abc"]}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QueueError::MissingPayloadField { item_type, field }
+            if item_type == "delete_document" && field == "document_id"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_validation_rename_missing_paths() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_validation_rename.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Rename without old_path should fail
+        let result = manager
+            .enqueue_unified(
+                ItemType::Rename,
+                UnifiedOp::Update,
+                "test-tenant",
+                "test-collection",
+                r#"{"new_path":"/test/new.rs"}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QueueError::MissingPayloadField { item_type, field }
+            if item_type == "rename" && field == "old_path"
+        ));
+
+        // Rename without new_path should also fail
+        let result = manager
+            .enqueue_unified(
+                ItemType::Rename,
+                UnifiedOp::Update,
+                "test-tenant",
+                "test-collection",
+                r#"{"old_path":"/test/old.rs"}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QueueError::MissingPayloadField { item_type, field }
+            if item_type == "rename" && field == "new_path"
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_validation_valid_items_pass() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_validation_valid.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Valid file item should succeed
+        let result = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"file_path":"/test/file.rs"}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+
+        // Valid content item should succeed
+        let result = manager
+            .enqueue_unified(
+                ItemType::Content,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"content":"test content","source_type":"mcp"}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+
+        // Valid rename item should succeed
+        let result = manager
+            .enqueue_unified(
+                ItemType::Rename,
+                UnifiedOp::Update,
+                "test-tenant",
+                "test-collection",
+                r#"{"old_path":"/test/old.rs","new_path":"/test/new.rs"}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+
+        // Valid delete_document item should succeed
+        let result = manager
+            .enqueue_unified(
+                ItemType::DeleteDocument,
+                UnifiedOp::Delete,
+                "test-tenant",
+                "test-collection",
+                r#"{"document_id":"doc-123"}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_validation_empty_string_in_required_field() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_validation_empty_field.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // File with empty file_path should fail
+        let result = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"file_path":""}"#,
+                5,
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            QueueError::MissingPayloadField { item_type, field }
+            if item_type == "file" && field == "file_path"
+        ));
     }
 }
