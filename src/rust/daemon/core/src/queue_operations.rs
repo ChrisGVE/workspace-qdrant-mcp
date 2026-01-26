@@ -1982,6 +1982,57 @@ impl QueueManager {
         Ok(count)
     }
 
+    /// Get the oldest pending item in the unified queue
+    ///
+    /// Used by the fairness scheduler to check for stale items that need
+    /// priority processing (starvation guard).
+    ///
+    /// Returns the oldest pending item without acquiring a lease.
+    pub async fn get_oldest_pending_unified_item(&self) -> QueueResult<Option<UnifiedQueueItem>> {
+        let query = r#"
+            SELECT * FROM unified_queue
+            WHERE status = 'pending'
+            ORDER BY created_at ASC
+            LIMIT 1
+        "#;
+
+        let row = sqlx::query(query).fetch_optional(&self.pool).await?;
+
+        match row {
+            Some(row) => {
+                let item_type_str: String = row.try_get("item_type")?;
+                let op_str: String = row.try_get("op")?;
+                let status_str: String = row.try_get("status")?;
+
+                Ok(Some(UnifiedQueueItem {
+                    queue_id: row.try_get("queue_id")?,
+                    idempotency_key: row.try_get("idempotency_key")?,
+                    item_type: ItemType::from_str(&item_type_str)
+                        .ok_or_else(|| QueueError::InvalidOperation(item_type_str.clone()))?,
+                    op: UnifiedOp::from_str(&op_str)
+                        .ok_or_else(|| QueueError::InvalidOperation(op_str.clone()))?,
+                    tenant_id: row.try_get("tenant_id")?,
+                    collection: row.try_get("collection")?,
+                    priority: row.try_get("priority")?,
+                    status: QueueStatus::from_str(&status_str)
+                        .ok_or_else(|| QueueError::InvalidOperation(status_str.clone()))?,
+                    branch: row.try_get("branch")?,
+                    payload_json: row.try_get("payload_json")?,
+                    metadata: row.try_get("metadata")?,
+                    created_at: row.try_get("created_at")?,
+                    updated_at: row.try_get("updated_at")?,
+                    lease_until: row.try_get("lease_until")?,
+                    worker_id: row.try_get("worker_id")?,
+                    retry_count: row.try_get("retry_count")?,
+                    max_retries: row.try_get("max_retries")?,
+                    error_message: row.try_get("error_message")?,
+                    last_error_at: row.try_get("last_error_at")?,
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
     /// Clean up completed items older than the specified retention period
     ///
     /// Removes items with status 'done' that were completed before the cutoff.

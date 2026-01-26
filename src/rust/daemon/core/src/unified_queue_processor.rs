@@ -15,6 +15,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use crate::fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig};
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{
     ItemType, QueueOperation, UnifiedQueueItem,
@@ -88,6 +89,16 @@ pub struct UnifiedProcessorConfig {
     pub max_retries: i32,
     /// Retry delays (exponential backoff)
     pub retry_delays: Vec<ChronoDuration>,
+
+    // Fairness scheduler settings (Task 34)
+    /// Whether fairness scheduling is enabled (if disabled, falls back to FIFO)
+    pub fairness_enabled: bool,
+    /// Maximum items to dequeue per active project before moving to next
+    pub items_per_active_project: i32,
+    /// Maximum age in seconds for global items before starvation guard triggers
+    pub max_global_item_age_secs: i64,
+    /// Threshold in hours for considering a project "active"
+    pub active_project_threshold_hours: i64,
 }
 
 impl Default for UnifiedProcessorConfig {
@@ -104,6 +115,11 @@ impl Default for UnifiedProcessorConfig {
                 ChronoDuration::minutes(15),
                 ChronoDuration::hours(1),
             ],
+            // Fairness scheduler defaults (Task 34)
+            fairness_enabled: true,
+            items_per_active_project: 5,
+            max_global_item_age_secs: 600, // 10 minutes
+            active_project_threshold_hours: 1,
         }
     }
 }
@@ -115,6 +131,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Processor configuration
     config: UnifiedProcessorConfig,
+
+    /// Fairness scheduler for balanced queue processing (Task 34)
+    fairness_scheduler: Arc<FairnessScheduler>,
 
     /// Processing metrics
     metrics: Arc<RwLock<UnifiedProcessingMetrics>>,
@@ -147,9 +166,25 @@ impl UnifiedQueueProcessor {
         let storage_config = StorageConfig::default();
         let storage_client = Arc::new(StorageClient::with_config(storage_config));
 
+        // Create fairness scheduler with config from processor config (Task 34)
+        let queue_manager = QueueManager::new(pool);
+        let fairness_config = FairnessSchedulerConfig {
+            enabled: config.fairness_enabled,
+            items_per_active_project: config.items_per_active_project,
+            max_global_item_age_secs: config.max_global_item_age_secs,
+            active_project_threshold_hours: config.active_project_threshold_hours,
+            worker_id: config.worker_id.clone(),
+            lease_duration_secs: config.lease_duration_secs,
+        };
+        let fairness_scheduler = Arc::new(FairnessScheduler::new(
+            queue_manager.clone(),
+            fairness_config,
+        ));
+
         Self {
-            queue_manager: QueueManager::new(pool),
+            queue_manager,
             config,
+            fairness_scheduler,
             metrics: Arc::new(RwLock::new(UnifiedProcessingMetrics::default())),
             cancellation_token: CancellationToken::new(),
             task_handle: None,
@@ -167,9 +202,25 @@ impl UnifiedQueueProcessor {
         embedding_generator: Arc<EmbeddingGenerator>,
         storage_client: Arc<StorageClient>,
     ) -> Self {
+        // Create fairness scheduler with config from processor config (Task 34)
+        let queue_manager = QueueManager::new(pool);
+        let fairness_config = FairnessSchedulerConfig {
+            enabled: config.fairness_enabled,
+            items_per_active_project: config.items_per_active_project,
+            max_global_item_age_secs: config.max_global_item_age_secs,
+            active_project_threshold_hours: config.active_project_threshold_hours,
+            worker_id: config.worker_id.clone(),
+            lease_duration_secs: config.lease_duration_secs,
+        };
+        let fairness_scheduler = Arc::new(FairnessScheduler::new(
+            queue_manager.clone(),
+            fairness_config,
+        ));
+
         Self {
-            queue_manager: QueueManager::new(pool),
+            queue_manager,
             config,
+            fairness_scheduler,
             metrics: Arc::new(RwLock::new(UnifiedProcessingMetrics::default())),
             cancellation_token: CancellationToken::new(),
             task_handle: None,
@@ -201,12 +252,13 @@ impl UnifiedQueueProcessor {
         }
 
         info!(
-            "Starting unified queue processor (batch_size={}, poll_interval={}ms, worker_id={})",
-            self.config.batch_size, self.config.poll_interval_ms, self.config.worker_id
+            "Starting unified queue processor (batch_size={}, poll_interval={}ms, worker_id={}, fairness={})",
+            self.config.batch_size, self.config.poll_interval_ms, self.config.worker_id, self.config.fairness_enabled
         );
 
         let queue_manager = self.queue_manager.clone();
         let config = self.config.clone();
+        let fairness_scheduler = self.fairness_scheduler.clone();
         let metrics = self.metrics.clone();
         let cancellation_token = self.cancellation_token.clone();
         let document_processor = self.document_processor.clone();
@@ -217,6 +269,7 @@ impl UnifiedQueueProcessor {
             if let Err(e) = Self::processing_loop(
                 queue_manager,
                 config,
+                fairness_scheduler,
                 metrics,
                 cancellation_token.clone(),
                 document_processor,
@@ -269,6 +322,7 @@ impl UnifiedQueueProcessor {
     async fn processing_loop(
         queue_manager: QueueManager,
         config: UnifiedProcessorConfig,
+        fairness_scheduler: Arc<FairnessScheduler>,
         metrics: Arc<RwLock<UnifiedProcessingMetrics>>,
         cancellation_token: CancellationToken,
         document_processor: Arc<DocumentProcessor>,
@@ -285,8 +339,8 @@ impl UnifiedQueueProcessor {
         let max_inactive_hours = 24; // Remove projects inactive for 24+ hours
 
         info!(
-            "Unified processing loop started (batch_size={}, worker_id={})",
-            config.batch_size, config.worker_id
+            "Unified processing loop started (batch_size={}, worker_id={}, fairness={})",
+            config.batch_size, config.worker_id, config.fairness_enabled
         );
 
         loop {
@@ -302,15 +356,10 @@ impl UnifiedQueueProcessor {
                 m.queue_depth = depth;
             }
 
-            // Dequeue batch of items
-            match queue_manager
-                .dequeue_unified(
-                    config.batch_size,
-                    &config.worker_id,
-                    Some(config.lease_duration_secs),
-                    None, // all tenants
-                    None, // all item types
-                )
+            // Dequeue batch of items using fairness scheduler (Task 34)
+            // The scheduler handles active project prioritization and starvation prevention
+            match fairness_scheduler
+                .dequeue_next_batch(config.batch_size)
                 .await
             {
                 Ok(items) => {
@@ -1006,6 +1055,11 @@ mod tests {
         assert_eq!(config.lease_duration_secs, 300);
         assert_eq!(config.max_retries, 3);
         assert!(config.worker_id.starts_with("unified-worker-"));
+        // Fairness scheduler settings (Task 34)
+        assert!(config.fairness_enabled);
+        assert_eq!(config.items_per_active_project, 5);
+        assert_eq!(config.max_global_item_age_secs, 600);
+        assert_eq!(config.active_project_threshold_hours, 1);
     }
 
     #[test]

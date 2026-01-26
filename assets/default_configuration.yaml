@@ -876,6 +876,47 @@ queue_processor:
   # Default reasoning: 1000 items provides buffer before triggering
   backpressure_threshold: 1000
 
+  # -------------------------------------------------------------------------
+  # Fairness Scheduler Settings (Task 34)
+  # -------------------------------------------------------------------------
+  # The fairness scheduler ensures balanced processing across multiple active
+  # projects. It uses a round-robin algorithm with configurable quotas per
+  # project and a starvation guard to prevent old items from being delayed
+  # indefinitely.
+
+  # fairness_enabled: Enable the fairness scheduling algorithm
+  # Purpose: When enabled, processes N items per active project before global FIFO
+  # Performance: Ensures all active projects get fair processing time
+  # Multi-tenant: Essential for shared daemon serving multiple projects
+  # Debugging: Disable to fall back to simple FIFO queue processing
+  # Format: Boolean
+  fairness_enabled: true
+
+  # items_per_active_project: Maximum items to dequeue per project per round
+  # Purpose: Controls how many items each project gets before moving to next
+  # Fairness: Lower values = more equal distribution across projects
+  # Throughput: Higher values = better batching efficiency per project
+  # Active project: A project with items in queue and recent activity
+  # Format: Integer > 0
+  # Default reasoning: 5 items provides good balance of fairness and efficiency
+  items_per_active_project: 5
+
+  # max_global_item_age_secs: Maximum age before starvation guard triggers
+  # Purpose: Prevents items from waiting too long regardless of project fairness
+  # Starvation prevention: Old items get prioritized over fairness rules
+  # SLA compliance: Ensures no item waits longer than this threshold
+  # Format: Integer > 0 (seconds)
+  # Default reasoning: 600 seconds (10 min) prevents excessive wait times
+  max_global_item_age_secs: 600
+
+  # active_project_threshold_hours: Hours of inactivity before project is "inactive"
+  # Purpose: Defines what counts as an "active" project for fairness scheduling
+  # Resource efficiency: Inactive projects don't consume scheduling slots
+  # Garbage collection: Projects inactive longer are eventually cleaned up
+  # Format: Integer > 0 (hours)
+  # Default reasoning: 1 hour covers typical work session duration
+  active_project_threshold_hours: 1
+
   # enable_dual_write: Write to both unified_queue and legacy queues
   # Purpose: Migration support - writes to unified_queue AND legacy queues
   # Phase 1: Enable during migration to keep legacy systems working

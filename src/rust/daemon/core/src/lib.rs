@@ -14,6 +14,7 @@ pub mod deletion_strategy;
 pub mod document_processor;
 pub mod embedding;
 pub mod error;
+pub mod fairness_scheduler;
 pub mod file_classification;
 pub mod git_integration;
 pub mod metadata_enrichment;
@@ -105,6 +106,8 @@ pub use crate::priority_manager::{
 };
 pub use crate::queue_operations::{
     QueueManager, QueueOperation, QueueItem, QueueError,
+    // Active projects (Task 36)
+    ActiveProject, ActiveProjectStats,
     // Queue depth monitoring types (Task 461.8)
     QueueLoadLevel as QueueOpsLoadLevel, QueueThrottlingSummary
 };
@@ -117,6 +120,9 @@ pub use crate::queue_processor::{
 pub use crate::unified_queue_processor::{
     UnifiedQueueProcessor, UnifiedProcessorError, UnifiedProcessorResult,
     UnifiedProcessingMetrics, UnifiedProcessorConfig
+};
+pub use crate::fairness_scheduler::{
+    FairnessScheduler, FairnessSchedulerConfig, FairnessMetrics, FairnessError, FairnessResult
 };
 pub use crate::type_aware_processor::{
     CollectionTypeSettings, ConcurrentOperationTracker, get_settings_for_type
