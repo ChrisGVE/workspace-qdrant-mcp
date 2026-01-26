@@ -849,3 +849,299 @@ async def test_get_unified_queue_stats_with_items(temp_db_path: Path) -> None:
     assert set(stats["collections_with_pending"]) == {"collection-a", "collection-b"}
 
     await manager.close()
+
+
+# ============================================================================
+# dequeue_unified and status update Tests (Task 37.15-20)
+# ============================================================================
+
+from src.python.common.core.sqlite_state_manager import UnifiedQueueItem
+
+
+@pytest.mark.asyncio
+async def test_dequeue_unified_basic(temp_db_path: Path) -> None:
+    """Test basic dequeue_unified functionality."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # Enqueue some items
+    queue_id1, _ = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_dequeue",
+        collection="dequeue-collection",
+        payload={"file_path": "/file1.py"},
+        priority=5,
+    )
+    queue_id2, _ = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_dequeue",
+        collection="dequeue-collection",
+        payload={"file_path": "/file2.py"},
+        priority=8,  # Higher priority
+    )
+
+    # Dequeue
+    items = await manager.dequeue_unified(batch_size=10, worker_id="test_worker")
+
+    # Should get items in priority order (highest first)
+    assert len(items) == 2
+    assert items[0].queue_id == queue_id2  # Higher priority first
+    assert items[1].queue_id == queue_id1
+    assert items[0].status == "in_progress"
+    assert items[0].worker_id == "test_worker"
+    assert items[0].lease_until is not None
+
+    # Verify database state
+    depth = await manager.get_unified_queue_depth(status="pending")
+    assert depth == 0
+
+    depth = await manager.get_unified_queue_depth(status="in_progress")
+    assert depth == 2
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_dequeue_unified_with_filters(temp_db_path: Path) -> None:
+    """Test dequeue_unified with collection and item_type filters."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # Enqueue items in different collections
+    await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj1",
+        collection="collection-a",
+        payload={"file_path": "/a.py"},
+    )
+    await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.CONTENT,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj2",
+        collection="collection-b",
+        payload={"content": "test"},
+    )
+
+    # Dequeue only from collection-a
+    items = await manager.dequeue_unified(batch_size=10, collection="collection-a")
+    assert len(items) == 1
+    assert items[0].collection == "collection-a"
+
+    # Dequeue by item_type
+    items = await manager.dequeue_unified(batch_size=10, item_type="content")
+    assert len(items) == 1
+    assert items[0].item_type == "content"
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_mark_unified_item_done(temp_db_path: Path) -> None:
+    """Test marking an item as done."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # Enqueue and dequeue an item
+    queue_id, _ = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_done",
+        collection="done-collection",
+        payload={"file_path": "/file.py"},
+    )
+    await manager.dequeue_unified(batch_size=1)
+
+    # Mark as done
+    result = await manager.mark_unified_item_done(queue_id)
+    assert result is True
+
+    # Verify status
+    with manager._lock:
+        cursor = manager.connection.execute(
+            "SELECT status, lease_until, worker_id FROM unified_queue WHERE queue_id = ?",
+            (queue_id,),
+        )
+        row = cursor.fetchone()
+
+    assert row["status"] == "done"
+    assert row["lease_until"] is None
+    assert row["worker_id"] is None
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_mark_unified_item_failed_with_retry(temp_db_path: Path) -> None:
+    """Test marking an item as failed with retry."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # Enqueue and dequeue an item
+    queue_id, _ = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_retry",
+        collection="retry-collection",
+        payload={"file_path": "/file.py"},
+    )
+    await manager.dequeue_unified(batch_size=1)
+
+    # Mark as failed (should reschedule)
+    result = await manager.mark_unified_item_failed(queue_id, "Test error", retry=True)
+    assert result is True
+
+    # Verify item is back to pending with incremented retry_count
+    with manager._lock:
+        cursor = manager.connection.execute(
+            "SELECT status, retry_count, error_message FROM unified_queue WHERE queue_id = ?",
+            (queue_id,),
+        )
+        row = cursor.fetchone()
+
+    assert row["status"] == "pending"
+    assert row["retry_count"] == 1
+    assert row["error_message"] == "Test error"
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_mark_unified_item_failed_max_retries(temp_db_path: Path) -> None:
+    """Test marking an item as failed when max retries exceeded."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # Enqueue item
+    queue_id, _ = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_max",
+        collection="max-collection",
+        payload={"file_path": "/file.py"},
+    )
+
+    # Manually set retry_count to max
+    with manager._lock:
+        manager.connection.execute(
+            "UPDATE unified_queue SET retry_count = max_retries WHERE queue_id = ?",
+            (queue_id,),
+        )
+
+    await manager.dequeue_unified(batch_size=1)
+
+    # Mark as failed - should be permanently failed
+    result = await manager.mark_unified_item_failed(queue_id, "Max retries", retry=True)
+    assert result is True
+
+    # Verify item is marked as failed
+    with manager._lock:
+        cursor = manager.connection.execute(
+            "SELECT status FROM unified_queue WHERE queue_id = ?",
+            (queue_id,),
+        )
+        row = cursor.fetchone()
+
+    assert row["status"] == "failed"
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_recover_stale_unified_leases(temp_db_path: Path) -> None:
+    """Test recovering items with expired leases."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # Enqueue and dequeue items
+    queue_id1, _ = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_stale",
+        collection="stale-collection",
+        payload={"file_path": "/file1.py"},
+    )
+    queue_id2, _ = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_stale",
+        collection="stale-collection",
+        payload={"file_path": "/file2.py"},
+    )
+
+    # Dequeue with short lease
+    await manager.dequeue_unified(batch_size=2, lease_duration_seconds=0)
+
+    # Items should have expired leases now
+    recovered = await manager.recover_stale_unified_leases()
+    assert recovered == 2
+
+    # Verify items are back to pending
+    depth = await manager.get_unified_queue_depth(status="pending")
+    assert depth == 2
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_cleanup_completed_unified_items(temp_db_path: Path) -> None:
+    """Test cleanup of completed queue items."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # Enqueue, dequeue, and mark as done
+    queue_id, _ = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_cleanup",
+        collection="cleanup-collection",
+        payload={"file_path": "/file.py"},
+    )
+    await manager.dequeue_unified(batch_size=1)
+    await manager.mark_unified_item_done(queue_id)
+
+    # Backdate the updated_at to simulate old completion
+    with manager._lock:
+        manager.connection.execute(
+            "UPDATE unified_queue SET updated_at = datetime('now', '-48 hours') WHERE queue_id = ?",
+            (queue_id,),
+        )
+
+    # Cleanup items older than 24 hours
+    removed = await manager.cleanup_completed_unified_items(older_than_hours=24)
+    assert removed == 1
+
+    # Verify item is gone
+    depth = await manager.get_unified_queue_depth()
+    assert depth == 0
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_unified_queue_item_payload_property(temp_db_path: Path) -> None:
+    """Test UnifiedQueueItem.payload property."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # Enqueue with complex payload
+    await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_payload",
+        collection="payload-collection",
+        payload={"file_path": "/file.py", "nested": {"key": "value"}},
+    )
+
+    items = await manager.dequeue_unified(batch_size=1)
+    item = items[0]
+
+    # Test payload property
+    payload = item.payload
+    assert isinstance(payload, dict)
+    assert payload["file_path"] == "/file.py"
+    assert payload["nested"]["key"] == "value"
+
+    await manager.close()

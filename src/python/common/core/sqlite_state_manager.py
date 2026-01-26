@@ -47,7 +47,7 @@ import threading
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any
@@ -299,6 +299,57 @@ class ContentIngestionQueueItem:
             self.created_at = datetime.now(timezone.utc)
         if self.updated_at is None:
             self.updated_at = self.created_at
+
+
+@dataclass
+class UnifiedQueueItem:
+    """Item in the unified queue (Task 37).
+
+    Represents a queue item that consolidates content_ingestion_queue and
+    ingestion_queue into a single unified_queue table. This is the canonical
+    queue item type for all new queue operations.
+
+    Supports lease-based processing for concurrent workers.
+    """
+
+    queue_id: str  # UUID for queue item
+    idempotency_key: str  # SHA256 hash for deduplication
+    item_type: str  # content, file, folder, project, library, delete_tenant, etc.
+    op: str  # ingest, update, delete, scan
+    tenant_id: str  # Project/tenant identifier
+    collection: str  # Target collection name
+    priority: int = 5  # 0-10, default 5 (medium)
+    status: str = "pending"  # pending, in_progress, done, failed
+    branch: str = "main"  # Git branch context
+    payload_json: str = "{}"  # JSON-encoded payload
+    metadata: dict[str, Any] | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+    lease_until: datetime | None = None  # Lease expiry for in_progress items
+    worker_id: str | None = None  # Worker processing this item
+    retry_count: int = 0
+    max_retries: int = 3
+    error_message: str | None = None
+    last_error_at: datetime | None = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc)
+        if self.updated_at is None:
+            self.updated_at = self.created_at
+
+    @property
+    def payload(self) -> dict[str, Any]:
+        """Parse payload_json into a dictionary."""
+        if isinstance(self.payload_json, dict):
+            return self.payload_json
+        return json.loads(self.payload_json) if self.payload_json else {}
+
+    def is_lease_expired(self) -> bool:
+        """Check if the lease has expired."""
+        if self.lease_until is None:
+            return True
+        return datetime.now(timezone.utc) > self.lease_until
 
 
 @dataclass
@@ -3593,6 +3644,387 @@ class SQLiteStateManager:
 
         except Exception as e:
             logger.error(f"Failed to get unified queue stats: {e}")
+            raise
+
+    async def dequeue_unified(
+        self,
+        batch_size: int = 10,
+        worker_id: str | None = None,
+        lease_duration_seconds: int = 300,
+        collection: str | None = None,
+        item_type: str | None = None,
+    ) -> list[UnifiedQueueItem]:
+        """
+        Dequeue items from the unified queue with lease-based locking.
+
+        Items are returned in priority order (DESC) then creation time (ASC).
+        Each dequeued item is locked with a lease to prevent concurrent processing.
+
+        Args:
+            batch_size: Maximum number of items to dequeue
+            worker_id: Identifier for the worker (for tracking)
+            lease_duration_seconds: How long to hold the lease (default 5 minutes)
+            collection: Optional filter by collection name
+            item_type: Optional filter by item type
+
+        Returns:
+            List of UnifiedQueueItem objects ready for processing
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        if worker_id is None:
+            worker_id = f"worker_{uuid.uuid4().hex[:8]}"
+
+        try:
+            now = datetime.now(timezone.utc)
+            lease_until = now + timedelta(seconds=lease_duration_seconds)
+
+            async with self.transaction() as conn:
+                # Build query with filters
+                query = """
+                    SELECT queue_id, item_type, op, tenant_id, collection, priority, status,
+                           idempotency_key, payload_json, branch, metadata, created_at,
+                           updated_at, lease_until, worker_id, retry_count, max_retries,
+                           error_message, last_error_at
+                    FROM unified_queue
+                    WHERE status = 'pending'
+                """
+                params: list[Any] = []
+
+                if collection:
+                    query += " AND collection = ?"
+                    params.append(collection)
+
+                if item_type:
+                    query += " AND item_type = ?"
+                    params.append(item_type)
+
+                query += " ORDER BY priority DESC, created_at ASC LIMIT ?"
+                params.append(batch_size)
+
+                cursor = conn.execute(query, params)
+                rows = cursor.fetchall()
+
+                items = []
+                queue_ids = []
+
+                for row in rows:
+                    queue_ids.append(row["queue_id"])
+
+                # Update items to in_progress with lease
+                if queue_ids:
+                    placeholders = ",".join("?" * len(queue_ids))
+                    conn.execute(
+                        f"""
+                        UPDATE unified_queue
+                        SET status = 'in_progress',
+                            lease_until = ?,
+                            worker_id = ?,
+                            updated_at = ?
+                        WHERE queue_id IN ({placeholders})
+                        """,
+                        [lease_until.isoformat(), worker_id, now.isoformat()] + queue_ids,
+                    )
+
+                # Build item objects
+                for row in rows:
+                    item = UnifiedQueueItem(
+                        queue_id=row["queue_id"],
+                        idempotency_key=row["idempotency_key"],
+                        item_type=row["item_type"],
+                        op=row["op"],
+                        tenant_id=row["tenant_id"],
+                        collection=row["collection"],
+                        priority=row["priority"],
+                        status="in_progress",  # Status after update
+                        branch=row["branch"] or "main",
+                        payload_json=row["payload_json"],
+                        metadata=self._deserialize_json(row["metadata"]),
+                        created_at=datetime.fromisoformat(row["created_at"]) if row["created_at"] else None,
+                        updated_at=now,
+                        lease_until=lease_until,
+                        worker_id=worker_id,
+                        retry_count=row["retry_count"],
+                        max_retries=row["max_retries"],
+                        error_message=row["error_message"],
+                        last_error_at=datetime.fromisoformat(row["last_error_at"]) if row["last_error_at"] else None,
+                    )
+                    items.append(item)
+
+                logger.debug(f"Dequeued {len(items)} unified queue items for worker {worker_id}")
+                return items
+
+        except Exception as e:
+            logger.error(f"Failed to dequeue unified items: {e}")
+            raise
+
+    async def mark_unified_item_done(
+        self,
+        queue_id: str,
+    ) -> bool:
+        """
+        Mark a unified queue item as successfully completed.
+
+        Args:
+            queue_id: Queue ID of the item to mark done
+
+        Returns:
+            True if item was updated, False if not found
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            now = datetime.now(timezone.utc)
+
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE unified_queue
+                    SET status = 'done',
+                        updated_at = ?,
+                        lease_until = NULL,
+                        worker_id = NULL
+                    WHERE queue_id = ?
+                    """,
+                    (now.isoformat(), queue_id),
+                )
+
+                updated = cursor.rowcount > 0
+
+                if updated:
+                    logger.debug(f"Marked unified queue item done: {queue_id}")
+                else:
+                    logger.warning(f"Unified queue item not found: {queue_id}")
+
+                return updated
+
+        except Exception as e:
+            logger.error(f"Failed to mark unified item done {queue_id}: {e}")
+            raise
+
+    async def mark_unified_item_failed(
+        self,
+        queue_id: str,
+        error_message: str,
+        retry: bool = True,
+    ) -> bool:
+        """
+        Mark a unified queue item as failed, optionally scheduling for retry.
+
+        Args:
+            queue_id: Queue ID of the item
+            error_message: Error message to record
+            retry: If True and retry_count < max_retries, reschedule as pending
+
+        Returns:
+            True if item was updated, False if not found
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            now = datetime.now(timezone.utc)
+
+            async with self.transaction() as conn:
+                # Check current retry state
+                cursor = conn.execute(
+                    "SELECT retry_count, max_retries FROM unified_queue WHERE queue_id = ?",
+                    (queue_id,),
+                )
+                row = cursor.fetchone()
+
+                if not row:
+                    logger.warning(f"Unified queue item not found: {queue_id}")
+                    return False
+
+                retry_count = row["retry_count"]
+                max_retries = row["max_retries"]
+
+                if retry and retry_count < max_retries:
+                    # Reschedule for retry
+                    cursor = conn.execute(
+                        """
+                        UPDATE unified_queue
+                        SET status = 'pending',
+                            retry_count = retry_count + 1,
+                            error_message = ?,
+                            last_error_at = ?,
+                            updated_at = ?,
+                            lease_until = NULL,
+                            worker_id = NULL
+                        WHERE queue_id = ?
+                        """,
+                        (error_message, now.isoformat(), now.isoformat(), queue_id),
+                    )
+                    logger.debug(
+                        f"Rescheduled unified queue item for retry: {queue_id} "
+                        f"(attempt {retry_count + 1}/{max_retries})"
+                    )
+                else:
+                    # Mark as permanently failed
+                    cursor = conn.execute(
+                        """
+                        UPDATE unified_queue
+                        SET status = 'failed',
+                            retry_count = retry_count + 1,
+                            error_message = ?,
+                            last_error_at = ?,
+                            updated_at = ?,
+                            lease_until = NULL,
+                            worker_id = NULL
+                        WHERE queue_id = ?
+                        """,
+                        (error_message, now.isoformat(), now.isoformat(), queue_id),
+                    )
+                    logger.warning(f"Marked unified queue item as failed (max retries): {queue_id}")
+
+                return cursor.rowcount > 0
+
+        except Exception as e:
+            logger.error(f"Failed to mark unified item failed {queue_id}: {e}")
+            raise
+
+    async def recover_stale_unified_leases(
+        self,
+        max_retries: int = 3,
+    ) -> int:
+        """
+        Recover items with expired leases back to pending status.
+
+        Called during daemon startup to recover items that were being processed
+        when the previous daemon instance crashed.
+
+        Args:
+            max_retries: Maximum retries before marking as failed
+
+        Returns:
+            Number of items recovered
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            now = datetime.now(timezone.utc)
+            recovered_count = 0
+            failed_count = 0
+
+            async with self.transaction() as conn:
+                # Find items with expired leases
+                cursor = conn.execute(
+                    """
+                    SELECT queue_id, retry_count, max_retries
+                    FROM unified_queue
+                    WHERE status = 'in_progress'
+                    AND lease_until < ?
+                    """,
+                    (now.isoformat(),),
+                )
+                expired_items = cursor.fetchall()
+
+                for row in expired_items:
+                    queue_id = row["queue_id"]
+                    retry_count = row["retry_count"]
+                    item_max_retries = row["max_retries"] or max_retries
+
+                    if retry_count < item_max_retries:
+                        # Reschedule for retry
+                        conn.execute(
+                            """
+                            UPDATE unified_queue
+                            SET status = 'pending',
+                                retry_count = retry_count + 1,
+                                error_message = 'Recovered from stale lease',
+                                last_error_at = ?,
+                                updated_at = ?,
+                                lease_until = NULL,
+                                worker_id = NULL
+                            WHERE queue_id = ?
+                            """,
+                            (now.isoformat(), now.isoformat(), queue_id),
+                        )
+                        recovered_count += 1
+                    else:
+                        # Mark as permanently failed
+                        conn.execute(
+                            """
+                            UPDATE unified_queue
+                            SET status = 'failed',
+                                retry_count = retry_count + 1,
+                                error_message = 'Max retries exceeded during lease recovery',
+                                last_error_at = ?,
+                                updated_at = ?,
+                                lease_until = NULL,
+                                worker_id = NULL
+                            WHERE queue_id = ?
+                            """,
+                            (now.isoformat(), now.isoformat(), queue_id),
+                        )
+                        failed_count += 1
+
+            if recovered_count > 0 or failed_count > 0:
+                logger.info(
+                    f"Unified queue lease recovery: recovered {recovered_count} items, "
+                    f"marked {failed_count} as failed"
+                )
+
+            return recovered_count
+
+        except Exception as e:
+            logger.error(f"Failed to recover stale unified leases: {e}")
+            raise
+
+    async def cleanup_completed_unified_items(
+        self,
+        older_than_hours: int = 24,
+    ) -> int:
+        """
+        Remove completed (done) unified queue items older than specified hours.
+
+        Args:
+            older_than_hours: Remove items completed more than this many hours ago
+
+        Returns:
+            Number of items removed
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    DELETE FROM unified_queue
+                    WHERE status = 'done'
+                    AND updated_at < datetime('now', '-' || ? || ' hours')
+                    """,
+                    (older_than_hours,),
+                )
+                removed = cursor.rowcount
+
+                if removed > 0:
+                    logger.debug(f"Removed {removed} completed unified queue items")
+
+                return removed
+
+        except Exception as e:
+            logger.error(f"Failed to cleanup completed unified items: {e}")
             raise
 
     # Multi-Component Communication Support Methods
