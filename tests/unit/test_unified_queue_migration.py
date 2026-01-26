@@ -787,3 +787,65 @@ def test_generate_unified_idempotency_key_uniqueness() -> None:
     )
 
     assert key1 != key2
+
+
+@pytest.mark.asyncio
+async def test_get_unified_queue_stats_empty(temp_db_path: Path) -> None:
+    """Test get_unified_queue_stats on empty queue."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    stats = await manager.get_unified_queue_stats()
+
+    assert stats["total"] == 0
+    assert stats["by_status"] == {}
+    assert stats["by_item_type"] == {}
+    assert stats["by_operation"] == {}
+    assert stats["oldest_pending_age_seconds"] is None
+    assert stats["collections_with_pending"] == []
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_get_unified_queue_stats_with_items(temp_db_path: Path) -> None:
+    """Test get_unified_queue_stats with various queue items."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # Add various items
+    await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj1",
+        collection="collection-a",
+        payload={"file_path": "/file1.py"},
+    )
+    await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.CONTENT,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj2",
+        collection="collection-a",
+        payload={"content": "test"},
+    )
+    await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.DELETE,
+        tenant_id="proj3",
+        collection="collection-b",
+        payload={"file_path": "/file2.py"},
+    )
+
+    stats = await manager.get_unified_queue_stats()
+
+    assert stats["total"] == 3
+    assert stats["by_status"]["pending"] == 3
+    assert stats["by_item_type"]["file"] == 2
+    assert stats["by_item_type"]["content"] == 1
+    assert stats["by_operation"]["ingest"] == 2
+    assert stats["by_operation"]["delete"] == 1
+    assert stats["oldest_pending_age_seconds"] is not None
+    assert stats["oldest_pending_age_seconds"] >= 0
+    assert set(stats["collections_with_pending"]) == {"collection-a", "collection-b"}
+
+    await manager.close()

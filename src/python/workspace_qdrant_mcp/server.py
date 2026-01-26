@@ -2548,6 +2548,15 @@ async def manage(
             }
             collection_names = [col.name for col in collections_response.collections]
 
+            # Task 37: Get unified_queue stats for monitoring
+            unified_queue_stats = None
+            if state_manager:
+                try:
+                    unified_queue_stats = await state_manager.get_unified_queue_stats()
+                except Exception as e:
+                    logger.warning(f"Failed to get unified_queue stats: {e}")
+                    unified_queue_stats = {"error": str(e)}
+
             return {
                 "success": True,
                 "action": action,
@@ -2573,6 +2582,8 @@ async def manage(
                 "session_project_id": _session_project_id,
                 "health_metrics": health_metrics,
                 "memory_info": memory_info,
+                # Task 37: Unified queue monitoring
+                "unified_queue": unified_queue_stats,
             }
 
         elif action == "init_project":

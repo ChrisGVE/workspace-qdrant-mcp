@@ -3508,6 +3508,93 @@ class SQLiteStateManager:
             logger.error(f"Failed to get unified queue depth: {e}")
             raise
 
+    async def get_unified_queue_stats(self) -> dict[str, Any]:
+        """
+        Get comprehensive statistics for the unified queue.
+
+        Returns a dictionary with counts by status, item_type, and operation,
+        plus oldest pending item age and other diagnostic information.
+
+        Returns:
+            Dict with queue statistics:
+                - total: Total items in queue
+                - by_status: Count per status (pending, in_progress, done, failed)
+                - by_item_type: Count per item type
+                - by_operation: Count per operation type
+                - oldest_pending_age_seconds: Age of oldest pending item (or None)
+                - collections_with_pending: List of collections with pending items
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            stats: dict[str, Any] = {
+                "total": 0,
+                "by_status": {},
+                "by_item_type": {},
+                "by_operation": {},
+                "oldest_pending_age_seconds": None,
+                "collections_with_pending": [],
+            }
+
+            with self._lock:
+                # Total count
+                cursor = self.connection.execute(
+                    "SELECT COUNT(*) FROM unified_queue"
+                )
+                stats["total"] = cursor.fetchone()[0]
+
+                # Count by status
+                cursor = self.connection.execute(
+                    "SELECT status, COUNT(*) FROM unified_queue GROUP BY status"
+                )
+                stats["by_status"] = {row[0]: row[1] for row in cursor.fetchall()}
+
+                # Count by item_type
+                cursor = self.connection.execute(
+                    "SELECT item_type, COUNT(*) FROM unified_queue GROUP BY item_type"
+                )
+                stats["by_item_type"] = {row[0]: row[1] for row in cursor.fetchall()}
+
+                # Count by operation
+                cursor = self.connection.execute(
+                    "SELECT op, COUNT(*) FROM unified_queue GROUP BY op"
+                )
+                stats["by_operation"] = {row[0]: row[1] for row in cursor.fetchall()}
+
+                # Oldest pending item age
+                cursor = self.connection.execute(
+                    """
+                    SELECT MIN(created_at) FROM unified_queue
+                    WHERE status = 'pending'
+                    """
+                )
+                oldest_created = cursor.fetchone()[0]
+                if oldest_created:
+                    from datetime import datetime, timezone
+                    oldest_dt = datetime.fromisoformat(oldest_created.replace("Z", "+00:00"))
+                    now = datetime.now(timezone.utc)
+                    stats["oldest_pending_age_seconds"] = (now - oldest_dt).total_seconds()
+
+                # Collections with pending items
+                cursor = self.connection.execute(
+                    """
+                    SELECT DISTINCT collection FROM unified_queue
+                    WHERE status = 'pending'
+                    ORDER BY collection
+                    """
+                )
+                stats["collections_with_pending"] = [row[0] for row in cursor.fetchall()]
+
+            return stats
+
+        except Exception as e:
+            logger.error(f"Failed to get unified queue stats: {e}")
+            raise
+
     # Multi-Component Communication Support Methods
 
     async def update_processing_state(
