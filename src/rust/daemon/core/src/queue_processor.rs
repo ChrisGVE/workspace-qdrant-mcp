@@ -49,6 +49,9 @@ pub enum ProcessorError {
 
     #[error("File not found: {0}")]
     FileNotFound(String),
+
+    #[error("Max retries exceeded for {0}: {1}")]
+    MaxRetriesExceeded(String, String),
 }
 
 /// Result type for processor operations
@@ -983,7 +986,11 @@ impl QueueProcessor {
                 "Max retries ({}) reached for {}, removed from queue",
                 config.max_retries, item.file_absolute_path
             );
-            Ok(())
+            // Return an error so the calling code can update metrics
+            Err(ProcessorError::MaxRetriesExceeded(
+                item.file_absolute_path.clone(),
+                error_message,
+            ))
         }
     }
 
@@ -1038,6 +1045,7 @@ impl QueueProcessor {
             ProcessorError::FileNotFound(_) => "file_not_found",
             ProcessorError::Storage(_) => "storage_error",
             ProcessorError::Embedding(_) => "embedding_error",
+            ProcessorError::MaxRetriesExceeded(_, _) => "max_retries_exceeded",
             _ => "other",
         };
 
