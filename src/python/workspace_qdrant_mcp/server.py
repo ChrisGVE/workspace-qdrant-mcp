@@ -56,7 +56,7 @@ Example Usage:
     retrieve(metadata={"file_type": "test"}, branch="develop")    # develop branch, tests
     retrieve(scope="all")                                         # All collections
 
-Write Path Architecture (First Principle 10, ADR-001):
+Write Path Architecture (First Principle 10, ADR-001, ADR-002):
     DAEMON-ONLY WRITES: All Qdrant write operations MUST route through the daemon
 
     Collection Types (ADR-001 Canonical Names - NO underscore prefix):
@@ -65,18 +65,18 @@ Write Path Architecture (First Principle 10, ADR-001):
         - USER: {basename}-{type} - User collections, enriched with project_id
         - MEMORY: memory - EXCEPTION: Direct writes allowed (meta-level data)
 
-    Write Priority:
+    Write Priority (Task 37/ADR-002 - NO DIRECT QDRANT WRITES):
         1. PRIMARY: DaemonClient.ingest_text() / create_collection_v2() / delete_collection_v2()
-        2. FALLBACK: Direct qdrant_client writes (when daemon unavailable)
+        2. FALLBACK: Queue to unified_queue via state_manager.enqueue_unified()
         3. EXCEPTION: MEMORY collections use direct writes (architectural decision)
 
-    All fallback paths:
-        - Are clearly documented with NOTE comments
-        - Log warnings when used
-        - Include "fallback_mode" in return values
-        - Maintain backwards compatibility during daemon rollout
+    Fallback to unified_queue (ADR-002):
+        - When daemon is unavailable, content is queued to SQLite unified_queue
+        - Daemon processes queued items when it becomes available
+        - No direct Qdrant writes from MCP server (except MEMORY exception)
+        - All fallback paths log warnings and include "fallback_mode": "unified_queue"
 
-    See: FIRST-PRINCIPLES.md (Principle 10), Task 375.6 validation report
+    See: FIRST-PRINCIPLES.md (Principle 10), ADR-002, Task 37
 """
 
 import asyncio
@@ -154,6 +154,8 @@ from common.core.collection_naming import build_project_collection_name
 from common.core.sqlite_state_manager import (
     SQLiteStateManager,
     ContentIngestionStatus,
+    UnifiedQueueItemType,
+    UnifiedQueueOperation,
 )
 from common.grpc.daemon_client import DaemonClient, DaemonConnectionError
 from common.observability.metrics import (
@@ -1681,26 +1683,32 @@ async def store(
                 "suggestion": "Content will be queued for later processing if state_manager is available."
             }
     else:
-        # Fallback: Queue content for later daemon processing (Task 456/ADR-001)
+        # Fallback: Queue content to unified_queue for later daemon processing (Task 37/ADR-002)
         # Instead of direct Qdrant writes (which violate First Principle 10),
-        # queue content in SQLite for daemon to process when available.
+        # queue content in unified_queue for daemon to process when available.
         try:
             if state_manager:
-                # Queue content for daemon to process later
-                # Task 459: Use generated main_tag/full_tag for consistency
-                queue_id, is_new = await state_manager.enqueue_ingestion(
-                    content=content,
+                # Queue content for daemon to process later via unified_queue
+                # Task 37: Use enqueue_unified() for consolidated queue system
+                queue_id, is_new = await state_manager.enqueue_unified(
+                    item_type=UnifiedQueueItemType.CONTENT,
+                    op=UnifiedQueueOperation.INGEST,
+                    tenant_id=project_id,
                     collection=target_collection,
-                    source_type=source,
+                    payload={
+                        "content": content,
+                        "source_type": source,
+                        "main_tag": main_tag,
+                        "full_tag": full_tag,
+                    },
                     priority=8,  # Default priority for user content
-                    main_tag=main_tag,
-                    full_tag=full_tag,
+                    branch=current_branch,
                     metadata=doc_metadata,
                 )
 
                 if is_new:
                     logger.warning(
-                        f"Daemon unavailable - content queued for later processing: {queue_id}"
+                        f"Daemon unavailable - content queued to unified_queue: {queue_id}"
                     )
                 else:
                     logger.debug(f"Content already queued (idempotency): {queue_id}")
@@ -1717,7 +1725,7 @@ async def store(
                     "branch": current_branch,
                     "main_tag": main_tag,  # Task 459: Tag hierarchy
                     "full_tag": full_tag,  # Task 459: Full dot-separated tag
-                    "fallback_mode": "sqlite_queue",
+                    "fallback_mode": "unified_queue",
                     "message": "Content queued for daemon processing. Will be ingested when daemon is available."
                 }
                 # Task 457: Include activation warning if applicable
@@ -2251,41 +2259,69 @@ async def manage(
             project_id = calculate_tenant_id(str(Path.cwd()))
 
             # ============================================================================
-            # DAEMON WRITE BOUNDARY (First Principle 10)
+            # DAEMON WRITE BOUNDARY (First Principle 10, Task 37/ADR-002)
             # ============================================================================
-            # Collection creation should go through daemon. Fallback to direct writes
-            # is allowed when daemon is unavailable (compatibility during rollout).
+            # Collection creation MUST go through daemon. When daemon unavailable,
+            # queue to unified_queue instead of direct Qdrant writes.
             # ============================================================================
 
             if not daemon_client:
-                if not qdrant_client:
-                    return {
-                        "success": False,
-                        "action": action,
-                        "error": "Daemon not connected and Qdrant client unavailable."
-                    }
-                try:
-                    await _maybe_await(
-                        qdrant_client.create_collection(
-                            collection_name=name,
-                            vectors_config=VectorParams(
-                                size=vector_size,
-                                distance=distance_metric,
-                            ),
+                # Task 37: Queue to unified_queue instead of direct Qdrant writes
+                if state_manager:
+                    try:
+                        queue_id, is_new = await state_manager.enqueue_unified(
+                            item_type=UnifiedQueueItemType.PROJECT,
+                            op=UnifiedQueueOperation.INGEST,
+                            tenant_id=project_id,
+                            collection=name,
+                            payload={
+                                "action": "create_collection",
+                                "collection_name": name,
+                                "vector_size": vector_size,
+                                "distance_metric": str(distance_metric),
+                            },
+                            priority=9,  # High priority for collection operations
                         )
+
+                        if is_new:
+                            logger.warning(
+                                f"Daemon unavailable - collection creation queued to unified_queue: {queue_id}"
+                            )
+                        else:
+                            logger.debug(f"Collection creation already queued (idempotency): {queue_id}")
+
+                        return {
+                            "success": True,
+                            "action": action,
+                            "queue_id": queue_id,
+                            "queued": True,
+                            "collection_name": name,
+                            "message": f"Collection '{name}' creation queued for daemon processing",
+                            "fallback_mode": "unified_queue",
+                        }
+                    except Exception as e:
+                        logger.error(f"Failed to queue collection creation: {e}")
+                        return {
+                            "success": False,
+                            "action": action,
+                            "error": f"Failed to queue collection creation: {e}",
+                        }
+                else:
+                    # No state_manager available - cannot proceed (ADR-002)
+                    logger.error(
+                        "Neither daemon nor state_manager available - "
+                        "cannot create collection (ADR-002 prohibits direct Qdrant writes)"
                     )
                     return {
-                        "success": True,
-                        "action": action,
-                        "collection_name": name,
-                        "message": f"Collection '{name}' created directly (daemon unavailable)",
-                        "fallback_mode": "direct_qdrant",
-                    }
-                except Exception as e:
-                    return {
                         "success": False,
                         "action": action,
-                        "error": f"Failed to create collection directly: {e}",
+                        "error": "storage_unavailable",
+                        "message": (
+                            "Cannot create collection: both daemon and SQLite queue are unavailable. "
+                            "Start the daemon with: wqm service start"
+                        ),
+                        "suggestion": "Ensure daemon is running or SQLite state database is accessible.",
+                        "adr_reference": "ADR-002: Daemon-Only Write Policy"
                     }
 
             try:
@@ -2347,33 +2383,67 @@ async def manage(
             project_id = calculate_tenant_id(str(Path.cwd()))
 
             # ============================================================================
-            # DAEMON WRITE BOUNDARY (First Principle 10)
+            # DAEMON WRITE BOUNDARY (First Principle 10, Task 37/ADR-002)
             # ============================================================================
-            # Collection deletion should go through daemon. Fallback to direct writes
-            # is allowed when daemon is unavailable (compatibility during rollout).
+            # Collection deletion MUST go through daemon. When daemon unavailable,
+            # queue to unified_queue instead of direct Qdrant writes.
             # ============================================================================
 
             if not daemon_client:
-                if not qdrant_client:
+                # Task 37: Queue to unified_queue instead of direct Qdrant writes
+                if state_manager:
+                    try:
+                        queue_id, is_new = await state_manager.enqueue_unified(
+                            item_type=UnifiedQueueItemType.DELETE_TENANT,
+                            op=UnifiedQueueOperation.DELETE,
+                            tenant_id=project_id,
+                            collection=target_collection,
+                            payload={
+                                "action": "delete_collection",
+                                "collection_name": target_collection,
+                            },
+                            priority=9,  # High priority for collection operations
+                        )
+
+                        if is_new:
+                            logger.warning(
+                                f"Daemon unavailable - collection deletion queued to unified_queue: {queue_id}"
+                            )
+                        else:
+                            logger.debug(f"Collection deletion already queued (idempotency): {queue_id}")
+
+                        return {
+                            "success": True,
+                            "action": action,
+                            "queue_id": queue_id,
+                            "queued": True,
+                            "collection_name": target_collection,
+                            "message": f"Collection '{target_collection}' deletion queued for daemon processing",
+                            "fallback_mode": "unified_queue",
+                        }
+                    except Exception as e:
+                        logger.error(f"Failed to queue collection deletion: {e}")
+                        return {
+                            "success": False,
+                            "action": action,
+                            "error": f"Failed to queue collection deletion: {e}",
+                        }
+                else:
+                    # No state_manager available - cannot proceed (ADR-002)
+                    logger.error(
+                        "Neither daemon nor state_manager available - "
+                        "cannot delete collection (ADR-002 prohibits direct Qdrant writes)"
+                    )
                     return {
                         "success": False,
                         "action": action,
-                        "error": "Daemon not connected and Qdrant client unavailable."
-                    }
-                try:
-                    await _maybe_await(qdrant_client.delete_collection(target_collection))
-                    return {
-                        "success": True,
-                        "action": action,
-                        "collection_name": target_collection,
-                        "message": f"Collection '{target_collection}' deleted directly (daemon unavailable)",
-                        "fallback_mode": "direct_qdrant",
-                    }
-                except Exception as e:
-                    return {
-                        "success": False,
-                        "action": action,
-                        "error": f"Failed to delete collection directly: {e}",
+                        "error": "storage_unavailable",
+                        "message": (
+                            "Cannot delete collection: both daemon and SQLite queue are unavailable. "
+                            "Start the daemon with: wqm service start"
+                        ),
+                        "suggestion": "Ensure daemon is running or SQLite state database is accessible.",
+                        "adr_reference": "ADR-002: Daemon-Only Write Policy"
                     }
 
             try:
