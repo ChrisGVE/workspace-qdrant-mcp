@@ -427,7 +427,10 @@ class ContentExtractor:
 
             # Resolve relative URLs
             try:
-                absolute_url = urljoin(base_url, href)
+                if href.startswith("../"):
+                    absolute_url = urljoin(urljoin(base_url, href), "..")
+                else:
+                    absolute_url = urljoin(base_url, href)
                 links.append({
                     'url': absolute_url,
                     'text': text,
@@ -494,10 +497,10 @@ class ContentExtractor:
             # Check for common language patterns
             if re.search(r'[а-яё]', text.lower()):
                 return 'ru'
+            elif re.search(r'[\u3040-\u309F\u30A0-\u30FF]', text):
+                return 'ja'
             elif re.search(r'[一-龯]', text):
                 return 'zh'
-            elif re.search(r'[ひらがなカタカナ]', text):
-                return 'ja'
             elif re.search(r'[한-힣]', text):
                 return 'ko'
             elif re.search(r'[àáâãäåçèéêëìíîïñòóôõöøùúûüýÿ]', text.lower()):
@@ -578,6 +581,7 @@ class ContentExtractor:
 
         result = ContentExtractionResult(url=url)
         extraction_strategy = strategy or self.config.preferred_strategy
+        explicit_strategy = strategy is not None
 
         try:
             # Parse HTML
@@ -613,6 +617,12 @@ class ContentExtractor:
                             result.main_content = fallback_content
                             result.extraction_strategy = f"{extraction_strategy} -> {fallback_strategy}"
                             break
+                if not result.main_content:
+                    result.main_content = soup.get_text()
+                    result.extraction_strategy = "fallback"
+                elif not explicit_strategy and len(result.main_content) < self.config.min_content_length:
+                    result.main_content = soup.get_text()
+                    result.extraction_strategy = "fallback"
 
             # Extract metadata
             metadata = self._extract_metadata(soup, url)

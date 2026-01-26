@@ -22,16 +22,19 @@ Key Features:
 - Session initialization with memory rule loading
 """
 
+import hashlib
+import inspect
 import re
 import time
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
 from loguru import logger
 from qdrant_client import QdrantClient
+from qdrant_client.http import models as http_models
 from qdrant_client.models import (
     Distance,
     FieldCondition,
@@ -219,6 +222,17 @@ class BehavioralDecision:
     reasoning: str
     conflicts_resolved: list[str] | None = None
     fallback_used: bool = False
+
+
+CONFLICTING_KEYWORD_PAIRS = (
+    (("use", "python"), ("avoid", "python")),
+    (("always",), ("never",)),
+    (("commit", "immediately"), ("batch", "commit")),
+    (("uv",), ("pip",)),
+    (("pytest",), ("unittest",)),
+    (("parallel",), ("sequential",)),
+    (("parallel",), ("sequentially",)),
+)
 
 
 class MemoryManager:
@@ -748,11 +762,35 @@ class MemoryManager:
 
         conflicts = []
 
-        # Rule-based conflict detection
-        for i, rule1 in enumerate(rules):
-            for rule2 in rules[i + 1 :]:
-                # Check for direct conflicts
-                if self._rules_conflict(rule1, rule2):
+        # Rule-based conflict detection (precompute lowercase rules and match lists)
+        rule_texts = [rule.rule.lower() for rule in rules]
+        pair_matches: list[tuple[list[int], list[int]]] = [
+            ([], []) for _ in CONFLICTING_KEYWORD_PAIRS
+        ]
+
+        for idx, rule_lower in enumerate(rule_texts):
+            for pair_idx, (keywords1, keywords2) in enumerate(
+                CONFLICTING_KEYWORD_PAIRS
+            ):
+                if all(kw in rule_lower for kw in keywords1):
+                    pair_matches[pair_idx][0].append(idx)
+                if all(kw in rule_lower for kw in keywords2):
+                    pair_matches[pair_idx][1].append(idx)
+
+        seen_pairs: set[tuple[int, int]] = set()
+        for pair_idx, (match_a, match_b) in enumerate(pair_matches):
+            if not match_a or not match_b:
+                continue
+            for i in match_a:
+                for j in match_b:
+                    if i >= j:
+                        continue
+                    pair_key = (i, j)
+                    if pair_key in seen_pairs:
+                        continue
+                    seen_pairs.add(pair_key)
+                    rule1 = rules[i]
+                    rule2 = rules[j]
                     conflict = MemoryConflict(
                         conflict_type="direct_contradiction",
                         rule1=rule1,
@@ -871,21 +909,10 @@ class MemoryManager:
         Returns:
             True if rules appear to conflict
         """
-        # Simple keyword-based conflict detection
-        conflicting_pairs = [
-            (["use", "python"], ["avoid", "python"]),
-            (["always"], ["never"]),
-            (["commit", "immediately"], ["batch", "commit"]),
-            (["uv"], ["pip"]),
-            (["pytest"], ["unittest"]),
-            (["parallel"], ["sequential"]),
-            (["parallel"], ["sequentially"]),
-        ]
+        return self._rules_conflict_text(rule1.rule.lower(), rule2.rule.lower())
 
-        rule1_lower = rule1.rule.lower()
-        rule2_lower = rule2.rule.lower()
-
-        for keywords1, keywords2 in conflicting_pairs:
+    def _rules_conflict_text(self, rule1_lower: str, rule2_lower: str) -> bool:
+        for keywords1, keywords2 in CONFLICTING_KEYWORD_PAIRS:
             if all(kw in rule1_lower for kw in keywords1) and all(
                 kw in rule2_lower for kw in keywords2
             ):
@@ -2628,3 +2655,527 @@ def create_memory_session_context(
 
     # For synchronous usage, this would need to be called with asyncio.run()
     return _create_context
+
+
+# --- Document memory system (compatibility layer for tests) ---
+
+
+@dataclass
+class DocumentMetadata:
+    """Metadata for a document stored in the document memory system."""
+
+    file_path: str
+    file_type: str
+    file_size: int
+    created_at: datetime | None = None
+    modified_at: datetime | None = None
+    project: str | None = None
+    author: str | None = None
+    tags: list[str] | None = None
+    language: str | None = None
+    checksum: str | None = None
+
+    def __post_init__(self) -> None:
+        now = datetime.now(timezone.utc)
+        if self.created_at is None:
+            self.created_at = now
+        if self.modified_at is None:
+            self.modified_at = self.created_at
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "file_path": self.file_path,
+            "file_type": self.file_type,
+            "file_size": self.file_size,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "modified_at": self.modified_at.isoformat() if self.modified_at else None,
+            "project": self.project,
+            "author": self.author,
+            "tags": self.tags,
+            "language": self.language,
+            "checksum": self.checksum,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DocumentMetadata":
+        created_at = data.get("created_at")
+        modified_at = data.get("modified_at")
+        return cls(
+            file_path=data["file_path"],
+            file_type=data["file_type"],
+            file_size=data["file_size"],
+            created_at=datetime.fromisoformat(created_at) if created_at else None,
+            modified_at=datetime.fromisoformat(modified_at) if modified_at else None,
+            project=data.get("project"),
+            author=data.get("author"),
+            tags=data.get("tags"),
+            language=data.get("language"),
+            checksum=data.get("checksum"),
+        )
+
+    def update_checksum(self, content: str) -> None:
+        digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
+        self.checksum = digest
+
+
+@dataclass
+class DocumentChunk:
+    """Represents a chunk of a document."""
+
+    id: str
+    document_id: str
+    content: str
+    start_offset: int
+    end_offset: int
+    chunk_index: int
+    embedding: dict[str, Any] | None = None
+    metadata: dict[str, Any] | None = None
+
+    def get_metadata_value(self, key: str) -> Any:
+        if not self.metadata:
+            return None
+        return self.metadata.get(key)
+
+    def update_embedding(self, embedding: dict[str, Any]) -> None:
+        self.embedding = embedding
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "document_id": self.document_id,
+            "content": self.content,
+            "start_offset": self.start_offset,
+            "end_offset": self.end_offset,
+            "chunk_index": self.chunk_index,
+            "embedding": self.embedding,
+            "metadata": self.metadata,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "DocumentChunk":
+        return cls(
+            id=data["id"],
+            document_id=data["document_id"],
+            content=data["content"],
+            start_offset=data["start_offset"],
+            end_offset=data["end_offset"],
+            chunk_index=data["chunk_index"],
+            embedding=data.get("embedding"),
+            metadata=data.get("metadata"),
+        )
+
+
+@dataclass
+class Document:
+    """A document with optional chunks and embeddings."""
+
+    id: str
+    content: str
+    metadata: DocumentMetadata
+    embedding: dict[str, Any] | None = None
+    chunks: list[DocumentChunk] = field(default_factory=list)
+
+    def add_chunk(self, chunk: DocumentChunk) -> None:
+        self.chunks.append(chunk)
+
+    def get_chunk_by_id(self, chunk_id: str) -> DocumentChunk | None:
+        for chunk in self.chunks:
+            if chunk.id == chunk_id:
+                return chunk
+        return None
+
+    def get_chunks_by_metadata(self, key: str, value: Any) -> list[DocumentChunk]:
+        return [
+            chunk for chunk in self.chunks
+            if chunk.metadata and chunk.metadata.get(key) == value
+        ]
+
+    def update_embedding(self, embedding: dict[str, Any]) -> None:
+        self.embedding = embedding
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "content": self.content,
+            "metadata": self.metadata.to_dict(),
+            "embedding": self.embedding,
+            "chunks": [chunk.to_dict() for chunk in self.chunks],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "Document":
+        metadata = DocumentMetadata.from_dict(data["metadata"])
+        doc = cls(
+            id=data["id"],
+            content=data["content"],
+            metadata=metadata,
+            embedding=data.get("embedding"),
+        )
+        for chunk_data in data.get("chunks", []):
+            doc.add_chunk(DocumentChunk.from_dict(chunk_data))
+        return doc
+
+
+class ChunkingStrategy:
+    """Base class for document chunking strategies."""
+
+    def chunk_text(self, content: str, document_id: str) -> list[DocumentChunk]:
+        raise NotImplementedError
+
+
+class FixedSizeChunkingStrategy(ChunkingStrategy):
+    """Chunks text by fixed size with optional overlap."""
+
+    def __init__(self, chunk_size: int = 512, overlap: int = 0) -> None:
+        if chunk_size <= 0:
+            raise ValueError("chunk_size must be positive")
+        if overlap < 0:
+            raise ValueError("overlap must be non-negative")
+        if overlap >= chunk_size:
+            overlap = max(0, chunk_size - 1)
+        self.chunk_size = chunk_size
+        self.overlap = overlap
+
+    def chunk_text(self, content: str, document_id: str) -> list[DocumentChunk]:
+        chunks: list[DocumentChunk] = []
+        start = 0
+        index = 0
+        length = len(content)
+        while start < length:
+            end = min(start + self.chunk_size, length)
+            chunk_content = content[start:end]
+            chunks.append(
+                DocumentChunk(
+                    id=f"{document_id}_chunk_{index}",
+                    document_id=document_id,
+                    content=chunk_content,
+                    start_offset=start,
+                    end_offset=end,
+                    chunk_index=index,
+                )
+            )
+            index += 1
+            if end >= length:
+                break
+            start = max(0, end - self.overlap)
+            if start >= length:
+                break
+        return chunks
+
+
+class SentenceChunkingStrategy(ChunkingStrategy):
+    """Chunks text by sentence groups."""
+
+    def __init__(self, max_sentences: int = 5) -> None:
+        self.max_sentences = max_sentences
+
+    def chunk_text(self, content: str, document_id: str) -> list[DocumentChunk]:
+        sentences = []
+        for match in re.finditer(r"[^.!?]+[.!?]?", content):
+            sentence = match.group(0)
+            if sentence.strip():
+                sentences.append((match.start(), match.end(), sentence))
+
+        chunks: list[DocumentChunk] = []
+        index = 0
+        for i in range(0, len(sentences), self.max_sentences):
+            group = sentences[i:i + self.max_sentences]
+            if not group:
+                continue
+            start = group[0][0]
+            end = group[-1][1]
+            chunk_content = content[start:end]
+            chunks.append(
+                DocumentChunk(
+                    id=f"{document_id}_chunk_{index}",
+                    document_id=document_id,
+                    content=chunk_content,
+                    start_offset=start,
+                    end_offset=end,
+                    chunk_index=index,
+                )
+            )
+            index += 1
+        return chunks or [
+            DocumentChunk(
+                id=f"{document_id}_chunk_0",
+                document_id=document_id,
+                content=content,
+                start_offset=0,
+                end_offset=len(content),
+                chunk_index=0,
+            )
+        ]
+
+
+class ParagraphChunkingStrategy(ChunkingStrategy):
+    """Chunks text by paragraph boundaries."""
+
+    def chunk_text(self, content: str, document_id: str) -> list[DocumentChunk]:
+        chunks: list[DocumentChunk] = []
+        index = 0
+        for match in re.finditer(r"(?:[^\n]|\n(?!\n))+", content):
+            paragraph = match.group(0)
+            if not paragraph.strip():
+                continue
+            chunks.append(
+                DocumentChunk(
+                    id=f"{document_id}_chunk_{index}",
+                    document_id=document_id,
+                    content=paragraph,
+                    start_offset=match.start(),
+                    end_offset=match.end(),
+                    chunk_index=index,
+                )
+            )
+            index += 1
+        return chunks
+
+
+class SemanticChunkingStrategy(ChunkingStrategy):
+    """Mock semantic chunking strategy."""
+
+    def __init__(self, similarity_threshold: float = 0.8) -> None:
+        self.similarity_threshold = similarity_threshold
+
+    def chunk_text(self, content: str, document_id: str) -> list[DocumentChunk]:
+        return [
+            DocumentChunk(
+                id=f"{document_id}_chunk_0",
+                document_id=document_id,
+                content=content,
+                start_offset=0,
+                end_offset=len(content),
+                chunk_index=0,
+            )
+        ]
+
+
+def create_chunking_strategy(strategy_name: str, **kwargs: Any) -> ChunkingStrategy:
+    name = strategy_name.lower()
+    if name in {"fixed", "fixed_size", "fixed-size"}:
+        return FixedSizeChunkingStrategy(
+            chunk_size=kwargs.get("chunk_size", 512),
+            overlap=kwargs.get("overlap", 0),
+        )
+    if name in {"sentence", "sentences"}:
+        return SentenceChunkingStrategy(max_sentences=kwargs.get("max_sentences", 5))
+    if name in {"paragraph", "paragraphs"}:
+        return ParagraphChunkingStrategy()
+    if name in {"semantic"}:
+        return SemanticChunkingStrategy(
+            similarity_threshold=kwargs.get("similarity_threshold", 0.8)
+        )
+    raise ValueError(f"Unknown chunking strategy: {strategy_name}")
+
+
+class MemoryIndex:
+    """In-memory index for stored documents."""
+
+    def __init__(self, name: str, collection_name: str) -> None:
+        self.name = name
+        self.collection_name = collection_name
+        self.documents: dict[str, Document] = {}
+
+    def add_document(self, document: Document) -> None:
+        self.documents[document.id] = document
+
+    def get_document(self, document_id: str) -> Document | None:
+        return self.documents.get(document_id)
+
+    def remove_document(self, document_id: str) -> Document | None:
+        return self.documents.pop(document_id, None)
+
+    def get_statistics(self) -> dict[str, Any]:
+        doc_count = len(self.documents)
+        total_chunks = sum(len(doc.chunks) for doc in self.documents.values())
+        total_size = sum(len(doc.content) for doc in self.documents.values())
+        average_size = total_size / doc_count if doc_count else 0
+        return {
+            "document_count": doc_count,
+            "total_chunks": total_chunks,
+            "average_document_size": average_size,
+        }
+
+    def search_documents(self, query: str) -> list[Document]:
+        query_lower = query.lower()
+        return [
+            doc for doc in self.documents.values()
+            if query_lower in doc.content.lower()
+        ]
+
+
+@dataclass
+class RetrievalOptions:
+    """Options for retrieval and search operations."""
+
+    limit: int = 10
+    include_metadata: bool = False
+    include_chunks: bool = False
+    chunk_limit: int | None = None
+    score_threshold: float | None = None
+    filters: dict[str, Any] | None = None
+    sort_by: str | None = None
+
+
+class DocumentMemoryManager:
+    """Document storage manager backed by Qdrant and an embedding service."""
+
+    def __init__(
+        self,
+        qdrant_client: Any,
+        embedding_service: Any,
+        collection_name: str,
+        chunking_strategy: ChunkingStrategy | None = None,
+    ) -> None:
+        self.qdrant_client = qdrant_client
+        self.embedding_service = embedding_service
+        self.collection_name = collection_name
+        self.chunking_strategy = chunking_strategy
+
+    async def _maybe_await(self, result: Any) -> Any:
+        if inspect.isawaitable(result):
+            return await result
+        return result
+
+    async def store_document(self, document: Document) -> dict[str, Any]:
+        embedding = await self._maybe_await(
+            self.embedding_service.embed_document(document.content)
+        )
+        document.update_embedding(embedding)
+
+        chunks_created = 0
+        if self.chunking_strategy:
+            chunks = self.chunking_strategy.chunk_text(document.content, document.id)
+            document.chunks = []
+            for chunk in chunks:
+                chunk_embedding = await self._maybe_await(
+                    self.embedding_service.embed_document(chunk.content)
+                )
+                chunk.update_embedding(chunk_embedding)
+                document.add_chunk(chunk)
+            chunks_created = len(document.chunks)
+
+        points = [self._build_document_point(document)]
+        for chunk in document.chunks:
+            points.append(self._build_chunk_point(chunk, document.metadata))
+
+        await self._maybe_await(
+            self.qdrant_client.upsert(
+                collection_name=self.collection_name,
+                points=points,
+            )
+        )
+
+        return {
+            "status": "success",
+            "document_id": document.id,
+            "chunks_created": chunks_created,
+        }
+
+    async def retrieve_document(self, document_id: str) -> Document | None:
+        results = await self._maybe_await(
+            self.qdrant_client.search(
+                collection_name=self.collection_name,
+                query_vector=None,
+                limit=1,
+                with_payload=True,
+                filter={"document_id": document_id},
+            )
+        )
+        if not results:
+            return None
+        point = results[0]
+        payload = getattr(point, "payload", {}) or {}
+        metadata = DocumentMetadata.from_dict(payload.get("metadata", {}))
+        return Document(
+            id=str(getattr(point, "id", document_id)),
+            content=payload.get("content", ""),
+            metadata=metadata,
+            embedding=None,
+        )
+
+    async def search_documents(
+        self,
+        query: str,
+        limit: int = 10,
+        filters: dict[str, Any] | None = None,
+        options: RetrievalOptions | None = None,
+    ) -> list[dict[str, Any]]:
+        embedding = await self._maybe_await(self.embedding_service.embed_query(query))
+        effective_limit = options.limit if options else limit
+        effective_filters = options.filters if options and options.filters else filters
+        search_kwargs: dict[str, Any] = {
+            "collection_name": self.collection_name,
+            "query_vector": embedding.get("dense") if isinstance(embedding, dict) else embedding,
+            "limit": effective_limit,
+            "with_payload": True,
+        }
+        if effective_filters:
+            search_kwargs["filter"] = effective_filters
+        if options and options.score_threshold is not None:
+            search_kwargs["score_threshold"] = options.score_threshold
+
+        results = await self._maybe_await(self.qdrant_client.search(**search_kwargs))
+        output = []
+        for point in results or []:
+            output.append(
+                {
+                    "id": str(getattr(point, "id", "")),
+                    "score": getattr(point, "score", None),
+                    "payload": getattr(point, "payload", None),
+                }
+            )
+        return output
+
+    async def delete_document(self, document_id: str) -> dict[str, Any]:
+        await self._maybe_await(
+            self.qdrant_client.delete(
+                collection_name=self.collection_name,
+                points_selector={"points": [document_id]},
+            )
+        )
+        return {"status": "success", "document_id": document_id}
+
+    async def update_document(self, document: Document) -> dict[str, Any]:
+        return await self.store_document(document)
+
+    async def batch_store_documents(self, documents: list[Document]) -> list[dict[str, Any]]:
+        results = []
+        for document in documents:
+            results.append(await self.store_document(document))
+        return results
+
+    async def get_statistics(self) -> dict[str, Any]:
+        info = await self._maybe_await(self.qdrant_client.get_collection(self.collection_name))
+        return {
+            "collection_name": self.collection_name,
+            "vectors_count": getattr(info, "vectors_count", 0),
+            "indexed_vectors_count": getattr(info, "indexed_vectors_count", 0),
+            "points_count": getattr(info, "points_count", 0),
+            "status": getattr(info, "status", None),
+        }
+
+    def _build_document_point(self, document: Document) -> http_models.PointStruct:
+        payload = {
+            "content": document.content,
+            "metadata": document.metadata.to_dict(),
+            "document_type": "full_document",
+        }
+        vector = document.embedding.get("dense") if document.embedding else None
+        return http_models.PointStruct(id=document.id, vector=vector, payload=payload)
+
+    def _build_chunk_point(
+        self,
+        chunk: DocumentChunk,
+        metadata: DocumentMetadata,
+    ) -> http_models.PointStruct:
+        payload = {
+            "content": chunk.content,
+            "metadata": metadata.to_dict(),
+            "document_id": chunk.document_id,
+            "chunk_index": chunk.chunk_index,
+            "document_type": "chunk",
+        }
+        vector = chunk.embedding.get("dense") if chunk.embedding else None
+        return http_models.PointStruct(id=chunk.id, vector=vector, payload=payload)

@@ -21,48 +21,38 @@ from typing import Any
 import yaml
 from loguru import logger
 
-# Import parsers with fallback for when wqm_cli is not available
-try:
-    from wqm_cli.cli.parsers import (
-        DocumentParser,
-        MarkdownParser,
-        ParsedDocument,
-        PDFParser,
-        PptxParser,
-        TextParser,
-    )
-    PARSERS_AVAILABLE = True
-except ImportError:
-    logger.warning("wqm_cli parsers not available - using fallback stubs")
-    PARSERS_AVAILABLE = False
+# Lightweight parser stubs (Python CLI parsers have been removed).
+class ParsedDocument:
+    def __init__(self, content="", content_hash="", metadata=None):
+        import hashlib
+        self.content = content
+        self.content_hash = content_hash or hashlib.sha256(content.encode()).hexdigest()
+        self.metadata = metadata or {}
 
-    # Fallback stub classes
-    class ParsedDocument:
-        def __init__(self, content="", content_hash="", metadata=None):
-            import hashlib
-            self.content = content
-            self.content_hash = content_hash or hashlib.sha256(content.encode()).hexdigest()
-            self.metadata = metadata or {}
 
-    class DocumentParser:
-        format_name = "Generic"
-        supported_extensions: set = set()
+class DocumentParser:
+    format_name = "Generic"
+    supported_extensions: set = set()
 
-    class TextParser(DocumentParser):
-        format_name = "Text"
-        supported_extensions = {".txt"}
 
-    class MarkdownParser(DocumentParser):
-        format_name = "Markdown"
-        supported_extensions = {".md", ".markdown"}
+class TextParser(DocumentParser):
+    format_name = "Text"
+    supported_extensions = {".txt"}
 
-    class PDFParser(DocumentParser):
-        format_name = "PDF"
-        supported_extensions = {".pdf"}
 
-    class PptxParser(DocumentParser):
-        format_name = "PPTX"
-        supported_extensions = {".pptx", ".ppt"}
+class MarkdownParser(DocumentParser):
+    format_name = "Markdown"
+    supported_extensions = {".md", ".markdown"}
+
+
+class PDFParser(DocumentParser):
+    format_name = "PDF"
+    supported_extensions = {".pdf"}
+
+
+class PptxParser(DocumentParser):
+    format_name = "PPTX"
+    supported_extensions = {".pptx", ".ppt"}
 
 from ..core.client import QdrantWorkspaceClient
 

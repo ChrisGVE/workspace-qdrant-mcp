@@ -58,6 +58,7 @@ Example:
 import os
 import re
 import threading
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
@@ -65,6 +66,17 @@ import yaml
 
 # Task 215: Use unified logging system for MCP stdio compliance
 from loguru import logger
+
+
+@dataclass
+class EmbeddingConfig:
+    """Compatibility embedding config container for legacy tests."""
+
+    model: str = "sentence-transformers/all-MiniLM-L6-v2"
+    enable_sparse_vectors: bool = True
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
+    batch_size: int = 50
 
 
 # Early environment setup for MCP stdio mode
@@ -304,8 +316,53 @@ class ConfigManager:
         # Step d) Check for deprecated settings and issue warnings
         self._check_deprecated_settings()
 
+        # Ensure compatibility defaults for legacy access patterns
+        self._ensure_compat_defaults()
+
         # Both starting dictionaries are now dropped (garbage collected)
         # Only self._config (merged result) is kept
+
+    def _ensure_compat_defaults(self) -> None:
+        """Ensure legacy/compatibility configuration sections exist.
+
+        This keeps older attribute-style access working (e.g., config.qdrant_client_config.url)
+        even when the canonical configuration has moved to dot-path keys.
+        """
+        # Normalize top-level qdrant_client_config for legacy code/tests
+        qdrant_config = self._config.get("qdrant", {}) if isinstance(self._config, dict) else {}
+        qdrant_client_config = self._config.get("qdrant_client_config")
+        if not isinstance(qdrant_client_config, dict):
+            qdrant_client_config = {}
+            self._config["qdrant_client_config"] = qdrant_client_config
+
+        qdrant_client_config.setdefault(
+            "url", qdrant_config.get("url", "http://localhost:6333")
+        )
+        qdrant_client_config.setdefault("api_key", qdrant_config.get("api_key"))
+        qdrant_client_config.setdefault("timeout", qdrant_config.get("timeout"))
+        qdrant_client_config.setdefault(
+            "prefer_grpc", qdrant_config.get("prefer_grpc")
+        )
+
+        # Normalize security namespace used by newer code paths
+        security_config = self._config.get("security")
+        if not isinstance(security_config, dict):
+            security_config = {}
+            self._config["security"] = security_config
+        security_config.setdefault("qdrant_auth_token", None)
+        security_config.setdefault("qdrant_api_key", qdrant_config.get("api_key"))
+
+        # Normalize project_detection namespace used by some tests
+        project_detection = self._config.get("project_detection")
+        if not isinstance(project_detection, dict):
+            project_detection = {}
+            self._config["project_detection"] = project_detection
+        project_detection.setdefault("enabled", True)
+        if isinstance(self._config.get("workspace"), dict):
+            project_detection.setdefault(
+                "github_user",
+                self._config.get("workspace", {}).get("github_user"),
+            )
 
     def _check_deprecated_settings(self) -> None:
         """Check for deprecated configuration settings and issue warnings."""
@@ -1074,6 +1131,184 @@ def get_config_manager(config_file: str | None = None, **kwargs) -> ConfigManage
                 _global_config = ConfigManager.get_instance(config_file, **kwargs)
 
     return _global_config
+
+
+# Legacy attribute-style configuration wrapper (compatibility layer)
+class _ConfigNamespace:
+    """Namespace wrapper for attribute-style config access."""
+
+    __slots__ = ("_manager", "_path")
+
+    def __init__(self, manager: ConfigManager, path: str) -> None:
+        object.__setattr__(self, "_manager", manager)
+        object.__setattr__(self, "_path", path)
+
+    def _full_path(self, key: str) -> str:
+        return f"{self._path}.{key}" if self._path else key
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        full_path = self._full_path(name)
+        value = self._manager.get(full_path, None)
+        if isinstance(value, dict):
+            return _ConfigNamespace(self._manager, full_path)
+        if self._manager.has(full_path):
+            return value
+        raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+            return
+        full_path = self._full_path(name)
+        self._manager.set(full_path, value)
+
+    def __repr__(self) -> str:
+        return f"_ConfigNamespace(path={self._path!r})"
+
+
+class Config:
+    """Compatibility wrapper that provides attribute-style access to ConfigManager."""
+
+    def __init__(
+        self,
+        config_data: dict[str, Any] | None = None,
+        config_file: str | None = None,
+        **kwargs,
+    ) -> None:
+        self._manager = ConfigManager.get_instance(config_file, **kwargs)
+        if config_data:
+            self.update(config_data)
+
+    @property
+    def qdrant_client_config(self) -> _ConfigNamespace:
+        return _ConfigNamespace(self._manager, "qdrant_client_config")
+
+    @qdrant_client_config.setter
+    def qdrant_client_config(self, value: Any) -> None:
+        self._manager.set("qdrant_client_config", value)
+
+    @property
+    def qdrant(self) -> _ConfigNamespace:
+        return _ConfigNamespace(self._manager, "qdrant")
+
+    @qdrant.setter
+    def qdrant(self, value: Any) -> None:
+        self._manager.set("qdrant", value)
+
+    @property
+    def embedding(self) -> _ConfigNamespace:
+        return _ConfigNamespace(self._manager, "embedding")
+
+    @embedding.setter
+    def embedding(self, value: Any) -> None:
+        self._manager.set("embedding", value)
+
+    @property
+    def workspace(self) -> _ConfigNamespace:
+        return _ConfigNamespace(self._manager, "workspace")
+
+    @workspace.setter
+    def workspace(self, value: Any) -> None:
+        self._manager.set("workspace", value)
+
+    @property
+    def security(self) -> _ConfigNamespace:
+        return _ConfigNamespace(self._manager, "security")
+
+    @security.setter
+    def security(self, value: Any) -> None:
+        self._manager.set("security", value)
+
+    @property
+    def project_detection(self) -> _ConfigNamespace:
+        return _ConfigNamespace(self._manager, "project_detection")
+
+    @project_detection.setter
+    def project_detection(self, value: Any) -> None:
+        self._manager.set("project_detection", value)
+
+    def get(self, path: str | None = None, default: Any = None) -> Any:
+        return self._manager.get(path, default)
+
+    def set(self, path: str, value: Any) -> None:
+        self._manager.set(path, value)
+
+    def has(self, path: str) -> bool:
+        return self._manager.has(path)
+
+    def get_all(self) -> dict[str, Any]:
+        return self._manager.get_all()
+
+    def validate(self) -> list[str]:
+        return self._manager.validate()
+
+    def is_valid(self) -> bool:
+        return len(self.validate()) == 0
+
+    @staticmethod
+    def validate_config(config: Optional["Config"] = None) -> list[str]:
+        """Legacy validation helper for compatibility with older imports."""
+        if isinstance(config, Config):
+            return config.validate()
+        return Config().validate()
+
+    def update(self, data: dict[str, Any]) -> None:
+        """Update configuration values from a nested dictionary."""
+        if not isinstance(data, dict):
+            return
+
+        def _apply_updates(prefix: str, payload: dict[str, Any]) -> None:
+            for key, value in payload.items():
+                path = f"{prefix}.{key}" if prefix else key
+                if isinstance(value, dict):
+                    _apply_updates(path, value)
+                else:
+                    self._manager.set(path, value)
+
+        _apply_updates("", data)
+
+    def __getattr__(self, name: str) -> Any:
+        if name.startswith("_"):
+            raise AttributeError(name)
+        if self._manager.has(name):
+            value = self._manager.get(name)
+            if isinstance(value, dict):
+                return _ConfigNamespace(self._manager, name)
+            return value
+        raise AttributeError(name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name.startswith("_"):
+            object.__setattr__(self, name, value)
+            return
+        self._manager.set(name, value)
+
+    def __repr__(self) -> str:
+        return "Config()"
+
+
+def load_config(config_file: str | None = None) -> Config:
+    """Load configuration from file into a Config wrapper."""
+    if not config_file:
+        return Config()
+
+    config_path = Path(config_file)
+    if not config_path.exists():
+        return Config()
+
+    try:
+        with config_path.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if not isinstance(data, dict):
+            return Config()
+        # Apply unit conversions using current manager utilities
+        manager = ConfigManager.get_instance()
+        converted = manager._apply_unit_conversions(data)
+        return Config(converted)
+    except Exception:
+        return Config()
 
 
 # Backup and Restore Configuration Helper Functions

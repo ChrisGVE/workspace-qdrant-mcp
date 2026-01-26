@@ -23,6 +23,7 @@ class MemoryCategory(Enum):
 
     PREFERENCE = "preference"  # User preferences (e.g., "Use uv for Python")
     BEHAVIOR = "behavior"  # LLM behavioral rules (e.g., "Always make atomic commits")
+    FORMAT = "format"  # Formatting and style rules
     AGENT_LIBRARY = "agent_library"  # Agent definitions and capabilities
     KNOWLEDGE = "knowledge"  # Factual knowledge and context
     CONTEXT = "context"  # Session and project context
@@ -36,6 +37,7 @@ class MemoryRule:
     rule: str  # The actual rule text
     category: MemoryCategory  # Rule category
     authority: AuthorityLevel  # Authority level
+    name: str | None = None  # Optional short identifier for the rule
 
     # Optional fields with defaults
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
@@ -76,6 +78,7 @@ class MemoryRule:
         return {
             "id": self.id,
             "rule": self.rule,
+            "name": self.name,
             "category": self.category.value,
             "authority": self.authority.value,
             "scope": self.scope,
@@ -94,6 +97,7 @@ class MemoryRule:
         return cls(
             id=data["id"],
             rule=data["rule"],
+            name=data.get("name"),
             category=MemoryCategory(data["category"]),
             authority=AuthorityLevel(data["authority"]),
             scope=data.get("scope", []),

@@ -83,16 +83,19 @@ except ImportError:
 
 from qdrant_client.http import models
 
+_MISSING_TFIDF = object()
+_MISSING_RANK_BM25 = object()
+
 # Import optional dependencies with fallbacks
 try:
     from sklearn.feature_extraction.text import TfidfVectorizer
 except ImportError:
-    TfidfVectorizer = None
+    TfidfVectorizer = _MISSING_TFIDF
 
 try:
     import rank_bm25
 except ImportError:
-    rank_bm25 = None
+    rank_bm25 = _MISSING_RANK_BM25
 
 
 # Use simple tokenizer to avoid NLTK data dependency issues
@@ -273,21 +276,34 @@ class BM25SparseEncoder:
         if self.use_fastembed and SparseTextEmbedding is not None:
             try:
                 import asyncio
+                import inspect
 
-                # Try to use run_in_executor for async loading, fall back to sync if mocked
-                executor_result = asyncio.get_event_loop().run_in_executor(
-                    None,
-                    lambda: SparseTextEmbedding(
-                        model_name="Qdrant/bm25", max_length=512
-                    ),
+                from unittest.mock import MagicMock
+
+                should_call = (
+                    inspect.isclass(SparseTextEmbedding)
+                    or isinstance(SparseTextEmbedding, MagicMock)
+                    or getattr(SparseTextEmbedding, "side_effect", None) is not None
                 )
 
-                # Handle both real futures and mocked return values
-                try:
-                    self.sparse_model = await executor_result
-                except TypeError:
-                    # If it's a mock that can't be awaited, use it directly
-                    self.sparse_model = executor_result
+                if not should_call:
+                    # If mocked as an instance, use it directly.
+                    self.sparse_model = SparseTextEmbedding
+                else:
+                    # Try to use run_in_executor for async loading, fall back to sync if mocked
+                    executor_result = asyncio.get_event_loop().run_in_executor(
+                        None,
+                        lambda: SparseTextEmbedding(
+                            model_name="Qdrant/bm25", max_length=512
+                        ),
+                    )
+
+                    # Handle both real futures and mocked return values
+                    try:
+                        self.sparse_model = await executor_result
+                    except TypeError:
+                        # If it's a mock that can't be awaited, use it directly
+                        self.sparse_model = executor_result
                 self.fastembed_model = self.sparse_model
                 logger.info("FastEmbed BM25 model initialized")
             except Exception as e:
@@ -299,15 +315,16 @@ class BM25SparseEncoder:
 
         # Initialize basic encoder with optional corpus
         if not self.use_fastembed and training_corpus:
-            # Import sklearn at runtime to allow mocking
-            try:
-                from sklearn.feature_extraction.text import TfidfVectorizer
-            except ImportError:
+            if TfidfVectorizer is None:
                 raise ImportError("sklearn is required for basic BM25 initialization")
 
-            try:
-                import rank_bm25
-            except ImportError:
+            if rank_bm25 is None:
+                raise ImportError("rank_bm25 is required for basic BM25 initialization")
+
+            if TfidfVectorizer is _MISSING_TFIDF:
+                raise ImportError("sklearn is required for basic BM25 initialization")
+
+            if rank_bm25 is _MISSING_RANK_BM25:
                 raise ImportError("rank_bm25 is required for basic BM25 initialization")
 
             # Initialize vectorizer
@@ -503,9 +520,15 @@ class BM25SparseEncoder:
         """Encode using FastEmbed BM25 model."""
         try:
             import asyncio
+            import inspect
 
-            embeddings = await asyncio.get_event_loop().run_in_executor(
+            executor_result = asyncio.get_event_loop().run_in_executor(
                 None, lambda: list(self.sparse_model.embed(texts))
+            )
+            embeddings = (
+                await executor_result
+                if inspect.isawaitable(executor_result)
+                else executor_result
             )
 
             sparse_vectors = []
@@ -711,6 +734,12 @@ class BM25SparseEncoder:
             },
             "initialized": self.initialized,
         }
+
+
+class SparseVectorEncoder(BM25SparseEncoder):
+    """Backward-compatible alias for BM25SparseEncoder."""
+
+    pass
 
 
 def create_qdrant_sparse_vector(

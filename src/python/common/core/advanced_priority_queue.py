@@ -162,7 +162,7 @@ class ResourceMonitor:
         current_time = time.time()
         time_delta = current_time - self._last_io_time
 
-        if time_delta > 0 and self._last_io_counters:
+        if time_delta > 0.5 and self._last_io_counters:
             read_bytes_per_sec = (current_io.read_bytes - self._last_io_counters.read_bytes) / time_delta
             write_bytes_per_sec = (current_io.write_bytes - self._last_io_counters.write_bytes) / time_delta
             io_read_mb_per_sec = read_bytes_per_sec / (1024 * 1024)

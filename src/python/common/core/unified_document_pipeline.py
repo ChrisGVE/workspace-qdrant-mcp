@@ -74,109 +74,98 @@ except ImportError:
     class AutomaticRecovery:
         pass
 
-# Import parsers with fallback
-try:
-    import sys
-    from pathlib import Path
+# Built-in lightweight parsers (Python CLI parsers have been removed).
+PARSERS_AVAILABLE = False
 
-    # Add the parsers directory to path
-    parsers_path = Path(__file__).parent.parent.parent / "wqm_cli" / "cli" / "parsers"
-    if parsers_path.exists():
-        sys.path.insert(0, str(parsers_path.parent.parent))
 
-    from wqm_cli.cli.parsers import (
-        CodeParser,
-        DocumentParser,
-        DocxParser,
-        EpubParser,
-        HtmlParser,
-        MarkdownParser,
-        MobiParser,
-        PDFParser,
-        PptxParser,
-        TextParser,
-        WebParser,
-    )
-    from wqm_cli.cli.parsers.base import ParsedDocument
-    from wqm_cli.cli.parsers.exceptions import ParsingError, UnsupportedFileFormatError
-    from wqm_cli.cli.parsers.file_detector import detect_file_type
+class DocumentParser:
+    format_name = "Generic"
+    supported_extensions = set()
 
-    PARSERS_AVAILABLE = True
-except ImportError as e:
-    logger.warning(f"Parser imports failed: {e}")
-    PARSERS_AVAILABLE = False
-    # Create dummy classes for testing
-    class DocumentParser:
-        format_name = "Generic"
-        supported_extensions = set()
+    def __init__(self):
+        pass
 
-        def __init__(self):
-            pass
+    def can_parse(self, file_path):
+        return file_path.suffix.lower() in self.supported_extensions
 
-        def can_parse(self, file_path):
-            return file_path.suffix.lower() in self.supported_extensions
+    async def parse(self, file_path):
+        try:
+            content = file_path.read_text(encoding="utf-8")
+            return ParsedDocument(
+                content=content,
+                metadata={"file_type": self.format_name, "file_path": str(file_path)},
+            )
+        except Exception:
+            return None
 
-        async def parse(self, file_path):
-            try:
-                content = file_path.read_text(encoding='utf-8')
-                return ParsedDocument(
-                    content=content,
-                    metadata={"file_type": self.format_name, "file_path": str(file_path)}
-                )
-            except Exception:
-                return None
 
-    class ParsedDocument:
-        def __init__(self, content="", content_hash="", metadata=None):
-            self.content = content
-            self.content_hash = content_hash or hashlib.sha256(content.encode()).hexdigest()
-            self.metadata = metadata or {}
+class ParsedDocument:
+    def __init__(self, content="", content_hash="", metadata=None):
+        self.content = content
+        self.content_hash = content_hash or hashlib.sha256(content.encode()).hexdigest()
+        self.metadata = metadata or {}
 
-    class CodeParser(DocumentParser):
-        format_name = "Code"
-        supported_extensions = {".py", ".js", ".ts", ".java", ".cpp", ".c", ".rs", ".go", ".rb", ".php"}
 
-    class TextParser(DocumentParser):
-        format_name = "Text"
-        supported_extensions = {".txt"}
+class CodeParser(DocumentParser):
+    format_name = "Code"
+    supported_extensions = {".py", ".js", ".ts", ".java", ".cpp", ".c", ".rs", ".go", ".rb", ".php"}
 
-    class MarkdownParser(DocumentParser):
-        format_name = "Markdown"
-        supported_extensions = {".md", ".markdown"}
 
-    class HtmlParser(DocumentParser):
-        format_name = "HTML"
-        supported_extensions = {".html", ".htm"}
+class TextParser(DocumentParser):
+    format_name = "Text"
+    supported_extensions = {".txt"}
 
-    class PDFParser(DocumentParser):
-        format_name = "PDF"
-        supported_extensions = {".pdf"}
 
-    class DocxParser(DocumentParser):
-        format_name = "DOCX"
-        supported_extensions = {".docx", ".doc"}
+class MarkdownParser(DocumentParser):
+    format_name = "Markdown"
+    supported_extensions = {".md", ".markdown"}
 
-    class EpubParser(DocumentParser):
-        format_name = "EPUB"
-        supported_extensions = {".epub"}
 
-    class MobiParser(DocumentParser):
-        format_name = "MOBI"
-        supported_extensions = {".mobi"}
+class HtmlParser(DocumentParser):
+    format_name = "HTML"
+    supported_extensions = {".html", ".htm"}
 
-    class PptxParser(DocumentParser):
-        format_name = "PPTX"
-        supported_extensions = {".pptx", ".ppt"}
 
-    class WebParser(DocumentParser):
-        format_name = "Web"
-        supported_extensions = set()
+class PDFParser(DocumentParser):
+    format_name = "PDF"
+    supported_extensions = {".pdf"}
 
-    def detect_file_type(file_path):
-        return file_path.suffix.lower().lstrip('.')
 
-    class ParsingError(Exception): pass
-    class UnsupportedFileFormatError(Exception): pass
+class DocxParser(DocumentParser):
+    format_name = "DOCX"
+    supported_extensions = {".docx", ".doc"}
+
+
+class EpubParser(DocumentParser):
+    format_name = "EPUB"
+    supported_extensions = {".epub"}
+
+
+class MobiParser(DocumentParser):
+    format_name = "MOBI"
+    supported_extensions = {".mobi"}
+
+
+class PptxParser(DocumentParser):
+    format_name = "PPTX"
+    supported_extensions = {".pptx", ".ppt"}
+
+
+class WebParser(DocumentParser):
+    format_name = "Web"
+    supported_extensions = set()
+
+
+def detect_file_type(file_path):
+    return file_path.suffix.lower().lstrip(".")
+
+
+class ParsingError(Exception):
+    pass
+
+
+class UnsupportedFileFormatError(Exception):
+    pass
 
 
 @dataclass

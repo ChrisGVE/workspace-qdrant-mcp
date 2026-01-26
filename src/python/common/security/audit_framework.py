@@ -31,7 +31,7 @@ from typing import Any
 
 from loguru import logger
 
-from .security_monitor import SecurityAlert
+from .security_monitor import AlertLevel, SecurityAlert
 from .threat_detection import SecurityEvent, ThreatDetection
 
 
@@ -1038,11 +1038,20 @@ class AuditTrail:
 
     async def log_security_alert(self, alert: SecurityAlert) -> None:
         """Log a security alert from the monitoring system."""
+        alert_level_mapping = {
+            AlertLevel.INFO: AuditLevel.INFO,
+            AlertLevel.WARNING: AuditLevel.WARNING,
+            AlertLevel.ERROR: AuditLevel.ERROR,
+            AlertLevel.CRITICAL: AuditLevel.CRITICAL,
+        }
+
         audit_event = AuditEvent(
             event_id=f"alert_{alert.alert_id}",
             timestamp=alert.timestamp,
             event_type=AuditEventType.SECURITY_EVENT,
-            audit_level=AuditLevel(alert.alert_level.value),
+            audit_level=alert_level_mapping.get(
+                alert.alert_level, AuditLevel.WARNING
+            ),
             user_id=None,  # Alerts are system-generated
             source_ip=None,
             resource=alert.source,

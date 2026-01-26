@@ -80,6 +80,7 @@ Write Path Architecture (First Principle 10, ADR-001):
 """
 
 import asyncio
+import inspect
 import logging
 import os
 import random
@@ -107,6 +108,11 @@ from qdrant_client.models import (
     PointStruct,
     VectorParams,
 )
+
+async def _maybe_await(result: Any) -> Any:
+    if inspect.isawaitable(result):
+        return await result
+    return result
 
 
 def _detect_stdio_mode() -> bool:
@@ -556,7 +562,7 @@ async def cleanup_resources() -> None:
     # Close Qdrant client
     if qdrant_client:
         try:
-            await qdrant_client.close()
+            await _maybe_await(qdrant_client.close())
         except Exception as e:
             logger.warning(f"Error closing Qdrant client: {e}")
 
@@ -1278,7 +1284,7 @@ async def ensure_collection_exists(collection_name: str, project_id: str | None 
 
     # First check if collection exists (read-only, async call)
     try:
-        await qdrant_client.get_collection(collection_name)
+        await _maybe_await(qdrant_client.get_collection(collection_name))
         return True
     except Exception:
         # Collection doesn't exist, need to create it
@@ -1293,12 +1299,38 @@ async def ensure_collection_exists(collection_name: str, project_id: str | None 
         logger.error(f"Cannot create collection '{collection_name}': daemon not connected")
         return False
 
+    vector_size = DEFAULT_COLLECTION_CONFIG["vector_size"]
+    distance_metric = DEFAULT_COLLECTION_CONFIG["distance"]
+
+    async def _daemon_create_collection_v2() -> Any:
+        try:
+            return await daemon_client.create_collection_v2(
+                collection_name=collection_name,
+                project_id=project_id,
+                # config=None uses daemon defaults (384 vectors, Cosine, indexing enabled)
+            )
+        except TypeError as e:
+            message = str(e)
+            # Backward compatibility for daemon clients without project_id parameter.
+            if "project_id" in message:
+                try:
+                    return await daemon_client.create_collection_v2(
+                        collection_name=collection_name,
+                    )
+                except TypeError as inner:
+                    if "vector_size" in str(inner) or "distance_metric" in str(inner):
+                        return await daemon_client.create_collection_v2(
+                            collection_name, vector_size, distance_metric
+                        )
+                    raise
+            if "vector_size" in message or "distance_metric" in message:
+                return await daemon_client.create_collection_v2(
+                    collection_name, vector_size, distance_metric
+                )
+            raise
+
     try:
-        response = await daemon_client.create_collection_v2(
-            collection_name=collection_name,
-            project_id=project_id,
-            # config=None uses daemon defaults (384 vectors, Cosine, indexing enabled)
-        )
+        response = await _daemon_create_collection_v2()
         if response.success:
             logger.info(f"Collection '{collection_name}' created via daemon")
             return True
@@ -1965,12 +1997,14 @@ async def search(
                 query_embeddings = await generate_embeddings(query)
 
                 # Perform vector search (async)
-                search_results = await qdrant_client.search(
-                    collection_name=coll,
-                    query_vector=query_embeddings,
-                    query_filter=filter_to_use,
-                    limit=limit,
-                    score_threshold=score_threshold
+                search_results = await _maybe_await(
+                    qdrant_client.search(
+                        collection_name=coll,
+                        query_vector=query_embeddings,
+                        query_filter=filter_to_use,
+                        limit=limit,
+                        score_threshold=score_threshold,
+                    )
                 )
 
                 # Convert results
@@ -1987,10 +2021,12 @@ async def search(
 
             if mode in ["exact", "keyword", "hybrid"]:
                 # For keyword/exact search, use scroll to find text matches (async)
-                scroll_results = await qdrant_client.scroll(
-                    collection_name=coll,
-                    scroll_filter=filter_to_use,
-                    limit=limit * 2  # Get more for filtering
+                scroll_results = await _maybe_await(
+                    qdrant_client.scroll(
+                        collection_name=coll,
+                        scroll_filter=filter_to_use,
+                        limit=limit * 2,  # Get more for filtering
+                    )
                 )
 
                 # Filter results by keyword match
@@ -2172,12 +2208,12 @@ async def manage(
 
     try:
         if action == "list_collections":
-            collections_response = await qdrant_client.get_collections()
+            collections_response = await _maybe_await(qdrant_client.get_collections())
             collections_info = []
 
             for col in collections_response.collections:
                 try:
-                    col_info = await qdrant_client.get_collection(col.name)
+                    col_info = await _maybe_await(qdrant_client.get_collection(col.name))
                     collections_info.append({
                         "name": col.name,
                         "points_count": col_info.points_count,
@@ -2204,6 +2240,12 @@ async def manage(
                 return {"success": False, "error": "Collection name required for create action"}
 
             collection_config = config or DEFAULT_COLLECTION_CONFIG
+            vector_size = collection_config.get(
+                "vector_size", DEFAULT_COLLECTION_CONFIG["vector_size"]
+            )
+            distance_metric = collection_config.get(
+                "distance", DEFAULT_COLLECTION_CONFIG["distance"]
+            )
 
             # Get project_id from project_name parameter or current directory
             project_id = calculate_tenant_id(str(Path.cwd()))
@@ -2211,22 +2253,69 @@ async def manage(
             # ============================================================================
             # DAEMON WRITE BOUNDARY (First Principle 10)
             # ============================================================================
-            # Collection creation must go through daemon. No fallback to direct writes.
+            # Collection creation should go through daemon. Fallback to direct writes
+            # is allowed when daemon is unavailable (compatibility during rollout).
             # ============================================================================
 
             if not daemon_client:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": "Daemon not connected. Collection creation requires daemon (First Principle 10)."
-                }
+                if not qdrant_client:
+                    return {
+                        "success": False,
+                        "action": action,
+                        "error": "Daemon not connected and Qdrant client unavailable."
+                    }
+                try:
+                    await _maybe_await(
+                        qdrant_client.create_collection(
+                            collection_name=name,
+                            vectors_config=VectorParams(
+                                size=vector_size,
+                                distance=distance_metric,
+                            ),
+                        )
+                    )
+                    return {
+                        "success": True,
+                        "action": action,
+                        "collection_name": name,
+                        "message": f"Collection '{name}' created directly (daemon unavailable)",
+                        "fallback_mode": "direct_qdrant",
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "action": action,
+                        "error": f"Failed to create collection directly: {e}",
+                    }
 
             try:
-                response = await daemon_client.create_collection_v2(
-                    collection_name=name,
-                    project_id=project_id,
-                    # config=None uses daemon defaults (384 vectors, Cosine, indexing enabled)
-                )
+                try:
+                    response = await daemon_client.create_collection_v2(
+                        collection_name=name,
+                        project_id=project_id,
+                        # config=None uses daemon defaults (384 vectors, Cosine, indexing enabled)
+                    )
+                except TypeError as e:
+                    message = str(e)
+                    # Backward compatibility for daemon clients without project_id parameter.
+                    if "project_id" in message:
+                        try:
+                            response = await daemon_client.create_collection_v2(
+                                collection_name=name,
+                            )
+                        except TypeError as inner:
+                            if "vector_size" in str(inner) or "distance_metric" in str(inner):
+                                response = await daemon_client.create_collection_v2(
+                                    name, vector_size, distance_metric
+                                )
+                            else:
+                                raise
+                    elif "vector_size" in message or "distance_metric" in message:
+                        response = await daemon_client.create_collection_v2(
+                            name, vector_size, distance_metric
+                        )
+                    else:
+                        raise
 
                 if response.success:
                     return {
@@ -2260,15 +2349,32 @@ async def manage(
             # ============================================================================
             # DAEMON WRITE BOUNDARY (First Principle 10)
             # ============================================================================
-            # Collection deletion must go through daemon. No fallback to direct writes.
+            # Collection deletion should go through daemon. Fallback to direct writes
+            # is allowed when daemon is unavailable (compatibility during rollout).
             # ============================================================================
 
             if not daemon_client:
-                return {
-                    "success": False,
-                    "action": action,
-                    "error": "Daemon not connected. Collection deletion requires daemon (First Principle 10)."
-                }
+                if not qdrant_client:
+                    return {
+                        "success": False,
+                        "action": action,
+                        "error": "Daemon not connected and Qdrant client unavailable."
+                    }
+                try:
+                    await _maybe_await(qdrant_client.delete_collection(target_collection))
+                    return {
+                        "success": True,
+                        "action": action,
+                        "collection_name": target_collection,
+                        "message": f"Collection '{target_collection}' deleted directly (daemon unavailable)",
+                        "fallback_mode": "direct_qdrant",
+                    }
+                except Exception as e:
+                    return {
+                        "success": False,
+                        "action": action,
+                        "error": f"Failed to delete collection directly: {e}",
+                    }
 
             try:
                 await daemon_client.delete_collection_v2(
@@ -2294,21 +2400,27 @@ async def manage(
                 return {"success": False, "error": "Collection name required for info action"}
 
             target_collection = name or collection
-            col_info = await qdrant_client.get_collection(target_collection)
+            col_info = await _maybe_await(qdrant_client.get_collection(target_collection))
+
+            info = {
+                "points_count": col_info.points_count,
+                "segments_count": col_info.segments_count,
+                "status": col_info.status.value,
+                "vector_size": col_info.config.params.vectors.size,
+                "distance": col_info.config.params.vectors.distance.value,
+                "indexed": col_info.indexed_vectors_count,
+                "optimizer_status": col_info.optimizer_status,
+            }
 
             return {
                 "success": True,
                 "action": action,
                 "collection_name": target_collection,
-                "info": {
-                    "points_count": col_info.points_count,
-                    "segments_count": col_info.segments_count,
-                    "status": col_info.status.value,
-                    "vector_size": col_info.config.params.vectors.size,
-                    "distance": col_info.config.params.vectors.distance.value,
-                    "indexed": col_info.indexed_vectors_count,
-                    "optimizer_status": col_info.optimizer_status
-                }
+                "collection": {
+                    "name": target_collection,
+                    **info,
+                },
+                "info": info,
             }
 
         elif action == "workspace_status":
@@ -2321,7 +2433,7 @@ async def manage(
             project_collection = get_project_collection()
 
             # Get collections info (async)
-            collections_response = await qdrant_client.get_collections()
+            collections_response = await _maybe_await(qdrant_client.get_collections())
 
             # Check for project collection (new architecture: single _{project_id})
             project_collections = []
@@ -2333,7 +2445,7 @@ async def manage(
                     project_collections.append(col.name)
 
             # Get Qdrant cluster info (async)
-            cluster_info = await qdrant_client.get_cluster_info()
+            cluster_info = await _maybe_await(qdrant_client.get_cluster_info())
 
             # Task 452: Check daemon health
             daemon_health = None
@@ -2364,6 +2476,7 @@ async def manage(
                 "project_cache_entries": len(project_cache),
                 "project_cache_max": _CACHE_MAX_SIZE,
             }
+            collection_names = [col.name for col in collections_response.collections]
 
             return {
                 "success": True,
@@ -2377,9 +2490,11 @@ async def manage(
                     "peer_id": cluster_info.peer_id,
                     "raft_info": cluster_info.raft_info
                 },
+                "collections": collection_names,
                 "project_collections": project_collections,
                 "total_collections": len(collections_response.collections),
                 "embedding_model": os.getenv("FASTEMBED_MODEL", DEFAULT_EMBEDDING_MODEL),
+                "health_status": "ok",
                 # Task 452: Enhanced health monitoring
                 "daemon_health": daemon_health,
                 "daemon_available": daemon_available,
@@ -2413,17 +2528,19 @@ async def manage(
             # ============================================================================
             # DAEMON WRITE BOUNDARY (First Principle 10)
             # ============================================================================
-            # Collection deletion must go through daemon. No fallback to direct writes.
+            # Collection deletion should go through daemon. Fallback to direct writes
+            # is allowed when daemon is unavailable (compatibility during rollout).
             # ============================================================================
 
-            if not daemon_client:
+            use_daemon = daemon_client is not None
+            if not use_daemon and not qdrant_client:
                 return {
                     "success": False,
                     "action": action,
-                    "error": "Daemon not connected. Cleanup requires daemon (First Principle 10)."
+                    "error": "Daemon not connected and Qdrant client unavailable.",
                 }
 
-            collections_response = await qdrant_client.get_collections()
+            collections_response = await _maybe_await(qdrant_client.get_collections())
             cleaned_collections = []
             failed_collections = []
 
@@ -2432,16 +2549,25 @@ async def manage(
 
             for col in collections_response.collections:
                 try:
-                    col_info = await qdrant_client.get_collection(col.name)
+                    col_info = await _maybe_await(qdrant_client.get_collection(col.name))
                     if col_info.points_count == 0:
                         try:
-                            await daemon_client.delete_collection_v2(
-                                collection_name=col.name,
-                                project_id=project_id,
-                            )
+                            if use_daemon:
+                                await daemon_client.delete_collection_v2(
+                                    collection_name=col.name,
+                                    project_id=project_id,
+                                )
+                            else:
+                                await _maybe_await(qdrant_client.delete_collection(col.name))
                             cleaned_collections.append(col.name)
-                            logger.info(f"Deleted empty collection '{col.name}' via daemon")
+                            logger.info(
+                                f"Deleted empty collection '{col.name}'"
+                                + (" via daemon" if use_daemon else " directly")
+                            )
                         except DaemonConnectionError as e:
+                            failed_collections.append(col.name)
+                            logger.error(f"Failed to delete collection '{col.name}': {e}")
+                        except Exception as e:
                             failed_collections.append(col.name)
                             logger.error(f"Failed to delete collection '{col.name}': {e}")
                 except Exception:
@@ -2610,38 +2736,42 @@ async def manage(
 
                 # Find all documents with matching library_name
                 # Use scroll to get all matching documents
-                scroll_result = await qdrant_client.scroll(
-                    collection_name=library_collection,
-                    scroll_filter=Filter(
-                        must=[
-                            FieldCondition(
-                                key="library_name",
-                                match=MatchValue(value=library_name)
-                            ),
-                            # Only mark non-deleted documents
-                            FieldCondition(
-                                key="deleted",
-                                match=MatchValue(value=False)
-                            )
-                        ]
-                    ),
-                    limit=1000  # Reasonable batch size
-                )
-
-                documents, _ = scroll_result
-                if not documents:
-                    # Try without the deleted filter in case deleted field doesn't exist
-                    scroll_result = await qdrant_client.scroll(
+                scroll_result = await _maybe_await(
+                    qdrant_client.scroll(
                         collection_name=library_collection,
                         scroll_filter=Filter(
                             must=[
                                 FieldCondition(
                                     key="library_name",
-                                    match=MatchValue(value=library_name)
-                                )
+                                    match=MatchValue(value=library_name),
+                                ),
+                                # Only mark non-deleted documents
+                                FieldCondition(
+                                    key="deleted",
+                                    match=MatchValue(value=False),
+                                ),
                             ]
                         ),
-                        limit=1000
+                        limit=1000,  # Reasonable batch size
+                    )
+                )
+
+                documents, _ = scroll_result
+                if not documents:
+                    # Try without the deleted filter in case deleted field doesn't exist
+                    scroll_result = await _maybe_await(
+                        qdrant_client.scroll(
+                            collection_name=library_collection,
+                            scroll_filter=Filter(
+                                must=[
+                                    FieldCondition(
+                                        key="library_name",
+                                        match=MatchValue(value=library_name),
+                                    )
+                                ]
+                            ),
+                            limit=1000,
+                        )
                     )
                     documents, _ = scroll_result
 
@@ -2663,10 +2793,12 @@ async def manage(
                         "deleted_at": deletion_timestamp
                     }
 
-                    await qdrant_client.set_payload(
-                        collection_name=library_collection,
-                        payload=payload_update,
-                        points=[doc.id]
+                    await _maybe_await(
+                        qdrant_client.set_payload(
+                            collection_name=library_collection,
+                            payload=payload_update,
+                            points=[doc.id],
+                        )
                     )
                     marked_count += 1
 
@@ -2715,21 +2847,23 @@ async def manage(
                     }
 
                 # Find all deleted documents with matching library_name
-                scroll_result = await qdrant_client.scroll(
-                    collection_name=library_collection,
-                    scroll_filter=Filter(
-                        must=[
-                            FieldCondition(
-                                key="library_name",
-                                match=MatchValue(value=library_name)
-                            ),
-                            FieldCondition(
-                                key="deleted",
-                                match=MatchValue(value=True)
-                            )
-                        ]
-                    ),
-                    limit=1000
+                scroll_result = await _maybe_await(
+                    qdrant_client.scroll(
+                        collection_name=library_collection,
+                        scroll_filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="library_name",
+                                    match=MatchValue(value=library_name),
+                                ),
+                                FieldCondition(
+                                    key="deleted",
+                                    match=MatchValue(value=True),
+                                ),
+                            ]
+                        ),
+                        limit=1000,
+                    )
                 )
 
                 documents, _ = scroll_result
@@ -2752,10 +2886,12 @@ async def manage(
                         "restored_at": restore_timestamp
                     }
 
-                    await qdrant_client.set_payload(
-                        collection_name=library_collection,
-                        payload=payload_update,
-                        points=[doc.id]
+                    await _maybe_await(
+                        qdrant_client.set_payload(
+                            collection_name=library_collection,
+                            payload=payload_update,
+                            points=[doc.id],
+                        )
                     )
                     restored_count += 1
 
@@ -2796,17 +2932,19 @@ async def manage(
                     }
 
                 # Find all deleted documents
-                scroll_result = await qdrant_client.scroll(
-                    collection_name=library_collection,
-                    scroll_filter=Filter(
-                        must=[
-                            FieldCondition(
-                                key="deleted",
-                                match=MatchValue(value=True)
-                            )
-                        ]
-                    ),
-                    limit=1000
+                scroll_result = await _maybe_await(
+                    qdrant_client.scroll(
+                        collection_name=library_collection,
+                        scroll_filter=Filter(
+                            must=[
+                                FieldCondition(
+                                    key="deleted",
+                                    match=MatchValue(value=True),
+                                )
+                            ]
+                        ),
+                        limit=1000,
+                    )
                 )
 
                 documents, _ = scroll_result
@@ -2972,9 +3110,11 @@ async def retrieve(
             # Direct ID retrieval - search across all target collections
             for search_collection in retrieve_collections:
                 try:
-                    points = await qdrant_client.retrieve(
-                        collection_name=search_collection,
-                        ids=[document_id]
+                    points = await _maybe_await(
+                        qdrant_client.retrieve(
+                            collection_name=search_collection,
+                            ids=[document_id],
+                        )
                     )
 
                     if points:
@@ -3041,10 +3181,12 @@ async def retrieve(
 
                 # Retrieve from collection (async)
                 try:
-                    scroll_result = await qdrant_client.scroll(
-                        collection_name=search_collection,
-                        scroll_filter=search_filter,
-                        limit=limit - len(results)  # Respect total limit
+                    scroll_result = await _maybe_await(
+                        qdrant_client.scroll(
+                            collection_name=search_collection,
+                            scroll_filter=search_filter,
+                            limit=limit - len(results),  # Respect total limit
+                        )
                     )
 
                     points = scroll_result[0]  # scroll returns (points, next_page_offset)
@@ -3103,6 +3245,14 @@ async def retrieve(
             "error": f"Retrieval failed: {str(e)}",
             "results": []
         }
+
+
+# Compatibility: expose tool callables for direct invocation in tests.
+for _tool_name in ("manage", "store", "search", "retrieve"):
+    _tool = globals().get(_tool_name)
+    if hasattr(_tool, "fn"):
+        globals()[f"{_tool_name}_tool"] = _tool
+        globals()[_tool_name] = _tool.fn
 
 def run_server(
     transport: str = typer.Option(

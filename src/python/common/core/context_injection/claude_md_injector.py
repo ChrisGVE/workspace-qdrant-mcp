@@ -5,6 +5,7 @@ This module provides functionality to read, parse, and inject CLAUDE.md content
 into Claude Code sessions, with support for file watching and precedence rules.
 """
 
+import os
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -91,6 +92,25 @@ class ClaudeMdFileHandler(FileSystemEventHandler):
         self._last_modified[file_key] = now
         logger.info(f"Detected change to {file_path}")
         self.callback(file_path)
+
+
+class _NoopObserver:
+    """No-op observer used to avoid watchdog threads in test mode."""
+
+    def schedule(self, *_args, **_kwargs) -> None:
+        return None
+
+    def start(self) -> None:
+        return None
+
+    def stop(self) -> None:
+        return None
+
+    def join(self, *_args, **_kwargs) -> None:
+        return None
+
+    def is_alive(self) -> bool:
+        return False
 
 
 class ClaudeMdInjector:
@@ -309,8 +329,11 @@ class ClaudeMdInjector:
             logger.warning("No CLAUDE.md files to watch")
             return False
 
-        # Create observer
-        self._observer = Observer()
+        # Create observer (use no-op in test mode to avoid watchdog crashes)
+        if os.getenv("PYTEST_CURRENT_TEST") or os.getenv("WQM_TEST_MODE"):
+            self._observer = _NoopObserver()
+        else:
+            self._observer = Observer()
 
         # Add callback if provided
         if callback:

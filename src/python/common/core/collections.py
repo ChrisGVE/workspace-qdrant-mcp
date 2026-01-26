@@ -52,7 +52,7 @@ from qdrant_client.http.exceptions import ResponseHandlingException
 from .collection_naming import (
     CollectionNamingManager,
     CollectionPermissionError,
-    build_project_collection_name,
+    build_user_collection_name,
     build_system_memory_collection_name,
 )
 from .collection_types import (
@@ -172,8 +172,8 @@ class WorkspaceCollectionManager:
         # Initialize collection type classifier and naming manager
         self.type_classifier = CollectionTypeClassifier()
         self.naming_manager = CollectionNamingManager(
-            global_collections=config.get("workspace.global_collections", []),
-            valid_project_suffixes=config.get("workspace.collection_types", [])
+            config.get("workspace.global_collections", []),
+            config.get("workspace.collection_types", []),
         )
 
     def _get_current_project_name(self) -> str | None:
@@ -1283,13 +1283,16 @@ class MemoryCollectionManager:
         self.workspace_client = workspace_client
         self.config = config
         self.naming_manager = CollectionNamingManager(
-            global_collections=config.get("workspace.global_collections", []),
-            valid_project_suffixes=config.get("workspace.collection_types", [])
+            config.get("workspace.global_collections", []),
+            config.get("workspace.collection_types", []),
         )
         self.type_classifier = CollectionTypeClassifier()
 
         # Memory collection configuration
-        self.memory_collection = config.get("memory_collection", "memory")
+        memory_collection = config.get("memory_collection", "memory")
+        if not isinstance(memory_collection, str) or not memory_collection:
+            memory_collection = "memory"
+        self.memory_collection = memory_collection
 
     async def ensure_memory_collections_exist(self, project: str) -> dict:
         """
@@ -1315,7 +1318,7 @@ class MemoryCollectionManager:
 
         # Build collection names
         system_memory = build_system_memory_collection_name(self.memory_collection)
-        project_memory = build_project_collection_name(project, self.memory_collection)
+        project_memory = build_user_collection_name(project, self.memory_collection)
 
         logger.info(f"Ensuring memory collections exist: system='{system_memory}', project='{project_memory}'")
 
@@ -1558,7 +1561,7 @@ class MemoryCollectionManager:
             dict: Information about system and project memory collections
         """
         system_memory = build_system_memory_collection_name(self.memory_collection)
-        project_memory = build_project_collection_name(project, self.memory_collection)
+        project_memory = build_user_collection_name(project, self.memory_collection)
 
         try:
             collections = self.workspace_client.get_collections()

@@ -104,16 +104,29 @@ class EmbeddingService:
         ```
     """
 
-    def __init__(self) -> None:
+    def __init__(self, config: object | None = None) -> None:
         """Initialize the embedding service with lua-style configuration access.
 
-        Configuration is accessed directly through get_config() functions
-        without requiring a ConfigManager instance to be passed.
+        Args:
+            config: Optional configuration object for compatibility. The service
+                    still reads values via get_config() helpers.
         """
+        self.config = config
         self.dense_model: TextEmbedding | None = None
         self.sparse_model: SparseTextEmbedding | None = None
         self.bm25_encoder: BM25SparseEncoder | None = None
         self.initialized = False
+
+    def _get_embedding_setting(self, name: str, default: object) -> object:
+        """Resolve embedding settings from config if available, else fallback."""
+        if self.config is None:
+            return default
+        embedding = getattr(self.config, "embedding", None)
+        if embedding is None:
+            return default
+        if isinstance(embedding, dict):
+            return embedding.get(name, default)
+        return getattr(embedding, name, default)
 
     async def initialize(self) -> None:
         """Initialize the embedding models."""
@@ -122,7 +135,10 @@ class EmbeddingService:
 
         try:
             # Initialize dense embedding model
-            model_name = get_config_string("embedding.model", "sentence-transformers/all-MiniLM-L6-v2")
+            model_name = self._get_embedding_setting(
+                "model",
+                get_config_string("embedding.model", "sentence-transformers/all-MiniLM-L6-v2"),
+            )
             logger.info(
                 "Initializing dense embedding model: %s", model_name
             )
@@ -144,7 +160,11 @@ class EmbeddingService:
                 self.dense_model = executor_result
 
             # Initialize sparse embedding model if enabled
-            if get_config_bool("embedding.enable_sparse_vectors", True):
+            sparse_enabled = self._get_embedding_setting(
+                "enable_sparse_vectors",
+                get_config_bool("embedding.enable_sparse_vectors", True),
+            )
+            if sparse_enabled:
                 logger.info("Initializing enhanced BM25 sparse encoder")
                 self.bm25_encoder = BM25SparseEncoder(use_fastembed=True)
                 await self.bm25_encoder.initialize()
@@ -179,7 +199,10 @@ class EmbeddingService:
         text = self._preprocess_text(text)
 
         if include_sparse is None:
-            include_sparse = get_config_bool("embedding.enable_sparse_vectors", True)
+            include_sparse = self._get_embedding_setting(
+                "enable_sparse_vectors",
+                get_config_bool("embedding.enable_sparse_vectors", True),
+            )
 
         result = {}
 
@@ -222,7 +245,10 @@ class EmbeddingService:
         processed_texts = [self._preprocess_text(text) for text in texts]
 
         if include_sparse is None:
-            include_sparse = get_config_bool("embedding.enable_sparse_vectors", True)
+            include_sparse = self._get_embedding_setting(
+                "enable_sparse_vectors",
+                get_config_bool("embedding.enable_sparse_vectors", True),
+            )
 
         try:
             # Generate dense embeddings for all texts
@@ -328,7 +354,10 @@ class EmbeddingService:
         if not documents:
             return []
 
-        batch_size = batch_size or get_config_int("embedding.batch_size", 32)
+        batch_size = batch_size or self._get_embedding_setting(
+            "batch_size",
+            get_config_int("embedding.batch_size", 32),
+        )
         results = []
 
         # Process in batches
@@ -399,8 +428,14 @@ class EmbeddingService:
                 logger.info("Chunk {i}: {len(chunk)} characters")
             ```
         """
-        chunk_size = chunk_size or get_config_int("embedding.chunk_size", 1000)
-        chunk_overlap = chunk_overlap or get_config_int("embedding.chunk_overlap", 200)
+        chunk_size = chunk_size or self._get_embedding_setting(
+            "chunk_size",
+            get_config_int("embedding.chunk_size", 1000),
+        )
+        chunk_overlap = chunk_overlap or self._get_embedding_setting(
+            "chunk_overlap",
+            get_config_int("embedding.chunk_overlap", 200),
+        )
         separators = separators or [". ", "\n\n", "\n", " "]
 
         if len(text) <= chunk_size:
@@ -510,8 +545,14 @@ class EmbeddingService:
         if self.bm25_encoder:
             sparse_info = self.bm25_encoder.get_model_info()
 
-        model_name = get_config_string("embedding.model", "sentence-transformers/all-MiniLM-L6-v2")
-        sparse_enabled = get_config_bool("embedding.enable_sparse_vectors", True)
+        model_name = self._get_embedding_setting(
+            "model",
+            get_config_string("embedding.model", "sentence-transformers/all-MiniLM-L6-v2"),
+        )
+        sparse_enabled = self._get_embedding_setting(
+            "enable_sparse_vectors",
+            get_config_bool("embedding.enable_sparse_vectors", True),
+        )
 
         return {
             "model_name": model_name,
@@ -550,9 +591,18 @@ class EmbeddingService:
                 **sparse_info,
             },
             "config": {
-                "chunk_size": get_config_int("embedding.chunk_size", 1000),
-                "chunk_overlap": get_config_int("embedding.chunk_overlap", 200),
-                "batch_size": get_config_int("embedding.batch_size", 32),
+                "chunk_size": self._get_embedding_setting(
+                    "chunk_size",
+                    get_config_int("embedding.chunk_size", 1000),
+                ),
+                "chunk_overlap": self._get_embedding_setting(
+                    "chunk_overlap",
+                    get_config_int("embedding.chunk_overlap", 200),
+                ),
+                "batch_size": self._get_embedding_setting(
+                    "batch_size",
+                    get_config_int("embedding.batch_size", 32),
+                ),
             },
         }
 

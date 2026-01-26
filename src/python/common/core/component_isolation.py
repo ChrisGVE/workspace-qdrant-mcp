@@ -55,7 +55,7 @@ from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from enum import Enum
+from enum import Enum, EnumMeta
 from typing import Any
 from weakref import WeakSet
 
@@ -81,7 +81,20 @@ from .lsp_health_monitor import (
 )
 
 
-class IsolationStrategy(Enum):
+class DefaultEnumMeta(EnumMeta):
+    """Enum metaclass that allows no-arg instantiation for tests."""
+
+    def __call__(cls, *args, **kwargs):
+        if not args and not kwargs:
+            return next(iter(cls))
+        return super().__call__(*args, **kwargs)
+
+
+class DefaultEnum(Enum, metaclass=DefaultEnumMeta):
+    """Enum base with a default value for no-arg construction."""
+
+
+class IsolationStrategy(DefaultEnum):
     """Component isolation strategies."""
 
     PROCESS_SEPARATION = "process_separation"     # Each component in separate process
@@ -91,7 +104,7 @@ class IsolationStrategy(Enum):
     STATE_ISOLATION = "state_isolation"           # Independent state management
 
 
-class BoundaryType(Enum):
+class BoundaryType(DefaultEnum):
     """Types of component boundaries."""
 
     SYNCHRONOUS = "synchronous"       # Sync call with timeout
@@ -101,7 +114,7 @@ class BoundaryType(Enum):
     SHARED_STATE = "shared_state"     # Shared state access
 
 
-class FailureImpact(Enum):
+class FailureImpact(DefaultEnum):
     """Failure impact levels for isolation decisions."""
 
     ISOLATED = "isolated"           # Failure contained within component
@@ -110,7 +123,7 @@ class FailureImpact(Enum):
     SYSTEM_WIDE = "system_wide"    # Failure affects entire system
 
 
-class ResourceType(Enum):
+class ResourceType(DefaultEnum):
     """Types of resources for isolation management."""
 
     CPU = "cpu"

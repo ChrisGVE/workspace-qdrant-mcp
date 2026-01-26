@@ -174,42 +174,49 @@ class ContextSwitcher:
         }
 
         target_tool_name = tool_name_mapping.get(target_tool, "codex")
+        source_tool_name = tool_name_mapping.get(source_tool, "codex")
 
-        # Format rules with very large budget to get full token count
-        # We'll validate against actual limit after
-        try:
-            formatted = format_manager.format_for_tool(
-                target_tool_name, rules, target_limits.max_context_tokens
-            )
-            target_token_count = formatted.token_count
+        if source_tool_name == target_tool_name:
+            target_token_count = current_token_count
             format_compatible = True
-        except Exception as e:
-            logger.error(f"Failed to reformat rules for {target_tool.value}: {e}")
-            return SwitchValidationResult(
-                is_valid=False,
-                source_tool=source_tool,
-                target_tool=target_tool,
-                source_token_count=current_token_count,
-                target_token_count=0,
-                token_limit_ok=False,
-                format_compatible=False,
-                rules_truncated=len(rules),
-                warnings=[],
-                errors=[f"Failed to reformat rules for {target_tool.value}: {str(e)}"],
-            )
+            rules_truncated = 0
+        else:
+            # Format rules with very large budget to get full token count
+            # We'll validate against actual limit after
+            try:
+                formatted = format_manager.format_for_tool(
+                    target_tool_name, rules, target_limits.max_context_tokens
+                )
+                target_token_count = formatted.token_count
+                adapter = format_manager.get_adapter(target_tool_name)
+                format_compatible = adapter.validate_format(formatted) if adapter else True
+                rules_truncated = formatted.rules_skipped
+            except Exception as e:
+                logger.error(f"Failed to reformat rules for {target_tool.value}: {e}")
+                return SwitchValidationResult(
+                    is_valid=False,
+                    source_tool=source_tool,
+                    target_tool=target_tool,
+                    source_token_count=current_token_count,
+                    target_token_count=0,
+                    token_limit_ok=False,
+                    format_compatible=False,
+                    rules_truncated=len(rules),
+                    warnings=[],
+                    errors=[f"Failed to reformat rules for {target_tool.value}: {str(e)}"],
+                )
 
         # Check if target tokens fit within target limit
         token_limit_ok = target_token_count <= target_limits.max_context_tokens
 
         # Calculate how many rules would be truncated if exceeding limit
-        rules_truncated = 0
         if not token_limit_ok:
             # Estimate how many rules fit
             prioritizer = RulePrioritizer()
             selected, skipped = prioritizer.select_top_rules(
                 rules, target_tool_name, target_limits.max_context_tokens
             )
-            rules_truncated = len(skipped)
+            rules_truncated = max(rules_truncated, len(skipped))
 
         # Generate warnings and errors
         warnings = ContextSwitcher._generate_warnings(
@@ -306,6 +313,7 @@ class ContextSwitcher:
                 target_tool_name, rules, target_limits.max_context_tokens
             )
             total_tokens = formatted_all.token_count
+            rules_skipped = formatted_all.rules_skipped
         except Exception as e:
             logger.error(f"Failed to format rules: {e}")
             # Return original rules with error
@@ -324,7 +332,11 @@ class ContextSwitcher:
             return rules, result
 
         # Check if we need to truncate
-        if total_tokens > target_limits.max_context_tokens and auto_truncate:
+        needs_truncate = (
+            total_tokens > target_limits.max_context_tokens or rules_skipped > 0
+        )
+
+        if needs_truncate and auto_truncate:
             logger.warning(
                 f"Rules exceed {target_tool.value} limit "
                 f"({total_tokens:,} > {target_limits.max_context_tokens:,} tokens). "
@@ -420,7 +432,12 @@ class ContextSwitcher:
             source_tool, target_tool, rules, current_token_count
         )
 
-        return result.is_valid
+        return (
+            result.is_valid
+            and result.token_limit_ok
+            and result.format_compatible
+            and result.rules_truncated == 0
+        )
 
     @staticmethod
     def _validate_same_tool(

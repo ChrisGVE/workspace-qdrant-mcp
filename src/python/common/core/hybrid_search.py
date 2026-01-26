@@ -58,6 +58,8 @@ Task 233.1: Enhanced for multi-tenant metadata-based filtering with project isol
 
 # Task 215: Replace direct logging import with unified logging system
 # import logging  # MIGRATED to unified system
+import asyncio
+import inspect
 import time
 from collections import defaultdict
 from dataclasses import dataclass
@@ -84,35 +86,96 @@ from .sparse_vectors import create_named_sparse_vector
 # logger imported from loguru
 
 
-@dataclass
+@dataclass(init=False)
 class TenantAwareResult:
     """Result container with tenant-aware metadata for multi-tenant result aggregation."""
 
     id: str
     score: float
     payload: dict
-    collection: str
-    search_type: str
-    tenant_metadata: dict = None
-    project_context: dict = None
-    deduplication_key: str = None
+    collection: str | None = None
+    search_type: str | None = None
+    tenant_id: str | None = None
+    dedup_key_fields: list[str] | None = None
+    tenant_metadata: dict | None = None
+    project_context: dict | None = None
+    deduplication_key: str | None = None
+
+    def __init__(
+        self,
+        id: str,
+        score: float,
+        payload: dict,
+        tenant_id: str | None = None,
+        *,
+        collection: str | None = None,
+        search_type: str | None = None,
+        tenant_metadata: dict | None = None,
+        project_context: dict | None = None,
+        deduplication_key: str | None = None,
+        dedup_key_fields: list[str] | None = None,
+    ) -> None:
+        self.id = id
+        self.score = score
+        self.payload = payload or {}
+        self.collection = collection
+        self.search_type = search_type
+        self.tenant_id = tenant_id
+        self.dedup_key_fields = dedup_key_fields
+        self.tenant_metadata = tenant_metadata
+        self.project_context = project_context
+        self.deduplication_key = deduplication_key
+        self.__post_init__()
 
     def __post_init__(self):
         """Post-init processing for tenant-aware results."""
         if self.tenant_metadata is None:
             self.tenant_metadata = {}
+        if self.tenant_id is not None:
+            self.tenant_metadata.setdefault("tenant_id", self.tenant_id)
 
         if self.project_context is None:
             self.project_context = {}
 
-        # Generate deduplication key based on content hash or document identifier
+        # Generate deduplication key based on configured fields or known identifiers
         if self.deduplication_key is None:
-            content_hash = self.payload.get("content_hash")
-            file_path = self.payload.get("file_path")
-            doc_id = self.payload.get("document_id")
+            if self.dedup_key_fields:
+                parts = [
+                    str(self.payload.get(field, ""))
+                    for field in self.dedup_key_fields
+                    if self.payload.get(field) is not None
+                ]
+                if parts:
+                    self.deduplication_key = "|".join(parts)
+            if self.deduplication_key is None:
+                content_hash = self.payload.get("content_hash") or self.payload.get("content")
+                file_path = self.payload.get("file_path")
+                doc_id = self.payload.get("document_id")
+                self.deduplication_key = content_hash or file_path or doc_id or self.id
 
-            # Use content hash if available, fallback to file_path or doc_id
-            self.deduplication_key = content_hash or file_path or doc_id or self.id
+    def get_dedup_key(self) -> str:
+        """Return the computed deduplication key."""
+        return self.deduplication_key or self.id
+
+    def get_metadata(self) -> dict:
+        """Return payload metadata excluding content fields."""
+        return {
+            key: value
+            for key, value in self.payload.items()
+            if key not in {"content"}
+        }
+
+    def belongs_to_tenant(self, tenant_id: str | None) -> bool:
+        """Check if result belongs to the specified tenant (None = global access)."""
+        if tenant_id is None:
+            return True
+        return self.tenant_id == tenant_id
+
+    def __lt__(self, other: "TenantAwareResult") -> bool:
+        return self.score < other.score
+
+    def __gt__(self, other: "TenantAwareResult") -> bool:
+        return self.score > other.score
 
 
 class TenantAwareResultDeduplicator:
@@ -128,7 +191,13 @@ class TenantAwareResultDeduplicator:
     Task 233.5: Added for multi-tenant result deduplication.
     """
 
-    def __init__(self, preserve_tenant_isolation: bool = True):
+    def __init__(
+        self,
+        preserve_tenant_isolation: bool = True,
+        isolation_mode: str | None = None,
+        dedup_strategy: str = "id",
+        aggregation_method: str = "max_score",
+    ):
         """
         Initialize deduplicator with tenant isolation settings.
 
@@ -136,6 +205,9 @@ class TenantAwareResultDeduplicator:
             preserve_tenant_isolation: If True, maintains separate results for different tenants
         """
         self.preserve_tenant_isolation = preserve_tenant_isolation
+        self.isolation_mode = isolation_mode or ("strict" if preserve_tenant_isolation else "relaxed")
+        self.dedup_strategy = dedup_strategy
+        self.aggregation_method = aggregation_method
 
     def deduplicate_results(
         self,
@@ -191,6 +263,49 @@ class TenantAwareResultDeduplicator:
         )
 
         return deduplicated_results
+
+    def deduplicate(
+        self,
+        results: list[TenantAwareResult],
+        target_tenant: str | None = None,
+        aggregation_method: str | None = None,
+    ) -> list[TenantAwareResult]:
+        """Compatibility wrapper for test suite expectations."""
+        if not results:
+            return []
+
+        aggregation_method = aggregation_method or self.aggregation_method
+        filtered = results
+
+        if self.isolation_mode == "strict" and target_tenant is not None:
+            filtered = [r for r in results if r.tenant_id == target_tenant]
+
+        # Grouping strategy
+        groups: dict[str, list[TenantAwareResult]] = defaultdict(list)
+        for result in filtered:
+            if self.dedup_strategy == "content_hash":
+                key = result.payload.get("content") or result.get_dedup_key()
+            else:
+                key = result.get_dedup_key()
+            groups[str(key)].append(result)
+
+        deduplicated: list[TenantAwareResult] = []
+        for group_results in groups.values():
+            if len(group_results) == 1:
+                deduplicated.append(group_results[0])
+                continue
+
+            if aggregation_method in ("average", "avg"):
+                avg_score = sum(r.score for r in group_results) / len(group_results)
+                best = max(group_results, key=lambda r: r.score)
+                best.score = avg_score
+                deduplicated.append(best)
+            else:
+                best = max(group_results, key=lambda r: r.score)
+                deduplicated.append(best)
+
+        deduplicated.sort(key=lambda r: r.score, reverse=True)
+        return deduplicated
 
     def _get_group_key(self, result: TenantAwareResult) -> str:
         """
@@ -276,7 +391,9 @@ class MultiTenantResultAggregator:
         self,
         enable_deduplication: bool = True,
         preserve_tenant_isolation: bool = True,
-        default_aggregation_method: str = "max_score"
+        default_aggregation_method: str = "max_score",
+        isolation_mode: str | None = None,
+        normalize_scores: bool = False,
     ):
         """
         Initialize multi-tenant result aggregator.
@@ -289,9 +406,57 @@ class MultiTenantResultAggregator:
         self.enable_deduplication = enable_deduplication
         self.preserve_tenant_isolation = preserve_tenant_isolation
         self.default_aggregation_method = default_aggregation_method
+        self.isolation_mode = isolation_mode or ("strict" if preserve_tenant_isolation else "relaxed")
+        self.normalize_scores = normalize_scores
         self.deduplicator = TenantAwareResultDeduplicator(preserve_tenant_isolation)
 
         logger.debug("Initialized MultiTenantResultAggregator")
+
+    def aggregate_results(
+        self,
+        results: list[TenantAwareResult],
+        target_tenant: str | None = None,
+    ) -> list[dict]:
+        """Aggregate tenant-aware results into API-friendly dicts."""
+        filtered = results
+        if self.isolation_mode == "strict" and target_tenant is not None:
+            filtered = [r for r in results if r.tenant_id in (target_tenant, None)]
+
+        if self.enable_deduplication:
+            filtered = self.deduplicator.deduplicate(filtered, target_tenant=target_tenant)
+
+        if self.normalize_scores and filtered:
+            scores = [r.score for r in filtered]
+            min_score = min(scores)
+            max_score = max(scores)
+            for r in filtered:
+                if max_score == min_score:
+                    r.score = 1.0
+                else:
+                    r.score = (r.score - min_score) / (max_score - min_score)
+
+        aggregated = []
+        for result in filtered:
+            aggregated.append({
+                "id": result.id,
+                "score": result.score,
+                "payload": result.payload,
+                "tenant_info": {"tenant_id": result.tenant_id},
+                "tenant_id": result.tenant_id,
+            })
+        return aggregated
+
+    def convert_to_api_format(self, results: list[TenantAwareResult]) -> list[dict]:
+        """Convert tenant-aware results to API response format."""
+        api_results = []
+        for result in results:
+            api_results.append({
+                "id": result.id,
+                "score": result.score,
+                "payload": result.payload,
+                "metadata": {"tenant_id": result.tenant_id},
+            })
+        return api_results
 
     def aggregate_multi_collection_results(
         self,
@@ -693,6 +858,63 @@ class RRFFusionRanker:
 
         return explanation
 
+    def fuse_rankings(
+        self,
+        dense_results: list[dict],
+        sparse_results: list[dict],
+        weights: dict | None = None,
+    ) -> list[dict]:
+        """Compatibility wrapper for dict-based result fusion."""
+        if not dense_results and not sparse_results:
+            return []
+
+        weights = weights or {"dense": 1.0, "sparse": 1.0}
+        dense_weight = weights.get("dense", 1.0)
+        sparse_weight = weights.get("sparse", 1.0)
+
+        rrf_scores: dict[str, dict] = {}
+
+        for rank, result in enumerate(dense_results, start=1):
+            doc_id = result.get("id")
+            score = dense_weight / (self.k + rank)
+            rrf_scores[doc_id] = {
+                "rrf_score": score,
+                "dense_rank": rank,
+                "dense_score": result.get("score"),
+                "payload": result.get("payload", {}),
+            }
+
+        for rank, result in enumerate(sparse_results, start=1):
+            doc_id = result.get("id")
+            score = sparse_weight / (self.k + rank)
+            entry = rrf_scores.get(doc_id, {
+                "rrf_score": 0.0,
+                "dense_rank": None,
+                "dense_score": None,
+                "payload": result.get("payload", {}),
+            })
+            entry["rrf_score"] += score
+            entry["sparse_rank"] = rank
+            entry["sparse_score"] = result.get("score")
+            rrf_scores[doc_id] = entry
+
+        fused = []
+        for doc_id, data in sorted(rrf_scores.items(), key=lambda item: item[1]["rrf_score"], reverse=True):
+            fused.append({
+                "id": doc_id,
+                "score": data["rrf_score"],
+                "rrf_score": data["rrf_score"],
+                "payload": data.get("payload", {}),
+                "fusion_explanation": {
+                    "dense_rank": data.get("dense_rank"),
+                    "sparse_rank": data.get("sparse_rank"),
+                    "dense_score": data.get("dense_score"),
+                    "sparse_score": data.get("sparse_score"),
+                },
+            })
+
+        return fused
+
 
 class WeightedSumFusionRanker:
     """
@@ -789,6 +1011,53 @@ class WeightedSumFusionRanker:
 
         return fused_results
 
+    def fuse_rankings(self, dense_results: list[dict], sparse_results: list[dict]) -> list[dict]:
+        """Compatibility wrapper for dict-based result fusion."""
+        if not dense_results and not sparse_results:
+            return []
+
+        def _normalize(results: list[dict]) -> dict[str, float]:
+            if not results:
+                return {}
+            scores = [r.get("score", 0.0) for r in results]
+            min_score = min(scores)
+            max_score = max(scores)
+            if max_score == min_score:
+                return {r.get("id"): 1.0 for r in results}
+            return {
+                r.get("id"): (r.get("score", 0.0) - min_score) / (max_score - min_score)
+                for r in results
+            }
+
+        dense_norm = _normalize(dense_results)
+        sparse_norm = _normalize(sparse_results)
+
+        dense_map = {r.get("id"): r for r in dense_results}
+        sparse_map = {r.get("id"): r for r in sparse_results}
+        all_ids = set(dense_norm) | set(sparse_norm)
+
+        fused = []
+        for doc_id in all_ids:
+            dense_score = dense_norm.get(doc_id, 0.0)
+            sparse_score = sparse_norm.get(doc_id, 0.0)
+            weighted_score = dense_score * self.dense_weight + sparse_score * self.sparse_weight
+            base = dense_map.get(doc_id) or sparse_map.get(doc_id) or {}
+            fused.append({
+                "id": doc_id,
+                "score": weighted_score,
+                "weighted_score": weighted_score,
+                "payload": base.get("payload", {}),
+                "fusion_explanation": {
+                    "dense_score": dense_score,
+                    "sparse_score": sparse_score,
+                    "dense_weight": self.dense_weight,
+                    "sparse_weight": self.sparse_weight,
+                },
+            })
+
+        fused.sort(key=lambda r: r["weighted_score"], reverse=True)
+        return fused
+
     def _normalize_scores(self, results: list) -> list:
         """
         Normalize scores to [0, 1] range using min-max normalization.
@@ -821,6 +1090,54 @@ class WeightedSumFusionRanker:
                     result.score = (result.score - min_score) / score_range
 
         return results
+
+
+class MaxScoreFusionRanker:
+    """Max score fusion ranker for combining dense and sparse results."""
+
+    def fuse_rankings(self, dense_results: list[dict], sparse_results: list[dict]) -> list[dict]:
+        if not dense_results and not sparse_results:
+            return []
+
+        dense_map = {r.get("id"): r for r in dense_results}
+        sparse_map = {r.get("id"): r for r in sparse_results}
+        all_ids = set(dense_map) | set(sparse_map)
+
+        fused = []
+        for doc_id in all_ids:
+            dense_score = dense_map.get(doc_id, {}).get("score")
+            sparse_score = sparse_map.get(doc_id, {}).get("score")
+            dense_val = dense_score if dense_score is not None else 0.0
+            sparse_val = sparse_score if sparse_score is not None else 0.0
+            max_score = max(dense_val, sparse_val)
+            max_source = "dense" if dense_val >= sparse_val else "sparse"
+            base = dense_map.get(doc_id) or sparse_map.get(doc_id) or {}
+            fused.append({
+                "id": doc_id,
+                "score": max_score,
+                "max_score": max_score,
+                "payload": base.get("payload", {}),
+                "fusion_explanation": {
+                    "dense_score": dense_score,
+                    "sparse_score": sparse_score,
+                    "max_score_source": max_source,
+                },
+            })
+
+        fused.sort(key=lambda r: r["max_score"], reverse=True)
+        return fused
+
+
+def create_fusion_ranker(method: str, **kwargs):
+    """Factory for fusion rankers."""
+    method_key = (method or "").lower()
+    if method_key in ("rrf", "reciprocal_rank_fusion"):
+        return RRFFusionRanker(**kwargs)
+    if method_key in ("weighted_sum", "weighted", "ws"):
+        return WeightedSumFusionRanker(**kwargs)
+    if method_key in ("max_score", "max"):
+        return MaxScoreFusionRanker()
+    raise ValueError(f"Unknown fusion method: {method}")
 
 
 class HybridSearchEngine:
@@ -930,6 +1247,7 @@ class HybridSearchEngine:
         query_embeddings: dict,
         limit: int = 10,
         filter_conditions: models.Filter | None = None,
+        project_context: dict | None = None,
         fusion_method: str = "rrf",
         dense_weight: float = 1.0,
         sparse_weight: float = 1.0,
@@ -950,6 +1268,7 @@ class HybridSearchEngine:
                              - sparse: Dict with "indices" and "values" lists
             limit: Maximum number of results to return
             filter_conditions: Qdrant filter for metadata filtering
+            project_context: Optional project context for multi-tenant filtering
             fusion_method: Fusion algorithm ("rrf", "weighted_sum", "max_score")
             dense_weight: Weight for dense search results
             sparse_weight: Weight for sparse search results
@@ -981,10 +1300,32 @@ class HybridSearchEngine:
             "metadata": {}
         }
 
-        # Build enhanced filter with metadata optimization
+        # Build enhanced filter with metadata optimization and project context
+        additional_conditions = []
+        if project_context:
+            project_id = project_context.get("project_id")
+            if project_id:
+                additional_conditions.append(
+                    models.FieldCondition(
+                        key="project_id",
+                        match=models.MatchValue(value=project_id),
+                    )
+                )
+            project_name = project_context.get("project_name")
+            if project_name:
+                additional_conditions.append(
+                    models.FieldCondition(
+                        key="project_name",
+                        match=models.MatchValue(value=project_name),
+                    )
+                )
+
         enhanced_filter = filter_conditions
-        if self.enable_optimizations and filter_conditions:
-            enhanced_filter = self._build_enhanced_filter(filter_conditions)
+        if filter_conditions or additional_conditions:
+            enhanced_filter = self._build_enhanced_filter(
+                filter_conditions,
+                additional_conditions=additional_conditions,
+            )
 
         # Dense vector search
         if "dense" in query_embeddings and query_embeddings["dense"]:
@@ -1012,11 +1353,15 @@ class HybridSearchEngine:
                 logger.debug("Executing sparse vector search")
                 # Unpack the sparse dictionary to separate indices and values
                 sparse_data = query_embeddings["sparse"]
-                sparse_vector = create_named_sparse_vector(
-                    indices=sparse_data["indices"],
-                    values=sparse_data["values"],
-                    name="sparse"
-                )
+                try:
+                    sparse_vector = create_named_sparse_vector(
+                        indices=sparse_data["indices"],
+                        values=sparse_data["values"],
+                        name="sparse",
+                    )
+                except TypeError:
+                    # Backward compatibility for callables expecting a dict payload.
+                    sparse_vector = create_named_sparse_vector(sparse_data)
                 sparse_results = self.client.search(
                     collection_name=collection_name,
                     query_vector=sparse_vector,
@@ -1915,3 +2260,38 @@ class HybridSearchEngine:
             "optimizations_enabled": self.enable_optimizations,
             "multi_tenant_enabled": self.enable_multi_tenant_aggregation
         }
+
+
+class HybridSearchManager:
+    """Backward-compatible wrapper for HybridSearchEngine."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        self._engine: HybridSearchEngine | None = None
+        if args or kwargs:
+            try:
+                self._engine = HybridSearchEngine(*args, **kwargs)
+            except TypeError:
+                self._engine = None
+
+    async def hybrid_search(self, *args, **kwargs):
+        if not self._engine:
+            raise RuntimeError("Hybrid search engine not initialized")
+        return await self._engine.hybrid_search(*args, **kwargs)
+
+    def search(self, *args, **kwargs):
+        if not self._engine:
+            return []
+        result = self._engine.hybrid_search(*args, **kwargs)
+        if inspect.isawaitable(result):
+            try:
+                running_loop = asyncio.get_running_loop()
+            except RuntimeError:
+                running_loop = None
+            if running_loop and running_loop.is_running():
+                temp_loop = asyncio.new_event_loop()
+                try:
+                    return temp_loop.run_until_complete(result)
+                finally:
+                    temp_loop.close()
+            return asyncio.run(result)
+        return result

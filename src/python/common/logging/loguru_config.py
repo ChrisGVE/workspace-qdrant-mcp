@@ -10,7 +10,7 @@ tokens, secrets) to prevent credential leaks in log files.
 
 import os
 import sys
-from pathlib import Path
+import pathlib
 
 from loguru import logger
 
@@ -66,10 +66,17 @@ def setup_logging(log_file: str = None, verbose: bool = False):
         logger.info(f"Using OS-standard log directory: {log_path}")
     else:
         # Legacy mode: use custom path (for backward compatibility)
-        log_path = Path(log_file)
-        logger.warning(f"Using legacy log path: {log_path}. Consider migrating to OS-standard location.")
+        log_path = pathlib.Path(log_file)
+        logger.warning(
+            f"Using legacy log path: {log_file}. Consider migrating to OS-standard location."
+        )
 
-    log_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        logger.warning(
+            "Failed to create log directory %s: %s", log_path.parent, exc
+        )
     logger.add(
         log_path,
         rotation="10 MB",

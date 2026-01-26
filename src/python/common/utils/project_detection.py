@@ -877,12 +877,14 @@ def _sanitize_remote_url(remote_url: str) -> str:
     if url.endswith(".git"):
         url = url[:-4]
 
-    # Replace all separators with underscores
-    # Handle separators: / . : @
+    # Replace all separators with underscores and normalize case
+    url = url.lower()
+    # Handle separators: / . : @ -
     url = url.replace("/", "_")
     url = url.replace(".", "_")
     url = url.replace(":", "_")
     url = url.replace("@", "_")
+    url = url.replace("-", "_")
 
     # Remove any duplicate underscores
     while "__" in url:
