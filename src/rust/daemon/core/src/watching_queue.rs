@@ -769,6 +769,18 @@ impl FileWatcherQueue {
             *count += 1;
         }
 
+        // Update active project activity for fairness scheduler (Task 36)
+        // This updates last_activity_at even for filtered/debounced events
+        {
+            let config_lock = config.read().await;
+            let watch_id = config_lock.id.clone();
+            drop(config_lock);
+
+            if let Err(e) = queue_manager.update_active_project_activity(&watch_id, 0).await {
+                debug!("Failed to update active project activity for {}: {}", watch_id, e);
+            }
+        }
+
         // Check patterns
         {
             let patterns_lock = patterns.read().await;
@@ -2763,6 +2775,18 @@ impl WatchManager {
 
     /// Start a single watcher with the given configuration
     async fn start_watcher(&self, id: String, config: WatchConfig, queue_manager: Arc<QueueManager>) {
+        // Register active project for fairness scheduler (Task 36)
+        // Use watch_id as project_id and tenant_id
+        let watch_folder_id = if id.starts_with("lib_") { None } else { Some(id.clone()) };
+        if let Err(e) = queue_manager.register_active_project(
+            &id,  // project_id
+            &id,  // tenant_id (use watch_id as tenant)
+            watch_folder_id.as_deref(),
+            None, // metadata
+        ).await {
+            debug!("Failed to register active project for {}: {}", id, e);
+        }
+
         match FileWatcherQueue::new(config, queue_manager) {
             Ok(watcher) => {
                 let watcher = Arc::new(watcher);
