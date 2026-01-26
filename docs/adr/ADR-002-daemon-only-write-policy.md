@@ -207,6 +207,142 @@ queue:
 4. **Documentation**: Update CLAUDE.md, README.md
 5. **Testing**: Verify no writes bypass daemon
 
+## Implementation Status
+
+**Completed:** Task 37 (2026-01-26)
+
+### Unified Queue API
+
+The `unified_queue` table replaces legacy `ingestion_queue` and `content_ingestion_queue`:
+
+```python
+# Python: src/python/common/core/sqlite_state_manager.py
+async def enqueue_unified(
+    item_type: str,    # content, file, folder, project, library, delete_tenant, delete_document, rename
+    op: str,           # ingest, update, delete, scan
+    tenant_id: str,
+    collection: str,
+    payload: dict,
+    priority: int = 5,
+    metadata: dict | None = None
+) -> tuple[str, bool]:  # Returns (queue_id, is_new)
+```
+
+### MCP Server Fallback (server.py)
+
+```python
+# store() tool - when daemon unavailable
+payload = build_content_payload(content, source, main_tag, full_tag)
+queue_id, is_new = await state_manager.enqueue_unified(
+    item_type="content",
+    op="ingest",
+    tenant_id=project_id,
+    collection=target_collection,
+    payload=payload,
+    priority=8
+)
+return {"status": "queued", "queue_id": queue_id, "fallback_mode": "unified_queue"}
+
+# manage(action='create_collection') - when daemon unavailable
+payload = build_project_payload(project_root, git_remote, project_type)
+queue_id, _ = await state_manager.enqueue_unified(
+    item_type="project",
+    op="ingest",
+    tenant_id=project_id,
+    collection=name,
+    payload=payload,
+    priority=8
+)
+```
+
+### Rust CLI Direct SQLite Access
+
+```rust
+// src/rust/cli/src/queue.rs
+let client = UnifiedQueueClient::connect()?;
+let result = client.enqueue_content(&tenant_id, &collection, &payload, priority, &branch)?;
+// Returns EnqueueResult { queue_id, idempotency_key, was_duplicate }
+```
+
+### Rust Daemon Processing
+
+```rust
+// src/rust/daemon/core/src/unified_queue_processor.rs
+let processor = UnifiedQueueProcessor::with_components(
+    queue_manager, document_processor, embedding_generator, storage_client, config
+);
+processor.recover_stale_leases().await;  // Handle stale items on startup
+processor.start()?;                       // Begin processing loop
+```
+
+### Complete Write Flow
+
+```
+User Request → MCP store() / CLI
+                    ↓
+            Try DaemonClient.ingest_text() (gRPC)
+                    ↓
+            [SUCCESS] → Direct daemon processing → Qdrant
+            [FAIL: daemon unavailable]
+                    ↓
+            enqueue_unified() → SQLite unified_queue
+                    ↓
+            Return {status: "queued", queue_id, fallback_mode: "unified_queue"}
+                    ↓
+            [Daemon starts]
+                    ↓
+            UnifiedQueueProcessor polls queue
+                    ↓
+            dequeue_unified() acquires lease
+                    ↓
+            Process item (embed, compute metadata)
+                    ↓
+            Write to Qdrant
+                    ↓
+            mark_unified_item_done()
+```
+
+### Idempotency
+
+All implementations use identical idempotency key generation:
+
+```
+SHA256(item_type|op|tenant_id|collection|payload_json)[:32]
+```
+
+Ensures duplicate requests return existing queue_id instead of creating new items.
+
+### Supported Item Types
+
+| Item Type | Valid Operations | Python Payload Builder |
+|-----------|-----------------|----------------------|
+| content | ingest, update, delete | `build_content_payload()` |
+| file | ingest, update, delete | `build_file_payload()` |
+| folder | ingest, delete, scan | `build_folder_payload()` |
+| project | ingest, update, delete | `build_project_payload()` |
+| library | ingest, update, delete | `build_library_payload()` |
+| delete_tenant | delete | (no payload) |
+| delete_document | delete | `build_delete_document_payload()` |
+| rename | update | `build_rename_payload()` |
+
+### Test Coverage
+
+- **Python unit tests**: `tests/unit/test_unified_queue_migration.py`
+- **Rust daemon tests**: `src/rust/daemon/core/tests/async_unit_tests.rs` (23 unified queue tests)
+- **Rust CLI tests**: `src/rust/cli/src/queue.rs` (4 tests)
+- **Total**: 302 tests in daemon core, all passing
+
+### Queue Monitoring
+
+```bash
+# CLI
+wqm admin queue           # Summary stats
+wqm admin queue --verbose # Breakdown by item type
+
+# SQL
+SELECT item_type, status, COUNT(*) FROM unified_queue GROUP BY item_type, status;
+```
+
 ## Related Documents
 
 - ADR-001: Canonical Collection Architecture (Section 3 superseded)
@@ -219,3 +355,4 @@ queue:
 | Date | Change |
 |------|--------|
 | 2026-01-25 | Initial ADR created, supersedes ADR-001 Section 3 |
+| 2026-01-26 | Added Implementation Status section (Task 37 completion) |
