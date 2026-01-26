@@ -279,6 +279,11 @@ impl UnifiedQueueProcessor {
         let mut last_metrics_log = Utc::now();
         let metrics_log_interval = ChronoDuration::minutes(1);
 
+        // Garbage collection tracking (Task 36)
+        let mut last_gc_run = Utc::now();
+        let gc_interval = ChronoDuration::hours(1); // Run every hour
+        let max_inactive_hours = 24; // Remove projects inactive for 24+ hours
+
         info!(
             "Unified processing loop started (batch_size={}, worker_id={})",
             config.batch_size, config.worker_id
@@ -395,6 +400,25 @@ impl UnifiedQueueProcessor {
             if now - last_metrics_log >= metrics_log_interval {
                 Self::log_metrics(&metrics).await;
                 last_metrics_log = now;
+            }
+
+            // Garbage collect stale active projects periodically (Task 36)
+            if now - last_gc_run >= gc_interval {
+                debug!("Running active projects garbage collection...");
+                match queue_manager.garbage_collect_stale_projects(Some(max_inactive_hours)).await {
+                    Ok(removed) => {
+                        if removed > 0 {
+                            info!("Garbage collected {} stale active projects (inactive > {} hours)",
+                                removed, max_inactive_hours);
+                        } else {
+                            debug!("No stale active projects to garbage collect");
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Active projects garbage collection failed: {}", e);
+                    }
+                }
+                last_gc_run = now;
             }
 
             // Brief pause before next batch
