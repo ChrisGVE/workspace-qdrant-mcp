@@ -705,6 +705,40 @@ class LSPServerRecord:
             self.updated_at = self.created_at
 
 
+@dataclass
+class ActiveProjectState:
+    """Active project state for fairness scheduler (Task 36 - code audit round 2).
+
+    Tracks currently active projects for queue priority scheduling.
+    Projects with recent activity get higher priority in the processing queue.
+
+    Used by:
+    - Unified queue processor: Updates items_processed_count and last_activity_at
+    - Watch folder scanner: Registers project activity
+    - Garbage collector: Removes stale projects (inactive > 24 hours)
+    - Fairness scheduler: Determines processing priority
+    """
+
+    project_id: str  # Unique identifier (typically tenant_id or normalized path)
+    tenant_id: str  # Tenant identifier for multi-tenant isolation
+    last_activity_at: datetime = None
+    items_processed_count: int = 0
+    items_in_queue: int = 0
+    watch_enabled: bool = False
+    watch_folder_id: str | None = None
+    created_at: datetime = None
+    updated_at: datetime = None
+    metadata: dict[str, Any] | None = None
+
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now(timezone.utc)
+        if self.updated_at is None:
+            self.updated_at = self.created_at
+        if self.last_activity_at is None:
+            self.last_activity_at = self.created_at
+
+
 class DatabaseTransaction:
     """Context manager for ACID transactions with proper error handling."""
 
@@ -733,7 +767,7 @@ class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
     BASE_SCHEMA_VERSION = 12  # Base schema in _create_initial_schema (unified_queue added via migration)
-    SCHEMA_VERSION = 13  # v13: Add unified_queue table (Task 22/23 - code audit round 3)
+    SCHEMA_VERSION = 14  # v14: Add active_projects table (Task 36 - code audit round 2)
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -1901,6 +1935,52 @@ class SQLiteStateManager:
                     raise
 
                 logger.info("Successfully migrated to schema version 13 (unified queue table)")
+
+            # Migrate from version 13 to version 14 - Add active_projects table (Task 36 - code audit round 2)
+            if from_version < 14 <= to_version:
+                logger.info("Applying migration: v13 -> v14 (active projects table)")
+                migration_sql = self._load_migration_statements(
+                    "004_active_projects.sql"
+                )
+                logged_table = False
+                logged_indexes = False
+                logged_views = False
+
+                try:
+                    for statement in migration_sql:
+                        normalized = statement.lstrip().upper()
+                        if normalized.startswith("CREATE TABLE") and not logged_table:
+                            logger.debug("Creating active_projects table")
+                            logged_table = True
+                        elif normalized.startswith("CREATE INDEX") and not logged_indexes:
+                            logger.debug("Creating indexes for active_projects")
+                            logged_indexes = True
+                        elif normalized.startswith("CREATE VIEW") and not logged_views:
+                            logger.debug("Creating views for active_projects")
+                            logged_views = True
+
+                        conn.execute(statement)
+
+                    # Add trigger inline (parser can't handle semicolons inside BEGIN...END)
+                    logger.debug("Creating trigger for active_projects")
+                    conn.execute("""
+                        CREATE TRIGGER IF NOT EXISTS trg_active_projects_updated_at
+                            AFTER UPDATE ON active_projects
+                            FOR EACH ROW
+                            BEGIN
+                                UPDATE active_projects
+                                SET updated_at = datetime('now')
+                                WHERE project_id = NEW.project_id;
+                            END
+                    """)
+
+                except Exception:
+                    logger.exception(
+                        "Migration v13 -> v14 failed; transaction will be rolled back"
+                    )
+                    raise
+
+                logger.info("Successfully migrated to schema version 14 (active projects table)")
 
             # Record the migration
             conn.execute(
@@ -7053,3 +7133,439 @@ class SQLiteStateManager:
     async def get_high_priority_projects(self) -> list[dict]:
         """Get all projects with high priority (active agent sessions)."""
         return await self.list_projects_by_priority(priority="high")
+
+    # =========================================================================
+    # Active Projects (Task 36 - code audit round 2)
+    # =========================================================================
+
+    async def register_active_project(
+        self,
+        project_id: str,
+        tenant_id: str,
+        watch_folder_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> ActiveProjectState | None:
+        """Register or update an active project for fairness scheduling.
+
+        Creates a new active project entry or updates an existing one.
+        Called when:
+        - Watch folder scanner detects activity in a project
+        - Query is executed for a project
+        - File is ingested for a project
+
+        Args:
+            project_id: Unique project identifier (tenant_id or normalized path)
+            tenant_id: Tenant identifier for multi-tenant isolation
+            watch_folder_id: Optional reference to watch_folders table
+            metadata: Optional JSON metadata for extensibility
+
+        Returns:
+            ActiveProjectState on success, None on failure
+        """
+        try:
+            now = datetime.now(timezone.utc)
+            async with self.transaction() as conn:
+                # Check if project exists
+                cursor = conn.execute(
+                    "SELECT project_id FROM active_projects WHERE project_id = ?",
+                    (project_id,),
+                )
+                existing = cursor.fetchone()
+
+                if existing:
+                    # Update existing project's activity
+                    conn.execute(
+                        """
+                        UPDATE active_projects
+                        SET last_activity_at = ?,
+                            watch_folder_id = COALESCE(?, watch_folder_id),
+                            watch_enabled = CASE WHEN ? IS NOT NULL THEN 1 ELSE watch_enabled END,
+                            metadata = COALESCE(?, metadata)
+                        WHERE project_id = ?
+                        """,
+                        (
+                            now.isoformat(),
+                            watch_folder_id,
+                            watch_folder_id,
+                            self._serialize_json(metadata) if metadata else None,
+                            project_id,
+                        ),
+                    )
+                else:
+                    # Insert new project
+                    conn.execute(
+                        """
+                        INSERT INTO active_projects
+                        (project_id, tenant_id, last_activity_at, items_processed_count,
+                         items_in_queue, watch_enabled, watch_folder_id, created_at,
+                         updated_at, metadata)
+                        VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            project_id,
+                            tenant_id,
+                            now.isoformat(),
+                            1 if watch_folder_id else 0,
+                            watch_folder_id,
+                            now.isoformat(),
+                            now.isoformat(),
+                            self._serialize_json(metadata),
+                        ),
+                    )
+
+            logger.debug(f"Registered active project: {project_id}")
+            return await self.get_active_project(project_id)
+
+        except Exception as e:
+            logger.error(f"Failed to register active project {project_id}: {e}")
+            return None
+
+    async def get_active_project(self, project_id: str) -> ActiveProjectState | None:
+        """Get active project state by project_id.
+
+        Args:
+            project_id: Unique project identifier
+
+        Returns:
+            ActiveProjectState on success, None if not found
+        """
+        try:
+            with self._lock:
+                cursor = self.connection.execute(
+                    """
+                    SELECT project_id, tenant_id, last_activity_at, items_processed_count,
+                           items_in_queue, watch_enabled, watch_folder_id, created_at,
+                           updated_at, metadata
+                    FROM active_projects
+                    WHERE project_id = ?
+                    """,
+                    (project_id,),
+                )
+
+                row = cursor.fetchone()
+                if not row:
+                    return None
+
+                return ActiveProjectState(
+                    project_id=row["project_id"],
+                    tenant_id=row["tenant_id"],
+                    last_activity_at=datetime.fromisoformat(
+                        row["last_activity_at"].replace("Z", "+00:00")
+                    ) if row["last_activity_at"] else None,
+                    items_processed_count=row["items_processed_count"] or 0,
+                    items_in_queue=row["items_in_queue"] or 0,
+                    watch_enabled=bool(row["watch_enabled"]),
+                    watch_folder_id=row["watch_folder_id"],
+                    created_at=datetime.fromisoformat(
+                        row["created_at"].replace("Z", "+00:00")
+                    ) if row["created_at"] else None,
+                    updated_at=datetime.fromisoformat(
+                        row["updated_at"].replace("Z", "+00:00")
+                    ) if row["updated_at"] else None,
+                    metadata=self._deserialize_json(row["metadata"]),
+                )
+
+        except Exception as e:
+            logger.error(f"Failed to get active project {project_id}: {e}")
+            return None
+
+    async def list_active_projects(
+        self,
+        tenant_id: str | None = None,
+        watch_enabled_only: bool = False,
+        order_by_activity: bool = True,
+        limit: int | None = None,
+    ) -> list[ActiveProjectState]:
+        """List active projects with optional filtering.
+
+        Args:
+            tenant_id: Optional filter by tenant
+            watch_enabled_only: If True, only return projects with watches
+            order_by_activity: If True, order by last_activity_at DESC
+            limit: Optional limit on number of results
+
+        Returns:
+            List of ActiveProjectState objects
+        """
+        try:
+            with self._lock:
+                sql = """
+                    SELECT project_id, tenant_id, last_activity_at, items_processed_count,
+                           items_in_queue, watch_enabled, watch_folder_id, created_at,
+                           updated_at, metadata
+                    FROM active_projects
+                    WHERE 1=1
+                """
+                params = []
+
+                if tenant_id:
+                    sql += " AND tenant_id = ?"
+                    params.append(tenant_id)
+
+                if watch_enabled_only:
+                    sql += " AND watch_enabled = 1"
+
+                if order_by_activity:
+                    sql += " ORDER BY last_activity_at DESC"
+
+                if limit:
+                    sql += " LIMIT ?"
+                    params.append(limit)
+
+                cursor = self.connection.execute(sql, params)
+                rows = cursor.fetchall()
+
+                return [
+                    ActiveProjectState(
+                        project_id=row["project_id"],
+                        tenant_id=row["tenant_id"],
+                        last_activity_at=datetime.fromisoformat(
+                            row["last_activity_at"].replace("Z", "+00:00")
+                        ) if row["last_activity_at"] else None,
+                        items_processed_count=row["items_processed_count"] or 0,
+                        items_in_queue=row["items_in_queue"] or 0,
+                        watch_enabled=bool(row["watch_enabled"]),
+                        watch_folder_id=row["watch_folder_id"],
+                        created_at=datetime.fromisoformat(
+                            row["created_at"].replace("Z", "+00:00")
+                        ) if row["created_at"] else None,
+                        updated_at=datetime.fromisoformat(
+                            row["updated_at"].replace("Z", "+00:00")
+                        ) if row["updated_at"] else None,
+                        metadata=self._deserialize_json(row["metadata"]),
+                    )
+                    for row in rows
+                ]
+
+        except Exception as e:
+            logger.error(f"Failed to list active projects: {e}")
+            return []
+
+    async def update_active_project_activity(
+        self,
+        project_id: str,
+        items_processed: int = 1,
+    ) -> bool:
+        """Update project activity after processing items.
+
+        Called by the unified queue processor after successfully processing
+        queue items for a project.
+
+        Args:
+            project_id: Project identifier
+            items_processed: Number of items processed (default: 1)
+
+        Returns:
+            True on success, False on failure
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    """
+                    UPDATE active_projects
+                    SET last_activity_at = datetime('now'),
+                        items_processed_count = items_processed_count + ?
+                    WHERE project_id = ?
+                    """,
+                    (items_processed, project_id),
+                )
+
+                if cursor.rowcount == 0:
+                    logger.warning(f"No active project found for update: {project_id}")
+                    return False
+
+            logger.debug(f"Updated activity for project {project_id}: +{items_processed} items")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update project activity {project_id}: {e}")
+            return False
+
+    async def update_active_project_queue_count(
+        self,
+        project_id: str,
+        queue_delta: int,
+    ) -> bool:
+        """Update the items_in_queue count for a project.
+
+        Called when:
+        - Items are added to queue (positive delta)
+        - Items are removed from queue (negative delta)
+
+        Args:
+            project_id: Project identifier
+            queue_delta: Change in queue count (positive or negative)
+
+        Returns:
+            True on success, False on failure
+        """
+        try:
+            async with self.transaction() as conn:
+                # Use MAX to prevent negative counts
+                cursor = conn.execute(
+                    """
+                    UPDATE active_projects
+                    SET items_in_queue = MAX(0, items_in_queue + ?)
+                    WHERE project_id = ?
+                    """,
+                    (queue_delta, project_id),
+                )
+
+                if cursor.rowcount == 0:
+                    logger.warning(f"No active project found for queue update: {project_id}")
+                    return False
+
+            logger.debug(f"Updated queue count for project {project_id}: delta={queue_delta}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to update project queue count {project_id}: {e}")
+            return False
+
+    async def garbage_collect_stale_projects(
+        self,
+        max_inactive_hours: int = 24,
+    ) -> int:
+        """Remove projects that have been inactive for too long.
+
+        Projects with no activity for more than max_inactive_hours are
+        removed from tracking. This frees up resources and keeps the
+        active_projects table focused on truly active projects.
+
+        Args:
+            max_inactive_hours: Hours of inactivity before removal (default: 24)
+
+        Returns:
+            Number of projects removed
+        """
+        try:
+            async with self.transaction() as conn:
+                # First, log what we're about to remove
+                cursor = conn.execute(
+                    """
+                    SELECT project_id, tenant_id, last_activity_at, items_processed_count
+                    FROM active_projects
+                    WHERE datetime(last_activity_at) < datetime('now', ?)
+                    """,
+                    (f"-{max_inactive_hours} hours",),
+                )
+                stale_projects = cursor.fetchall()
+
+                if stale_projects:
+                    for row in stale_projects:
+                        logger.info(
+                            f"Removing stale project: {row['project_id']} "
+                            f"(last activity: {row['last_activity_at']}, "
+                            f"processed: {row['items_processed_count']} items)"
+                        )
+
+                # Delete stale projects
+                cursor = conn.execute(
+                    """
+                    DELETE FROM active_projects
+                    WHERE datetime(last_activity_at) < datetime('now', ?)
+                    """,
+                    (f"-{max_inactive_hours} hours",),
+                )
+
+                removed_count = cursor.rowcount
+
+            if removed_count > 0:
+                logger.info(f"Garbage collected {removed_count} stale projects (>{max_inactive_hours}h inactive)")
+
+            return removed_count
+
+        except Exception as e:
+            logger.error(f"Failed to garbage collect stale projects: {e}")
+            return 0
+
+    async def get_active_projects_stats(self) -> dict[str, Any]:
+        """Get statistics about active projects.
+
+        Uses the v_active_projects_stats view created by migration 004.
+
+        Returns:
+            Dictionary with statistics or empty dict on failure
+        """
+        try:
+            with self._lock:
+                cursor = self.connection.execute(
+                    "SELECT * FROM v_active_projects_stats"
+                )
+                row = cursor.fetchone()
+
+                if not row:
+                    return {}
+
+                return {
+                    "total_projects": row["total_projects"] or 0,
+                    "watched_projects": row["watched_projects"] or 0,
+                    "total_items_processed": row["total_items_processed"] or 0,
+                    "total_items_in_queue": row["total_items_in_queue"] or 0,
+                    "most_recent_activity": row["most_recent_activity"],
+                    "oldest_activity": row["oldest_activity"],
+                    "active_last_hour": row["active_last_hour"] or 0,
+                    "active_last_24h": row["active_last_24h"] or 0,
+                }
+
+        except Exception as e:
+            logger.error(f"Failed to get active projects stats: {e}")
+            return {}
+
+    async def get_stale_projects(self) -> list[dict[str, Any]]:
+        """Get projects that are candidates for garbage collection.
+
+        Uses the v_stale_projects view created by migration 004.
+
+        Returns:
+            List of stale project info dictionaries
+        """
+        try:
+            with self._lock:
+                cursor = self.connection.execute(
+                    "SELECT * FROM v_stale_projects"
+                )
+                rows = cursor.fetchall()
+
+                return [
+                    {
+                        "project_id": row["project_id"],
+                        "tenant_id": row["tenant_id"],
+                        "last_activity_at": row["last_activity_at"],
+                        "items_processed_count": row["items_processed_count"],
+                        "created_at": row["created_at"],
+                        "days_inactive": row["days_inactive"],
+                    }
+                    for row in rows
+                ]
+
+        except Exception as e:
+            logger.error(f"Failed to get stale projects: {e}")
+            return []
+
+    async def remove_active_project(self, project_id: str) -> bool:
+        """Remove an active project from tracking.
+
+        Args:
+            project_id: Project identifier to remove
+
+        Returns:
+            True if removed, False if not found or error
+        """
+        try:
+            async with self.transaction() as conn:
+                cursor = conn.execute(
+                    "DELETE FROM active_projects WHERE project_id = ?",
+                    (project_id,),
+                )
+
+                if cursor.rowcount == 0:
+                    logger.warning(f"Active project not found for removal: {project_id}")
+                    return False
+
+            logger.info(f"Removed active project: {project_id}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to remove active project {project_id}: {e}")
+            return False
