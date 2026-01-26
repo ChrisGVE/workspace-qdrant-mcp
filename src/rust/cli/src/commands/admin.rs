@@ -9,6 +9,7 @@ use clap::{Args, Subcommand};
 
 use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
+use crate::queue::UnifiedQueueClient;
 
 /// Admin command arguments
 #[derive(Args)]
@@ -381,10 +382,12 @@ async fn projects(priority: &str, active_only: bool) -> Result<()> {
 }
 
 async fn queue(verbose: bool) -> Result<()> {
-    output::section("Ingestion Queue");
+    output::section("Queue Status");
 
-    match DaemonClient::connect_default().await {
+    // Show daemon metrics (legacy queues)
+    let daemon_available = match DaemonClient::connect_default().await {
         Ok(mut client) => {
+            output::info("Daemon Queue Metrics:");
             // Get metrics which includes pending_operations
             match client.system().get_metrics(()).await {
                 Ok(response) => {
@@ -404,31 +407,86 @@ async fn queue(verbose: bool) -> Result<()> {
                         }
                     }
 
-                    output::kv("Pending Operations", &pending.to_string());
-                    output::kv("Processed (total)", &processed.to_string());
-                    output::kv("Failed (total)", &failed.to_string());
+                    output::kv("  Pending Operations", &pending.to_string());
+                    output::kv("  Processed (total)", &processed.to_string());
+                    output::kv("  Failed (total)", &failed.to_string());
 
                     if verbose {
                         output::separator();
-                        output::info("All Metrics:");
+                        output::info("All Daemon Metrics:");
                         for metric in &metrics_resp.metrics {
                             let labels = if metric.labels.is_empty() {
                                 String::new()
                             } else {
                                 format!(" {:?}", metric.labels)
                             };
-                            println!("  {} = {:.2}{}", metric.name, metric.value, labels);
+                            println!("    {} = {:.2}{}", metric.name, metric.value, labels);
                         }
                     }
                 }
                 Err(e) => {
-                    output::error(format!("Failed to get metrics: {}", e));
+                    output::warning(format!("Failed to get daemon metrics: {}", e));
+                }
+            }
+            true
+        }
+        Err(_) => {
+            output::warning("Daemon not running (metrics unavailable)");
+            false
+        }
+    };
+
+    output::separator();
+
+    // Show unified_queue stats from SQLite (Task 37.37)
+    output::info("Unified Queue (SQLite):");
+    match UnifiedQueueClient::connect() {
+        Ok(queue_client) => {
+            match queue_client.get_stats() {
+                Ok(stats) => {
+                    output::kv("  Pending", &stats.pending.to_string());
+                    output::kv("  In Progress", &stats.in_progress.to_string());
+                    output::kv("  Done", &stats.done.to_string());
+                    output::kv("  Failed", &stats.failed.to_string());
+
+                    let total = stats.pending + stats.in_progress + stats.done + stats.failed;
+                    output::kv("  Total Items", &total.to_string());
+
+                    if verbose {
+                        output::separator();
+                        // Show queue breakdown by type
+                        match queue_client.get_stats_by_type() {
+                            Ok(type_stats) => {
+                                if !type_stats.is_empty() {
+                                    output::info("By Item Type:");
+                                    for (item_type, counts) in &type_stats {
+                                        println!("    {}: pending={}, in_progress={}, done={}, failed={}",
+                                            item_type, counts.pending, counts.in_progress,
+                                            counts.done, counts.failed);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                output::warning(format!("Could not get type breakdown: {}", e));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    output::warning(format!("Failed to get unified queue stats: {}", e));
+                    output::info("The unified_queue table may not exist yet.");
                 }
             }
         }
-        Err(_) => {
-            output::error("Cannot connect to daemon");
+        Err(e) => {
+            output::warning(format!("Cannot connect to queue database: {}", e));
+            output::info("Queue database not initialized.");
         }
+    }
+
+    if !daemon_available {
+        output::separator();
+        output::info("Start daemon for full queue processing: wqm service start");
     }
 
     Ok(())

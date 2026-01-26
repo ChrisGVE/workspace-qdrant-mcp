@@ -276,6 +276,40 @@ impl UnifiedQueueClient {
             failed,
         })
     }
+
+    /// Get queue statistics grouped by item type (Task 37.37)
+    pub fn get_stats_by_type(&self) -> Result<std::collections::HashMap<String, QueueStats>> {
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT item_type, status, COUNT(*) as count
+            FROM unified_queue
+            GROUP BY item_type, status
+            "#
+        )?;
+
+        let mut result: std::collections::HashMap<String, QueueStats> = std::collections::HashMap::new();
+
+        let rows = stmt.query_map([], |row| {
+            let item_type: String = row.get(0)?;
+            let status: String = row.get(1)?;
+            let count: i64 = row.get(2)?;
+            Ok((item_type, status, count))
+        })?;
+
+        for row in rows {
+            let (item_type, status, count) = row?;
+            let stats = result.entry(item_type).or_insert(QueueStats::default());
+            match status.as_str() {
+                "pending" => stats.pending = count,
+                "in_progress" => stats.in_progress = count,
+                "done" => stats.done = count,
+                "failed" => stats.failed = count,
+                _ => {}
+            }
+        }
+
+        Ok(result)
+    }
 }
 
 /// Queue statistics
