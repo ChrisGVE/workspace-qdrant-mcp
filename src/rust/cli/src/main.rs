@@ -11,6 +11,7 @@ mod config;
 mod error;
 mod grpc;
 mod output;
+mod queue;
 
 /// Workspace Qdrant MCP CLI
 #[derive(Parser)]

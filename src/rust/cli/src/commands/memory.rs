@@ -11,6 +11,7 @@ use clap::{Args, Subcommand};
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::IngestTextRequest;
 use crate::output;
+use crate::queue::{UnifiedQueueClient, ContentPayload as QueueContentPayload};
 
 /// Memory command arguments
 #[derive(Args)]
@@ -171,15 +172,81 @@ async fn add_rule(content: &str, rule_type: &str, scope: &str, priority: u32) ->
                         output::kv("Rule ID", &result.document_id);
                     } else {
                         output::error(format!("Failed to add rule: {}", result.error_message));
+                        // Try unified queue fallback
+                        try_queue_fallback_memory(content, rule_type, scope, priority)?;
                     }
                 }
                 Err(e) => {
-                    output::error(format!("Failed to add rule: {}", e));
+                    output::error(format!("Failed to add rule via daemon: {}", e));
+                    // Try unified queue fallback
+                    try_queue_fallback_memory(content, rule_type, scope, priority)?;
                 }
             }
         }
         Err(_) => {
-            output::error("Daemon not running. Start with: wqm service start");
+            // Daemon not running - use unified queue fallback (Task 37.12)
+            output::warning("Daemon not running, using unified queue fallback");
+            try_queue_fallback_memory(content, rule_type, scope, priority)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Fallback to unified queue when daemon is unavailable (Task 37.12)
+fn try_queue_fallback_memory(
+    content: &str,
+    rule_type: &str,
+    scope: &str,
+    priority: u32,
+) -> Result<()> {
+    output::info("Enqueueing memory rule to unified_queue for later processing...");
+
+    match UnifiedQueueClient::connect() {
+        Ok(queue_client) => {
+            // Create content payload with memory rule metadata in the content
+            let full_content = format!(
+                "MEMORY_RULE\ntype:{}\nscope:{}\npriority:{}\n---\n{}",
+                rule_type, scope, priority, content
+            );
+
+            let payload = QueueContentPayload {
+                content: full_content,
+                source_type: "cli_memory".to_string(),
+                main_tag: Some(format!("memory_{}", rule_type)),
+                full_tag: Some(format!("memory_{}_{}", rule_type, scope)),
+            };
+
+            // Memory rules use "_memory" collection
+            match queue_client.enqueue_content(
+                "_global", // Memory is global
+                "_memory",
+                &payload,
+                priority as i32,
+                "main", // Memory rules are branch-agnostic
+            ) {
+                Ok(result) => {
+                    if result.was_duplicate {
+                        output::warning("Memory rule already queued (duplicate)");
+                        output::kv("Idempotency Key", &result.idempotency_key);
+                    } else {
+                        output::success("Memory rule queued for processing");
+                        output::kv("Queue ID", &result.queue_id);
+                        output::kv("Status", "pending");
+                        output::kv("Fallback Mode", "unified_queue");
+                    }
+                    output::separator();
+                    output::info("The rule will be added when the daemon starts.");
+                    output::info("Check status with: wqm status queue");
+                }
+                Err(e) => {
+                    output::error(format!("Failed to enqueue memory rule: {}", e));
+                }
+            }
+        }
+        Err(e) => {
+            output::error(format!("Failed to connect to queue database: {}", e));
+            output::info("Ensure the workspace-qdrant directory exists.");
         }
     }
 

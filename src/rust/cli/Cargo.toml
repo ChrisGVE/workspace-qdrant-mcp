@@ -46,6 +46,18 @@ colored = "2.1"
 dirs = "5.0"
 which = "6.0"
 
+# SQLite for unified queue fallback (Task 37.11)
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# UUID for queue item IDs
+uuid = { version = "1.10", features = ["v4"] }
+
+# Crypto for idempotency key generation
+sha2 = "0.10"
+
+# Time handling
+chrono = { version = "0.4", features = ["serde"] }
+
 [build-dependencies]
 tonic-build = { version = "0.12", features = ["prost"] }
 

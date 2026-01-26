@@ -13,6 +13,7 @@ use clap::{Args, Subcommand};
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{IngestTextRequest, QueueType, RefreshSignalRequest};
 use crate::output::{self, ServiceStatus};
+use crate::queue::{UnifiedQueueClient, ContentPayload as QueueContentPayload};
 
 /// Ingest command arguments
 #[derive(Args)]
@@ -274,15 +275,117 @@ async fn ingest_text(content: &str, collection: &str, title: Option<String>) -> 
                 }
                 Err(e) => {
                     output::error(format!("Failed to ingest text: {}", e));
+                    // Try unified queue fallback
+                    try_queue_fallback_text(content, collection, &title).await?;
                 }
             }
         }
         Err(_) => {
-            output::error("Daemon not running. Start with: wqm service start");
+            // Daemon not running - use unified queue fallback (Task 37.10)
+            output::warning("Daemon not running, using unified queue fallback");
+            try_queue_fallback_text(content, collection, &title).await?;
         }
     }
 
     Ok(())
+}
+
+/// Fallback to unified queue when daemon is unavailable (Task 37.10)
+async fn try_queue_fallback_text(
+    content: &str,
+    collection: &str,
+    _title: &Option<String>,
+) -> Result<()> {
+    output::info("Enqueueing to unified_queue for later processing...");
+
+    match UnifiedQueueClient::connect() {
+        Ok(queue_client) => {
+            // Create content payload
+            let payload = QueueContentPayload {
+                content: content.to_string(),
+                source_type: "cli".to_string(),
+                main_tag: None,
+                full_tag: None,
+            };
+
+            // Get tenant_id from current directory (auto-detect project)
+            let tenant_id = detect_tenant_id();
+            let branch = detect_branch();
+
+            match queue_client.enqueue_content(
+                &tenant_id,
+                collection,
+                &payload,
+                8, // Default priority for CLI content
+                &branch,
+            ) {
+                Ok(result) => {
+                    if result.was_duplicate {
+                        output::warning("Content already queued (duplicate)");
+                        output::kv("Idempotency Key", &result.idempotency_key);
+                    } else {
+                        output::success("Content queued for processing");
+                        output::kv("Queue ID", &result.queue_id);
+                        output::kv("Status", "pending");
+                        output::kv("Fallback Mode", "unified_queue");
+                    }
+                    output::separator();
+                    output::info("The content will be processed when the daemon starts.");
+                    output::info("Check status with: wqm status queue");
+                }
+                Err(e) => {
+                    output::error(format!("Failed to enqueue content: {}", e));
+                }
+            }
+        }
+        Err(e) => {
+            output::error(format!("Failed to connect to queue database: {}", e));
+            output::info("Ensure the workspace-qdrant directory exists.");
+        }
+    }
+
+    Ok(())
+}
+
+/// Detect tenant_id from current working directory
+fn detect_tenant_id() -> String {
+    // Try to get project root from git
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(path) = String::from_utf8(output.stdout) {
+                let path = path.trim();
+                // Normalize to a tenant_id
+                return path.replace(['/', '\\', ' '], "_")
+                    .trim_start_matches('_')
+                    .to_string();
+            }
+        }
+    }
+
+    // Fallback to current directory
+    std::env::current_dir()
+        .map(|p| p.to_string_lossy().replace(['/', '\\', ' '], "_")
+            .trim_start_matches('_')
+            .to_string())
+        .unwrap_or_else(|_| "default".to_string())
+}
+
+/// Detect current git branch
+fn detect_branch() -> String {
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["rev-parse", "--abbrev-ref", "HEAD"])
+        .output()
+    {
+        if output.status.success() {
+            if let Ok(branch) = String::from_utf8(output.stdout) {
+                return branch.trim().to_string();
+            }
+        }
+    }
+    "main".to_string()
 }
 
 async fn ingest_status(verbose: bool) -> Result<()> {
