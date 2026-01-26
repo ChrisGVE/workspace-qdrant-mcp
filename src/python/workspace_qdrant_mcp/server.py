@@ -63,20 +63,24 @@ Write Path Architecture (First Principle 10, ADR-001, ADR-002):
         - PROJECT: projects - Canonical collection, tenant isolation via tenant_id filter
         - LIBRARY: libraries - Canonical collection, isolation via library_name filter
         - USER: {basename}-{type} - User collections, enriched with project_id
-        - MEMORY: memory - EXCEPTION: Direct writes allowed (meta-level data)
+        - MEMORY: memory - LLM rules and preferences (routes through daemon per Task 30)
 
     Write Priority (Task 37/ADR-002 - NO DIRECT QDRANT WRITES):
         1. PRIMARY: DaemonClient.ingest_text() / create_collection_v2() / delete_collection_v2()
         2. FALLBACK: Queue to unified_queue via state_manager.enqueue_unified()
-        3. EXCEPTION: MEMORY collections use direct writes (architectural decision)
+        3. LAST RESORT: Direct Qdrant writes only when both daemon and queue unavailable (logged)
 
     Fallback to unified_queue (ADR-002):
         - When daemon is unavailable, content is queued to SQLite unified_queue
         - Daemon processes queued items when it becomes available
-        - No direct Qdrant writes from MCP server (except MEMORY exception)
+        - No direct Qdrant writes from MCP server (queue fallback ensures data persistence)
         - All fallback paths log warnings and include "fallback_mode": "unified_queue"
 
-    See: FIRST-PRINCIPLES.md (Principle 10), ADR-002, Task 37
+    Backward Compatibility Note (v0.4.0):
+        - Legacy direct writes removed; all collections use daemon-only or queue-fallback paths
+        - MEMORY collections previously used direct writes; now route through daemon (Task 30)
+
+    See: FIRST-PRINCIPLES.md (Principle 10), ADR-002, Task 30, Task 37
 """
 
 import asyncio
