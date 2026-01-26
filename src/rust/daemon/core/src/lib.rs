@@ -35,6 +35,7 @@ pub mod storage;
 pub mod tool_monitor;
 pub mod type_aware_processor;
 pub mod unified_config;
+pub mod unified_queue_processor;
 pub mod unified_queue_schema;
 pub mod watching;
 pub mod watching_queue;
@@ -112,6 +113,10 @@ pub use crate::queue_types::{
 };
 pub use crate::queue_processor::{
     QueueProcessor, ProcessorError, ProcessorResult, ProcessingMetrics
+};
+pub use crate::unified_queue_processor::{
+    UnifiedQueueProcessor, UnifiedProcessorError, UnifiedProcessorResult,
+    UnifiedProcessingMetrics, UnifiedProcessorConfig
 };
 pub use crate::type_aware_processor::{
     CollectionTypeSettings, ConcurrentOperationTracker, get_settings_for_type

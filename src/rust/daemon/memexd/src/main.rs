@@ -19,6 +19,8 @@ use workspace_qdrant_core::{
     MetricsServer, METRICS,
     // Queue processor imports (Task 21)
     QueueProcessor, ProcessorConfig,
+    // Unified queue processor imports (Task 37.26)
+    UnifiedQueueProcessor, UnifiedProcessorConfig,
     DocumentProcessor, EmbeddingGenerator, EmbeddingConfig,
     StorageClient, StorageConfig,
     queue_config::QueueConnectionConfig,
@@ -515,13 +517,13 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
     let storage_config = StorageConfig::default();
     let storage_client = Arc::new(StorageClient::with_config(storage_config));
 
-    // Create and start queue processor
+    // Create and start queue processor (legacy ingestion_queue)
     let mut queue_processor = QueueProcessor::with_components(
-        queue_pool,
+        queue_pool.clone(),
         processor_config.clone(),
-        document_processor,
-        embedding_generator,
-        storage_client,
+        document_processor.clone(),
+        embedding_generator.clone(),
+        storage_client.clone(),
     );
 
     queue_processor.start()
@@ -534,6 +536,40 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
         processor_config.poll_interval_ms
     );
 
+    // Initialize unified queue processor (Task 37.26)
+    info!("Initializing unified queue processor...");
+    let unified_config = UnifiedProcessorConfig {
+        batch_size: processor_config.batch_size,
+        poll_interval_ms: processor_config.poll_interval_ms,
+        worker_id: format!("memexd-{}", std::process::id()),
+        lease_duration_secs: 300, // 5 minutes
+        max_retries: 3,
+        ..UnifiedProcessorConfig::default()
+    };
+
+    let mut unified_queue_processor = UnifiedQueueProcessor::with_components(
+        queue_pool,
+        unified_config.clone(),
+        document_processor,
+        embedding_generator,
+        storage_client,
+    );
+
+    // Recover stale leases from previous daemon crashes (Task 37.19)
+    if let Err(e) = unified_queue_processor.recover_stale_leases().await {
+        warn!("Failed to recover stale unified queue leases: {}", e);
+    }
+
+    unified_queue_processor.start()
+        .map_err(|e| format!("Failed to start unified queue processor: {}", e))?;
+
+    info!(
+        "Unified queue processor started (batch_size={}, poll_interval={}ms, worker_id={})",
+        unified_config.batch_size,
+        unified_config.poll_interval_ms,
+        unified_config.worker_id
+    );
+
     info!("memexd daemon is running. gRPC on port {}, send SIGTERM or SIGINT to stop.", grpc_port);
 
     let shutdown_future = setup_signal_handlers();
@@ -541,7 +577,14 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
         error!("Error in signal handling: {}", e);
     }
 
-    // Cleanup - stop queue processor first for graceful shutdown
+    // Cleanup - stop queue processors first for graceful shutdown
+    info!("Stopping unified queue processor...");
+    if let Err(e) = unified_queue_processor.stop().await {
+        error!("Error stopping unified queue processor: {}", e);
+    } else {
+        info!("Unified queue processor stopped");
+    }
+
     info!("Stopping queue processor...");
     if let Err(e) = queue_processor.stop().await {
         error!("Error stopping queue processor: {}", e);
