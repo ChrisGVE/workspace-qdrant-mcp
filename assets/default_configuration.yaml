@@ -876,6 +876,15 @@ queue_processor:
   # Default reasoning: 1000 items provides buffer before triggering
   backpressure_threshold: 1000
 
+  # enable_dual_write: Write to both unified_queue and legacy queues
+  # Purpose: Migration support - writes to unified_queue AND legacy queues
+  # Phase 1: Enable during migration to keep legacy systems working
+  # Phase 2: Disable once unified queue is fully operational
+  # Safety: Ensures no data loss during queue system transition
+  # Format: Boolean
+  # Default reasoning: false - unified queue is primary, dual-write for migration only
+  enable_dual_write: false
+
   # graceful_shutdown_timeout_secs: Time to wait for clean shutdown
   # Purpose: Maximum time to wait for current batch to complete on shutdown
   # Data integrity: Prevents partial processing during shutdown

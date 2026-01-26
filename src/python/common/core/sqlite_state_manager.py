@@ -3150,6 +3150,364 @@ class SQLiteStateManager:
             logger.error(f"Failed to remove completed content items: {e}")
             raise
 
+    # Unified Queue Methods (Task 25 - Queue Consolidation)
+    # These methods provide the new unified queue interface that consolidates
+    # content_ingestion_queue and ingestion_queue into a single unified_queue table.
+
+    async def enqueue_unified(
+        self,
+        item_type: UnifiedQueueItemType | str,
+        op: UnifiedQueueOperation | str,
+        tenant_id: str,
+        collection: str,
+        payload: dict[str, Any],
+        priority: int = 5,
+        dual_write: bool | None = None,
+        branch: str = "main",
+        metadata: dict[str, Any] | None = None,
+    ) -> tuple[str, bool]:
+        """
+        Enqueue an item to the unified queue with idempotency support.
+
+        This is the primary enqueue method for the consolidated queue system.
+        Uses SHA256 hash of input parameters as idempotency key to prevent
+        duplicate processing.
+
+        Args:
+            item_type: Type of queue item (content, file, folder, project, etc.)
+            op: Operation type (ingest, update, delete, scan)
+            tenant_id: Project/tenant identifier
+            collection: Target Qdrant collection name
+            payload: Payload dictionary with item-specific data
+            priority: Priority level 0-10 (10 is highest, default 5)
+            dual_write: If True, also write to legacy queue. If None, uses config default.
+            branch: Git branch context (default: 'main')
+            metadata: Optional additional metadata
+
+        Returns:
+            Tuple of (queue_id, is_new) where is_new indicates if item was newly created.
+            If item already exists (same idempotency key), returns (existing_id, False).
+
+        Raises:
+            ValueError: If priority is out of range or inputs invalid
+            RuntimeError: If state manager not initialized
+
+        Example:
+            >>> queue_id, is_new = await state_manager.enqueue_unified(
+            ...     item_type=UnifiedQueueItemType.FILE,
+            ...     op=UnifiedQueueOperation.INGEST,
+            ...     tenant_id="proj_abc123",
+            ...     collection="my-project-code",
+            ...     payload={"file_path": "/path/to/file.py"},
+            ...     priority=7
+            ... )
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        # Validate priority range
+        if not 0 <= priority <= 10:
+            raise ValueError(f"Priority must be between 0 and 10, got {priority}")
+
+        # Validate tenant_id and collection
+        if not tenant_id or not tenant_id.strip():
+            raise ValueError("tenant_id cannot be empty")
+        if not collection or not collection.strip():
+            raise ValueError("collection cannot be empty")
+
+        # Convert enums to string values
+        if isinstance(item_type, UnifiedQueueItemType):
+            item_type_str = item_type.value
+        else:
+            item_type_str = str(item_type)
+            # Validate against enum values
+            try:
+                UnifiedQueueItemType(item_type_str)
+            except ValueError:
+                valid_types = [t.value for t in UnifiedQueueItemType]
+                raise ValueError(
+                    f"Invalid item_type '{item_type_str}'. Must be one of: {valid_types}"
+                )
+
+        if isinstance(op, UnifiedQueueOperation):
+            op_str = op.value
+        else:
+            op_str = str(op)
+            # Validate against enum values
+            try:
+                UnifiedQueueOperation(op_str)
+            except ValueError:
+                valid_ops = [o.value for o in UnifiedQueueOperation]
+                raise ValueError(
+                    f"Invalid operation '{op_str}'. Must be one of: {valid_ops}"
+                )
+
+        # Validate operation is valid for item type
+        item_type_enum = UnifiedQueueItemType(item_type_str)
+        op_enum = UnifiedQueueOperation(op_str)
+        if not op_enum.is_valid_for(item_type_enum):
+            raise ValueError(
+                f"Operation '{op_str}' is not valid for item type '{item_type_str}'"
+            )
+
+        try:
+            # Generate idempotency key using shared function
+            idempotency_key = generate_unified_idempotency_key(
+                item_type=item_type_str,
+                op=op_str,
+                tenant_id=tenant_id,
+                collection=collection,
+                payload=payload,
+            )
+
+            # Generate queue_id
+            queue_id = str(uuid.uuid4())
+
+            # Serialize payload to JSON
+            payload_json = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+            # Serialize metadata if provided
+            metadata_json = (
+                json.dumps(metadata, sort_keys=True, separators=(",", ":"))
+                if metadata
+                else "{}"
+            )
+
+            async with self.transaction() as conn:
+                # Check if item with same idempotency key already exists
+                cursor = conn.execute(
+                    "SELECT queue_id FROM unified_queue WHERE idempotency_key = ?",
+                    (idempotency_key,),
+                )
+                existing = cursor.fetchone()
+
+                if existing:
+                    logger.debug(
+                        f"Unified queue item already exists (idempotency): {existing['queue_id']}"
+                    )
+                    return existing["queue_id"], False
+
+                # Insert new queue item
+                conn.execute(
+                    """
+                    INSERT INTO unified_queue
+                    (queue_id, item_type, op, tenant_id, collection, priority, status,
+                     idempotency_key, payload_json, branch, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?)
+                    """,
+                    (
+                        queue_id,
+                        item_type_str,
+                        op_str,
+                        tenant_id,
+                        collection,
+                        priority,
+                        idempotency_key,
+                        payload_json,
+                        branch,
+                        metadata_json,
+                    ),
+                )
+
+                logger.debug(
+                    f"Enqueued unified item: {queue_id} "
+                    f"(type={item_type_str}, op={op_str}, collection={collection}, priority={priority})"
+                )
+
+                # Handle dual-write if enabled
+                should_dual_write = dual_write
+                if should_dual_write is None:
+                    # Check config for default (fall back to False)
+                    try:
+                        from .config import ConfigManager
+                        config = ConfigManager.get_instance()
+                        should_dual_write = config.get(
+                            "queue_processor.enable_dual_write", False
+                        )
+                    except Exception:
+                        should_dual_write = False
+
+                if should_dual_write:
+                    await self._dual_write_to_legacy_queue(
+                        conn=conn,
+                        item_type=item_type_str,
+                        op=op_str,
+                        tenant_id=tenant_id,
+                        collection=collection,
+                        payload=payload,
+                        priority=priority,
+                        branch=branch,
+                        metadata=metadata,
+                    )
+
+                return queue_id, True
+
+        except ValueError:
+            raise
+        except IdempotencyKeyError as e:
+            raise ValueError(str(e))
+        except Exception as e:
+            logger.error(f"Failed to enqueue unified item: {e}")
+            raise
+
+    async def _dual_write_to_legacy_queue(
+        self,
+        conn,
+        item_type: str,
+        op: str,
+        tenant_id: str,
+        collection: str,
+        payload: dict[str, Any],
+        priority: int,
+        branch: str,
+        metadata: dict[str, Any] | None,
+    ) -> None:
+        """
+        Write to legacy queue for dual-write migration support.
+
+        Routes items to appropriate legacy queue based on item_type:
+        - content items -> content_ingestion_queue
+        - file/folder items -> ingestion_queue
+
+        Args:
+            conn: Database connection (within transaction)
+            item_type: Type of queue item
+            op: Operation type
+            tenant_id: Project/tenant identifier
+            collection: Target collection name
+            payload: Payload dictionary
+            priority: Priority level
+            branch: Git branch
+            metadata: Optional metadata
+        """
+        try:
+            if item_type == "content":
+                # Write to content_ingestion_queue
+                content = payload.get("content", "")
+                source_type = payload.get("source_type", "scratchbook")
+                main_tag = payload.get("main_tag")
+                full_tag = payload.get("full_tag")
+
+                # Calculate legacy idempotency key
+                idempotency_input = (
+                    f"{content}|{collection}|{source_type}|"
+                    f"{json.dumps(metadata or {}, sort_keys=True)}"
+                )
+                idempotency_key = hashlib.sha256(
+                    idempotency_input.encode("utf-8")
+                ).hexdigest()[:32]
+
+                queue_id = str(uuid.uuid4())
+
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO content_ingestion_queue
+                    (queue_id, idempotency_key, content, collection, source_type, priority,
+                     status, main_tag, full_tag, metadata, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        queue_id,
+                        idempotency_key,
+                        content,
+                        collection,
+                        source_type,
+                        priority,
+                        main_tag,
+                        full_tag,
+                        self._serialize_json(metadata) if metadata else None,
+                    ),
+                )
+                logger.debug(f"Dual-write to content_ingestion_queue: {queue_id}")
+
+            elif item_type in ("file", "folder"):
+                # Write to ingestion_queue
+                file_path = payload.get("file_path", "")
+
+                # Generate a unique ID for the legacy queue
+                queue_id = str(uuid.uuid4())
+
+                # Map operation to legacy format
+                operation_map = {"ingest": "ingest", "update": "update", "delete": "delete"}
+                legacy_op = operation_map.get(op, "ingest")
+
+                conn.execute(
+                    """
+                    INSERT OR IGNORE INTO ingestion_queue
+                    (file_absolute_path, collection_name, tenant_id, branch, operation,
+                     priority, status, queued_timestamp, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, 'pending', CURRENT_TIMESTAMP, ?)
+                    """,
+                    (
+                        file_path,
+                        collection,
+                        tenant_id,
+                        branch,
+                        legacy_op,
+                        priority,
+                        self._serialize_json(metadata) if metadata else None,
+                    ),
+                )
+                logger.debug(f"Dual-write to ingestion_queue: {file_path}")
+
+            else:
+                # Other item types don't have legacy queue equivalents
+                logger.debug(
+                    f"Skipping dual-write for item_type={item_type} (no legacy equivalent)"
+                )
+
+        except Exception as e:
+            # Log but don't fail the main enqueue operation
+            logger.warning(f"Dual-write to legacy queue failed (non-fatal): {e}")
+
+    async def get_unified_queue_depth(
+        self,
+        collection: str | None = None,
+        status: str | None = None,
+        item_type: str | None = None,
+    ) -> int:
+        """
+        Get the current depth (count) of the unified queue.
+
+        Args:
+            collection: Optional filter by collection name
+            status: Optional filter by status ('pending', 'in_progress', 'done', 'failed')
+            item_type: Optional filter by item type
+
+        Returns:
+            Number of items in the queue matching the filters
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            query = "SELECT COUNT(*) FROM unified_queue WHERE 1=1"
+            params: list[Any] = []
+
+            if collection:
+                query += " AND collection = ?"
+                params.append(collection)
+
+            if status:
+                query += " AND status = ?"
+                params.append(status)
+
+            if item_type:
+                query += " AND item_type = ?"
+                params.append(item_type)
+
+            with self._lock:
+                cursor = self.connection.execute(query, params)
+                count = cursor.fetchone()[0]
+                return count
+
+        except Exception as e:
+            logger.error(f"Failed to get unified queue depth: {e}")
+            raise
+
     # Multi-Component Communication Support Methods
 
     async def update_processing_state(

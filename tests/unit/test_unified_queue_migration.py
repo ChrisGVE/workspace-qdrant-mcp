@@ -272,3 +272,518 @@ def test_migration_statement_ordering() -> None:
     assert all(
         "schema_version" not in stmt.lower() for stmt in statements[:-1]
     )
+
+
+# ============================================================================
+# enqueue_unified Tests (Task 25)
+# ============================================================================
+
+from src.python.common.core.sqlite_state_manager import (
+    UnifiedQueueItemType,
+    UnifiedQueueOperation,
+    generate_unified_idempotency_key,
+)
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_basic(temp_db_path: Path) -> None:
+    """Test basic enqueue_unified functionality."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    queue_id, is_new = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_test123",
+        collection="test-project-code",
+        payload={"file_path": "/path/to/test.py"},
+        priority=7,
+    )
+
+    assert is_new is True
+    assert queue_id is not None
+    assert len(queue_id) == 36  # UUID format
+
+    # Verify item is in database
+    with manager._lock:
+        cursor = manager.connection.execute(
+            "SELECT * FROM unified_queue WHERE queue_id = ?",
+            (queue_id,),
+        )
+        row = cursor.fetchone()
+
+    assert row is not None
+    assert row["item_type"] == "file"
+    assert row["op"] == "ingest"
+    assert row["tenant_id"] == "proj_test123"
+    assert row["collection"] == "test-project-code"
+    assert row["priority"] == 7
+    assert row["status"] == "pending"
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_idempotency(temp_db_path: Path) -> None:
+    """Test that duplicate enqueues return existing item."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # First enqueue
+    queue_id1, is_new1 = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_idem",
+        collection="idem-collection",
+        payload={"file_path": "/path/to/duplicate.py"},
+    )
+
+    # Second enqueue with same inputs
+    queue_id2, is_new2 = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_idem",
+        collection="idem-collection",
+        payload={"file_path": "/path/to/duplicate.py"},
+    )
+
+    assert is_new1 is True
+    assert is_new2 is False
+    assert queue_id1 == queue_id2
+
+    # Verify only one row exists
+    with manager._lock:
+        cursor = manager.connection.execute(
+            "SELECT COUNT(*) as count FROM unified_queue WHERE tenant_id = ?",
+            ("proj_idem",),
+        )
+        count = cursor.fetchone()["count"]
+
+    assert count == 1
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_validation_priority_range(temp_db_path: Path) -> None:
+    """Test that priority must be between 0 and 10."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # Priority too low
+    with pytest.raises(ValueError, match="Priority must be between 0 and 10"):
+        await manager.enqueue_unified(
+            item_type=UnifiedQueueItemType.FILE,
+            op=UnifiedQueueOperation.INGEST,
+            tenant_id="proj_valid",
+            collection="valid-collection",
+            payload={},
+            priority=-1,
+        )
+
+    # Priority too high
+    with pytest.raises(ValueError, match="Priority must be between 0 and 10"):
+        await manager.enqueue_unified(
+            item_type=UnifiedQueueItemType.FILE,
+            op=UnifiedQueueOperation.INGEST,
+            tenant_id="proj_valid",
+            collection="valid-collection",
+            payload={},
+            priority=11,
+        )
+
+    # Valid edge cases
+    queue_id0, _ = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_edge0",
+        collection="edge-collection",
+        payload={},
+        priority=0,
+    )
+    queue_id10, _ = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_edge10",
+        collection="edge-collection",
+        payload={},
+        priority=10,
+    )
+
+    assert queue_id0 is not None
+    assert queue_id10 is not None
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_validation_empty_tenant_id(temp_db_path: Path) -> None:
+    """Test that empty tenant_id raises ValueError."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    with pytest.raises(ValueError, match="tenant_id cannot be empty"):
+        await manager.enqueue_unified(
+            item_type=UnifiedQueueItemType.FILE,
+            op=UnifiedQueueOperation.INGEST,
+            tenant_id="",
+            collection="test-collection",
+            payload={},
+        )
+
+    with pytest.raises(ValueError, match="tenant_id cannot be empty"):
+        await manager.enqueue_unified(
+            item_type=UnifiedQueueItemType.FILE,
+            op=UnifiedQueueOperation.INGEST,
+            tenant_id="   ",
+            collection="test-collection",
+            payload={},
+        )
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_validation_empty_collection(temp_db_path: Path) -> None:
+    """Test that empty collection raises ValueError."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    with pytest.raises(ValueError, match="collection cannot be empty"):
+        await manager.enqueue_unified(
+            item_type=UnifiedQueueItemType.FILE,
+            op=UnifiedQueueOperation.INGEST,
+            tenant_id="proj_test",
+            collection="",
+            payload={},
+        )
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_validation_invalid_item_type(temp_db_path: Path) -> None:
+    """Test that invalid item_type raises ValueError."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    with pytest.raises(ValueError, match="Invalid item_type"):
+        await manager.enqueue_unified(
+            item_type="invalid_type",
+            op=UnifiedQueueOperation.INGEST,
+            tenant_id="proj_test",
+            collection="test-collection",
+            payload={},
+        )
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_validation_invalid_operation(temp_db_path: Path) -> None:
+    """Test that invalid operation raises ValueError."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    with pytest.raises(ValueError, match="Invalid operation"):
+        await manager.enqueue_unified(
+            item_type=UnifiedQueueItemType.FILE,
+            op="invalid_op",
+            tenant_id="proj_test",
+            collection="test-collection",
+            payload={},
+        )
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_validation_invalid_op_for_item_type(temp_db_path: Path) -> None:
+    """Test that invalid operation for item type raises ValueError."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # DELETE_TENANT only supports DELETE operation
+    with pytest.raises(ValueError, match="not valid for item type"):
+        await manager.enqueue_unified(
+            item_type=UnifiedQueueItemType.DELETE_TENANT,
+            op=UnifiedQueueOperation.INGEST,
+            tenant_id="proj_test",
+            collection="test-collection",
+            payload={},
+        )
+
+    # RENAME only supports UPDATE operation
+    with pytest.raises(ValueError, match="not valid for item type"):
+        await manager.enqueue_unified(
+            item_type=UnifiedQueueItemType.RENAME,
+            op=UnifiedQueueOperation.DELETE,
+            tenant_id="proj_test",
+            collection="test-collection",
+            payload={},
+        )
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_string_enums(temp_db_path: Path) -> None:
+    """Test that string values for item_type and op work correctly."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    queue_id, is_new = await manager.enqueue_unified(
+        item_type="content",
+        op="ingest",
+        tenant_id="proj_string",
+        collection="string-collection",
+        payload={"content": "test content"},
+    )
+
+    assert is_new is True
+    assert queue_id is not None
+
+    with manager._lock:
+        cursor = manager.connection.execute(
+            "SELECT item_type, op FROM unified_queue WHERE queue_id = ?",
+            (queue_id,),
+        )
+        row = cursor.fetchone()
+
+    assert row["item_type"] == "content"
+    assert row["op"] == "ingest"
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_complex_payload(temp_db_path: Path) -> None:
+    """Test enqueue with complex nested payload."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    complex_payload = {
+        "file_path": "/path/to/complex.py",
+        "metadata": {
+            "author": "test_user",
+            "tags": ["python", "test", "complex"],
+            "nested": {"deep": {"value": 42}},
+        },
+        "unicode_text": "Hello 世界 🌍",
+        "special_chars": "quotes: \"'` and slashes: /\\",
+    }
+
+    queue_id, is_new = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_complex",
+        collection="complex-collection",
+        payload=complex_payload,
+    )
+
+    assert is_new is True
+
+    # Verify payload is stored correctly
+    import json
+    with manager._lock:
+        cursor = manager.connection.execute(
+            "SELECT payload_json FROM unified_queue WHERE queue_id = ?",
+            (queue_id,),
+        )
+        row = cursor.fetchone()
+        stored_payload = json.loads(row["payload_json"])
+
+    assert stored_payload["file_path"] == complex_payload["file_path"]
+    assert stored_payload["unicode_text"] == complex_payload["unicode_text"]
+    assert stored_payload["metadata"]["tags"] == complex_payload["metadata"]["tags"]
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_with_metadata(temp_db_path: Path) -> None:
+    """Test enqueue with optional metadata."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    queue_id, is_new = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_meta",
+        collection="meta-collection",
+        payload={"file_path": "/path/to/file.py"},
+        metadata={"source": "test", "version": "1.0"},
+    )
+
+    assert is_new is True
+
+    import json
+    with manager._lock:
+        cursor = manager.connection.execute(
+            "SELECT metadata FROM unified_queue WHERE queue_id = ?",
+            (queue_id,),
+        )
+        row = cursor.fetchone()
+        stored_metadata = json.loads(row["metadata"])
+
+    assert stored_metadata["source"] == "test"
+    assert stored_metadata["version"] == "1.0"
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unified_with_branch(temp_db_path: Path) -> None:
+    """Test enqueue with custom branch."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    queue_id, is_new = await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_branch",
+        collection="branch-collection",
+        payload={"file_path": "/path/to/file.py"},
+        branch="feature/new-feature",
+    )
+
+    assert is_new is True
+
+    with manager._lock:
+        cursor = manager.connection.execute(
+            "SELECT branch FROM unified_queue WHERE queue_id = ?",
+            (queue_id,),
+        )
+        row = cursor.fetchone()
+
+    assert row["branch"] == "feature/new-feature"
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_get_unified_queue_depth(temp_db_path: Path) -> None:
+    """Test get_unified_queue_depth method."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    # Initial depth should be 0
+    depth = await manager.get_unified_queue_depth()
+    assert depth == 0
+
+    # Add some items
+    await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_depth1",
+        collection="depth-collection",
+        payload={"file_path": "/file1.py"},
+    )
+    await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.CONTENT,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_depth2",
+        collection="depth-collection",
+        payload={"content": "test"},
+    )
+    await manager.enqueue_unified(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_depth3",
+        collection="other-collection",
+        payload={"file_path": "/file2.py"},
+    )
+
+    # Total depth
+    depth = await manager.get_unified_queue_depth()
+    assert depth == 3
+
+    # Filter by collection
+    depth = await manager.get_unified_queue_depth(collection="depth-collection")
+    assert depth == 2
+
+    # Filter by item_type
+    depth = await manager.get_unified_queue_depth(item_type="file")
+    assert depth == 2
+
+    await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_enqueue_same_item(temp_db_path: Path) -> None:
+    """Test concurrent enqueues of the same item."""
+    manager = SQLiteStateManager(db_path=str(temp_db_path))
+    await manager.initialize()
+
+    async def enqueue_item():
+        return await manager.enqueue_unified(
+            item_type=UnifiedQueueItemType.FILE,
+            op=UnifiedQueueOperation.INGEST,
+            tenant_id="proj_concurrent",
+            collection="concurrent-collection",
+            payload={"file_path": "/concurrent/file.py"},
+        )
+
+    # Run 10 concurrent enqueues
+    results = await asyncio.gather(*[enqueue_item() for _ in range(10)])
+
+    # All should return the same queue_id
+    queue_ids = [r[0] for r in results]
+    assert len(set(queue_ids)) == 1  # All same ID
+
+    # Only one should be new
+    new_counts = sum(1 for r in results if r[1] is True)
+    assert new_counts == 1
+
+    # Verify only one row exists
+    with manager._lock:
+        cursor = manager.connection.execute(
+            "SELECT COUNT(*) as count FROM unified_queue WHERE tenant_id = ?",
+            ("proj_concurrent",),
+        )
+        count = cursor.fetchone()["count"]
+
+    assert count == 1
+
+    await manager.close()
+
+
+def test_generate_unified_idempotency_key_consistency() -> None:
+    """Test that idempotency key generation is deterministic."""
+    key1 = generate_unified_idempotency_key(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_test",
+        collection="test-collection",
+        payload={"file_path": "/test.py"},
+    )
+    key2 = generate_unified_idempotency_key(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_test",
+        collection="test-collection",
+        payload={"file_path": "/test.py"},
+    )
+
+    assert key1 == key2
+    assert len(key1) == 32  # SHA256 truncated to 32 hex chars
+
+
+def test_generate_unified_idempotency_key_uniqueness() -> None:
+    """Test that different inputs produce different keys."""
+    key1 = generate_unified_idempotency_key(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_test",
+        collection="collection-a",
+        payload={"file_path": "/test.py"},
+    )
+    key2 = generate_unified_idempotency_key(
+        item_type=UnifiedQueueItemType.FILE,
+        op=UnifiedQueueOperation.INGEST,
+        tenant_id="proj_test",
+        collection="collection-b",  # Different collection
+        payload={"file_path": "/test.py"},
+    )
+
+    assert key1 != key2
