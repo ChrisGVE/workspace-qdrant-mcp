@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS ingestion_queue_new (
     -- Error tracking reference
     error_message_id INTEGER,
 
+    -- Collection type classification (system, library, project, global)
+    collection_type VARCHAR,
+
     -- Foreign key constraint (removed retry_from foreign key)
     FOREIGN KEY (error_message_id) REFERENCES messages(id) ON DELETE SET NULL
 );
@@ -44,12 +47,16 @@ CREATE TABLE IF NOT EXISTS ingestion_queue_new (
 -- Step 2: Copy data from old table (retry_from values will be NULL as they were file paths)
 INSERT INTO ingestion_queue_new (
     file_absolute_path, collection_name, tenant_id, branch,
-    operation, priority, queued_timestamp, retry_count, error_message_id
+    operation, priority, queued_timestamp, retry_count, error_message_id, collection_type
 )
 SELECT
     file_absolute_path, collection_name, tenant_id, branch,
-    operation, priority, queued_timestamp, retry_count, error_message_id
+    operation, priority, queued_timestamp, retry_count, error_message_id, collection_type
 FROM ingestion_queue;
+
+-- Step 2a: Drop dependent views before replacing table
+DROP VIEW IF EXISTS queue_statistics;
+DROP VIEW IF EXISTS collection_queue_summary;
 
 -- Step 3: Drop old table
 DROP TABLE ingestion_queue;
@@ -77,6 +84,44 @@ CREATE INDEX IF NOT EXISTS idx_ingestion_queue_operation
 
 CREATE INDEX IF NOT EXISTS idx_ingestion_queue_error
     ON ingestion_queue(error_message_id) WHERE error_message_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_ingestion_queue_collection_type
+    ON ingestion_queue(collection_type) WHERE collection_type IS NOT NULL;
+
+-- =============================================================================
+-- RECREATE VIEWS THAT DEPEND ON ingestion_queue
+-- =============================================================================
+
+-- Convenience view for queue monitoring
+CREATE VIEW IF NOT EXISTS queue_statistics AS
+SELECT
+    COUNT(*) AS total_items,
+    SUM(CASE WHEN priority >= 8 THEN 1 ELSE 0 END) AS urgent_items,
+    SUM(CASE WHEN priority >= 5 AND priority < 8 THEN 1 ELSE 0 END) AS high_priority_items,
+    SUM(CASE WHEN priority >= 3 AND priority < 5 THEN 1 ELSE 0 END) AS normal_priority_items,
+    SUM(CASE WHEN priority < 3 THEN 1 ELSE 0 END) AS low_priority_items,
+    SUM(CASE WHEN retry_count > 0 THEN 1 ELSE 0 END) AS retry_items,
+    SUM(CASE WHEN error_message_id IS NOT NULL THEN 1 ELSE 0 END) AS items_with_errors,
+    COUNT(DISTINCT collection_name) AS unique_collections,
+    COUNT(DISTINCT tenant_id) AS unique_tenants,
+    MIN(queued_timestamp) AS oldest_item,
+    MAX(queued_timestamp) AS newest_item
+FROM ingestion_queue;
+
+-- Per-collection queue statistics
+CREATE VIEW IF NOT EXISTS collection_queue_summary AS
+SELECT
+    iq.collection_name,
+    iq.tenant_id,
+    iq.branch,
+    cm.collection_type,
+    COUNT(*) AS queued_items,
+    AVG(iq.priority) AS avg_priority,
+    MIN(iq.queued_timestamp) AS oldest_queued,
+    SUM(CASE WHEN iq.retry_count > 0 THEN 1 ELSE 0 END) AS items_with_retries
+FROM ingestion_queue iq
+LEFT JOIN collection_metadata cm ON iq.collection_name = cm.collection_name
+GROUP BY iq.collection_name, iq.tenant_id, iq.branch, cm.collection_type;
 
 -- =============================================================================
 -- VERIFICATION QUERY (for testing)
