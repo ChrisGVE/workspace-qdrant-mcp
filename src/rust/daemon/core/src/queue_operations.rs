@@ -256,6 +256,47 @@ pub struct QueueThrottlingSummary {
     pub critical_threshold: i64,
 }
 
+/// Active project state for fairness scheduler (Task 36 - code audit round 2)
+///
+/// Tracks currently active projects for queue priority scheduling.
+/// Projects with recent activity get higher priority in the processing queue.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveProject {
+    /// Unique project identifier (typically tenant_id or normalized path)
+    pub project_id: String,
+    /// Tenant identifier for multi-tenant isolation
+    pub tenant_id: String,
+    /// Timestamp of most recent activity
+    pub last_activity_at: DateTime<Utc>,
+    /// Running count of processed queue items
+    pub items_processed_count: i64,
+    /// Current number of items pending in queue
+    pub items_in_queue: i64,
+    /// Whether file watching is active
+    pub watch_enabled: bool,
+    /// Reference to watch_folders table (nullable)
+    pub watch_folder_id: Option<String>,
+    /// When project was first registered
+    pub created_at: DateTime<Utc>,
+    /// When record was last modified
+    pub updated_at: DateTime<Utc>,
+    /// JSON metadata for extensibility
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// Statistics about active projects (from v_active_projects_stats view)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ActiveProjectStats {
+    pub total_projects: i64,
+    pub watched_projects: i64,
+    pub total_items_processed: i64,
+    pub total_items_in_queue: i64,
+    pub most_recent_activity: Option<String>,
+    pub oldest_activity: Option<String>,
+    pub active_last_hour: i64,
+    pub active_last_24h: i64,
+}
+
 #[derive(Clone)]
 /// Queue manager for Rust daemon operations
 pub struct QueueManager {
@@ -1943,6 +1984,363 @@ impl QueueManager {
         }
 
         Ok(deleted)
+    }
+
+    // =========================================================================
+    // Active Projects (Task 36 - code audit round 2)
+    // =========================================================================
+
+    /// Register or update an active project for fairness scheduling
+    ///
+    /// Creates a new active project entry or updates an existing one.
+    /// Called when:
+    /// - Watch folder scanner detects activity in a project
+    /// - File is ingested for a project
+    /// - Query is executed for a project
+    pub async fn register_active_project(
+        &self,
+        project_id: &str,
+        tenant_id: &str,
+        watch_folder_id: Option<&str>,
+        metadata: Option<serde_json::Value>,
+    ) -> QueueResult<ActiveProject> {
+        let now = Utc::now().to_rfc3339();
+
+        // Check if project exists
+        let existing: Option<(String,)> = sqlx::query_as(
+            "SELECT project_id FROM active_projects WHERE project_id = ?"
+        )
+        .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if existing.is_some() {
+            // Update existing project's activity
+            let query = r#"
+                UPDATE active_projects
+                SET last_activity_at = ?,
+                    watch_folder_id = COALESCE(?, watch_folder_id),
+                    watch_enabled = CASE WHEN ? IS NOT NULL THEN 1 ELSE watch_enabled END,
+                    metadata = COALESCE(?, metadata)
+                WHERE project_id = ?
+            "#;
+
+            let metadata_str = metadata.as_ref().map(|m| m.to_string());
+
+            sqlx::query(query)
+                .bind(&now)
+                .bind(watch_folder_id)
+                .bind(watch_folder_id)
+                .bind(metadata_str.as_deref())
+                .bind(project_id)
+                .execute(&self.pool)
+                .await?;
+        } else {
+            // Insert new project
+            let query = r#"
+                INSERT INTO active_projects
+                (project_id, tenant_id, last_activity_at, items_processed_count,
+                 items_in_queue, watch_enabled, watch_folder_id, created_at,
+                 updated_at, metadata)
+                VALUES (?, ?, ?, 0, 0, ?, ?, ?, ?, ?)
+            "#;
+
+            let watch_enabled = if watch_folder_id.is_some() { 1 } else { 0 };
+            let metadata_str = metadata.as_ref().map(|m| m.to_string());
+
+            sqlx::query(query)
+                .bind(project_id)
+                .bind(tenant_id)
+                .bind(&now)
+                .bind(watch_enabled)
+                .bind(watch_folder_id)
+                .bind(&now)
+                .bind(&now)
+                .bind(metadata_str.as_deref())
+                .execute(&self.pool)
+                .await?;
+        }
+
+        debug!("Registered active project: {}", project_id);
+
+        // Return the updated/inserted project
+        self.get_active_project(project_id)
+            .await?
+            .ok_or_else(|| QueueError::NotFound(format!("Failed to retrieve registered project: {}", project_id)))
+    }
+
+    /// Get active project state by project_id
+    pub async fn get_active_project(&self, project_id: &str) -> QueueResult<Option<ActiveProject>> {
+        let query = r#"
+            SELECT project_id, tenant_id, last_activity_at, items_processed_count,
+                   items_in_queue, watch_enabled, watch_folder_id, created_at,
+                   updated_at, metadata
+            FROM active_projects
+            WHERE project_id = ?
+        "#;
+
+        let row = sqlx::query(query)
+            .bind(project_id)
+            .fetch_optional(&self.pool)
+            .await?;
+
+        match row {
+            Some(row) => {
+                let last_activity_str: String = row.try_get("last_activity_at")?;
+                let created_str: String = row.try_get("created_at")?;
+                let updated_str: String = row.try_get("updated_at")?;
+                let metadata_str: Option<String> = row.try_get("metadata")?;
+
+                Ok(Some(ActiveProject {
+                    project_id: row.try_get("project_id")?,
+                    tenant_id: row.try_get("tenant_id")?,
+                    last_activity_at: DateTime::parse_from_rfc3339(&last_activity_str)
+                        .unwrap_or_else(|_| Utc::now().into())
+                        .with_timezone(&Utc),
+                    items_processed_count: row.try_get("items_processed_count")?,
+                    items_in_queue: row.try_get("items_in_queue")?,
+                    watch_enabled: row.try_get::<i32, _>("watch_enabled")? == 1,
+                    watch_folder_id: row.try_get("watch_folder_id")?,
+                    created_at: DateTime::parse_from_rfc3339(&created_str)
+                        .unwrap_or_else(|_| Utc::now().into())
+                        .with_timezone(&Utc),
+                    updated_at: DateTime::parse_from_rfc3339(&updated_str)
+                        .unwrap_or_else(|_| Utc::now().into())
+                        .with_timezone(&Utc),
+                    metadata: metadata_str.and_then(|s| serde_json::from_str(&s).ok()),
+                }))
+            }
+            None => Ok(None),
+        }
+    }
+
+    /// List active projects with optional filtering
+    pub async fn list_active_projects(
+        &self,
+        tenant_id: Option<&str>,
+        watch_enabled_only: bool,
+        limit: Option<i32>,
+    ) -> QueueResult<Vec<ActiveProject>> {
+        let mut query = String::from(
+            r#"
+            SELECT project_id, tenant_id, last_activity_at, items_processed_count,
+                   items_in_queue, watch_enabled, watch_folder_id, created_at,
+                   updated_at, metadata
+            FROM active_projects
+            WHERE 1=1
+            "#,
+        );
+
+        if tenant_id.is_some() {
+            query.push_str(" AND tenant_id = ?");
+        }
+
+        if watch_enabled_only {
+            query.push_str(" AND watch_enabled = 1");
+        }
+
+        query.push_str(" ORDER BY last_activity_at DESC");
+
+        if limit.is_some() {
+            query.push_str(" LIMIT ?");
+        }
+
+        let mut query_builder = sqlx::query(&query);
+
+        if let Some(tid) = tenant_id {
+            query_builder = query_builder.bind(tid);
+        }
+
+        if let Some(lim) = limit {
+            query_builder = query_builder.bind(lim);
+        }
+
+        let rows = query_builder.fetch_all(&self.pool).await?;
+
+        let mut projects = Vec::new();
+        for row in rows {
+            let last_activity_str: String = row.try_get("last_activity_at")?;
+            let created_str: String = row.try_get("created_at")?;
+            let updated_str: String = row.try_get("updated_at")?;
+            let metadata_str: Option<String> = row.try_get("metadata")?;
+
+            projects.push(ActiveProject {
+                project_id: row.try_get("project_id")?,
+                tenant_id: row.try_get("tenant_id")?,
+                last_activity_at: DateTime::parse_from_rfc3339(&last_activity_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                items_processed_count: row.try_get("items_processed_count")?,
+                items_in_queue: row.try_get("items_in_queue")?,
+                watch_enabled: row.try_get::<i32, _>("watch_enabled")? == 1,
+                watch_folder_id: row.try_get("watch_folder_id")?,
+                created_at: DateTime::parse_from_rfc3339(&created_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                updated_at: DateTime::parse_from_rfc3339(&updated_str)
+                    .unwrap_or_else(|_| Utc::now().into())
+                    .with_timezone(&Utc),
+                metadata: metadata_str.and_then(|s| serde_json::from_str(&s).ok()),
+            });
+        }
+
+        Ok(projects)
+    }
+
+    /// Update project activity after processing items
+    ///
+    /// Called by the unified queue processor after successfully processing
+    /// queue items for a project.
+    pub async fn update_active_project_activity(
+        &self,
+        project_id: &str,
+        items_processed: i64,
+    ) -> QueueResult<bool> {
+        let query = r#"
+            UPDATE active_projects
+            SET last_activity_at = datetime('now'),
+                items_processed_count = items_processed_count + ?
+            WHERE project_id = ?
+        "#;
+
+        let result = sqlx::query(query)
+            .bind(items_processed)
+            .bind(project_id)
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            warn!("No active project found for update: {}", project_id);
+            return Ok(false);
+        }
+
+        debug!(
+            "Updated activity for project {}: +{} items",
+            project_id, items_processed
+        );
+        Ok(true)
+    }
+
+    /// Update the items_in_queue count for a project
+    ///
+    /// Called when items are added to queue (positive delta) or removed (negative delta).
+    pub async fn update_active_project_queue_count(
+        &self,
+        project_id: &str,
+        queue_delta: i64,
+    ) -> QueueResult<bool> {
+        // Use MAX to prevent negative counts
+        let query = r#"
+            UPDATE active_projects
+            SET items_in_queue = MAX(0, items_in_queue + ?)
+            WHERE project_id = ?
+        "#;
+
+        let result = sqlx::query(query)
+            .bind(queue_delta)
+            .bind(project_id)
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            warn!("No active project found for queue update: {}", project_id);
+            return Ok(false);
+        }
+
+        debug!(
+            "Updated queue count for project {}: delta={}",
+            project_id, queue_delta
+        );
+        Ok(true)
+    }
+
+    /// Remove projects that have been inactive for too long
+    ///
+    /// Projects with no activity for more than max_inactive_hours are removed.
+    pub async fn garbage_collect_stale_projects(
+        &self,
+        max_inactive_hours: Option<i64>,
+    ) -> QueueResult<u64> {
+        let hours = max_inactive_hours.unwrap_or(24);
+
+        // First log what we're about to remove
+        let stale_query = format!(
+            r#"
+            SELECT project_id, tenant_id, last_activity_at, items_processed_count
+            FROM active_projects
+            WHERE datetime(last_activity_at) < datetime('now', '-{} hours')
+            "#,
+            hours
+        );
+
+        let stale_rows = sqlx::query(&stale_query).fetch_all(&self.pool).await?;
+
+        for row in &stale_rows {
+            let project_id: String = row.try_get("project_id")?;
+            let last_activity: String = row.try_get("last_activity_at")?;
+            let items_processed: i64 = row.try_get("items_processed_count")?;
+            info!(
+                "Removing stale project: {} (last activity: {}, processed: {} items)",
+                project_id, last_activity, items_processed
+            );
+        }
+
+        // Delete stale projects
+        let delete_query = format!(
+            "DELETE FROM active_projects WHERE datetime(last_activity_at) < datetime('now', '-{} hours')",
+            hours
+        );
+
+        let result = sqlx::query(&delete_query).execute(&self.pool).await?;
+        let removed = result.rows_affected();
+
+        if removed > 0 {
+            info!(
+                "Garbage collected {} stale projects (>{}h inactive)",
+                removed, hours
+            );
+        }
+
+        Ok(removed)
+    }
+
+    /// Get statistics about active projects
+    ///
+    /// Uses the v_active_projects_stats view created by migration 004.
+    pub async fn get_active_projects_stats(&self) -> QueueResult<ActiveProjectStats> {
+        let query = "SELECT * FROM v_active_projects_stats";
+
+        let row = sqlx::query(query).fetch_optional(&self.pool).await?;
+
+        match row {
+            Some(row) => Ok(ActiveProjectStats {
+                total_projects: row.try_get("total_projects").unwrap_or(0),
+                watched_projects: row.try_get("watched_projects").unwrap_or(0),
+                total_items_processed: row.try_get("total_items_processed").unwrap_or(0),
+                total_items_in_queue: row.try_get("total_items_in_queue").unwrap_or(0),
+                most_recent_activity: row.try_get("most_recent_activity").ok(),
+                oldest_activity: row.try_get("oldest_activity").ok(),
+                active_last_hour: row.try_get("active_last_hour").unwrap_or(0),
+                active_last_24h: row.try_get("active_last_24h").unwrap_or(0),
+            }),
+            None => Ok(ActiveProjectStats::default()),
+        }
+    }
+
+    /// Remove an active project from tracking
+    pub async fn remove_active_project(&self, project_id: &str) -> QueueResult<bool> {
+        let result = sqlx::query("DELETE FROM active_projects WHERE project_id = ?")
+            .bind(project_id)
+            .execute(&self.pool)
+            .await?;
+
+        if result.rows_affected() == 0 {
+            warn!("Active project not found for removal: {}", project_id);
+            return Ok(false);
+        }
+
+        info!("Removed active project: {}", project_id);
+        Ok(true)
     }
 }
 
