@@ -475,8 +475,8 @@ class TestHybridSearchEngine:
 
         # Mock search results
         mock_qdrant_client.search.return_value = [
-            models.ScoredPoint(id="doc1", score=0.9, payload={"content": "result 1"}),
-            models.ScoredPoint(id="doc2", score=0.8, payload={"content": "result 2"}),
+            models.ScoredPoint(id="doc1", score=0.9, version=0, payload={"content": "result 1"}),
+            models.ScoredPoint(id="doc2", score=0.8, version=0, payload={"content": "result 2"}),
         ]
 
         query_embeddings = {
@@ -523,7 +523,7 @@ class TestHybridSearchEngine:
         engine = HybridSearchEngine(mock_qdrant_client)
 
         mock_qdrant_client.search.return_value = [
-            models.ScoredPoint(id="doc1", score=0.9, payload={"content": "result"}),
+            models.ScoredPoint(id="doc1", score=0.9, version=0, payload={"content": "result"}),
         ]
 
         query_embeddings = {

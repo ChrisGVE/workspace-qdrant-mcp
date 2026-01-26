@@ -6,12 +6,16 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
-from docs.framework.validation.cross_reference import (
-    CrossReferenceValidator,
-    ReferenceLink,
-    ReferenceType,
-    ValidationResult,
-)
+
+try:
+    from docs.framework.validation.cross_reference import (
+        CrossReferenceValidator,
+        ReferenceLink,
+        ReferenceType,
+        ValidationResult,
+    )
+except ModuleNotFoundError:
+    pytest.skip("Docs framework not available", allow_module_level=True)
 
 
 class TestReferenceLink:

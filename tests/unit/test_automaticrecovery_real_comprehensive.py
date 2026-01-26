@@ -9,6 +9,7 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+from enum import Enum
 from typing import Any, Optional
 from unittest.mock import AsyncMock, MagicMock, Mock, call, patch
 
@@ -64,6 +65,12 @@ class TestRealFunctionality:
         for class_name in classes:
             if hasattr(target_module, class_name):
                 cls = getattr(target_module, class_name)
+
+                # Enums should be accessed via members, not instantiated directly
+                if isinstance(cls, type) and issubclass(cls, Enum):
+                    instance = next(iter(cls))
+                    assert instance is not None
+                    continue
 
                 # Try to instantiate with various parameter combinations
                 try:

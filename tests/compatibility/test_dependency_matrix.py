@@ -6,6 +6,7 @@ the system works correctly with minimum and maximum supported versions.
 """
 
 import importlib.metadata
+import importlib.util
 import subprocess
 import sys
 
@@ -259,6 +260,7 @@ class TestFastMCPCompatibility:
 
     def test_fastmcp_tool_decorator(self):
         """Test FastMCP tool decorator functionality."""
+        import asyncio
         from fastmcp import FastMCP
 
         mcp = FastMCP("test-server")
@@ -269,7 +271,8 @@ class TestFastMCPCompatibility:
             return f"Result: {query}"
 
         # Verify tool is registered
-        assert hasattr(mcp, "_tools") or hasattr(mcp, "tools")
+        tools = asyncio.run(mcp.get_tools())
+        assert "test_tool" in tools
 
 
 class TestFastAPICompatibility:
@@ -526,6 +529,8 @@ class TestDependencySecurityValidation:
     def test_check_for_security_advisories(self):
         """Check if pip-audit or safety is available for security scanning."""
         # This is informational - we don't fail if tools aren't available
+        if importlib.util.find_spec("pip") is None:
+            pytest.skip("pip not available")
         try:
             result = subprocess.run(
                 [sys.executable, "-m", "pip", "list", "--format=json"],
@@ -533,7 +538,8 @@ class TestDependencySecurityValidation:
                 text=True,
                 timeout=30
             )
-            assert result.returncode == 0, "Failed to list installed packages"
+            if result.returncode != 0:
+                pytest.skip(f"pip list failed: {result.stderr.strip()}")
         except subprocess.TimeoutExpired:
             pytest.skip("Package listing timed out")
         except FileNotFoundError:

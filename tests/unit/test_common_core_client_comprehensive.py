@@ -267,8 +267,8 @@ class TestQdrantWorkspaceClientSearchOperations:
 
         # Mock search results
         mock_results = [
-            models.ScoredPoint(id="1", score=0.9, payload={"content": "doc1"}),
-            models.ScoredPoint(id="2", score=0.8, payload={"content": "doc2"})
+            models.ScoredPoint(id="1", score=0.9, version=0, payload={"content": "doc1"}),
+            models.ScoredPoint(id="2", score=0.8, version=0, payload={"content": "doc2"})
         ]
         mock_qdrant_client.search.return_value = mock_results
 

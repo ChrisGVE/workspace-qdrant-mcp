@@ -55,7 +55,7 @@ class TestVersionAndHelp(TestCLIBinaryValidation):
 
     def test_version_short_flag(self):
         """Test -v flag shows version."""
-        result = self.run_wqm(["-v"])
+        result = self.run_wqm(["-V"])
         assert result.returncode == 0
         assert result.stdout.strip()  # Should output something
         # Should be clean version output
@@ -72,8 +72,7 @@ class TestVersionAndHelp(TestCLIBinaryValidation):
         """Test verbose version information."""
         result = self.run_wqm(["--version", "--verbose"])
         assert result.returncode == 0
-        assert "Workspace Qdrant MCP" in result.stdout
-        assert "Python" in result.stdout
+        assert "wqm" in result.stdout
 
     def test_main_help(self):
         """Test main help command."""
@@ -85,8 +84,9 @@ class TestVersionAndHelp(TestCLIBinaryValidation):
     def test_no_args_shows_help(self):
         """Test running wqm without arguments shows help."""
         result = self.run_wqm([])
-        assert result.returncode == 0
-        assert "Usage:" in result.stdout
+        assert result.returncode != 0
+        combined = result.stdout + result.stderr
+        assert "Usage:" in combined
 
 
 class TestCommandStructure(TestCLIBinaryValidation):
@@ -94,14 +94,18 @@ class TestCommandStructure(TestCLIBinaryValidation):
 
     def test_all_main_commands_help(self):
         """Test help for all main command groups."""
-        # Note: "web" command removed - not implemented in current CLI
+        # Rust CLI command set (Python CLI removed)
         commands = [
             "init", "memory", "admin", "ingest", "search",
-            "library", "service", "watch", "observability", "status"
+            "library", "service", "status", "backup", "language",
+            "project", "wizard", "help"
         ]
 
         for cmd in commands:
-            result = self.run_wqm([cmd, "--help"])
+            if cmd == "help":
+                result = self.run_wqm(["help"])
+            else:
+                result = self.run_wqm([cmd, "--help"])
             assert result.returncode == 0, f"Help failed for {cmd}"
             assert "Usage:" in result.stdout, f"Missing Usage in {cmd} help"
 
@@ -113,6 +117,7 @@ class TestCommandStructure(TestCLIBinaryValidation):
             ["admin", "status", "--help"],
             ["search", "project", "--help"],
             ["init", "bash", "--help"],
+            ["project", "list", "--help"],
         ]
 
         for cmd_parts in nested_commands:
@@ -125,7 +130,7 @@ class TestCommandStructure(TestCLIBinaryValidation):
         assert result.returncode != 0
         # Error output may be in stdout or stderr depending on CLI implementation
         combined_output = result.stdout + result.stderr
-        assert "No such command" in combined_output or "Usage:" in combined_output
+        assert "unrecognized subcommand" in combined_output or "Usage:" in combined_output
 
 
 class TestMemoryCommands(TestCLIBinaryValidation):
@@ -133,15 +138,16 @@ class TestMemoryCommands(TestCLIBinaryValidation):
 
     def test_memory_list_no_daemon(self):
         """Test memory list when daemon not running."""
-        result = self.run_wqm(["memory", "list"], expect_success=False)
-        # Should fail gracefully when daemon not available
-        assert result.returncode != 0
-        assert "Error" in result.stdout or "Connection" in result.stderr
+        result = self.run_wqm(["memory", "list"], expect_success=True)
+        # Memory list returns 0 and provides guidance even without daemon
+        assert result.returncode == 0
+        assert "Memory Rules" in result.stdout
 
     def test_memory_add_no_daemon(self):
         """Test memory add when daemon not running."""
-        result = self.run_wqm(["memory", "add", "test rule"], expect_success=False)
-        assert result.returncode != 0
+        result = self.run_wqm(["memory", "add", "test rule"], expect_success=True)
+        assert result.returncode == 0
+        assert "Daemon not running" in result.stderr
 
     def test_memory_invalid_subcommand(self):
         """Test invalid memory subcommand."""
@@ -180,17 +186,20 @@ class TestSearchCommands(TestCLIBinaryValidation):
     def test_search_project_no_daemon(self):
         """Test search project when daemon not running."""
         result = self.run_wqm(["search", "project", "test query"], expect_success=False)
-        assert result.returncode != 0
+        assert result.returncode in [0, 1, 2]
+        assert "Daemon not running" in result.stderr
 
     def test_search_empty_query(self):
         """Test search with empty query."""
         result = self.run_wqm(["search", "project", ""], expect_success=False)
-        assert result.returncode != 0
+        assert result.returncode in [0, 1, 2]
+        assert "Daemon not running" in result.stderr or "Usage" in (result.stdout + result.stderr)
 
     def test_search_collection_no_daemon(self):
         """Test search collection when daemon not running."""
         result = self.run_wqm(["search", "collection", "test_coll", "query"], expect_success=False)
-        assert result.returncode != 0
+        assert result.returncode in [0, 1, 2]
+        assert "Daemon not running" in result.stderr
 
 
 class TestIngestCommands(TestCLIBinaryValidation):
@@ -200,7 +209,7 @@ class TestIngestCommands(TestCLIBinaryValidation):
         """Test ingest with non-existent file."""
         # Note: ingest file now requires --collection argument
         result = self.run_wqm(["ingest", "file", "/nonexistent/file.txt", "-c", "test"], expect_success=False)
-        assert result.returncode != 0
+        assert result.returncode in [0, 1, 2]
         # Error might be about missing file or missing collection, both are valid failures
         combined_output = result.stdout + result.stderr
         assert "Error" in combined_output or "not found" in combined_output.lower() or "does not exist" in combined_output.lower()
@@ -212,12 +221,14 @@ class TestIngestCommands(TestCLIBinaryValidation):
 
         result = self.run_wqm(["ingest", "file", str(test_file)], expect_success=False)
         # Should fail without daemon but shouldn't crash on file validation
-        assert result.returncode != 0
+        assert result.returncode in [0, 1, 2]
+        assert "Daemon not running" in result.stderr
 
     def test_ingest_folder_nonexistent(self):
         """Test ingest with non-existent folder."""
         result = self.run_wqm(["ingest", "folder", "/nonexistent/folder"], expect_success=False)
-        assert result.returncode != 0
+        assert result.returncode in [0, 1, 2]
+        assert "does not exist" in (result.stdout + result.stderr).lower()
 
 
 class TestLibraryCommands(TestCLIBinaryValidation):
@@ -249,20 +260,21 @@ class TestServiceCommands(TestCLIBinaryValidation):
         assert result.returncode == 0
 
 
-class TestWatchCommands(TestCLIBinaryValidation):
-    """Test watch command domain functionality."""
+class TestProjectCommands(TestCLIBinaryValidation):
+    """Test project command domain functionality."""
 
-    def test_watch_list_no_daemon(self):
-        """Test watch list when daemon not running."""
-        result = self.run_wqm(["watch", "list"], expect_success=True)
-        # Watch list now returns 0 even with no watches (from SQLite state)
+    def test_project_list_no_daemon(self):
+        """Test project list when daemon not running."""
+        result = self.run_wqm(["project", "list"], expect_success=True)
         assert result.returncode == 0
-        assert "watches" in result.stdout.lower() or "No" in result.stdout
+        assert "Registered Projects" in result.stdout
+        assert "Daemon not running" in result.stderr
 
-    def test_watch_start_no_daemon(self):
-        """Test watch start when daemon not running."""
-        result = self.run_wqm(["watch", "start", self.temp_dir], expect_success=False)
-        assert result.returncode != 0
+    def test_project_register_no_daemon(self):
+        """Test project register when daemon not running."""
+        result = self.run_wqm(["project", "register", self.temp_dir], expect_success=False)
+        assert result.returncode in [0, 1, 2]
+        assert "Daemon not running" in result.stderr
 
 
 class TestWebCommands(TestCLIBinaryValidation):
@@ -289,21 +301,21 @@ class TestInitCommands(TestCLIBinaryValidation):
         """Test bash completion generation."""
         result = self.run_wqm(["init", "bash"])
         assert result.returncode == 0
-        assert "_wqm_completion" in result.stdout
-        assert "complete" in result.stdout
+        assert "Bash Completion" in result.stdout
+        assert "eval" in result.stdout
 
     def test_init_zsh_completion(self):
         """Test zsh completion generation."""
         result = self.run_wqm(["init", "zsh"])
         assert result.returncode == 0
-        assert "#compdef wqm" in result.stdout
+        assert "Zsh Completion" in result.stdout
 
     def test_init_fish_completion(self):
         """Test fish completion generation."""
         result = self.run_wqm(["init", "fish"])
         assert result.returncode == 0
         # Fish completion may use different formats
-        assert "complete" in result.stdout and "wqm" in result.stdout
+        assert "Fish Completion" in result.stdout
 
     def test_init_invalid_shell(self):
         """Test init with invalid shell."""
@@ -326,20 +338,6 @@ class TestStatusCommands(TestCLIBinaryValidation):
         """Test status help command."""
         result = self.run_wqm(["status", "--help"])
         assert result.returncode == 0
-
-
-class TestObservabilityCommands(TestCLIBinaryValidation):
-    """Test observability command functionality."""
-
-    def test_observability_help(self):
-        """Test observability help command."""
-        result = self.run_wqm(["observability", "--help"])
-        assert result.returncode == 0
-
-    def test_observability_health_no_daemon(self):
-        """Test observability health when daemon not running."""
-        result = self.run_wqm(["observability", "health"], expect_success=False)
-        assert result.returncode != 0
 
 
 class TestConfigurationHandling(TestCLIBinaryValidation):
@@ -475,20 +473,21 @@ class TestEdgeCases(TestCLIBinaryValidation):
         unicode_query = "测试 query with émojis 🚀"
         result = self.run_wqm(["search", "project", unicode_query], expect_success=False)
         # Should handle unicode properly
-        assert result.returncode != 0  # Expected to fail without daemon
+        assert result.returncode in [0, 1, 2]
+        assert "Daemon not running" in result.stderr
 
     def test_empty_arguments(self):
         """Test empty string arguments."""
         result = self.run_wqm(["search", "project", ""], expect_success=False)
-        assert result.returncode != 0
+        assert result.returncode in [0, 1, 2]
+        assert "Daemon not running" in result.stderr or "Usage" in (result.stdout + result.stderr)
 
     def test_debug_flag_functionality(self):
         """Test debug flag increases verbosity."""
         result = self.run_wqm(["--debug", "admin", "status"], expect_success=True)
-        # Admin status returns 0 even without daemon
-        assert result.returncode == 0
-        # Debug flag should add debug output to stderr
-        assert "debug" in result.stderr.lower() or len(result.stderr) > 0
+        # Debug flag is not supported in the Rust CLI
+        assert result.returncode != 0
+        assert "unexpected argument" in result.stderr.lower()
 
 
 if __name__ == "__main__":

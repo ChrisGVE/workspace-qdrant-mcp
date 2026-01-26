@@ -149,8 +149,12 @@ class TestCoreModuleCompatibility:
         """Test config module can be initialized."""
         config = get_config()
         assert config is not None
-        assert hasattr(config, "qdrant_url")
-        assert hasattr(config, "project_root")
+        if isinstance(config, dict):
+            assert "qdrant" in config
+            assert "workspace" in config
+        else:
+            assert hasattr(config, "qdrant_url")
+            assert hasattr(config, "project_root")
 
     def test_qdrant_client_initialization(self):
         """Test Qdrant client can be created."""
@@ -163,14 +167,14 @@ class TestCoreModuleCompatibility:
         # Skip actual Qdrant connection in compatibility tests
         # Just verify the module imports and classes exist
         from src.python.common.core.hybrid_search import (
-            SearchMode,
-            SearchResult,
-            SparseEncoder,
+            HybridSearchEngine,
+            RRFFusionRanker,
+            WeightedSumFusionRanker,
         )
 
-        assert SearchMode is not None
-        assert SearchResult is not None
-        assert SparseEncoder is not None
+        assert HybridSearchEngine is not None
+        assert RRFFusionRanker is not None
+        assert WeightedSumFusionRanker is not None
 
     def test_memory_manager_imports(self):
         """Test memory manager module imports."""

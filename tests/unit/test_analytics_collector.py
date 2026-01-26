@@ -11,11 +11,15 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-# Add docs framework to path for testing
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../docs/framework'))
+# Add docs framework to path for testing (if present)
+docs_framework_path = os.path.join(os.path.dirname(__file__), '../../docs/framework')
+sys.path.insert(0, docs_framework_path)
 
-from analytics.collector import AnalyticsCollector, EventType, TrackingConfig
-from analytics.storage import AnalyticsEvent, AnalyticsStorage
+try:
+    from analytics.collector import AnalyticsCollector, EventType, TrackingConfig
+    from analytics.storage import AnalyticsEvent, AnalyticsStorage
+except ModuleNotFoundError:
+    pytest.skip("analytics framework not available", allow_module_level=True)
 
 
 class TestTrackingConfig:

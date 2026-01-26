@@ -22,6 +22,16 @@ from tests.e2e.fixtures import (
 )
 
 
+def _skip_if_qdrant_unavailable(qdrant_url: str):
+    """Skip tests if Qdrant is not reachable."""
+    try:
+        response = httpx.get(f"{qdrant_url}/health", timeout=2.0)
+    except Exception:
+        pytest.skip("Qdrant not available for integration test")
+    if response.status_code != 200:
+        pytest.skip("Qdrant not healthy for integration test")
+
+
 @pytest.mark.integration
 @pytest.mark.slow
 class TestDaemonStartupSequence:
@@ -84,6 +94,7 @@ class TestDaemonStartupSequence:
     ):
         """Test daemon startup completes within reasonable time."""
         qdrant_url = "http://localhost:6333"  # Use system Qdrant
+        _skip_if_qdrant_unavailable(qdrant_url)
 
         daemon_manager = DaemonManager(qdrant_url, integration_state_db)
 
@@ -105,6 +116,7 @@ class TestDaemonStartupSequence:
     ):
         """Test daemon shuts down gracefully on SIGTERM."""
         qdrant_url = "http://localhost:6333"
+        _skip_if_qdrant_unavailable(qdrant_url)
         daemon_manager = DaemonManager(qdrant_url, integration_state_db)
 
         try:
@@ -214,6 +226,7 @@ class TestMCPServerStartup:
     ):
         """Test MCP server startup completes within reasonable time."""
         qdrant_url = "http://localhost:6333"
+        _skip_if_qdrant_unavailable(qdrant_url)
 
         mcp_manager = MCPServerManager(qdrant_url, integration_state_db)
 
@@ -235,6 +248,7 @@ class TestMCPServerStartup:
     ):
         """Test MCP server shuts down gracefully on SIGTERM."""
         qdrant_url = "http://localhost:6333"
+        _skip_if_qdrant_unavailable(qdrant_url)
         mcp_manager = MCPServerManager(qdrant_url, integration_state_db)
 
         try:
@@ -426,6 +440,7 @@ class TestStartupRecovery:
     async def test_daemon_restarts_after_crash(self, integration_state_db):
         """Test daemon can be restarted after crash."""
         qdrant_url = "http://localhost:6333"
+        _skip_if_qdrant_unavailable(qdrant_url)
         daemon_manager = DaemonManager(qdrant_url, integration_state_db)
 
         try:
@@ -447,6 +462,7 @@ class TestStartupRecovery:
     async def test_mcp_server_restarts_after_crash(self, integration_state_db):
         """Test MCP server can be restarted after crash."""
         qdrant_url = "http://localhost:6333"
+        _skip_if_qdrant_unavailable(qdrant_url)
         mcp_manager = MCPServerManager(qdrant_url, integration_state_db)
 
         try:

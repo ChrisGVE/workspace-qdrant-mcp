@@ -31,6 +31,7 @@ Performance Targets:
 """
 
 import asyncio
+import hashlib
 import os
 import shutil
 import subprocess
@@ -42,7 +43,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from common.core.sqlite_state_manager import (
-    ProjectRecord,
     SQLiteStateManager,
     WatchFolderConfig,
 )
@@ -168,21 +168,16 @@ async def watch_enabled_state_manager(active_dev_project):
     await state_manager.initialize()
 
     # Register project
-    detector = ProjectDetector(str(project_path))
-    project_info = await detector.detect_project()
-    project_id = project_info.get("project_id")
-    tenant_id = calculate_tenant_id(project_id)
-
-    project_record = ProjectRecord(
+    detector = ProjectDetector()
+    project_info = detector.get_project_info(str(project_path))
+    project_id = hashlib.sha256(str(project_path).encode("utf-8")).hexdigest()[:12]
+    tenant_id = calculate_tenant_id(project_path)
+    await state_manager.register_project(
         project_id=project_id,
-        tenant_id=tenant_id,
-        project_root=str(project_path),
-        git_remote=project_info.get("git_remote"),
-        git_branch=project_info.get("branch", "main"),
-        is_git_repo=True,
-        metadata={}
+        path=str(project_path),
+        name=project_info.get("main_project"),
+        git_remote=project_info.get("remote_url"),
     )
-    await state_manager.save_project(project_record)
 
     # Configure watch folder
     watch_config = WatchFolderConfig(
@@ -197,7 +192,7 @@ async def watch_enabled_state_manager(active_dev_project):
         debounce_seconds=1.0,  # Fast debounce for testing
         enabled=True
     )
-    await state_manager.save_watch_folder_config(watch_config.watch_id, watch_config)
+    await state_manager.save_watch_folder_config(watch_config)
 
     yield {
         "manager": state_manager,
@@ -437,6 +432,17 @@ def calculate_length(text: str) -> int:
         project = active_dev_project["path"]
         main_file = active_dev_project["files"]["main"]
 
+        # Capture base branch (could be main/master depending on git defaults)
+        base_branch_result = subprocess.run(
+            ["git", "branch", "--show-current"],
+            cwd=project,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        base_branch = base_branch_result.stdout.strip()
+        assert base_branch
+
         # Create and switch to feature branch
         subprocess.run(
             ["git", "checkout", "-b", "feature/new-feature"],
@@ -468,9 +474,9 @@ def calculate_length(text: str) -> int:
             capture_output=True
         )
 
-        # Switch back to main
+        # Switch back to base branch
         subprocess.run(
-            ["git", "checkout", "main"],
+            ["git", "checkout", base_branch],
             cwd=project,
             check=True,
             capture_output=True
@@ -484,7 +490,7 @@ def calculate_length(text: str) -> int:
             capture_output=True,
             text=True
         )
-        assert "main" in branch_result.stdout
+        assert base_branch in branch_result.stdout
 
     async def test_search_driven_development(
         self,

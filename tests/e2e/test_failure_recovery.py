@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
+import httpx
 import psutil
 import pytest
 
@@ -22,6 +23,16 @@ from tests.e2e.fixtures import (
     MCPServerManager,
     SystemComponents,
 )
+
+
+def _skip_if_qdrant_unavailable(qdrant_url: str):
+    """Skip tests if Qdrant is not reachable."""
+    try:
+        response = httpx.get(f"{qdrant_url}/health", timeout=2.0)
+    except Exception:
+        pytest.skip("Qdrant not available for integration test")
+    if response.status_code != 200:
+        pytest.skip("Qdrant not healthy for integration test")
 
 
 @pytest.mark.integration
@@ -227,6 +238,7 @@ class TestMCPServerFailure:
         self, integration_test_workspace, integration_state_db
     ):
         """Test MCP server graceful shutdown."""
+        _skip_if_qdrant_unavailable("http://localhost:6333")
         mcp_manager = MCPServerManager(
             qdrant_url="http://localhost:6333",
             state_db_path=integration_state_db,
@@ -246,6 +258,7 @@ class TestMCPServerFailure:
         self, integration_test_workspace, integration_state_db
     ):
         """Test MCP server recovery after forced termination."""
+        _skip_if_qdrant_unavailable("http://localhost:6333")
         mcp_manager = MCPServerManager(
             qdrant_url="http://localhost:6333",
             state_db_path=integration_state_db,
@@ -273,6 +286,7 @@ class TestMCPServerFailure:
         self, integration_test_workspace, integration_state_db
     ):
         """Test MCP server can restart after crash."""
+        _skip_if_qdrant_unavailable("http://localhost:6333")
         mcp_manager = MCPServerManager(
             qdrant_url="http://localhost:6333",
             state_db_path=integration_state_db,

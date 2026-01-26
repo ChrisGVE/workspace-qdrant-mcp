@@ -835,8 +835,19 @@ class TestComprehensiveVersionCompatibility:
             mcp_major = int(mcp_parts[0])
             mcp_minor = int(mcp_parts[1].split("dev")[0])
 
-            # Compatibility: same major.minor
-            actual_compatible = (daemon_major == mcp_major) and (daemon_minor == mcp_minor)
+            # Compatibility: same major/minor or within backward-compatible range
+            current_minor = int(VERSION_COMPATIBILITY_CONFIG["versions"]["current"].split(".")[1])
+            previous_minor = int(VERSION_COMPATIBILITY_CONFIG["versions"]["previous_minor"].split(".")[1])
+            allowed_backcompat = {current_minor, previous_minor}
+
+            if daemon_major != mcp_major:
+                actual_compatible = False
+            elif daemon_minor == mcp_minor:
+                actual_compatible = True
+            elif {daemon_minor, mcp_minor} == allowed_backcompat:
+                actual_compatible = True
+            else:
+                actual_compatible = False
 
             test_duration = time.time() - test_start
 

@@ -9,6 +9,7 @@ This conftest provides:
 - Permission diagnostic utilities
 """
 
+import importlib.util
 import os
 import stat
 import sys
@@ -21,6 +22,7 @@ import pytest
 _PROJECT_ROOT = Path(__file__).parent.parent
 _EXPECTED_DIR_MODE = 0o755  # drwxr-xr-x
 _ORIGINAL_PERMISSIONS: dict[str, int] = {}
+_PYTEST_TIMEOUT_AVAILABLE = importlib.util.find_spec("pytest_timeout") is not None
 
 
 def _get_permission_mode(path: Path) -> int | None:
@@ -142,6 +144,8 @@ collect_ignore = [
 # Import shared fixtures to make them available to all tests
 pytest_plugins = [
     "tests.shared.fixtures",
+    "tests.e2e.fixtures",
+    "tests.e2e.steps.common_steps",
 ]
 
 
@@ -173,6 +177,24 @@ def pytest_configure(config):
         "markers",
         "shared_container: Test uses shared Qdrant container",
     )
+    if not _PYTEST_TIMEOUT_AVAILABLE:
+        config.addinivalue_line(
+            "markers",
+            "timeout(timeout): fallback timeout marker when pytest-timeout is missing",
+        )
+
+
+def pytest_addoption(parser):
+    """
+    Register fallback ini options when optional plugins are unavailable.
+    """
+    if not _PYTEST_TIMEOUT_AVAILABLE:
+        parser.addini("timeout", "Fallback timeout option when pytest-timeout is missing", default=None)
+        parser.addini(
+            "timeout_method",
+            "Fallback timeout_method option when pytest-timeout is missing",
+            default=None,
+        )
 
 
 def pytest_collection_modifyitems(config, items):

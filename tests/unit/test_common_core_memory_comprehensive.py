@@ -530,6 +530,7 @@ class TestDocumentMemoryManager:
             models.ScoredPoint(
                 id=sample_document.id,
                 score=0.95,
+                version=0,
                 payload={
                     "content": sample_document.content,
                     "metadata": sample_document.metadata.to_dict(),
@@ -554,11 +555,13 @@ class TestDocumentMemoryManager:
             models.ScoredPoint(
                 id="doc1",
                 score=0.9,
+                version=0,
                 payload={"content": "matching content", "metadata": {}}
             ),
             models.ScoredPoint(
                 id="doc2",
                 score=0.8,
+                version=0,
                 payload={"content": "another match", "metadata": {}}
             )
         ]
@@ -641,14 +644,11 @@ class TestDocumentMemoryManager:
         manager = DocumentMemoryManager(mock_qdrant_client, mock_embedding_service, "test-memory")
 
         # Mock collection info
-        mock_qdrant_client.get_collection.return_value = models.CollectionInfo(
+        mock_qdrant_client.get_collection.return_value = Mock(
             status=models.CollectionStatus.GREEN,
-            config=models.CollectionConfig(
-                params=models.VectorParams(size=384, distance=models.Distance.COSINE)
-            ),
             vectors_count=100,
             indexed_vectors_count=100,
-            points_count=50
+            points_count=50,
         )
 
         stats = await manager.get_statistics()
@@ -739,7 +739,7 @@ class TestRetrievalOptions:
         )
 
         mock_qdrant_client.search.return_value = [
-            models.ScoredPoint(id="doc1", score=0.95, payload={"content": "test"})
+            models.ScoredPoint(id="doc1", score=0.95, version=0, payload={"content": "test"})
         ]
 
         await manager.search_documents("query", options=options)

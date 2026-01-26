@@ -164,11 +164,9 @@ class TestFileSystemPermissions:
         """Create a temporary test directory."""
         temp_dir = Path(tempfile.mkdtemp())
         yield temp_dir
-        # Cleanup
-        for item in temp_dir.iterdir():
-            if item.is_file():
-                item.unlink()
-        temp_dir.rmdir()
+        # Cleanup (remove nested directories too)
+        import shutil
+        shutil.rmtree(temp_dir, ignore_errors=True)
 
     def test_file_creation_permissions(self, temp_test_dir):
         """Test file creation with permissions."""

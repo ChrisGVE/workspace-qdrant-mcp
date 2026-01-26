@@ -510,6 +510,15 @@ async def system_components(
 
     All components are stopped and cleaned up after tests complete.
     """
+    # Skip if Docker is unavailable (needed for Qdrant container)
+    try:
+        import docker
+
+        client = docker.from_env()
+        client.ping()
+    except Exception:
+        pytest.skip("Docker not available or not running")
+
     # Start Qdrant container
     qdrant = IsolatedQdrantContainer()
     qdrant.start()

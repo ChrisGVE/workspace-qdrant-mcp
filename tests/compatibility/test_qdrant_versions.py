@@ -6,6 +6,7 @@ Validates API compatibility, collection operations, and vector search functional
 """
 
 import asyncio
+import importlib.metadata
 from typing import Optional
 
 import pytest
@@ -38,14 +39,21 @@ class TestQdrantVersionInfo:
 
     def test_qdrant_client_version(self):
         """Test Qdrant client version is 1.7+."""
-        ver = version.parse(qdrant_client.__version__)
+        if hasattr(qdrant_client, "__version__"):
+            ver_str = qdrant_client.__version__
+        else:
+            ver_str = importlib.metadata.version("qdrant-client")
+        ver = version.parse(ver_str)
         assert ver >= version.parse("1.7.0"), (
-            f"Qdrant client {qdrant_client.__version__} is below minimum 1.7.0"
+            f"Qdrant client {ver_str} is below minimum 1.7.0"
         )
 
     def test_qdrant_client_version_string(self):
         """Test Qdrant client version string format."""
-        ver_str = qdrant_client.__version__
+        if hasattr(qdrant_client, "__version__"):
+            ver_str = qdrant_client.__version__
+        else:
+            ver_str = importlib.metadata.version("qdrant-client")
         assert isinstance(ver_str, str)
         assert len(ver_str.split(".")) >= 2  # At least major.minor
 

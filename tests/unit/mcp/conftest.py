@@ -105,11 +105,16 @@ async def mcp_client():
     mock_calculate_tenant_id = Mock(return_value="path_abc123def456789a")
     mock_get_current_branch = Mock(return_value="main")
 
+    # Mock embedding model to avoid network downloads during tests
+    mock_embedding_model = Mock()
+    mock_embedding_model.embed.return_value = [[0.0] * 384]
+
     # Apply patches before creating Client
     with patch("workspace_qdrant_mcp.server.qdrant_client", mock_qdrant), \
          patch("workspace_qdrant_mcp.server.daemon_client", mock_daemon), \
          patch("workspace_qdrant_mcp.server.calculate_tenant_id", mock_calculate_tenant_id), \
-         patch("workspace_qdrant_mcp.server.get_current_branch", mock_get_current_branch):
+         patch("workspace_qdrant_mcp.server.get_current_branch", mock_get_current_branch), \
+         patch("workspace_qdrant_mcp.server.embedding_model", mock_embedding_model):
 
         # Use async context manager for automatic initialization and cleanup
         async with Client(app) as client:
