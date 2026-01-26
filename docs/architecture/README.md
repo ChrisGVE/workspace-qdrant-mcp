@@ -54,7 +54,7 @@ This directory contains the complete architectural specification for the workspa
 |-----------|------|--------|----------|
 | **Rust Daemon** | Heavy Processing Engine | 70% Complete | `/src/rust/daemon/` |
 | **Python MCP Server** | Intelligent Interface | 85% Complete | `/src/python/workspace_qdrant_mcp/` |
-| **CLI Utility** | User Control & Admin | 50% Complete | `/src/python/wqm_cli/` |
+| **CLI Utility** | User Control & Admin | Complete | `/src/rust/cli/` |
 | **Context Injector** | LLM Rule Injection | 0% Complete | `/src/python/context_injector/` (to be created) |
 
 **Overall Architecture Alignment**: ~35% → Target: 100% (PRD v3.0)

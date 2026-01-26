@@ -26,11 +26,11 @@ This document provides a concrete implementation roadmap for migrating from the 
    - Memory management: 70% complete
    - gRPC client: 75% complete
 
-3. ✅ **CLI Utility**: Basic implementation (`/src/python/wqm_cli/`)
-   - Basic commands: 60% complete
-   - Daemon management: 40% complete
-   - Configuration: 50% complete
-   - Administration: 30% complete
+3. ✅ **CLI Utility**: Complete implementation (`/src/rust/cli/`)
+   - Basic commands: 100% complete
+   - Daemon management: 100% complete (wqm service commands)
+   - Configuration: 100% complete
+   - Administration: 100% complete (wqm admin commands)
 
 4. ❌ **Context Injector**: Missing (0% complete)
    - Component does not exist

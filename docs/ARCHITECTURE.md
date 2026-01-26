@@ -528,14 +528,14 @@ graph TB
         DC --> DeleteColl
     end
 
-    subgraph "FALLBACK: Direct Write Path"
-        FallbackNote[⚠️ Backwards Compatibility<br/>Logged as WARNING]
-        DirectClient[Direct Qdrant Client<br/>HTTP API]
+    subgraph "FALLBACK: Unified Queue Path"
+        FallbackNote[⚠️ Queue Fallback<br/>Daemon unavailable]
+        QueueClient[Unified Queue<br/>SQLite enqueue]
     end
 
-    subgraph "EXCEPTION: Memory Collections"
-        MemoryNote[✅ Architectural Decision<br/>Meta-level data]
-        MemoryDirect[Direct Write Allowed<br/>_memory, _agent_memory]
+    subgraph "MEMORY: Daemon Routed"
+        MemoryNote[✅ Task 30 Update<br/>Routes through daemon]
+        MemoryDaemon[Daemon Write Path<br/>_memory, _agent_memory]
     end
 
     subgraph "Qdrant Vector DB"
@@ -550,15 +550,15 @@ graph TB
     Check -->|YES| DC
     Check -->|NO| FallbackNote
 
-    FallbackNote --> DirectClient
+    FallbackNote --> QueueClient
 
     IngestText --> Collections
     CreateColl --> Collections
     DeleteColl --> Collections
-    DirectClient -.->|fallback_mode flag| Collections
+    QueueClient -.->|queued for daemon| Collections
 
-    MemoryNote --> MemoryDirect
-    MemoryDirect --> Collections
+    MemoryNote --> MemoryDaemon
+    MemoryDaemon --> DC
 
     style DC fill:#e1ffe1
     style FallbackNote fill:#ffe1e1
@@ -567,9 +567,9 @@ graph TB
 ```
 
 **Write Priority Levels:**
-1. **PRIMARY**: `DaemonClient` → Daemon → Qdrant (all writes)
-2. **FALLBACK**: Direct `qdrant_client` writes (daemon unavailable, logged with warnings)
-3. **EXCEPTION**: `_memory` collections (direct writes allowed, meta-level data)
+1. **PRIMARY**: `DaemonClient` → Daemon → Qdrant (all writes including memory)
+2. **FALLBACK**: Unified Queue → SQLite → Daemon (when daemon unavailable, processed on restart)
+3. **LAST RESORT**: Direct Qdrant writes only when both daemon and queue unavailable (logged)
 
 **Validation (Task 375.6):**
 - ✅ 18 comprehensive tests
@@ -842,9 +842,10 @@ For detailed component specifications and implementation details:
 **Reference Implementation:**
 - **Server**: `src/python/workspace_qdrant_mcp/server.py` - MCP tools implementation
 - **Daemon**: `src/rust/daemon/` - Unified Rust daemon (current), `src/rust/daemon/core/` (archived)
-- **CLI**: `src/python/wqm_cli/` - Command-line interface
+- **CLI**: `src/rust/cli/` - Rust CLI (wqm binary)
 - **State**: `src/python/common/core/sqlite_state_manager.py` - SQLite management
 
-**Version**: 1.1
-**Last Updated**: 2025-01-19
+**Version**: 1.2
+**Last Updated**: 2026-01-26
 **PRD Alignment**: v3.0 Four-Component Architecture
+**Updates**: Task 40 - Removed Python CLI references, updated to Rust CLI; Task 30/41 - Memory routes through daemon

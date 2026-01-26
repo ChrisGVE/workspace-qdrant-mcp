@@ -94,7 +94,7 @@ This document establishes the formal component boundaries and responsibilities f
 - No dependency on MCP server or daemon for core operations
 - Own configuration and logging system
 
-**Location**: `/src/python/wqm_cli/`
+**Location**: `/src/rust/cli/` (Rust CLI - `wqm` binary)
 
 ---
 
