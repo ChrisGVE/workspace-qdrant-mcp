@@ -98,6 +98,34 @@ pub struct DaemonMetrics {
     /// Events throttled due to queue depth
     /// Labels: watch_id, load_level (high, critical)
     pub watch_events_throttled_total: IntCounterVec,
+
+    // Unified Queue metrics (Task 37.35)
+    /// Current unified queue depth by item_type and status
+    /// Labels: item_type, status (pending, in_progress, done, failed)
+    pub unified_queue_depth: IntGaugeVec,
+
+    /// Unified queue processing time in seconds by item_type
+    /// Labels: item_type
+    pub unified_queue_processing_time_seconds: HistogramVec,
+
+    /// Total unified queue items by item_type, op, and result
+    /// Labels: item_type, op, result (success, failure, skipped)
+    pub unified_queue_items_total: IntCounterVec,
+
+    /// Total unified queue enqueues by source
+    /// Labels: source (mcp_store, mcp_manage, cli_ingest, cli_memory, daemon)
+    pub unified_queue_enqueues_total: IntCounterVec,
+
+    /// Total unified queue dequeues by item_type
+    /// Labels: item_type
+    pub unified_queue_dequeues_total: IntCounterVec,
+
+    /// Stale lease items in unified queue (expired but not recovered)
+    pub unified_queue_stale_items: IntGaugeVec,
+
+    /// Unified queue retry count by item_type
+    /// Labels: item_type
+    pub unified_queue_retries_total: IntCounterVec,
 }
 
 impl DaemonMetrics {
@@ -290,6 +318,78 @@ impl DaemonMetrics {
         )
         .expect("metric can be created");
 
+        // Unified Queue metrics (Task 37.35)
+        let unified_queue_depth = IntGaugeVec::new(
+            Opts::new(
+                "memexd_unified_queue_depth",
+                "Current unified queue depth by item_type and status",
+            )
+            .namespace("memexd"),
+            &["item_type", "status"],
+        )
+        .expect("metric can be created");
+
+        let unified_queue_processing_time_seconds = HistogramVec::new(
+            prometheus::HistogramOpts::new(
+                "memexd_unified_queue_processing_time_seconds",
+                "Unified queue item processing time in seconds",
+            )
+            .namespace("memexd")
+            .buckets(vec![0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0]),
+            &["item_type"],
+        )
+        .expect("metric can be created");
+
+        let unified_queue_items_total = IntCounterVec::new(
+            Opts::new(
+                "memexd_unified_queue_items_total",
+                "Total unified queue items processed by item_type, op, and result",
+            )
+            .namespace("memexd"),
+            &["item_type", "op", "result"],
+        )
+        .expect("metric can be created");
+
+        let unified_queue_enqueues_total = IntCounterVec::new(
+            Opts::new(
+                "memexd_unified_queue_enqueues_total",
+                "Total unified queue enqueues by source",
+            )
+            .namespace("memexd"),
+            &["source"],
+        )
+        .expect("metric can be created");
+
+        let unified_queue_dequeues_total = IntCounterVec::new(
+            Opts::new(
+                "memexd_unified_queue_dequeues_total",
+                "Total unified queue dequeues by item_type",
+            )
+            .namespace("memexd"),
+            &["item_type"],
+        )
+        .expect("metric can be created");
+
+        let unified_queue_stale_items = IntGaugeVec::new(
+            Opts::new(
+                "memexd_unified_queue_stale_items",
+                "Stale lease items in unified queue",
+            )
+            .namespace("memexd"),
+            &[],
+        )
+        .expect("metric can be created");
+
+        let unified_queue_retries_total = IntCounterVec::new(
+            Opts::new(
+                "memexd_unified_queue_retries_total",
+                "Unified queue retry count by item_type",
+            )
+            .namespace("memexd"),
+            &["item_type"],
+        )
+        .expect("metric can be created");
+
         // Register all metrics
         registry
             .register(Box::new(active_sessions.clone()))
@@ -345,6 +445,28 @@ impl DaemonMetrics {
         registry
             .register(Box::new(watch_events_throttled_total.clone()))
             .expect("metric can be registered");
+        // Unified queue metrics registration (Task 37.35)
+        registry
+            .register(Box::new(unified_queue_depth.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(unified_queue_processing_time_seconds.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(unified_queue_items_total.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(unified_queue_enqueues_total.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(unified_queue_dequeues_total.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(unified_queue_stale_items.clone()))
+            .expect("metric can be registered");
+        registry
+            .register(Box::new(unified_queue_retries_total.clone()))
+            .expect("metric can be registered");
 
         Self {
             registry,
@@ -366,6 +488,14 @@ impl DaemonMetrics {
             watches_in_backoff,
             watch_recovery_time_seconds,
             watch_events_throttled_total,
+            // Unified queue metrics
+            unified_queue_depth,
+            unified_queue_processing_time_seconds,
+            unified_queue_items_total,
+            unified_queue_enqueues_total,
+            unified_queue_dequeues_total,
+            unified_queue_stale_items,
+            unified_queue_retries_total,
         }
     }
 
@@ -543,6 +673,59 @@ impl DaemonMetrics {
     pub fn watch_event_throttled(&self, watch_id: &str, load_level: &str) {
         self.watch_events_throttled_total
             .with_label_values(&[watch_id, load_level])
+            .inc();
+    }
+
+    // Unified Queue helpers (Task 37.35)
+
+    /// Set unified queue depth for item_type and status
+    pub fn set_unified_queue_depth(&self, item_type: &str, status: &str, depth: i64) {
+        self.unified_queue_depth
+            .with_label_values(&[item_type, status])
+            .set(depth);
+    }
+
+    /// Record unified queue item processed
+    pub fn unified_queue_item_processed(
+        &self,
+        item_type: &str,
+        op: &str,
+        result: &str,
+        processing_time_secs: f64,
+    ) {
+        self.unified_queue_items_total
+            .with_label_values(&[item_type, op, result])
+            .inc();
+        self.unified_queue_processing_time_seconds
+            .with_label_values(&[item_type])
+            .observe(processing_time_secs);
+    }
+
+    /// Record unified queue enqueue
+    pub fn unified_queue_enqueued(&self, source: &str) {
+        self.unified_queue_enqueues_total
+            .with_label_values(&[source])
+            .inc();
+    }
+
+    /// Record unified queue dequeue
+    pub fn unified_queue_dequeued(&self, item_type: &str) {
+        self.unified_queue_dequeues_total
+            .with_label_values(&[item_type])
+            .inc();
+    }
+
+    /// Set count of stale lease items
+    pub fn set_unified_queue_stale_items(&self, count: i64) {
+        self.unified_queue_stale_items
+            .with_label_values(&[])
+            .set(count);
+    }
+
+    /// Record a retry for unified queue item
+    pub fn unified_queue_retry(&self, item_type: &str) {
+        self.unified_queue_retries_total
+            .with_label_values(&[item_type])
             .inc();
     }
 }
@@ -1178,5 +1361,74 @@ mod tests {
 
         let alerts = checker.check_all(&snapshot);
         assert_eq!(alerts.len(), 2);  // Queue depth and error rate alerts
+    }
+
+    // Unified Queue metrics tests (Task 37.35)
+
+    #[test]
+    fn test_unified_queue_metrics() {
+        let metrics = DaemonMetrics::new();
+
+        // Test queue depth
+        metrics.set_unified_queue_depth("content", "pending", 50);
+        let value = metrics
+            .unified_queue_depth
+            .with_label_values(&["content", "pending"])
+            .get();
+        assert_eq!(value, 50);
+
+        // Test item processed
+        metrics.unified_queue_item_processed("content", "ingest", "success", 0.5);
+        let value = metrics
+            .unified_queue_items_total
+            .with_label_values(&["content", "ingest", "success"])
+            .get();
+        assert_eq!(value, 1);
+
+        // Test enqueue
+        metrics.unified_queue_enqueued("mcp_store");
+        let value = metrics
+            .unified_queue_enqueues_total
+            .with_label_values(&["mcp_store"])
+            .get();
+        assert_eq!(value, 1);
+
+        // Test dequeue
+        metrics.unified_queue_dequeued("file");
+        let value = metrics
+            .unified_queue_dequeues_total
+            .with_label_values(&["file"])
+            .get();
+        assert_eq!(value, 1);
+
+        // Test stale items
+        metrics.set_unified_queue_stale_items(3);
+        let value = metrics
+            .unified_queue_stale_items
+            .with_label_values(&[])
+            .get();
+        assert_eq!(value, 3);
+
+        // Test retry
+        metrics.unified_queue_retry("folder");
+        let value = metrics
+            .unified_queue_retries_total
+            .with_label_values(&["folder"])
+            .get();
+        assert_eq!(value, 1);
+    }
+
+    #[test]
+    fn test_unified_queue_metrics_in_prometheus_output() {
+        let metrics = DaemonMetrics::new();
+
+        // Add unified queue metrics
+        metrics.set_unified_queue_depth("content", "pending", 100);
+        metrics.unified_queue_enqueued("cli_ingest");
+
+        // Encode and verify
+        let output = metrics.encode().expect("encoding should succeed");
+        assert!(output.contains("memexd_unified_queue_depth"));
+        assert!(output.contains("memexd_unified_queue_enqueues_total"));
     }
 }
