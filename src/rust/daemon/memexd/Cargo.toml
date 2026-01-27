@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Internal dependencies
-workspace-qdrant-core = { path = "../core" }
+workspace-qdrant-core = { path = "../core", default-features = false }
 workspace-qdrant-grpc = { path = "../grpc" }
 
 # CLI and argument parsing

@@ -54,7 +54,7 @@ once_cell = "1.19"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "chrono", "json"] }
 reqwest = { version = "0.11", features = ["stream", "json"] }
 ahash = "0.8"
-sqlx = { version = "0.7", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
 regex = "1.10"
 which = "6.0"
 qdrant-client = "1.15"
