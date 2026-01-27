@@ -9,7 +9,7 @@ repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
 
 [dependencies]
 # Core engine
-workspace-qdrant-core = { path = "../core", default-features = false }
+workspace-qdrant-core = { path = "../core" }
 
 # Async runtime
 tokio = { version = "1.35", features = ["rt-multi-thread", "macros", "net"] }
@@ -32,9 +32,8 @@ tracing = { version = "0.1", features = ["log"] }
 # UUID generation
 uuid = { version = "1.0", features = ["v4"] }
 
-# Embedding generation (optional - requires ONNX Runtime)
-# Intel Mac (x86_64-apple-darwin) may need ONNX Runtime built from source
-fastembed = { version = "5", optional = true }
+# Embedding generation
+fastembed = "5"
 
 # Caching
 lru = "0.12"
@@ -50,9 +49,6 @@ tonic-build = { version = "0.12", features = ["prost"] }
 prost-build = "0.13"
 
 [features]
-default = []
-# Embedding support (requires ONNX Runtime - may need manual setup on Intel Mac)
-embeddings = ["fastembed"]
 # Legacy gRPC tests targeting the deprecated ingest service/proto.
 # Enable explicitly with: cargo test -p workspace-qdrant-grpc --features legacy_grpc_tests
 legacy_grpc_tests = []

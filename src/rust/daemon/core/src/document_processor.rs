@@ -303,10 +303,10 @@ fn extract_epub(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<St
 
     // Extract metadata
     if let Some(title) = doc.mdata("title") {
-        metadata.insert("title".to_string(), title);
+        metadata.insert("title".to_string(), title.value.clone());
     }
     if let Some(author) = doc.mdata("creator") {
-        metadata.insert("author".to_string(), author);
+        metadata.insert("author".to_string(), author.value.clone());
     }
 
     // Extract text from all chapters

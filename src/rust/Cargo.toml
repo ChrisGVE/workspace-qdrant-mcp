@@ -119,6 +119,13 @@ regex = "1.10"
 testcontainers = { version = "0.25", features = ["blocking"] }
 testcontainers-modules = { version = "0.13" }
 
+# ONNX Runtime configuration
+# Using load-dynamic to avoid prebuilt binary issues on Intel Mac (x86_64-apple-darwin)
+# Requires ONNX Runtime to be installed on the system or ORT_DYLIB_PATH set
+[workspace.dependencies.ort]
+version = "2.0.0-rc.11"
+features = ["load-dynamic"]
+
 [workspace.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
