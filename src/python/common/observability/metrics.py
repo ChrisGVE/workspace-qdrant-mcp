@@ -947,3 +947,253 @@ def get_dual_write_metrics_summary() -> dict[str, Any]:
             Gauge("dual_write_queue_drift_items")
         ).get_all_labeled_values(),
     }
+
+
+# =====================================================================
+# Queue Processor Metrics (Task 49)
+# =====================================================================
+
+_queue_processor_metrics_initialized = False
+
+
+def _initialize_queue_processor_metrics(collector: MetricsCollector) -> None:
+    """Initialize queue processor metrics.
+
+    Creates comprehensive metrics for queue monitoring:
+
+    Counters:
+        - queue_items_enqueued_total: Items added to queue
+        - queue_items_processed_total: Items processed (done/failed)
+        - queue_items_retried_total: Items retried after failure
+
+    Gauges:
+        - queue_depth_current: Current queue depth by status
+        - queue_age_oldest_pending_seconds: Age of oldest pending item
+        - active_projects_count: Number of active projects
+
+    Histograms:
+        - queue_processing_duration_seconds: Time from enqueue to done
+        - queue_wait_duration_seconds: Time in pending state
+    """
+    # Counters
+    collector.create_counter(
+        "queue_items_enqueued_total",
+        "Total items enqueued by item_type and operation"
+    )
+    collector.create_counter(
+        "queue_items_processed_total",
+        "Total items processed by item_type, operation, and status (done/failed)"
+    )
+    collector.create_counter(
+        "queue_items_retried_total",
+        "Total items retried after failure by item_type"
+    )
+
+    # Gauges
+    collector.create_gauge(
+        "queue_depth_current",
+        "Current queue depth by status (pending/in_progress/done/failed)"
+    )
+    collector.create_gauge(
+        "queue_age_oldest_pending_seconds",
+        "Age of the oldest pending item in seconds"
+    )
+    collector.create_gauge(
+        "active_projects_count",
+        "Number of projects with active queue items"
+    )
+
+    # Histograms
+    collector.create_histogram(
+        "queue_processing_duration_seconds",
+        "Time from enqueue to completion by item_type and operation",
+        buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]
+    )
+    collector.create_histogram(
+        "queue_wait_duration_seconds",
+        "Time spent in pending state before processing by item_type",
+        buckets=[0.1, 0.5, 1.0, 2.5, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0]
+    )
+
+
+def _ensure_queue_processor_metrics() -> None:
+    """Ensure queue processor metrics are initialized (once)."""
+    global _queue_processor_metrics_initialized
+    if not _queue_processor_metrics_initialized:
+        _initialize_queue_processor_metrics(get_metrics_collector())
+        _queue_processor_metrics_initialized = True
+
+
+def record_queue_enqueue(item_type: str, op: str) -> None:
+    """Record an item being enqueued.
+
+    Args:
+        item_type: Type of item (file, folder, content, collection, search)
+        op: Operation type (ingest, update, delete, etc.)
+    """
+    _ensure_queue_processor_metrics()
+    get_metrics_collector().increment_counter(
+        "queue_items_enqueued_total",
+        item_type=item_type,
+        op=op
+    )
+
+
+def record_queue_processed(item_type: str, op: str, status: str) -> None:
+    """Record an item being processed.
+
+    Args:
+        item_type: Type of item
+        op: Operation type
+        status: Final status (done or failed)
+    """
+    _ensure_queue_processor_metrics()
+    get_metrics_collector().increment_counter(
+        "queue_items_processed_total",
+        item_type=item_type,
+        op=op,
+        status=status
+    )
+
+
+def record_queue_retry(item_type: str) -> None:
+    """Record an item being retried.
+
+    Args:
+        item_type: Type of item being retried
+    """
+    _ensure_queue_processor_metrics()
+    get_metrics_collector().increment_counter(
+        "queue_items_retried_total",
+        item_type=item_type
+    )
+
+
+def set_queue_depth(status: str, count: int) -> None:
+    """Set current queue depth for a status.
+
+    Args:
+        status: Queue status (pending, in_progress, done, failed)
+        count: Current number of items with this status
+    """
+    _ensure_queue_processor_metrics()
+    get_metrics_collector().set_gauge(
+        "queue_depth_current",
+        count,
+        status=status
+    )
+
+
+def set_oldest_pending_age(age_seconds: float) -> None:
+    """Set the age of the oldest pending item.
+
+    Args:
+        age_seconds: Age in seconds (0 if no pending items)
+    """
+    _ensure_queue_processor_metrics()
+    get_metrics_collector().set_gauge(
+        "queue_age_oldest_pending_seconds",
+        age_seconds
+    )
+
+
+def set_active_projects_count(count: int) -> None:
+    """Set the number of active projects.
+
+    Args:
+        count: Number of projects with queue items
+    """
+    _ensure_queue_processor_metrics()
+    get_metrics_collector().set_gauge(
+        "active_projects_count",
+        count
+    )
+
+
+def record_processing_duration(item_type: str, op: str, duration_seconds: float) -> None:
+    """Record processing duration for an item.
+
+    Args:
+        item_type: Type of item
+        op: Operation type
+        duration_seconds: Time from enqueue to completion
+    """
+    _ensure_queue_processor_metrics()
+    get_metrics_collector().record_histogram(
+        "queue_processing_duration_seconds",
+        duration_seconds,
+        item_type=item_type,
+        op=op
+    )
+
+
+def record_wait_duration(item_type: str, duration_seconds: float) -> None:
+    """Record time spent waiting in pending state.
+
+    Args:
+        item_type: Type of item
+        duration_seconds: Time spent in pending state
+    """
+    _ensure_queue_processor_metrics()
+    get_metrics_collector().record_histogram(
+        "queue_wait_duration_seconds",
+        duration_seconds,
+        item_type=item_type
+    )
+
+
+def get_queue_processor_metrics_summary() -> dict[str, Any]:
+    """Get a summary of queue processor metrics.
+
+    Returns:
+        Dict with queue metrics including counts, depths, and latencies
+    """
+    _ensure_queue_processor_metrics()
+    metrics = get_metrics_collector()
+
+    return {
+        "enqueued": metrics.counters.get(
+            "queue_items_enqueued_total",
+            Counter("queue_items_enqueued_total")
+        ).get_all_labeled_values(),
+        "processed": metrics.counters.get(
+            "queue_items_processed_total",
+            Counter("queue_items_processed_total")
+        ).get_all_labeled_values(),
+        "retried": metrics.counters.get(
+            "queue_items_retried_total",
+            Counter("queue_items_retried_total")
+        ).get_all_labeled_values(),
+        "depth": metrics.gauges.get(
+            "queue_depth_current",
+            Gauge("queue_depth_current")
+        ).get_all_labeled_values(),
+        "oldest_pending_age": metrics.gauges.get(
+            "queue_age_oldest_pending_seconds",
+            Gauge("queue_age_oldest_pending_seconds")
+        ).get_value(),
+        "active_projects": metrics.gauges.get(
+            "active_projects_count",
+            Gauge("active_projects_count")
+        ).get_value(),
+        "processing_duration": {
+            "count": metrics.histograms.get(
+                "queue_processing_duration_seconds",
+                Histogram("queue_processing_duration_seconds")
+            ).get_count(),
+            "average": metrics.histograms.get(
+                "queue_processing_duration_seconds",
+                Histogram("queue_processing_duration_seconds")
+            ).get_average(),
+        },
+        "wait_duration": {
+            "count": metrics.histograms.get(
+                "queue_wait_duration_seconds",
+                Histogram("queue_wait_duration_seconds")
+            ).get_count(),
+            "average": metrics.histograms.get(
+                "queue_wait_duration_seconds",
+                Histogram("queue_wait_duration_seconds")
+            ).get_average(),
+        },
+    }

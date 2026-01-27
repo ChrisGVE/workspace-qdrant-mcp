@@ -57,6 +57,11 @@ from loguru import logger
 from ..observability.metrics import (
     record_dual_write_failure,
     record_dual_write_success,
+    record_processing_duration,
+    record_queue_enqueue,
+    record_queue_processed,
+    record_queue_retry,
+    record_wait_duration,
 )
 from ..utils.os_directories import OSDirectories
 
@@ -3449,6 +3454,9 @@ class SQLiteStateManager:
                     f"(type={item_type_str}, op={op_str}, collection={collection}, priority={priority})"
                 )
 
+                # Record enqueue metric
+                record_queue_enqueue(item_type_str, op_str)
+
                 # Handle dual-write if enabled
                 should_dual_write = dual_write
                 if should_dual_write is None:
@@ -4058,6 +4066,15 @@ class SQLiteStateManager:
                     )
                     items.append(item)
 
+                    # Record wait duration (time from enqueue to dequeue)
+                    if item.created_at:
+                        try:
+                            wait_duration = (now - item.created_at).total_seconds()
+                            if wait_duration >= 0:
+                                record_wait_duration(item.item_type, wait_duration)
+                        except (ValueError, TypeError):
+                            pass  # Skip if calculation fails
+
                 logger.debug(f"Dequeued {len(items)} unified queue items for worker {worker_id}")
                 return items
 
@@ -4088,6 +4105,21 @@ class SQLiteStateManager:
             now = datetime.now(timezone.utc)
 
             async with self.transaction() as conn:
+                # Fetch item details for metrics
+                cursor = conn.execute(
+                    "SELECT item_type, op, created_at FROM unified_queue WHERE queue_id = ?",
+                    (queue_id,),
+                )
+                row = cursor.fetchone()
+
+                if not row:
+                    logger.warning(f"Unified queue item not found: {queue_id}")
+                    return False
+
+                item_type = row["item_type"]
+                op = row["op"]
+                created_at_str = row["created_at"]
+
                 cursor = conn.execute(
                     """
                     UPDATE unified_queue
@@ -4104,8 +4136,20 @@ class SQLiteStateManager:
 
                 if updated:
                     logger.debug(f"Marked unified queue item done: {queue_id}")
-                else:
-                    logger.warning(f"Unified queue item not found: {queue_id}")
+
+                    # Record metrics
+                    record_queue_processed(item_type, op, "done")
+
+                    # Calculate and record processing duration
+                    if created_at_str:
+                        try:
+                            created_at = datetime.fromisoformat(
+                                created_at_str.replace("Z", "+00:00")
+                            )
+                            duration = (now - created_at).total_seconds()
+                            record_processing_duration(item_type, op, duration)
+                        except (ValueError, TypeError):
+                            pass  # Skip if timestamp parsing fails
 
                 return updated
 
@@ -4140,9 +4184,12 @@ class SQLiteStateManager:
             now = datetime.now(timezone.utc)
 
             async with self.transaction() as conn:
-                # Check current retry state
+                # Check current retry state and get item details for metrics
                 cursor = conn.execute(
-                    "SELECT retry_count, max_retries FROM unified_queue WHERE queue_id = ?",
+                    """
+                    SELECT retry_count, max_retries, item_type, op, created_at
+                    FROM unified_queue WHERE queue_id = ?
+                    """,
                     (queue_id,),
                 )
                 row = cursor.fetchone()
@@ -4153,6 +4200,9 @@ class SQLiteStateManager:
 
                 retry_count = row["retry_count"]
                 max_retries = row["max_retries"]
+                item_type = row["item_type"]
+                op = row["op"]
+                created_at_str = row["created_at"]
 
                 if retry and retry_count < max_retries:
                     # Reschedule for retry
@@ -4174,6 +4224,9 @@ class SQLiteStateManager:
                         f"Rescheduled unified queue item for retry: {queue_id} "
                         f"(attempt {retry_count + 1}/{max_retries})"
                     )
+
+                    # Record retry metric
+                    record_queue_retry(item_type)
                 else:
                     # Mark as permanently failed
                     cursor = conn.execute(
@@ -4191,6 +4244,20 @@ class SQLiteStateManager:
                         (error_message, now.isoformat(), now.isoformat(), queue_id),
                     )
                     logger.warning(f"Marked unified queue item as failed (max retries): {queue_id}")
+
+                    # Record failure metric
+                    record_queue_processed(item_type, op, "failed")
+
+                    # Calculate and record processing duration
+                    if created_at_str:
+                        try:
+                            created_at = datetime.fromisoformat(
+                                created_at_str.replace("Z", "+00:00")
+                            )
+                            duration = (now - created_at).total_seconds()
+                            record_processing_duration(item_type, op, duration)
+                        except (ValueError, TypeError):
+                            pass  # Skip if timestamp parsing fails
 
                 return cursor.rowcount > 0
 
