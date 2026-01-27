@@ -9,6 +9,7 @@
 #
 # Options:
 #   --prefix PATH      Installation prefix (default: ~/.local)
+#   --force            Clean rebuild from scratch (cargo clean)
 #   --no-service       Skip daemon service installation
 #   --no-verify        Skip verification steps
 #   --cli-only         Build only CLI (skip daemon)
@@ -21,6 +22,7 @@
 # Examples:
 #   ./install.sh                          # Install to ~/.local/bin
 #   ./install.sh --prefix /usr/local      # Install to /usr/local/bin
+#   ./install.sh --force                  # Clean rebuild from scratch
 #   INSTALL_PREFIX=/opt/wqm ./install.sh  # Install to /opt/wqm/bin
 #
 
@@ -39,6 +41,7 @@ INSTALL_PREFIX="${INSTALL_PREFIX:-$DEFAULT_PREFIX}"
 NO_SERVICE=false
 NO_VERIFY=false
 CLI_ONLY=false
+FORCE=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -57,6 +60,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --cli-only)
             CLI_ONLY=true
+            shift
+            ;;
+        --force)
+            FORCE=true
             shift
             ;;
         --help|-h)
@@ -118,6 +125,11 @@ build_rust() {
     info "Building Rust binaries from unified workspace..."
 
     cd src/rust
+
+    if [ "$FORCE" = true ]; then
+        info "Force rebuild: cleaning previous build artifacts..."
+        cargo clean
+    fi
 
     if [ "$CLI_ONLY" = true ]; then
         info "Building CLI only (--cli-only specified)..."
