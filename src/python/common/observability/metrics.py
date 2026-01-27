@@ -815,3 +815,135 @@ def get_tool_metrics_summary() -> dict[str, Any]:
             "average": metrics.histograms.get("wqm_search_latency_seconds", Histogram("wqm_search_latency_seconds")).get_average(),
         },
     }
+
+
+# =====================================================================
+# Dual-Write Migration Metrics (Task 43)
+# =====================================================================
+
+_dual_write_metrics_initialized = False
+
+
+def _initialize_dual_write_metrics(collector: MetricsCollector) -> None:
+    """Initialize dual-write migration metrics.
+
+    Creates:
+        - dual_write_legacy_success_total: Counter for successful legacy queue writes
+        - dual_write_legacy_failure_total: Counter for failed legacy queue writes
+        - dual_write_drift_detected_total: Counter for drift detection events
+    """
+    collector.create_counter(
+        "dual_write_legacy_success_total",
+        "Successful dual-writes to legacy queue by item_type"
+    )
+    collector.create_counter(
+        "dual_write_legacy_failure_total",
+        "Failed dual-writes to legacy queue by item_type and error_type"
+    )
+    collector.create_counter(
+        "dual_write_drift_detected_total",
+        "Queue drift detection events by drift_type"
+    )
+    collector.create_gauge(
+        "dual_write_queue_drift_items",
+        "Current number of items with drift between unified and legacy queues"
+    )
+
+
+def _ensure_dual_write_metrics() -> None:
+    """Ensure dual-write metrics are initialized (once)."""
+    global _dual_write_metrics_initialized
+    if not _dual_write_metrics_initialized:
+        _initialize_dual_write_metrics(get_metrics_collector())
+        _dual_write_metrics_initialized = True
+
+
+def record_dual_write_success(item_type: str, legacy_queue: str) -> None:
+    """Record a successful dual-write to legacy queue.
+
+    Args:
+        item_type: Type of item written (content, file, folder)
+        legacy_queue: Target legacy queue name
+    """
+    _ensure_dual_write_metrics()
+    get_metrics_collector().increment_counter(
+        "dual_write_legacy_success_total",
+        item_type=item_type,
+        legacy_queue=legacy_queue
+    )
+
+
+def record_dual_write_failure(item_type: str, legacy_queue: str, error_type: str) -> None:
+    """Record a failed dual-write to legacy queue.
+
+    Args:
+        item_type: Type of item being written (content, file, folder)
+        legacy_queue: Target legacy queue name
+        error_type: Type of error that occurred
+    """
+    _ensure_dual_write_metrics()
+    get_metrics_collector().increment_counter(
+        "dual_write_legacy_failure_total",
+        item_type=item_type,
+        legacy_queue=legacy_queue,
+        error_type=error_type
+    )
+
+
+def record_drift_detected(drift_type: str, count: int = 1) -> None:
+    """Record drift detection between unified and legacy queues.
+
+    Args:
+        drift_type: Type of drift (missing_in_legacy, missing_in_unified, status_mismatch)
+        count: Number of drifted items
+    """
+    _ensure_dual_write_metrics()
+    get_metrics_collector().increment_counter(
+        "dual_write_drift_detected_total",
+        drift_type=drift_type,
+        amount=count
+    )
+
+
+def set_drift_gauge(drift_type: str, count: int) -> None:
+    """Set the current drift count gauge.
+
+    Args:
+        drift_type: Type of drift
+        count: Current number of drifted items
+    """
+    _ensure_dual_write_metrics()
+    get_metrics_collector().set_gauge(
+        "dual_write_queue_drift_items",
+        count,
+        drift_type=drift_type
+    )
+
+
+def get_dual_write_metrics_summary() -> dict[str, Any]:
+    """Get a summary of dual-write migration metrics.
+
+    Returns:
+        Dict with success/failure counts and drift information
+    """
+    _ensure_dual_write_metrics()
+    metrics = get_metrics_collector()
+
+    return {
+        "dual_write_success": metrics.counters.get(
+            "dual_write_legacy_success_total",
+            Counter("dual_write_legacy_success_total")
+        ).get_all_labeled_values(),
+        "dual_write_failure": metrics.counters.get(
+            "dual_write_legacy_failure_total",
+            Counter("dual_write_legacy_failure_total")
+        ).get_all_labeled_values(),
+        "drift_detected": metrics.counters.get(
+            "dual_write_drift_detected_total",
+            Counter("dual_write_drift_detected_total")
+        ).get_all_labeled_values(),
+        "current_drift": metrics.gauges.get(
+            "dual_write_queue_drift_items",
+            Gauge("dual_write_queue_drift_items")
+        ).get_all_labeled_values(),
+    }

@@ -550,6 +550,17 @@ Examples:
     # Health check command
     subparsers.add_parser("health", help="Check system health")
 
+    # Drift report command (Task 43)
+    drift_parser = subparsers.add_parser(
+        "drift-report", help="Check dual-write queue drift between unified and legacy queues"
+    )
+    drift_parser.add_argument(
+        "--json", action="store_true", help="Output as JSON"
+    )
+    drift_parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show detailed drift items"
+    )
+
     args = parser.parse_args()
 
     if args.debug:
@@ -647,6 +658,72 @@ Examples:
             print(f"  Qdrant URL: {health['config']['qdrant_url']}")
             print(f"  Debug Mode: {health['config']['debug_mode']}")
             print(f"  Project Prefix: {health['config'].get('project_prefix', 'N/A')}")
+
+        elif args.command == "drift-report":
+            # Import state manager for drift detection
+            from ..core.sqlite_state_manager import SQLiteStateManager
+
+            state_manager = SQLiteStateManager()
+            await state_manager.initialize()
+
+            drift_report = await state_manager.detect_queue_drift()
+
+            if args.json:
+                import json
+                print(json.dumps(drift_report, indent=2))
+            else:
+                print(f"\nQueue Drift Report - {drift_report['checked_at']}")
+                print("=" * 50)
+
+                total = drift_report["total_drift_count"]
+                if total == 0:
+                    print("\n✅ No drift detected between unified and legacy queues.")
+                else:
+                    print(f"\n⚠️  Found {total} discrepancies:\n")
+
+                    # Summary by queue
+                    print("By Legacy Queue:")
+                    for queue_name, stats in drift_report["by_queue"].items():
+                        if stats["missing"] > 0 or stats["status_mismatch"] > 0:
+                            print(f"  {queue_name}:")
+                            if stats["missing"] > 0:
+                                print(f"    Missing items: {stats['missing']}")
+                            if stats["status_mismatch"] > 0:
+                                print(f"    Status mismatches: {stats['status_mismatch']}")
+
+                    # Category counts
+                    print("\nBy Category:")
+                    print(f"  Missing in unified queue: {len(drift_report['missing_in_unified'])}")
+                    print(f"  Missing in legacy queues: {len(drift_report['missing_in_legacy'])}")
+                    print(f"  Status mismatches: {len(drift_report['status_mismatch'])}")
+
+                    # Verbose details
+                    if args.verbose:
+                        if drift_report["missing_in_unified"]:
+                            print("\nItems missing in unified queue:")
+                            for item in drift_report["missing_in_unified"][:10]:
+                                path_or_key = item.get("file_path") or item.get("idempotency_key", "")[:16]
+                                print(f"  [{item['legacy_queue']}] {path_or_key} (status: {item['legacy_status']})")
+                            if len(drift_report["missing_in_unified"]) > 10:
+                                print(f"  ... and {len(drift_report['missing_in_unified']) - 10} more")
+
+                        if drift_report["missing_in_legacy"]:
+                            print("\nItems missing in legacy queues:")
+                            for item in drift_report["missing_in_legacy"][:10]:
+                                path_or_key = item.get("file_path") or item.get("idempotency_key", "")[:16]
+                                print(f"  [{item['legacy_queue']}] {path_or_key} (status: {item['unified_status']})")
+                            if len(drift_report["missing_in_legacy"]) > 10:
+                                print(f"  ... and {len(drift_report['missing_in_legacy']) - 10} more")
+
+                        if drift_report["status_mismatch"]:
+                            print("\nStatus mismatches:")
+                            for item in drift_report["status_mismatch"][:10]:
+                                path_or_key = item.get("file_path") or item.get("idempotency_key", "")[:16]
+                                print(f"  [{item['legacy_queue']}] {path_or_key}: unified={item['unified_status']}, legacy={item['legacy_status']}")
+                            if len(drift_report["status_mismatch"]) > 10:
+                                print(f"  ... and {len(drift_report['status_mismatch']) - 10} more")
+
+            await state_manager.close()
 
     except KeyboardInterrupt:
         print("\n\nOperation cancelled by user")

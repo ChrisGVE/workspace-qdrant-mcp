@@ -54,6 +54,10 @@ from typing import Any
 
 from loguru import logger
 
+from ..observability.metrics import (
+    record_dual_write_failure,
+    record_dual_write_success,
+)
 from ..utils.os_directories import OSDirectories
 
 # logger imported from loguru
@@ -3550,6 +3554,7 @@ class SQLiteStateManager:
                     ),
                 )
                 logger.debug(f"Dual-write to content_ingestion_queue: {queue_id}")
+                record_dual_write_success(item_type, "content_ingestion_queue")
 
             elif item_type in ("file", "folder"):
                 # Write to ingestion_queue
@@ -3580,6 +3585,7 @@ class SQLiteStateManager:
                     ),
                 )
                 logger.debug(f"Dual-write to ingestion_queue: {file_path}")
+                record_dual_write_success(item_type, "ingestion_queue")
 
             else:
                 # Other item types don't have legacy queue equivalents
@@ -3590,6 +3596,13 @@ class SQLiteStateManager:
         except Exception as e:
             # Log but don't fail the main enqueue operation
             logger.warning(f"Dual-write to legacy queue failed (non-fatal): {e}")
+            # Determine target queue for metrics
+            target_queue = (
+                "content_ingestion_queue"
+                if item_type == "content"
+                else "ingestion_queue"
+            )
+            record_dual_write_failure(item_type, target_queue, type(e).__name__)
 
     async def get_unified_queue_depth(
         self,
@@ -3724,6 +3737,210 @@ class SQLiteStateManager:
 
         except Exception as e:
             logger.error(f"Failed to get unified queue stats: {e}")
+            raise
+
+    async def detect_queue_drift(self) -> dict[str, Any]:
+        """
+        Detect drift between unified_queue and legacy queues.
+
+        Compares idempotency keys and statuses between the unified_queue and
+        both legacy queues (ingestion_queue and content_ingestion_queue) to
+        identify discrepancies in the dual-write migration.
+
+        Returns:
+            Dict with drift information:
+                - missing_in_unified: Items in legacy but not unified
+                - missing_in_legacy: Items in unified but not legacy
+                - status_mismatch: Items with different statuses
+                - total_drift_count: Total number of drifted items
+                - by_queue: Breakdown by legacy queue type
+                - checked_at: Timestamp of check
+
+        Raises:
+            RuntimeError: If state manager not initialized
+        """
+        from ..observability.metrics import record_drift_detected, set_drift_gauge
+
+        if not self._initialized:
+            raise RuntimeError("State manager not initialized")
+
+        try:
+            drift_report: dict[str, Any] = {
+                "missing_in_unified": [],
+                "missing_in_legacy": [],
+                "status_mismatch": [],
+                "total_drift_count": 0,
+                "by_queue": {
+                    "ingestion_queue": {"missing": 0, "status_mismatch": 0},
+                    "content_ingestion_queue": {"missing": 0, "status_mismatch": 0},
+                },
+                "checked_at": datetime.now(timezone.utc).isoformat(),
+            }
+
+            with self._lock:
+                # Get unified queue items with their idempotency keys
+                # (only file/folder items have legacy equivalents in ingestion_queue)
+                cursor = self.connection.execute(
+                    """
+                    SELECT idempotency_key, status, item_type, collection,
+                           json_extract(payload_json, '$.file_path') as file_path
+                    FROM unified_queue
+                    WHERE item_type IN ('file', 'folder')
+                    """
+                )
+                unified_file_items = {
+                    row[0]: {"status": row[1], "item_type": row[2], "collection": row[3], "file_path": row[4]}
+                    for row in cursor.fetchall()
+                    if row[0]  # Skip items without idempotency key
+                }
+
+                # Get unified content items
+                cursor = self.connection.execute(
+                    """
+                    SELECT idempotency_key, status, collection
+                    FROM unified_queue
+                    WHERE item_type = 'content'
+                    """
+                )
+                unified_content_items = {
+                    row[0]: {"status": row[1], "collection": row[2]}
+                    for row in cursor.fetchall()
+                    if row[0]
+                }
+
+                # Check ingestion_queue (file/folder items)
+                try:
+                    cursor = self.connection.execute(
+                        """
+                        SELECT file_absolute_path, status, collection_name
+                        FROM ingestion_queue
+                        """
+                    )
+                    legacy_file_items = {
+                        row[0]: {"status": row[1], "collection": row[2]}
+                        for row in cursor.fetchall()
+                    }
+
+                    # Map file_path to idempotency key for comparison
+                    unified_by_path = {
+                        v["file_path"]: {"key": k, **v}
+                        for k, v in unified_file_items.items()
+                        if v.get("file_path")
+                    }
+
+                    # Find items missing in unified (present in legacy but not unified)
+                    for file_path, legacy_info in legacy_file_items.items():
+                        if file_path not in unified_by_path:
+                            drift_report["missing_in_unified"].append({
+                                "type": "file",
+                                "legacy_queue": "ingestion_queue",
+                                "file_path": file_path,
+                                "legacy_status": legacy_info["status"],
+                            })
+                            drift_report["by_queue"]["ingestion_queue"]["missing"] += 1
+
+                    # Find items missing in legacy (present in unified but not legacy)
+                    for file_path, unified_info in unified_by_path.items():
+                        if file_path not in legacy_file_items:
+                            drift_report["missing_in_legacy"].append({
+                                "type": "file",
+                                "legacy_queue": "ingestion_queue",
+                                "file_path": file_path,
+                                "unified_status": unified_info["status"],
+                            })
+                            drift_report["by_queue"]["ingestion_queue"]["missing"] += 1
+                        elif legacy_file_items[file_path]["status"] != unified_info["status"]:
+                            # Status mismatch
+                            drift_report["status_mismatch"].append({
+                                "type": "file",
+                                "legacy_queue": "ingestion_queue",
+                                "file_path": file_path,
+                                "unified_status": unified_info["status"],
+                                "legacy_status": legacy_file_items[file_path]["status"],
+                            })
+                            drift_report["by_queue"]["ingestion_queue"]["status_mismatch"] += 1
+
+                except sqlite3.OperationalError:
+                    # ingestion_queue table doesn't exist
+                    logger.debug("ingestion_queue table not found, skipping file drift check")
+
+                # Check content_ingestion_queue (content items)
+                try:
+                    cursor = self.connection.execute(
+                        """
+                        SELECT idempotency_key, status, collection
+                        FROM content_ingestion_queue
+                        """
+                    )
+                    legacy_content_items = {
+                        row[0]: {"status": row[1], "collection": row[2]}
+                        for row in cursor.fetchall()
+                        if row[0]
+                    }
+
+                    # Find content items missing in unified
+                    for idem_key, legacy_info in legacy_content_items.items():
+                        if idem_key not in unified_content_items:
+                            drift_report["missing_in_unified"].append({
+                                "type": "content",
+                                "legacy_queue": "content_ingestion_queue",
+                                "idempotency_key": idem_key,
+                                "legacy_status": legacy_info["status"],
+                            })
+                            drift_report["by_queue"]["content_ingestion_queue"]["missing"] += 1
+
+                    # Find content items missing in legacy
+                    for idem_key, unified_info in unified_content_items.items():
+                        if idem_key not in legacy_content_items:
+                            drift_report["missing_in_legacy"].append({
+                                "type": "content",
+                                "legacy_queue": "content_ingestion_queue",
+                                "idempotency_key": idem_key,
+                                "unified_status": unified_info["status"],
+                            })
+                            drift_report["by_queue"]["content_ingestion_queue"]["missing"] += 1
+                        elif legacy_content_items[idem_key]["status"] != unified_info["status"]:
+                            drift_report["status_mismatch"].append({
+                                "type": "content",
+                                "legacy_queue": "content_ingestion_queue",
+                                "idempotency_key": idem_key,
+                                "unified_status": unified_info["status"],
+                                "legacy_status": legacy_content_items[idem_key]["status"],
+                            })
+                            drift_report["by_queue"]["content_ingestion_queue"]["status_mismatch"] += 1
+
+                except sqlite3.OperationalError:
+                    # content_ingestion_queue table doesn't exist
+                    logger.debug("content_ingestion_queue table not found, skipping content drift check")
+
+            # Calculate total drift count
+            drift_report["total_drift_count"] = (
+                len(drift_report["missing_in_unified"])
+                + len(drift_report["missing_in_legacy"])
+                + len(drift_report["status_mismatch"])
+            )
+
+            # Record metrics
+            if drift_report["missing_in_unified"]:
+                record_drift_detected("missing_in_unified", len(drift_report["missing_in_unified"]))
+            if drift_report["missing_in_legacy"]:
+                record_drift_detected("missing_in_legacy", len(drift_report["missing_in_legacy"]))
+            if drift_report["status_mismatch"]:
+                record_drift_detected("status_mismatch", len(drift_report["status_mismatch"]))
+
+            # Update gauges with current drift counts
+            set_drift_gauge("missing_in_unified", len(drift_report["missing_in_unified"]))
+            set_drift_gauge("missing_in_legacy", len(drift_report["missing_in_legacy"]))
+            set_drift_gauge("status_mismatch", len(drift_report["status_mismatch"]))
+
+            logger.info(
+                f"Queue drift check complete: {drift_report['total_drift_count']} discrepancies found"
+            )
+
+            return drift_report
+
+        except Exception as e:
+            logger.error(f"Failed to detect queue drift: {e}")
             raise
 
     async def dequeue_unified(
