@@ -2,6 +2,10 @@
 //!
 //! Provides JSON and table output formatting with colored terminal support.
 //! Used across all CLI commands for consistent output.
+//!
+//! Note: Some formatting functions are infrastructure for future CLI commands.
+
+#![allow(dead_code)]
 
 use colored::Colorize;
 use serde::Serialize;

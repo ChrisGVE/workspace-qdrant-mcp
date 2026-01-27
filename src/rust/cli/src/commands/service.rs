@@ -89,12 +89,11 @@ fn get_service_manager() -> ServiceManager {
 }
 
 #[derive(Debug)]
+#[allow(dead_code)] // Variants used based on target platform
 enum ServiceManager {
     Launchctl,
     Systemd,
-    #[allow(dead_code)]
     WindowsService,
-    #[allow(dead_code)]
     Unknown,
 }
 

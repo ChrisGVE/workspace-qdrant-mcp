@@ -2,6 +2,10 @@
 //!
 //! Custom error types for CLI operations using thiserror for structured
 //! error handling across all commands.
+//!
+//! Note: Error types and helpers are infrastructure for future CLI commands.
+
+#![allow(dead_code)]
 
 use thiserror::Error;
 

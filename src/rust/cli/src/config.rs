@@ -2,6 +2,10 @@
 //!
 //! Handles daemon address, output format preferences, and connection settings.
 //! Configuration can be loaded from environment variables.
+//!
+//! Note: Some builder methods are infrastructure for future CLI features.
+
+#![allow(dead_code)]
 
 use std::env;
 

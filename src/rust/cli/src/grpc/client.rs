@@ -5,6 +5,10 @@
 //! - CollectionService (5 RPCs): Collection CRUD, alias management
 //! - DocumentService (3 RPCs): Text ingestion
 //! - ProjectService (5 RPCs): Project registration, sessions
+//!
+//! Note: Some service client methods are infrastructure for future CLI commands.
+
+#![allow(dead_code)]
 
 use anyhow::{Context, Result};
 use std::time::Duration;

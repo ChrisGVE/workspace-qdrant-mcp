@@ -3,6 +3,11 @@
 //! Provides SQLite direct access for enqueueing items to the unified_queue
 //! when the daemon is unavailable. This enables CLI fallback to the queue
 //! instead of failing when daemon is down.
+//!
+//! Note: Some types and methods are infrastructure for future gRPC integration
+//! and queue inspection commands. They are tested but not yet used in the main CLI.
+
+#![allow(dead_code)]
 
 use std::path::PathBuf;
 
