@@ -100,6 +100,30 @@ enum ServiceManager {
 const SERVICE_NAME: &str = "com.workspace-qdrant.memexd";
 const DAEMON_BINARY: &str = "memexd";
 
+/// Find ONNX Runtime library path on the system
+fn find_onnx_runtime_path() -> String {
+    // Check environment variable first
+    if let Ok(path) = std::env::var("ORT_DYLIB_PATH") {
+        return path;
+    }
+
+    // Common locations for ONNX Runtime on macOS
+    let candidates = [
+        "/usr/local/lib/libonnxruntime.dylib",           // Homebrew Intel
+        "/opt/homebrew/lib/libonnxruntime.dylib",        // Homebrew Apple Silicon
+        "/usr/lib/libonnxruntime.dylib",                 // System
+    ];
+
+    for path in &candidates {
+        if std::path::Path::new(path).exists() {
+            return path.to_string();
+        }
+    }
+
+    // Fallback - user will need to set ORT_DYLIB_PATH
+    "/usr/local/lib/libonnxruntime.dylib".to_string()
+}
+
 async fn install() -> Result<()> {
     output::info("Installing daemon service...");
 
@@ -123,17 +147,25 @@ async fn install_launchctl() -> Result<()> {
     let daemon_path = which::which(DAEMON_BINARY)
         .unwrap_or_else(|_| std::path::PathBuf::from("/usr/local/bin/memexd"));
 
+    // Find ONNX Runtime library path
+    let ort_dylib_path = find_onnx_runtime_path();
+
     let plist_content = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
-    <string>{}</string>
+    <string>{label}</string>
     <key>ProgramArguments</key>
     <array>
-        <string>{}</string>
+        <string>{daemon}</string>
     </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>ORT_DYLIB_PATH</key>
+        <string>{ort_path}</string>
+    </dict>
     <key>RunAtLoad</key>
     <true/>
     <key>KeepAlive</key>
@@ -144,8 +176,9 @@ async fn install_launchctl() -> Result<()> {
     <string>/tmp/memexd.err.log</string>
 </dict>
 </plist>"#,
-        SERVICE_NAME,
-        daemon_path.display()
+        label = SERVICE_NAME,
+        daemon = daemon_path.display(),
+        ort_path = ort_dylib_path
     );
 
     // Create LaunchAgents directory if needed
