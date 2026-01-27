@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Phase 3 cutover automation script (`scripts/phase3_cutover.sh`) for unified queue migration
+- Queue drift detection (`wqm admin drift-report`) to compare unified and legacy queues
+- Dual-write metrics for migration monitoring
+
+### Deprecated
+- **Legacy Queue Tables** - `ingestion_queue` and `content_ingestion_queue` tables are deprecated
+  - Use `unified_queue` table instead
+  - Will be removed in v0.5.0
+  - See [MIGRATION.md](docs/MIGRATION.md#queue-migration-guide-legacy--unified-queue-v040)
+- **SQLiteQueueClient** - This class is deprecated
+  - Use `SQLiteStateManager.enqueue_unified()` instead
+  - Runtime `DeprecationWarning` emitted on instantiation
+  - Will be removed in v0.5.0
+- **Dual-write mode** - `queue_processor.enable_dual_write` defaults to `false`
+  - Only enable for migration compatibility
+  - Will be removed in v0.5.0
+
 ## [0.4.0] - 2025-01-19
 
 ### Added

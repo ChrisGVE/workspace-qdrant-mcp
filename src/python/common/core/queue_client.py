@@ -39,6 +39,7 @@ Example:
 
 import json
 import sqlite3
+import warnings
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -121,9 +122,16 @@ class QueueItem:
         }
 
 
+# TODO: Remove in v0.5.0 (Phase 4 cleanup) - migrate to SQLiteStateManager.enqueue_unified()
 class SQLiteQueueClient:
     """
     High-level client for SQLite queue operations.
+
+    .. deprecated:: 0.4.0
+        This class uses the legacy ingestion_queue table which is deprecated.
+        Use SQLiteStateManager.enqueue_unified() with the unified_queue table instead.
+        This class will be removed in v0.5.0.
+        See docs/MIGRATION.md for migration guidance.
 
     Provides methods for enqueueing files, dequeuing batches, updating priorities,
     and managing queue state with proper error handling and retry logic.
@@ -145,6 +153,19 @@ class SQLiteQueueClient:
             connection_config: Optional connection configuration
             enable_statistics: Whether to enable statistics collection
         """
+        # Emit deprecation warning at runtime
+        warnings.warn(
+            "SQLiteQueueClient is deprecated and will be removed in v0.5.0. "
+            "Use SQLiteStateManager.enqueue_unified() with unified_queue instead. "
+            "See docs/MIGRATION.md for migration guidance.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+        logger.warning(
+            "DEPRECATED: SQLiteQueueClient uses legacy ingestion_queue. "
+            "Migrate to SQLiteStateManager.enqueue_unified() for unified_queue."
+        )
+
         self.connection_pool = QueueConnectionPool(
             db_path=db_path or self._get_default_db_path(),
             config=connection_config or ConnectionConfig()

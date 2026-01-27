@@ -3485,6 +3485,7 @@ class SQLiteStateManager:
             logger.error(f"Failed to enqueue unified item: {e}")
             raise
 
+    # TODO: Remove in v0.5.0 (Phase 4 cleanup) - dual_write and legacy queues
     async def _dual_write_to_legacy_queue(
         self,
         conn,
@@ -3499,6 +3500,11 @@ class SQLiteStateManager:
     ) -> None:
         """
         Write to legacy queue for dual-write migration support.
+
+        .. deprecated:: 0.4.0
+            Legacy queues (ingestion_queue, content_ingestion_queue) are deprecated.
+            Use unified_queue exclusively. This method will be removed in v0.5.0.
+            See docs/MIGRATION.md for migration guidance.
 
         Routes items to appropriate legacy queue based on item_type:
         - content items -> content_ingestion_queue

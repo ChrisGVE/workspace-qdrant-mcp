@@ -533,6 +533,230 @@ After successful migration:
 
 ## Version Support
 
-- **v0.3.x:** Current, fully supported
+- **v0.4.x:** Current, fully supported (v0.3.x compatibility maintained)
+- **v0.3.x:** Fully supported
 - **v0.2.x:** Maintenance only (critical bugs only)
 - **v0.1.x:** End of life (upgrade recommended)
+
+---
+
+# Queue Migration Guide: Legacy → Unified Queue (v0.4.0)
+
+> **Timeline:**
+> - **v0.4.0**: Legacy queues deprecated, unified_queue is primary
+> - **v0.5.0**: Legacy queue tables will be removed
+
+## Overview
+
+Version 0.4.0 introduces the **unified_queue** as the single queue system, replacing the legacy `ingestion_queue` and `content_ingestion_queue` tables. This migration:
+
+- **Consolidates** two queue tables into one with polymorphic item types
+- **Improves** idempotency key generation (cross-language compatible)
+- **Adds** lease-based locking for concurrent processing
+- **Enables** better queue health monitoring and metrics
+
+## Deprecated Components
+
+The following components are deprecated in v0.4.0 and will be removed in v0.5.0:
+
+### Database Tables
+- `ingestion_queue` → Use `unified_queue` with `item_type='file'` or `item_type='folder'`
+- `content_ingestion_queue` → Use `unified_queue` with `item_type='content'`
+
+### Python Classes
+- `SQLiteQueueClient` (queue_client.py) → Use `SQLiteStateManager.enqueue_unified()`
+- `_dual_write_to_legacy_queue()` → Dual-write mode disabled by default
+
+### Configuration
+- `queue_processor.enable_dual_write` → Set to `false` (default)
+
+## Migration Steps
+
+### Step 1: Check Current State
+
+```bash
+# Check if dual-write is enabled
+grep enable_dual_write ~/.config/workspace-qdrant/config.yaml
+
+# Check queue depths
+wqm admin drift-report
+```
+
+### Step 2: Drain Legacy Queues
+
+Ensure all items in legacy queues are processed:
+
+```bash
+# Check legacy queue status
+sqlite3 ~/Library/Application\ Support/workspace-qdrant-mcp/state.db \
+  "SELECT COUNT(*) as pending FROM ingestion_queue WHERE status='pending';"
+
+sqlite3 ~/Library/Application\ Support/workspace-qdrant-mcp/state.db \
+  "SELECT COUNT(*) as pending FROM content_ingestion_queue WHERE status='pending';"
+```
+
+Wait for counts to reach zero or manually process remaining items.
+
+### Step 3: Disable Dual-Write
+
+Update your configuration:
+
+```yaml
+# config.yaml
+queue_processor:
+  enable_dual_write: false  # Default in v0.4.0
+```
+
+### Step 4: Update Code (If Using Python API)
+
+**Before (deprecated):**
+```python
+from workspace_qdrant_mcp.core.queue_client import SQLiteQueueClient
+
+client = SQLiteQueueClient()
+await client.initialize()
+await client.enqueue_file("/path/to/file.py", "my-collection")
+```
+
+**After (unified queue):**
+```python
+from workspace_qdrant_mcp.core.sqlite_state_manager import SQLiteStateManager
+
+state_manager = SQLiteStateManager()
+await state_manager.initialize()
+await state_manager.enqueue_unified(
+    item_type="file",
+    op="ingest",
+    tenant_id="my-project",
+    collection="my-collection",
+    payload={"file_path": "/path/to/file.py"},
+    priority=5,
+    branch="main"
+)
+```
+
+### Step 5: Run Phase 3 Cutover (Optional)
+
+For automated migration with safety checks:
+
+```bash
+# Dry run first
+./scripts/phase3_cutover.sh --dry-run
+
+# Execute cutover
+./scripts/phase3_cutover.sh --force
+```
+
+### Step 6: Verify Migration
+
+```bash
+# Check for drift
+wqm admin drift-report --verbose
+
+# Monitor queue metrics
+wqm admin metrics
+```
+
+## Unified Queue Schema
+
+The new `unified_queue` table structure:
+
+```sql
+CREATE TABLE unified_queue (
+    queue_id TEXT PRIMARY KEY,
+    item_type TEXT NOT NULL,           -- 'file', 'folder', 'content', 'collection', 'search'
+    op TEXT NOT NULL,                  -- 'ingest', 'update', 'delete', 'search', 'create', 'drop'
+    tenant_id TEXT NOT NULL,
+    collection TEXT NOT NULL,
+    priority INTEGER NOT NULL DEFAULT 5,
+    status TEXT NOT NULL DEFAULT 'pending',
+    idempotency_key TEXT NOT NULL UNIQUE,
+    payload_json TEXT,
+    branch TEXT,
+    metadata TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    lease_until TEXT,
+    worker_id TEXT,
+    retry_count INTEGER DEFAULT 0,
+    max_retries INTEGER DEFAULT 3,
+    error_message TEXT,
+    last_error_at TEXT
+);
+```
+
+## Idempotency Key Format
+
+The unified queue uses a standardized idempotency key format:
+
+```
+{item_type}:{op}:{tenant_id}:{collection}:{content_hash}
+```
+
+Example: `file:ingest:my-project:code:abc123def456`
+
+This format is consistent across Python and Rust implementations.
+
+## Rollback
+
+If issues occur after migration:
+
+```bash
+# Re-enable dual-write
+./scripts/phase3_cutover.sh --rollback
+```
+
+Or manually:
+
+```yaml
+# config.yaml
+queue_processor:
+  enable_dual_write: true
+```
+
+Then restart the daemon:
+```bash
+wqm service restart
+```
+
+## Cleanup (v0.5.0)
+
+Once stable, legacy tables can be removed:
+
+```bash
+# Automated cleanup
+./scripts/phase3_cutover.sh --drop-tables
+
+# Or manual SQL
+sqlite3 ~/Library/Application\ Support/workspace-qdrant-mcp/state.db \
+  "DROP TABLE IF EXISTS ingestion_queue; DROP TABLE IF EXISTS content_ingestion_queue;"
+```
+
+## Troubleshooting
+
+### Deprecation Warnings
+
+If you see warnings like:
+```
+DeprecationWarning: SQLiteQueueClient is deprecated...
+```
+
+Update your code to use `SQLiteStateManager.enqueue_unified()`.
+
+### Queue Drift
+
+If `wqm admin drift-report` shows discrepancies:
+
+1. Enable dual-write temporarily
+2. Re-process drifted items
+3. Disable dual-write once synchronized
+
+### Missing Items
+
+Check the unified queue for processing status:
+
+```sql
+SELECT status, COUNT(*)
+FROM unified_queue
+GROUP BY status;
+```
