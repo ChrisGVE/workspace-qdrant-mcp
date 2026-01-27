@@ -53,6 +53,9 @@ enum Commands {
     /// Library management with tags (list, add, watch, unwatch)
     Library(commands::library::LibraryArgs),
 
+    /// Unified queue inspector for debugging (list, show, stats, clean)
+    Queue(commands::queue::QueueArgs),
+
     // =========================================================================
     // Phase 2 - MEDIUM priority (behind feature flag)
     // =========================================================================
@@ -126,6 +129,7 @@ async fn main() -> Result<()> {
         Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Status(args) => commands::status::execute(args).await,
         Commands::Library(args) => commands::library::execute(args).await,
+        Commands::Queue(args) => commands::queue::execute(args).await,
 
         // Phase 2 commands
         #[cfg(feature = "phase2")]

@@ -1,13 +1,14 @@
 //! CLI command modules
 //!
 //! Organized by implementation phase:
-//! - Phase 1 (HIGH): service, admin, status, library
+//! - Phase 1 (HIGH): service, admin, status, library, queue
 //! - Phase 2 (MEDIUM): search, ingest, backup, memory, language, project
 //! - Phase 3 (LOW): init, help, wizard
 
 // Phase 1 - HIGH priority (always available)
 pub mod admin;
 pub mod library;
+pub mod queue;
 pub mod service;
 pub mod status;
 
