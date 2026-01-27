@@ -32,9 +32,29 @@ cd workspace-qdrant-mcp
 ./install.sh
 ```
 
-The installer builds binaries to `~/.local/bin` by default. Use `--prefix /path` for custom location.
+The installer:
+- Builds Rust binaries (`wqm`, `memexd`) to `~/.local/bin`
+- Installs Python dependencies via `uv sync`
+
+Options:
+- `--prefix /path` - Custom installation directory
+- `--force` - Clean rebuild from scratch
+- `--cli-only` - Skip daemon build (useful if ONNX Runtime unavailable)
 
 For Windows: `.\install.ps1`
+
+> **Note:** Do not use `uv tool install` for this project. The CLI (`wqm`) is a Rust binary, not a Python entry point. Use `uv run workspace-qdrant-mcp` to run the MCP server.
+
+### Run MCP Server
+
+The MCP server runs via `uv` from the project directory:
+
+```bash
+# From the project directory
+uv run workspace-qdrant-mcp
+```
+
+This is what Claude Desktop and Claude Code invoke when configured below.
 
 ### Configure MCP
 
