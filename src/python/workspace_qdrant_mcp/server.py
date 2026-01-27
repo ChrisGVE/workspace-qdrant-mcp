@@ -3362,7 +3362,10 @@ def run_server(
         _detect_stdio_mode()  # Re-apply stdio silencing
 
     # Run the FastMCP app with specified transport
-    app.run(transport=transport, host=host, port=port)
+    if transport == "stdio":
+        app.run(transport=transport)
+    else:
+        app.run(transport=transport, host=host, port=port)
 
 def main() -> None:
     """Console script entry point for UV tool installation and direct execution."""
