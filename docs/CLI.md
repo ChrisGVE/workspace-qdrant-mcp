@@ -39,12 +39,19 @@ The `wqm` (Workspace Qdrant MCP) CLI provides comprehensive command-line tools f
 
 ## Installation
 
-```bash
-# Install via uv (recommended)
-uv tool install workspace-qdrant-mcp
+The `wqm` CLI is built from source using the Rust toolchain:
 
-# Or via pip
-pip install workspace-qdrant-mcp
+```bash
+# Clone the repository (if not already done)
+git clone https://github.com/ChrisGVE/workspace-qdrant-mcp.git
+cd workspace-qdrant-mcp
+
+# Build the CLI
+cd src/rust/cli
+cargo build --release
+
+# Copy to a location in PATH
+cp target/release/wqm ~/.local/bin/
 
 # Verify installation
 wqm --version
