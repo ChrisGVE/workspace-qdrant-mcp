@@ -22,6 +22,7 @@ Project-scoped vector database for AI assistants, providing hybrid semantic + ke
 - **Python 3.10+** with [uv](https://github.com/astral-sh/uv)
 - **Rust toolchain** - [rustup.rs](https://rustup.rs)
 - **Qdrant server** - `docker run -p 6333:6333 qdrant/qdrant`
+- **ONNX Runtime** (for daemon) - `brew install onnxruntime` or [download](https://github.com/microsoft/onnxruntime/releases)
 
 ### Install
 

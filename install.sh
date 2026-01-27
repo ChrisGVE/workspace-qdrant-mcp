@@ -241,6 +241,14 @@ print_summary() {
         echo ""
     fi
 
+    if [ -f "$BIN_DIR/memexd" ]; then
+        echo "ONNX Runtime requirement:"
+        echo "  The daemon requires ONNX Runtime for embeddings."
+        echo "  Install via: brew install onnxruntime"
+        echo "  Or set ORT_DYLIB_PATH to your ONNX Runtime library."
+        echo ""
+    fi
+
     echo "Quick start:"
     echo "  1. Start Qdrant: docker run -p 6333:6333 qdrant/qdrant"
     echo "  2. Run MCP server: uv run workspace-qdrant-mcp"
