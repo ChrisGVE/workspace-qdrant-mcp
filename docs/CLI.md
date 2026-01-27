@@ -1,6 +1,6 @@
 # workspace-qdrant-mcp CLI Reference
 
-> **🚧 Under Development**: This documentation describes the planned `wqm` CLI which is being developed for the v0.4.0 release. The CLI commands described here are not yet available. Currently, only the MCP server (`workspace-qdrant-mcp`) is functional.
+> **Note**: The `wqm` CLI is a Rust-based high-performance tool. Phase 1 commands (service, admin, status, library, queue) are available. Phase 2/3 commands are behind feature flags and in development.
 
 Complete command-line reference for workspace-qdrant-mcp (`wqm`) CLI tool.
 
@@ -18,6 +18,7 @@ Complete command-line reference for workspace-qdrant-mcp (`wqm`) CLI tool.
   - [Document Ingestion](#document-ingestion)
   - [Search](#search)
   - [Library Management](#library-management)
+  - [Queue Inspector](#queue-inspector)
   - [LSP Integration](#lsp-integration)
   - [Observability](#observability)
   - [Status & Monitoring](#status--monitoring)
@@ -482,6 +483,157 @@ Each library document is stored with these payload fields:
 - `topics` - Detected topics/tags
 - `folder` - Subfolder for navigation
 
+### Queue Inspector
+
+Debug and inspect the unified queue state. Read-only operations for monitoring and troubleshooting queue processing.
+
+#### `wqm queue`
+
+```bash
+wqm queue [OPTIONS] COMMAND [ARGS]
+```
+
+**Commands:**
+
+- `list` - List queue items with filters
+- `show` - Show detailed item information
+- `stats` - Display aggregate queue statistics
+- `clean` - Delete old completed/failed items
+
+#### `wqm queue list`
+
+List queue items with various filtering options.
+
+**Options:**
+
+- `--status TEXT` - Filter by status: pending, in_progress, done, failed
+- `--collection TEXT` - Filter by collection name
+- `--item-type TEXT` - Filter by item type: file, content, url
+- `--project TEXT` - Filter by project ID
+- `-l, --limit INTEGER` - Maximum items to show (default: 50)
+- `--offset INTEGER` - Skip first N items
+- `--since TEXT` - Show items since time (e.g., "1h", "24h", "7d")
+- `--json` - Output as JSON
+- `--all` - Show all items (no limit)
+
+**Examples:**
+
+```bash
+# List recent pending items
+wqm queue list --status pending
+
+# List failed items for debugging
+wqm queue list --status failed --limit 20
+
+# Filter by collection
+wqm queue list --collection my-project-code
+
+# List items from last 24 hours
+wqm queue list --since 24h
+
+# JSON output for scripting
+wqm queue list --status done --json
+
+# Show all items (no limit)
+wqm queue list --all
+```
+
+#### `wqm queue show`
+
+Show detailed information for a specific queue item.
+
+**Arguments:**
+
+- `QUEUE_ID` - The queue item ID to inspect
+
+**Options:**
+
+- `--json` - Output as JSON
+
+**Examples:**
+
+```bash
+# Show item details
+wqm queue show abc123-def456
+
+# JSON output
+wqm queue show abc123-def456 --json
+```
+
+**Output includes:**
+- Item ID, status, item type, operation
+- Collection and project information
+- Content hash and idempotency key
+- Timestamps (created, updated, retry scheduled)
+- Error message (if failed)
+- Retry count and lease information
+
+#### `wqm queue stats`
+
+Display aggregate statistics about queue state.
+
+**Options:**
+
+- `--json` - Output as JSON
+- `--by-type` - Break down by item type
+- `--by-op` - Break down by operation
+- `--by-collection` - Break down by collection
+
+**Examples:**
+
+```bash
+# Basic statistics
+wqm queue stats
+
+# JSON output
+wqm queue stats --json
+
+# Breakdown by item type
+wqm queue stats --by-type
+
+# Breakdown by operation
+wqm queue stats --by-op
+
+# Breakdown by collection
+wqm queue stats --by-collection
+```
+
+**Output includes:**
+- Total items by status (pending, in_progress, done, failed)
+- Oldest pending item age
+- Processing rate estimates
+- Optional breakdowns by type/operation/collection
+
+#### `wqm queue clean`
+
+Delete old completed or failed items to reclaim space.
+
+**Arguments:**
+
+- `--days INTEGER` - Delete items older than N days (required)
+- `--status TEXT` - Status to clean: done (default), failed, or both
+
+**Options:**
+
+- `-y, --yes` - Skip confirmation prompt
+- `--dry-run` - Show what would be deleted without deleting
+
+**Examples:**
+
+```bash
+# Preview cleanup (dry run)
+wqm queue clean --days 30 --dry-run
+
+# Clean completed items older than 30 days
+wqm queue clean --days 30 --status done
+
+# Clean failed items older than 7 days
+wqm queue clean --days 7 --status failed
+
+# Clean both done and failed, skip confirmation
+wqm queue clean --days 14 --status both -y
+```
+
 ### LSP Integration
 
 LSP server management and monitoring.
@@ -676,6 +828,12 @@ wqm config validate
 
 # Performance monitoring
 wqm status --performance --live
+
+# Queue statistics
+wqm queue stats
+
+# Clean old queue items
+wqm queue clean --days 30 --dry-run
 ```
 
 ### Troubleshooting
@@ -695,6 +853,16 @@ wqm status --status failed --verbose
 
 # Validate configuration
 wqm config validate
+
+# Inspect queue for stuck items
+wqm queue list --status pending --since 1h
+wqm queue list --status failed
+
+# Get details on failed item
+wqm queue show <queue-id>
+
+# View queue statistics
+wqm queue stats --by-type
 ```
 
 ## Environment Variables

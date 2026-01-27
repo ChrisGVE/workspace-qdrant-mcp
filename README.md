@@ -532,6 +532,7 @@ The CLI provides:
 - **Search**: `wqm search project|collection|global`
 - **Library Management**: `wqm library list|add|watch`
 - **System Admin**: `wqm admin status|collections|health`
+- **Queue Inspector**: `wqm queue list|show|stats|clean` - Debug unified queue state
 
 **📖 CLI Documentation:** See [docs/CLI.md](docs/CLI.md) for the complete command reference.
 
@@ -548,6 +549,7 @@ The CLI provides:
 - **[Architecture](docs/ARCHITECTURE.md)** - System architecture and daemon design
 - **[gRPC API Reference](docs/GRPC_API.md)** - gRPC protocol documentation
 - **[Migration Guide](docs/MIGRATION.md)** - v0.3.x to v0.4.0 upgrade instructions
+- **[Metrics Reference](docs/METRICS.md)** - Queue and system metrics for monitoring
 - **[Troubleshooting Guide](docs/TROUBLESHOOTING.md)** - Troubleshooting and debugging
 - **[OS Compatibility](docs/OS_COMPATIBILITY.md)** - Platform support and requirements
 - **[Release Notes](docs/RELEASE_NOTES.md)** - v0.4.0 features and changelog
