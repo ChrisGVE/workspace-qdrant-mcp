@@ -189,6 +189,12 @@ async fn install_launchctl() -> Result<()> {
     std::fs::write(&plist_path, plist_content)?;
     output::success(format!("Created {}", plist_path.display()));
 
+    // Unload existing service first (ignore errors if not loaded)
+    let _ = Command::new("launchctl")
+        .args(["unload"])
+        .arg(&plist_path)
+        .status();
+
     // Load the service
     let status = Command::new("launchctl")
         .args(["load", "-w"])
