@@ -105,8 +105,8 @@ All tools seamlessly integrate with Claude Desktop and Claude Code for natural l
 - [✨ Key Features](#-key-features)
 - [🔧 MCP Tools](#-mcp-tools)
 - [Quick Start](#quick-start)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
+- [Qdrant Server](#qdrant-server)
+- [Development Build](#development-build)
 - [MCP Integration](#mcp-integration)
 - [Configuration](#configuration)
 - [Usage](#usage)
@@ -117,32 +117,63 @@ All tools seamlessly integrate with Claude Desktop and Claude Code for natural l
 
 ## Quick Start
 
-### MCP Server
+> **Note**: This project is in active development (v0.4.0). Installation requires building from source.
 
-The MCP server provides all 4 tools (`store`, `search`, `manage`, `retrieve`) for use with Claude Desktop and Claude Code:
+### Prerequisites
+
+- **Python 3.10+** with [uv](https://github.com/astral-sh/uv)
+- **Rust toolchain** (for CLI and daemon) - [rustup.rs](https://rustup.rs)
+- **Qdrant server** running locally (`http://localhost:6333`) or in cloud
+
+### Build from Source
 
 ```bash
-# Use uvx to run the MCP server directly (no installation needed)
-uvx workspace-qdrant-mcp
+# Clone the repository
+git clone https://github.com/ChrisGVE/workspace-qdrant-mcp.git
+cd workspace-qdrant-mcp
 
-# Or install and run
-uv tool install workspace-qdrant-mcp
-workspace-qdrant-mcp
+# Install Python dependencies
+uv sync
+
+# Build Rust CLI
+cd src/rust/cli
+cargo build --release
+# Binary at: target/release/wqm
+
+# Build Rust daemon
+cd ../daemon
+cargo build --release
+# Binary at: target/release/memexd
+
+# Add binaries to PATH (optional)
+export PATH="$PWD/target/release:$PATH"
+```
+
+### Run MCP Server
+
+```bash
+# From project root
+uv run workspace-qdrant-mcp
 ```
 
 ### Full Installation with CLI + Daemon
 
-For production deployments with background processing:
+For background processing with file watching:
 
 ```bash
-# 1. Install the Python package (provides MCP server + wqm CLI)
-uv tool install workspace-qdrant-mcp
+# 1. Build and install binaries (from project root)
+cd src/rust/cli && cargo build --release
+cd ../daemon && cargo build --release
 
-# 2. Install and start the daemon service
+# 2. Copy binaries to a location in PATH
+cp src/rust/cli/target/release/wqm ~/.local/bin/
+cp src/rust/daemon/target/release/memexd ~/.local/bin/
+
+# 3. Install and start the daemon service
 wqm service install
 wqm service start
 
-# 3. Verify installation
+# 4. Verify installation
 wqm service status
 ```
 
@@ -152,7 +183,7 @@ The daemon provides:
 - Automatic startup on system boot with crash recovery
 - High-performance gRPC communication with MCP server
 
-## Prerequisites
+## Qdrant Server
 
 **Qdrant server must be running** - workspace-qdrant-mcp connects to Qdrant for vector operations.
 
@@ -161,42 +192,7 @@ The daemon provides:
 
 For local installation, see the [Qdrant repository](https://github.com/qdrant/qdrant). For documentation examples, we assume the default local setup.
 
-## Installation
-
-### Prerequisites
-
-- **Python 3.10+** - For the MCP server
-- **Qdrant server** - Running locally or in cloud (see [Prerequisites](#prerequisites))
-
-### Install MCP Server
-
-```bash
-# Install globally with uv (recommended)
-uv tool install workspace-qdrant-mcp
-
-# Or with pip
-pip install workspace-qdrant-mcp
-```
-
-This installs the `workspace-qdrant-mcp` command which runs the MCP server.
-
-### Rust CLI and Daemon
-
-The `wqm` CLI and `memexd` daemon are included with the Python package:
-
-```bash
-# CLI is available after installing the package
-wqm --help
-
-# For development builds from source (requires Rust toolchain)
-cd src/rust/daemon
-cargo build --release
-# Binary at: target/release/memexd
-```
-
-For development setup, see [CONTRIBUTING.md](CONTRIBUTING.md).
-
-### Development Build
+## Development Build
 
 For building from source or contributing to the project:
 
@@ -204,12 +200,15 @@ For building from source or contributing to the project:
 # Python development dependencies
 uv sync --dev
 
-# Build unified Rust daemon (workspace at src/rust/daemon)
-cd src/rust/daemon
+# Build Rust CLI (from project root)
+cd src/rust/cli
 cargo build --release
+# Binary at: target/release/wqm
 
-# The daemon binary will be at:
-# target/release/memexd
+# Build unified Rust daemon
+cd ../daemon
+cargo build --release
+# Binary at: target/release/memexd
 
 # Run Python tests (requires running Qdrant server)
 cd ../../..
@@ -217,6 +216,8 @@ uv run pytest
 
 # Run Rust tests
 cd src/rust/daemon
+cargo test
+cd ../cli
 cargo test
 ```
 
