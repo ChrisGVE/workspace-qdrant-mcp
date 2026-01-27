@@ -20,11 +20,25 @@ Project-scoped vector database for AI assistants, providing hybrid semantic + ke
 ### Prerequisites
 
 - **Python 3.10+** with [uv](https://github.com/astral-sh/uv)
-- **Rust toolchain** - [rustup.rs](https://rustup.rs)
 - **Qdrant server** - `docker run -p 6333:6333 qdrant/qdrant`
+
+For full installation (CLI + daemon):
+- **Rust toolchain** - [rustup.rs](https://rustup.rs)
 - **ONNX Runtime** (for daemon) - `brew install onnxruntime` or [download](https://github.com/microsoft/onnxruntime/releases)
 
 ### Install
+
+**Option 1: MCP Server Only (simplest)**
+
+```bash
+git clone https://github.com/ChrisGVE/workspace-qdrant-mcp.git
+cd workspace-qdrant-mcp
+uv tool install .
+```
+
+This installs the `workspace-qdrant-mcp` command globally. No Rust toolchain required.
+
+**Option 2: Full Installation (MCP + CLI + Daemon)**
 
 ```bash
 git clone https://github.com/ChrisGVE/workspace-qdrant-mcp.git
@@ -32,34 +46,34 @@ cd workspace-qdrant-mcp
 ./install.sh
 ```
 
-The installer:
-- Builds Rust binaries (`wqm`, `memexd`) to `~/.local/bin`
-- Installs Python dependencies via `uv sync`
+The installer builds Rust binaries (`wqm`, `memexd`) to `~/.local/bin` and installs Python dependencies.
 
 Options:
 - `--prefix /path` - Custom installation directory
 - `--force` - Clean rebuild from scratch
-- `--cli-only` - Skip daemon build (useful if ONNX Runtime unavailable)
+- `--cli-only` - Skip daemon build
 
 For Windows: `.\install.ps1`
-
-> **Note:** Do not use `uv tool install` for this project. The CLI (`wqm`) is a Rust binary, not a Python entry point. Use `uv run workspace-qdrant-mcp` to run the MCP server.
-
-### Run MCP Server
-
-The MCP server runs via `uv` from the project directory:
-
-```bash
-# From the project directory
-uv run workspace-qdrant-mcp
-```
-
-This is what Claude Desktop and Claude Code invoke when configured below.
 
 ### Configure MCP
 
 **Claude Desktop** (`claude_desktop_config.json`):
 
+If installed via `uv tool install`:
+```json
+{
+  "mcpServers": {
+    "workspace-qdrant-mcp": {
+      "command": "workspace-qdrant-mcp",
+      "env": {
+        "QDRANT_URL": "http://localhost:6333"
+      }
+    }
+  }
+}
+```
+
+If using from source directory:
 ```json
 {
   "mcpServers": {
@@ -77,6 +91,10 @@ This is what Claude Desktop and Claude Code invoke when configured below.
 **Claude Code**:
 
 ```bash
+# If installed via uv tool install
+claude mcp add workspace-qdrant-mcp -- workspace-qdrant-mcp
+
+# If using from source directory
 claude mcp add workspace-qdrant-mcp -- uv --directory /path/to/workspace-qdrant-mcp run workspace-qdrant-mcp
 ```
 
