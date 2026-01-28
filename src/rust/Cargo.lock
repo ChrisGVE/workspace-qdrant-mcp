@@ -6572,6 +6572,7 @@ dependencies = [
  "dirs 5.0.1",
  "encoding_rs",
  "epub",
+ "fastembed",
  "fastrand",
  "futures",
  "git2",

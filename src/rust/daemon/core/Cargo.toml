@@ -68,6 +68,10 @@ scopeguard = "1.2"
 tempfile = "3.8"
 atty = "0.2"
 
+# Embedding generation
+# Use ort-load-dynamic to avoid prebuilt binary issues on Intel Mac
+fastembed = { version = "5", default-features = false, features = ["ort-load-dynamic", "hf-hub"] }
+
 # Code parsing
 tree-sitter = "0.20"
 tree-sitter-rust = "0.20"
