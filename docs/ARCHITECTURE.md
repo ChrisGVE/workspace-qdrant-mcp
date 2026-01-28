@@ -1,5 +1,7 @@
 # workspace-qdrant-mcp Architecture
 
+> **Authoritative Specification**: For the complete system specification, see [WORKSPACE_QDRANT_MCP.md](../WORKSPACE_QDRANT_MCP.md). This document provides visual diagrams and component details.
+>
 > **Note**: This document describes the full system architecture including the Rust daemon and CLI which are under development. The MCP server (`workspace-qdrant-mcp`) is fully functional. Daemon and CLI features are planned for v0.4.0.
 
 Visual architecture documentation for the workspace-qdrant-mcp system, showing component interactions, data flow, and system design.
@@ -315,7 +317,7 @@ sequenceDiagram
     Note over MCP: 3. Embedding Generation
     MCP->>MCP: generate_embeddings()<br/>→ [0.123, 0.456, ...]
 
-    MCP->>Daemon: gRPC: SearchRequest<br/>collection="_projects"<br/>query_vector=[...]<br/>filters={tenant_id, branch, file_type}
+    MCP->>Daemon: gRPC: SearchRequest<br/>collection="projects"<br/>query_vector=[...]<br/>filters={tenant_id, branch, file_type}
     deactivate MCP
 
     activate Daemon
@@ -365,14 +367,14 @@ Unified multi-tenant collection architecture with only 4 collections and tenant-
 graph TB
     subgraph "Unified Collections (4 Total)"
         subgraph "Projects Collection"
-            P[_projects<br/>ALL Projects]
+            P[projects<br/>ALL Projects]
             P --> PT1[tenant_id: github_com_user_alpha<br/>Project Alpha]
             P --> PT2[tenant_id: github_com_user_beta<br/>Project Beta]
             P --> PT3[tenant_id: path_c3d4e5f6a1b2<br/>Local Project]
         end
 
         subgraph "Libraries Collection"
-            L[_libraries<br/>ALL Libraries]
+            L[libraries<br/>ALL Libraries]
             L --> LT1[library_name: fastapi<br/>FastAPI Docs]
             L --> LT2[library_name: react<br/>React Docs]
         end
@@ -382,9 +384,8 @@ graph TB
             U2[research-refs<br/>References]
         end
 
-        subgraph "Memory Collections"
-            M1[_memory<br/>System Rules]
-            M2[_agent_memory<br/>Agent Context]
+        subgraph "Memory Collection"
+            M1[memory<br/>LLM Rules & Preferences]
         end
     end
 
@@ -408,14 +409,12 @@ graph TB
     style U1 fill:#fff5e1
     style U2 fill:#fff5e1
     style M1 fill:#ffe1e1
-    style M2 fill:#ffe1e1
 ```
 
-**Collection Architecture:**
-- **PROJECTS**: `_projects` - Unified collection for ALL projects, filtered by `tenant_id`
-- **LIBRARIES**: `_libraries` - Unified collection for ALL libraries, filtered by `library_name`
-- **USER**: `{basename}-{type}` - User-created collections (e.g., `work-notes`)
-- **MEMORY**: `_memory`, `_agent_memory` - System and agent rules
+**Collection Architecture (per ADR-001):**
+- **PROJECTS**: `projects` - Unified collection for ALL projects, filtered by `tenant_id`
+- **LIBRARIES**: `libraries` - Unified collection for ALL libraries, filtered by `library_name`
+- **MEMORY**: `memory` - LLM behavioral rules and preferences
 
 **Multi-Tenant Isolation:**
 - `tenant_id` derived from normalized git remote URL or path hash
@@ -424,7 +423,7 @@ graph TB
 - Branch-scoped queries by default (configurable with `branch="*"`)
 
 **Benefits:**
-- Only 4 collections regardless of project count (scalable)
+- Only 3 collections regardless of project count (scalable)
 - Single HNSW index per collection type (efficient)
 - Cross-project semantic search (powerful)
 - Hard tenant filtering prevents data leakage (secure)
@@ -534,12 +533,12 @@ graph TB
     end
 
     subgraph "MEMORY: Daemon Routed"
-        MemoryNote[✅ Task 30 Update<br/>Routes through daemon]
-        MemoryDaemon[Daemon Write Path<br/>_memory, _agent_memory]
+        MemoryNote[✅ ADR-002<br/>Routes through daemon]
+        MemoryDaemon[Daemon Write Path<br/>memory collection]
     end
 
     subgraph "Qdrant Vector DB"
-        Collections[(Collections<br/>_projects<br/>_libraries<br/>{user}-{type}<br/>_memory)]
+        Collections[(Collections<br/>projects<br/>libraries<br/>memory)]
     end
 
     MCP_Store --> Check
@@ -743,7 +742,7 @@ sequenceDiagram
 
     Worker->>SQLite: Update state<br/>file_hash, processed_at
 
-    Worker->>Qdrant: Batch upsert to _projects<br/>vectors + metadata<br/>tenant_id, branch, file_type
+    Worker->>Qdrant: Batch upsert to projects<br/>vectors + metadata<br/>tenant_id, branch, file_type
     Qdrant-->>Worker: Success
 
     Worker->>SQLite: Mark complete<br/>success status
@@ -764,10 +763,10 @@ sequenceDiagram
 
     activate MCP
     MCP->>MCP: calculate_tenant_id()<br/>→ github_com_user_repo
-    MCP->>MCP: check_unified_collection_exists()<br/>→ _projects
+    MCP->>MCP: check_unified_collection_exists()<br/>→ projects
 
     alt Unified collection doesn't exist
-        MCP->>Daemon: gRPC: CreateCollection<br/>name="_projects"<br/>vector_size=384<br/>distance="Cosine"
+        MCP->>Daemon: gRPC: CreateCollection<br/>name="projects"<br/>vector_size=384<br/>distance="Cosine"
 
         activate Daemon
         Daemon->>Qdrant: create_collection()<br/>VectorParams(384, Cosine)
@@ -789,7 +788,7 @@ sequenceDiagram
     activate MCP
     MCP->>MCP: Format response
 
-    MCP-->>User: {"success": true,<br/>"tenant_id": "github_com_user_repo",<br/>"collection": "_projects"}
+    MCP-->>User: {"success": true,<br/>"tenant_id": "github_com_user_repo",<br/>"collection": "projects"}
     deactivate MCP
 ```
 
@@ -812,7 +811,7 @@ sequenceDiagram
     activate CI
     CI->>CI: Detect active tool<br/>LLMToolDetector
 
-    CI->>Qdrant: Query _memory<br/>filter by project_id<br/>rule priority
+    CI->>Qdrant: Query memory<br/>filter by project_id<br/>rule priority
     Qdrant-->>CI: Rule documents<br/>sorted by priority
 
     CI->>CI: Format rules<br/>tool-specific format<br/>claude/codex/gemini
@@ -845,7 +844,8 @@ For detailed component specifications and implementation details:
 - **CLI**: `src/rust/cli/` - Rust CLI (wqm binary)
 - **State**: `src/python/common/core/sqlite_state_manager.py` - SQLite management
 
-**Version**: 1.2
-**Last Updated**: 2026-01-26
-**PRD Alignment**: v3.0 Four-Component Architecture
-**Updates**: Task 40 - Removed Python CLI references, updated to Rust CLI; Task 30/41 - Memory routes through daemon
+**Version**: 1.3
+**Last Updated**: 2026-01-28
+**PRD Alignment**: WORKSPACE_QDRANT_MCP.md (Consolidated Specification)
+**ADR Alignment**: ADR-001 (canonical collection names), ADR-002 (daemon-only writes)
+**Updates**: Doc consolidation - updated to canonical 3-collection architecture (projects, libraries, memory)
