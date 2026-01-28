@@ -33,7 +33,9 @@ tracing = { version = "0.1", features = ["log"] }
 uuid = { version = "1.0", features = ["v4"] }
 
 # Embedding generation
-fastembed = "5"
+# Use ort-load-dynamic to avoid prebuilt binary issues on Intel Mac
+# Keep hf-hub for model downloads
+fastembed = { version = "5", default-features = false, features = ["ort-load-dynamic", "hf-hub"] }
 
 # Caching
 lru = "0.12"
