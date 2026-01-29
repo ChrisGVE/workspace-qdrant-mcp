@@ -57,7 +57,7 @@ from common.core.component_coordination import (
     get_component_coordinator,
 )
 from common.core.daemon_manager import DaemonManager, ensure_daemon_running
-from common.core.grpc_client import GrpcWorkspaceClient
+from common.grpc.daemon_client import DaemonClient
 
 
 class LifecyclePhase(Enum):
@@ -819,19 +819,16 @@ class ComponentLifecycleManager:
                 if hasattr(server_config, key):
                     setattr(server_config, key, value)
 
-            # Create gRPC workspace client for MCP server
-            grpc_client = GrpcWorkspaceClient(
-                config=server_config,
-                project_name=self.project_name,
+            # Create gRPC daemon client for MCP server
+            daemon_client = DaemonClient(
                 project_path=self.project_path,
-                auto_start_daemon=False,  # Daemon already started
             )
 
-            await grpc_client.initialize()
+            await daemon_client.start()
 
             # Store client reference
             logger.info("Python MCP server initialized successfully")
-            return grpc_client
+            return daemon_client
 
         except Exception as e:
             logger.error(f"Failed to start Python MCP server: {e}")
