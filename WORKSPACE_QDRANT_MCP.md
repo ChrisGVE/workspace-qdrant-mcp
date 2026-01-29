@@ -535,12 +535,13 @@ The daemon exposes 3 gRPC services on port 50051:
 | File | Purpose |
 |------|---------|
 | `.env` | Environment variables |
-| `config.yaml` | MCP server configuration |
+| `.wq_config.yaml` | Project-specific MCP configuration (preferred) |
+| `.workspace-qdrant.yaml` | Project-specific MCP configuration (alternate) |
 | `assets/default_configuration.yaml` | System defaults |
 
 ### SQLite Database
 
-Location: `~/.config/workspace-qdrant/state.db` (configurable)
+Location: `~/.workspace-qdrant/state.db` (shared between Python MCP and Rust daemon)
 
 Tables:
 - `unified_queue`: Write queue for daemon processing

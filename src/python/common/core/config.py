@@ -810,9 +810,11 @@ class ConfigManager:
         # Get XDG-compliant config directories
         xdg_config_dirs = self._get_xdg_config_dirs()
 
-        # Check XDG-compliant directories
+        # Check XDG-compliant directories (system-wide config)
+        # Note: XDG dirs like ~/.config/workspace-qdrant/ are app-specific,
+        # so collision risk is lower - use descriptive names
         for config_dir in xdg_config_dirs:
-            for config_name in ["config.yaml", "workspace_qdrant_config.yaml"]:
+            for config_name in ["workspace_qdrant_config.yaml", "workspace_qdrant_config.yml"]:
                 config_path = config_dir / config_name
                 if config_path.exists() and config_path.is_file():
                     logger.info(f"Auto-discovered configuration file: {config_path}")
@@ -821,10 +823,15 @@ class ConfigManager:
         # Check current directory for project-specific configs
         current_dir = Path.cwd()
         project_config_names = [
+            # Preferred: short unique name with dot prefix
+            ".wq_config.yaml",
+            ".wq_config.yml",
+            # Full name variants (dot prefix for dotfiles)
+            ".workspace-qdrant.yaml",
+            ".workspace-qdrant.yml",
+            # Legacy: full name without dot prefix
             "workspace_qdrant_config.yaml",
             "workspace_qdrant_config.yml",
-            ".workspace-qdrant.yaml",
-            ".workspace-qdrant.yml"
         ]
 
         for config_name in project_config_names:

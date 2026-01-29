@@ -881,7 +881,7 @@ Key environment variables that affect `wqm` behavior:
 | `QDRANT_URL` | `http://localhost:6333` | Qdrant server URL |
 | `QDRANT_API_KEY` | _(none)_ | Qdrant API key (required for cloud) |
 | `FASTEMBED_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | Embedding model |
-| `WQM_CONFIG_PATH` | `~/.config/workspace-qdrant-mcp/config.yaml` | Configuration file path |
+| `WQM_CONFIG_PATH` | `~/.config/workspace-qdrant/workspace_qdrant_config.yaml` | Configuration file path |
 | `WQM_DAEMON_HOST` | `127.0.0.1` | Daemon gRPC host |
 | `WQM_DAEMON_PORT` | `50051` | Daemon gRPC port |
 | `WQM_LOG_LEVEL` | `INFO` | Logging level (DEBUG, INFO, WARNING, ERROR) |

@@ -60,13 +60,15 @@ impl UnifiedConfigManager {
         });
 
         let config_file_patterns = vec![
-            // YAML files only
-            "workspace_qdrant_config.yaml".to_string(),
-            "workspace_qdrant_config.yml".to_string(),
+            // Preferred: short unique name with dot prefix
+            ".wq_config.yaml".to_string(),
+            ".wq_config.yml".to_string(),
+            // Full name variants (dot prefix for dotfiles)
             ".workspace-qdrant.yaml".to_string(),
             ".workspace-qdrant.yml".to_string(),
-            "config.yaml".to_string(),
-            "config.yml".to_string(),
+            // Legacy: full name without dot prefix
+            "workspace_qdrant_config.yaml".to_string(),
+            "workspace_qdrant_config.yml".to_string(),
         ];
 
         Self {
@@ -451,12 +453,12 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config_manager = UnifiedConfigManager::new(Some(temp_dir.path()));
 
-        // Create test config files
-        let yaml_path = temp_dir.path().join("workspace_qdrant_config.yaml");
-        let yml_path = temp_dir.path().join("config.yml");
+        // Create test config files (new preferred name + legacy name)
+        let preferred_path = temp_dir.path().join(".wq_config.yaml");
+        let legacy_path = temp_dir.path().join("workspace_qdrant_config.yaml");
 
-        fs::write(&yaml_path, "# YAML config").unwrap();
-        fs::write(&yml_path, "# YML config").unwrap();
+        fs::write(&preferred_path, "# Preferred config").unwrap();
+        fs::write(&legacy_path, "# Legacy config").unwrap();
 
         let sources = config_manager.discover_config_sources();
         let existing_sources: Vec<_> = sources.into_iter()
@@ -465,12 +467,12 @@ mod tests {
 
         assert_eq!(existing_sources.len(), 2);
 
-        // Should prefer YAML
+        // Should prefer .wq_config.yaml (first in list)
         let preferred = config_manager.get_preferred_config_source(Some(ConfigFormat::Yaml));
         assert!(preferred.is_some());
         let (path, format) = preferred.unwrap();
         assert_eq!(format, ConfigFormat::Yaml);
-        assert!(path.ends_with("workspace_qdrant_config.yaml"));
+        assert!(path.ends_with(".wq_config.yaml"));
     }
 
     #[test]
