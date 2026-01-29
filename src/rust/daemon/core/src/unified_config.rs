@@ -11,6 +11,37 @@ use std::path::{Path, PathBuf};
 use std::fs;
 use tracing::{debug, info, error};
 
+/// Expand environment variables in a string.
+///
+/// Supports both ${VAR} and $VAR syntax. If a variable is not set,
+/// the reference is left unchanged (literal text preserved).
+///
+/// # Examples
+/// ```
+/// use workspace_qdrant_core::unified_config::expand_env_vars;
+///
+/// std::env::set_var("HOME", "/home/user");
+/// assert_eq!(expand_env_vars("$HOME/cache"), "/home/user/cache");
+/// assert_eq!(expand_env_vars("${HOME}/cache"), "/home/user/cache");
+/// assert_eq!(expand_env_vars("$NONEXISTENT/path"), "$NONEXISTENT/path");
+/// ```
+pub fn expand_env_vars(s: &str) -> String {
+    shellexpand::env_with_context_no_errors(s, |var| {
+        std::env::var(var).ok()
+    }).to_string()
+}
+
+/// Expand environment variables in an optional path.
+///
+/// Returns None if input is None, otherwise expands environment variables
+/// in the path string and returns a new PathBuf.
+pub fn expand_path_env_vars(path: Option<&PathBuf>) -> Option<PathBuf> {
+    path.map(|p| {
+        let expanded = expand_env_vars(&p.to_string_lossy());
+        PathBuf::from(expanded)
+    })
+}
+
 /// Error types for unified configuration operations
 #[derive(Debug, thiserror::Error)]
 pub enum UnifiedConfigError {
@@ -144,11 +175,14 @@ impl UnifiedConfigManager {
         // Apply environment variable overrides
         let config_with_env = self.apply_env_overrides(config_data)?;
 
+        // Expand environment variables in path values
+        let config_expanded = self.expand_config_paths(config_with_env);
+
         // Validate configuration
-        self.validate_config(&config_with_env)?;
+        self.validate_config(&config_expanded)?;
 
         info!("Configuration loaded and validated successfully");
-        Ok(config_with_env)
+        Ok(config_expanded)
     }
 
     /// Load configuration file based on format
@@ -273,6 +307,29 @@ impl UnifiedConfigManager {
         }
 
         Ok(config)
+    }
+
+    /// Expand environment variables in path-like configuration values.
+    ///
+    /// Supports ${VAR} and $VAR syntax. Unset variables are left unchanged.
+    fn expand_config_paths(&self, mut config: DaemonConfig) -> DaemonConfig {
+        // Expand log_file path
+        if let Some(ref path) = config.log_file {
+            config.log_file = Some(PathBuf::from(expand_env_vars(&path.to_string_lossy())));
+        }
+
+        // Expand project_path
+        if let Some(ref path) = config.project_path {
+            config.project_path = Some(PathBuf::from(expand_env_vars(&path.to_string_lossy())));
+        }
+
+        // Expand embedding.model_cache_dir
+        if let Some(ref path) = config.embedding.model_cache_dir {
+            config.embedding.model_cache_dir = Some(PathBuf::from(expand_env_vars(&path.to_string_lossy())));
+        }
+
+        debug!("Expanded environment variables in path configuration values");
+        config
     }
 
     /// Validate configuration
@@ -506,5 +563,84 @@ mod tests {
         invalid_config = DaemonConfig::default();
         invalid_config.log_level = "invalid".to_string();
         assert!(config_manager.validate_config(&invalid_config).is_err());
+    }
+
+    #[test]
+    fn test_expand_env_vars() {
+        // Set a test environment variable
+        std::env::set_var("WQM_TEST_VAR", "/test/path");
+
+        // Test ${VAR} syntax
+        assert_eq!(expand_env_vars("${WQM_TEST_VAR}/cache"), "/test/path/cache");
+
+        // Test $VAR syntax
+        assert_eq!(expand_env_vars("$WQM_TEST_VAR/cache"), "/test/path/cache");
+
+        // Test unset variable (should be left unchanged)
+        let result = expand_env_vars("$WQM_NONEXISTENT_VAR/path");
+        assert!(result.contains("WQM_NONEXISTENT_VAR"));
+
+        // Test string without variables
+        assert_eq!(expand_env_vars("/static/path"), "/static/path");
+
+        // Test multiple variables
+        std::env::set_var("WQM_TEST_VAR2", "subdir");
+        assert_eq!(
+            expand_env_vars("${WQM_TEST_VAR}/${WQM_TEST_VAR2}"),
+            "/test/path/subdir"
+        );
+
+        // Cleanup
+        std::env::remove_var("WQM_TEST_VAR");
+        std::env::remove_var("WQM_TEST_VAR2");
+    }
+
+    #[test]
+    fn test_expand_path_env_vars() {
+        std::env::set_var("WQM_TEST_HOME", "/home/testuser");
+
+        // Test with Some path
+        let path = PathBuf::from("${WQM_TEST_HOME}/.cache/models");
+        let expanded = expand_path_env_vars(Some(&path));
+        assert!(expanded.is_some());
+        assert_eq!(expanded.unwrap(), PathBuf::from("/home/testuser/.cache/models"));
+
+        // Test with None
+        let expanded_none = expand_path_env_vars(None);
+        assert!(expanded_none.is_none());
+
+        // Cleanup
+        std::env::remove_var("WQM_TEST_HOME");
+    }
+
+    #[test]
+    fn test_expand_config_paths() {
+        let temp_dir = TempDir::new().unwrap();
+        let config_manager = UnifiedConfigManager::new(Some(temp_dir.path()));
+
+        std::env::set_var("WQM_TEST_DIR", "/expanded/dir");
+
+        let mut config = DaemonConfig::default();
+        config.log_file = Some(PathBuf::from("${WQM_TEST_DIR}/daemon.log"));
+        config.project_path = Some(PathBuf::from("$WQM_TEST_DIR/project"));
+        config.embedding.model_cache_dir = Some(PathBuf::from("${WQM_TEST_DIR}/models"));
+
+        let expanded = config_manager.expand_config_paths(config);
+
+        assert_eq!(
+            expanded.log_file.unwrap(),
+            PathBuf::from("/expanded/dir/daemon.log")
+        );
+        assert_eq!(
+            expanded.project_path.unwrap(),
+            PathBuf::from("/expanded/dir/project")
+        );
+        assert_eq!(
+            expanded.embedding.model_cache_dir.unwrap(),
+            PathBuf::from("/expanded/dir/models")
+        );
+
+        // Cleanup
+        std::env::remove_var("WQM_TEST_DIR");
     }
 }
