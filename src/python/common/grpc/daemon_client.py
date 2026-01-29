@@ -1,13 +1,12 @@
 """
 Unified gRPC client for workspace-qdrant-mcp daemon communication.
 
-This module provides a complete Python client for all daemon operations:
-- NEW PROTOCOL (workspace_daemon):
-  - SystemService (7 RPCs): Health, status, metrics, refresh signals, lifecycle
-  - CollectionService (5 RPCs): Collection and alias management
-  - DocumentService (3 RPCs): Text ingestion, update, deletion
-- LEGACY PROTOCOL (IngestService):
-  - Document processing, folder watching, search, configuration, memory operations
+This module provides a complete Python client for all daemon operations
+using the workspace_daemon protocol:
+- SystemService (7 RPCs): Health, status, metrics, refresh signals, lifecycle
+- CollectionService (5 RPCs): Collection and alias management
+- DocumentService (3 RPCs): Text ingestion, update, deletion
+- ProjectService (5 RPCs): Project registration, sessions, heartbeat
 
 The client provides:
 - Connection pooling and health monitoring
@@ -17,6 +16,10 @@ The client provides:
 - LLM access control validation
 - Comprehensive error handling and logging
 - Async/await support for all operations
+
+Note: Legacy IngestService protocol has been removed. All operations now use
+the workspace_daemon protocol with SystemService, CollectionService,
+DocumentService, and ProjectService.
 """
 
 import asyncio
@@ -33,76 +36,6 @@ from google.protobuf.empty_pb2 import Empty
 from .connection_manager import ConnectionConfig
 from .generated import workspace_daemon_pb2 as pb2
 from .generated import workspace_daemon_pb2_grpc as pb2_grpc
-
-# Legacy IngestService protocol imports
-from .ingestion_pb2 import (
-    # Memory operations
-    AddMemoryRuleRequest,
-    AddMemoryRuleResponse,
-    CollectionInfo,
-    ConfigureWatchRequest,
-    ConfigureWatchResponse,
-    DeleteDocumentRequest,
-    DeleteDocumentResponse,
-    DeleteMemoryRuleRequest,
-    DeleteMemoryRuleResponse,
-    # Search operations
-    ExecuteQueryRequest,
-    ExecuteQueryResponse,
-    GetCollectionInfoRequest,
-    GetDocumentRequest,
-    GetDocumentResponse,
-    GetProcessingStatusRequest,
-    # Status and monitoring
-    GetStatsRequest,
-    GetStatsResponse,
-    HealthResponse,
-    ListCollectionsRequest,
-    ListCollectionsResponse,
-    # Document management
-    ListDocumentsRequest,
-    ListDocumentsResponse,
-    ListMemoryRulesRequest,
-    ListMemoryRulesResponse,
-    ListWatchesRequest,
-    ListWatchesResponse,
-    # Configuration management
-    LoadConfigurationRequest,
-    LoadConfigurationResponse,
-    # Document processing
-    ProcessDocumentRequest,
-    ProcessDocumentResponse,
-    ProcessFolderProgress,
-    ProcessFolderRequest,
-    ProcessingStatusResponse,
-    SaveConfigurationRequest,
-    SaveConfigurationResponse,
-    SearchMemoryRulesRequest,
-    SearchMemoryRulesResponse,
-    SearchMode,
-    # File watching
-    StartWatchingRequest,
-    StopWatchingRequest,
-    StopWatchingResponse,
-    SystemStatusResponse,
-    ValidateConfigurationRequest,
-    ValidateConfigurationResponse,
-    WatchingUpdate,
-    WatchStatus,
-)
-from .ingestion_pb2 import (
-    CreateCollectionRequest as LegacyCreateCollectionRequest,
-)
-from .ingestion_pb2 import (
-    CreateCollectionResponse as LegacyCreateCollectionResponse,
-)
-from .ingestion_pb2 import (
-    DeleteCollectionRequest as LegacyDeleteCollectionRequest,
-)
-from .ingestion_pb2 import (
-    DeleteCollectionResponse as LegacyDeleteCollectionResponse,
-)
-from .ingestion_pb2_grpc import IngestServiceStub
 
 # LLM access control system
 try:
@@ -215,14 +148,11 @@ class DaemonClient:
 
         self._channel: grpc.aio.Channel | None = None
 
-        # New protocol stubs
+        # gRPC service stubs (workspace_daemon protocol)
         self._system_stub: pb2_grpc.SystemServiceStub | None = None
         self._collection_stub: pb2_grpc.CollectionServiceStub | None = None
         self._document_stub: pb2_grpc.DocumentServiceStub | None = None
         self._project_stub: pb2_grpc.ProjectServiceStub | None = None
-
-        # Legacy protocol stub
-        self._ingest_stub: IngestServiceStub | None = None
 
         self._started = False
         self._shutdown = False
@@ -262,14 +192,11 @@ class DaemonClient:
                 timeout=self.config.connection_timeout,
             )
 
-            # Create service stubs (new protocol)
+            # Create service stubs (workspace_daemon protocol)
             self._system_stub = pb2_grpc.SystemServiceStub(self._channel)
             self._collection_stub = pb2_grpc.CollectionServiceStub(self._channel)
             self._document_stub = pb2_grpc.DocumentServiceStub(self._channel)
             self._project_stub = pb2_grpc.ProjectServiceStub(self._channel)
-
-            # Create legacy protocol stub
-            self._ingest_stub = IngestServiceStub(self._channel)
 
             self._started = True
             self._connected = True
@@ -302,7 +229,6 @@ class DaemonClient:
         self._collection_stub = None
         self._document_stub = None
         self._project_stub = None
-        self._ingest_stub = None
         self._started = False
         self._connected = False
 
@@ -1184,426 +1110,12 @@ class DaemonClient:
         return await self._retry_operation(operation, timeout=timeout)
 
     # =========================================================================
-    # Legacy IngestService Methods (backward compatibility)
-    # =========================================================================
-
-    async def process_document(
-        self,
-        file_path: str,
-        collection: str,
-        metadata: dict[str, str] | None = None,
-        document_id: str | None = None,
-        chunk_text: bool = True,
-    ) -> ProcessDocumentResponse:
-        """Process a single document via legacy IngestService."""
-        self._ensure_connected()
-
-        # Apply LLM access control validation for collection writes
-        if self.config_manager:
-            try:
-                validate_llm_collection_access('write', collection, self.config_manager)
-            except LLMAccessControlError as e:
-                logger.warning("LLM access control blocked collection write: %s", str(e))
-                raise DaemonUnavailableError(f"Collection write blocked: {str(e)}") from e
-
-        request = ProcessDocumentRequest(
-            file_path=file_path,
-            collection=collection,
-            metadata=metadata or {},
-            document_id=document_id,
-            chunk_text=chunk_text,
-        )
-
-        return await self._ingest_stub.ProcessDocument(request)
-
-    async def process_folder(
-        self,
-        folder_path: str,
-        collection: str,
-        include_patterns: list[str] | None = None,
-        ignore_patterns: list[str] | None = None,
-        recursive: bool = True,
-        max_depth: int = 5,
-        dry_run: bool = False,
-        metadata: dict[str, str] | None = None,
-    ) -> AsyncIterator[ProcessFolderProgress]:
-        """Process all documents in a folder via legacy IngestService."""
-        self._ensure_connected()
-
-        # Apply LLM access control validation for collection writes (unless dry run)
-        if not dry_run and self.config_manager:
-            try:
-                validate_llm_collection_access('write', collection, self.config_manager)
-            except LLMAccessControlError as e:
-                logger.warning("LLM access control blocked collection write: %s", str(e))
-                raise DaemonUnavailableError(f"Collection write blocked: {str(e)}") from e
-
-        request = ProcessFolderRequest(
-            folder_path=folder_path,
-            collection=collection,
-            include_patterns=include_patterns or [],
-            ignore_patterns=ignore_patterns or [],
-            recursive=recursive,
-            max_depth=max_depth,
-            dry_run=dry_run,
-            metadata=metadata or {},
-        )
-
-        async for progress in self._ingest_stub.ProcessFolder(request):
-            yield progress
-
-    async def start_watching(
-        self,
-        path: str,
-        collection: str,
-        patterns: list[str] | None = None,
-        ignore_patterns: list[str] | None = None,
-        auto_ingest: bool = True,
-        recursive: bool = True,
-        recursive_depth: int = -1,
-        debounce_seconds: int = 5,
-        update_frequency_ms: int = 1000,
-        watch_id: str | None = None,
-    ) -> AsyncIterator[WatchingUpdate]:
-        """Start watching a folder for changes via legacy IngestService."""
-        self._ensure_connected()
-
-        request = StartWatchingRequest(
-            path=path,
-            collection=collection,
-            patterns=patterns or [],
-            ignore_patterns=ignore_patterns or [],
-            auto_ingest=auto_ingest,
-            recursive=recursive,
-            recursive_depth=recursive_depth,
-            debounce_seconds=debounce_seconds,
-            update_frequency_ms=update_frequency_ms,
-            watch_id=watch_id,
-        )
-
-        async for update in self._ingest_stub.StartWatching(request):
-            yield update
-
-    async def stop_watching(self, watch_id: str) -> StopWatchingResponse:
-        """Stop watching a folder via legacy IngestService."""
-        self._ensure_connected()
-        request = StopWatchingRequest(watch_id=watch_id)
-        return await self._ingest_stub.StopWatching(request)
-
-    async def list_watches(self, active_only: bool = False) -> ListWatchesResponse:
-        """List all folder watches via legacy IngestService."""
-        self._ensure_connected()
-        request = ListWatchesRequest(active_only=active_only)
-        return await self._ingest_stub.ListWatches(request)
-
-    async def configure_watch(
-        self,
-        watch_id: str,
-        status: WatchStatus | None = None,
-        patterns: list[str] | None = None,
-        ignore_patterns: list[str] | None = None,
-        auto_ingest: bool | None = None,
-        recursive: bool | None = None,
-        recursive_depth: int | None = None,
-        debounce_seconds: int | None = None,
-    ) -> ConfigureWatchResponse:
-        """Configure an existing watch via legacy IngestService."""
-        self._ensure_connected()
-
-        request = ConfigureWatchRequest(
-            watch_id=watch_id,
-            status=status,
-            patterns=patterns or [],
-            ignore_patterns=ignore_patterns or [],
-            auto_ingest=auto_ingest,
-            recursive=recursive,
-            recursive_depth=recursive_depth,
-            debounce_seconds=debounce_seconds,
-        )
-
-        return await self._ingest_stub.ConfigureWatch(request)
-
-    async def execute_query(
-        self,
-        query: str,
-        collections: list[str] | None = None,
-        mode: SearchMode = SearchMode.SEARCH_MODE_HYBRID,
-        limit: int = 10,
-        score_threshold: float = 0.7,
-    ) -> ExecuteQueryResponse:
-        """Execute a search query via legacy IngestService."""
-        self._ensure_connected()
-
-        request = ExecuteQueryRequest(
-            query=query,
-            collections=collections or [],
-            mode=mode,
-            limit=limit,
-            score_threshold=score_threshold,
-        )
-
-        return await self._ingest_stub.ExecuteQuery(request)
-
-    async def list_collections(
-        self, include_stats: bool = False
-    ) -> ListCollectionsResponse:
-        """List all collections via legacy IngestService."""
-        self._ensure_connected()
-        request = ListCollectionsRequest(include_stats=include_stats)
-        return await self._ingest_stub.ListCollections(request)
-
-    async def get_collection_info(
-        self, collection_name: str, include_sample_documents: bool = False
-    ) -> CollectionInfo:
-        """Get information about a specific collection via legacy IngestService."""
-        self._ensure_connected()
-
-        request = GetCollectionInfoRequest(
-            collection_name=collection_name,
-            include_sample_documents=include_sample_documents,
-        )
-
-        return await self._ingest_stub.GetCollectionInfo(request)
-
-    async def create_collection_legacy(
-        self,
-        collection_name: str,
-        description: str = "",
-        metadata: dict[str, str] | None = None,
-    ) -> LegacyCreateCollectionResponse:
-        """Create a new collection via legacy IngestService (deprecated)."""
-        self._ensure_connected()
-
-        # Apply LLM access control validation for collection creation
-        if self.config_manager:
-            try:
-                validate_llm_collection_access('create', collection_name, self.config_manager)
-            except LLMAccessControlError as e:
-                logger.warning("LLM access control blocked collection creation: %s", str(e))
-                raise DaemonUnavailableError(f"Collection creation blocked: {str(e)}") from e
-
-        request = LegacyCreateCollectionRequest(
-            collection_name=collection_name,
-            description=description,
-            metadata=metadata or {},
-        )
-
-        return await self._ingest_stub.CreateCollection(request)
-
-    async def delete_collection_legacy(
-        self, collection_name: str, confirm: bool = False
-    ) -> LegacyDeleteCollectionResponse:
-        """Delete a collection via legacy IngestService (deprecated)."""
-        self._ensure_connected()
-
-        # Apply LLM access control validation for collection deletion
-        if self.config_manager:
-            try:
-                validate_llm_collection_access('delete', collection_name, self.config_manager)
-            except LLMAccessControlError as e:
-                logger.warning("LLM access control blocked collection deletion: %s", str(e))
-                raise DaemonUnavailableError(f"Collection deletion blocked: {str(e)}") from e
-
-        request = LegacyDeleteCollectionRequest(
-            collection_name=collection_name, confirm=confirm
-        )
-
-        return await self._ingest_stub.DeleteCollection(request)
-
-    async def collection_exists(
-        self,
-        collection_name: str,
-    ) -> bool:
-        """Check if a collection exists via legacy IngestService."""
-        self._ensure_connected()
-
-        try:
-            response = await self.list_collections(include_stats=False)
-            return any(c.name == collection_name for c in response.collections)
-        except Exception as e:
-            logger.warning(
-                "Failed to check collection existence",
-                collection_name=collection_name,
-                error=str(e),
-            )
-            return False
-
-    async def list_documents(
-        self,
-        collection_name: str,
-        limit: int = 100,
-        offset: int = 0,
-        filter_pattern: str = "",
-    ) -> ListDocumentsResponse:
-        """List documents in a collection via legacy IngestService."""
-        self._ensure_connected()
-
-        request = ListDocumentsRequest(
-            collection_name=collection_name,
-            limit=limit,
-            offset=offset,
-            filter_pattern=filter_pattern,
-        )
-
-        return await self._ingest_stub.ListDocuments(request)
-
-    async def get_document(
-        self, document_id: str, collection_name: str, include_content: bool = False
-    ) -> GetDocumentResponse:
-        """Get a specific document via legacy IngestService."""
-        self._ensure_connected()
-
-        request = GetDocumentRequest(
-            document_id=document_id,
-            collection_name=collection_name,
-            include_content=include_content,
-        )
-
-        return await self._ingest_stub.GetDocument(request)
-
-    async def delete_document(
-        self, document_id: str, collection_name: str
-    ) -> DeleteDocumentResponse:
-        """Delete a document via legacy IngestService."""
-        self._ensure_connected()
-
-        request = DeleteDocumentRequest(
-            document_id=document_id, collection_name=collection_name
-        )
-
-        return await self._ingest_stub.DeleteDocument(request)
-
-    async def load_configuration(
-        self, config_path: str | None = None
-    ) -> LoadConfigurationResponse:
-        """Load configuration from daemon via legacy IngestService."""
-        self._ensure_connected()
-        request = LoadConfigurationRequest(config_path=config_path)
-        return await self._ingest_stub.LoadConfiguration(request)
-
-    async def save_configuration(
-        self, config_yaml: str, target_path: str
-    ) -> SaveConfigurationResponse:
-        """Save configuration to daemon via legacy IngestService."""
-        self._ensure_connected()
-
-        request = SaveConfigurationRequest(
-            config_yaml=config_yaml, target_path=target_path
-        )
-
-        return await self._ingest_stub.SaveConfiguration(request)
-
-    async def validate_configuration(
-        self, config_yaml: str
-    ) -> ValidateConfigurationResponse:
-        """Validate configuration via legacy IngestService."""
-        self._ensure_connected()
-        request = ValidateConfigurationRequest(config_yaml=config_yaml)
-        return await self._ingest_stub.ValidateConfiguration(request)
-
-    async def add_memory_rule(
-        self,
-        category: str,
-        name: str,
-        rule_text: str,
-        authority: str | None = None,
-        scope: list[str] | None = None,
-        source: str | None = None,
-    ) -> AddMemoryRuleResponse:
-        """Add a memory rule via legacy IngestService."""
-        self._ensure_connected()
-
-        request = AddMemoryRuleRequest(
-            category=category,
-            name=name,
-            rule_text=rule_text,
-            authority=authority,
-            scope=scope or [],
-            source=source,
-        )
-
-        return await self._ingest_stub.AddMemoryRule(request)
-
-    async def list_memory_rules(
-        self,
-        category: str | None = None,
-        authority: str | None = None,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> ListMemoryRulesResponse:
-        """List memory rules via legacy IngestService."""
-        self._ensure_connected()
-
-        request = ListMemoryRulesRequest(
-            category=category, authority=authority, limit=limit, offset=offset
-        )
-
-        return await self._ingest_stub.ListMemoryRules(request)
-
-    async def delete_memory_rule(self, rule_id: str) -> DeleteMemoryRuleResponse:
-        """Delete a memory rule via legacy IngestService."""
-        self._ensure_connected()
-        request = DeleteMemoryRuleRequest(rule_id=rule_id)
-        return await self._ingest_stub.DeleteMemoryRule(request)
-
-    async def search_memory_rules(
-        self,
-        query: str,
-        category: str | None = None,
-        authority: str | None = None,
-        limit: int = 10,
-    ) -> SearchMemoryRulesResponse:
-        """Search memory rules via legacy IngestService."""
-        self._ensure_connected()
-
-        request = SearchMemoryRulesRequest(
-            query=query, category=category, authority=authority, limit=limit
-        )
-
-        return await self._ingest_stub.SearchMemoryRules(request)
-
-    async def get_stats(
-        self, include_collection_stats: bool = True, include_watch_stats: bool = True
-    ) -> GetStatsResponse:
-        """Get daemon statistics via legacy IngestService."""
-        self._ensure_connected()
-
-        request = GetStatsRequest(
-            include_collection_stats=include_collection_stats,
-            include_watch_stats=include_watch_stats,
-        )
-
-        return await self._ingest_stub.GetStats(request)
-
-    async def get_processing_status(
-        self, include_history: bool = False, history_limit: int = 50
-    ) -> ProcessingStatusResponse:
-        """Get processing status via legacy IngestService."""
-        self._ensure_connected()
-
-        request = GetProcessingStatusRequest(
-            include_history=include_history, history_limit=history_limit
-        )
-
-        return await self._ingest_stub.GetProcessingStatus(request)
-
-    async def get_system_status(self) -> SystemStatusResponse:
-        """Get system status via legacy IngestService."""
-        self._ensure_connected()
-        return await self._ingest_stub.GetSystemStatus(Empty())
-
-    async def health_check_legacy(self) -> HealthResponse:
-        """Perform health check via legacy IngestService (use health_check() for new protocol)."""
-        self._ensure_connected()
-        return await self._ingest_stub.HealthCheck(Empty())
-
-    # =========================================================================
     # Utility Methods
     # =========================================================================
 
     def _ensure_connected(self) -> None:
-        """Ensure client is connected to daemon - for legacy compatibility."""
-        if not self._connected or not self._ingest_stub:
+        """Ensure client is connected to daemon."""
+        if not self._connected:
             raise DaemonUnavailableError(
                 "Cannot perform operation: daemon not connected.\n"
                 "\n"

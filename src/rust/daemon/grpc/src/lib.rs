@@ -17,8 +17,8 @@ pub mod proto {
     tonic::include_proto!("workspace_daemon");
 }
 
-// Legacy service - DISABLED (to be removed after validation)
-// pub mod service;
+// Legacy IngestionService removed - all operations now use workspace_daemon protocol
+// See: SystemService, CollectionService, DocumentService, ProjectService in services/
 
 // New modular services implementation
 pub mod services;
