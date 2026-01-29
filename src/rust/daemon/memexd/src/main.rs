@@ -12,7 +12,7 @@ use tokio::signal;
 use tracing::{error, info, warn};
 
 use workspace_qdrant_core::{
-    config::Config,
+    config::{Config, DaemonConfig},
     LoggingConfig, initialize_logging,
     unified_config::{UnifiedConfigManager, UnifiedConfigError},
     ipc::IpcServer,
@@ -331,17 +331,17 @@ fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Resu
 }
 
 /// Load configuration from file or use defaults
-fn load_config(args: &DaemonArgs) -> Result<Config, Box<dyn std::error::Error>> {
+fn load_config(args: &DaemonArgs) -> Result<DaemonConfig, Box<dyn std::error::Error>> {
     let is_daemon_mode = detect_daemon_mode();
     let config_manager = UnifiedConfigManager::new(None::<PathBuf>);
 
-    let config = match &args.config_file {
+    let daemon_config = match &args.config_file {
         Some(config_path) => {
             info!("Loading configuration from {}", config_path.display());
             match config_manager.load_config(Some(config_path)) {
                 Ok(daemon_config) => {
                     info!("Configuration loaded successfully");
-                    Config::from(daemon_config)
+                    daemon_config
                 },
                 Err(UnifiedConfigError::FileNotFound(path)) => {
                     error!("Configuration file not found: {}", path.display());
@@ -358,16 +358,14 @@ fn load_config(args: &DaemonArgs) -> Result<Config, Box<dyn std::error::Error>> 
             match config_manager.load_config(None) {
                 Ok(daemon_config) => {
                     info!("Configuration auto-discovered");
-                    Config::from(daemon_config)
+                    daemon_config
                 },
                 Err(_) => {
                     info!("Using default configuration");
                     if is_daemon_mode {
-                        let mut cfg = Config::default();
-                        cfg.enable_metrics = false;
-                        cfg
+                        DaemonConfig::daemon_mode()
                     } else {
-                        Config::default()
+                        DaemonConfig::default()
                     }
                 }
             }
@@ -378,7 +376,7 @@ fn load_config(args: &DaemonArgs) -> Result<Config, Box<dyn std::error::Error>> 
         info!("Port override specified: {}", args.port.unwrap());
     }
 
-    Ok(config)
+    Ok(daemon_config)
 }
 
 /// Set up signal handlers for graceful shutdown
@@ -411,12 +409,15 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 /// Main daemon loop
-async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
     let project_info = args.project_id.as_ref().map(|id| format!(" for project {}", id)).unwrap_or_default();
     info!("Starting memexd daemon (version 0.2.0){}", project_info);
 
     check_existing_instance(&args.pid_file, args.project_id.as_ref())?;
     create_pid_file(&args.pid_file, args.project_id.as_ref())?;
+
+    // Convert DaemonConfig to Config for queue processor settings
+    let config = Config::from(daemon_config.clone());
 
     let pid_file_cleanup = args.pid_file.clone();
     let _cleanup_guard = scopeguard::guard((), move |_| {
@@ -515,7 +516,18 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
 
     // Create processing components
     let document_processor = Arc::new(DocumentProcessor::new());
-    let embedding_config = EmbeddingConfig::default();
+
+    // Build EmbeddingConfig from daemon configuration
+    let embedding_config = EmbeddingConfig {
+        max_cache_size: daemon_config.embedding.cache_max_entries,
+        model_cache_dir: daemon_config.embedding.model_cache_dir.clone(),
+        ..EmbeddingConfig::default()
+    };
+
+    if let Some(ref cache_dir) = embedding_config.model_cache_dir {
+        info!("Using model cache directory: {}", cache_dir.display());
+    }
+
     let embedding_generator = Arc::new(
         EmbeddingGenerator::new(embedding_config)
             .map_err(|e| format!("Failed to create embedding generator: {}", e))?

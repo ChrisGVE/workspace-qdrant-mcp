@@ -3,6 +3,7 @@
 //! This module provides embedding generation capabilities using the fastembed crate.
 //! It generates both dense (semantic) and sparse (BM25) vectors for hybrid search.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use serde::{Deserialize, Serialize};
@@ -35,6 +36,10 @@ pub struct EmbeddingConfig {
     pub enable_preprocessing: bool,
     pub bm25_k1: f32,
     pub bm25_b: f32,
+    /// Directory for storing downloaded model files
+    /// Default: Uses system-appropriate cache directory (~/.cache/fastembed/)
+    #[serde(default)]
+    pub model_cache_dir: Option<PathBuf>,
 }
 
 impl Default for EmbeddingConfig {
@@ -46,6 +51,7 @@ impl Default for EmbeddingConfig {
             enable_preprocessing: true,
             bm25_k1: 1.2,
             bm25_b: 0.75,
+            model_cache_dir: None,
         }
     }
 }
@@ -150,6 +156,8 @@ pub struct EmbeddingGenerator {
     model: Arc<Mutex<Option<TextEmbedding>>>,
     bm25: Arc<Mutex<BM25>>,
     initialized: Arc<std::sync::atomic::AtomicBool>,
+    /// Optional directory for model cache
+    model_cache_dir: Option<PathBuf>,
 }
 
 impl std::fmt::Debug for EmbeddingGenerator {
@@ -163,11 +171,13 @@ impl std::fmt::Debug for EmbeddingGenerator {
 
 impl EmbeddingGenerator {
     pub fn new(config: EmbeddingConfig) -> Result<Self, EmbeddingError> {
+        let model_cache_dir = config.model_cache_dir.clone();
         Ok(Self {
             config: config.clone(),
             model: Arc::new(Mutex::new(None)),
             bm25: Arc::new(Mutex::new(BM25::new(config.bm25_k1, config.bm25_b))),
             initialized: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            model_cache_dir,
         })
     }
 
@@ -182,14 +192,21 @@ impl EmbeddingGenerator {
             return Ok(());
         }
 
-        info!("Initializing FastEmbed model (all-MiniLM-L6-v2)...");
+        // Build InitOptions with optional cache directory
+        let mut init_options = InitOptions::new(EmbeddingModel::AllMiniLML6V2)
+            .with_show_download_progress(true);
 
-        let model = TextEmbedding::try_new(
-            InitOptions::new(EmbeddingModel::AllMiniLML6V2)
-                .with_show_download_progress(true)
-        ).map_err(|e| EmbeddingError::InitializationError {
-            message: format!("Failed to initialize FastEmbed: {}", e),
-        })?;
+        if let Some(ref cache_dir) = self.model_cache_dir {
+            info!("Initializing FastEmbed model (all-MiniLM-L6-v2) with cache dir: {}", cache_dir.display());
+            init_options = init_options.with_cache_dir(cache_dir.clone());
+        } else {
+            info!("Initializing FastEmbed model (all-MiniLM-L6-v2) with default cache dir...");
+        }
+
+        let model = TextEmbedding::try_new(init_options)
+            .map_err(|e| EmbeddingError::InitializationError {
+                message: format!("Failed to initialize FastEmbed: {}", e),
+            })?;
 
         *model_guard = Some(model);
         self.initialized.store(true, std::sync::atomic::Ordering::SeqCst);
