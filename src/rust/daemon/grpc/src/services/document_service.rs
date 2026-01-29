@@ -672,8 +672,13 @@ impl DocumentServiceImpl {
             chunk_metadata.insert("created_at".to_string(), serde_json::json!(created_at.clone()));
             chunk_metadata.insert("content".to_string(), serde_json::json!(chunk_content.clone()));
 
-            // Create point ID: {document_id}_{chunk_index}
-            let point_id = format!("{}_{}", document_id, chunk_index);
+            // Create deterministic point ID using UUID v5
+            // Namespace: document_id parsed as UUID
+            // Name: chunk_index as string
+            // Result: Valid UUID that's unique per document+chunk combination
+            let namespace = Uuid::parse_str(&document_id)
+                .unwrap_or_else(|_| Uuid::new_v4()); // Fallback if document_id isn't valid UUID
+            let point_id = Uuid::new_v5(&namespace, chunk_index.to_string().as_bytes()).to_string();
 
             let point = DocumentPoint {
                 id: point_id,
