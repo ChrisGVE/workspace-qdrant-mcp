@@ -447,6 +447,30 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
         }
     });
 
+    // Initialize SQLite database pool early so it can be shared with gRPC server
+    // Get SQLite database path from config or use default
+    let db_path = config.database_path.clone().unwrap_or_else(|| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+        PathBuf::from(format!("{}/.workspace-qdrant/state.db", home))
+    });
+
+    // Ensure parent directory exists
+    if let Some(parent) = db_path.parent() {
+        if !parent.exists() {
+            fs::create_dir_all(parent)?;
+        }
+    }
+
+    // Create SQLite connection pool for queue operations and ProjectService
+    let queue_config = QueueConnectionConfig::with_database_path(&db_path);
+    let queue_pool = queue_config.create_pool().await
+        .map_err(|e| format!("Failed to create queue database pool: {}", e))?;
+
+    info!("Queue database initialized at: {}", db_path.display());
+
+    // Clone pool for gRPC server (ProjectService needs it)
+    let grpc_db_pool = queue_pool.clone();
+
     // Start gRPC server for MCP server and CLI communication (Task 421)
     let grpc_port = args.grpc_port;
     let grpc_addr = format!("127.0.0.1:{}", grpc_port).parse()
@@ -455,12 +479,13 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
 
     info!("Starting gRPC server on port {}", grpc_port);
     let grpc_handle = tokio::spawn(async move {
-        let mut grpc_server = GrpcServer::new(grpc_config);
+        let mut grpc_server = GrpcServer::new(grpc_config)
+            .with_database_pool(grpc_db_pool);
         if let Err(e) = grpc_server.start().await {
             error!("gRPC server error: {}", e);
         }
     });
-    info!("gRPC server started on 127.0.0.1:{}", grpc_port);
+    info!("gRPC server started on 127.0.0.1:{} with ProjectService enabled", grpc_port);
 
     info!("Initializing IPC server");
     let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);
@@ -475,27 +500,8 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
     info!("IPC server started successfully");
 
     // Initialize queue processor (Task 21)
+    // Note: queue_pool was created earlier for sharing with gRPC server
     info!("Initializing queue processor...");
-
-    // Get SQLite database path from config or use default
-    let db_path = config.database_path.clone().unwrap_or_else(|| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        PathBuf::from(format!("{}/.workspace-qdrant/state.db", home))
-    });
-
-    // Ensure parent directory exists
-    if let Some(parent) = db_path.parent() {
-        if !parent.exists() {
-            fs::create_dir_all(parent)?;
-        }
-    }
-
-    // Create SQLite connection pool for queue operations
-    let queue_config = QueueConnectionConfig::with_database_path(&db_path);
-    let queue_pool = queue_config.create_pool().await
-        .map_err(|e| format!("Failed to create queue database pool: {}", e))?;
-
-    info!("Queue database initialized at: {}", db_path.display());
 
     // Initialize queue processor components
     let processor_config = ProcessorConfig {

@@ -9,6 +9,7 @@ use std::time::Duration;
 use thiserror::Error;
 use tonic::transport::{Server, ServerTlsConfig, Identity};
 use tonic::{Request, Status};
+use sqlx::SqlitePool;
 
 pub mod proto {
     // Generated protobuf definitions from build.rs
@@ -272,6 +273,8 @@ pub struct GrpcServer {
     config: ServerConfig,
     shutdown_signal: Option<tokio::sync::oneshot::Receiver<()>>,
     metrics: Arc<ServerMetrics>,
+    /// Optional database pool for ProjectService
+    db_pool: Option<SqlitePool>,
 }
 
 /// Server metrics for monitoring
@@ -343,11 +346,21 @@ impl GrpcServer {
             config,
             shutdown_signal: None,
             metrics: Arc::new(ServerMetrics::default()),
+            db_pool: None,
         }
     }
 
     pub fn with_shutdown_signal(mut self, receiver: tokio::sync::oneshot::Receiver<()>) -> Self {
         self.shutdown_signal = Some(receiver);
+        self
+    }
+
+    /// Set the database pool for ProjectService
+    ///
+    /// If provided, ProjectService will be registered with the gRPC server,
+    /// enabling project registration, heartbeat, and priority management.
+    pub fn with_database_pool(mut self, pool: SqlitePool) -> Self {
+        self.db_pool = Some(pool);
         self
     }
 
@@ -363,7 +376,7 @@ impl GrpcServer {
         }
 
         // Create instances of the new modular services
-        use crate::services::{SystemServiceImpl, CollectionServiceImpl, DocumentServiceImpl};
+        use crate::services::{SystemServiceImpl, CollectionServiceImpl, DocumentServiceImpl, ProjectServiceImpl};
         use workspace_qdrant_core::storage::StorageClient;
 
         // Create shared storage client with daemon-mode config (HTTP transport, no compat checks)
@@ -384,6 +397,12 @@ impl GrpcServer {
         let system_service = SystemServiceImpl::new();
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
         let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));
+
+        // Create ProjectService if database pool is available
+        let project_service = self.db_pool.as_ref().map(|pool| {
+            tracing::info!("Creating ProjectService with database pool");
+            ProjectServiceImpl::new(pool.clone())
+        });
 
         tracing::info!("Starting gRPC server on {}", self.config.bind_addr);
         tracing::info!("gRPC server configuration: TLS={}, Auth={}, Timeouts={:?}",
@@ -445,15 +464,25 @@ impl GrpcServer {
                 ))?;
         }
 
-        // Register all three gRPC services
+        // Register gRPC services
         let system_svc = proto::system_service_server::SystemServiceServer::new(system_service);
         let collection_svc = proto::collection_service_server::CollectionServiceServer::new(collection_service);
         let document_svc = proto::document_service_server::DocumentServiceServer::new(document_service);
 
-        let server = server_builder
+        // Build server with core services
+        let mut router = server_builder
             .add_service(system_svc)
             .add_service(collection_svc)
             .add_service(document_svc);
+
+        // Conditionally add ProjectService if database pool was provided
+        if let Some(project_svc_impl) = project_service {
+            let project_svc = proto::project_service_server::ProjectServiceServer::new(project_svc_impl);
+            tracing::info!("Registering ProjectService gRPC endpoint");
+            router = router.add_service(project_svc);
+        }
+
+        let server = router;
 
         // Start server with graceful shutdown
         match self.shutdown_signal.take() {
