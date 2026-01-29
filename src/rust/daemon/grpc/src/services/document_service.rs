@@ -15,8 +15,10 @@
 //! Routes content to unified collections based on collection_basename:
 //! - `memory`, `agent_memory` → Direct collection names (no multi-tenant)
 //! - Other basenames → Routes to canonical `projects` or `libraries`:
-//!   - If tenant_id is 12-char hex → `projects` with project_id metadata
+//!   - If tenant_id is project ID format → `projects` with project_id metadata
+//!     (path hashes like "path_abc123..." or sanitized URLs like "github_com_user_repo")
 //!   - Otherwise → `libraries` with library_name metadata
+//!     (human-readable names like "react", "numpy", "lodash")
 
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
@@ -189,10 +191,47 @@ impl DocumentServiceImpl {
         Ok(collection_name)
     }
 
-    /// Check if tenant_id is a project ID format (12-char hex)
-    /// Project IDs are generated from git remote URLs or path hashes
+    /// Check if tenant_id is a project ID format
+    ///
+    /// Project IDs are generated from:
+    /// 1. Git remote URLs (sanitized): e.g., "github_com_user_repo"
+    /// 2. Path hashes: e.g., "path_abc123def456789a" (21 chars: "path_" + 16 hex)
+    ///
+    /// Library names are human-readable without these patterns: e.g., "react", "numpy"
     fn is_project_id(tenant_id: &str) -> bool {
-        tenant_id.len() == 12 && tenant_id.chars().all(|c| c.is_ascii_hexdigit())
+        // Path hash format: "path_" + 16 hex characters = 21 chars total
+        if tenant_id.starts_with("path_") && tenant_id.len() == 21 {
+            let hash_part = &tenant_id[5..];
+            if hash_part.chars().all(|c| c.is_ascii_hexdigit()) {
+                return true;
+            }
+        }
+
+        // Sanitized git remote URLs contain domain patterns
+        // Common patterns: github_com_, gitlab_com_, bitbucket_org_, codeberg_org_, etc.
+        let domain_patterns = [
+            "github_com_",
+            "gitlab_com_",
+            "bitbucket_org_",
+            "codeberg_org_",
+            "sr_ht_",  // sourcehut
+            "git_",    // generic git server pattern
+        ];
+
+        for pattern in domain_patterns {
+            if tenant_id.starts_with(pattern) {
+                return true;
+            }
+        }
+
+        // Also match pattern: domain_tld_user_repo (contains at least 3 underscores)
+        // This handles custom git servers like "myserver_com_user_repo"
+        let underscore_count = tenant_id.chars().filter(|c| *c == '_').count();
+        if underscore_count >= 3 && tenant_id.contains("_com_") {
+            return true;
+        }
+
+        false
     }
 
     /// Determine the target collection and tenant metadata for multi-tenant routing
@@ -200,8 +239,10 @@ impl DocumentServiceImpl {
     /// Routing logic:
     /// - `memory`, `agent_memory` → Direct collection name (no multi-tenant)
     /// - Other basenames:
-    ///   - If tenant_id is 12-char hex → `projects` with project_id
+    ///   - If tenant_id looks like project ID → `projects` with project_id
+    ///     (path hash or sanitized git URL pattern)
     ///   - Otherwise → `libraries` with library_name
+    ///     (human-readable names like "react", "numpy")
     ///
     /// Returns: (collection_name, tenant_type, tenant_value)
     /// - tenant_type: "project_id" or "library_name"
@@ -869,69 +910,93 @@ mod tests {
 
     #[test]
     fn test_is_project_id() {
-        // Valid 12-char hex project IDs
-        assert!(DocumentServiceImpl::is_project_id("a1b2c3d4e5f6"));
-        assert!(DocumentServiceImpl::is_project_id("123456789abc"));
-        assert!(DocumentServiceImpl::is_project_id("ABCDEF123456"));
-        assert!(DocumentServiceImpl::is_project_id("000000000000"));
+        // Path hash format: "path_" + 16 hex chars = 21 chars
+        assert!(DocumentServiceImpl::is_project_id("path_a1b2c3d4e5f6789a")); // exact 21 chars
+        assert!(DocumentServiceImpl::is_project_id("path_0000000000000000"));
+        assert!(DocumentServiceImpl::is_project_id("path_ffffffffffffffff"));
 
-        // Invalid: wrong length
-        assert!(!DocumentServiceImpl::is_project_id("a1b2c3d4e5f")); // 11 chars
-        assert!(!DocumentServiceImpl::is_project_id("a1b2c3d4e5f67")); // 13 chars
-        assert!(!DocumentServiceImpl::is_project_id("")); // empty
+        // Sanitized git remote URLs (common patterns)
+        assert!(DocumentServiceImpl::is_project_id("github_com_user_repo"));
+        assert!(DocumentServiceImpl::is_project_id("github_com_anthropics_claude_code"));
+        assert!(DocumentServiceImpl::is_project_id("gitlab_com_org_project"));
+        assert!(DocumentServiceImpl::is_project_id("bitbucket_org_team_repo"));
+        assert!(DocumentServiceImpl::is_project_id("codeberg_org_user_project"));
+        assert!(DocumentServiceImpl::is_project_id("sr_ht_user_repo"));  // sourcehut
+        assert!(DocumentServiceImpl::is_project_id("git_myserver_com_repo"));  // custom git server
 
-        // Invalid: non-hex characters
-        assert!(!DocumentServiceImpl::is_project_id("a1b2c3d4e5fg")); // 'g' is not hex
-        assert!(!DocumentServiceImpl::is_project_id("hello_world!")); // not hex
+        // Custom domains with _com_ pattern
+        assert!(DocumentServiceImpl::is_project_id("mycompany_com_team_project"));
 
-        // Library names (non-hex)
+        // Invalid path hash formats
+        assert!(!DocumentServiceImpl::is_project_id("path_a1b2c3d4e5f6789")); // 20 chars (too short)
+        assert!(!DocumentServiceImpl::is_project_id("path_a1b2c3d4e5f6789ab")); // 22 chars (too long)
+        assert!(!DocumentServiceImpl::is_project_id("path_ghijklmnopqrstuv")); // non-hex
+        assert!(!DocumentServiceImpl::is_project_id("paths_a1b2c3d4e5f6789a")); // wrong prefix
+
+        // Library names (should not match)
         assert!(!DocumentServiceImpl::is_project_id("langchain"));
+        assert!(!DocumentServiceImpl::is_project_id("react"));
         assert!(!DocumentServiceImpl::is_project_id("react-docs"));
+        assert!(!DocumentServiceImpl::is_project_id("numpy"));
+        assert!(!DocumentServiceImpl::is_project_id("lodash"));
+        assert!(!DocumentServiceImpl::is_project_id("tensorflow_keras")); // only 1 underscore
+
+        // Edge cases
+        assert!(!DocumentServiceImpl::is_project_id("")); // empty
+        assert!(!DocumentServiceImpl::is_project_id("path_")); // just prefix
     }
 
     #[test]
     fn test_determine_collection_routing_memory() {
         // Memory routes to canonical `memory` collection with tenant in metadata
-        let result = DocumentServiceImpl::determine_collection_routing("memory", "a1b2c3d4e5f6");
+        let result = DocumentServiceImpl::determine_collection_routing("memory", "github_com_user_repo");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
         // All memory items go to single canonical `memory` collection
         assert_eq!(collection, "memory");
         assert_eq!(tenant_type, "project_id");
-        assert_eq!(tenant_value, "a1b2c3d4e5f6");
+        assert_eq!(tenant_value, "github_com_user_repo");
 
         // agent_memory is deprecated but routes to canonical `memory` collection
-        let result = DocumentServiceImpl::determine_collection_routing("agent_memory", "user123");
+        let result = DocumentServiceImpl::determine_collection_routing("agent_memory", "path_a1b2c3d4e5f6789a");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
         // Deprecated agent_memory also routes to canonical `memory`
         assert_eq!(collection, "memory");
         assert_eq!(tenant_type, "project_id");
-        assert_eq!(tenant_value, "user123");
+        assert_eq!(tenant_value, "path_a1b2c3d4e5f6789a");
     }
 
     #[test]
     fn test_determine_collection_routing_projects() {
-        // Project routing: 12-char hex tenant_id → projects (canonical name)
-        let result = DocumentServiceImpl::determine_collection_routing("notes", "a1b2c3d4e5f6");
+        // Project routing: path hash tenant_id → projects
+        let result = DocumentServiceImpl::determine_collection_routing("notes", "path_a1b2c3d4e5f6789a");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
         assert_eq!(collection, "projects");
         assert_eq!(tenant_type, "project_id");
-        assert_eq!(tenant_value, "a1b2c3d4e5f6");
+        assert_eq!(tenant_value, "path_a1b2c3d4e5f6789a");
 
-        // Another project example
-        let result = DocumentServiceImpl::determine_collection_routing("code", "123456789abc");
+        // Project routing: sanitized git URL tenant_id → projects
+        let result = DocumentServiceImpl::determine_collection_routing("code", "github_com_anthropics_claude_code");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
         assert_eq!(collection, "projects");
         assert_eq!(tenant_type, "project_id");
-        assert_eq!(tenant_value, "123456789abc");
+        assert_eq!(tenant_value, "github_com_anthropics_claude_code");
+
+        // Project routing: GitLab URL → projects
+        let result = DocumentServiceImpl::determine_collection_routing("src", "gitlab_com_org_project");
+        assert!(result.is_ok());
+        let (collection, tenant_type, tenant_value) = result.unwrap();
+        assert_eq!(collection, "projects");
+        assert_eq!(tenant_type, "project_id");
+        assert_eq!(tenant_value, "gitlab_com_org_project");
     }
 
     #[test]
     fn test_determine_collection_routing_libraries() {
-        // Library routing: non-hex tenant_id → libraries (canonical name)
+        // Library routing: human-readable library name → libraries
         let result = DocumentServiceImpl::determine_collection_routing("docs", "langchain");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
@@ -940,12 +1005,20 @@ mod tests {
         assert_eq!(tenant_value, "langchain");
 
         // Another library example
-        let result = DocumentServiceImpl::determine_collection_routing("reference", "react-docs");
+        let result = DocumentServiceImpl::determine_collection_routing("reference", "react");
         assert!(result.is_ok());
         let (collection, tenant_type, tenant_value) = result.unwrap();
         assert_eq!(collection, "libraries");
         assert_eq!(tenant_type, "library_name");
-        assert_eq!(tenant_value, "react-docs");
+        assert_eq!(tenant_value, "react");
+
+        // Library with hyphen
+        let result = DocumentServiceImpl::determine_collection_routing("api", "react-native");
+        assert!(result.is_ok());
+        let (collection, tenant_type, tenant_value) = result.unwrap();
+        assert_eq!(collection, "libraries");
+        assert_eq!(tenant_type, "library_name");
+        assert_eq!(tenant_value, "react-native");
     }
 
     #[test]
