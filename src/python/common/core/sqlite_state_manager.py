@@ -790,11 +790,13 @@ class SQLiteStateManager:
                     For backward compatibility only - prefer OS-standard location.
         """
         if db_path is None:
-            # Use OS-standard state directory
-            os_dirs = OSDirectories()
-            os_dirs.ensure_directories()
-            self.db_path = os_dirs.get_state_file("workspace_state.db")
-            logger.info(f"Using OS-standard state directory: {self.db_path}")
+            # Use ~/.workspace-qdrant/state.db to match Rust daemon
+            # This ensures Python MCP server and Rust daemon share the same database
+            home = Path.home()
+            wq_dir = home / ".workspace-qdrant"
+            wq_dir.mkdir(parents=True, exist_ok=True)
+            self.db_path = wq_dir / "state.db"
+            logger.info(f"Using shared state database: {self.db_path}")
         else:
             # Legacy mode: use custom path (for backward compatibility)
             self.db_path = Path(db_path)

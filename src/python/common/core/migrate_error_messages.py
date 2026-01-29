@@ -483,7 +483,7 @@ def main():
     parser.add_argument(
         '--db-path',
         type=str,
-        help='Path to SQLite database (default: ~/.config/workspace-qdrant/state.db)'
+        help='Path to SQLite database (default: ~/.workspace-qdrant/state.db)'
     )
     parser.add_argument(
         '--dry-run',
@@ -502,8 +502,8 @@ def main():
     if args.db_path:
         db_path = args.db_path
     else:
-        # Default path
-        db_path = Path.home() / ".config" / "workspace-qdrant" / "state.db"
+        # Default path - matches Rust daemon location
+        db_path = Path.home() / ".workspace-qdrant" / "state.db"
 
     # Execute migration
     migrator = ErrorMessageMigrator(

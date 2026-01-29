@@ -352,12 +352,34 @@ impl GrpcServer {
     }
 
     pub async fn start(&mut self) -> Result<(), GrpcError> {
+        // Debug: verify this code path is reached
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/grpc_debug.log")
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "GrpcServer::start() called");
+        }
+
         // Create instances of the new modular services
         use crate::services::{SystemServiceImpl, CollectionServiceImpl, DocumentServiceImpl};
         use workspace_qdrant_core::storage::StorageClient;
 
-        // Create shared storage client
-        let storage_client = Arc::new(StorageClient::new());
+        // Create shared storage client with daemon-mode config (HTTP transport, no compat checks)
+        use workspace_qdrant_core::storage::StorageConfig;
+
+        // Debug: log before StorageClient creation
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/grpc_debug.log")
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "About to create StorageClient with daemon_mode()");
+        }
+
+        let storage_client = Arc::new(StorageClient::with_config(StorageConfig::daemon_mode()));
 
         let system_service = SystemServiceImpl::new();
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));

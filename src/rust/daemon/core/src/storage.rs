@@ -222,10 +222,15 @@ impl Default for StorageConfig {
 
 impl StorageConfig {
     /// Create a daemon-mode configuration with compatibility checking disabled
-    /// to ensure complete console silence for MCP stdio protocol compliance
+    /// to ensure complete console silence for MCP stdio protocol compliance.
+    /// Uses gRPC transport on port 6334 (Qdrant's gRPC port).
     pub fn daemon_mode() -> Self {
         let mut config = Self::default();
         config.check_compatibility = false; // Disable to suppress Qdrant client output
+        config.transport = TransportMode::Grpc; // gRPC is required by qdrant-client
+        // qdrant-client uses gRPC protocol - ensure we use port 6334
+        // Use 127.0.0.1 explicitly to avoid IPv6 resolution issues
+        config.url = "http://127.0.0.1:6334".to_string();
         config
     }
 }
@@ -367,22 +372,37 @@ impl StorageClient {
     
     /// Create a storage client with custom configuration
     pub fn with_config(config: StorageConfig) -> Self {
-        
+        // Debug: write to a file to verify code is running
+        if let Ok(mut f) = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/storage_debug.log")
+        {
+            use std::io::Write;
+            let _ = writeln!(f, "StorageClient::with_config called: url={}, check_compat={}",
+                config.url, config.check_compatibility);
+        }
+
         info!("Initializing Qdrant client with transport: {:?}", config.transport);
         
         // Determine the appropriate URL based on transport mode
+        // Qdrant uses port 6333 for HTTP/REST and port 6334 for gRPC
         let connection_url = match config.transport {
             TransportMode::Grpc => {
-                // Use gRPC endpoint (typically different port or scheme)
-                if config.url.contains("://") {
-                    config.url.clone()
+                // For gRPC, use port 6334 (Qdrant's gRPC port)
+                // Auto-convert port 6333 to 6334 if specified
+                let url = if config.url.contains(":6333") {
+                    config.url.replace(":6333", ":6334")
+                } else if !config.url.contains(":6334") && !config.url.contains(":") {
+                    // If no port specified, add gRPC port
+                    format!("{}:6334", config.url.trim_end_matches('/'))
                 } else {
-                    // Default to HTTP for now, actual gRPC configuration would need different setup
-                    format!("http://{}", config.url.trim_start_matches("http://"))
-                }
+                    config.url.clone()
+                };
+                url
             },
             TransportMode::Http => {
-                // Ensure HTTP scheme
+                // For HTTP, use port 6333 (Qdrant's REST port)
                 if config.url.starts_with("http://") || config.url.starts_with("https://") {
                     config.url.clone()
                 } else {
@@ -412,10 +432,7 @@ impl StorageClient {
         
         // Configure compatibility checking - disable in daemon mode for silence
         if !config.check_compatibility {
-            debug!("Disabling compatibility check as requested");
-            // Set environment variables that the Qdrant client might recognize
-            std::env::set_var("QDRANT_SKIP_VERSION_CHECK", "true");
-            std::env::set_var("QDRANT_CHECK_COMPATIBILITY", "false");
+            qdrant_config = qdrant_config.skip_compatibility_check();
         }
         
         // Log and apply HTTP/2 configuration for gRPC transport

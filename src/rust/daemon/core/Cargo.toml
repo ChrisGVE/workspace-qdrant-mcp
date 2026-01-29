@@ -57,7 +57,7 @@ ahash = "0.8"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
 regex = "1.10"
 which = "6.0"
-qdrant-client = "1.15"
+qdrant-client = "1.16"
 tokio-util = "0.7"
 zip = "2.1"
 epub = "2.0"

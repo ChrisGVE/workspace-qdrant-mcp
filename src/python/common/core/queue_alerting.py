@@ -568,7 +568,7 @@ class QueueAlertingSystem:
         Initialize queue alerting system.
 
         Args:
-            db_path: Optional database path (defaults to ~/.config/workspace-qdrant/state.db)
+            db_path: Optional database path (defaults to ~/.workspace-qdrant/state.db)
             stats_collector: Optional statistics collector for metrics
             performance_collector: Optional performance collector for metrics
             health_calculator: Optional health calculator for metrics
@@ -577,7 +577,7 @@ class QueueAlertingSystem:
             retry_delay_seconds: Delay between retry attempts
         """
         if db_path is None:
-            db_path = str(Path.home() / ".config" / "workspace-qdrant" / "state.db")
+            db_path = str(Path.home() / ".workspace-qdrant" / "state.db")
 
         self.db_path = db_path
         self.stats_collector = stats_collector

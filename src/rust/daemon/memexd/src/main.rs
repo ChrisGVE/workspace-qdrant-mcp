@@ -514,7 +514,8 @@ async fn run_daemon(config: Config, args: DaemonArgs) -> Result<(), Box<dyn std:
         EmbeddingGenerator::new(embedding_config)
             .map_err(|e| format!("Failed to create embedding generator: {}", e))?
     );
-    let storage_config = StorageConfig::default();
+    // Use daemon_mode() for gRPC port 6334 and skip compatibility check
+    let storage_config = StorageConfig::daemon_mode();
     let storage_client = Arc::new(StorageClient::with_config(storage_config));
 
     // Create and start queue processor (legacy ingestion_queue)

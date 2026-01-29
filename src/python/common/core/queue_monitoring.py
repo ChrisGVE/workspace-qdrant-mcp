@@ -129,7 +129,7 @@ class QueueMonitoringSystem:
         Initialize queue monitoring system.
 
         Args:
-            db_path: Optional custom database path (defaults to ~/.config/workspace-qdrant/state.db)
+            db_path: Optional custom database path (defaults to ~/.workspace-qdrant/state.db)
             enable_alerting: Whether to initialize alerting system
             enable_dashboard: Whether to initialize dashboard data provider
             enable_error_monitoring: Whether to track error messages
@@ -137,7 +137,7 @@ class QueueMonitoringSystem:
             enable_backpressure_detection: Whether to detect backpressure
         """
         if db_path is None:
-            db_path = str(Path.home() / ".config" / "workspace-qdrant" / "state.db")
+            db_path = str(Path.home() / ".workspace-qdrant" / "state.db")
 
         self.db_path = db_path
         self.enable_alerting = enable_alerting
