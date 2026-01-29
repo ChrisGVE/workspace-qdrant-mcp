@@ -616,7 +616,14 @@ fn detect_daemon_mode() -> bool {
 
     let is_daemon = !args.iter().any(|arg| arg == "--foreground" || arg == "-f");
 
+    // macOS: XPC_SERVICE_NAME is set to "0" in regular terminal sessions,
+    // so we need to check it's not empty and not "0" to detect actual service context
+    let xpc_is_service = std::env::var("XPC_SERVICE_NAME")
+        .map(|v| !v.is_empty() && v != "0")
+        .unwrap_or(false);
+
     let service_context = std::env::var("WQM_SERVICE_MODE").unwrap_or_default() == "true" ||
+        xpc_is_service ||
         std::env::var("LAUNCHD_SOCKET_PATH").is_ok() ||
         std::env::var("SYSTEMD_EXEC_PID").is_ok() ||
         std::env::var("SERVICE_NAME").is_ok();

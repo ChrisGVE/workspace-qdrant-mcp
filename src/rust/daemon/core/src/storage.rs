@@ -1287,9 +1287,21 @@ impl Default for StorageClient {
 
 /// Detect if running in daemon mode for MCP stdio compliance
 fn is_daemon_mode() -> bool {
-    env::var("WQM_SERVICE_MODE").map(|v| v == "true").unwrap_or(false) ||
-        env::var("XPC_SERVICE_NAME").is_ok() ||
-        env::var("SYSTEMD_EXEC_PID").is_ok() ||
+    // Primary explicit indicator
+    if env::var("WQM_SERVICE_MODE").map(|v| v == "true").unwrap_or(false) {
+        return true;
+    }
+
+    // macOS LaunchAgent/LaunchDaemon - XPC_SERVICE_NAME is set to "0" in regular
+    // terminal sessions, so we check that it's not empty and not "0"
+    if let Ok(xpc_name) = env::var("XPC_SERVICE_NAME") {
+        if !xpc_name.is_empty() && xpc_name != "0" {
+            return true;
+        }
+    }
+
+    // Linux systemd indicators
+    env::var("SYSTEMD_EXEC_PID").is_ok() ||
         env::var("SYSLOG_IDENTIFIER").is_ok() ||
         env::var("LOGNAME").map(|v| v == "root").unwrap_or(false)
 }

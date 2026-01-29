@@ -317,8 +317,12 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
         // 2. Running as a service (detected by common service environment variables)
         // 3. Output is being redirected
         let tty_check = !atty::is(Stream::Stdout);
+        // macOS XPC_SERVICE_NAME is "0" in regular terminals, check for actual service name
+        let xpc_is_service = env::var("XPC_SERVICE_NAME")
+            .map(|v| !v.is_empty() && v != "0")
+            .unwrap_or(false);
         let service_check = daemon_mode ||
-            env::var("XPC_SERVICE_NAME").is_ok() || // macOS LaunchAgent/LaunchDaemon
+            xpc_is_service ||
             env::var("_").map(|v| v.contains("launchd")).unwrap_or(false) ||
             env::var("INVOCATION_ID").is_ok() || // systemd
             env::var("UPSTART_JOB").is_ok() ||   // upstart
@@ -510,9 +514,16 @@ fn is_daemon_mode() -> bool {
         return true;
     }
 
+    // macOS LaunchAgent/LaunchDaemon - XPC_SERVICE_NAME is set to "0" in regular
+    // terminal sessions, so we check that it's not empty and not "0"
+    if let Ok(xpc_name) = env::var("XPC_SERVICE_NAME") {
+        if !xpc_name.is_empty() && xpc_name != "0" {
+            return true;
+        }
+    }
+
     // Detect common service/daemon environments
-    env::var("XPC_SERVICE_NAME").is_ok() || // macOS LaunchAgent/LaunchDaemon
-        env::var("_").map(|v| v.contains("launchd")).unwrap_or(false) ||
+    env::var("_").map(|v| v.contains("launchd")).unwrap_or(false) ||
         env::var("INVOCATION_ID").is_ok() || // systemd
         env::var("UPSTART_JOB").is_ok() ||   // upstart
         env::var("SYSTEMD_EXEC_PID").is_ok() || // systemd service
