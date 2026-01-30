@@ -1,0 +1,263 @@
+# Cross-platform release build workflow for workspace-qdrant-mcp
+# Builds memexd daemon and wqm CLI for 6 target platforms
+#
+# Targets:
+# - ARM Mac (aarch64-apple-darwin)
+# - Intel Mac (x86_64-apple-darwin)
+# - ARM Windows (aarch64-pc-windows-msvc)
+# - Intel Windows (x86_64-pc-windows-msvc)
+# - Linux x86_64 (x86_64-unknown-linux-gnu)
+# - Linux ARM (aarch64-unknown-linux-gnu)
+
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.3.0)'
+        required: false
+        default: 'test'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # macOS ARM (Apple Silicon)
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            cross: false
+            artifact_name: darwin-arm64
+
+          # macOS Intel
+          - target: x86_64-apple-darwin
+            os: macos-13  # Intel runner
+            cross: false
+            artifact_name: darwin-x64
+
+          # Windows x64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            cross: false
+            artifact_name: windows-x64
+
+          # Windows ARM64
+          - target: aarch64-pc-windows-msvc
+            os: windows-latest
+            cross: false  # Native ARM support on Windows runner
+            artifact_name: windows-arm64
+
+          # Linux x64
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: false
+            artifact_name: linux-x64
+
+          # Linux ARM64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            cross: true  # Use cross for ARM compilation
+            artifact_name: linux-arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (Linux ARM64)
+        if: matrix.cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      # macOS specific: Install dependencies
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake protobuf
+
+      # Linux specific: Install dependencies
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux' && !matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake
+
+      # Windows specific: Install dependencies
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: |
+          choco install protoc cmake -y
+
+      # Cache Rust dependencies
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      # Download/cache ONNX Runtime for the target platform
+      - name: Cache ONNX Runtime
+        uses: actions/cache@v4
+        id: onnx-cache
+        with:
+          path: ~/.onnxruntime
+          key: onnxruntime-1.22.0-${{ matrix.target }}
+
+      - name: Download ONNX Runtime
+        if: steps.onnx-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p ~/.onnxruntime
+          case "${{ matrix.target }}" in
+            aarch64-apple-darwin)
+              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-arm64-1.22.0.tgz | tar xz -C ~/.onnxruntime --strip-components=1
+              ;;
+            x86_64-apple-darwin)
+              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-x86_64-1.22.0.tgz | tar xz -C ~/.onnxruntime --strip-components=1
+              ;;
+            x86_64-pc-windows-msvc)
+              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-1.22.0.zip -o ort.zip
+              unzip ort.zip -d ~/.onnxruntime
+              mv ~/.onnxruntime/onnxruntime-win-x64-1.22.0/* ~/.onnxruntime/
+              ;;
+            aarch64-pc-windows-msvc)
+              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-arm64-1.22.0.zip -o ort.zip
+              unzip ort.zip -d ~/.onnxruntime
+              mv ~/.onnxruntime/onnxruntime-win-arm64-1.22.0/* ~/.onnxruntime/
+              ;;
+            x86_64-unknown-linux-gnu)
+              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz | tar xz -C ~/.onnxruntime --strip-components=1
+              ;;
+            aarch64-unknown-linux-gnu)
+              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-aarch64-1.22.0.tgz | tar xz -C ~/.onnxruntime --strip-components=1
+              ;;
+          esac
+
+      # Set ONNX Runtime library path
+      - name: Set ORT_DYLIB_PATH
+        shell: bash
+        run: |
+          case "${{ runner.os }}" in
+            macOS)
+              echo "ORT_DYLIB_PATH=$HOME/.onnxruntime/lib/libonnxruntime.dylib" >> $GITHUB_ENV
+              ;;
+            Linux)
+              echo "ORT_DYLIB_PATH=$HOME/.onnxruntime/lib/libonnxruntime.so" >> $GITHUB_ENV
+              ;;
+            Windows)
+              echo "ORT_DYLIB_PATH=$HOME/.onnxruntime/lib/onnxruntime.dll" >> $GITHUB_ENV
+              ;;
+          esac
+
+      # Build binaries
+      - name: Build (native)
+        if: "!matrix.cross"
+        working-directory: src/rust
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.cross
+        working-directory: src/rust
+        run: cross build --release --target ${{ matrix.target }}
+
+      # Prepare artifacts
+      - name: Prepare artifacts (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp src/rust/target/${{ matrix.target }}/release/memexd artifacts/
+          cp src/rust/target/${{ matrix.target }}/release/wqm artifacts/
+
+          # Copy ONNX Runtime library
+          case "${{ runner.os }}" in
+            macOS)
+              cp ~/.onnxruntime/lib/libonnxruntime*.dylib artifacts/
+              ;;
+            Linux)
+              cp ~/.onnxruntime/lib/libonnxruntime.so* artifacts/
+              ;;
+          esac
+
+          # Create archive
+          cd artifacts
+          tar -czvf ../workspace-qdrant-mcp-${{ matrix.artifact_name }}.tar.gz *
+
+      - name: Prepare artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path artifacts
+          Copy-Item src/rust/target/${{ matrix.target }}/release/memexd.exe artifacts/
+          Copy-Item src/rust/target/${{ matrix.target }}/release/wqm.exe artifacts/
+          Copy-Item $HOME/.onnxruntime/lib/onnxruntime.dll artifacts/
+
+          Compress-Archive -Path artifacts/* -DestinationPath workspace-qdrant-mcp-${{ matrix.artifact_name }}.zip
+
+      # Upload artifacts
+      - name: Upload artifact (Unix)
+        if: runner.os != 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-qdrant-mcp-${{ matrix.artifact_name }}
+          path: workspace-qdrant-mcp-${{ matrix.artifact_name }}.tar.gz
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-qdrant-mcp-${{ matrix.artifact_name }}
+          path: workspace-qdrant-mcp-${{ matrix.artifact_name }}.zip
+
+  # Create release with all artifacts
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec sha256sum {} \; > checksums.txt
+          cat checksums.txt
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+            artifacts/checksums.txt
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
