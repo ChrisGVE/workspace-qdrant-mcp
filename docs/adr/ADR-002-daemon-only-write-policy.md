@@ -1,7 +1,7 @@
 # ADR-002: Daemon-Only Write Policy
 
 **Status:** Accepted
-**Date:** 2026-01-25
+**Date:** 2026-01-30 (updated)
 **Deciders:** Architecture Team
 **Supersedes:** ADR-001 Section 3 (Daemon-Only Writes), CONSOLIDATED_PRD_V2.md fallback behavior
 
@@ -58,11 +58,33 @@ The code audit (2026-01-25) identified this as a critical consistency issue requ
 
 ### Key Rules
 
-1. **MCP Server**: Writes ONLY to SQLite state/queue database
-2. **CLI (wqm)**: Writes ONLY to SQLite state/queue database
+1. **MCP Server**: Writes content ONLY to SQLite queue (not via gRPC)
+2. **CLI (wqm)**: Writes content ONLY to SQLite queue (not via gRPC)
 3. **Daemon (memexd)**: Processes SQLite queue and writes to Qdrant
-4. **Direct Qdrant writes**: PROHIBITED from MCP/CLI (no exceptions for writes)
-5. **Direct Qdrant reads**: ALLOWED from MCP (search operations)
+4. **Direct Qdrant writes**: PROHIBITED from MCP/CLI (no exceptions)
+5. **Direct Qdrant reads**: ALLOWED from MCP/CLI (search operations)
+6. **Session management**: Only `RegisterProject` and `DeprioritizeProject` use direct gRPC
+
+### Session Management (Direct gRPC Exception)
+
+Only session lifecycle messages bypass the queue and go directly to daemon:
+
+| Message | Direction | Purpose |
+|---------|-----------|---------|
+| `RegisterProject(absolute_path)` | MCP → Daemon | Notify daemon that project is active |
+| `DeprioritizeProject(absolute_path)` | MCP → Daemon | Notify daemon that project is no longer active |
+
+**All content operations (store, ingest, delete) use the queue.**
+
+### Collection Ownership
+
+- **Daemon owns all collections**: Creates `projects`, `libraries`, `memory` on startup
+- **Fixed 3-collection model**: No collection creation/deletion via MCP or CLI
+- **No user collections**: Only the 3 canonical collections exist (per ADR-001)
+
+### gRPC Content Methods (Reserved)
+
+The daemon exposes gRPC methods like `IngestText`, `UpdateDocument`, `DeleteDocument` but these are **reserved for administrative/diagnostic use only**. Production code (MCP, CLI) must NOT call them directly - all content goes through the SQLite queue.
 
 ### Fallback Behavior
 

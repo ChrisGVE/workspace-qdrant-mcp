@@ -430,6 +430,10 @@ graph TB
 
 ## SQLite State Management
 
+**Reference:** [ADR-003](./adr/ADR-003-daemon-owns-sqlite.md)
+
+**The Rust daemon (memexd) owns the SQLite database.** The daemon creates the database file (if absent), creates all tables, and handles schema migrations. MCP server and CLI may read/write to tables but must NOT create tables.
+
 SQLite-based watch folder configuration with daemon polling for changes.
 
 ```mermaid
@@ -484,8 +488,9 @@ graph TB
 ```
 
 **Key Features:**
+- **Daemon Owns Schema**: Daemon creates database and all tables (per ADR-003)
 - **Crash-Resistant**: WAL mode with ACID guarantees
-- **No gRPC Required**: CLI writes directly to SQLite
+- **No gRPC Required**: CLI writes directly to SQLite (to tables created by daemon)
 - **Daemon Autonomy**: Daemon polls independently
 - **Configuration Flexibility**: Per-watch settings (patterns, debounce, recursion)
 
@@ -568,7 +573,13 @@ graph TB
 **Write Priority Levels:**
 1. **PRIMARY**: `DaemonClient` → Daemon → Qdrant (all writes including memory)
 2. **FALLBACK**: Unified Queue → SQLite → Daemon (when daemon unavailable, processed on restart)
-3. **LAST RESORT**: Direct Qdrant writes only when both daemon and queue unavailable (logged)
+
+**NO direct Qdrant writes** - ADR-002 prohibits any component other than daemon from writing to Qdrant.
+
+**Collection Operations (Daemon Internal):**
+- `create_collection_v2`, `delete_collection_v2` are daemon internal operations
+- Daemon creates the 3 canonical collections (`projects`, `libraries`, `memory`) on startup
+- MCP/CLI cannot create or delete collections (ADR-001: fixed 3-collection model)
 
 **Validation (Task 375.6):**
 - ✅ 18 comprehensive tests
@@ -844,8 +855,8 @@ For detailed component specifications and implementation details:
 - **CLI**: `src/rust/cli/` - Rust CLI (wqm binary)
 - **State**: `src/python/common/core/sqlite_state_manager.py` - SQLite management
 
-**Version**: 1.3
-**Last Updated**: 2026-01-28
+**Version**: 1.4
+**Last Updated**: 2026-01-30
 **PRD Alignment**: WORKSPACE_QDRANT_MCP.md (Consolidated Specification)
-**ADR Alignment**: ADR-001 (canonical collection names), ADR-002 (daemon-only writes)
-**Updates**: Doc consolidation - updated to canonical 3-collection architecture (projects, libraries, memory)
+**ADR Alignment**: ADR-001 (canonical collection names), ADR-002 (daemon-only writes), ADR-003 (daemon owns SQLite)
+**Updates**: Added ADR-003 - daemon owns SQLite database and schema

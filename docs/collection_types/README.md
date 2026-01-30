@@ -1,6 +1,21 @@
 # Collection Types Documentation
 
-Comprehensive guide to the collection type management system in workspace-qdrant-mcp.
+> **DEPRECATED**: This documentation describes the legacy collection architecture which has been superseded by [ADR-001: Canonical Collection Architecture](../adr/ADR-001-canonical-collection-architecture.md).
+>
+> **Current Architecture (ADR-001):**
+> - Exactly 3 collections: `projects`, `libraries`, `memory`
+> - Multi-tenant isolation via `project_id` (projects) and `library_name` (libraries) payload fields
+> - No underscore prefixes, no per-project collections, no SYSTEM/GLOBAL types
+>
+> **See:**
+> - [WORKSPACE_QDRANT_MCP.md](../../WORKSPACE_QDRANT_MCP.md) - Authoritative specification
+> - [ADR-001](../adr/ADR-001-canonical-collection-architecture.md) - Collection architecture decision
+>
+> This documentation is retained for reference during migration from legacy systems.
+
+---
+
+**[LEGACY]** Comprehensive guide to the collection type management system in workspace-qdrant-mcp.
 
 ## Overview
 

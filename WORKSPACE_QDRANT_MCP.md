@@ -1,7 +1,7 @@
 # workspace-qdrant-mcp Specification
 
-**Version:** 1.0
-**Date:** 2026-01-28
+**Version:** 1.1
+**Date:** 2026-01-30
 **Status:** Authoritative Specification
 **Supersedes:** CONSOLIDATED_PRD_V2.md, PRDv3.txt, PRDv3-snapshot1.txt
 
@@ -12,6 +12,7 @@
 1. [Overview and Vision](#overview-and-vision)
 2. [Architecture](#architecture)
 3. [Collection Architecture](#collection-architecture)
+   - [Project ID Generation](#project-id-generation)
 4. [Write Path Architecture](#write-path-architecture)
 5. [Memory System](#memory-system)
 6. [File Watching and Ingestion](#file-watching-and-ingestion)
@@ -107,10 +108,31 @@ The system consists of two primary processes:
 | Component | Responsibilities | Writes To |
 |-----------|------------------|-----------|
 | **MCP Server** | Query processing, project detection, gRPC client, fallback queue | SQLite (queue only) |
-| **Rust Daemon** | Document processing, embeddings, file watching, Qdrant writes | SQLite + Qdrant |
+| **Rust Daemon** | Document processing, embeddings, file watching, Qdrant writes, **SQLite schema owner** | SQLite + Qdrant |
 | **CLI (wqm)** | Service management, library ingestion, admin operations | SQLite (queue only) |
 | **SQLite** | State persistence, queue management, watch configuration | N/A (database) |
 | **Qdrant** | Vector storage, semantic search, payload filtering | N/A (database) |
+
+### SQLite Database Ownership
+
+**Reference:** [ADR-003](./docs/adr/ADR-003-daemon-owns-sqlite.md)
+
+**The Rust daemon (memexd) is the sole owner of the SQLite database.**
+
+| Aspect | Owner | Details |
+|--------|-------|---------|
+| Database creation | Daemon | Creates `state.db` if absent (path from config) |
+| Schema creation | Daemon | Creates all tables on startup |
+| Schema migrations | Daemon | Handles all schema version upgrades |
+| Schema versioning | Daemon | Maintains `schema_version` table |
+
+**Other components (MCP Server, CLI):**
+- May read from any table
+- May write to specific tables (e.g., `unified_queue`, `watch_folders`)
+- Must NOT create tables or modify schema
+- Must handle "table not found" gracefully (daemon not yet run)
+
+**Default database path:** `~/.workspace-qdrant/state.db`
 
 ---
 
@@ -153,21 +175,172 @@ search(
 
 ### Project ID Generation
 
-Project IDs are 12-character hex hashes derived from:
-1. **Git remote URL** (normalized): Preferred for collaborative projects
-2. **Path hash**: Fallback for local-only projects
+Project IDs (`project_id`) are 12-character hex hashes that uniquely identify a project clone. The system handles multiple clones of the same repository, filesystem moves, and local projects gaining git remotes.
+
+#### Core Algorithm
 
 ```python
-def calculate_tenant_id(project_root: Path) -> str:
-    # Try git remote first
+def calculate_project_id(project_root: Path, disambiguation_path: str = None) -> str:
+    """
+    Calculate project_id for a project.
+
+    Args:
+        project_root: Absolute path to project root
+        disambiguation_path: Optional path suffix for duplicate detection
+    """
     git_remote = get_git_remote_url(project_root)
+
     if git_remote:
+        # Normalize git remote URL
         normalized = normalize_git_url(git_remote)
+        if disambiguation_path:
+            return hashlib.sha256(f"{normalized}|{disambiguation_path}".encode()).hexdigest()[:12]
         return hashlib.sha256(normalized.encode()).hexdigest()[:12]
 
-    # Fall back to path hash
-    return hashlib.sha256(str(project_root).encode()).hexdigest()[:12]
+    # Local project: use container folder name
+    container_folder = project_root.name
+    return hashlib.sha256(container_folder.encode()).hexdigest()[:12]
 ```
+
+#### Git Remote URL Normalization
+
+All git remote URLs are normalized for consistency:
+
+1. Remove `.git` suffix
+2. Convert to lowercase
+3. Convert SSH format to HTTPS format
+4. Remove protocol prefix for hashing
+
+```python
+def normalize_git_url(url: str) -> str:
+    """
+    Normalize git URL for consistent hashing.
+
+    Examples:
+        git@github.com:user/repo.git  → github.com/user/repo
+        https://github.com/User/Repo.git → github.com/user/repo
+        ssh://git@gitlab.com/user/repo → gitlab.com/user/repo
+    """
+    # Remove .git suffix
+    url = url.removesuffix(".git")
+
+    # Convert SSH to HTTPS-like format
+    if url.startswith("git@"):
+        url = url.replace("git@", "").replace(":", "/")
+    elif url.startswith("ssh://git@"):
+        url = url.replace("ssh://git@", "")
+
+    # Remove protocol
+    for protocol in ["https://", "http://", "ssh://"]:
+        url = url.removeprefix(protocol)
+
+    # Lowercase for consistency
+    return url.lower()
+```
+
+#### Duplicate Clone Handling
+
+When the same repository is cloned multiple times on the filesystem, each clone gets a unique `project_id` through disambiguation.
+
+**Scenario:**
+```
+/Users/chris/work/client-a/myproject     (remote: github.com/user/myproject)
+/Users/chris/personal/myproject          (remote: github.com/user/myproject)
+```
+
+**Algorithm:**
+1. Detect duplicate when second clone is registered (same `remote_hash`)
+2. Find first differing ancestor folder
+3. Compute disambiguation path from project root to differing ancestor
+4. Update both project_ids with disambiguation
+
+```
+Clone 1: work/client-a/myproject → project_id = sha256("github.com/user/myproject|work/client-a/myproject")[:12]
+Clone 2: personal/myproject      → project_id = sha256("github.com/user/myproject|personal/myproject")[:12]
+```
+
+**Single clone:** No disambiguation needed (uses `sha256(normalized_remote)[:12]`)
+
+**Disambiguation applied on-demand:** Only when second clone is actively used with an agent.
+
+#### Local Projects (No Git Remote)
+
+For projects without a git remote:
+- Use **container folder name** only (not full path)
+- State database stores full `project_path` for move detection
+
+```
+/Users/chris/experiments/my-test-project → project_id = sha256("my-test-project")[:12]
+```
+
+#### Branch Handling
+
+- **Branch-agnostic project_id**: All branches share the same `project_id`
+- **Branch stored as metadata**: `branch` field in Qdrant payload
+- **Default search**: Returns results from all branches
+- **Filtered search**: Use `branch="main"` to scope to specific branch
+
+**Branch lifecycle:**
+- **New branch detected**: Auto-ingest during file watching
+- **Branch deleted**: Delete all documents with `branch="deleted_branch"` from Qdrant
+- **Branch renamed**: Treat as delete + create (Git doesn't track renames)
+
+#### Local Project Gains Remote
+
+When a local project (identified by container folder) gains a git remote:
+
+1. Daemon detects `.git/config` change during watching
+2. If project at same location:
+   - Compute new `project_id` from normalized remote URL
+   - Update `registered_projects` table
+   - Bulk update Qdrant documents via `set_payload` API:
+     ```python
+     client.set_payload(
+         collection_name="projects",
+         payload={"project_id": new_project_id},
+         filter=Filter(must=[
+             FieldCondition(key="project_id", match=MatchValue(value=old_project_id))
+         ])
+     )
+     ```
+3. No re-ingestion required
+
+#### Operation Timing
+
+| Operation | When Triggered |
+|-----------|----------------|
+| Local project gains remote | Background (daemon watching) |
+| New branch detected | Background (daemon watching) |
+| Duplicate detection & disambiguation | On-demand (when starting work on project) |
+| Project move detection | On-demand (when starting work on project) |
+
+#### Registered Projects Table
+
+```sql
+CREATE TABLE registered_projects (
+    project_id TEXT PRIMARY KEY,           -- Unique per clone (12-char hex)
+    project_path TEXT NOT NULL UNIQUE,     -- Current filesystem path
+    git_remote_url TEXT,                   -- Normalized remote (null if local)
+    remote_hash TEXT,                      -- sha256(remote_url)[:12] for grouping duplicates
+    disambiguation_path TEXT,              -- Path suffix used for disambiguation (null if none)
+    container_folder TEXT NOT NULL,        -- Parent folder name
+    created_at TIMESTAMP NOT NULL,
+    last_seen_at TIMESTAMP,
+    last_active_at TIMESTAMP               -- When project was last actively used
+);
+
+-- Index for finding duplicates (same remote, different paths)
+CREATE INDEX idx_remote_hash ON registered_projects(remote_hash);
+```
+
+**Columns:**
+- `project_id`: Unique identifier used in Qdrant payload
+- `project_path`: Full filesystem path (for move detection)
+- `git_remote_url`: Normalized URL (null for local projects)
+- `remote_hash`: Groups clones of same repo for duplicate detection
+- `disambiguation_path`: Non-null when disambiguation applied
+- `container_folder`: Folder name containing project
+- `last_active_at`: Tracks when project was last worked on (not just seen)
 
 ### Vector Configuration
 
@@ -223,13 +396,11 @@ HNSW:
 **Memory Collection:**
 ```json
 {
-  "rule_id": "prefer-uv",
-  "rule_type": "preference",        // preference|behavior|constraint|pattern
+  "label": "prefer-uv",             // Human-readable identifier (unique per scope)
   "content": "Use uv instead of pip for Python packages",
-  "priority": 7,                    // 1-10
-  "scope": "global",                // global|project|language
-  "enabled": true,
-  "created_at": "2026-01-28T12:00:00Z"
+  "scope": "global",                // global|project
+  "project_id": null,               // null for global, "abc123" for project-specific
+  "created_at": "2026-01-30T12:00:00Z"
 }
 ```
 
@@ -239,9 +410,11 @@ HNSW:
 
 **Reference:** [ADR-002](./docs/adr/ADR-002-daemon-only-write-policy.md)
 
-### Core Rule
+### Core Rules
 
-**The Rust daemon (memexd) is the ONLY component that writes to Qdrant. No exceptions.**
+1. **Daemon-only Qdrant writes**: The Rust daemon (memexd) is the ONLY component that writes to Qdrant. No exceptions.
+2. **Queue-only content writes**: ALL content writes from MCP/CLI go through SQLite queue. No direct gRPC for content.
+3. **Direct reads**: MCP and CLI read from Qdrant directly (no daemon intermediary).
 
 ### Write Flow
 
@@ -255,29 +428,52 @@ HNSW:
 │      └──────────┬───────────┘                                        │
 │                 │                                                    │
 │                 ▼                                                    │
-│        ┌────────────────┐     ┌─────────────────┐                   │
-│        │  Try gRPC to   │────▶│  Daemon writes  │                   │
-│        │  Daemon        │     │  to Qdrant      │                   │
-│        └───────┬────────┘     └─────────────────┘                   │
-│                │                                                     │
-│        [Daemon unavailable]                                          │
-│                │                                                     │
-│                ▼                                                     │
 │        ┌────────────────┐                                           │
-│        │  SQLite Queue  │  ← Fallback path                          │
+│        │  SQLite Queue  │  ← ALL content writes go here             │
 │        │  (unified_     │                                           │
 │        │   queue)       │                                           │
 │        └───────┬────────┘                                           │
-│                │                                                     │
-│        [Daemon starts]                                               │
-│                │                                                     │
-│                ▼                                                     │
+│                │                                                    │
+│                ▼                                                    │
 │        ┌────────────────┐                                           │
-│        │  Queue         │────▶  Qdrant                              │
-│        │  Processor     │                                           │
+│        │  Rust Daemon   │  ← Polls queue, processes items           │
+│        │  (memexd)      │                                           │
+│        └───────┬────────┘                                           │
+│                │                                                    │
+│                ▼                                                    │
+│        ┌────────────────┐                                           │
+│        │    Qdrant      │                                           │
 │        └────────────────┘                                           │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+### Read Flow
+
+```
+MCP Server ──→ Qdrant (direct, no daemon)
+CLI (wqm) ───→ Qdrant (direct, no daemon)
+```
+
+### Session Management (Direct gRPC)
+
+Only session lifecycle messages go directly to daemon via gRPC:
+
+| Message | Direction | Purpose |
+|---------|-----------|---------|
+| `RegisterProject(path)` | MCP → Daemon | Project is now active |
+| `DeprioritizeProject(path)` | MCP → Daemon | Project is no longer active |
+
+**All other operations use the queue.**
+
+### Collection Ownership
+
+- **Daemon owns all collections**: Creates the 3 canonical collections on startup
+- **No collection creation via MCP/CLI**: Only `projects`, `libraries`, `memory` exist
+- **No user-created collections**: The 3-collection model is fixed
+
+### gRPC Methods (Reserved)
+
+The daemon exposes gRPC methods for content ingestion (`IngestText`, etc.) but these are **reserved for administrative/diagnostic use only**. Production code paths (MCP, CLI) must NOT use them directly - all content goes through the queue.
 
 ### Unified Queue
 
@@ -330,30 +526,53 @@ When content is queued instead of directly processed:
 
 The memory collection stores LLM behavioral rules that persist across sessions. Rules are injected into Claude's context at session start.
 
-### Rule Types
+### Rule Schema
 
-| Type | Description | Example |
-|------|-------------|---------|
-| `preference` | User preferences | "Use TypeScript strict mode" |
-| `behavior` | Agent behaviors | "Always run tests before committing" |
-| `constraint` | Hard constraints | "Never delete production data" |
-| `pattern` | Code patterns | "Use dependency injection" |
+```json
+{
+  "label": "prefer-uv",                    // Human-readable identifier
+  "content": "Use uv instead of pip for Python packages",
+  "scope": "global",                       // global | project
+  "project_id": null,                      // null for global, project_id for project-specific
+  "created_at": "2026-01-30T12:00:00Z"
+}
+```
+
+**Uniqueness constraint:** `label` + `scope` must be unique. A global rule and a project rule can have the same label.
 
 ### Rule Scope
 
-| Scope | Application |
-|-------|-------------|
-| `global` | All projects, all languages |
-| `project` | Specific project only |
-| `language` | Specific programming language |
+| Scope | Application | project_id |
+|-------|-------------|------------|
+| `global` | All projects | `null` |
+| `project` | Specific project only | `"abc123..."` |
 
 ### Context Injection
 
 At session start:
-1. MCP server queries `memory` collection for applicable rules
-2. Rules filtered by scope (global + current project + current language)
-3. Rules sorted by priority (higher first)
+1. MCP server queries `memory` collection
+2. Filters: all global rules + current project's rules
+3. Orders: global rules first (by creation date), then project rules (by creation date)
 4. Formatted and injected into system context
+
+### Rule Management
+
+**Via CLI:**
+```bash
+wqm memory list                      # List all rules (global + all projects)
+wqm memory list --global             # List global rules only
+wqm memory list --project <path>     # List rules for specific project
+wqm memory add --label "prefer-uv" --content "Use uv instead of pip" --global
+wqm memory add --label "use-pytest" --content "Use pytest for testing" --project .
+wqm memory remove --label "prefer-uv" --global
+```
+
+**Via MCP:**
+```python
+manage(action="list_rules")          # List global + current project rules
+manage(action="add_rule", label="...", content="...", scope="global|project")
+manage(action="remove_rule", label="...", scope="global|project")
+```
 
 ### Conversational Updates
 
@@ -361,44 +580,87 @@ Rules can be added conversationally:
 
 ```
 User: "For future reference, always use uv instead of pip"
-→ Creates memory rule: {rule_type: "preference", content: "Use uv for Python packages", scope: "global"}
+→ Creates memory rule: {label: "prefer-uv", content: "Use uv for Python packages", scope: "global"}
 ```
 
 ---
 
 ## File Watching and Ingestion
 
-### Watch Configuration
+### Watch Sources
 
-Watch folders are configured via CLI and stored in SQLite:
+| Source | Target Collection | Trigger |
+|--------|-------------------|---------|
+| **MCP** | `projects` | `activate_project` → daemon auto-creates watch if not exists |
+| **CLI** | `libraries` | `wqm library add` → explicit library registration |
 
-```bash
-# Add watch folder
-wqm watch add /path/to/project --collection projects --patterns "*.py,*.md"
-
-# List watches
-wqm watch list
-
-# Remove watch
-wqm watch remove /path/to/project
-```
+**Note:** Projects are watched automatically when activated via MCP. CLI is only used for library registration.
 
 ### Watch Table Schema
 
 ```sql
 CREATE TABLE watch_folders (
     watch_id TEXT PRIMARY KEY,
-    path TEXT NOT NULL,
-    collection TEXT NOT NULL,
-    patterns TEXT NOT NULL,           -- JSON array
-    ignore_patterns TEXT NOT NULL,    -- JSON array
+    path TEXT NOT NULL UNIQUE,
+    collection TEXT NOT NULL,           -- "projects" or "libraries"
+    project_id TEXT,                    -- For projects (null for libraries)
+    library_name TEXT,                  -- For libraries (null for projects)
+    library_mode TEXT,                  -- "sync" or "incremental" (libraries only, null for projects)
+    follow_symlinks INTEGER DEFAULT 0,  -- Default: don't follow symlinks
     auto_ingest INTEGER DEFAULT 1,
-    recursive INTEGER DEFAULT 1,
-    recursive_depth INTEGER DEFAULT 10,
-    debounce_seconds REAL DEFAULT 2.0,
     enabled INTEGER DEFAULT 1,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+```
+
+**Library modes (libraries only):**
+- `sync`: Full synchronization - additions, updates, AND deletions
+- `incremental`: Additions and updates only, no deletions
+
+**Always recursive:** No depth limit configuration needed.
+
+### Patterns Configuration
+
+Patterns are defined in configuration file, not per-watch:
+
+```yaml
+# ~/.workspace-qdrant/config.yaml
+watching:
+  patterns:
+    - "*.py"
+    - "*.rs"
+    - "*.md"
+    - "*.txt"
+    - "*.js"
+    - "*.ts"
+  ignore_patterns:
+    - "*.pyc"
+    - "__pycache__/*"
+    - ".git/*"
+    - "node_modules/*"
+    - "target/*"
+    - ".venv/*"
+    - "*.lock"
+```
+
+### Git Submodules
+
+When a subfolder contains a `.git` directory (submodule):
+
+1. **Detect:** Daemon detects `.git` in subfolder during scanning
+2. **Separate project:** Submodule treated as separate project with its own `project_id`
+3. **Link:** Main project stores reference to submodule
+
+```sql
+CREATE TABLE project_submodules (
+    parent_project_id TEXT NOT NULL,
+    submodule_project_id TEXT NOT NULL,
+    submodule_path TEXT NOT NULL,        -- Relative path within parent
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (parent_project_id, submodule_path),
+    FOREIGN KEY (parent_project_id) REFERENCES registered_projects(project_id),
+    FOREIGN KEY (submodule_project_id) REFERENCES registered_projects(project_id)
 );
 ```
 
@@ -412,12 +674,37 @@ The daemon:
 
 ### Ingestion Pipeline
 
+Different operations have different pipelines:
+
+| Event | Pipeline |
+|-------|----------|
+| **New file** | Debounce → Read → Parse/Chunk → Embed → Upsert |
+| **File changed** | Debounce → Read → Parse/Chunk → Embed → Upsert (replace) |
+| **File deleted** | Delete from Qdrant (filter by `file_path` + `project_id`) |
+| **File renamed** | Delete old + Upsert new (simple approach) |
+
+**Common processing steps:**
 ```
-File Event → Debounce → Read Content → Parse/Chunk → Generate Embeddings → Upsert to Qdrant
-                                          │
-                                          ├── LSP symbols (for code)
-                                          ├── Metadata extraction
-                                          └── Content hashing (deduplication)
+Read Content → Parse/Chunk → Generate Embeddings → Upsert to Qdrant
+                   │
+                   ├── LSP symbols (for code files)
+                   ├── Metadata extraction (file_type, language)
+                   └── Content hashing (deduplication)
+```
+
+### CLI Commands
+
+```bash
+# Libraries only (projects are auto-watched via MCP)
+wqm library add /path/to/docs --name numpy --mode sync
+wqm library add /path/to/docs --name pandas --mode incremental
+wqm library list
+wqm library remove numpy
+
+# Watch management (admin)
+wqm watch list                    # List all watches
+wqm watch disable <watch_id>      # Temporarily disable
+wqm watch enable <watch_id>       # Re-enable
 ```
 
 ---
@@ -435,12 +722,23 @@ Store content with automatic categorization.
 ```python
 store(
     content: str,                    # Required: text content
-    collection: str = "projects",    # Target collection
-    metadata: dict = {},             # Additional metadata
-    main_tag: str = None,            # Primary tag
-    full_tag: str = None             # Full tag path
+    title: str = None,               # Document title
+    metadata: dict = None,           # Additional metadata
+    collection: str = None,          # Target collection (default: "projects")
+    source: str = "user_input",      # Source type (user_input|scratchbook|file|web|note)
+    document_type: str = "text",     # Document type (text|code|note)
+    file_path: str = None,           # Path to source file
+    url: str = None,                 # Source URL (for web content)
+    project_name: str = None,        # Override project name detection
+    file_type: str = None            # Explicit file type (code|test|docs|config|data|build|other)
 )
 ```
+
+**Notes:**
+- `collection` defaults to `"projects"` (the canonical project collection)
+- Use `collection="libraries"` or `collection="memory"` for those collections
+- Project ID is automatically detected from current directory
+- Branch is automatically detected from Git
 
 #### search
 
@@ -449,72 +747,121 @@ Hybrid semantic + keyword search.
 ```python
 search(
     query: str,                      # Required: search query
-    collection: str = "projects",    # Collection to search
+    collection: str = None,          # Specific collection (overrides scope)
+    project_name: str = None,        # Filter by project name
     mode: str = "hybrid",            # hybrid|semantic|exact|keyword
-    scope: str = "project",          # project|collection|global|all
-    file_type: str = None,           # Filter by file type
-    branch: str = None,              # Filter by branch
-    limit: int = 10                  # Max results
+    limit: int = 10,                 # Max results
+    score_threshold: float = 0.3,    # Minimum similarity score
+    filters: dict = None,            # Additional metadata filters
+    branch: str = None,              # Git branch filter (None=current, "*"=all)
+    file_type: str = None,           # File type filter
+    scope: str = "project",          # project|global|all
+    include_libraries: bool = False, # Also search libraries collection
+    tag: str = None,                 # Hierarchical tag filter
+    include_deleted: bool = False    # Include deleted libraries
 )
 ```
 
+**Scope behavior:**
+- `scope="project"`: Filter by current `project_id` (default, most focused)
+- `scope="global"`: Search all projects (no `project_id` filter)
+- `scope="all"`: Search projects + libraries collections
+
+**Tag filtering (hierarchical):**
+- `tag="a1b2c3d4e5f6"`: All branches of a project
+- `tag="a1b2c3d4e5f6.main"`: Specific project + branch
+- `tag="numpy"`: Filter library by name
+
 #### manage
 
-Collection and system management.
+Project and system management.
 
 ```python
 manage(
     action: str,                     # Required: action to perform
-    **kwargs                         # Action-specific parameters
+    collection: str = None,          # Target collection (for collection info)
+    name: str = None,                # Name parameter (for library operations)
+    project_name: str = None,        # Project context
+    config: dict = None              # Additional configuration
 )
-
-# Actions:
-# - init_project: Initialize current directory as project
-# - activate_project: Set project as active (high priority)
-# - deactivate_project: Set project as inactive
-# - create_collection: Create new collection
-# - delete_collection: Delete collection
-# - list_collections: List all collections
-# - health: System health check
 ```
+
+**Available actions:**
+
+| Action | Description | gRPC |
+|--------|-------------|------|
+| `list_collections` | List all collections with stats | No (read-only) |
+| `collection_info` | Detailed info about specific collection | No (read-only) |
+| `workspace_status` | System status and health check | No |
+| `init_project` | Register project in `projects` collection | Queue |
+| `cleanup` | Remove empty collections and optimize | Queue |
+| `activate_project` | Register project with daemon, start heartbeat | **Direct** |
+| `deactivate_project` | Stop heartbeat, deprioritize project | **Direct** |
+| `mark_library_deleted` | Mark library as deleted (soft delete) | Queue |
+| `restore_deleted_library` | Restore previously deleted library | Queue |
+| `list_deleted_libraries` | List all libraries marked as deleted | No (read-only) |
+
+**NOT available (daemon owns collections):**
+- `create_collection`: Collections are created by daemon only
+- `delete_collection`: Collections are managed by daemon only
 
 #### retrieve
 
-Direct document access.
+Direct document access by ID or metadata filters.
 
 ```python
 retrieve(
     document_id: str = None,         # Specific document ID
-    file_path: str = None,           # Filter by file path
-    collection: str = "projects",    # Collection to query
-    include_content: bool = True     # Include document content
+    collection: str = None,          # Specific collection (overrides scope)
+    metadata: dict = None,           # Metadata filters
+    limit: int = 10,                 # Max documents to retrieve
+    branch: str = None,              # Git branch filter (None=current, "*"=all)
+    file_type: str = None,           # File type filter
+    scope: str = "project"           # project|global|all
 )
 ```
 
+**Notes:**
+- Either `document_id` or `metadata` must be provided
+- Scope behavior same as `search` tool
+
 ### gRPC Services
 
-The daemon exposes 3 gRPC services on port 50051:
+The daemon exposes 3 gRPC services on port 50051.
 
 #### SystemService
-- `Health`: Health check
-- `GetMetrics`: System metrics
-- `GetQueueStats`: Queue statistics
-- `RegisterProject`: Register project session
-- `DeprioritizeProject`: End project session
-- `Heartbeat`: Session heartbeat
-- `Shutdown`: Graceful shutdown
+
+| Method | Used By | Purpose | Status |
+|--------|---------|---------|--------|
+| `Health` | MCP, CLI | Health check | Production |
+| `GetMetrics` | CLI | System metrics | Production |
+| `GetQueueStats` | CLI | Queue statistics | Production |
+| `RegisterProject` | MCP | Notify project is active | **Production (direct gRPC)** |
+| `DeprioritizeProject` | MCP | Notify project is inactive | **Production (direct gRPC)** |
+| `Heartbeat` | MCP | Session heartbeat | Production |
+| `Shutdown` | CLI | Graceful shutdown | Production |
 
 #### CollectionService
-- `CreateCollection`: Create new collection
-- `DeleteCollection`: Delete collection
-- `ListCollections`: List all collections
-- `GetCollection`: Get collection info
-- `UpdateCollectionAlias`: Manage aliases
+
+| Method | Status | Notes |
+|--------|--------|-------|
+| `CreateCollection` | **Daemon internal** | Daemon creates collections on startup |
+| `DeleteCollection` | **Not used** | Fixed 3-collection model |
+| `ListCollections` | Read-only | Can be exposed to MCP/CLI |
+| `GetCollection` | Read-only | Can be exposed to MCP/CLI |
+| `UpdateCollectionAlias` | **Daemon internal** | |
+
+**MCP/CLI must NOT call collection mutation methods.** Only read-only methods are permitted.
 
 #### DocumentService
-- `IngestText`: Ingest text content
-- `UpdateDocument`: Update existing document
-- `DeleteDocument`: Delete document
+
+| Method | Status | Notes |
+|--------|--------|-------|
+| `IngestText` | **Reserved** | Admin/diagnostic use only |
+| `UpdateDocument` | **Reserved** | Admin/diagnostic use only |
+| `DeleteDocument` | **Reserved** | Admin/diagnostic use only |
+
+**Production writes use SQLite queue.** These methods exist for administrative and diagnostic purposes but are not called by MCP or CLI in normal operation.
 
 ---
 
@@ -532,23 +879,52 @@ The daemon exposes 3 gRPC services on port 50051:
 
 ### Configuration Files
 
+| File | Location | Purpose |
+|------|----------|---------|
+| `default_configuration.yaml` | `assets/` | Comprehensive system defaults |
+| `config.dev.yaml` | Project root | Development overrides |
+| `config.example.yaml` | Project root | Example user configuration |
+| `.wq_config.yaml` | Project root | Project-specific MCP configuration (preferred) |
+| `.workspace-qdrant.yaml` | Project root | Project-specific MCP configuration (alternate) |
+| `.env` | Project root | Environment variables |
+
+### Pattern Configuration
+
+File watching patterns are defined in the `patterns/` directory:
+
 | File | Purpose |
 |------|---------|
-| `.env` | Environment variables |
-| `.wq_config.yaml` | Project-specific MCP configuration (preferred) |
-| `.workspace-qdrant.yaml` | Project-specific MCP configuration (alternate) |
-| `assets/default_configuration.yaml` | System defaults |
+| `include_patterns.yaml` | Files and directories to include in ingestion |
+| `exclude_patterns.yaml` | Files and directories to exclude from ingestion |
+| `language_extensions.yaml` | Language detection by file extension |
+| `project_indicators.yaml` | Files that indicate project boundaries |
+
+**Pattern structure (include_patterns.yaml):**
+- `source_code`: Programming language source files (*.py, *.rs, *.js, etc.)
+- `documentation`: Documentation files (*.md, README, CHANGELOG)
+- `configuration`: Build and package management files (Cargo.toml, pyproject.toml)
+- `schema_and_data`: JSON, YAML, XML, SQL files
+- `templates_and_resources`: Template and localization files
+- `project_management`: License, contributing guides
 
 ### SQLite Database
 
-Location: `~/.workspace-qdrant/state.db` (shared between Python MCP and Rust daemon)
+**Path:** `~/.workspace-qdrant/state.db`
 
-Tables:
-- `unified_queue`: Write queue for daemon processing
-- `watch_folders`: File watching configuration
-- `project_state`: Active project sessions
-- `ingestion_status`: File ingestion tracking
-- `tenant_aliases`: Project ID aliases
+**Owner:** Rust daemon (memexd) - see [ADR-003](./docs/adr/ADR-003-daemon-owns-sqlite.md)
+
+**Core Tables:**
+
+| Table | Purpose | Used By |
+|-------|---------|---------|
+| `schema_version` | Schema version tracking | Daemon |
+| `unified_queue` | Write queue for daemon processing | MCP, CLI, Daemon |
+| `watch_folders` | File watching configuration | MCP, CLI, Daemon |
+| `registered_projects` | Project registration and disambiguation | Daemon |
+| `project_submodules` | Git submodule relationships | Daemon |
+| `file_processing` | File ingestion tracking | Daemon |
+
+**Other components (MCP, CLI) may read/write to tables but must NOT create tables or run migrations.**
 
 ---
 
@@ -559,10 +935,14 @@ Tables:
 | [FIRST-PRINCIPLES.md](./FIRST-PRINCIPLES.md) | Architectural philosophy |
 | [ADR-001](./docs/adr/ADR-001-canonical-collection-architecture.md) | Collection architecture decision |
 | [ADR-002](./docs/adr/ADR-002-daemon-only-write-policy.md) | Write policy decision |
+| [ADR-003](./docs/adr/ADR-003-daemon-owns-sqlite.md) | SQLite ownership decision |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Visual architecture diagrams |
-| [docs/architecture/multi-tenant-collection-schema.md](./docs/architecture/multi-tenant-collection-schema.md) | Detailed schema specification |
 | [README.md](./README.md) | User documentation |
 
 ---
 
-**End of workspace-qdrant-mcp Specification v1.0**
+**Version:** 1.2
+**Last Updated:** 2026-01-30
+**Changes:**
+- v1.2: Updated API Reference to match actual implementation; clarified manage actions (removed create/delete collection as MCP actions); added pattern configuration documentation; updated gRPC services table format
+- v1.1: Added comprehensive Project ID specification with duplicate handling, branch lifecycle, and registered_projects schema
