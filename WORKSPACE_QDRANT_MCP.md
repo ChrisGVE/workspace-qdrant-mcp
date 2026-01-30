@@ -867,7 +867,20 @@ The daemon exposes 3 gRPC services on port 50051.
 
 ## Configuration Reference
 
+### Single Configuration File
+
+**All components (Daemon, MCP Server, CLI) share the same configuration file.** This is a key architectural requirement to prevent configuration drift between components.
+
+**Configuration file search order (first found wins):**
+1. `~/.workspace-qdrant/config.yaml` (or `.yml`)
+2. `~/.config/workspace-qdrant/config.yaml`
+3. `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS)
+
+**Built-in defaults:** The configuration template (`assets/default_configuration.yaml`) defines all default values. User configuration only needs to specify overrides.
+
 ### Environment Variables
+
+Environment variables override configuration file values:
 
 | Variable | Description | Default |
 |----------|-------------|---------|
@@ -877,35 +890,49 @@ The daemon exposes 3 gRPC services on port 50051.
 | `WQM_STDIO_MODE` | Force stdio mode | `false` |
 | `WQM_CLI_MODE` | Force CLI mode | `false` |
 
-### Configuration Files
+### Configuration Structure
 
-| File | Location | Purpose |
-|------|----------|---------|
-| `default_configuration.yaml` | `assets/` | Comprehensive system defaults |
-| `config.dev.yaml` | Project root | Development overrides |
-| `config.example.yaml` | Project root | Example user configuration |
-| `.wq_config.yaml` | Project root | Project-specific MCP configuration (preferred) |
-| `.workspace-qdrant.yaml` | Project root | Project-specific MCP configuration (alternate) |
-| `.env` | Project root | Environment variables |
+The unified configuration file contains all settings:
 
-### Pattern Configuration
+```yaml
+# Database configuration
+database:
+  path: ~/.workspace-qdrant/state.db
 
-File watching patterns are defined in the `patterns/` directory:
+# Qdrant connection
+qdrant:
+  url: http://localhost:6333
+  api_key: null
+  timeout: 30s
 
-| File | Purpose |
-|------|---------|
-| `include_patterns.yaml` | Files and directories to include in ingestion |
-| `exclude_patterns.yaml` | Files and directories to exclude from ingestion |
-| `language_extensions.yaml` | Language detection by file extension |
-| `project_indicators.yaml` | Files that indicate project boundaries |
+# Daemon settings
+daemon:
+  grpc_port: 50051
+  queue_poll_interval_ms: 1000
+  queue_batch_size: 10
 
-**Pattern structure (include_patterns.yaml):**
-- `source_code`: Programming language source files (*.py, *.rs, *.js, etc.)
-- `documentation`: Documentation files (*.md, README, CHANGELOG)
-- `configuration`: Build and package management files (Cargo.toml, pyproject.toml)
-- `schema_and_data`: JSON, YAML, XML, SQL files
-- `templates_and_resources`: Template and localization files
-- `project_management`: License, contributing guides
+# File watching patterns (inline, not separate files)
+watching:
+  patterns:
+    - "*.py"
+    - "*.rs"
+    - "*.md"
+    - "*.js"
+    - "*.ts"
+  ignore_patterns:
+    - "*.pyc"
+    - "__pycache__/*"
+    - ".git/*"
+    - "node_modules/*"
+    - "target/*"
+    - ".venv/*"
+
+# Collections configuration
+collections:
+  memory_collection_name: "memory"
+```
+
+**Note:** Pattern configuration is part of the unified config file, not separate YAML files. The `patterns/` directory files serve as reference documentation for the comprehensive default patterns.
 
 ### SQLite Database
 
