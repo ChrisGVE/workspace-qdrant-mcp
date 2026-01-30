@@ -154,7 +154,6 @@ if _detect_stdio_mode():
 
 # Import project detection and branch utilities after stdio setup
 from common.core.collection_aliases import AliasManager
-from common.core.collection_naming import build_project_collection_name
 from common.core.sqlite_state_manager import (
     SQLiteStateManager,
     ContentIngestionStatus,
@@ -872,10 +871,10 @@ app = FastMCP("Workspace Qdrant MCP", lifespan=lifespan)
 # Collection basename mapping for Rust daemon validation
 # Maps collection types to valid basenames (non-empty strings)
 BASENAME_MAP = {
-    "project": "code",      # PROJECT collections: _{project_id}
+    "project": "code",      # PROJECT content goes to 'projects' collection (ADR-001)
     "user": "notes",        # USER collections: {basename}-{type}
-    "library": "lib",       # LIBRARY collections: _{library_name}
-    "memory": "memory",     # MEMORY collections: memory (canonical per ADR-001)
+    "library": "lib",       # LIBRARY content goes to 'libraries' collection (ADR-001)
+    "memory": "memory",     # MEMORY collection: memory (canonical per ADR-001)
 }
 
 # Canonical collection names per ADR-001
@@ -1153,25 +1152,41 @@ async def get_project_name() -> str:
 
 def get_project_collection(project_path: Path | None = None) -> str:
     """
-    Get the project collection name for a given project path.
+    Get the canonical project collection name (ADR-001).
 
-    Uses Task 374.6 architecture: _{project_id} where project_id is
-    12-char hex hash from calculate_tenant_id().
+    Per ADR-001, all project content goes to the unified 'projects' collection.
+    Multi-tenant isolation is achieved via tenant_id metadata filtering,
+    NOT separate collections.
+
+    Args:
+        project_path: Unused (kept for backward compatibility).
+
+    Returns:
+        Canonical collection name: 'projects'
+    """
+    # ADR-001: All project content goes to unified 'projects' collection
+    # Tenant isolation is via metadata filtering, not separate collections
+    return CANONICAL_COLLECTIONS["projects"]
+
+
+def get_current_tenant_id(project_path: Path | None = None) -> str:
+    """
+    Get the tenant_id for the current project (ADR-001).
+
+    The tenant_id is used for multi-tenant isolation within the unified
+    'projects' collection. It's computed from the project path using
+    calculate_tenant_id().
 
     Args:
         project_path: Path to project root. Defaults to current directory.
 
     Returns:
-        Collection name in format _{project_id}
+        Tenant ID string (e.g., 'github_com_user_repo' or 'path_abc123...')
     """
     if project_path is None:
         project_path = Path.cwd()
 
-    # Generate project ID using calculate_tenant_id from project_detection
-    project_id = calculate_tenant_id(str(project_path))
-
-    # Build collection name using collection_naming module
-    return build_project_collection_name(project_id)
+    return calculate_tenant_id(str(project_path))
 
 async def initialize_components():
     """Initialize Qdrant client, daemon client, embedding model, and alias manager.
@@ -1363,20 +1378,20 @@ def determine_collection_name(
     """
     Determine appropriate collection name based on content and context.
 
-    DEPRECATED: This function maintains backwards compatibility but the new
-    architecture (Task 374.6) uses a single _{project_id} collection per project.
+    ADR-001 Architecture: All project content goes to the canonical 'projects'
+    collection with multi-tenant isolation via tenant_id metadata filtering.
 
     All files now go to the same collection with differentiation via metadata fields:
     - file_type: "code", "test", "docs", "config", "data", "build", "other"
     - branch: Current Git branch name
-    - project_id: 12-char hex project identifier
+    - tenant_id: Project identifier for multi-tenant isolation
 
     For MCP server operations, prefer get_project_collection() instead.
     """
     if collection:
         return collection
 
-    # Use new single-collection architecture
+    # ADR-001: Use canonical 'projects' collection
     return get_project_collection()
 
 async def generate_embeddings(text: str) -> list[float]:
@@ -2509,7 +2524,7 @@ async def manage(
             # Get collections info (async)
             collections_response = await _maybe_await(qdrant_client.get_collections())
 
-            # Check for project collection (new architecture: single _{project_id})
+            # Check for canonical 'projects' collection (ADR-001 architecture)
             project_collections = []
             for col in collections_response.collections:
                 if col.name == project_collection:
@@ -2591,9 +2606,11 @@ async def manage(
             }
 
         elif action == "init_project":
-            # Initialize project collection (new architecture: single _{project_id}, async)
+            # Initialize canonical 'projects' collection (ADR-001: unified multi-tenant collection)
+            # All project content goes to 'projects' with tenant_id-based isolation
             target_project = project_name or await get_project_name()
-            project_collection = get_project_collection()
+            project_collection = get_project_collection()  # Returns 'projects' per ADR-001
+            tenant_id = get_current_tenant_id()
 
             created_collections = []
             if await ensure_collection_exists(project_collection):
@@ -2604,8 +2621,9 @@ async def manage(
                 "action": action,
                 "project": target_project,
                 "project_collection": project_collection,
+                "tenant_id": tenant_id,  # ADR-001: tenant_id for metadata filtering
                 "collections_created": created_collections,
-                "message": f"Initialized collection '{project_collection}' for project '{target_project}'"
+                "message": f"Project '{target_project}' registered in canonical '{project_collection}' collection with tenant_id='{tenant_id}'"
             }
 
         elif action == "cleanup":
