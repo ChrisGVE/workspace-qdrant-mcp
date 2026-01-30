@@ -1,6 +1,6 @@
 # workspace-qdrant-mcp Specification
 
-**Version:** 1.1
+**Version:** 1.3
 **Date:** 2026-01-30
 **Status:** Authoritative Specification
 **Supersedes:** CONSOLIDATED_PRD_V2.md, PRDv3.txt, PRDv3-snapshot1.txt
@@ -477,13 +477,13 @@ The daemon exposes gRPC methods for content ingestion (`IngestText`, etc.) but t
 
 ### Unified Queue
 
-When daemon is unavailable, writes are queued in SQLite:
+**ALL writes go through the SQLite queue.** The queue serves as the transaction log for daemon processing.
 
 ```sql
 CREATE TABLE unified_queue (
     queue_id TEXT PRIMARY KEY,
     idempotency_key TEXT UNIQUE NOT NULL,
-    item_type TEXT NOT NULL,        -- content|file|folder|project|library|delete_*|rename
+    item_type TEXT NOT NULL,        -- memory|library|file|folder|project|delete_*|rename
     op TEXT NOT NULL,               -- ingest|update|delete|scan
     tenant_id TEXT NOT NULL,
     collection TEXT NOT NULL,
@@ -496,6 +496,15 @@ CREATE TABLE unified_queue (
 );
 ```
 
+**Item Types (MCP-relevant):**
+
+| item_type | Used By | payload_json |
+|-----------|---------|--------------|
+| `memory` | MCP `memory` tool | `{label, content, scope, project_id}` |
+| `library` | MCP `store` tool | `{library_name, content, title, source, url}` |
+| `file` | Daemon file watcher | `{file_path, ...}` |
+| `folder` | Daemon folder scan | `{folder_path, patterns, ...}` |
+
 ### Idempotency
 
 All queue operations use SHA256-based idempotency keys:
@@ -504,17 +513,16 @@ All queue operations use SHA256-based idempotency keys:
 idempotency_key = SHA256(item_type|op|tenant_id|collection|payload_json)[:32]
 ```
 
-### Fallback Response
+### Queue Response
 
-When content is queued instead of directly processed:
+When operations are queued:
 
 ```json
 {
   "success": true,
   "status": "queued",
-  "message": "Content queued for processing. Daemon will ingest when available.",
-  "queue_id": "abc123",
-  "fallback_mode": "unified_queue"
+  "message": "Operation queued for daemon processing.",
+  "queue_id": "abc123"
 }
 ```
 
@@ -713,117 +721,161 @@ wqm watch enable <watch_id>       # Re-enable
 
 ### MCP Tools
 
-The server provides 4 comprehensive MCP tools:
+The server provides tools for search, memory management, and health monitoring.
 
-#### store
-
-Store content with automatic categorization.
-
-```python
-store(
-    content: str,                    # Required: text content
-    title: str = None,               # Document title
-    metadata: dict = None,           # Additional metadata
-    collection: str = None,          # Target collection (default: "projects")
-    source: str = "user_input",      # Source type (user_input|scratchbook|file|web|note)
-    document_type: str = "text",     # Document type (text|code|note)
-    file_path: str = None,           # Path to source file
-    url: str = None,                 # Source URL (for web content)
-    project_name: str = None,        # Override project name detection
-    file_type: str = None            # Explicit file type (code|test|docs|config|data|build|other)
-)
-```
-
-**Notes:**
-- `collection` defaults to `"projects"` (the canonical project collection)
-- Use `collection="libraries"` or `collection="memory"` for those collections
-- Project ID is automatically detected from current directory
-- Branch is automatically detected from Git
+**Important design principle:** The MCP server does NOT store to the `projects` collection. Project content is ingested by the daemon via file watching. The MCP can only store to `memory` (rules) and `libraries` (reference documentation).
 
 #### search
 
-Hybrid semantic + keyword search.
+Semantic search with optional direct retrieval mode.
 
 ```python
 search(
     query: str,                      # Required: search query
-    collection: str = None,          # Specific collection (overrides scope)
-    project_name: str = None,        # Filter by project name
-    mode: str = "hybrid",            # hybrid|semantic|exact|keyword
+    collection: str,                 # Required: projects|libraries|memory
+    mode: str = "hybrid",            # hybrid|semantic|keyword|retrieve
     limit: int = 10,                 # Max results
-    score_threshold: float = 0.3,    # Minimum similarity score
-    filters: dict = None,            # Additional metadata filters
-    branch: str = None,              # Git branch filter (None=current, "*"=all)
-    file_type: str = None,           # File type filter
-    scope: str = "project",          # project|global|all
-    include_libraries: bool = False, # Also search libraries collection
-    tag: str = None,                 # Hierarchical tag filter
-    include_deleted: bool = False    # Include deleted libraries
+    score_threshold: float = 0.3,    # Minimum similarity score (ignored in retrieve mode)
+    # Collection-specific scope filters (see below)
+    scope: str = None,               # Scope within collection
+    branch: str = None,              # For projects: branch filter
+    project_id: str = None,          # For projects: specific project
+    library_name: str = None         # For libraries: specific library
 )
 ```
 
-**Scope behavior:**
-- `scope="project"`: Filter by current `project_id` (default, most focused)
-- `scope="global"`: Search all projects (no `project_id` filter)
-- `scope="all"`: Search projects + libraries collections
+**Modes:**
+- `hybrid`: Semantic + keyword search (default)
+- `semantic`: Pure vector similarity
+- `keyword`: Keyword/exact matching
+- `retrieve`: Direct document access by ID or metadata (no ranking)
 
-**Tag filtering (hierarchical):**
-- `tag="a1b2c3d4e5f6"`: All branches of a project
-- `tag="a1b2c3d4e5f6.main"`: Specific project + branch
-- `tag="numpy"`: Filter library by name
+**Collection-specific scope:**
 
-#### manage
+| Collection | Scope Options | Notes |
+|------------|---------------|-------|
+| `memory` | `all`, `global`, `project` | `project` = current project's rules |
+| `projects` | `all`, `current`, `other` | Combined with `branch` and `project_id` filters |
+| `libraries` | `all`, `<library_name>` | Filter by specific library |
 
-Project and system management.
-
+**Project scope examples:**
 ```python
-manage(
-    action: str,                     # Required: action to perform
-    collection: str = None,          # Target collection (for collection info)
-    name: str = None,                # Name parameter (for library operations)
-    project_name: str = None,        # Project context
-    config: dict = None              # Additional configuration
-)
+# Current project, current branch (default)
+search(query="auth", collection="projects", scope="current")
+
+# Current project, all branches
+search(query="auth", collection="projects", scope="current", branch="*")
+
+# All projects
+search(query="auth", collection="projects", scope="all")
+
+# Specific project
+search(query="auth", collection="projects", scope="other", project_id="abc123")
 ```
 
-**Available actions:**
-
-| Action | Description | gRPC |
-|--------|-------------|------|
-| `list_collections` | List all collections with stats | No (read-only) |
-| `collection_info` | Detailed info about specific collection | No (read-only) |
-| `workspace_status` | System status and health check | No |
-| `init_project` | Register project in `projects` collection | Queue |
-| `cleanup` | Remove empty collections and optimize | Queue |
-| `activate_project` | Register project with daemon, start heartbeat | **Direct** |
-| `deactivate_project` | Stop heartbeat, deprioritize project | **Direct** |
-| `mark_library_deleted` | Mark library as deleted (soft delete) | Queue |
-| `restore_deleted_library` | Restore previously deleted library | Queue |
-| `list_deleted_libraries` | List all libraries marked as deleted | No (read-only) |
-
-**NOT available (daemon owns collections):**
-- `create_collection`: Collections are created by daemon only
-- `delete_collection`: Collections are managed by daemon only
+**project_id handling:** The MCP server FETCHES `project_id` from the daemon's state database (not calculated locally). This prevents drift between MCP and daemon. The fetch happens on first search operation to allow time for daemon to register the watch folder.
 
 #### retrieve
 
-Direct document access by ID or metadata filters.
+Direct document access for chunk-by-chunk retrieval.
 
 ```python
 retrieve(
     document_id: str = None,         # Specific document ID
-    collection: str = None,          # Specific collection (overrides scope)
+    collection: str = "projects",    # Target collection
     metadata: dict = None,           # Metadata filters
-    limit: int = 10,                 # Max documents to retrieve
-    branch: str = None,              # Git branch filter (None=current, "*"=all)
-    file_type: str = None,           # File type filter
-    scope: str = "project"           # project|global|all
+    limit: int = 10,                 # Max documents
+    offset: int = 0                  # For pagination
 )
 ```
 
-**Notes:**
-- Either `document_id` or `metadata` must be provided
-- Scope behavior same as `search` tool
+**Use case:** Retrieving large documents chunk by chunk without overwhelming context. Use `search` with `mode="retrieve"` for metadata-based retrieval, or `retrieve` for ID-based access.
+
+#### memory
+
+Manage memory rules (behavioral preferences).
+
+```python
+memory(
+    action: str,                     # Required: add|update|remove|list
+    label: str = None,               # Rule label (unique per scope)
+    content: str = None,             # Rule content (for add/update)
+    scope: str = "global",           # global|project
+    project_id: str = None           # For project-scoped rules
+)
+```
+
+**Actions:**
+- `add`: Create new rule (queued for daemon)
+- `update`: Update existing rule (queued for daemon)
+- `remove`: Remove rule (queued for daemon)
+- `list`: List rules (read-only, direct query)
+
+**Uniqueness:** `label` + `scope` must be unique. A global rule and a project rule can have the same label.
+
+#### store
+
+Store content to libraries collection only.
+
+```python
+store(
+    content: str,                    # Required: text content
+    library_name: str,               # Required: library identifier (acts as tag)
+    title: str = None,               # Document title
+    source: str = "user_input",      # Source type (user_input|web|file)
+    url: str = None,                 # Source URL (for web content)
+    metadata: dict = None            # Additional metadata
+)
+```
+
+**Note:** `store` is for adding reference documentation to the `libraries` collection (like adding books to a library). It is NOT for project content (handled by daemon file watching) or memory rules (use `memory` tool).
+
+**Libraries definition:** Libraries are collections of reference information (books, documentation, papers, websites) - NOT programming libraries (use context7 MCP for those).
+
+#### health
+
+System health check.
+
+```python
+health() -> dict
+```
+
+**Returns:**
+- Daemon connection status
+- Queue depth and status
+- Qdrant connection status
+- Active project info
+
+#### session
+
+Session lifecycle management.
+
+```python
+session(
+    action: str                      # Required: activate|deactivate
+)
+```
+
+**Actions:**
+- `activate`: Register current project with daemon, start heartbeat (direct gRPC)
+- `deactivate`: Stop heartbeat, deprioritize project (direct gRPC)
+
+### Removed Actions
+
+The following actions from the legacy `manage` tool are **removed**:
+
+| Removed | Reason |
+|---------|--------|
+| `list_collections` | Diagnostic only, use CLI |
+| `collection_info` | Diagnostic only, use CLI |
+| `workspace_status` | Replaced by `health` tool |
+| `init_project` | Daemon handles via watching |
+| `cleanup` | Daemon handles internally |
+| `create_collection` | Daemon owns collections |
+| `delete_collection` | Daemon owns collections |
+| `mark_library_deleted` | CLI only |
+| `restore_deleted_library` | CLI only |
+| `list_deleted_libraries` | CLI only |
 
 ### gRPC Services
 
@@ -968,8 +1020,9 @@ collections:
 
 ---
 
-**Version:** 1.2
+**Version:** 1.3
 **Last Updated:** 2026-01-30
 **Changes:**
+- v1.3: Major API redesign - replaced `manage` tool with dedicated tools (`memory`, `health`, `session`); clarified MCP does NOT store to `projects` collection (daemon handles via file watching); added single configuration file requirement with cascade search; updated queue schema to include `memory` item_type; documented libraries as reference documentation (not programming libraries)
 - v1.2: Updated API Reference to match actual implementation; clarified manage actions (removed create/delete collection as MCP actions); added pattern configuration documentation; updated gRPC services table format
 - v1.1: Added comprehensive Project ID specification with duplicate handling, branch lifecycle, and registered_projects schema
