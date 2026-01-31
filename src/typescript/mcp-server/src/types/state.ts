@@ -68,14 +68,14 @@ export interface WatchFolderConfig {
 export interface RegisteredProject {
   project_id: string;
   project_path: string;
-  git_remote_url?: string;
-  remote_hash?: string;
-  disambiguation_path?: string;
+  git_remote_url?: string | undefined;
+  remote_hash?: string | undefined;
+  disambiguation_path?: string | undefined;
   container_folder: string;
   is_active: boolean;
   created_at: string;
-  last_seen_at?: string;
-  last_activity_at?: string;
+  last_seen_at?: string | undefined;
+  last_activity_at?: string | undefined;
 }
 
 // ============================================================================
@@ -85,34 +85,34 @@ export interface RegisteredProject {
 export interface ContentPayload {
   content: string;
   source_type: string;
-  main_tag?: string;
-  full_tag?: string;
+  main_tag?: string | undefined;
+  full_tag?: string | undefined;
 }
 
 export interface MemoryPayload {
   label: string;
   content: string;
   scope: 'global' | 'project';
-  project_id?: string;
+  project_id?: string | undefined;
 }
 
 export interface FilePayload {
   file_path: string;
-  relative_path?: string;
+  relative_path?: string | undefined;
 }
 
 export interface FolderPayload {
   folder_path: string;
-  relative_path?: string;
+  relative_path?: string | undefined;
 }
 
 export interface LibraryPayload {
-  content?: string;
-  source?: string;
-  url?: string;
-  file_path?: string;
+  content?: string | undefined;
+  source?: string | undefined;
+  url?: string | undefined;
+  file_path?: string | undefined;
   library_name: string;
-  relative_path?: string;
+  relative_path?: string | undefined;
 }
 
 // ============================================================================
