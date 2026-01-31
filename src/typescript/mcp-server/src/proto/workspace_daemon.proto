@@ -1,0 +1,554 @@
+syntax = "proto3";
+
+package workspace_daemon;
+
+// Import common types
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/empty.proto";
+
+// =============================================================================
+// SERVICE DEFINITIONS
+// =============================================================================
+// This protocol defines 4 services with 20 total RPCs for communication
+// between the Rust daemon and Python components (MCP server, CLI).
+//
+// Design principles:
+// - Single writer pattern: Only daemon writes to Qdrant
+// - Queue-based async processing: File operations via SQLite queue
+// - Direct sync ingestion: Text content via gRPC IngestText
+// - Event-driven refresh: Lightweight signals for state changes
+// - Session-based priority: Active MCP sessions get HIGH priority
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// 1. SystemService (7 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: System health monitoring, status reporting, refresh signaling,
+//          and lifecycle management.
+
+service SystemService {
+    // Quick health check for monitoring/alerting
+    rpc HealthCheck(google.protobuf.Empty) returns (HealthCheckResponse);
+
+    // Comprehensive system state snapshot
+    rpc GetStatus(google.protobuf.Empty) returns (SystemStatusResponse);
+
+    // Current performance metrics (no historical data)
+    rpc GetMetrics(google.protobuf.Empty) returns (MetricsResponse);
+
+    // Signal database state changes for event-driven refresh
+    rpc SendRefreshSignal(RefreshSignalRequest) returns (google.protobuf.Empty);
+
+    // MCP/CLI server lifecycle notifications
+    rpc NotifyServerStatus(ServerStatusNotification) returns (google.protobuf.Empty);
+
+    // Pause all file watchers (master switch)
+    rpc PauseAllWatchers(google.protobuf.Empty) returns (google.protobuf.Empty);
+
+    // Resume all file watchers (master switch)
+    rpc ResumeAllWatchers(google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+
+// -----------------------------------------------------------------------------
+// 2. CollectionService (5 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Qdrant collection lifecycle and alias management.
+// Note: ListCollections removed - MCP queries Qdrant directly.
+
+service CollectionService {
+    // Create collection with proper configuration
+    rpc CreateCollection(CreateCollectionRequest) returns (CreateCollectionResponse);
+
+    // Delete collection and all its data
+    rpc DeleteCollection(DeleteCollectionRequest) returns (google.protobuf.Empty);
+
+    // Create collection alias (for tenant_id changes)
+    rpc CreateCollectionAlias(CreateAliasRequest) returns (google.protobuf.Empty);
+
+    // Delete collection alias
+    rpc DeleteCollectionAlias(DeleteAliasRequest) returns (google.protobuf.Empty);
+
+    // Atomically rename alias (safer than delete + create)
+    rpc RenameCollectionAlias(RenameAliasRequest) returns (google.protobuf.Empty);
+}
+
+// -----------------------------------------------------------------------------
+// 3. DocumentService (3 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Direct text ingestion (not file-based).
+// Use case: Content not from files - user input, chat snippets, scraped web
+//           content, manual notes.
+
+service DocumentService {
+    // Ingest text content directly (synchronous)
+    rpc IngestText(IngestTextRequest) returns (IngestTextResponse);
+
+    // Update previously ingested text
+    rpc UpdateText(UpdateTextRequest) returns (UpdateTextResponse);
+
+    // Delete ingested text document
+    rpc DeleteText(DeleteTextRequest) returns (google.protobuf.Empty);
+}
+
+// -----------------------------------------------------------------------------
+// 4. ProjectService (5 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Multi-tenant project lifecycle and session management.
+// Use case: MCP servers register active projects, daemon prioritizes their
+//           ingestion. Heartbeat mechanism detects orphaned sessions.
+
+service ProjectService {
+    // Register a project for high-priority processing
+    // Called when MCP server starts for a project
+    rpc RegisterProject(RegisterProjectRequest) returns (RegisterProjectResponse);
+
+    // Deprioritize a project (decrement session count)
+    // Called when MCP server stops
+    rpc DeprioritizeProject(DeprioritizeProjectRequest) returns (DeprioritizeProjectResponse);
+
+    // Get current status of a project
+    rpc GetProjectStatus(GetProjectStatusRequest) returns (GetProjectStatusResponse);
+
+    // List all registered projects with their status
+    rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+
+    // Heartbeat to keep session alive (60s timeout)
+    // Called periodically by MCP servers
+    rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// =============================================================================
+// MESSAGE TYPES - SystemService
+// =============================================================================
+
+// HealthCheck Response
+message HealthCheckResponse {
+    ServiceStatus status = 1;                     // Overall health
+    repeated ComponentHealth components = 2;      // Per-component status
+    google.protobuf.Timestamp timestamp = 3;      // Check timestamp
+}
+
+message ComponentHealth {
+    string component_name = 1;                    // e.g., "queue_processor", "file_watcher"
+    ServiceStatus status = 2;
+    string message = 3;                           // Human-readable status
+    google.protobuf.Timestamp last_check = 4;
+}
+
+// GetStatus Response
+message SystemStatusResponse {
+    ServiceStatus status = 1;
+    SystemMetrics metrics = 2;                    // CPU, memory, disk
+    repeated string active_projects = 3;          // Currently watched projects
+    int32 total_documents = 4;                    // Documents in Qdrant
+    int32 total_collections = 5;                  // Collections in Qdrant
+    google.protobuf.Timestamp uptime_since = 6;   // Daemon start time
+}
+
+message SystemMetrics {
+    double cpu_usage_percent = 1;
+    int64 memory_usage_bytes = 2;
+    int64 memory_total_bytes = 3;
+    int64 disk_usage_bytes = 4;
+    int64 disk_total_bytes = 5;
+    int32 active_connections = 6;                 // Active gRPC connections
+    int32 pending_operations = 7;                 // Queue depth
+}
+
+// GetMetrics Response
+message MetricsResponse {
+    repeated Metric metrics = 1;
+    google.protobuf.Timestamp collected_at = 2;
+}
+
+message Metric {
+    string name = 1;                              // e.g., "queue_throughput"
+    string type = 2;                              // "counter", "gauge", "histogram"
+    map<string, string> labels = 3;               // Metric dimensions
+    double value = 4;
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+// SendRefreshSignal Request
+message RefreshSignalRequest {
+    QueueType queue_type = 1;
+    repeated string lsp_languages = 2;            // For TOOLS_AVAILABLE signal
+    repeated string grammar_languages = 3;        // For TOOLS_AVAILABLE signal
+}
+
+// NotifyServerStatus Request
+message ServerStatusNotification {
+    ServerState state = 1;                        // UP or DOWN
+    optional string project_name = 2;             // Git repo name or folder name
+    optional string project_root = 3;             // Absolute path to project root
+}
+
+// =============================================================================
+// MESSAGE TYPES - CollectionService
+// =============================================================================
+
+// CreateCollection Request/Response
+message CreateCollectionRequest {
+    string collection_name = 1;
+    string project_id = 2;                        // Optional project association
+    CollectionConfig config = 3;                  // Vector configuration
+}
+
+message CreateCollectionResponse {
+    bool success = 1;
+    string error_message = 2;
+    string collection_id = 3;                     // Qdrant's internal ID
+}
+
+message CollectionConfig {
+    int32 vector_size = 1;                        // Must match embedding model (e.g., 384)
+    string distance_metric = 2;                   // "Cosine", "Euclidean", "Dot"
+    bool enable_indexing = 3;                     // HNSW index activation
+    map<string, string> metadata_schema = 4;      // Expected metadata fields
+}
+
+// DeleteCollection Request
+message DeleteCollectionRequest {
+    string collection_name = 1;
+    string project_id = 2;                        // For validation
+    bool force = 3;                               // Skip confirmation checks
+}
+
+// CreateCollectionAlias Request
+message CreateAliasRequest {
+    string alias_name = 1;                        // The new name
+    string collection_name = 2;                   // Points to this collection
+}
+
+// DeleteCollectionAlias Request
+message DeleteAliasRequest {
+    string alias_name = 1;
+}
+
+// RenameCollectionAlias Request
+message RenameAliasRequest {
+    string old_alias_name = 1;
+    string new_alias_name = 2;
+    string collection_name = 3;                   // The collection it points to
+}
+
+// =============================================================================
+// MESSAGE TYPES - DocumentService
+// =============================================================================
+
+// IngestText Request/Response
+message IngestTextRequest {
+    string content = 1;                           // The text to ingest
+    string collection_basename = 2;               // e.g., "memory", "scratchbook"
+    string tenant_id = 3;                         // Multi-tenant identifier
+    optional string document_id = 4;              // Custom ID (generated if omitted)
+    map<string, string> metadata = 5;             // Additional metadata
+    bool chunk_text = 6;                          // Whether to chunk (default: true)
+}
+
+message IngestTextResponse {
+    string document_id = 1;                       // For future updates/deletes
+    bool success = 2;
+    int32 chunks_created = 3;                     // Number of chunks generated
+    string error_message = 4;
+}
+
+// UpdateText Request/Response
+message UpdateTextRequest {
+    string document_id = 1;                       // From IngestTextResponse
+    string content = 2;                           // New content
+    optional string collection_name = 3;          // If moving to different collection
+    map<string, string> metadata = 4;             // Updated metadata
+}
+
+message UpdateTextResponse {
+    bool success = 1;
+    string error_message = 2;
+    google.protobuf.Timestamp updated_at = 3;
+}
+
+// DeleteText Request
+message DeleteTextRequest {
+    string document_id = 1;
+    string collection_name = 2;                   // For validation
+}
+
+// =============================================================================
+// MESSAGE TYPES - ProjectService
+// =============================================================================
+
+// RegisterProject Request/Response
+message RegisterProjectRequest {
+    string path = 1;                              // Absolute path to project root
+    string project_id = 2;                        // 12-char hex identifier
+    optional string name = 3;                     // Human-readable project name
+    optional string git_remote = 4;               // Git remote URL (for normalization)
+}
+
+message RegisterProjectResponse {
+    bool created = 1;                             // True if new, false if existing
+    string project_id = 2;                        // Confirmed project ID
+    string priority = 3;                          // Current priority: "high", "normal", "low"
+    int32 active_sessions = 4;                    // Number of active sessions
+}
+
+// DeprioritizeProject Request/Response
+message DeprioritizeProjectRequest {
+    string project_id = 1;                        // 12-char hex identifier
+}
+
+message DeprioritizeProjectResponse {
+    bool success = 1;
+    int32 remaining_sessions = 2;                 // Sessions after decrement
+    string new_priority = 3;                      // Priority after demotion
+}
+
+// GetProjectStatus Request/Response
+message GetProjectStatusRequest {
+    string project_id = 1;                        // 12-char hex identifier
+}
+
+message GetProjectStatusResponse {
+    bool found = 1;                               // Whether project exists
+    string project_id = 2;
+    string project_name = 3;
+    string project_root = 4;
+    string priority = 5;                          // "high", "normal", "low"
+    int32 active_sessions = 6;
+    google.protobuf.Timestamp last_active = 7;    // Last heartbeat/activity
+    google.protobuf.Timestamp registered_at = 8;
+    optional string git_remote = 9;
+}
+
+// ListProjects Request/Response
+message ListProjectsRequest {
+    optional string priority_filter = 1;          // Filter by priority: "high", "normal", "low", "all"
+    bool active_only = 2;                         // Only return projects with active_sessions > 0
+}
+
+message ListProjectsResponse {
+    repeated ProjectInfo projects = 1;
+    int32 total_count = 2;
+}
+
+message ProjectInfo {
+    string project_id = 1;
+    string project_name = 2;
+    string project_root = 3;
+    string priority = 4;
+    int32 active_sessions = 5;
+    google.protobuf.Timestamp last_active = 6;
+}
+
+// Heartbeat Request/Response
+message HeartbeatRequest {
+    string project_id = 1;                        // 12-char hex identifier
+}
+
+message HeartbeatResponse {
+    bool acknowledged = 1;                        // True if heartbeat was accepted
+    google.protobuf.Timestamp next_heartbeat_by = 2;  // Deadline for next heartbeat
+}
+
+// =============================================================================
+// COMMON ENUMS
+// =============================================================================
+
+enum ServiceStatus {
+    SERVICE_STATUS_UNSPECIFIED = 0;
+    SERVICE_STATUS_HEALTHY = 1;
+    SERVICE_STATUS_DEGRADED = 2;
+    SERVICE_STATUS_UNHEALTHY = 3;
+    SERVICE_STATUS_UNAVAILABLE = 4;
+}
+
+enum QueueType {
+    QUEUE_TYPE_UNSPECIFIED = 0;
+    INGEST_QUEUE = 1;           // New items in ingestion_queue table
+    WATCHED_PROJECTS = 2;        // New project in projects table
+    WATCHED_FOLDERS = 3;         // New watch in watch_folders table
+    TOOLS_AVAILABLE = 4;         // LSP/tree-sitter became available
+}
+
+enum ServerState {
+    SERVER_STATE_UNSPECIFIED = 0;
+    SERVER_STATE_UP = 1;                          // Server started
+    SERVER_STATE_DOWN = 2;                        // Server shutting down
+}
+
+enum ProjectPriority {
+    PROJECT_PRIORITY_UNSPECIFIED = 0;
+    PROJECT_PRIORITY_HIGH = 1;                    // Active agent sessions
+    PROJECT_PRIORITY_NORMAL = 2;                  // Registered without active sessions
+    PROJECT_PRIORITY_LOW = 3;                     // Background/inactive
+}
+
+enum DocumentType {
+    DOCUMENT_TYPE_UNSPECIFIED = 0;
+    DOCUMENT_TYPE_CODE = 1;
+    DOCUMENT_TYPE_PDF = 2;
+    DOCUMENT_TYPE_EPUB = 3;
+    DOCUMENT_TYPE_MOBI = 4;
+    DOCUMENT_TYPE_HTML = 5;
+    DOCUMENT_TYPE_TEXT = 6;
+    DOCUMENT_TYPE_MARKDOWN = 7;
+    DOCUMENT_TYPE_JSON = 8;
+    DOCUMENT_TYPE_XML = 9;
+}
+
+enum ProcessingStatus {
+    PROCESSING_STATUS_UNSPECIFIED = 0;
+    PROCESSING_STATUS_PENDING = 1;
+    PROCESSING_STATUS_IN_PROGRESS = 2;
+    PROCESSING_STATUS_COMPLETED = 3;
+    PROCESSING_STATUS_FAILED = 4;
+    PROCESSING_STATUS_CANCELLED = 5;
+}
+
+// =============================================================================
+// MULTI-TENANT COLLECTION PAYLOAD SCHEMAS (v2.0)
+// =============================================================================
+// These messages define the payload structure for the unified 3-collection
+// architecture: projects, libraries, memory.
+
+// File type classification for project content
+enum FileType {
+    FILE_TYPE_UNSPECIFIED = 0;
+    FILE_TYPE_CODE = 1;
+    FILE_TYPE_DOC = 2;
+    FILE_TYPE_TEST = 3;
+    FILE_TYPE_CONFIG = 4;
+    FILE_TYPE_NOTE = 5;
+    FILE_TYPE_ARTIFACT = 6;
+}
+
+// File type for library documents
+enum LibraryFileType {
+    LIBRARY_FILE_TYPE_UNSPECIFIED = 0;
+    LIBRARY_FILE_TYPE_PDF = 1;
+    LIBRARY_FILE_TYPE_EPUB = 2;
+    LIBRARY_FILE_TYPE_MD = 3;
+    LIBRARY_FILE_TYPE_TXT = 4;
+    LIBRARY_FILE_TYPE_HTML = 5;
+    LIBRARY_FILE_TYPE_RST = 6;
+    LIBRARY_FILE_TYPE_DOC = 7;
+    LIBRARY_FILE_TYPE_DOCX = 8;
+}
+
+// Content origin for project documents
+enum ContentSource {
+    CONTENT_SOURCE_UNSPECIFIED = 0;
+    CONTENT_SOURCE_FILE = 1;
+    CONTENT_SOURCE_USER_INPUT = 2;
+    CONTENT_SOURCE_WEB = 3;
+    CONTENT_SOURCE_CHAT = 4;
+    CONTENT_SOURCE_GENERATED = 5;
+}
+
+// Rule type for memory collection
+enum RuleType {
+    RULE_TYPE_UNSPECIFIED = 0;
+    RULE_TYPE_PREFERENCE = 1;
+    RULE_TYPE_BEHAVIOR = 2;
+    RULE_TYPE_CONSTRAINT = 3;
+    RULE_TYPE_PATTERN = 4;
+}
+
+// Rule scope for memory collection
+enum RuleScope {
+    RULE_SCOPE_UNSPECIFIED = 0;
+    RULE_SCOPE_GLOBAL = 1;
+    RULE_SCOPE_PROJECT = 2;
+    RULE_SCOPE_LANGUAGE = 3;
+}
+
+// Priority level for ingestion queue
+enum PriorityLevel {
+    PRIORITY_LEVEL_UNSPECIFIED = 0;
+    PRIORITY_LEVEL_LOW = 1;          // Background/inactive projects
+    PRIORITY_LEVEL_NORMAL = 2;       // Registered projects
+    PRIORITY_LEVEL_HIGH = 3;         // Active agent sessions
+}
+
+// -----------------------------------------------------------------------------
+// Projects Collection Payload
+// -----------------------------------------------------------------------------
+// Single collection for all project content with isolation via project_id
+
+message ProjectPayload {
+    string project_id = 1;                        // 12-char hex (required, indexed)
+    optional string project_name = 2;             // Human-readable name
+    string file_path = 3;                         // Relative path (required)
+    optional string file_absolute_path = 4;       // Full path (reference only)
+    FileType file_type = 5;                       // Content classification
+    optional string language = 6;                 // Programming language
+    string branch = 7;                            // Git branch (default: "main")
+    repeated string symbols = 8;                  // LSP-extracted symbols
+    repeated string symbols_defined = 9;          // Symbols defined in chunk
+    repeated string symbols_used = 10;            // Symbols referenced
+    optional string title = 11;                   // Document title
+    ContentSource source = 12;                    // Content origin
+    optional LspMetadata lsp_metadata = 13;       // Rich LSP data
+    int32 chunk_index = 14;                       // Position in document
+    optional int32 total_chunks = 15;             // Total chunks
+    google.protobuf.Timestamp created_at = 16;    // Creation timestamp
+    optional google.protobuf.Timestamp updated_at = 17;
+}
+
+// LSP metadata for code documents
+message LspMetadata {
+    repeated SymbolDefinition definitions = 1;
+    repeated SymbolReference references = 2;
+    optional string hover_info = 3;
+}
+
+message SymbolDefinition {
+    string name = 1;
+    string kind = 2;                              // function, class, variable, etc.
+    int32 line = 3;
+    int32 column = 4;
+}
+
+message SymbolReference {
+    string name = 1;
+    string file_path = 2;
+    int32 line = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Libraries Collection Payload
+// -----------------------------------------------------------------------------
+// Single collection for reference documentation with isolation via library_name
+
+message LibraryPayload {
+    string library_name = 1;                      // Required, indexed
+    string source_file = 2;                       // Original file path
+    LibraryFileType file_type = 3;                // Document format
+    optional string title = 4;                    // Extracted title
+    optional string author = 5;                   // Document author
+    repeated string topics = 6;                   // Topics/tags
+    optional string folder = 7;                   // Subfolder for filtering
+    optional string library_version = 8;          // Version if applicable
+    optional int32 page_number = 9;               // Page number for PDFs
+    int32 chunk_index = 10;                       // Position in document
+    optional int32 total_chunks = 11;             // Total chunks
+    google.protobuf.Timestamp created_at = 12;    // Creation timestamp
+}
+
+// -----------------------------------------------------------------------------
+// Memory Collection Payload
+// -----------------------------------------------------------------------------
+// Behavioral rules and user preferences (unchanged structure)
+
+message MemoryPayload {
+    string rule_id = 1;                           // Unique rule identifier
+    RuleType rule_type = 2;                       // Rule classification
+    string content = 3;                           // Rule text
+    int32 priority = 4;                           // 1-10 (higher = more important)
+    RuleScope scope = 5;                          // Applicability scope
+    optional string project_id = 6;               // Project scope (if scope=project)
+    optional string language = 7;                 // Language scope (if scope=language)
+    bool enabled = 8;                             // Active/inactive
+    google.protobuf.Timestamp created_at = 9;
+    optional google.protobuf.Timestamp updated_at = 10;
+}
