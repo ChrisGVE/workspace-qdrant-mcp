@@ -13,49 +13,65 @@
  */
 
 import { loadConfig } from './config.js';
-import type { ServerConfig } from './types/index.js';
+import { createServer, WorkspaceQdrantMcpServer } from './server.js';
 
 // Detect stdio mode (MCP protocol requires clean stdout)
 const isStdioMode = !process.env['WQM_CLI_MODE'] && !process.env['WQM_HTTP_MODE'];
 
-// In stdio mode, suppress all console output to prevent protocol contamination
+// In stdio mode, suppress all console.log to prevent protocol contamination
+// Keep console.error and console.warn for critical issues (sent to stderr)
 if (isStdioMode) {
   console.log = (): void => {};
   console.info = (): void => {};
   console.debug = (): void => {};
-  // Keep console.error and console.warn for critical issues (sent to stderr)
 }
+
+let server: WorkspaceQdrantMcpServer | null = null;
 
 async function main(): Promise<void> {
   // Load configuration
-  const config: ServerConfig = loadConfig();
+  const config = loadConfig();
 
-  // TODO: Initialize components (will be implemented in subsequent tasks)
-  // - Task 479: gRPC client for daemon communication
-  // - Task 480: SQLite state manager
-  // - Task 481: Qdrant client with hybrid search
-  // - Task 482: Session lifecycle management (SessionStart/SessionEnd hooks)
-  // - Task 483-486: MCP tools (search, retrieve, memory, store)
+  // Handle graceful shutdown
+  const shutdown = async (): Promise<void> => {
+    if (server) {
+      await server.stop();
+    }
+    process.exit(0);
+  };
 
-  if (!isStdioMode) {
-    console.error('workspace-qdrant-mcp server initialized');
-    console.error(`Qdrant URL: ${config.qdrant.url}`);
-    console.error(`Daemon port: ${config.daemon.grpcPort}`);
-    console.error(`Database path: ${config.database.path}`);
-  }
-
-  // Placeholder for MCP server setup
-  // The actual server will be created when implementing the tools
-  console.error('MCP server starting... (skeleton implementation)');
-
-  // Keep process alive for stdio mode
-  if (isStdioMode) {
-    // In production, MCP SDK handles the event loop
-    // For now, just wait
-    await new Promise<void>((resolve) => {
-      process.on('SIGINT', () => resolve());
-      process.on('SIGTERM', () => resolve());
+  process.on('SIGINT', () => {
+    shutdown().catch((error) => {
+      console.error('Error during shutdown:', error);
+      process.exit(1);
     });
+  });
+
+  process.on('SIGTERM', () => {
+    shutdown().catch((error) => {
+      console.error('Error during shutdown:', error);
+      process.exit(1);
+    });
+  });
+
+  // Create and start the MCP server
+  try {
+    server = await createServer(config, isStdioMode);
+
+    // Log startup info (only in non-stdio mode since we use stderr in stdio mode)
+    const sessionState = server.getSessionState();
+    if (!isStdioMode) {
+      console.log('workspace-qdrant-mcp server started');
+      console.log(`Session ID: ${sessionState.sessionId}`);
+      console.log(`Project: ${sessionState.projectPath ?? 'none'}`);
+      console.log(`Project ID: ${sessionState.projectId ?? 'none'}`);
+      console.log(`Daemon connected: ${sessionState.daemonConnected}`);
+    }
+
+    // Server is now running - MCP SDK handles the event loop
+  } catch (error) {
+    console.error('Failed to start MCP server:', error);
+    process.exit(1);
   }
 }
 
@@ -63,3 +79,6 @@ main().catch((error: unknown) => {
   console.error('Fatal error:', error);
   process.exit(1);
 });
+
+// Export for testing
+export { WorkspaceQdrantMcpServer, createServer };
