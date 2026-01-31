@@ -9,3 +9,4 @@
  */
 
 export * from './search.js';
+export * from './memory.js';
