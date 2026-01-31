@@ -13,12 +13,13 @@ use sqlx::SqlitePool;
 
 pub mod proto {
     // Generated protobuf definitions from build.rs
-    // Package: workspace_daemon - defines SystemService, CollectionService, DocumentService
+    // Package: workspace_daemon - defines SystemService, CollectionService, DocumentService,
+    // EmbeddingService, ProjectService
     tonic::include_proto!("workspace_daemon");
 }
 
 // Legacy IngestionService removed - all operations now use workspace_daemon protocol
-// See: SystemService, CollectionService, DocumentService, ProjectService in services/
+// See: SystemService, CollectionService, DocumentService, EmbeddingService, ProjectService in services/
 
 // New modular services implementation
 pub mod services;
@@ -376,7 +377,7 @@ impl GrpcServer {
         }
 
         // Create instances of the new modular services
-        use crate::services::{SystemServiceImpl, CollectionServiceImpl, DocumentServiceImpl, ProjectServiceImpl};
+        use crate::services::{SystemServiceImpl, CollectionServiceImpl, DocumentServiceImpl, EmbeddingServiceImpl, ProjectServiceImpl};
         use workspace_qdrant_core::storage::StorageClient;
 
         // Create shared storage client with daemon-mode config (HTTP transport, no compat checks)
@@ -397,6 +398,7 @@ impl GrpcServer {
         let system_service = SystemServiceImpl::new();
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
         let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));
+        let embedding_service = EmbeddingServiceImpl::new();
 
         // Create ProjectService if database pool is available
         let project_service = self.db_pool.as_ref().map(|pool| {
@@ -468,12 +470,14 @@ impl GrpcServer {
         let system_svc = proto::system_service_server::SystemServiceServer::new(system_service);
         let collection_svc = proto::collection_service_server::CollectionServiceServer::new(collection_service);
         let document_svc = proto::document_service_server::DocumentServiceServer::new(document_service);
+        let embedding_svc = proto::embedding_service_server::EmbeddingServiceServer::new(embedding_service);
 
         // Build server with core services
         let mut router = server_builder
             .add_service(system_svc)
             .add_service(collection_svc)
-            .add_service(document_svc);
+            .add_service(document_svc)
+            .add_service(embedding_svc);
 
         // Conditionally add ProjectService if database pool was provided
         if let Some(project_svc_impl) = project_service {

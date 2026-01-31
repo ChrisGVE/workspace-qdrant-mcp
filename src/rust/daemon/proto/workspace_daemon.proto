@@ -9,8 +9,8 @@ import "google/protobuf/empty.proto";
 // =============================================================================
 // SERVICE DEFINITIONS
 // =============================================================================
-// This protocol defines 4 services with 20 total RPCs for communication
-// between the Rust daemon and Python components (MCP server, CLI).
+// This protocol defines 5 services with 22 total RPCs for communication
+// between the Rust daemon and TypeScript/Python components (MCP server, CLI).
 //
 // Design principles:
 // - Single writer pattern: Only daemon writes to Qdrant
@@ -91,7 +91,22 @@ service DocumentService {
 }
 
 // -----------------------------------------------------------------------------
-// 4. ProjectService (5 RPCs)
+// 4. EmbeddingService (2 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: Generate embeddings for TypeScript MCP server.
+// Use case: TypeScript server needs embeddings for hybrid search but cannot
+//           run FastEmbed locally. Centralizes embedding model in daemon.
+
+service EmbeddingService {
+    // Generate dense embedding vector from text
+    rpc EmbedText(EmbedTextRequest) returns (EmbedTextResponse);
+
+    // Generate sparse vector (BM25-style) from text
+    rpc GenerateSparseVector(SparseVectorRequest) returns (SparseVectorResponse);
+}
+
+// -----------------------------------------------------------------------------
+// 5. ProjectService (5 RPCs)
 // -----------------------------------------------------------------------------
 // Purpose: Multi-tenant project lifecycle and session management.
 // Use case: MCP servers register active projects, daemon prioritizes their
@@ -271,6 +286,38 @@ message UpdateTextResponse {
 message DeleteTextRequest {
     string document_id = 1;
     string collection_name = 2;                   // For validation
+}
+
+// =============================================================================
+// MESSAGE TYPES - EmbeddingService
+// =============================================================================
+
+// EmbedText Request
+message EmbedTextRequest {
+    string text = 1;                              // Text to embed
+    optional string model = 2;                    // Model name (default: all-MiniLM-L6-v2)
+}
+
+// EmbedText Response
+message EmbedTextResponse {
+    repeated float embedding = 1;                 // Dense vector (384 dimensions)
+    int32 dimensions = 2;                         // Vector dimension (384)
+    string model_name = 3;                        // Model used for embedding
+    bool success = 4;
+    string error_message = 5;
+}
+
+// GenerateSparseVector Request
+message SparseVectorRequest {
+    string text = 1;                              // Text for sparse vector generation
+}
+
+// GenerateSparseVector Response
+message SparseVectorResponse {
+    map<uint32, float> indices_values = 1;        // Sparse vector: index → value
+    int32 vocab_size = 2;                         // Current vocabulary size
+    bool success = 3;
+    string error_message = 4;
 }
 
 // =============================================================================
