@@ -339,3 +339,42 @@ export interface ProjectServiceClient {
     callback: (error: Error | null, response: HeartbeatResponse) => void
   ): void;
 }
+
+// ============================================================================
+// EmbeddingService Types
+// ============================================================================
+
+export interface EmbedTextRequest {
+  text: string;
+  model?: string;
+}
+
+export interface EmbedTextResponse {
+  embedding: number[];
+  dimensions: number;
+  model_name: string;
+  success: boolean;
+  error_message?: string;
+}
+
+export interface SparseVectorRequest {
+  text: string;
+}
+
+export interface SparseVectorResponse {
+  indices_values: Record<number, number>;
+  vocab_size: number;
+  success: boolean;
+  error_message?: string;
+}
+
+export interface EmbeddingServiceClient {
+  embedText(
+    request: EmbedTextRequest,
+    callback: (error: Error | null, response: EmbedTextResponse) => void
+  ): void;
+  generateSparseVector(
+    request: SparseVectorRequest,
+    callback: (error: Error | null, response: SparseVectorResponse) => void
+  ): void;
+}
