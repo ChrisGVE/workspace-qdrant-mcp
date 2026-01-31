@@ -39,6 +39,7 @@ vi.mock('@modelcontextprotocol/sdk/server/index.js', () => ({
   Server: vi.fn().mockImplementation(() => ({
     connect: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
+    setRequestHandler: vi.fn(),
     onerror: null,
     onclose: null,
   })),

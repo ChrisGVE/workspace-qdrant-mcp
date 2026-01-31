@@ -11,11 +11,20 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import {
+  ListToolsRequestSchema,
+  CallToolRequestSchema,
+} from '@modelcontextprotocol/sdk/types.js';
 import { randomUUID } from 'node:crypto';
 
 import { DaemonClient } from './clients/daemon-client.js';
 import { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import { ProjectDetector } from './utils/project-detector.js';
+import { HealthMonitor } from './utils/health-monitor.js';
+import { SearchTool } from './tools/search.js';
+import { RetrieveTool } from './tools/retrieve.js';
+import { MemoryTool } from './tools/memory.js';
+import { StoreTool } from './tools/store.js';
 import type { ServerConfig } from './types/index.js';
 
 // Heartbeat interval: 3 hours (in milliseconds)
@@ -51,6 +60,15 @@ export class WorkspaceQdrantMcpServer {
   private readonly stateManager: SqliteStateManager;
   private readonly projectDetector: ProjectDetector;
 
+  // Tools
+  private readonly searchTool: SearchTool;
+  private readonly retrieveTool: RetrieveTool;
+  private readonly memoryTool: MemoryTool;
+  private readonly storeTool: StoreTool;
+
+  // Health monitoring
+  private readonly healthMonitor: HealthMonitor;
+
   private sessionState: SessionState = {
     sessionId: '',
     projectId: null,
@@ -66,6 +84,9 @@ export class WorkspaceQdrantMcpServer {
     this.config = options.config;
     this.isStdioMode = options.stdio ?? true;
 
+    const qdrantUrl = this.config.qdrant?.url ?? 'http://localhost:6333';
+    const qdrantApiKey = this.config.qdrant?.apiKey;
+
     // Initialize clients
     this.daemonClient = new DaemonClient({
       port: this.config.daemon.grpcPort,
@@ -79,6 +100,37 @@ export class WorkspaceQdrantMcpServer {
     this.projectDetector = new ProjectDetector({
       stateManager: this.stateManager,
     });
+
+    // Build Qdrant config conditionally to satisfy exactOptionalPropertyTypes
+    const qdrantConfig: { qdrantUrl: string; qdrantApiKey?: string } = { qdrantUrl };
+    if (qdrantApiKey) qdrantConfig.qdrantApiKey = qdrantApiKey;
+
+    // Initialize health monitor
+    this.healthMonitor = new HealthMonitor(qdrantConfig, this.daemonClient);
+
+    // Initialize tools (all use daemonClient, stateManager, projectDetector)
+    this.searchTool = new SearchTool(
+      qdrantConfig,
+      this.daemonClient,
+      this.stateManager,
+      this.projectDetector
+    );
+
+    this.retrieveTool = new RetrieveTool(qdrantConfig, this.projectDetector);
+
+    this.memoryTool = new MemoryTool(
+      qdrantConfig,
+      this.daemonClient,
+      this.stateManager,
+      this.projectDetector
+    );
+
+    this.storeTool = new StoreTool(
+      { defaultCollection: 'projects' },
+      this.daemonClient,
+      this.stateManager,
+      this.projectDetector
+    );
 
     // Create MCP server
     this.server = new Server(
@@ -100,8 +152,15 @@ export class WorkspaceQdrantMcpServer {
    * Set up MCP protocol handlers
    */
   private setupHandlers(): void {
-    // Tool handlers will be registered when tools are implemented
-    // For now, just log the capability
+    // Register tool list handler
+    this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
+      tools: this.getToolDefinitions(),
+    }));
+
+    // Register tool invocation handler
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
+      return this.handleToolCall(request.params.name, request.params.arguments);
+    });
 
     // Handle server errors
     this.server.onerror = (error): void => {
@@ -116,6 +175,513 @@ export class WorkspaceQdrantMcpServer {
   }
 
   /**
+   * Get tool definitions for ListTools response
+   */
+  private getToolDefinitions() {
+    return [
+      {
+        name: 'search',
+        description: 'Search for documents using hybrid semantic and keyword search',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            query: {
+              type: 'string',
+              description: 'The search query text',
+            },
+            collection: {
+              type: 'string',
+              enum: ['projects', 'libraries', 'memory'],
+              description: 'Specific collection to search',
+            },
+            mode: {
+              type: 'string',
+              enum: ['hybrid', 'semantic', 'keyword'],
+              description: 'Search mode (default: hybrid)',
+            },
+            scope: {
+              type: 'string',
+              enum: ['project', 'global', 'all'],
+              description: 'Search scope: project (current), global, or all (default: project)',
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum results to return (default: 10)',
+            },
+            projectId: {
+              type: 'string',
+              description: 'Specific project ID to search',
+            },
+            libraryName: {
+              type: 'string',
+              description: 'Library name when searching libraries collection',
+            },
+            branch: {
+              type: 'string',
+              description: 'Filter by branch name',
+            },
+            fileType: {
+              type: 'string',
+              description: 'Filter by file type',
+            },
+            includeLibraries: {
+              type: 'boolean',
+              description: 'Include libraries in search (default: false)',
+            },
+          },
+          required: ['query'],
+        },
+      },
+      {
+        name: 'retrieve',
+        description: 'Retrieve documents by ID or metadata filter',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            documentId: {
+              type: 'string',
+              description: 'Document ID to retrieve',
+            },
+            collection: {
+              type: 'string',
+              enum: ['projects', 'libraries', 'memory'],
+              description: 'Collection to retrieve from (default: projects)',
+            },
+            filter: {
+              type: 'object',
+              additionalProperties: { type: 'string' },
+              description: 'Metadata filter key-value pairs',
+            },
+            limit: {
+              type: 'number',
+              description: 'Maximum results (default: 10)',
+            },
+            offset: {
+              type: 'number',
+              description: 'Pagination offset (default: 0)',
+            },
+            projectId: {
+              type: 'string',
+              description: 'Project ID for projects collection',
+            },
+            libraryName: {
+              type: 'string',
+              description: 'Library name for libraries collection',
+            },
+          },
+        },
+      },
+      {
+        name: 'memory',
+        description: 'Manage behavioral rules (add, update, remove, list)',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            action: {
+              type: 'string',
+              enum: ['add', 'update', 'remove', 'list'],
+              description: 'Action to perform',
+            },
+            content: {
+              type: 'string',
+              description: 'Rule content (required for add/update)',
+            },
+            ruleId: {
+              type: 'string',
+              description: 'Rule ID (required for update/remove)',
+            },
+            scope: {
+              type: 'string',
+              enum: ['global', 'project'],
+              description: 'Rule scope (default: global)',
+            },
+            projectId: {
+              type: 'string',
+              description: 'Project ID for project-scoped rules',
+            },
+            title: {
+              type: 'string',
+              description: 'Rule title',
+            },
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Tags for categorization',
+            },
+            priority: {
+              type: 'number',
+              description: 'Rule priority (higher = more important)',
+            },
+            limit: {
+              type: 'number',
+              description: 'Max rules to return for list (default: 50)',
+            },
+          },
+          required: ['action'],
+        },
+      },
+      {
+        name: 'store',
+        description: 'Store content to projects or libraries collection',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            content: {
+              type: 'string',
+              description: 'Content to store',
+            },
+            collection: {
+              type: 'string',
+              enum: ['projects', 'libraries'],
+              description: 'Target collection (default: projects)',
+            },
+            title: {
+              type: 'string',
+              description: 'Content title',
+            },
+            url: {
+              type: 'string',
+              description: 'Source URL (for web content)',
+            },
+            filePath: {
+              type: 'string',
+              description: 'Source file path',
+            },
+            sourceType: {
+              type: 'string',
+              enum: ['user_input', 'web', 'file', 'scratchbook', 'note'],
+              description: 'Source type (default: user_input)',
+            },
+            projectId: {
+              type: 'string',
+              description: 'Project ID for projects collection',
+            },
+            libraryName: {
+              type: 'string',
+              description: 'Library name (required for libraries collection)',
+            },
+            branch: {
+              type: 'string',
+              description: 'Git branch',
+            },
+            fileType: {
+              type: 'string',
+              description: 'File type/extension',
+            },
+            metadata: {
+              type: 'object',
+              additionalProperties: { type: 'string' },
+              description: 'Additional metadata',
+            },
+          },
+          required: ['content'],
+        },
+      },
+    ];
+  }
+
+  /**
+   * Handle tool invocation
+   */
+  private async handleToolCall(
+    toolName: string,
+    args: Record<string, unknown> | undefined
+  ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+    try {
+      let result: unknown;
+
+      switch (toolName) {
+        case 'search': {
+          const searchResult = await this.searchTool.search(
+            this.buildSearchOptions(args)
+          );
+          // Augment with health status (add success: true to make it compatible)
+          result = this.healthMonitor.augmentSearchResults({
+            success: true,
+            ...searchResult,
+          });
+          break;
+        }
+
+        case 'retrieve': {
+          result = await this.retrieveTool.retrieve(this.buildRetrieveOptions(args));
+          break;
+        }
+
+        case 'memory': {
+          result = await this.memoryTool.execute(this.buildMemoryOptions(args));
+          break;
+        }
+
+        case 'store': {
+          result = await this.storeTool.store(this.buildStoreOptions(args));
+          break;
+        }
+
+        default:
+          return {
+            content: [{ type: 'text', text: `Unknown tool: ${toolName}` }],
+            isError: true,
+          };
+      }
+
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        content: [{ type: 'text', text: `Error: ${errorMessage}` }],
+        isError: true,
+      };
+    }
+  }
+
+  /**
+   * Build search options from tool arguments
+   */
+  private buildSearchOptions(args: Record<string, unknown> | undefined): {
+    query: string;
+    collection?: string;
+    mode?: 'hybrid' | 'semantic' | 'keyword';
+    scope?: 'project' | 'global' | 'all';
+    limit?: number;
+    projectId?: string;
+    libraryName?: string;
+    branch?: string;
+    fileType?: string;
+    includeLibraries?: boolean;
+  } {
+    const options: {
+      query: string;
+      collection?: string;
+      mode?: 'hybrid' | 'semantic' | 'keyword';
+      scope?: 'project' | 'global' | 'all';
+      limit?: number;
+      projectId?: string;
+      libraryName?: string;
+      branch?: string;
+      fileType?: string;
+      includeLibraries?: boolean;
+    } = {
+      query: (args?.['query'] as string) ?? '',
+    };
+
+    const collection = args?.['collection'] as string | undefined;
+    if (collection) options.collection = collection;
+
+    const mode = args?.['mode'] as string | undefined;
+    if (mode === 'hybrid' || mode === 'semantic' || mode === 'keyword') {
+      options.mode = mode;
+    }
+
+    const scope = args?.['scope'] as string | undefined;
+    if (scope === 'project' || scope === 'global' || scope === 'all') {
+      options.scope = scope;
+    }
+
+    const limit = args?.['limit'] as number | undefined;
+    if (limit !== undefined) options.limit = limit;
+
+    const projectId = args?.['projectId'] as string | undefined;
+    if (projectId) options.projectId = projectId;
+
+    const libraryName = args?.['libraryName'] as string | undefined;
+    if (libraryName) options.libraryName = libraryName;
+
+    const branch = args?.['branch'] as string | undefined;
+    if (branch) options.branch = branch;
+
+    const fileType = args?.['fileType'] as string | undefined;
+    if (fileType) options.fileType = fileType;
+
+    const includeLibraries = args?.['includeLibraries'] as boolean | undefined;
+    if (includeLibraries !== undefined) options.includeLibraries = includeLibraries;
+
+    return options;
+  }
+
+  /**
+   * Build retrieve options from tool arguments
+   */
+  private buildRetrieveOptions(args: Record<string, unknown> | undefined): {
+    documentId?: string;
+    collection?: 'projects' | 'libraries' | 'memory';
+    filter?: Record<string, string>;
+    limit?: number;
+    offset?: number;
+    projectId?: string;
+    libraryName?: string;
+  } {
+    const options: {
+      documentId?: string;
+      collection?: 'projects' | 'libraries' | 'memory';
+      filter?: Record<string, string>;
+      limit?: number;
+      offset?: number;
+      projectId?: string;
+      libraryName?: string;
+    } = {};
+
+    const documentId = args?.['documentId'] as string | undefined;
+    if (documentId) options.documentId = documentId;
+
+    const collection = args?.['collection'] as string | undefined;
+    if (collection === 'projects' || collection === 'libraries' || collection === 'memory') {
+      options.collection = collection;
+    }
+
+    const filter = args?.['filter'] as Record<string, string> | undefined;
+    if (filter) options.filter = filter;
+
+    const limit = args?.['limit'] as number | undefined;
+    if (limit !== undefined) options.limit = limit;
+
+    const offset = args?.['offset'] as number | undefined;
+    if (offset !== undefined) options.offset = offset;
+
+    const projectId = args?.['projectId'] as string | undefined;
+    if (projectId) options.projectId = projectId;
+
+    const libraryName = args?.['libraryName'] as string | undefined;
+    if (libraryName) options.libraryName = libraryName;
+
+    return options;
+  }
+
+  /**
+   * Build memory options from tool arguments
+   */
+  private buildMemoryOptions(args: Record<string, unknown> | undefined): {
+    action: 'add' | 'update' | 'remove' | 'list';
+    content?: string;
+    ruleId?: string;
+    scope?: 'global' | 'project';
+    projectId?: string;
+    title?: string;
+    tags?: string[];
+    priority?: number;
+    limit?: number;
+  } {
+    const action = args?.['action'] as string;
+    if (action !== 'add' && action !== 'update' && action !== 'remove' && action !== 'list') {
+      throw new Error(`Invalid memory action: ${action}`);
+    }
+
+    const options: {
+      action: 'add' | 'update' | 'remove' | 'list';
+      content?: string;
+      ruleId?: string;
+      scope?: 'global' | 'project';
+      projectId?: string;
+      title?: string;
+      tags?: string[];
+      priority?: number;
+      limit?: number;
+    } = { action };
+
+    const content = args?.['content'] as string | undefined;
+    if (content) options.content = content;
+
+    const ruleId = args?.['ruleId'] as string | undefined;
+    if (ruleId) options.ruleId = ruleId;
+
+    const scope = args?.['scope'] as string | undefined;
+    if (scope === 'global' || scope === 'project') {
+      options.scope = scope;
+    }
+
+    const projectId = args?.['projectId'] as string | undefined;
+    if (projectId) options.projectId = projectId;
+
+    const title = args?.['title'] as string | undefined;
+    if (title) options.title = title;
+
+    const tags = args?.['tags'] as string[] | undefined;
+    if (tags) options.tags = tags;
+
+    const priority = args?.['priority'] as number | undefined;
+    if (priority !== undefined) options.priority = priority;
+
+    const limit = args?.['limit'] as number | undefined;
+    if (limit !== undefined) options.limit = limit;
+
+    return options;
+  }
+
+  /**
+   * Build store options from tool arguments
+   */
+  private buildStoreOptions(args: Record<string, unknown> | undefined): {
+    content: string;
+    collection?: 'projects' | 'libraries';
+    title?: string;
+    url?: string;
+    filePath?: string;
+    sourceType?: 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
+    projectId?: string;
+    libraryName?: string;
+    branch?: string;
+    fileType?: string;
+    metadata?: Record<string, string>;
+  } {
+    const content = args?.['content'] as string;
+    if (!content) {
+      throw new Error('Content is required for store operation');
+    }
+
+    const options: {
+      content: string;
+      collection?: 'projects' | 'libraries';
+      title?: string;
+      url?: string;
+      filePath?: string;
+      sourceType?: 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
+      projectId?: string;
+      libraryName?: string;
+      branch?: string;
+      fileType?: string;
+      metadata?: Record<string, string>;
+    } = { content };
+
+    const collection = args?.['collection'] as string | undefined;
+    if (collection === 'projects' || collection === 'libraries') {
+      options.collection = collection;
+    }
+
+    const title = args?.['title'] as string | undefined;
+    if (title) options.title = title;
+
+    const url = args?.['url'] as string | undefined;
+    if (url) options.url = url;
+
+    const filePath = args?.['filePath'] as string | undefined;
+    if (filePath) options.filePath = filePath;
+
+    const sourceType = args?.['sourceType'] as string | undefined;
+    if (sourceType === 'user_input' || sourceType === 'web' || sourceType === 'file' || sourceType === 'scratchbook' || sourceType === 'note') {
+      options.sourceType = sourceType;
+    }
+
+    const projectId = args?.['projectId'] as string | undefined;
+    if (projectId) options.projectId = projectId;
+
+    const libraryName = args?.['libraryName'] as string | undefined;
+    if (libraryName) options.libraryName = libraryName;
+
+    const branch = args?.['branch'] as string | undefined;
+    if (branch) options.branch = branch;
+
+    const fileType = args?.['fileType'] as string | undefined;
+    if (fileType) options.fileType = fileType;
+
+    const metadata = args?.['metadata'] as Record<string, string> | undefined;
+    if (metadata) options.metadata = metadata;
+
+    return options;
+  }
+
+  /**
    * Start the MCP server
    */
   async start(): Promise<void> {
@@ -125,6 +691,10 @@ export class WorkspaceQdrantMcpServer {
       if (initResult.status === 'degraded') {
         this.log(`State manager degraded: ${initResult.reason}`);
       }
+
+      // Start health monitoring
+      this.healthMonitor.start();
+      this.log('Health monitoring started');
 
       // Perform session initialization (project detection, daemon registration)
       await this.initializeSession();
@@ -273,6 +843,10 @@ export class WorkspaceQdrantMcpServer {
    * Clean up resources on session end
    */
   private async cleanup(): Promise<void> {
+    // Stop health monitoring
+    this.healthMonitor.stop();
+    this.log('Health monitoring stopped');
+
     // Stop heartbeat
     if (this.sessionState.heartbeatInterval) {
       clearInterval(this.sessionState.heartbeatInterval);
@@ -351,6 +925,13 @@ export class WorkspaceQdrantMcpServer {
    */
   getProjectDetector(): ProjectDetector {
     return this.projectDetector;
+  }
+
+  /**
+   * Get the health monitor (for health status)
+   */
+  getHealthMonitor(): HealthMonitor {
+    return this.healthMonitor;
   }
 
   /**
