@@ -10,3 +10,4 @@
 
 export * from './search.js';
 export * from './memory.js';
+export * from './store.js';
