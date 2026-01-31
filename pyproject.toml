@@ -101,9 +101,6 @@ tokenizers = [
   "transformers>=4.35.0",  # HuggingFace tokenizers (broad model support)
 ]
 
-[project.scripts]
-workspace-qdrant-mcp = "workspace_qdrant_mcp.main:main"
-
 [project.urls]
 Homepage = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
 Repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
@@ -112,7 +109,7 @@ Changelog = "https://github.com/ChrisGVE/workspace-qdrant-mcp/blob/main/CHANGELO
 
 [tool.setuptools.packages.find]
 where = ["src/python"]
-include = ["workspace_qdrant_mcp*", "common*"]
+include = ["common*"]
 
 [tool.black]
 line-length = 88
