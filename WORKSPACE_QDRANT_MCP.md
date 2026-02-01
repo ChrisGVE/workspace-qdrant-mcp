@@ -1,7 +1,7 @@
 # workspace-qdrant-mcp Specification
 
-**Version:** 1.6
-**Date:** 2026-01-31
+**Version:** 1.6.1
+**Date:** 2026-02-01
 **Status:** Authoritative Specification
 **Supersedes:** CONSOLIDATED_PRD_V2.md, PRDv3.txt, PRDv3-snapshot1.txt
 
@@ -1278,7 +1278,24 @@ wqm lsp list              # Shows available/installed servers
 wqm lsp remove <lang>     # Removes language server
 ```
 
-**PATH configuration:** CLI stores user's PATH in configuration file. Daemon reads this on startup and adds to its own PATH to find language server binaries.
+**PATH configuration:** CLI manages `environment.user_path` in the configuration file.
+
+**Update triggers:**
+- CLI installation
+- Every CLI invocation
+- MCP server startup (which invokes CLI)
+
+**Processing steps:**
+
+1. **Expansion:** Retrieve `$PATH` and expand all environment variables recursively (e.g., `~` → `/Users/chris`, `$XDG_CONFIG_HOME` → `$HOME/.config` → `/Users/chris/.config`)
+
+2. **Merge:** Append the existing `user_path` from config to the expanded `$PATH`, split by OS path separator (`:` on Unix, `;` on Windows), preserving order
+
+3. **Deduplicate:** Remove duplicate path segments, keeping the **first occurrence** only (earlier entries take precedence)
+
+4. **Save:** Recombine segments into a string and write to config **only if different** from the current value (avoids unnecessary disk writes)
+
+**Note:** Only the CLI writes to the configuration file. Daemon reads `user_path` on startup and uses it to locate language server binaries.
 
 ### Semantic Code Chunking
 
@@ -1489,17 +1506,38 @@ store(
 
 **Libraries definition:** Libraries are collections of reference information (books, documentation, papers, websites) - NOT programming libraries (use context7 MCP for those).
 
-### Automated Session Management
+### Session Lifecycle
 
-Session lifecycle is **automatic**, not exposed as a tool:
-
-- **Activation:** MCP server automatically sends `RegisterProject` to daemon when it detects the user's working directory
-- **Deactivation:** MCP server sends `DeprioritizeProject` when session ends or project changes
-- **Heartbeat:** MCP server maintains periodic heartbeat with daemon
-
-This automation ensures consistent project state without requiring explicit user action.
+Session lifecycle is **automatic**, managed via Claude Code SDK hooks.
 
 **Implementation:** The MCP server is written in TypeScript to leverage the Claude Code SDK's native `SessionStart` and `SessionEnd` hooks. The Python SDK does not support these hooks.
+
+#### On SessionStart (or server first load)
+
+1. **Memory injection into Claude context** (via Claude SDK):
+   - First, inject all **global memory** (`project_id = null`)
+   - Then, inject all **project-specific memory** for the current `project_id`
+
+2. **Project activation:**
+   - Server sends `RegisterProject` to daemon with current `project_id`
+   - Daemon sets `is_active = true` and updates `last_activity_at`
+
+#### On SessionEnd
+
+1. **Project deactivation:**
+   - Server sends `DeprioritizeProject` to daemon
+   - Daemon sets `is_active = false` for the project
+
+2. **Process cleanup:**
+   - Daemon shuts down any spawned processes for that project (e.g., LSP servers)
+
+#### Heartbeat
+
+MCP server maintains periodic heartbeat with daemon to prevent timeout-based deactivation.
+
+#### Memory and Project ID Changes
+
+When a project is renamed or its `project_id` changes (e.g., due to disambiguation when a second clone is detected), the memory records in Qdrant must have their `project_id` field updated to maintain association.
 
 > **Note:** Hook support in Codex CLI and Gemini CLI requires verification for multi-platform compatibility.
 
@@ -1589,6 +1627,95 @@ The daemon exposes 3 gRPC services on port 50051.
 | `DeleteDocument` | **Reserved** | Admin/diagnostic use only |
 
 **Production writes use SQLite queue.** These methods exist for administrative and diagnostic purposes but are not called by MCP or CLI in normal operation.
+
+---
+
+## Grammar and Runtime Management
+
+The daemon manages tree-sitter grammars and ONNX runtime as external dependencies with automatic updates.
+
+### Cache Locations
+
+| Component | Default Location | Config Key |
+|-----------|------------------|------------|
+| Tree-sitter grammars | `~/.workspace-qdrant/grammars/` | `grammars.cache_dir` |
+| Embedding models | `~/.workspace-qdrant/models/` | `embedding.cache_dir` |
+
+### Tree-sitter Grammar Management
+
+**Configuration:**
+```yaml
+grammars:
+  cache_dir: "~/.workspace-qdrant/grammars/"
+  required:
+    - rust
+    - python
+    - typescript
+    - javascript
+  auto_download: true  # Download missing grammars automatically
+```
+
+**Daemon behavior:**
+1. On startup, check each required grammar exists in cache
+2. If grammar missing and `auto_download: true`, download from grammar repository
+3. If grammar version mismatches tree-sitter runtime version, replace with compatible version
+4. If `auto_download: false` and grammar missing, log warning and skip that language
+
+### Manual Updates via CLI
+
+```bash
+wqm update                    # Check for updates and install if available
+wqm update --check            # Check only, don't install
+wqm update --force            # Force reinstall current version
+wqm update --version 1.2.3    # Install specific version
+```
+
+**Update behavior:**
+1. Query GitHub releases API for latest version
+2. Compare with currently installed version
+3. If newer version available (or `--force`):
+   - Download appropriate binary for current platform
+   - Verify checksum
+   - Stop running daemon gracefully
+   - Replace binary
+   - Restart daemon
+4. Report success/failure
+
+**Configuration:**
+```yaml
+updates:
+  check_on_startup: false      # Auto-check for updates when daemon starts
+  notify_only: true            # If true, only notify; don't auto-install
+  channel: "stable"            # stable|beta|nightly
+```
+
+### Continuous Integration
+
+**Automated releases triggered by upstream updates:**
+
+| Trigger | Action |
+|---------|--------|
+| New tree-sitter release | Rebuild daemon, bump patch version, release with message "tree-sitter version bump to X.Y.Z" |
+| New ONNX Runtime release | Rebuild daemon, bump patch version, release with message "ONNX Runtime version bump to X.Y.Z" |
+
+**Target platforms (6 binaries per release):**
+
+| Platform | Target Triple |
+|----------|---------------|
+| Linux ARM64 | `aarch64-unknown-linux-gnu` |
+| Linux x86_64 | `x86_64-unknown-linux-gnu` |
+| macOS Apple Silicon | `aarch64-apple-darwin` |
+| macOS Intel | `x86_64-apple-darwin` |
+| Windows ARM64 | `aarch64-pc-windows-msvc` |
+| Windows x86_64 | `x86_64-pc-windows-msvc` |
+
+**CI workflow:**
+1. Monitor upstream releases (tree-sitter, ONNX Runtime) via GitHub Actions or webhook
+2. On new release detected, trigger build pipeline
+3. Build for all 6 targets
+4. Run integration tests on each platform
+5. Create GitHub release with all binaries
+6. Update homebrew formula / other package managers
 
 ---
 
@@ -1699,9 +1826,10 @@ environment:
 
 ---
 
-**Version:** 1.6
-**Last Updated:** 2026-01-31
+**Version:** 1.6.1
+**Last Updated:** 2026-02-01
 **Changes:**
+- v1.6.1: Clarified PATH configuration (expansion, merge, deduplication steps); documented session lifecycle with memory injection via Claude SDK; added Grammar and Runtime Management section (dynamic grammar loading, CLI update command, CI automation for 6 platforms)
 - v1.6: MCP server rewrite decision - TypeScript instead of Python for native SessionStart/SessionEnd hook support; added TypeScript dependencies and rationale; updated architecture diagram
 - v1.5: Major queue and daemon architecture update - simplified queue schema (removed status states, added failed flag and errors array); defined batch processing flow with sort alternation for anti-starvation; documented three daemon phases (initial scan, watching, removal); added daemon watch management lifecycle; defined semantic code chunking strategy; added Tree-sitter baseline + LSP enhancement architecture; defined LSP lifecycle and language server management; added PATH configuration for daemon
 - v1.4: Clarified 4 MCP tools only (search, retrieve, memory, store); removed health/session as tools (health is server-internal affecting search responses with uncertainty status, session is automated); clarified memory collection is multi-tenant via nullable project_id; added detailed "table not found" graceful handling documentation; clarified "actively used" means RegisterProject received from MCP server; documented memory list action as search in disguise
