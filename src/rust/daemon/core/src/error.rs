@@ -122,6 +122,22 @@ pub enum WorkspaceError {
     },
 }
 
+/// Daemon-specific errors for internal operations.
+#[derive(Error, Debug)]
+pub enum DaemonError {
+    /// Parse error during source code analysis.
+    #[error("Parse error: {0}")]
+    ParseError(String),
+
+    /// IO error.
+    #[error("IO error: {0}")]
+    Io(#[from] std::io::Error),
+
+    /// Generic error message.
+    #[error("{0}")]
+    Other(String),
+}
+
 impl WorkspaceError {
     /// Create a configuration error
     pub fn configuration(message: impl Into<String>) -> Self {

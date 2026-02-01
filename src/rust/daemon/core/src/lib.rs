@@ -38,6 +38,7 @@ pub mod type_aware_processor;
 pub mod unified_config;
 pub mod unified_queue_processor;
 pub mod unified_queue_schema;
+pub mod tree_sitter;
 pub mod watching;
 pub mod watching_queue;
 
@@ -60,7 +61,8 @@ pub use crate::processing::{
 };
 pub use crate::error::{
     WorkspaceError, ErrorSeverity, ErrorRecoveryStrategy,
-    CircuitBreaker, ErrorMonitor, ErrorRecovery, Result
+    CircuitBreaker, ErrorMonitor, ErrorRecovery, Result,
+    DaemonError
 };
 pub use crate::git_integration::{
     GitBranchDetector, GitError, GitResult, CacheStats
@@ -164,6 +166,10 @@ pub use crate::storage::{
     MultiTenantConfig, MultiTenantInitResult,
     DocumentPoint, SearchResult, SearchParams, HybridSearchMode, BatchStats,
     collections
+};
+pub use crate::tree_sitter::{
+    SemanticChunker, TreeSitterParser, ChunkExtractor, ChunkType, SemanticChunk,
+    extract_chunks, detect_language, is_language_supported
 };
 
 /// Core processing errors
