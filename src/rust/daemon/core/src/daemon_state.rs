@@ -2,6 +2,10 @@
 //!
 //! This module handles SQLite-based persistence for document processing daemon
 //! operational state, metrics, and configuration.
+//!
+//! Per ADR-003, the daemon is the sole owner of the SQLite database schema.
+//! This module initializes the spec-required tables (schema_version, unified_queue,
+//! watch_folders) via SchemaManager, plus daemon-internal operational tables.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -9,14 +13,19 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::{Row, SqlitePool, sqlite::{SqlitePoolOptions, SqliteConnectOptions}};
-use tracing::{error, info};
+use tracing::{debug, error, info};
 use uuid::Uuid;
+
+use crate::schema_version::{SchemaManager, SchemaError};
 
 /// Daemon state management errors
 #[derive(thiserror::Error, Debug)]
 pub enum DaemonStateError {
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
+
+    #[error("Schema migration error: {0}")]
+    Schema(#[from] SchemaError),
 
     #[error("Serialization error: {0}")]
     Serialization(#[from] serde_json::Error),
@@ -160,10 +169,27 @@ impl DaemonStateManager {
     }
 
     /// Initialize the database schema
+    ///
+    /// Per ADR-003, the daemon owns the SQLite database and is responsible for:
+    /// 1. Running schema migrations for spec-required tables (schema_version,
+    ///    unified_queue, watch_folders)
+    /// 2. Creating daemon-internal operational tables (daemon_state, processing_logs)
     pub async fn initialize(&self) -> DaemonStateResult<()> {
         info!("Initializing daemon state database schema");
 
-        // Create main daemon state table
+        // Step 1: Run schema migrations for spec-required tables
+        // This creates schema_version, unified_queue, and watch_folders tables
+        let schema_manager = SchemaManager::new(self.pool.clone());
+        schema_manager.run_migrations().await?;
+
+        let version = schema_manager.get_current_version().await?.unwrap_or(0);
+        info!("Spec schema at version {}", version);
+
+        // Step 2: Create daemon-internal operational tables
+        // These are NOT part of the spec but are needed for daemon state tracking
+        debug!("Creating daemon-internal tables");
+
+        // Daemon state table (internal)
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS daemon_state (
@@ -185,7 +211,7 @@ impl DaemonStateManager {
         .execute(&self.pool)
         .await?;
 
-        // Create processing logs table
+        // Processing logs table (internal)
         sqlx::query(
             r#"
             CREATE TABLE IF NOT EXISTS processing_logs (
@@ -204,34 +230,7 @@ impl DaemonStateManager {
         .execute(&self.pool)
         .await?;
 
-        // Create watch configurations table
-        sqlx::query(
-            r#"
-            CREATE TABLE IF NOT EXISTS watch_configurations (
-                id TEXT PRIMARY KEY,
-                path TEXT NOT NULL,
-                collection TEXT NOT NULL,
-                patterns TEXT NOT NULL,
-                ignore_patterns TEXT NOT NULL,
-                lsp_based_extensions BOOLEAN NOT NULL DEFAULT TRUE,
-                lsp_detection_cache_ttl INTEGER NOT NULL DEFAULT 300,
-                auto_ingest BOOLEAN NOT NULL DEFAULT TRUE,
-                recursive BOOLEAN NOT NULL DEFAULT TRUE,
-                recursive_depth INTEGER NOT NULL DEFAULT -1,
-                debounce_seconds INTEGER NOT NULL DEFAULT 5,
-                update_frequency INTEGER NOT NULL DEFAULT 1000,
-                status TEXT NOT NULL DEFAULT 'active',
-                created_at TIMESTAMP NOT NULL,
-                last_activity TIMESTAMP,
-                files_processed INTEGER NOT NULL DEFAULT 0,
-                errors_count INTEGER NOT NULL DEFAULT 0
-            )
-            "#,
-        )
-        .execute(&self.pool)
-        .await?;
-
-        // Create indexes for better performance
+        // Create indexes for daemon-internal tables
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_daemon_status ON daemon_state(status)")
             .execute(&self.pool)
             .await?;
@@ -241,14 +240,6 @@ impl DaemonStateManager {
             .await?;
 
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_logs_daemon_timestamp ON processing_logs(daemon_id, timestamp)")
-            .execute(&self.pool)
-            .await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_watch_status ON watch_configurations(status)")
-            .execute(&self.pool)
-            .await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_watch_path ON watch_configurations(path)")
             .execute(&self.pool)
             .await?;
 
@@ -646,15 +637,19 @@ impl DaemonStateManager {
         stats.insert("total_documents_processed".to_string(),
                     JsonValue::Number(total_docs.unwrap_or(0).into()));
 
-        // Watch configuration counts
-        let watch_rows = sqlx::query("SELECT status, COUNT(*) as count FROM watch_configurations GROUP BY status")
+        // Watch folder counts (uses new watch_folders table)
+        // Query enabled/disabled counts from watch_folders
+        let watch_rows = sqlx::query(
+            "SELECT CASE WHEN enabled = 1 THEN 'enabled' ELSE 'disabled' END as status, COUNT(*) as count FROM watch_folders GROUP BY enabled"
+        )
             .fetch_all(&self.pool)
-            .await?;
+            .await
+            .unwrap_or_default(); // Gracefully handle if table doesn't exist yet
 
         let mut watch_stats = HashMap::new();
         for row in watch_rows {
-            let status: String = row.try_get("status")?;
-            let count: i64 = row.try_get("count")?;
+            let status: String = row.try_get("status").unwrap_or_default();
+            let count: i64 = row.try_get("count").unwrap_or(0);
             watch_stats.insert(status, JsonValue::Number(count.into()));
         }
         stats.insert("watch_counts".to_string(), JsonValue::Object(watch_stats.into_iter().collect()));

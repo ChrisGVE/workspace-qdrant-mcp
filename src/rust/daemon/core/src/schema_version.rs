@@ -219,6 +219,18 @@ pub async fn get_schema_version(pool: &SqlitePool) -> Option<i32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use std::time::Duration;
+
+    /// Create an in-memory SQLite pool for testing
+    async fn create_test_pool() -> SqlitePool {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool")
+    }
 
     #[test]
     fn test_sql_constant_is_valid() {
@@ -230,5 +242,153 @@ mod tests {
     #[test]
     fn test_current_version_is_positive() {
         assert!(CURRENT_SCHEMA_VERSION > 0);
+    }
+
+    #[tokio::test]
+    async fn test_initialize_creates_table() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+
+        manager.initialize().await.expect("Failed to initialize");
+
+        // Verify table exists
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='schema_version')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+
+        assert!(exists, "schema_version table should exist after initialization");
+    }
+
+    #[tokio::test]
+    async fn test_get_version_empty_db() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool);
+
+        let version = manager.get_current_version().await.expect("Failed to get version");
+        assert_eq!(version, None, "Version should be None for fresh database");
+    }
+
+    #[tokio::test]
+    async fn test_record_and_get_version() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool);
+
+        manager.initialize().await.expect("Failed to initialize");
+        manager.record_migration(1).await.expect("Failed to record migration");
+
+        let version = manager.get_current_version().await.expect("Failed to get version");
+        assert_eq!(version, Some(1), "Version should be 1 after recording");
+    }
+
+    #[tokio::test]
+    async fn test_migration_history() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool);
+
+        manager.initialize().await.expect("Failed to initialize");
+        manager.record_migration(1).await.expect("Failed to record v1");
+        manager.record_migration(2).await.expect("Failed to record v2");
+
+        let history = manager.get_migration_history().await.expect("Failed to get history");
+        assert_eq!(history.len(), 2, "Should have 2 migration entries");
+        assert_eq!(history[0].version, 1);
+        assert_eq!(history[1].version, 2);
+    }
+
+    #[tokio::test]
+    async fn test_is_schema_initialized() {
+        let pool = create_test_pool().await;
+
+        // Before initialization
+        assert!(!is_schema_initialized(&pool).await, "Should not be initialized yet");
+
+        // After initialization
+        let manager = SchemaManager::new(pool.clone());
+        manager.initialize().await.expect("Failed to initialize");
+
+        assert!(is_schema_initialized(&pool).await, "Should be initialized");
+    }
+
+    #[tokio::test]
+    async fn test_get_schema_version_helper() {
+        let pool = create_test_pool().await;
+
+        // Before any migrations
+        let version = get_schema_version(&pool).await;
+        assert_eq!(version, None);
+
+        // After recording a migration
+        let manager = SchemaManager::new(pool.clone());
+        manager.initialize().await.expect("Failed to initialize");
+        manager.record_migration(3).await.expect("Failed to record");
+
+        let version = get_schema_version(&pool).await;
+        assert_eq!(version, Some(3));
+    }
+
+    #[tokio::test]
+    async fn test_run_migrations_from_scratch() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+
+        // Run migrations on fresh database
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Verify version is at CURRENT_SCHEMA_VERSION
+        let version = manager.get_current_version().await.expect("Failed to get version");
+        assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
+
+        // Verify tables were created by checking for watch_folders
+        let watch_folders_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='watch_folders')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(watch_folders_exists, "watch_folders table should exist after migration");
+
+        // Verify unified_queue was created
+        let unified_queue_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='unified_queue')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(unified_queue_exists, "unified_queue table should exist after migration");
+    }
+
+    #[tokio::test]
+    async fn test_run_migrations_idempotent() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool);
+
+        // Run migrations twice - should not fail
+        manager.run_migrations().await.expect("First migration failed");
+        manager.run_migrations().await.expect("Second migration should be idempotent");
+    }
+
+    #[tokio::test]
+    async fn test_downgrade_not_supported() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool);
+
+        // Initialize and record a future version
+        manager.initialize().await.expect("Failed to initialize");
+        manager.record_migration(CURRENT_SCHEMA_VERSION + 10).await.expect("Failed to record future version");
+
+        // Attempt to run migrations should fail with DowngradeNotSupported
+        let result = manager.run_migrations().await;
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            SchemaError::DowngradeNotSupported { db_version, code_version } => {
+                assert_eq!(db_version, CURRENT_SCHEMA_VERSION + 10);
+                assert_eq!(code_version, CURRENT_SCHEMA_VERSION);
+            }
+            other => panic!("Expected DowngradeNotSupported error, got: {:?}", other),
+        }
     }
 }
