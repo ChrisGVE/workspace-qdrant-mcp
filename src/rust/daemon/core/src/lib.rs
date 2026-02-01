@@ -67,7 +67,10 @@ pub use crate::error::{
     DaemonError
 };
 pub use crate::git_integration::{
-    GitBranchDetector, GitError, GitResult, CacheStats
+    GitBranchDetector, GitError, GitResult, CacheStats,
+    // Branch lifecycle management (Task 501)
+    BranchEvent, BranchLifecycleDetector, BranchLifecycleConfig, BranchLifecycleStats,
+    BranchEventHandler, branch_schema
 };
 pub use crate::logging::{
     LoggingConfig, PerformanceMetrics, initialize_logging, initialize_daemon_silence,
