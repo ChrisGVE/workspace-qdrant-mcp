@@ -1,6 +1,6 @@
 # workspace-qdrant-mcp Specification
 
-**Version:** 1.6.2
+**Version:** 1.6.3
 **Date:** 2026-02-01
 **Status:** Authoritative Specification
 **Supersedes:** CONSOLIDATED_PRD_V2.md, PRDv3.txt, PRDv3-snapshot1.txt
@@ -117,17 +117,26 @@ The system consists of two primary processes:
 
 **Why TypeScript:**
 
-- Claude Code SDK (TypeScript) provides `SessionStart` and `SessionEnd` hooks
+- Claude Agent SDK (TypeScript) provides `SessionStart` and `SessionEnd` hooks for memory injection
 - Python SDK lacks these hooks (essential for session lifecycle)
 - Type safety for structured data (gRPC, Qdrant payloads, MCP tool schemas)
 - MCP ecosystem is TypeScript-first
 
 **Dependencies:**
 
-- `@anthropic/claude-code-sdk` - MCP protocol with session hooks
+- `@modelcontextprotocol/sdk` - MCP server framework (tool registration, transports, session callbacks)
+- `@anthropic-ai/claude-agent-sdk` - Claude hooks (`SessionStart` for memory injection, `SessionEnd` for cleanup)
 - `@qdrant/js-client-rest` - Qdrant queries
 - `better-sqlite3` - SQLite queue access
 - `@grpc/grpc-js` - gRPC client for daemon communication
+
+**SDK Architecture:**
+
+The MCP server uses two complementary SDKs:
+1. **`@modelcontextprotocol/sdk`** provides the MCP protocol implementation (stdio/HTTP transport, `onsessioninitialized`/`onclose` callbacks, tool registration)
+2. **`@anthropic-ai/claude-agent-sdk`** provides Claude-specific hooks (`SessionStart` for memory injection into Claude's context, `SessionEnd` for project deactivation)
+
+These SDKs are designed to work together - the Claude Agent SDK natively imports types from `@modelcontextprotocol/sdk/types.js`.
 
 ### SQLite Database Ownership
 
