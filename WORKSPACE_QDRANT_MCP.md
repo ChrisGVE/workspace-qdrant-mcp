@@ -1,6 +1,6 @@
 # workspace-qdrant-mcp Specification
 
-**Version:** 1.6.3
+**Version:** 1.6.4
 **Date:** 2026-02-01
 **Status:** Authoritative Specification
 **Supersedes:** CONSOLIDATED_PRD_V2.md, PRDv3.txt, PRDv3-snapshot1.txt
@@ -646,33 +646,80 @@ The `registered_projects` table tracks activity state:
 
 ```sql
 CREATE TABLE unified_queue (
-    queue_id TEXT PRIMARY KEY,
-    file_path TEXT UNIQUE NOT NULL,     -- Absolute path, ensures uniqueness
-    item_type TEXT NOT NULL,            -- memory|library|file|folder
-    op TEXT NOT NULL,                   -- ingest|delete|scan
-    tenant_id TEXT NOT NULL,            -- project_id, library tenant, or "global"
-    collection TEXT NOT NULL,           -- projects|libraries|memory
-    payload_json TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    retry_count INTEGER DEFAULT 0,
-    max_retries INTEGER DEFAULT 3,
-    failed INTEGER DEFAULT 0,           -- Boolean: 1 if permanently failed
-    errors TEXT                         -- JSON array of error messages
+    -- Identity
+    queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
+    idempotency_key TEXT NOT NULL UNIQUE,  -- SHA256 hash for deduplication
+
+    -- Item classification
+    item_type TEXT NOT NULL CHECK (item_type IN (
+        'content', 'file', 'folder', 'project', 'library',
+        'delete_tenant', 'delete_document', 'rename'
+    )),
+    op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
+    tenant_id TEXT NOT NULL,
+    collection TEXT NOT NULL,            -- projects|libraries|memory
+
+    -- Processing control
+    priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+        'pending', 'in_progress', 'done', 'failed'
+    )),
+
+    -- Timestamps
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+
+    -- Lease-based crash recovery
+    lease_until TEXT,                    -- Expiration timestamp for current lease
+    worker_id TEXT,                      -- ID of worker holding lease
+
+    -- Payload and metadata
+    payload_json TEXT NOT NULL DEFAULT '{}',
+    branch TEXT DEFAULT 'main',
+    metadata TEXT DEFAULT '{}',
+
+    -- Error handling
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    max_retries INTEGER NOT NULL DEFAULT 3,
+    error_message TEXT,
+    last_error_at TEXT
 );
 
--- Index for processing (exclude failed items, join with projects for priority)
-CREATE INDEX idx_queue_failed_created ON unified_queue(failed, created_at);
-CREATE INDEX idx_queue_tenant ON unified_queue(tenant_id);
+-- Primary dequeue index (pending items by priority)
+CREATE INDEX idx_unified_queue_dequeue
+    ON unified_queue(status, priority DESC, created_at ASC)
+    WHERE status = 'pending';
+
+-- Idempotency enforcement (unique constraint creates implicit index)
+CREATE UNIQUE INDEX idx_unified_queue_idempotency
+    ON unified_queue(idempotency_key);
+
+-- Stale lease detection for crash recovery
+CREATE INDEX idx_unified_queue_lease_expiry
+    ON unified_queue(lease_until)
+    WHERE status = 'in_progress';
+
+-- Tenant-based queries
+CREATE INDEX idx_unified_queue_collection_tenant
+    ON unified_queue(collection, tenant_id);
 ```
 
-**Simplified design:**
+**Robust design features:**
 
-- No `status` column - single daemon knows what it's processing
-- No `leased_by`/`lease_expires_at` - no concurrent workers
-- No `idempotency_key` - `file_path` uniqueness serves this purpose
-- `errors` is JSON array preserving full error history
+- **status column:** Tracks item lifecycle (pending → in_progress → done/failed)
+- **lease_until/worker_id:** Enables crash recovery by detecting stale leases
+- **idempotency_key:** SHA256 hash of `item_type|op|tenant_id|collection|payload_json` - prevents duplicate processing even for content items without file paths
+- **priority column:** Allows different priority levels for different item types (e.g., MCP content = 8, file watch = 5)
+- **updated_at:** Tracks when item status last changed
+- **branch:** Preserves branch context for project items
 
-**Note:** `priority` column removed - calculated at query time via JOIN.
+**Idempotency key calculation:**
+
+```
+idempotency_key = SHA256(item_type|op|tenant_id|collection|payload_json)[:32]
+```
+
+**Crash recovery:** On daemon startup, scan for `status='in_progress'` with `lease_until < now()` and reset to `pending`.
 
 #### Folder Move Detection Strategy
 
@@ -1907,6 +1954,8 @@ The daemon checks this table on startup and runs migrations if needed. Other com
 **Last Updated:** 2026-02-01
 **Changes:**
 
+- v1.6.4: Updated unified_queue schema to match robust implementation - added status column for lifecycle tracking, lease_until/worker_id for crash recovery, idempotency_key for deduplication (supports content items without file paths), priority column for item type prioritization; documented idempotency key calculation and crash recovery procedure
+- v1.6.3: Corrected SDK references from non-existent @anthropic/claude-code-sdk to actual packages (@modelcontextprotocol/sdk and @anthropic-ai/claude-agent-sdk); added SDK Architecture section explaining dual-SDK pattern
 - v1.6.2: Consolidated database tables - merged `registered_projects`, `project_submodules`, and separate `watch_folders` tables into single unified `watch_folders` table; added activity inheritance for subprojects (parent and all submodules share `is_active` and `last_activity_at`); removed `project_aliases` table (dead code)
 - v1.6.1: Clarified PATH configuration (expansion, merge, deduplication steps); documented session lifecycle with memory injection via Claude SDK; added Grammar and Runtime Management section (dynamic grammar loading, CLI update command, CI automation for 6 platforms)
 - v1.6: MCP server rewrite decision - TypeScript instead of Python for native SessionStart/SessionEnd hook support; added TypeScript dependencies and rationale; updated architecture diagram
