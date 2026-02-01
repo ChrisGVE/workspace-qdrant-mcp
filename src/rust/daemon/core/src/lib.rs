@@ -38,6 +38,8 @@ pub mod type_aware_processor;
 pub mod unified_config;
 pub mod unified_queue_processor;
 pub mod unified_queue_schema;
+pub mod watch_folders_schema;
+pub mod schema_version;
 pub mod tree_sitter;
 pub mod watching;
 pub mod watching_queue;
