@@ -124,6 +124,76 @@ pub struct WatchConfigRecord {
     pub errors_count: i64,
 }
 
+/// Watch folder record matching spec-defined watch_folders table
+/// Per WORKSPACE_QDRANT_MCP.md v1.6.4, this unified table consolidates
+/// project and library watching configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WatchFolderRecord {
+    /// Unique watch identifier (PRIMARY KEY)
+    pub watch_id: String,
+    /// Absolute filesystem path
+    pub path: String,
+    /// Collection type: "projects" or "libraries"
+    pub collection: String,
+    /// Tenant identifier (project_id for projects, library name for libraries)
+    pub tenant_id: String,
+
+    // Hierarchy (for submodules)
+    /// Parent watch ID (None for top-level)
+    pub parent_watch_id: Option<String>,
+    /// Relative path within parent (None if not submodule)
+    pub submodule_path: Option<String>,
+
+    // Project-specific fields (None for libraries)
+    /// Normalized git remote URL
+    pub git_remote_url: Option<String>,
+    /// SHA256 hash of remote URL (first 12 chars)
+    pub remote_hash: Option<String>,
+    /// Path suffix for clone disambiguation
+    pub disambiguation_path: Option<String>,
+    /// Activity flag - inherited by all subprojects
+    pub is_active: bool,
+    /// Last activity timestamp
+    pub last_activity_at: Option<DateTime<Utc>>,
+
+    // Library-specific fields (None for projects)
+    /// Library mode: "sync" or "incremental"
+    pub library_mode: Option<String>,
+
+    // Shared configuration
+    /// Whether to follow symlinks during watching
+    pub follow_symlinks: bool,
+    /// Whether this watch is enabled
+    pub enabled: bool,
+    /// Whether to remove content from Qdrant when watch is disabled
+    pub cleanup_on_disable: bool,
+
+    // Timestamps
+    /// Creation timestamp
+    pub created_at: DateTime<Utc>,
+    /// Last update timestamp
+    pub updated_at: DateTime<Utc>,
+    /// Last scan timestamp (None if never scanned)
+    pub last_scan: Option<DateTime<Utc>>,
+}
+
+impl WatchFolderRecord {
+    /// Check if this is a submodule (has a parent)
+    pub fn is_submodule(&self) -> bool {
+        self.parent_watch_id.is_some()
+    }
+
+    /// Check if this is a library watch
+    pub fn is_library(&self) -> bool {
+        self.collection == "libraries"
+    }
+
+    /// Check if this is a project watch
+    pub fn is_project(&self) -> bool {
+        self.collection == "projects"
+    }
+}
+
 /// Daemon state record in the database
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonStateRecord {
@@ -598,13 +668,262 @@ impl DaemonStateManager {
     }
 
     /// Remove watch configuration
+    #[deprecated(note = "Use remove_watch_folder instead - watch_configurations table is removed")]
     pub async fn remove_watch_config(&self, id: &str) -> DaemonStateResult<bool> {
-        let result = sqlx::query("DELETE FROM watch_configurations WHERE id = ?1")
-            .bind(id)
+        // Redirect to watch_folders table
+        self.remove_watch_folder(id).await
+    }
+
+    // ========================================================================
+    // Watch Folders methods (spec-defined watch_folders table)
+    // ========================================================================
+
+    /// Store or update a watch folder record
+    pub async fn store_watch_folder(&self, record: &WatchFolderRecord) -> DaemonStateResult<()> {
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO watch_folders (
+                watch_id, path, collection, tenant_id,
+                parent_watch_id, submodule_path,
+                git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                library_mode,
+                follow_symlinks, enabled, cleanup_on_disable,
+                created_at, updated_at, last_scan
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+            "#,
+        )
+        .bind(&record.watch_id)
+        .bind(&record.path)
+        .bind(&record.collection)
+        .bind(&record.tenant_id)
+        .bind(&record.parent_watch_id)
+        .bind(&record.submodule_path)
+        .bind(&record.git_remote_url)
+        .bind(&record.remote_hash)
+        .bind(&record.disambiguation_path)
+        .bind(record.is_active as i32)
+        .bind(record.last_activity_at.map(|dt| dt.to_rfc3339()))
+        .bind(&record.library_mode)
+        .bind(record.follow_symlinks as i32)
+        .bind(record.enabled as i32)
+        .bind(record.cleanup_on_disable as i32)
+        .bind(record.created_at.to_rfc3339())
+        .bind(record.updated_at.to_rfc3339())
+        .bind(record.last_scan.map(|dt| dt.to_rfc3339()))
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Get a watch folder by ID
+    pub async fn get_watch_folder(&self, watch_id: &str) -> DaemonStateResult<Option<WatchFolderRecord>> {
+        let row = sqlx::query(
+            r#"
+            SELECT watch_id, path, collection, tenant_id,
+                   parent_watch_id, submodule_path,
+                   git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                   library_mode,
+                   follow_symlinks, enabled, cleanup_on_disable,
+                   created_at, updated_at, last_scan
+            FROM watch_folders WHERE watch_id = ?1
+            "#,
+        )
+        .bind(watch_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        if let Some(row) = row {
+            Ok(Some(self.row_to_watch_folder(&row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// List watch folders with optional collection filter
+    pub async fn list_watch_folders(&self, collection_filter: Option<&str>, enabled_only: bool) -> DaemonStateResult<Vec<WatchFolderRecord>> {
+        let base_query = r#"
+            SELECT watch_id, path, collection, tenant_id,
+                   parent_watch_id, submodule_path,
+                   git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                   library_mode,
+                   follow_symlinks, enabled, cleanup_on_disable,
+                   created_at, updated_at, last_scan
+            FROM watch_folders
+        "#;
+
+        let query = match (collection_filter, enabled_only) {
+            (Some(collection), true) => format!("{} WHERE collection = ?1 AND enabled = 1 ORDER BY created_at", base_query),
+            (Some(collection), false) => format!("{} WHERE collection = ?1 ORDER BY created_at", base_query),
+            (None, true) => format!("{} WHERE enabled = 1 ORDER BY created_at", base_query),
+            (None, false) => format!("{} ORDER BY created_at", base_query),
+        };
+
+        let rows = if let Some(collection) = collection_filter {
+            sqlx::query(&query)
+                .bind(collection)
+                .fetch_all(&self.pool)
+                .await?
+        } else {
+            sqlx::query(&query)
+                .fetch_all(&self.pool)
+                .await?
+        };
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(self.row_to_watch_folder(&row)?);
+        }
+
+        Ok(results)
+    }
+
+    /// List active project watch folders
+    pub async fn list_active_projects(&self) -> DaemonStateResult<Vec<WatchFolderRecord>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT watch_id, path, collection, tenant_id,
+                   parent_watch_id, submodule_path,
+                   git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                   library_mode,
+                   follow_symlinks, enabled, cleanup_on_disable,
+                   created_at, updated_at, last_scan
+            FROM watch_folders
+            WHERE collection = 'projects' AND is_active = 1 AND enabled = 1
+            ORDER BY last_activity_at DESC
+            "#,
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(self.row_to_watch_folder(&row)?);
+        }
+
+        Ok(results)
+    }
+
+    /// Activate a project and all related watches (parent, siblings, children)
+    /// Implements activity inheritance per spec
+    pub async fn activate_project_group(&self, watch_id: &str) -> DaemonStateResult<u64> {
+        let result = sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET is_active = 1,
+                last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE watch_id = ?1
+               OR parent_watch_id = ?1
+               OR watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
+               OR parent_watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
+            "#,
+        )
+        .bind(watch_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Deactivate a project and all related watches
+    pub async fn deactivate_project_group(&self, watch_id: &str) -> DaemonStateResult<u64> {
+        let result = sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET is_active = 0,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE watch_id = ?1
+               OR parent_watch_id = ?1
+               OR watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
+               OR parent_watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
+            "#,
+        )
+        .bind(watch_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Update watch folder enabled status
+    pub async fn set_watch_folder_enabled(&self, watch_id: &str, enabled: bool) -> DaemonStateResult<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET enabled = ?1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE watch_id = ?2
+            "#,
+        )
+        .bind(enabled as i32)
+        .bind(watch_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Update last scan timestamp for a watch folder
+    pub async fn update_watch_folder_last_scan(&self, watch_id: &str) -> DaemonStateResult<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET last_scan = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE watch_id = ?1
+            "#,
+        )
+        .bind(watch_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Remove watch folder
+    pub async fn remove_watch_folder(&self, watch_id: &str) -> DaemonStateResult<bool> {
+        let result = sqlx::query("DELETE FROM watch_folders WHERE watch_id = ?1")
+            .bind(watch_id)
             .execute(&self.pool)
             .await?;
 
         Ok(result.rows_affected() > 0)
+    }
+
+    /// Helper to convert a database row to WatchFolderRecord
+    fn row_to_watch_folder(&self, row: &sqlx::sqlite::SqliteRow) -> DaemonStateResult<WatchFolderRecord> {
+        use chrono::TimeZone;
+
+        let parse_datetime = |s: &str| -> DateTime<Utc> {
+            DateTime::parse_from_rfc3339(s)
+                .map(|dt| dt.with_timezone(&Utc))
+                .unwrap_or_else(|_| Utc::now())
+        };
+
+        let parse_optional_datetime = |s: Option<String>| -> Option<DateTime<Utc>> {
+            s.and_then(|s| DateTime::parse_from_rfc3339(&s).ok().map(|dt| dt.with_timezone(&Utc)))
+        };
+
+        Ok(WatchFolderRecord {
+            watch_id: row.try_get("watch_id")?,
+            path: row.try_get("path")?,
+            collection: row.try_get("collection")?,
+            tenant_id: row.try_get("tenant_id")?,
+            parent_watch_id: row.try_get("parent_watch_id")?,
+            submodule_path: row.try_get("submodule_path")?,
+            git_remote_url: row.try_get("git_remote_url")?,
+            remote_hash: row.try_get("remote_hash")?,
+            disambiguation_path: row.try_get("disambiguation_path")?,
+            is_active: row.try_get::<i32, _>("is_active")? != 0,
+            last_activity_at: parse_optional_datetime(row.try_get("last_activity_at")?),
+            library_mode: row.try_get("library_mode")?,
+            follow_symlinks: row.try_get::<i32, _>("follow_symlinks")? != 0,
+            enabled: row.try_get::<i32, _>("enabled")? != 0,
+            cleanup_on_disable: row.try_get::<i32, _>("cleanup_on_disable")? != 0,
+            created_at: parse_datetime(&row.try_get::<String, _>("created_at")?),
+            updated_at: parse_datetime(&row.try_get::<String, _>("updated_at")?),
+            last_scan: parse_optional_datetime(row.try_get("last_scan")?),
+        })
     }
 
     /// Get database statistics
@@ -876,5 +1195,142 @@ mod tests {
         let stats = manager.get_stats().await.unwrap();
         let log_count = stats.get("total_processing_logs").unwrap();
         assert_eq!(log_count.as_i64().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_watch_folder_crud() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("watch_folder_test.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Create a watch folder record
+        let record = WatchFolderRecord {
+            watch_id: "test-watch-001".to_string(),
+            path: "/projects/my-project".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "my-project-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: Some("https://github.com/user/repo.git".to_string()),
+            remote_hash: Some("abc123def456".to_string()),
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+
+        // Store
+        manager.store_watch_folder(&record).await.unwrap();
+
+        // Retrieve
+        let retrieved = manager.get_watch_folder("test-watch-001").await.unwrap();
+        assert!(retrieved.is_some());
+        let retrieved = retrieved.unwrap();
+        assert_eq!(retrieved.path, "/projects/my-project");
+        assert_eq!(retrieved.tenant_id, "my-project-tenant");
+        assert!(!retrieved.is_active);
+        assert!(retrieved.enabled);
+
+        // Activate project
+        let updated = manager.activate_project_group("test-watch-001").await.unwrap();
+        assert_eq!(updated, 1);
+
+        let retrieved = manager.get_watch_folder("test-watch-001").await.unwrap().unwrap();
+        assert!(retrieved.is_active);
+
+        // List active projects
+        let active = manager.list_active_projects().await.unwrap();
+        assert_eq!(active.len(), 1);
+
+        // Deactivate
+        manager.deactivate_project_group("test-watch-001").await.unwrap();
+        let retrieved = manager.get_watch_folder("test-watch-001").await.unwrap().unwrap();
+        assert!(!retrieved.is_active);
+
+        // Delete
+        let deleted = manager.remove_watch_folder("test-watch-001").await.unwrap();
+        assert!(deleted);
+
+        let retrieved = manager.get_watch_folder("test-watch-001").await.unwrap();
+        assert!(retrieved.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_watch_folder_with_submodule() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("watch_submodule_test.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Create parent project
+        let parent = WatchFolderRecord {
+            watch_id: "parent-001".to_string(),
+            path: "/projects/parent".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "parent-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: Some("https://github.com/user/parent.git".to_string()),
+            remote_hash: Some("parent12hash".to_string()),
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&parent).await.unwrap();
+
+        // Create submodule
+        let submodule = WatchFolderRecord {
+            watch_id: "submodule-001".to_string(),
+            path: "/projects/parent/libs/sub".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "submodule-tenant".to_string(),
+            parent_watch_id: Some("parent-001".to_string()),
+            submodule_path: Some("libs/sub".to_string()),
+            git_remote_url: Some("https://github.com/user/sub.git".to_string()),
+            remote_hash: Some("sub123hash".to_string()),
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&submodule).await.unwrap();
+
+        // Activate parent should activate submodule too
+        let updated = manager.activate_project_group("parent-001").await.unwrap();
+        assert_eq!(updated, 2); // Both parent and submodule
+
+        let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
+        let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+        assert!(parent_record.is_active);
+        assert!(submodule_record.is_active);
+
+        // Deactivate submodule should deactivate parent too (activity inheritance)
+        manager.deactivate_project_group("submodule-001").await.unwrap();
+        let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
+        let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+        assert!(!parent_record.is_active);
+        assert!(!submodule_record.is_active);
     }
 }
