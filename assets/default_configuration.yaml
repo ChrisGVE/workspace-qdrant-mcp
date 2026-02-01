@@ -2276,6 +2276,62 @@ watching:
   enable_file_id_cache: true
 
 # =============================================================================
+# GIT INTEGRATION CONFIGURATION
+# =============================================================================
+# Purpose: Configures Git-specific features including branch lifecycle management
+# and repository monitoring for tracked projects.
+#
+# Branch Lifecycle: Tracks branch creation, deletion, rename, and default changes
+# Document Management: Auto-manages Qdrant documents when branches change
+git:
+  # track_branch_lifecycle: Enable branch lifecycle monitoring
+  # Purpose: Master toggle for branch creation/deletion/rename detection
+  # When enabled: Watches .git/refs/heads/ for branch changes
+  # When disabled: No branch lifecycle events emitted
+  # Use case: Enable for projects where branch-specific document isolation matters
+  # Format: Boolean
+  # Default reasoning: true provides comprehensive Git integration
+  track_branch_lifecycle: true
+
+  # auto_delete_branch_documents: Auto-delete documents when branch is deleted
+  # Purpose: Automatically remove Qdrant documents for deleted branches
+  # Cleanup: Prevents orphaned documents from deleted feature branches
+  # Use case: Disable if you want to preserve documents after branch deletion
+  # Memory: Reduces storage usage by cleaning up old branch data
+  # Format: Boolean
+  # Default reasoning: true keeps Qdrant clean and reduces storage
+  auto_delete_branch_documents: true
+
+  # branch_scan_interval_seconds: Interval for scanning branch changes
+  # Purpose: How often to check .git/refs/heads/ for branch changes
+  # Responsiveness: Lower values detect changes faster but increase I/O
+  # Balance: Higher values reduce overhead but delay detection
+  # Event-driven: This is a fallback; file watchers provide immediate detection
+  # Format: Integer seconds > 0
+  # Default reasoning: 5 seconds provides responsive detection with low overhead
+  branch_scan_interval_seconds: 5
+
+  # rename_correlation_timeout_ms: Timeout for correlating branch rename events
+  # Purpose: Maximum time to wait before treating delete as permanent (not rename)
+  # Rename detection: Delete followed by create with same commit = rename
+  # Responsiveness: Lower timeout means faster delete event emission
+  # False positive: Too short may miss legitimate renames during slow operations
+  # Format: Integer milliseconds > 0
+  # Default reasoning: 500ms handles most Git operations while staying responsive
+  rename_correlation_timeout_ms: 500
+
+  # default_branch_detection: How to detect the default branch
+  # Purpose: Determines strategy for identifying repository default branch
+  # Options:
+  #   - "head": Read .git/HEAD file
+  #   - "remote": Query remote (origin/HEAD)
+  #   - "config": Read init.defaultBranch from git config
+  # Fallback: If detection fails, defaults to "main" then "master"
+  # Format: String enum
+  # Default reasoning: "head" is fastest and most reliable for local operations
+  default_branch_detection: "head"
+
+# =============================================================================
 # LSP (LANGUAGE SERVER PROTOCOL) INTEGRATION CONFIGURATION
 # =============================================================================
 # Purpose: Configures Language Server Protocol integration for active projects.
