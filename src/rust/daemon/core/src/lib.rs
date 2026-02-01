@@ -42,6 +42,7 @@ pub mod tree_sitter;
 pub mod watching;
 pub mod watching_queue;
 pub mod lsp;
+pub mod project_disambiguation;
 
 use crate::config::Config;
 pub use crate::deletion_strategy::{
@@ -171,6 +172,12 @@ pub use crate::storage::{
 pub use crate::tree_sitter::{
     SemanticChunker, TreeSitterParser, ChunkExtractor, ChunkType, SemanticChunk,
     extract_chunks, detect_language, is_language_supported
+};
+pub use crate::project_disambiguation::{
+    ProjectIdCalculator, DisambiguationPathComputer, AliasManager,
+    ProjectRecord, ProjectAlias, RegisteredProject, DisambiguationConfig,
+    DisambiguationError, DisambiguationResult,
+    CREATE_REGISTERED_PROJECTS_SQL, CREATE_REGISTERED_PROJECTS_INDEXES_SQL
 };
 
 /// Core processing errors
