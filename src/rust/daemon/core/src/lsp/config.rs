@@ -500,7 +500,7 @@ impl LspConfig {
         let path_ref = path.as_ref();
         let content = tokio::fs::read_to_string(path_ref).await?;
         let config: LspConfig = if path_ref.extension().and_then(|s| s.to_str()) == Some("yaml") {
-            serde_yaml::from_str(&content)?
+            serde_yml::from_str(&content)?
         } else {
             serde_json::from_str(&content)?
         };
@@ -511,7 +511,7 @@ impl LspConfig {
     pub async fn save_to_file<P: AsRef<std::path::Path>>(&self, path: P) -> Result<(), Box<dyn std::error::Error>> {
         let path_ref = path.as_ref();
         let content = if path_ref.extension().and_then(|s| s.to_str()) == Some("yaml") {
-            serde_yaml::to_string(self)?
+            serde_yml::to_string(self)?
         } else {
             serde_json::to_string_pretty(self)?
         };

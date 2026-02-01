@@ -41,6 +41,7 @@ pub mod unified_queue_schema;
 pub mod tree_sitter;
 pub mod watching;
 pub mod watching_queue;
+pub mod lsp;
 
 use crate::config::Config;
 pub use crate::deletion_strategy::{

@@ -55,6 +55,7 @@ pub mod lifecycle;
 pub mod communication;
 pub mod state;
 pub mod config;
+pub mod project_manager;
 
 #[cfg(test)]
 mod tests;
@@ -64,6 +65,11 @@ pub use lifecycle::{LspServerManager, ServerInstance, ServerStatus};
 pub use communication::{JsonRpcClient, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse};
 pub use state::{StateManager};
 pub use config::{LspConfig, LanguageConfig, ServerConfig};
+pub use project_manager::{
+    LanguageServerManager, ProjectLspConfig, ProjectLspError, ProjectLspResult,
+    ProjectLanguageKey, ProjectServerState, ProjectLspStats,
+    Reference, TypeInfo, ResolvedImport, LspEnrichment, EnrichmentStatus,
+};
 
 /// Main errors that can occur in the LSP subsystem
 #[derive(Error, Debug)]

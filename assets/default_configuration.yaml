@@ -2274,3 +2274,101 @@ watching:
   # Format: Boolean
   # Default reasoning: true provides best rename correlation accuracy
   enable_file_id_cache: true
+
+# =============================================================================
+# LSP (LANGUAGE SERVER PROTOCOL) INTEGRATION CONFIGURATION
+# =============================================================================
+# Purpose: Configures Language Server Protocol integration for active projects.
+# LSP provides code intelligence features like references, type information,
+# and import resolution for semantic chunks.
+#
+# Note: LSP is only active for projects that are currently being worked on.
+# Servers are started on project activation and stopped on deactivation.
+lsp:
+  # user_path: PATH environment variable for finding language servers
+  # Purpose: Allows daemon to find language servers installed in user locations
+  # Usage: CLI stores user's PATH here on first run
+  # Resolution: Daemon prepends this to its own PATH on startup
+  # Format: Colon-separated list of directories (Unix) or semicolon (Windows)
+  # Default reasoning: null until CLI stores user's PATH
+  user_path: null
+
+  # max_servers_per_project: Maximum LSP servers per active project
+  # Purpose: Limits memory usage from concurrent language servers
+  # Multi-language projects: Projects with many languages may hit this limit
+  # Server priority: Most-used languages get servers first
+  # Format: Integer > 0
+  # Default reasoning: 3 covers most common multi-language projects
+  max_servers_per_project: 3
+
+  # auto_start_on_activation: Auto-start servers when project becomes active
+  # Purpose: Controls whether LSP servers start automatically on project activation
+  # When enabled: Servers start immediately for detected languages
+  # When disabled: Manual server start required via CLI
+  # Format: Boolean
+  # Default reasoning: true provides seamless code intelligence
+  auto_start_on_activation: true
+
+  # deactivation_delay_secs: Delay before stopping servers after project deactivation
+  # Purpose: Prevents server churn during brief context switches
+  # Resource usage: Longer delays keep servers running longer
+  # Responsiveness: Shorter delays free resources faster
+  # Format: Integer seconds > 0
+  # Default reasoning: 60 seconds handles brief task switches
+  deactivation_delay_secs: 60
+
+  # enable_enrichment_cache: Cache LSP query results
+  # Purpose: Reduces redundant LSP queries for the same symbols
+  # Memory usage: Cache grows with number of queried symbols
+  # Accuracy: Stale cache entries may have outdated info
+  # Format: Boolean
+  # Default reasoning: true improves performance for repeated queries
+  enable_enrichment_cache: true
+
+  # cache_ttl_secs: Time-to-live for cached enrichment data
+  # Purpose: How long to keep cached LSP query results
+  # Freshness: Shorter TTL means fresher data, more queries
+  # Performance: Longer TTL reduces LSP load
+  # Format: Integer seconds > 0
+  # Default reasoning: 300 seconds (5 min) balances freshness and performance
+  cache_ttl_secs: 300
+
+  # startup_timeout_secs: Timeout for server startup and initialization
+  # Purpose: Maximum time to wait for LSP server to become ready
+  # Fast servers: Most servers initialize in under 5 seconds
+  # Slow servers: Java (jdtls) may take longer for large projects
+  # Format: Integer seconds > 0
+  # Default reasoning: 30 seconds handles most servers
+  startup_timeout_secs: 30
+
+  # request_timeout_secs: Timeout for individual LSP requests
+  # Purpose: Maximum time to wait for LSP query responses
+  # Simple queries: References, hover usually respond in < 1 second
+  # Complex queries: Large codebases may take longer
+  # Format: Integer seconds > 0
+  # Default reasoning: 10 seconds handles typical queries
+  request_timeout_secs: 10
+
+  # health_check_interval_secs: Interval between server health checks
+  # Purpose: How often to verify LSP servers are responding
+  # Detection: Catches crashed or unresponsive servers
+  # Overhead: More frequent checks add slight overhead
+  # Format: Integer seconds > 0
+  # Default reasoning: 60 seconds balances detection speed and overhead
+  health_check_interval_secs: 60
+
+  # max_restart_attempts: Maximum server restart attempts before giving up
+  # Purpose: Limits restart attempts for consistently failing servers
+  # Crash loops: Prevents infinite restart loops
+  # Recovery: Allows recovery from transient failures
+  # Format: Integer >= 0
+  # Default reasoning: 3 attempts allows recovery from transient issues
+  max_restart_attempts: 3
+
+  # restart_backoff_multiplier: Exponential backoff multiplier for restarts
+  # Purpose: Increases delay between restart attempts
+  # Crash loops: Prevents rapid restart attempts for persistent failures
+  # Recovery window: Allows time for transient issues to resolve
+  # Format: Float >= 1.0
+  # Default reasoning: 2.0 doubles delay after each failure
+  restart_backoff_multiplier: 2.0
