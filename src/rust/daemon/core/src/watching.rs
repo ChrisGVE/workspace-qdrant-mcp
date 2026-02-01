@@ -21,7 +21,23 @@ use sysinfo::{System, Pid};
 use crate::processing::{TaskSubmitter, TaskPriority, TaskSource, TaskPayload};
 
 pub mod platform;
+pub mod move_detector;
+pub mod path_validator;
+pub mod file_watcher;
+
 pub use platform::{PlatformWatcherConfig, PlatformWatcherFactory, PlatformWatchingStats};
+pub use move_detector::{
+    MoveCorrelator, MoveCorrelatorConfig, MoveCorrelatorStats,
+    MoveDetectorError, RenameAction,
+};
+pub use path_validator::{
+    PathValidator, PathValidatorConfig, PathValidatorStats, PathValidatorError,
+    OrphanedProject, RegisteredProject, OrphanCleanupActions,
+};
+pub use file_watcher::{
+    EnhancedFileWatcher, EnhancedWatcherConfig, EnhancedWatcherError,
+    EnhancedWatcherStats, WatcherHandle, WatchEvent,
+};
 
 /// Errors that can occur during file watching
 #[derive(Error, Debug)]

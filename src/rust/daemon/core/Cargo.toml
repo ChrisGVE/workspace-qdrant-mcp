@@ -16,8 +16,10 @@ anyhow = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 
-# Document processing
-notify = { version = "6.1", features = ["serde"] }
+# Document processing and file watching
+# Use notify v8 for compatibility with notify-debouncer-full
+notify = { version = "8.2", features = ["serde"] }
+notify-debouncer-full = "0.5"
 walkdir = "2.4"
 glob = "0.3"
 encoding_rs = "0.8"
