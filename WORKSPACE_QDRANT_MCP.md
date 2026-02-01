@@ -1863,9 +1863,19 @@ environment:
 | `schema_version` | Schema version tracking                                           | Daemon           |
 | `unified_queue`  | Write queue for daemon processing                                 | MCP, CLI, Daemon |
 | `watch_folders`  | Unified table for projects, libraries, and submodules (see below) | MCP, CLI, Daemon |
-| `file_processing`| File ingestion tracking                                           | Daemon           |
 
 **Note:** The `watch_folders` table consolidates what were previously separate `registered_projects`, `project_submodules`, and `watch_folders` tables. See [Watch Folders Table (Unified)](#watch-folders-table-unified) for the complete schema.
+
+#### Schema Version Table
+
+```sql
+CREATE TABLE schema_version (
+    version INTEGER PRIMARY KEY,
+    applied_at TEXT DEFAULT (datetime('now'))
+);
+```
+
+The daemon checks this table on startup and runs migrations if needed. Other components must NOT modify this table.
 
 **Other components (MCP, CLI) may read/write to tables but must NOT create tables or run migrations.**
 
