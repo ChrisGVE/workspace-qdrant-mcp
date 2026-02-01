@@ -20,6 +20,7 @@ use glob::Pattern;
 
 use crate::queue_operations::{QueueManager, QueueOperation, QueueError};
 use crate::file_classification::classify_file_type;
+use crate::project_disambiguation::ProjectIdCalculator;
 use serde::{Deserialize, Serialize};
 
 //
@@ -87,7 +88,18 @@ impl WatchType {
 /// * `project_root` - Path to the project root directory
 ///
 /// # Returns
-/// Unique tenant ID string
+/// Unique tenant ID (project ID) string
+///
+/// Uses `ProjectIdCalculator` to generate consistent, unique project IDs:
+/// - For git repositories: SHA256 hash of normalized remote URL (12 characters)
+/// - For local projects: "local_" prefix + SHA256 hash of path (18 characters total)
+///
+/// # Disambiguation
+///
+/// When multiple clones of the same repository exist, they will get the same
+/// project ID unless disambiguation is explicitly provided. For full disambiguation
+/// support, use `ProjectIdCalculator` directly with disambiguation paths obtained
+/// from the project registry.
 ///
 /// # Examples
 /// ```
@@ -95,37 +107,40 @@ impl WatchType {
 /// use workspace_qdrant_daemon_core::calculate_tenant_id;
 ///
 /// let tenant_id = calculate_tenant_id(Path::new("/path/to/repo"));
-/// // Returns: "github_com_user_repo" (if git remote exists)
-/// // Or: "path_abc123def456789a" (if no git remote)
+/// // Returns: "abc123def456" (12-char hash if git remote exists)
+/// // Or: "local_abc123def456" (if no git remote)
 /// ```
 pub fn calculate_tenant_id(project_root: &Path) -> String {
+    let calculator = ProjectIdCalculator::new();
+
     // Try to get git remote URL using git2
-    if let Ok(repo) = Repository::open(project_root) {
+    let remote_url = if let Ok(repo) = Repository::open(project_root) {
         // Try origin first, then upstream, then any remote
-        let remote_url = repo
-            .find_remote("origin")
+        repo.find_remote("origin")
             .or_else(|_| repo.find_remote("upstream"))
             .ok()
-            .and_then(|remote| remote.url().map(|url| url.to_string()));
+            .and_then(|remote| remote.url().map(|url| url.to_string()))
+    } else {
+        None
+    };
 
-        if let Some(url) = remote_url {
-            let sanitized = sanitize_remote_url(&url);
-            debug!(
-                "Generated tenant ID from git remote: {} -> {}",
-                url, sanitized
-            );
-            return sanitized;
-        }
-    }
-
-    // Fallback: SHA256 hash of absolute path
-    let tenant_id = generate_path_hash_tenant_id(project_root);
-    debug!(
-        "Generated tenant ID from path hash: {} -> {}",
-        project_root.display(),
-        tenant_id
+    // Calculate project ID using ProjectIdCalculator
+    // Note: Disambiguation path is None here - full disambiguation requires
+    // database lookup to find existing clones with same remote
+    let project_id = calculator.calculate(
+        project_root,
+        remote_url.as_deref(),
+        None, // No disambiguation path in basic calculation
     );
-    tenant_id
+
+    debug!(
+        "Generated project ID for {}: {} (remote: {:?})",
+        project_root.display(),
+        project_id,
+        remote_url.as_ref().map(|u| ProjectIdCalculator::normalize_git_url(u))
+    );
+
+    project_id
 }
 
 /// Sanitize a git remote URL to create a tenant ID
@@ -3327,8 +3342,8 @@ mod tests {
         );
 
         assert_eq!(collection, UNIFIED_PROJECTS_COLLECTION);
-        // Tenant ID should be path-based since temp_dir is not a git repo
-        assert!(tenant_id.starts_with("path_"));
+        // Tenant ID should be local_ prefixed since temp_dir is not a git repo
+        assert!(tenant_id.starts_with("local_"));
     }
 
     #[test]
@@ -3443,8 +3458,8 @@ mod tests {
 
         // Now routes to canonical `projects` collection
         assert_eq!(collection, "projects");
-        // Tenant should be path-based hash since temp_dir is not a git repo
-        assert!(tenant.starts_with("path_"));
+        // Tenant should be local_ prefixed hash since temp_dir is not a git repo
+        assert!(tenant.starts_with("local_"));
     }
 
     // ========== Task 461: Watch Error State Tests ==========
