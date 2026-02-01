@@ -1,6 +1,6 @@
 # workspace-qdrant-mcp Specification
 
-**Version:** 1.6.1
+**Version:** 1.6.2
 **Date:** 2026-02-01
 **Status:** Authoritative Specification
 **Supersedes:** CONSOLIDATED_PRD_V2.md, PRDv3.txt, PRDv3-snapshot1.txt
@@ -105,23 +105,25 @@ The system consists of two primary processes:
 
 ### Component Responsibilities
 
-| Component | Language | Responsibilities | Writes To |
-|-----------|----------|------------------|-----------|
-| **MCP Server** | TypeScript | Query processing, project detection, gRPC client, session hooks, fallback queue | SQLite (queue only) |
-| **Rust Daemon** | Rust | Document processing, embeddings, file watching, Qdrant writes, **SQLite schema owner** | SQLite + Qdrant |
-| **CLI (wqm)** | Rust | Service management, library ingestion, admin operations | SQLite (queue only) |
-| **SQLite** | - | State persistence, queue management, watch configuration | N/A (database) |
-| **Qdrant** | - | Vector storage, semantic search, payload filtering | N/A (database) |
+| Component       | Language   | Responsibilities                                                                       | Writes To           |
+| --------------- | ---------- | -------------------------------------------------------------------------------------- | ------------------- |
+| **MCP Server**  | TypeScript | Query processing, project detection, gRPC client, session hooks, fallback queue        | SQLite (queue only) |
+| **Rust Daemon** | Rust       | Document processing, embeddings, file watching, Qdrant writes, **SQLite schema owner** | SQLite + Qdrant     |
+| **CLI (wqm)**   | Rust       | Service management, library ingestion, admin operations                                | SQLite (queue only) |
+| **SQLite**      | -          | State persistence, queue management, watch configuration                               | N/A (database)      |
+| **Qdrant**      | -          | Vector storage, semantic search, payload filtering                                     | N/A (database)      |
 
 ### TypeScript MCP Server
 
 **Why TypeScript:**
+
 - Claude Code SDK (TypeScript) provides `SessionStart` and `SessionEnd` hooks
 - Python SDK lacks these hooks (essential for session lifecycle)
 - Type safety for structured data (gRPC, Qdrant payloads, MCP tool schemas)
 - MCP ecosystem is TypeScript-first
 
 **Dependencies:**
+
 - `@anthropic/claude-code-sdk` - MCP protocol with session hooks
 - `@qdrant/js-client-rest` - Qdrant queries
 - `better-sqlite3` - SQLite queue access
@@ -133,14 +135,15 @@ The system consists of two primary processes:
 
 **The Rust daemon (memexd) is the sole owner of the SQLite database.**
 
-| Aspect | Owner | Details |
-|--------|-------|---------|
+| Aspect            | Owner  | Details                                         |
+| ----------------- | ------ | ----------------------------------------------- |
 | Database creation | Daemon | Creates `state.db` if absent (path from config) |
-| Schema creation | Daemon | Creates all tables on startup |
-| Schema migrations | Daemon | Handles all schema version upgrades |
-| Schema versioning | Daemon | Maintains `schema_version` table |
+| Schema creation   | Daemon | Creates all tables on startup                   |
+| Schema migrations | Daemon | Handles all schema version upgrades             |
+| Schema versioning | Daemon | Maintains `schema_version` table                |
 
 **Other components (MCP Server, CLI):**
+
 - May read from any table
 - May write to specific tables (e.g., `unified_queue`, `watch_folders`)
 - Must NOT create tables or modify schema
@@ -158,6 +161,7 @@ When MCP Server or CLI attempts to access a table before the daemon has created 
 4. **Log the condition** for debugging purposes
 
 Example degraded response:
+
 ```json
 {
   "results": [],
@@ -179,11 +183,11 @@ Example degraded response:
 
 The system uses exactly **3 collections**:
 
-| Collection | Purpose | Multi-Tenant Key | Example |
-|------------|---------|------------------|---------|
-| `projects` | All project content | `project_id` | Code, docs, tests, configs |
-| `libraries` | Reference documentation | `library_name` | Books, papers, API docs |
-| `memory` | Behavioral rules | `project_id` (nullable) | LLM preferences, constraints |
+| Collection  | Purpose                 | Multi-Tenant Key        | Example                      |
+| ----------- | ----------------------- | ----------------------- | ---------------------------- |
+| `projects`  | All project content     | `project_id`            | Code, docs, tests, configs   |
+| `libraries` | Reference documentation | `library_name`          | Books, papers, API docs      |
+| `memory`    | Behavioral rules        | `project_id` (nullable) | LLM preferences, constraints |
 
 **Memory collection multi-tenancy:** Rules with `scope="global"` have `project_id=null` and apply to all projects. Rules with `scope="project"` have a specific `project_id` and apply only to that project.
 
@@ -292,12 +296,14 @@ def normalize_git_url(url: str) -> str:
 When the same repository is cloned multiple times on the filesystem, each clone gets a unique `project_id` through disambiguation.
 
 **Scenario:**
+
 ```
 /Users/chris/work/client-a/myproject     (remote: github.com/user/myproject)
 /Users/chris/personal/myproject          (remote: github.com/user/myproject)
 ```
 
 **Algorithm:**
+
 1. Detect duplicate when second clone is registered (same `remote_hash`)
 2. Find first differing ancestor folder
 3. Compute disambiguation path from project root to differing ancestor
@@ -315,6 +321,7 @@ Clone 2: personal/myproject      → project_id = sha256("github.com/user/myproj
 #### Local Projects (No Git Remote)
 
 For projects without a git remote:
+
 - Use **container folder name** only (not full path)
 - State database stores full `project_path` for move detection
 
@@ -330,6 +337,7 @@ For projects without a git remote:
 - **Filtered search**: Use `branch="main"` to scope to specific branch
 
 **Branch lifecycle:**
+
 - **New branch detected**: Auto-ingest during file watching
 - **Branch deleted**: Delete all documents with `branch="deleted_branch"` from Qdrant
 - **Branch renamed**: Treat as delete + create (Git doesn't track renames)
@@ -356,51 +364,92 @@ When a local project (identified by container folder) gains a git remote:
 
 #### Operation Timing
 
-| Operation | When Triggered |
-|-----------|----------------|
-| Local project gains remote | Background (daemon watching `.git/config`) |
-| New branch detected | Background (daemon watching) |
+| Operation                            | When Triggered                                              |
+| ------------------------------------ | ----------------------------------------------------------- |
+| Local project gains remote           | Background (daemon watching `.git/config`)                  |
+| New branch detected                  | Background (daemon watching)                                |
 | Duplicate detection & disambiguation | On-demand (when `RegisterProject` received from MCP server) |
-| Project move detection | On-demand (when `RegisterProject` received from MCP server) |
+| Project move detection               | On-demand (when `RegisterProject` received from MCP server) |
 
 **"Active" definition:** A project becomes active when the MCP server automatically sends `RegisterProject` to the daemon upon detecting the user's working directory. This triggers on-demand operations like duplicate detection.
 
-#### Registered Projects Table
+#### Watch Folders Table (Unified)
+
+All projects, libraries, and submodules are tracked in a single unified `watch_folders` table. This replaces the previously separate `registered_projects`, `project_submodules`, and `watch_folders` tables.
 
 ```sql
-CREATE TABLE registered_projects (
-    project_id TEXT PRIMARY KEY,           -- Unique per clone (12-char hex)
-    project_path TEXT NOT NULL UNIQUE,     -- Current filesystem path
-    git_remote_url TEXT,                   -- Normalized remote (null if local)
-    remote_hash TEXT,                      -- sha256(remote_url)[:12] for grouping duplicates
-    disambiguation_path TEXT,              -- Path suffix used for disambiguation (null if none)
-    container_folder TEXT NOT NULL,        -- Parent folder name
-    is_active INTEGER DEFAULT 0,           -- Boolean: 1 if project currently active
-    created_at TIMESTAMP NOT NULL,
-    last_seen_at TIMESTAMP,
-    last_activity_at TIMESTAMP             -- Updated on ANY activity (daemon or server)
+CREATE TABLE watch_folders (
+    watch_id TEXT PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,              -- Absolute filesystem path
+    collection TEXT NOT NULL,               -- "projects" or "libraries"
+    tenant_id TEXT NOT NULL,                -- project_id (projects) or library name (libraries)
+
+    -- Hierarchy (for submodules)
+    parent_watch_id TEXT,                   -- NULL for top-level, references parent for submodules
+    submodule_path TEXT,                    -- Relative path within parent (NULL if not submodule)
+
+    -- Project-specific (NULL for libraries)
+    git_remote_url TEXT,                    -- Normalized remote URL
+    remote_hash TEXT,                       -- sha256(remote_url)[:12] for grouping duplicates
+    disambiguation_path TEXT,               -- Path suffix for clone disambiguation
+    is_active INTEGER DEFAULT 0,            -- Activity flag (inherited by subprojects)
+    last_activity_at TEXT,                  -- Synced across parent and all subprojects
+
+    -- Library-specific (NULL for projects)
+    library_mode TEXT,                      -- "sync" or "incremental"
+
+    -- Shared
+    follow_symlinks INTEGER DEFAULT 0,
+    enabled INTEGER DEFAULT 1,
+    cleanup_on_disable INTEGER DEFAULT 0,   -- Remove content when disabled
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    last_scan TEXT,                         -- NULL if never scanned
+
+    FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id)
 );
 
 -- Index for finding duplicates (same remote, different paths)
-CREATE INDEX idx_remote_hash ON registered_projects(remote_hash);
+CREATE INDEX idx_watch_remote_hash ON watch_folders(remote_hash);
 -- Index for active project lookups (used in queue priority calculation)
-CREATE INDEX idx_active ON registered_projects(is_active);
+CREATE INDEX idx_watch_active ON watch_folders(is_active);
+-- Index for daemon polling
+CREATE INDEX idx_watch_updated ON watch_folders(updated_at);
+-- Index for enabled watches
+CREATE INDEX idx_watch_enabled ON watch_folders(enabled);
+-- Index for subproject hierarchy
+CREATE INDEX idx_watch_parent ON watch_folders(parent_watch_id);
 ```
 
-**Columns:**
-- `project_id`: Unique identifier used in Qdrant payload
-- `project_path`: Full filesystem path (for move detection)
-- `git_remote_url`: Normalized URL (null for local projects)
-- `remote_hash`: Groups clones of same repo for duplicate detection
-- `disambiguation_path`: Non-null when disambiguation applied
-- `container_folder`: Folder name containing project
-- `is_active`: True (1) when user is actively working on project
-- `last_activity_at`: Updated on:
-  - `RegisterProject` from MCP server
-  - Reactivation of already-active project
-  - File change detected by daemon for this project
+**Key columns:**
 
-**Deactivation:** `is_active` set to 0 when:
+- `tenant_id`: `project_id` for projects, library name for libraries
+- `parent_watch_id`: Links submodules to their parent project
+- `is_active`: Activity flag - **inherited by all subprojects** (see below)
+- `last_activity_at`: Timestamp - **synced across parent and all subprojects**
+- `library_mode`: Only for libraries (`sync` = full sync, `incremental` = no deletes)
+
+**Activity Inheritance for Subprojects:**
+
+When a project has submodules (subprojects), they share activity state with the parent. Any activity on the parent OR any subproject updates the entire group:
+
+```sql
+-- On RegisterProject or any activity (given a watch_id):
+UPDATE watch_folders
+SET is_active = 1, last_activity_at = datetime('now')
+WHERE watch_id = :watch_id
+   OR parent_watch_id = :watch_id
+   OR watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = :watch_id)
+   OR parent_watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = :watch_id);
+```
+
+This ensures:
+- Activating a parent activates all its submodules
+- Activating a submodule activates the parent and all sibling submodules
+- All related projects share the same priority in the queue
+
+**Deactivation:** `is_active` set to 0 (for entire group) when:
+
 - MCP server sends `DeprioritizeProject`
 - `last_activity_at` exceeds timeout (default 12h, configurable)
 
@@ -426,12 +475,13 @@ HNSW:
 ### Payload Schemas
 
 **Projects Collection:**
+
 ```json
 {
-  "project_id": "a1b2c3d4e5f6",    // Required, indexed (is_tenant=true)
+  "project_id": "a1b2c3d4e5f6", // Required, indexed (is_tenant=true)
   "project_name": "my-project",
-  "file_path": "src/main.py",       // Relative path
-  "file_type": "code",              // code|doc|test|config|note|artifact
+  "file_path": "src/main.py", // Relative path
+  "file_type": "code", // code|doc|test|config|note|artifact
   "language": "python",
   "branch": "main",
   "symbols": ["MyClass", "my_function"],
@@ -442,9 +492,10 @@ HNSW:
 ```
 
 **Libraries Collection:**
+
 ```json
 {
-  "library_name": "numpy",          // Required, indexed (is_tenant=true)
+  "library_name": "numpy", // Required, indexed (is_tenant=true)
   "source_file": "/path/to/doc.pdf",
   "file_type": "pdf",
   "title": "NumPy Documentation",
@@ -456,12 +507,13 @@ HNSW:
 ```
 
 **Memory Collection:**
+
 ```json
 {
-  "label": "prefer-uv",             // Human-readable identifier (unique per scope)
+  "label": "prefer-uv", // Human-readable identifier (unique per scope)
   "content": "Use uv instead of pip for Python packages",
-  "scope": "global",                // global|project
-  "project_id": null,               // null for global, "abc123" for project-specific
+  "scope": "global", // global|project
+  "project_id": null, // null for global, "abc123" for project-specific
   "created_at": "2026-01-30T12:00:00Z"
 }
 ```
@@ -520,9 +572,9 @@ CLI (wqm) ───→ Qdrant (direct, no daemon)
 
 Only session lifecycle messages go directly to daemon via gRPC:
 
-| Message | Direction | Purpose |
-|---------|-----------|---------|
-| `RegisterProject(path)` | MCP → Daemon | Project is now active |
+| Message                     | Direction    | Purpose                     |
+| --------------------------- | ------------ | --------------------------- |
+| `RegisterProject(path)`     | MCP → Daemon | Project is now active       |
 | `DeprioritizeProject(path)` | MCP → Daemon | Project is no longer active |
 
 **All other operations use the queue.**
@@ -547,14 +599,15 @@ The daemon exposes gRPC methods for content ingestion (`IngestText`, etc.) but t
 
 Priority is **calculated at query time**, not stored in the queue:
 
-| Item Type | Priority | Calculation |
-|-----------|----------|-------------|
-| `memory` (any scope) | 1 (high) | Always high priority |
-| `file`/`folder` for active project | 1 (high) | JOIN with `registered_projects.is_active` |
-| `file`/`folder` for inactive project | 0 (low) | JOIN with `registered_projects.is_active` |
-| `library` | 0 (low) | Background processing |
+| Item Type                            | Priority | Calculation                               |
+| ------------------------------------ | -------- | ----------------------------------------- |
+| `memory` (any scope)                 | 1 (high) | Always high priority                      |
+| `file`/`folder` for active project   | 1 (high) | JOIN with `registered_projects.is_active` |
+| `file`/`folder` for inactive project | 0 (low)  | JOIN with `registered_projects.is_active` |
+| `library`                            | 0 (low)  | Background processing                     |
 
 **Anti-starvation mechanism:** Every 10 queue pops, alternate between:
+
 - `ORDER BY priority DESC, created_at ASC` (active projects first)
 - `ORDER BY priority ASC, created_at ASC` (inactive projects get a turn)
 
@@ -564,16 +617,17 @@ This prevents inactive projects from being starved indefinitely.
 
 The `registered_projects` table tracks activity state:
 
-| Field | Purpose |
-|-------|---------|
-| `is_active` | Boolean, true when project is active |
-| `last_activity_at` | Timestamp, updated on any activity |
+| Field              | Purpose                              |
+| ------------------ | ------------------------------------ |
+| `is_active`        | Boolean, true when project is active |
+| `last_activity_at` | Timestamp, updated on any activity   |
 
 **Activation:** MCP server sends `RegisterProject` → `is_active=true`, `last_activity_at=now()`
 
 **Reactivation:** If already active, just update `last_activity_at=now()`
 
 **Deactivation triggers:**
+
 1. MCP server sends `DeprioritizeProject` (explicit sign-out)
 2. Timeout from `last_activity_at` (default: 12 hours, configurable)
 
@@ -603,6 +657,7 @@ CREATE INDEX idx_queue_tenant ON unified_queue(tenant_id);
 ```
 
 **Simplified design:**
+
 - No `status` column - single daemon knows what it's processing
 - No `leased_by`/`lease_expires_at` - no concurrent workers
 - No `idempotency_key` - `file_path` uniqueness serves this purpose
@@ -617,17 +672,18 @@ CREATE INDEX idx_queue_tenant ON unified_queue(tenant_id);
 **Solution:** Use `notify-debouncer-full` with `FileIdMap` + periodic validation.
 
 **notify-debouncer-full capabilities:**
+
 - Correlates rename events via filesystem IDs
 - Memory: O(n) where n = watched files (acceptable for typical projects)
 - CPU: minimal (hashmap lookups)
 
 **Platform behavior for root folder moves:**
 
-| Platform | Event | Watch Follows | Paths Correct |
-|----------|-------|---------------|---------------|
-| macOS | RENAME | ❌ | ⚠️ |
-| Linux | MOVE_SELF | ⚠️ | ❌ (bug #555) |
-| Windows | None | ⚠️ | ❌ |
+| Platform | Event     | Watch Follows | Paths Correct |
+| -------- | --------- | ------------- | ------------- |
+| macOS    | RENAME    | ❌            | ⚠️            |
+| Linux    | MOVE_SELF | ⚠️            | ❌ (bug #555) |
+| Windows  | None      | ⚠️            | ❌            |
 
 **Handling strategy:**
 
@@ -660,16 +716,19 @@ CREATE INDEX idx_queue_tenant ON unified_queue(tenant_id);
 Single daemon process - no need for complex status states.
 
 **On processing failure:**
+
 1. Increment `retry_count`
 2. Append error message to `errors` (JSON array)
 3. If `retry_count >= max_retries`: set `failed = 1`
 
 **Failed items:**
+
 - Stay in queue with `failed = 1`
 - Skipped by normal processing (query: `WHERE failed = 0`)
 - CLI displays failed items with full error history
 
 **CLI commands for failed items:**
+
 ```bash
 wqm queue list --failed          # List all failed items with error messages
 wqm queue show <queue_id>        # Show single item with full error history
@@ -701,6 +760,7 @@ wqm queue show <queue_id>        # Show single item with full error history
 ```
 
 **Sort alternation:** Every 10 items, daemon flips between:
+
 - `ORDER BY priority DESC` (active projects first)
 - `ORDER BY priority ASC` (inactive projects get a turn)
 
@@ -724,17 +784,19 @@ This prevents starvation of low-priority items.
 
 **Valid operations:**
 
-| Operation | Description |
-|-----------|-------------|
-| `ingest` | Add new rule |
-| `update` | Modify existing rule content |
-| `delete` | Remove rule |
+| Operation | Description                  |
+| --------- | ---------------------------- |
+| `ingest`  | Add new rule                 |
+| `update`  | Modify existing rule content |
+| `delete`  | Remove rule                  |
 
 **Queue fields:**
+
 - `tenant_id`: `"global"` for global scope, or `<project_id>` for project scope
 - `collection`: `"memory"`
 
 **Payload structure:**
+
 ```json
 {
   "label": "prefer-uv",
@@ -744,11 +806,13 @@ This prevents starvation of low-priority items.
 ```
 
 **Payload fields:**
+
 - `label`: Human-readable identifier, unique within scope
 - `content`: The actual rule text
 - `scope`: `"global"` or `"project"` (mirrors tenant_id for validation)
 
 **For `delete` operation:**
+
 ```json
 {
   "label": "prefer-uv",
@@ -763,6 +827,7 @@ This prevents starvation of low-priority items.
 **Purpose:** Reference documentation (books, papers, API docs, websites) - NOT programming libraries (use context7 MCP for those).
 
 **Writers:**
+
 - MCP server (`store` tool) - single file/webpage
 - CLI (`wqm library ingest`) - single file/webpage to global library
 - CLI (`wqm library add`) - register library folder → writes to `watch_folders` table
@@ -774,25 +839,27 @@ This prevents starvation of low-priority items.
 
 **Valid operations:**
 
-| Operation | Description | Writer |
-|-----------|-------------|--------|
-| `ingest` | Add new document/content | MCP, CLI, Daemon |
-| `update` | Replace existing document | Daemon (on file change) |
-| `delete` | Remove document | Daemon (on file delete) |
+| Operation | Description               | Writer                  |
+| --------- | ------------------------- | ----------------------- |
+| `ingest`  | Add new document/content  | MCP, CLI, Daemon        |
+| `update`  | Replace existing document | Daemon (on file change) |
+| `delete`  | Remove document           | Daemon (on file delete) |
 
 **Tenant ID structure:**
 
-| Context | Format | Example | Use Case |
-|---------|--------|---------|----------|
-| Registered library | `folder.subfolder.filename` | `rust-book.chapter1.intro` | Fine-grained search by hierarchy |
-| Project-specific | `<project_id>.<payload_ref>` | `a1b2c3d4e5f6.design-spec` | Non-tracked files related to project |
-| Global (catch-all) | `"global"` | `global` | Content without clear categorization |
+| Context            | Format                       | Example                    | Use Case                             |
+| ------------------ | ---------------------------- | -------------------------- | ------------------------------------ |
+| Registered library | `folder.subfolder.filename`  | `rust-book.chapter1.intro` | Fine-grained search by hierarchy     |
+| Project-specific   | `<project_id>.<payload_ref>` | `a1b2c3d4e5f6.design-spec` | Non-tracked files related to project |
+| Global (catch-all) | `"global"`                   | `global`                   | Content without clear categorization |
 
 **Queue fields:**
+
 - `tenant_id`: See structure above
 - `collection`: `"libraries"`
 
 **Payload structure (MCP `store` / CLI single file):**
+
 ```json
 {
   "content": "The actual text content...",
@@ -805,6 +872,7 @@ This prevents starvation of low-priority items.
 **Note:** Title is not stored in payload - derived from tenant_id (filename/path) or extracted from content (first heading) during processing.
 
 **Payload structure (Daemon from watched folder):**
+
 ```json
 {
   "file_path": "/path/to/library/folder/chapter1/intro.md",
@@ -814,6 +882,7 @@ This prevents starvation of low-priority items.
 ```
 
 **Notes:**
+
 - MCP/CLI provide content directly in payload (for single items)
 - Daemon reads file content during processing (for watched folders)
 - Dot-delimited tenant_id enables hierarchical search: `tenant_id LIKE 'rust-book.chapter1.%'`
@@ -832,16 +901,18 @@ This prevents starvation of low-priority items.
 
 **Valid operations:**
 
-| Operation | Description | Trigger |
-|-----------|-------------|---------|
-| `ingest` | Add/update file content | File created or modified |
-| `delete` | Remove file from index | File deleted |
+| Operation | Description             | Trigger                  |
+| --------- | ----------------------- | ------------------------ |
+| `ingest`  | Add/update file content | File created or modified |
+| `delete`  | Remove file from index  | File deleted             |
 
 **Queue fields:**
+
 - `tenant_id`: `<project_id>` or library tenant format
 - `collection`: `"projects"` or `"libraries"`
 
 **Payload structure:**
+
 ```json
 {
   "file_path": "/absolute/path/to/file.py",
@@ -850,6 +921,7 @@ This prevents starvation of low-priority items.
 ```
 
 **Notes:**
+
 - Full path is unique in queue (first debounce level)
 - Daemon computes metadata during processing (branch, file_type, language, symbols via LSP/tree-sitter)
 - At processing time, daemon adapts to current state:
@@ -869,15 +941,17 @@ This prevents starvation of low-priority items.
 
 **Valid operations:**
 
-| Operation | Description | Trigger |
-|-----------|-------------|---------|
-| `scan` | List folder contents and queue them | Folder created or initial registration |
+| Operation | Description                         | Trigger                                |
+| --------- | ----------------------------------- | -------------------------------------- |
+| `scan`    | List folder contents and queue them | Folder created or initial registration |
 
 **Queue fields:**
+
 - `tenant_id`: `<project_id>` or library tenant format
 - `collection`: `"projects"` or `"libraries"`
 
 **Payload structure:**
+
 ```json
 {
   "folder_path": "/absolute/path/to/folder",
@@ -886,6 +960,7 @@ This prevents starvation of low-priority items.
 ```
 
 **Processing behavior:**
+
 - List all eligible files → queue as `file` with `op=ingest`
 - List all subfolders → queue as `folder` with `op=scan`
 - Transaction encompasses all additions + pop of scan entry
@@ -921,21 +996,23 @@ When a new project or library folder is registered:
 
 Once initial scan complete, daemon watches for changes:
 
-| Event | Action |
-|-------|--------|
-| File created | Queue `file/ingest` (uniqueness prevents duplicates) |
-| File modified | Queue `file/ingest` (uniqueness: if already queued, ignore) |
-| File deleted | Queue `file/delete` |
-| Folder created | Queue `folder/scan` |
-| Folder deleted | Remove all files in collection with path prefix |
+| Event          | Action                                                      |
+| -------------- | ----------------------------------------------------------- |
+| File created   | Queue `file/ingest` (uniqueness prevents duplicates)        |
+| File modified  | Queue `file/ingest` (uniqueness: if already queued, ignore) |
+| File deleted   | Queue `file/delete`                                         |
+| Folder created | Queue `folder/scan`                                         |
+| Folder deleted | Remove all files in collection with path prefix             |
 
 **Debouncing:**
+
 1. **Queue uniqueness:** Full path can't be queued twice (first level)
 2. **External debounce:** Configurable delay before queueing (second level)
 
 **Incremental libraries:** Ignore delete events (additions and updates only)
 
 **Processing adaptation:** At ingestion time, daemon checks current state:
+
 - File gone but in collection → remove, pop
 - File gone and not in collection → just pop
 - File exists → ingest normally
@@ -994,30 +1071,12 @@ When a watch entry is deleted or disabled:
    b. Update watch_folders.last_scan = NULL
 ```
 
-#### Watch Folders Table (Updated)
+#### Watch Folders Table Reference
 
-```sql
-CREATE TABLE watch_folders (
-    watch_id TEXT PRIMARY KEY,
-    path TEXT NOT NULL UNIQUE,
-    collection TEXT NOT NULL,           -- "projects" or "libraries"
-    tenant_id TEXT NOT NULL,            -- project_id or library tenant format
-    library_mode TEXT,                  -- "sync" or "incremental" (libraries only)
-    follow_symlinks INTEGER DEFAULT 0,
-    auto_ingest INTEGER DEFAULT 1,
-    enabled INTEGER DEFAULT 1,
-    cleanup_on_disable INTEGER DEFAULT 0, -- Remove content when disabled
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    last_scan TEXT                      -- NULL if never scanned
-);
-
--- Index for daemon polling
-CREATE INDEX idx_watch_updated ON watch_folders(updated_at);
-CREATE INDEX idx_watch_enabled ON watch_folders(enabled);
-```
+See [Watch Folders Table (Unified)](#watch-folders-table-unified) in the Collection Architecture section for the complete schema.
 
 **Daemon polling query:**
+
 ```sql
 SELECT * FROM watch_folders
 WHERE updated_at > :last_poll_time OR enabled != :cached_enabled_state
@@ -1025,12 +1084,12 @@ WHERE updated_at > :last_poll_time OR enabled != :cached_enabled_state
 
 **Item Types (MCP-relevant):**
 
-| item_type | Used By | payload_json |
-|-----------|---------|--------------|
-| `memory` | MCP `memory` tool | `{label, content, scope, project_id}` |
-| `library` | MCP `store` tool | `{library_name, content, title, source, url}` |
-| `file` | Daemon file watcher | `{file_path, ...}` |
-| `folder` | Daemon folder scan | `{folder_path, patterns, ...}` |
+| item_type | Used By             | payload_json                                  |
+| --------- | ------------------- | --------------------------------------------- |
+| `memory`  | MCP `memory` tool   | `{label, content, scope, project_id}`         |
+| `library` | MCP `store` tool    | `{library_name, content, title, source, url}` |
+| `file`    | Daemon file watcher | `{file_path, ...}`                            |
+| `folder`  | Daemon folder scan  | `{folder_path, patterns, ...}`                |
 
 ### Idempotency
 
@@ -1065,10 +1124,10 @@ The memory collection stores LLM behavioral rules that persist across sessions. 
 
 ```json
 {
-  "label": "prefer-uv",                    // Human-readable identifier
+  "label": "prefer-uv", // Human-readable identifier
   "content": "Use uv instead of pip for Python packages",
-  "scope": "global",                       // global | project
-  "project_id": null,                      // null for global, project_id for project-specific
+  "scope": "global", // global | project
+  "project_id": null, // null for global, project_id for project-specific
   "created_at": "2026-01-30T12:00:00Z"
 }
 ```
@@ -1077,14 +1136,15 @@ The memory collection stores LLM behavioral rules that persist across sessions. 
 
 ### Rule Scope
 
-| Scope | Application | project_id |
-|-------|-------------|------------|
-| `global` | All projects | `null` |
+| Scope     | Application           | project_id    |
+| --------- | --------------------- | ------------- |
+| `global`  | All projects          | `null`        |
 | `project` | Specific project only | `"abc123..."` |
 
 ### Context Injection
 
 At session start:
+
 1. MCP server queries `memory` collection
 2. Filters: all global rules + current project's rules
 3. Orders: global rules first (by creation date), then project rules (by creation date)
@@ -1093,6 +1153,7 @@ At session start:
 ### Rule Management
 
 **Via CLI:**
+
 ```bash
 wqm memory list                      # List all rules (global + all projects)
 wqm memory list --global             # List global rules only
@@ -1103,6 +1164,7 @@ wqm memory remove --label "prefer-uv" --global
 ```
 
 **Via MCP:**
+
 ```python
 memory(action="list")                # List global + current project rules
 memory(action="add", label="...", content="...", scope="global|project")
@@ -1124,32 +1186,19 @@ User: "For future reference, always use uv instead of pip"
 
 ### Watch Sources
 
-| Source | Target Collection | Trigger |
-|--------|-------------------|---------|
-| **MCP** | `projects` | `activate_project` → daemon auto-creates watch if not exists |
-| **CLI** | `libraries` | `wqm library add` → explicit library registration |
+| Source  | Target Collection | Trigger                                                      |
+| ------- | ----------------- | ------------------------------------------------------------ |
+| **MCP** | `projects`        | `activate_project` → daemon auto-creates watch if not exists |
+| **CLI** | `libraries`       | `wqm library add` → explicit library registration            |
 
 **Note:** Projects are watched automatically when activated via MCP. CLI is only used for library registration.
 
 ### Watch Table Schema
 
-```sql
-CREATE TABLE watch_folders (
-    watch_id TEXT PRIMARY KEY,
-    path TEXT NOT NULL UNIQUE,
-    collection TEXT NOT NULL,           -- "projects" or "libraries"
-    project_id TEXT,                    -- For projects (null for libraries)
-    library_name TEXT,                  -- For libraries (null for projects)
-    library_mode TEXT,                  -- "sync" or "incremental" (libraries only, null for projects)
-    follow_symlinks INTEGER DEFAULT 0,  -- Default: don't follow symlinks
-    auto_ingest INTEGER DEFAULT 1,
-    enabled INTEGER DEFAULT 1,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-```
+See [Watch Folders Table (Unified)](#watch-folders-table-unified) in the Collection Architecture section for the complete schema.
 
 **Library modes (libraries only):**
+
 - `sync`: Full synchronization - additions, updates, AND deletions
 - `incremental`: Additions and updates only, no deletions
 
@@ -1184,24 +1233,16 @@ watching:
 When a subfolder contains a `.git` directory (submodule):
 
 1. **Detect:** Daemon detects `.git` in subfolder during scanning
-2. **Separate project:** Submodule treated as separate project with its own `project_id`
-3. **Link:** Main project stores reference to submodule
+2. **Separate entry:** Submodule is registered in `watch_folders` with its own `tenant_id` (project_id)
+3. **Link via parent_watch_id:** Submodule entry references parent project via `parent_watch_id` and stores relative path in `submodule_path`
+4. **Activity inheritance:** Submodules share `is_active` and `last_activity_at` with parent (see [Activity Inheritance](#watch-folders-table-unified))
 
-```sql
-CREATE TABLE project_submodules (
-    parent_project_id TEXT NOT NULL,
-    submodule_project_id TEXT NOT NULL,
-    submodule_path TEXT NOT NULL,        -- Relative path within parent
-    created_at TEXT NOT NULL,
-    PRIMARY KEY (parent_project_id, submodule_path),
-    FOREIGN KEY (parent_project_id) REFERENCES registered_projects(project_id),
-    FOREIGN KEY (submodule_project_id) REFERENCES registered_projects(project_id)
-);
-```
+See [Watch Folders Table (Unified)](#watch-folders-table-unified) for the schema that handles both projects and submodules.
 
 ### Daemon Polling
 
 The daemon:
+
 1. Polls `watch_folders` table every 5 seconds
 2. Detects changes via `updated_at` timestamp
 3. Updates file watchers dynamically
@@ -1211,14 +1252,15 @@ The daemon:
 
 Different operations have different pipelines:
 
-| Event | Pipeline |
-|-------|----------|
-| **New file** | Debounce → Read → Parse/Chunk → Embed → Upsert |
-| **File changed** | Debounce → Read → Parse/Chunk → Embed → Upsert (replace) |
+| Event            | Pipeline                                                  |
+| ---------------- | --------------------------------------------------------- |
+| **New file**     | Debounce → Read → Parse/Chunk → Embed → Upsert            |
+| **File changed** | Debounce → Read → Parse/Chunk → Embed → Upsert (replace)  |
 | **File deleted** | Delete from Qdrant (filter by `file_path` + `project_id`) |
-| **File renamed** | Delete old + Upsert new (simple approach) |
+| **File renamed** | Delete old + Upsert new (simple approach)                 |
 
 **Common processing steps:**
+
 ```
 Read Content → Parse/Chunk → Generate Embeddings → Upsert to Qdrant
                    │
@@ -1234,10 +1276,10 @@ Read Content → Parse/Chunk → Generate Embeddings → Upsert to Qdrant
 
 ### Architecture: Tree-sitter Baseline + LSP Enhancement
 
-| Component | When | What it provides |
-|-----------|------|------------------|
-| **Tree-sitter** | Always, during ingestion | Symbol definitions, language, syntax structure |
-| **LSP** | Active projects only | References (where used), types, resolved imports |
+| Component       | When                     | What it provides                                 |
+| --------------- | ------------------------ | ------------------------------------------------ |
+| **Tree-sitter** | Always, during ingestion | Symbol definitions, language, syntax structure   |
+| **LSP**         | Active projects only     | References (where used), types, resolved imports |
 
 **Rationale:** Tree-sitter is fast and always available. LSP provides richer data but requires spawning language servers, so it's reserved for active projects.
 
@@ -1271,6 +1313,7 @@ Runs when project is active:
 **One server per language per project.** Multi-target projects (e.g., Cargo workspace with multiple crates) are handled by single language server.
 
 **Language server management:**
+
 ```bash
 wqm lsp install python    # Installs pyright or pylsp
 wqm lsp install rust      # Installs rust-analyzer
@@ -1281,6 +1324,7 @@ wqm lsp remove <lang>     # Removes language server
 **PATH configuration:** CLI manages `environment.user_path` in the configuration file.
 
 **Update triggers:**
+
 - CLI installation
 - Every CLI invocation
 - MCP server startup (which invokes CLI)
@@ -1303,14 +1347,14 @@ Instead of arbitrary text chunks, code files are split into semantic units:
 
 #### Chunk Types
 
-| Chunk Type | Contains | Example |
-|------------|----------|---------|
-| `preamble` | Imports, module docstring, constants | File header |
-| `function` | Complete function with docstring | `def validate_token(...)` |
-| `class` | Class signature, docstrings, class-level attrs | `class AuthService:` |
-| `method` | Method body (linked to parent class) | `def login(self, ...)` |
-| `struct` | Struct/dataclass definition | `struct Config { ... }` |
-| `trait`/`protocol` | Interface definition | `trait Validator { ... }` |
+| Chunk Type         | Contains                                       | Example                   |
+| ------------------ | ---------------------------------------------- | ------------------------- |
+| `preamble`         | Imports, module docstring, constants           | File header               |
+| `function`         | Complete function with docstring               | `def validate_token(...)` |
+| `class`            | Class signature, docstrings, class-level attrs | `class AuthService:`      |
+| `method`           | Method body (linked to parent class)           | `def login(self, ...)`    |
+| `struct`           | Struct/dataclass definition                    | `struct Config { ... }`   |
+| `trait`/`protocol` | Interface definition                           | `trait Validator { ... }` |
 
 #### Chunking Algorithm
 
@@ -1349,11 +1393,12 @@ For each code file:
 ```
 
 **LSP enrichment adds:**
+
 ```json
 {
   "references": [
-    {"file": "src/api.py", "line": 23},
-    {"file": "src/middleware.py", "line": 56}
+    { "file": "src/api.py", "line": 23 },
+    { "file": "src/middleware.py", "line": 56 }
   ],
   "type_info": "Callable[[str], bool]"
 }
@@ -1361,12 +1406,12 @@ For each code file:
 
 #### Benefits
 
-| Benefit | Explanation |
-|---------|-------------|
-| Complete context | LLM gets whole function, not fragments |
-| Better search | Query returns complete, meaningful units |
-| Symbol association | Function name tied to its implementation |
-| Relationship tracking | Method → Class, Function → Module |
+| Benefit               | Explanation                              |
+| --------------------- | ---------------------------------------- |
+| Complete context      | LLM gets whole function, not fragments   |
+| Better search         | Query returns complete, meaningful units |
+| Symbol association    | Function name tied to its implementation |
+| Relationship tracking | Method → Class, Function → Module        |
 
 ### CLI Commands
 
@@ -1392,6 +1437,7 @@ wqm watch enable <watch_id>       # Re-enable
 The server provides exactly **4 tools**: `search`, `retrieve`, `memory`, and `store`.
 
 **Important design principles:**
+
 - The MCP server does NOT store to the `projects` collection. Project content is ingested by the daemon via file watching.
 - The MCP can only store to `memory` (rules) and `libraries` (reference documentation).
 - Session management (activate/deactivate) is automated, not exposed as a tool.
@@ -1417,6 +1463,7 @@ search(
 ```
 
 **Modes:**
+
 - `hybrid`: Semantic + keyword search (default)
 - `semantic`: Pure vector similarity
 - `keyword`: Keyword/exact matching
@@ -1424,13 +1471,14 @@ search(
 
 **Collection-specific scope:**
 
-| Collection | Scope Options | Notes |
-|------------|---------------|-------|
-| `memory` | `all`, `global`, `project` | `project` = current project's rules |
-| `projects` | `all`, `current`, `other` | Combined with `branch` and `project_id` filters |
-| `libraries` | `all`, `<library_name>` | Filter by specific library |
+| Collection  | Scope Options              | Notes                                           |
+| ----------- | -------------------------- | ----------------------------------------------- |
+| `memory`    | `all`, `global`, `project` | `project` = current project's rules             |
+| `projects`  | `all`, `current`, `other`  | Combined with `branch` and `project_id` filters |
+| `libraries` | `all`, `<library_name>`    | Filter by specific library                      |
 
 **Project scope examples:**
+
 ```python
 # Current project, current branch (default)
 search(query="auth", collection="projects", scope="current")
@@ -1478,6 +1526,7 @@ memory(
 ```
 
 **Actions:**
+
 - `add`: Create new rule (queued for daemon)
 - `update`: Update existing rule (queued for daemon)
 - `remove`: Remove rule (queued for daemon)
@@ -1546,6 +1595,7 @@ When a project is renamed or its `project_id` changes (e.g., due to disambiguati
 Health monitoring is **server-internal** and affects search responses:
 
 **When system is healthy** (daemon + Qdrant connected):
+
 ```json
 {
   "results": [...],
@@ -1554,6 +1604,7 @@ Health monitoring is **server-internal** and affects search responses:
 ```
 
 **When system is unhealthy** (daemon or Qdrant unavailable):
+
 ```json
 {
   "results": [...],
@@ -1564,6 +1615,7 @@ Health monitoring is **server-internal** and affects search responses:
 ```
 
 The `uncertain` status indicates that:
+
 - Search results are from the last known state
 - Recent file changes may not be indexed
 - Memory rules may be stale
@@ -1573,20 +1625,20 @@ The `uncertain` status indicates that:
 
 The following are **not exposed as MCP tools**:
 
-| Feature | Status | Reason |
-|---------|--------|--------|
-| `health` | Server-internal | Affects search response metadata (see above) |
-| `session` (activate/deactivate) | Automated | MCP server handles automatically |
-| `list_collections` | CLI only | Diagnostic, use `wqm admin collections` |
-| `collection_info` | CLI only | Diagnostic, use `wqm admin` |
-| `workspace_status` | Removed | Replaced by health status in search responses |
-| `init_project` | Removed | Daemon handles via watching |
-| `cleanup` | Removed | Daemon handles internally |
-| `create_collection` | Removed | Daemon owns collections |
-| `delete_collection` | Removed | Daemon owns collections |
-| `mark_library_deleted` | CLI only | Use `wqm library` commands |
-| `restore_deleted_library` | CLI only | Use `wqm library` commands |
-| `list_deleted_libraries` | CLI only | Use `wqm library` commands |
+| Feature                         | Status          | Reason                                        |
+| ------------------------------- | --------------- | --------------------------------------------- |
+| `health`                        | Server-internal | Affects search response metadata (see above)  |
+| `session` (activate/deactivate) | Automated       | MCP server handles automatically              |
+| `list_collections`              | CLI only        | Diagnostic, use `wqm admin collections`       |
+| `collection_info`               | CLI only        | Diagnostic, use `wqm admin`                   |
+| `workspace_status`              | Removed         | Replaced by health status in search responses |
+| `init_project`                  | Removed         | Daemon handles via watching                   |
+| `cleanup`                       | Removed         | Daemon handles internally                     |
+| `create_collection`             | Removed         | Daemon owns collections                       |
+| `delete_collection`             | Removed         | Daemon owns collections                       |
+| `mark_library_deleted`          | CLI only        | Use `wqm library` commands                    |
+| `restore_deleted_library`       | CLI only        | Use `wqm library` commands                    |
+| `list_deleted_libraries`        | CLI only        | Use `wqm library` commands                    |
 
 **The legacy `manage` tool is completely removed.** Memory operations use the dedicated `memory` tool.
 
@@ -1596,33 +1648,33 @@ The daemon exposes 3 gRPC services on port 50051.
 
 #### SystemService
 
-| Method | Used By | Purpose | Status |
-|--------|---------|---------|--------|
-| `Health` | MCP, CLI | Health check | Production |
-| `GetMetrics` | CLI | System metrics | Production |
-| `GetQueueStats` | CLI | Queue statistics | Production |
-| `RegisterProject` | MCP | Notify project is active | **Production (direct gRPC)** |
-| `DeprioritizeProject` | MCP | Notify project is inactive | **Production (direct gRPC)** |
-| `Heartbeat` | MCP | Session heartbeat | Production |
-| `Shutdown` | CLI | Graceful shutdown | Production |
+| Method                | Used By  | Purpose                    | Status                       |
+| --------------------- | -------- | -------------------------- | ---------------------------- |
+| `Health`              | MCP, CLI | Health check               | Production                   |
+| `GetMetrics`          | CLI      | System metrics             | Production                   |
+| `GetQueueStats`       | CLI      | Queue statistics           | Production                   |
+| `RegisterProject`     | MCP      | Notify project is active   | **Production (direct gRPC)** |
+| `DeprioritizeProject` | MCP      | Notify project is inactive | **Production (direct gRPC)** |
+| `Heartbeat`           | MCP      | Session heartbeat          | Production                   |
+| `Shutdown`            | CLI      | Graceful shutdown          | Production                   |
 
 #### CollectionService
 
-| Method | Status | Notes |
-|--------|--------|-------|
-| `CreateCollection` | **Daemon internal** | Daemon creates collections on startup |
-| `DeleteCollection` | **Not used** | Fixed 3-collection model |
-| `ListCollections` | Read-only | Can be exposed to MCP/CLI |
-| `GetCollection` | Read-only | Can be exposed to MCP/CLI |
-| `UpdateCollectionAlias` | **Daemon internal** | |
+| Method                  | Status              | Notes                                 |
+| ----------------------- | ------------------- | ------------------------------------- |
+| `CreateCollection`      | **Daemon internal** | Daemon creates collections on startup |
+| `DeleteCollection`      | **Not used**        | Fixed 3-collection model              |
+| `ListCollections`       | Read-only           | Can be exposed to MCP/CLI             |
+| `GetCollection`         | Read-only           | Can be exposed to MCP/CLI             |
+| `UpdateCollectionAlias` | **Daemon internal** |                                       |
 
 **MCP/CLI must NOT call collection mutation methods.** Only read-only methods are permitted.
 
 #### DocumentService
 
-| Method | Status | Notes |
-|--------|--------|-------|
-| `IngestText` | **Reserved** | Admin/diagnostic use only |
+| Method           | Status       | Notes                     |
+| ---------------- | ------------ | ------------------------- |
+| `IngestText`     | **Reserved** | Admin/diagnostic use only |
 | `UpdateDocument` | **Reserved** | Admin/diagnostic use only |
 | `DeleteDocument` | **Reserved** | Admin/diagnostic use only |
 
@@ -1636,14 +1688,15 @@ The daemon manages tree-sitter grammars and ONNX runtime as external dependencie
 
 ### Cache Locations
 
-| Component | Default Location | Config Key |
-|-----------|------------------|------------|
-| Tree-sitter grammars | `~/.workspace-qdrant/grammars/` | `grammars.cache_dir` |
-| Embedding models | `~/.workspace-qdrant/models/` | `embedding.cache_dir` |
+| Component            | Default Location                | Config Key            |
+| -------------------- | ------------------------------- | --------------------- |
+| Tree-sitter grammars | `~/.workspace-qdrant/grammars/` | `grammars.cache_dir`  |
+| Embedding models     | `~/.workspace-qdrant/models/`   | `embedding.cache_dir` |
 
 ### Tree-sitter Grammar Management
 
 **Configuration:**
+
 ```yaml
 grammars:
   cache_dir: "~/.workspace-qdrant/grammars/"
@@ -1652,10 +1705,11 @@ grammars:
     - python
     - typescript
     - javascript
-  auto_download: true  # Download missing grammars automatically
+  auto_download: true # Download missing grammars automatically
 ```
 
 **Daemon behavior:**
+
 1. On startup, check each required grammar exists in cache
 2. If grammar missing and `auto_download: true`, download from grammar repository
 3. If grammar version mismatches tree-sitter runtime version, replace with compatible version
@@ -1671,6 +1725,7 @@ wqm update --version 1.2.3    # Install specific version
 ```
 
 **Update behavior:**
+
 1. Query GitHub releases API for latest version
 2. Compare with currently installed version
 3. If newer version available (or `--force`):
@@ -1682,34 +1737,36 @@ wqm update --version 1.2.3    # Install specific version
 4. Report success/failure
 
 **Configuration:**
+
 ```yaml
 updates:
-  check_on_startup: false      # Auto-check for updates when daemon starts
-  notify_only: true            # If true, only notify; don't auto-install
-  channel: "stable"            # stable|beta|nightly
+  check_on_startup: false # Auto-check for updates when daemon starts
+  notify_only: true # If true, only notify; don't auto-install
+  channel: "stable" # stable|beta|nightly
 ```
 
 ### Continuous Integration
 
 **Automated releases triggered by upstream updates:**
 
-| Trigger | Action |
-|---------|--------|
-| New tree-sitter release | Rebuild daemon, bump patch version, release with message "tree-sitter version bump to X.Y.Z" |
+| Trigger                  | Action                                                                                        |
+| ------------------------ | --------------------------------------------------------------------------------------------- |
+| New tree-sitter release  | Rebuild daemon, bump patch version, release with message "tree-sitter version bump to X.Y.Z"  |
 | New ONNX Runtime release | Rebuild daemon, bump patch version, release with message "ONNX Runtime version bump to X.Y.Z" |
 
 **Target platforms (6 binaries per release):**
 
-| Platform | Target Triple |
-|----------|---------------|
-| Linux ARM64 | `aarch64-unknown-linux-gnu` |
-| Linux x86_64 | `x86_64-unknown-linux-gnu` |
-| macOS Apple Silicon | `aarch64-apple-darwin` |
-| macOS Intel | `x86_64-apple-darwin` |
-| Windows ARM64 | `aarch64-pc-windows-msvc` |
-| Windows x86_64 | `x86_64-pc-windows-msvc` |
+| Platform            | Target Triple               |
+| ------------------- | --------------------------- |
+| Linux ARM64         | `aarch64-unknown-linux-gnu` |
+| Linux x86_64        | `x86_64-unknown-linux-gnu`  |
+| macOS Apple Silicon | `aarch64-apple-darwin`      |
+| macOS Intel         | `x86_64-apple-darwin`       |
+| Windows ARM64       | `aarch64-pc-windows-msvc`   |
+| Windows x86_64      | `x86_64-pc-windows-msvc`    |
 
 **CI workflow:**
+
 1. Monitor upstream releases (tree-sitter, ONNX Runtime) via GitHub Actions or webhook
 2. On new release detected, trigger build pipeline
 3. Build for all 6 targets
@@ -1726,6 +1783,7 @@ updates:
 **All components (Daemon, MCP Server, CLI) share the same configuration file.** This is a key architectural requirement to prevent configuration drift between components.
 
 **Configuration file search order (first found wins):**
+
 1. `~/.workspace-qdrant/config.yaml` (or `.yml`)
 2. `~/.config/workspace-qdrant/config.yaml`
 3. `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS)
@@ -1736,13 +1794,13 @@ updates:
 
 Environment variables override configuration file values:
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `QDRANT_URL` | Qdrant server URL | `http://localhost:6333` |
-| `QDRANT_API_KEY` | Qdrant API key | None |
-| `FASTEMBED_MODEL` | Embedding model | `all-MiniLM-L6-v2` |
-| `WQM_STDIO_MODE` | Force stdio mode | `false` |
-| `WQM_CLI_MODE` | Force CLI mode | `false` |
+| Variable          | Description       | Default                 |
+| ----------------- | ----------------- | ----------------------- |
+| `QDRANT_URL`      | Qdrant server URL | `http://localhost:6333` |
+| `QDRANT_API_KEY`  | Qdrant API key    | None                    |
+| `FASTEMBED_MODEL` | Embedding model   | `all-MiniLM-L6-v2`      |
+| `WQM_STDIO_MODE`  | Force stdio mode  | `false`                 |
+| `WQM_CLI_MODE`    | Force CLI mode    | `false`                 |
 
 ### Configuration Structure
 
@@ -1787,7 +1845,7 @@ collections:
 
 # User environment (written by CLI, read by daemon)
 environment:
-  user_path: "/usr/local/bin:/opt/homebrew/bin:..."  # Set by CLI on first run
+  user_path: "/usr/local/bin:/opt/homebrew/bin:..." # Set by CLI on first run
 ```
 
 **Note:** Pattern configuration is part of the unified config file, not separate YAML files. The `patterns/` directory files serve as reference documentation for the comprehensive default patterns.
@@ -1800,14 +1858,14 @@ environment:
 
 **Core Tables:**
 
-| Table | Purpose | Used By |
-|-------|---------|---------|
-| `schema_version` | Schema version tracking | Daemon |
-| `unified_queue` | Write queue for daemon processing | MCP, CLI, Daemon |
-| `watch_folders` | File watching configuration | MCP, CLI, Daemon |
-| `registered_projects` | Project registration and disambiguation | Daemon |
-| `project_submodules` | Git submodule relationships | Daemon |
-| `file_processing` | File ingestion tracking | Daemon |
+| Table            | Purpose                                                           | Used By          |
+| ---------------- | ----------------------------------------------------------------- | ---------------- |
+| `schema_version` | Schema version tracking                                           | Daemon           |
+| `unified_queue`  | Write queue for daemon processing                                 | MCP, CLI, Daemon |
+| `watch_folders`  | Unified table for projects, libraries, and submodules (see below) | MCP, CLI, Daemon |
+| `file_processing`| File ingestion tracking                                           | Daemon           |
+
+**Note:** The `watch_folders` table consolidates what were previously separate `registered_projects`, `project_submodules`, and `watch_folders` tables. See [Watch Folders Table (Unified)](#watch-folders-table-unified) for the complete schema.
 
 **Other components (MCP, CLI) may read/write to tables but must NOT create tables or run migrations.**
 
@@ -1815,20 +1873,22 @@ environment:
 
 ## Related Documents
 
-| Document | Purpose |
-|----------|---------|
-| [FIRST-PRINCIPLES.md](./FIRST-PRINCIPLES.md) | Architectural philosophy |
+| Document                                                           | Purpose                          |
+| ------------------------------------------------------------------ | -------------------------------- |
+| [FIRST-PRINCIPLES.md](./FIRST-PRINCIPLES.md)                       | Architectural philosophy         |
 | [ADR-001](./docs/adr/ADR-001-canonical-collection-architecture.md) | Collection architecture decision |
-| [ADR-002](./docs/adr/ADR-002-daemon-only-write-policy.md) | Write policy decision |
-| [ADR-003](./docs/adr/ADR-003-daemon-owns-sqlite.md) | SQLite ownership decision |
-| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) | Visual architecture diagrams |
-| [README.md](./README.md) | User documentation |
+| [ADR-002](./docs/adr/ADR-002-daemon-only-write-policy.md)          | Write policy decision            |
+| [ADR-003](./docs/adr/ADR-003-daemon-owns-sqlite.md)                | SQLite ownership decision        |
+| [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)                     | Visual architecture diagrams     |
+| [README.md](./README.md)                                           | User documentation               |
 
 ---
 
-**Version:** 1.6.1
+**Version:** 1.6.2
 **Last Updated:** 2026-02-01
 **Changes:**
+
+- v1.6.2: Consolidated database tables - merged `registered_projects`, `project_submodules`, and separate `watch_folders` tables into single unified `watch_folders` table; added activity inheritance for subprojects (parent and all submodules share `is_active` and `last_activity_at`); removed `project_aliases` table (dead code)
 - v1.6.1: Clarified PATH configuration (expansion, merge, deduplication steps); documented session lifecycle with memory injection via Claude SDK; added Grammar and Runtime Management section (dynamic grammar loading, CLI update command, CI automation for 6 platforms)
 - v1.6: MCP server rewrite decision - TypeScript instead of Python for native SessionStart/SessionEnd hook support; added TypeScript dependencies and rationale; updated architecture diagram
 - v1.5: Major queue and daemon architecture update - simplified queue schema (removed status states, added failed flag and errors array); defined batch processing flow with sort alternation for anti-starvation; documented three daemon phases (initial scan, watching, removal); added daemon watch management lifecycle; defined semantic code chunking strategy; added Tree-sitter baseline + LSP enhancement architecture; defined LSP lifecycle and language server management; added PATH configuration for daemon
