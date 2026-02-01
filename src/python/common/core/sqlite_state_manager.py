@@ -775,8 +775,13 @@ class DatabaseTransaction:
 class SQLiteStateManager:
     """SQLite-based state persistence manager with crash recovery."""
 
-    BASE_SCHEMA_VERSION = 12  # Base schema in _create_initial_schema (unified_queue added via migration)
-    SCHEMA_VERSION = 14  # v14: Add active_projects table (Task 36 - code audit round 2)
+    # DEPRECATED: Schema creation moved to Rust daemon per ADR-003
+    # These constants are kept for reference but are no longer used
+    BASE_SCHEMA_VERSION = 12  # Legacy: was base schema in _create_initial_schema
+    SCHEMA_VERSION = 14  # Legacy: was v14 with active_projects table
+
+    # Required tables (created by Rust daemon)
+    REQUIRED_TABLES = ["schema_version", "unified_queue", "watch_folders"]
     WAL_CHECKPOINT_INTERVAL = 300  # 5 minutes
     MAINTENANCE_INTERVAL = 3600  # 1 hour
 
@@ -807,6 +812,22 @@ class SQLiteStateManager:
         self._shutdown_event = asyncio.Event()
         self._maintenance_task: asyncio.Task | None = None
         self._initialized = False
+        self._daemon_schema_ready = False  # Set by _setup_schema() when daemon has created tables
+
+    @property
+    def is_schema_ready(self) -> bool:
+        """Check if the daemon has created the required database tables."""
+        return self._daemon_schema_ready
+
+    def get_status(self) -> dict:
+        """Get status information for health checks."""
+        return {
+            "initialized": self._initialized,
+            "schema_ready": self._daemon_schema_ready,
+            "db_path": str(self.db_path),
+            "status": "ready" if self._daemon_schema_ready else "degraded",
+            "reason": None if self._daemon_schema_ready else "daemon_not_started",
+        }
 
     async def initialize(self) -> bool:
         """
@@ -924,27 +945,40 @@ class SQLiteStateManager:
                 yield conn
 
     async def _setup_schema(self):
-        """Create or migrate database schema."""
+        """
+        Check if daemon has created the database schema.
+
+        Per ADR-003, the Rust daemon is the sole owner of the SQLite database schema.
+        Python components must NOT create tables or run migrations. This method
+        checks if the daemon has created the required tables and sets a degraded
+        mode flag if not.
+        """
         with self._lock:
-            # Check current schema version
-            cursor = self.connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='schema_version'"
-            )
-
-            if not cursor.fetchone():
-                # First time setup
-                await self._create_initial_schema()
-                if self.BASE_SCHEMA_VERSION < self.SCHEMA_VERSION:
-                    await self._migrate_schema(self.BASE_SCHEMA_VERSION, self.SCHEMA_VERSION)
-            else:
-                # Check for migrations
+            # Check if daemon has created required tables
+            missing_tables = []
+            for table in self.REQUIRED_TABLES:
                 cursor = self.connection.execute(
-                    "SELECT version FROM schema_version ORDER BY version DESC LIMIT 1"
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                    (table,)
                 )
-                current_version = cursor.fetchone()[0]
+                if not cursor.fetchone():
+                    missing_tables.append(table)
 
-                if current_version < self.SCHEMA_VERSION:
-                    await self._migrate_schema(current_version, self.SCHEMA_VERSION)
+            if missing_tables:
+                logger.warning(
+                    f"Database tables not yet created by daemon: {missing_tables}. "
+                    "Some operations may fail. Run 'wqm service start' to start the daemon."
+                )
+                self._daemon_schema_ready = False
+            else:
+                # Check schema version
+                cursor = self.connection.execute(
+                    "SELECT MAX(version) FROM schema_version"
+                )
+                row = cursor.fetchone()
+                version = row[0] if row and row[0] else 0
+                logger.info(f"Daemon schema version: {version}")
+                self._daemon_schema_ready = True
 
     async def _create_initial_schema(self):
         """Create initial database schema."""
@@ -2008,7 +2042,15 @@ class SQLiteStateManager:
         This handles cases where columns were added to the base schema
         but existing databases might not have been properly migrated.
         Called after migration to catch any missing columns.
+
+        NOTE: Per ADR-003, schema is owned by daemon. This method only runs
+        if daemon has created the tables.
         """
+        # Skip if daemon hasn't created tables yet
+        if not self._daemon_schema_ready:
+            logger.debug("Skipping column check - daemon schema not ready")
+            return
+
         # Expected columns for watch_folders table (added in various versions)
         watch_folders_columns = [
             ("watch_type", "TEXT NOT NULL DEFAULT 'project'"),
@@ -2046,7 +2088,16 @@ class SQLiteStateManager:
             logger.error(f"Schema column check failed: {e}")
 
     async def _perform_crash_recovery(self):
-        """Perform crash recovery operations on startup."""
+        """Perform crash recovery operations on startup.
+
+        NOTE: Per ADR-003, crash recovery is primarily handled by the daemon.
+        This method only runs if daemon has created the tables.
+        """
+        # Skip if daemon hasn't created tables yet
+        if not self._daemon_schema_ready:
+            logger.debug("Skipping crash recovery - daemon schema not ready")
+            return
+
         logger.info("Performing crash recovery")
 
         recovery_operations = 0
