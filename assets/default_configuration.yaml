@@ -2200,3 +2200,77 @@ backup:
     #     backup_type: "pre-migration"
     #     ticket: "OPS-1234"
     custom_metadata: {}
+
+# =============================================================================
+# FILE WATCHING AND MOVE DETECTION CONFIGURATION
+# =============================================================================
+# Purpose: Configures file system watching, move detection, and path validation
+# for the Rust daemon. This section controls how the daemon detects file changes,
+# correlates rename events, and validates that watched paths still exist.
+watching:
+  # validation_interval_hours: Hours between periodic path validation runs
+  # Purpose: How often to check if watched project paths still exist on disk
+  # Path validation: Detects projects that were deleted or moved externally
+  # Orphan cleanup: Triggers cleanup when project folder no longer exists
+  # Resource balance: Higher values reduce filesystem checks, lower values detect orphans faster
+  # Timer reset: Path validation timer resets on any folder operation (rename, move, delete)
+  # Format: Integer hours > 0
+  # Default reasoning: 1 hour provides timely detection without excessive checking
+  validation_interval_hours: 1
+
+  # move_correlation_timeout_seconds: Timeout for correlating MOVED_FROM with MOVED_TO events
+  # Purpose: Maximum time to wait for MOVED_TO after receiving MOVED_FROM
+  # Rename correlation: Links old and new paths during file/folder renames
+  # Cross-filesystem detection: If timeout expires, treat as cross-filesystem move (deletion)
+  # Platform differences: macOS FSEvents may deliver events together, inotify separately
+  # Memory usage: Pending moves are tracked in memory until correlated or timeout
+  # Format: Integer seconds > 0
+  # Default reasoning: 30 seconds handles slow filesystem operations while detecting cross-FS moves
+  move_correlation_timeout_seconds: 30
+
+  # enable_path_validation: Enable periodic path validation for projects
+  # Purpose: Master toggle for orphan detection system
+  # When enabled: Periodically checks if watched project paths exist
+  # When disabled: No periodic validation, orphans detected only via events
+  # Use case: Disable for high-churn environments where paths change frequently
+  # Note: Only applies to projects, not libraries (libraries don't have filesystem paths)
+  # Format: Boolean
+  # Default reasoning: true ensures orphaned projects are cleaned up
+  enable_path_validation: true
+
+  # grace_period_minutes: Grace period before confirming project orphan
+  # Purpose: Time to wait before marking a missing project as truly orphaned
+  # Temporary unavailability: Handles brief filesystem issues or unmounts
+  # False positive prevention: Avoids deleting projects during network hiccups
+  # Validation cycles: Project must be missing for multiple validation cycles
+  # Format: Integer minutes > 0
+  # Default reasoning: 5 minutes handles most transient issues
+  grace_period_minutes: 5
+
+  # max_pending_moves: Maximum number of pending move operations to track
+  # Purpose: Memory limit for tracking MOVED_FROM events waiting for MOVED_TO
+  # Memory bound: Prevents unbounded memory growth in high-churn environments
+  # Eviction policy: Oldest pending moves are dropped when capacity reached
+  # Typical usage: Most filesystems have few concurrent renames
+  # Format: Integer > 0
+  # Default reasoning: 10000 handles large bulk operations while bounding memory
+  max_pending_moves: 10000
+
+  # debounce_delay_ms: Debounce delay for file events in milliseconds
+  # Purpose: Minimum time to wait after file event before processing
+  # Event coalescence: Multiple rapid events for same file are merged
+  # Write completion: Ensures files are fully written before processing
+  # Performance: Reduces redundant processing of rapid file modifications
+  # Format: Integer milliseconds > 0
+  # Default reasoning: 1000ms handles typical file write patterns
+  debounce_delay_ms: 1000
+
+  # enable_file_id_cache: Enable file ID tracking for rename correlation
+  # Purpose: Use filesystem file IDs (inodes) to correlate rename events
+  # Platform support: Best on macOS FSEvents and Windows ReadDirectoryChangesW
+  # Accuracy: More accurate rename detection when available
+  # Memory: Maintains cache of file IDs for watched directories
+  # Fallback: When disabled or unavailable, uses path-based heuristics
+  # Format: Boolean
+  # Default reasoning: true provides best rename correlation accuracy
+  enable_file_id_cache: true
