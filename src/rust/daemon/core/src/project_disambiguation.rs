@@ -182,7 +182,8 @@ impl ProjectIdCalculator {
     /// // - http://github.com/user/repo
     /// ```
     pub fn normalize_git_url(url: &str) -> String {
-        let mut normalized = url.to_string();
+        // Lowercase first for case-insensitive matching
+        let mut normalized = url.to_lowercase();
 
         // Remove common protocols
         for protocol in &["https://", "http://", "ssh://", "git://"] {
@@ -207,10 +208,7 @@ impl ProjectIdCalculator {
         }
 
         // Remove trailing slashes
-        normalized = normalized.trim_end_matches('/').to_string();
-
-        // Lowercase for consistency
-        normalized.to_lowercase()
+        normalized.trim_end_matches('/').to_string()
     }
 
     /// Hash an input string to create an ID
