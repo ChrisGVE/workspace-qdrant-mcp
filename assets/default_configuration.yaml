@@ -2428,3 +2428,92 @@ lsp:
   # Format: Float >= 1.0
   # Default reasoning: 2.0 doubles delay after each failure
   restart_backoff_multiplier: 2.0
+
+# =============================================================================
+# TREE-SITTER GRAMMAR CONFIGURATION
+# =============================================================================
+# Purpose: Configures dynamic tree-sitter grammar loading for semantic code
+# chunking. Instead of statically compiled grammars, grammars are loaded from
+# shared library files (.so/.dylib/.dll) at runtime, allowing languages to be
+# added without recompiling the daemon.
+#
+# Note: Grammars must be compatible with the tree-sitter runtime version
+# specified below. Incompatible grammars will be detected and can be
+# auto-replaced if auto_download is enabled.
+grammars:
+  # cache_dir: Directory for storing grammar shared libraries
+  # Purpose: Location where tree-sitter grammar files are cached
+  # Structure: <cache_dir>/<platform>/<tree_sitter_version>/<language>/
+  # Example: ~/.workspace-qdrant/grammars/x86_64-apple-darwin/0.24/rust/
+  # Platform: Automatically detected (x86_64, aarch64, etc.)
+  # Permissions: Directory must be writable by daemon process
+  # Format: Directory path with shell expansion (~, $HOME, etc.)
+  # Default reasoning: Standard location under workspace-qdrant config directory
+  cache_dir: "~/.workspace-qdrant/grammars"
+
+  # required: List of language grammars required for daemon startup
+  # Purpose: Specifies which grammars must be available before daemon is ready
+  # Validation: Daemon verifies all required grammars exist on startup
+  # Missing grammars: Auto-downloaded if auto_download=true, else warning logged
+  # Empty list: No grammars required, all loaded on-demand
+  # Format: List of language identifiers (lowercase)
+  # Default reasoning: Common languages for typical codebases
+  required:
+    - rust
+    - python
+    - javascript
+    - typescript
+    - go
+    - java
+    - c
+    - cpp
+
+  # auto_download: Automatically download missing grammars
+  # Purpose: Controls whether missing grammars are fetched from download sources
+  # When enabled: Missing required grammars downloaded on daemon startup
+  # When disabled: Missing grammars logged as warnings, parsing falls back to text
+  # Security: Downloads verified by checksum before use
+  # Offline mode: Disable for air-gapped environments
+  # Format: Boolean
+  # Default reasoning: true provides seamless setup experience
+  auto_download: true
+
+  # tree_sitter_version: Expected tree-sitter ABI version
+  # Purpose: Specifies the tree-sitter runtime version for grammar compatibility
+  # Compatibility: Grammars must be built for this tree-sitter version
+  # Mismatch handling: Incompatible grammars auto-replaced if auto_download=true
+  # Version format: Major.Minor (e.g., "0.24")
+  # Important: Must match tree-sitter version in Cargo.toml
+  # Format: String version number
+  # Default reasoning: Matches current tree-sitter dependency version
+  tree_sitter_version: "0.24"
+
+  # download_base_url: Base URL template for grammar downloads
+  # Purpose: Where to download grammar shared libraries from
+  # Template variables:
+  #   {language} - Language name (e.g., "rust", "python")
+  #   {version} - Grammar version
+  #   {platform} - Platform triple (e.g., "x86_64-apple-darwin")
+  #   {ext} - Library extension (.so, .dylib, .dll)
+  # Custom sources: Change to internal mirror for corporate environments
+  # Format: URL template string
+  # Default reasoning: Official tree-sitter grammar release URLs
+  download_base_url: "https://github.com/tree-sitter/tree-sitter-{language}/releases/download"
+
+  # verify_checksums: Verify downloaded grammar checksums
+  # Purpose: Ensures downloaded grammars are authentic and uncorrupted
+  # Security: Prevents use of tampered or corrupted grammar files
+  # Checksum source: Metadata file alongside grammar in cache directory
+  # Format: Boolean
+  # Default reasoning: true for security
+  verify_checksums: true
+
+  # lazy_loading: Load grammars on first use instead of at startup
+  # Purpose: Controls when grammars are loaded into memory
+  # When enabled: Grammars loaded only when a file of that language is processed
+  # When disabled: All required grammars loaded at daemon startup
+  # Memory: Lazy loading reduces initial memory footprint
+  # Latency: First parse of a language may have slight delay
+  # Format: Boolean
+  # Default reasoning: true for better resource usage in typical scenarios
+  lazy_loading: true
