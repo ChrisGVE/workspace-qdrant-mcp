@@ -18,13 +18,11 @@
 
 use super::grammar_cache::{GrammarCachePaths, GrammarMetadata};
 use super::grammar_downloader::{DownloadError, GrammarDownloader};
-use super::grammar_loader::{GrammarLoadError, GrammarLoader, LoadedGrammar};
+use super::grammar_loader::{GrammarLoadError, GrammarLoader};
 use super::version_checker::{check_grammar_compatibility, CompatibilityStatus};
 use crate::config::GrammarConfig;
 use std::collections::HashMap;
-use std::sync::Arc;
 use thiserror::Error;
-use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 use tree_sitter::Language;
 
@@ -361,7 +359,6 @@ pub fn create_grammar_manager(config: GrammarConfig) -> GrammarManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use tempfile::TempDir;
 
     fn test_config(temp_dir: &TempDir, auto_download: bool) -> GrammarConfig {

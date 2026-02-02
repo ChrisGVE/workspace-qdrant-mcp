@@ -18,7 +18,7 @@ use std::sync::Arc;
 use thiserror::Error;
 use tree_sitter::Language;
 
-use super::grammar_cache::{grammar_filename, GrammarCachePaths};
+use super::grammar_cache::GrammarCachePaths;
 
 /// Errors that can occur during grammar loading.
 #[derive(Debug, Error)]

@@ -14,7 +14,9 @@ pub mod types;
 pub mod version_checker;
 
 pub use chunker::SemanticChunker;
-pub use parser::TreeSitterParser;
+pub use parser::{
+    get_language, get_static_language, LanguageProvider, StaticLanguageProvider, TreeSitterParser,
+};
 pub use types::{ChunkExtractor, ChunkType, SemanticChunk};
 
 use std::path::Path;

@@ -12,14 +12,12 @@
 //! - `{platform}` - Platform triple (e.g., "x86_64-apple-darwin")
 //! - `{ext}` - Library extension (.so, .dylib, .dll)
 
-use super::grammar_cache::{
-    compute_checksum, grammar_filename, GrammarCachePaths, GrammarMetadata,
-};
+use super::grammar_cache::{compute_checksum, GrammarCachePaths, GrammarMetadata};
 use reqwest::Client;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use thiserror::Error;
 use tokio::io::AsyncWriteExt;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 /// Errors that can occur during grammar download.
 #[derive(Debug, Error)]

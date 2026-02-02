@@ -6693,6 +6693,7 @@ dependencies = [
  "governor",
  "html2text",
  "libc",
+ "libloading",
  "lru",
  "md5",
  "mime_guess",
