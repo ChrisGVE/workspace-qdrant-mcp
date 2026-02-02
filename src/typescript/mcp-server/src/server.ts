@@ -125,11 +125,11 @@ export class WorkspaceQdrantMcpServer {
       this.projectDetector
     );
 
+    // NOTE: StoreTool only writes to libraries collection per ADR-002
+    // It does not need DaemonClient (queue-only) or ProjectDetector (no project context)
     this.storeTool = new StoreTool(
-      { defaultCollection: 'projects' },
-      this.daemonClient,
-      this.stateManager,
-      this.projectDetector
+      {},
+      this.stateManager
     );
 
     // Create MCP server
@@ -322,7 +322,7 @@ export class WorkspaceQdrantMcpServer {
       },
       {
         name: 'store',
-        description: 'Store content to projects or libraries collection',
+        description: 'Store reference documentation to libraries collection (projects populated by file watcher)',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -330,10 +330,9 @@ export class WorkspaceQdrantMcpServer {
               type: 'string',
               description: 'Content to store',
             },
-            collection: {
+            libraryName: {
               type: 'string',
-              enum: ['projects', 'libraries'],
-              description: 'Target collection (default: projects)',
+              description: 'Target library name (e.g., "react", "lodash")',
             },
             title: {
               type: 'string',
@@ -352,29 +351,13 @@ export class WorkspaceQdrantMcpServer {
               enum: ['user_input', 'web', 'file', 'scratchbook', 'note'],
               description: 'Source type (default: user_input)',
             },
-            projectId: {
-              type: 'string',
-              description: 'Project ID for projects collection',
-            },
-            libraryName: {
-              type: 'string',
-              description: 'Library name (required for libraries collection)',
-            },
-            branch: {
-              type: 'string',
-              description: 'Git branch',
-            },
-            fileType: {
-              type: 'string',
-              description: 'File type/extension',
-            },
             metadata: {
               type: 'object',
               additionalProperties: { type: 'string' },
               description: 'Additional metadata',
             },
           },
-          required: ['content'],
+          required: ['content', 'libraryName'],
         },
       },
     ];
@@ -611,18 +594,17 @@ export class WorkspaceQdrantMcpServer {
 
   /**
    * Build store options from tool arguments
+   *
+   * Per ADR-002: Store only to libraries collection
+   * Per spec: libraryName is required
    */
   private buildStoreOptions(args: Record<string, unknown> | undefined): {
     content: string;
-    collection?: 'projects' | 'libraries';
+    libraryName: string;
     title?: string;
     url?: string;
     filePath?: string;
     sourceType?: 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
-    projectId?: string;
-    libraryName?: string;
-    branch?: string;
-    fileType?: string;
     metadata?: Record<string, string>;
   } {
     const content = args?.['content'] as string;
@@ -630,24 +612,20 @@ export class WorkspaceQdrantMcpServer {
       throw new Error('Content is required for store operation');
     }
 
+    const libraryName = args?.['libraryName'] as string;
+    if (!libraryName) {
+      throw new Error('libraryName is required for store operation');
+    }
+
     const options: {
       content: string;
-      collection?: 'projects' | 'libraries';
+      libraryName: string;
       title?: string;
       url?: string;
       filePath?: string;
       sourceType?: 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
-      projectId?: string;
-      libraryName?: string;
-      branch?: string;
-      fileType?: string;
       metadata?: Record<string, string>;
-    } = { content };
-
-    const collection = args?.['collection'] as string | undefined;
-    if (collection === 'projects' || collection === 'libraries') {
-      options.collection = collection;
-    }
+    } = { content, libraryName };
 
     const title = args?.['title'] as string | undefined;
     if (title) options.title = title;
@@ -662,18 +640,6 @@ export class WorkspaceQdrantMcpServer {
     if (sourceType === 'user_input' || sourceType === 'web' || sourceType === 'file' || sourceType === 'scratchbook' || sourceType === 'note') {
       options.sourceType = sourceType;
     }
-
-    const projectId = args?.['projectId'] as string | undefined;
-    if (projectId) options.projectId = projectId;
-
-    const libraryName = args?.['libraryName'] as string | undefined;
-    if (libraryName) options.libraryName = libraryName;
-
-    const branch = args?.['branch'] as string | undefined;
-    if (branch) options.branch = branch;
-
-    const fileType = args?.['fileType'] as string | undefined;
-    if (fileType) options.fileType = fileType;
 
     const metadata = args?.['metadata'] as Record<string, string> | undefined;
     if (metadata) options.metadata = metadata;
