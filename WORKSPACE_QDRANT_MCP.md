@@ -358,7 +358,7 @@ When a local project (identified by container folder) gains a git remote:
 1. Daemon detects `.git/config` change during watching
 2. If project at same location:
    - Compute new `project_id` from normalized remote URL
-   - Update `registered_projects` table
+   - Update `watch_folders` table
    - Bulk update Qdrant documents via `set_payload` API:
      ```python
      client.set_payload(
@@ -608,12 +608,12 @@ The daemon exposes gRPC methods for content ingestion (`IngestText`, etc.) but t
 
 Priority is **calculated at query time**, not stored in the queue:
 
-| Item Type                            | Priority | Calculation                               |
-| ------------------------------------ | -------- | ----------------------------------------- |
-| `memory` (any scope)                 | 1 (high) | Always high priority                      |
-| `file`/`folder` for active project   | 1 (high) | JOIN with `registered_projects.is_active` |
-| `file`/`folder` for inactive project | 0 (low)  | JOIN with `registered_projects.is_active` |
-| `library`                            | 0 (low)  | Background processing                     |
+| Item Type                            | Priority | Calculation                            |
+| ------------------------------------ | -------- | -------------------------------------- |
+| `memory` (any scope)                 | 1 (high) | Always high priority                   |
+| `file`/`folder` for active project   | 1 (high) | JOIN with `watch_folders.is_active`    |
+| `file`/`folder` for inactive project | 0 (low)  | JOIN with `watch_folders.is_active`    |
+| `library`                            | 0 (low)  | Background processing                  |
 
 **Anti-starvation mechanism:** Every 10 queue pops, alternate between:
 
@@ -624,7 +624,7 @@ This prevents inactive projects from being starved indefinitely.
 
 #### Project Activity Tracking
 
-The `registered_projects` table tracks activity state:
+The `watch_folders` table tracks activity state:
 
 | Field              | Purpose                              |
 | ------------------ | ------------------------------------ |
@@ -802,7 +802,7 @@ wqm queue show <queue_id>        # Show single item with full error history
 1. Start SQL transaction
 2. Read up to 10 elements:
    - WHERE failed = 0
-   - JOIN registered_projects for priority calculation
+   - JOIN watch_folders for priority calculation
    - ORDER BY priority [DESC|ASC based on sort_ascending], created_at ASC
 3. Flip sort_ascending flag for next batch
 4. Group items by (op, collection) for efficient Qdrant batching
@@ -953,7 +953,7 @@ This prevents starvation of low-priority items.
 
 **Target collection:** `projects` or `libraries` (depending on watch type)
 
-**Priority:** Calculated from `registered_projects.is_active` (for projects), always 0 for libraries
+**Priority:** Calculated from `watch_folders.is_active` (for projects), always 0 for libraries
 
 **Valid operations:**
 
@@ -1950,10 +1950,11 @@ The daemon checks this table on startup and runs migrations if needed. Other com
 
 ---
 
-**Version:** 1.6.2
-**Last Updated:** 2026-02-01
+**Version:** 1.6.5
+**Last Updated:** 2026-02-02
 **Changes:**
 
+- v1.6.5: Updated all references from legacy `registered_projects` table to consolidated `watch_folders` table (priority calculation, activity tracking, batch processing); Python codebase removed in preparation for TypeScript MCP server
 - v1.6.4: Updated unified_queue schema to match robust implementation - added status column for lifecycle tracking, lease_until/worker_id for crash recovery, idempotency_key for deduplication (supports content items without file paths), priority column for item type prioritization; documented idempotency key calculation and crash recovery procedure
 - v1.6.3: Corrected SDK references from non-existent @anthropic/claude-code-sdk to actual packages (@modelcontextprotocol/sdk and @anthropic-ai/claude-agent-sdk); added SDK Architecture section explaining dual-SDK pattern
 - v1.6.2: Consolidated database tables - merged `registered_projects`, `project_submodules`, and separate `watch_folders` tables into single unified `watch_folders` table; added activity inheritance for subprojects (parent and all submodules share `is_active` and `last_activity_at`); removed `project_aliases` table (dead code)
