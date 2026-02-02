@@ -7,9 +7,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 use thiserror::Error;
+use tokio::sync::RwLock;
 use tonic::transport::{Server, ServerTlsConfig, Identity};
 use tonic::{Request, Status};
 use sqlx::SqlitePool;
+use workspace_qdrant_core::LanguageServerManager;
 
 pub mod proto {
     // Generated protobuf definitions from build.rs
@@ -278,6 +280,9 @@ pub struct GrpcServer {
     db_pool: Option<SqlitePool>,
     /// Whether to enable LSP lifecycle management in ProjectService
     enable_lsp: bool,
+    /// External LSP manager for lifecycle control (optional)
+    /// If provided, this takes precedence over internal creation
+    lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
 }
 
 /// Server metrics for monitoring
@@ -351,6 +356,7 @@ impl GrpcServer {
             metrics: Arc::new(ServerMetrics::default()),
             db_pool: None,
             enable_lsp: false,
+            lsp_manager: None,
         }
     }
 
@@ -374,6 +380,17 @@ impl GrpcServer {
     /// for projects when they are registered/deprioritized.
     pub fn with_lsp_enabled(mut self, enable: bool) -> Self {
         self.enable_lsp = enable;
+        self
+    }
+
+    /// Set an external LSP manager for lifecycle control
+    ///
+    /// When provided, this manager is used instead of creating one internally.
+    /// This allows the daemon to manage the LSP lifecycle across components
+    /// (e.g., sharing with UnifiedQueueProcessor).
+    pub fn with_lsp_manager(mut self, manager: Arc<RwLock<LanguageServerManager>>) -> Self {
+        self.lsp_manager = Some(manager);
+        self.enable_lsp = true; // Automatically enable LSP when manager is provided
         self
     }
 
@@ -416,10 +433,14 @@ impl GrpcServer {
         let project_service = if let Some(pool) = self.db_pool.as_ref() {
             tracing::info!("Creating ProjectService with database pool");
 
-            // Create LSP manager if enabled
-            if self.enable_lsp {
-                use workspace_qdrant_core::{LanguageServerManager, ProjectLspConfig};
-                use tokio::sync::RwLock;
+            // Use external LSP manager if provided, otherwise create one if LSP is enabled
+            if let Some(lsp_manager) = self.lsp_manager.take() {
+                // External LSP manager provided - use it directly
+                tracing::info!("Using external LSP manager for ProjectService");
+                Some(ProjectServiceImpl::with_lsp_manager(pool.clone(), lsp_manager))
+            } else if self.enable_lsp {
+                // Create internal LSP manager
+                use workspace_qdrant_core::ProjectLspConfig;
 
                 match LanguageServerManager::new(ProjectLspConfig::default()).await {
                     Ok(mut lsp_manager) => {
@@ -429,7 +450,7 @@ impl GrpcServer {
                         }
 
                         let lsp_manager = Arc::new(RwLock::new(lsp_manager));
-                        tracing::info!("LSP lifecycle management enabled for ProjectService");
+                        tracing::info!("LSP lifecycle management enabled for ProjectService (internal)");
                         Some(ProjectServiceImpl::with_lsp_manager(pool.clone(), lsp_manager))
                     }
                     Err(e) => {

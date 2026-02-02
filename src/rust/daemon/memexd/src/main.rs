@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
 use tokio::signal;
+use tokio::sync::RwLock;
 use tracing::{error, info, warn};
 
 use workspace_qdrant_core::{
@@ -24,6 +25,8 @@ use workspace_qdrant_core::{
     DocumentProcessor, EmbeddingGenerator, EmbeddingConfig,
     StorageClient, StorageConfig,
     queue_config::QueueConnectionConfig,
+    // LSP lifecycle management (Task 1.1)
+    LanguageServerManager, ProjectLspConfig,
 };
 
 // gRPC server for Python MCP server and CLI communication (Task 421)
@@ -472,6 +475,28 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     // Clone pool for gRPC server (ProjectService needs it)
     let grpc_db_pool = queue_pool.clone();
 
+    // Initialize LSP lifecycle manager (Task 1.1)
+    // Created centrally to share between gRPC server and UnifiedQueueProcessor
+    info!("Initializing LSP lifecycle manager...");
+    let lsp_manager = match LanguageServerManager::new(ProjectLspConfig::default()).await {
+        Ok(mut manager) => {
+            // Initialize the LSP manager
+            if let Err(e) = manager.initialize().await {
+                warn!("Failed to initialize LSP manager: {}", e);
+            }
+            let manager = Arc::new(RwLock::new(manager));
+            info!("LSP lifecycle manager initialized");
+            Some(manager)
+        }
+        Err(e) => {
+            warn!("Failed to create LSP manager, continuing without LSP: {}", e);
+            None
+        }
+    };
+
+    // Clone LSP manager for gRPC server
+    let grpc_lsp_manager = lsp_manager.clone();
+
     // Start gRPC server for MCP server and CLI communication (Task 421)
     let grpc_port = args.grpc_port;
     let grpc_addr = format!("127.0.0.1:{}", grpc_port).parse()
@@ -482,6 +507,12 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     let grpc_handle = tokio::spawn(async move {
         let mut grpc_server = GrpcServer::new(grpc_config)
             .with_database_pool(grpc_db_pool);
+
+        // Enable LSP if manager was created successfully
+        if let Some(lsp_manager) = grpc_lsp_manager {
+            grpc_server = grpc_server.with_lsp_manager(lsp_manager);
+        }
+
         if let Err(e) = grpc_server.start().await {
             error!("gRPC server error: {}", e);
         }
@@ -574,6 +605,12 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         storage_client,
     );
 
+    // Add LSP manager for code enrichment during file processing (Task 1.1)
+    if let Some(ref lsp) = lsp_manager {
+        unified_queue_processor = unified_queue_processor.with_lsp_manager(Arc::clone(lsp));
+        info!("LSP manager attached to unified queue processor for code enrichment");
+    }
+
     // Recover stale leases from previous daemon crashes (Task 37.19)
     if let Err(e) = unified_queue_processor.recover_stale_leases().await {
         warn!("Failed to recover stale unified queue leases: {}", e);
@@ -609,6 +646,17 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         error!("Error stopping queue processor: {}", e);
     } else {
         info!("Queue processor stopped");
+    }
+
+    // Shutdown LSP manager - stop all language servers (Task 1.1)
+    if let Some(lsp) = lsp_manager {
+        info!("Shutting down LSP manager...");
+        let manager = lsp.write().await;
+        if let Err(e) = manager.shutdown().await {
+            error!("Error shutting down LSP manager: {}", e);
+        } else {
+            info!("LSP manager shutdown complete");
+        }
     }
 
     uptime_handle.abort();
