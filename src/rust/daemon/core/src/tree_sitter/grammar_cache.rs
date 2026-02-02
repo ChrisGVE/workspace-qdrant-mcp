@@ -241,6 +241,50 @@ pub fn tree_sitter_runtime_version() -> &'static str {
     "0.24"
 }
 
+/// Compute SHA256 checksum of a file.
+///
+/// Returns the hex-encoded SHA256 hash of the file contents.
+pub fn compute_checksum(path: &std::path::Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+
+    let file = std::fs::File::open(path)?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut hasher = Sha256::new();
+
+    std::io::copy(&mut reader, &mut hasher)?;
+
+    let result = hasher.finalize();
+    Ok(format!("{:x}", result))
+}
+
+/// Verify that a grammar file matches the expected checksum.
+///
+/// Returns true if the checksum matches, false otherwise.
+/// Returns an error if the file cannot be read.
+pub fn verify_checksum(
+    grammar_path: &std::path::Path,
+    expected_checksum: &str,
+) -> std::io::Result<bool> {
+    let actual = compute_checksum(grammar_path)?;
+    Ok(actual == expected_checksum)
+}
+
+/// Verify a grammar against its metadata checksum.
+///
+/// Loads the metadata file from the grammar's directory and verifies
+/// that the grammar file's checksum matches the stored checksum.
+pub fn verify_grammar_integrity(
+    paths: &GrammarCachePaths,
+    language: &str,
+) -> std::io::Result<bool> {
+    let metadata = paths
+        .load_metadata(language)?
+        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "Metadata not found"))?;
+
+    let grammar_path = paths.grammar_path(language);
+    verify_checksum(&grammar_path, &metadata.checksum)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -369,5 +413,82 @@ mod tests {
     fn test_tree_sitter_runtime_version() {
         let version = tree_sitter_runtime_version();
         assert!(version.starts_with("0."));
+    }
+
+    #[test]
+    fn test_compute_checksum() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("test.txt");
+        std::fs::write(&test_file, "test content").unwrap();
+
+        let checksum = compute_checksum(&test_file).unwrap();
+        // SHA256 of "test content"
+        assert_eq!(checksum.len(), 64); // SHA256 produces 64 hex chars
+        assert!(checksum.chars().all(|c| c.is_ascii_hexdigit()));
+
+        // Same content should produce same checksum
+        let checksum2 = compute_checksum(&test_file).unwrap();
+        assert_eq!(checksum, checksum2);
+    }
+
+    #[test]
+    fn test_compute_checksum_different_content() {
+        let temp_dir = TempDir::new().unwrap();
+
+        let file1 = temp_dir.path().join("file1.txt");
+        let file2 = temp_dir.path().join("file2.txt");
+
+        std::fs::write(&file1, "content one").unwrap();
+        std::fs::write(&file2, "content two").unwrap();
+
+        let checksum1 = compute_checksum(&file1).unwrap();
+        let checksum2 = compute_checksum(&file2).unwrap();
+
+        // Different content should produce different checksums
+        assert_ne!(checksum1, checksum2);
+    }
+
+    #[test]
+    fn test_verify_checksum_valid() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("grammar.so");
+        std::fs::write(&test_file, "fake grammar content").unwrap();
+
+        let expected = compute_checksum(&test_file).unwrap();
+        assert!(verify_checksum(&test_file, &expected).unwrap());
+    }
+
+    #[test]
+    fn test_verify_checksum_invalid() {
+        let temp_dir = TempDir::new().unwrap();
+        let test_file = temp_dir.path().join("grammar.so");
+        std::fs::write(&test_file, "fake grammar content").unwrap();
+
+        assert!(!verify_checksum(&test_file, "wrong_checksum").unwrap());
+    }
+
+    #[test]
+    fn test_verify_grammar_integrity() {
+        let temp_dir = TempDir::new().unwrap();
+        let paths = GrammarCachePaths::with_root(temp_dir.path(), "0.24.0");
+
+        // Create grammar and compute its checksum
+        paths.create_directories("rust").unwrap();
+        let grammar_path = paths.grammar_path("rust");
+        std::fs::write(&grammar_path, "fake rust grammar binary").unwrap();
+        let checksum = compute_checksum(&grammar_path).unwrap();
+
+        // Save metadata with correct checksum
+        let metadata = GrammarMetadata::new("rust", "0.24.0", "0.23.0", &paths.platform, &checksum);
+        paths.save_metadata("rust", &metadata).unwrap();
+
+        // Verify should succeed
+        assert!(verify_grammar_integrity(&paths, "rust").unwrap());
+
+        // Modify the grammar file
+        std::fs::write(&grammar_path, "modified grammar").unwrap();
+
+        // Verify should now fail
+        assert!(!verify_grammar_integrity(&paths, "rust").unwrap());
     }
 }
