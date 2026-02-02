@@ -30,8 +30,8 @@ tonic = { version = "0.12", features = ["tls", "tls-roots"] }
 prost = "0.13"
 prost-types = "0.13"
 
-# Async runtime (lightweight config for <100ms startup)
-tokio = { version = "1.35", features = ["rt", "macros", "sync"] }
+# Async runtime (with fs for update command)
+tokio = { version = "1.35", features = ["rt", "macros", "sync", "fs", "io-util", "time"] }
 
 # Error handling
 anyhow = "1.0"
@@ -61,6 +61,13 @@ sha2 = "0.10"
 
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
+
+# HTTP client for update command
+reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false }
+
+# Version comparison
+semver = "1.0"
+
 
 [build-dependencies]
 tonic-build = { version = "0.12", features = ["prost"] }

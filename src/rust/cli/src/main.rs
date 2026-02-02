@@ -62,6 +62,9 @@ enum Commands {
     /// Tree-sitter grammar management (list, install, remove, verify, reload)
     Grammar(commands::grammar::GrammarArgs),
 
+    /// Update daemon from GitHub releases
+    Update(commands::update::UpdateArgs),
+
     // =========================================================================
     // Phase 2 - MEDIUM priority (behind feature flag)
     // =========================================================================
@@ -138,6 +141,7 @@ async fn main() -> Result<()> {
         Commands::Queue(args) => commands::queue::execute(args).await,
         Commands::Lsp(args) => commands::lsp::execute(args).await,
         Commands::Grammar(args) => commands::grammar::execute(args).await,
+        Commands::Update(args) => commands::update::execute(args).await,
 
         // Phase 2 commands
         #[cfg(feature = "phase2")]
