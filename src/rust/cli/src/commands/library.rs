@@ -11,9 +11,28 @@
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
 
 use crate::grpc::client::DaemonClient;
+
+/// Library sync mode controlling how file deletions are handled
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum LibraryMode {
+    /// Mirror mode: Delete vectors when source files are removed
+    Sync,
+    /// Append-only mode: Never delete vectors, only add/update (default)
+    #[default]
+    Incremental,
+}
+
+impl std::fmt::Display for LibraryMode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LibraryMode::Sync => write!(f, "sync"),
+            LibraryMode::Incremental => write!(f, "incremental"),
+        }
+    }
+}
 use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output::{self, ServiceStatus};
 
@@ -41,6 +60,10 @@ enum LibraryCommand {
 
         /// Path to library content
         path: PathBuf,
+
+        /// Sync mode: 'sync' (delete vectors for removed files) or 'incremental' (append-only, default)
+        #[arg(short, long, value_enum, default_value_t = LibraryMode::Incremental)]
+        mode: LibraryMode,
     },
 
     /// Watch a library path for changes
@@ -54,6 +77,10 @@ enum LibraryCommand {
         /// File patterns to include (e.g., "*.pdf", "*.md")
         #[arg(short, long)]
         patterns: Vec<String>,
+
+        /// Sync mode: 'sync' (delete vectors for removed files) or 'incremental' (append-only, default)
+        #[arg(short, long, value_enum, default_value_t = LibraryMode::Incremental)]
+        mode: LibraryMode,
     },
 
     /// Stop watching a library
@@ -86,12 +113,13 @@ enum LibraryCommand {
 pub async fn execute(args: LibraryArgs) -> Result<()> {
     match args.command {
         LibraryCommand::List { verbose } => list(verbose).await,
-        LibraryCommand::Add { tag, path } => add(&tag, &path).await,
+        LibraryCommand::Add { tag, path, mode } => add(&tag, &path, mode).await,
         LibraryCommand::Watch {
             tag,
             path,
             patterns,
-        } => watch(&tag, &path, &patterns).await,
+            mode,
+        } => watch(&tag, &path, &patterns, mode).await,
         LibraryCommand::Unwatch { tag } => unwatch(&tag).await,
         LibraryCommand::Rescan { tag, force } => rescan(&tag, force).await,
         LibraryCommand::Info { tag } => info(tag.as_deref()).await,
@@ -127,7 +155,7 @@ async fn list(verbose: bool) -> Result<()> {
     if verbose {
         output::info("Query watch folders:");
         output::info(&format!(
-            "  sqlite3 {} 'SELECT watch_id, path, patterns, enabled FROM watch_folders WHERE watch_id LIKE \"lib-%\"'",
+            "  sqlite3 {} 'SELECT watch_id, path, library_mode, patterns, enabled FROM watch_folders WHERE watch_id LIKE \"lib-%\"'",
             db_path.display()
         ));
     } else {
@@ -144,7 +172,7 @@ async fn list(verbose: bool) -> Result<()> {
     Ok(())
 }
 
-async fn add(tag: &str, path: &PathBuf) -> Result<()> {
+async fn add(tag: &str, path: &PathBuf, mode: LibraryMode) -> Result<()> {
     output::section(format!("Add Library: {}", tag));
 
     // Validate path exists
@@ -158,18 +186,20 @@ async fn add(tag: &str, path: &PathBuf) -> Result<()> {
 
     output::info(format!("Library tag: {}", tag));
     output::info(format!("Path: {}", abs_path.display()));
+    output::info(format!("Mode: {} ({})", mode, mode_description(mode)));
     output::separator();
 
     // Library add creates metadata without watching
     // This would write to SQLite with enabled=false
     output::info("To add library with watching enabled, use:");
-    output::info(&format!("  wqm library watch {} {}", tag, abs_path.display()));
+    output::info(&format!("  wqm library watch {} {} --mode {}", tag, abs_path.display(), mode));
     output::separator();
 
     output::info("Library metadata storage:");
     output::info("  Libraries are stored in SQLite watch_folders table");
     output::info("  Watch ID format: lib-{tag}");
     output::info(&format!("  Collection name: _{}", tag));
+    output::info(&format!("  library_mode: {}", mode));
 
     // Signal daemon if available
     if let Ok(mut client) = DaemonClient::connect_default().await {
@@ -187,7 +217,15 @@ async fn add(tag: &str, path: &PathBuf) -> Result<()> {
     Ok(())
 }
 
-async fn watch(tag: &str, path: &PathBuf, patterns: &[String]) -> Result<()> {
+/// Returns a human-readable description of the library mode
+fn mode_description(mode: LibraryMode) -> &'static str {
+    match mode {
+        LibraryMode::Sync => "deletes vectors when files are removed",
+        LibraryMode::Incremental => "append-only, never deletes vectors",
+    }
+}
+
+async fn watch(tag: &str, path: &PathBuf, patterns: &[String], mode: LibraryMode) -> Result<()> {
     output::section(format!("Watch Library: {}", tag));
 
     // Validate path exists
@@ -211,6 +249,7 @@ async fn watch(tag: &str, path: &PathBuf, patterns: &[String]) -> Result<()> {
     output::info(format!("Library tag: {}", tag));
     output::info(format!("Path: {}", abs_path.display()));
     output::info(format!("Patterns: {}", patterns_str.join(", ")));
+    output::info(format!("Mode: {} ({})", mode, mode_description(mode)));
     output::separator();
 
     // This would insert into SQLite watch_folders table
@@ -220,6 +259,7 @@ async fn watch(tag: &str, path: &PathBuf, patterns: &[String]) -> Result<()> {
     output::info("Watch configuration:");
     output::kv("  watch_id", &watch_id);
     output::kv("  collection", &collection);
+    output::kv("  library_mode", &mode.to_string());
     output::kv("  auto_ingest", "true");
     output::kv("  recursive", "true");
     output::kv("  enabled", "true");
@@ -228,12 +268,13 @@ async fn watch(tag: &str, path: &PathBuf, patterns: &[String]) -> Result<()> {
     output::info("To configure in SQLite:");
     let db_path = get_db_path()?;
     output::info(&format!(
-        "  sqlite3 {} \"INSERT INTO watch_folders (watch_id, path, collection, patterns, enabled) VALUES ('{}', '{}', '{}', '{}', 1)\"",
+        "  sqlite3 {} \"INSERT INTO watch_folders (watch_id, path, collection, patterns, library_mode, enabled) VALUES ('{}', '{}', '{}', '{}', '{}', 1)\"",
         db_path.display(),
         watch_id,
         abs_path.display(),
         collection,
-        serde_json::to_string(&patterns_str).unwrap_or_default()
+        serde_json::to_string(&patterns_str).unwrap_or_default(),
+        mode
     ));
 
     // Signal daemon
@@ -370,9 +411,14 @@ async fn info(tag: Option<&str>) -> Result<()> {
             let db_path = get_db_path()?;
             output::info("Library watch configurations:");
             output::info(&format!(
-                "  sqlite3 {} \"SELECT watch_id, path, enabled FROM watch_folders WHERE watch_id LIKE 'lib-%'\" -header -column",
+                "  sqlite3 {} \"SELECT watch_id, path, library_mode, enabled FROM watch_folders WHERE watch_id LIKE 'lib-%'\" -header -column",
                 db_path.display()
             ));
+
+            output::separator();
+            output::info("Library modes:");
+            output::info("  sync: Deletes vectors when source files are removed");
+            output::info("  incremental: Append-only, never deletes vectors (default)");
 
             output::separator();
             output::info("Library collections in Qdrant (prefix with _):");
@@ -427,7 +473,7 @@ async fn status() -> Result<()> {
 
     output::info("Query enabled library watches:");
     output::info(&format!(
-        "  sqlite3 {} \"SELECT watch_id, path FROM watch_folders WHERE watch_id LIKE 'lib-%' AND enabled = 1\"",
+        "  sqlite3 {} \"SELECT watch_id, path, library_mode FROM watch_folders WHERE watch_id LIKE 'lib-%' AND enabled = 1\"",
         db_path.display()
     ));
 
