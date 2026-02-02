@@ -117,6 +117,32 @@ pub struct ConfigurationRecord {
     pub previous_value: Option<JsonValue>,
 }
 
+/// Project-specific LSP server state for persistence and recovery
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectServerState {
+    /// Project identifier (tenant_id)
+    pub project_id: String,
+    /// Programming language
+    pub language: Language,
+    /// Project root path
+    pub project_root: String,
+    /// Number of times the server was restarted
+    pub restart_count: u32,
+    /// When the server was last started
+    pub last_started_at: DateTime<Utc>,
+    /// Server executable path (for re-spawning)
+    pub executable_path: Option<String>,
+    /// Additional metadata
+    pub metadata: HashMap<String, JsonValue>,
+}
+
+/// Key for identifying a project-language combination
+#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+pub struct ProjectLanguageKey {
+    pub project_id: String,
+    pub language: Language,
+}
+
 /// Unified state manager for SQLite persistence
 pub struct StateManager {
     pool: SqlitePool,
@@ -255,6 +281,34 @@ impl StateManager {
             .execute(&self.pool).await?;
         
         sqlx::query("CREATE INDEX IF NOT EXISTS idx_config_server_key ON lsp_configurations(server_id, key)")
+            .execute(&self.pool).await?;
+
+        // Create project server states table (Task 1.18)
+        sqlx::query(r#"
+            CREATE TABLE IF NOT EXISTS lsp_project_server_states (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                project_id TEXT NOT NULL,
+                language TEXT NOT NULL,
+                project_root TEXT NOT NULL,
+                restart_count INTEGER NOT NULL DEFAULT 0,
+                last_started_at TEXT NOT NULL,
+                executable_path TEXT,
+                metadata TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(project_id, language)
+            )
+        "#)
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_project_server_project ON lsp_project_server_states(project_id)")
+            .execute(&self.pool).await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_project_server_language ON lsp_project_server_states(language)")
+            .execute(&self.pool).await?;
+
+        sqlx::query("CREATE INDEX IF NOT EXISTS idx_project_server_last_started ON lsp_project_server_states(last_started_at)")
             .execute(&self.pool).await?;
 
         info!("Unified state database schema initialized successfully");
@@ -626,6 +680,149 @@ impl StateManager {
         Ok(total_deleted)
     }
 
+    /// Store project server state for recovery
+    pub async fn store_project_server_state(&self, state: &ProjectServerState) -> LspResult<()> {
+        debug!(
+            "Storing project server state: project_id={}, language={:?}",
+            state.project_id, state.language
+        );
+
+        let language_str = serde_json::to_string(&state.language)?.trim_matches('"').to_string();
+        let metadata_json = serde_json::to_string(&state.metadata)?;
+
+        sqlx::query(r#"
+            INSERT INTO lsp_project_server_states (
+                project_id, language, project_root, restart_count, last_started_at,
+                executable_path, metadata, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, CURRENT_TIMESTAMP)
+            ON CONFLICT(project_id, language) DO UPDATE SET
+                project_root = excluded.project_root,
+                restart_count = excluded.restart_count,
+                last_started_at = excluded.last_started_at,
+                executable_path = excluded.executable_path,
+                metadata = excluded.metadata,
+                updated_at = CURRENT_TIMESTAMP
+        "#)
+        .bind(&state.project_id)
+        .bind(&language_str)
+        .bind(&state.project_root)
+        .bind(state.restart_count as i32)
+        .bind(state.last_started_at.to_rfc3339())
+        .bind(&state.executable_path)
+        .bind(&metadata_json)
+        .execute(&self.pool)
+        .await?;
+
+        debug!("Project server state stored successfully");
+        Ok(())
+    }
+
+    /// Remove project server state (when server is stopped)
+    pub async fn remove_project_server_state(
+        &self,
+        project_id: &str,
+        language: &Language,
+    ) -> LspResult<()> {
+        debug!(
+            "Removing project server state: project_id={}, language={:?}",
+            project_id, language
+        );
+
+        let language_str = serde_json::to_string(language)?.trim_matches('"').to_string();
+
+        sqlx::query(r#"
+            DELETE FROM lsp_project_server_states
+            WHERE project_id = ?1 AND language = ?2
+        "#)
+        .bind(project_id)
+        .bind(&language_str)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
+    /// Restore all project server states from SQLite
+    pub async fn restore_project_server_states(
+        &self,
+    ) -> LspResult<HashMap<ProjectLanguageKey, ProjectServerState>> {
+        debug!("Restoring project server states from SQLite");
+
+        let rows = sqlx::query(r#"
+            SELECT project_id, language, project_root, restart_count, last_started_at,
+                   executable_path, metadata
+            FROM lsp_project_server_states
+            ORDER BY project_id, language
+        "#)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut states = HashMap::new();
+
+        for row in rows {
+            let project_id: String = row.get("project_id");
+            let language_str: String = row.get("language");
+            let language: Language = serde_json::from_str(&format!("\"{}\"", language_str))?;
+            let metadata: HashMap<String, JsonValue> = serde_json::from_str(row.get("metadata"))?;
+
+            let state = ProjectServerState {
+                project_id: project_id.clone(),
+                language: language.clone(),
+                project_root: row.get("project_root"),
+                restart_count: row.get::<i32, _>("restart_count") as u32,
+                last_started_at: DateTime::parse_from_rfc3339(row.get("last_started_at"))?
+                    .with_timezone(&Utc),
+                executable_path: row.get("executable_path"),
+                metadata,
+            };
+
+            let key = ProjectLanguageKey {
+                project_id,
+                language,
+            };
+
+            states.insert(key, state);
+        }
+
+        info!("Restored {} project server states", states.len());
+        Ok(states)
+    }
+
+    /// Clean up stale project server states (older than specified hours)
+    pub async fn cleanup_stale_project_states(&self, max_age_hours: u32) -> LspResult<u64> {
+        info!(
+            "Cleaning up project server states older than {} hours",
+            max_age_hours
+        );
+
+        let cutoff_date = Utc::now() - chrono::Duration::hours(max_age_hours as i64);
+        let cutoff_str = cutoff_date.to_rfc3339();
+
+        let result = sqlx::query(r#"
+            DELETE FROM lsp_project_server_states
+            WHERE last_started_at < ?1
+        "#)
+        .bind(&cutoff_str)
+        .execute(&self.pool)
+        .await?;
+
+        let deleted = result.rows_affected();
+        if deleted > 0 {
+            info!("Cleaned up {} stale project server states", deleted);
+        }
+
+        Ok(deleted)
+    }
+
+    /// Get project server state count
+    pub async fn get_project_server_state_count(&self) -> LspResult<i64> {
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM lsp_project_server_states")
+                .fetch_one(&self.pool)
+                .await?;
+        Ok(count)
+    }
+
     /// Close the state manager
     pub async fn close(&self) -> LspResult<()> {
         info!("Closing unified state manager");
@@ -661,6 +858,12 @@ impl StateManager {
             .fetch_one(&self.pool)
             .await?;
         stats.insert("total_communication_records".to_string(), JsonValue::Number(comm_count.into()));
+
+        // Get total project server states
+        let project_state_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM lsp_project_server_states")
+            .fetch_one(&self.pool)
+            .await?;
+        stats.insert("total_project_server_states".to_string(), JsonValue::Number(project_state_count.into()));
 
         // Database file size
         if let Ok(metadata) = tokio::fs::metadata(&self.database_path).await {
@@ -803,5 +1006,202 @@ mod tests {
         let stats = manager.get_stats().await.unwrap();
         let comm_count = stats.get("total_communication_records").unwrap().as_u64().unwrap();
         assert_eq!(comm_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_project_server_state_storage() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        let manager = StateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Store a project server state
+        let state = ProjectServerState {
+            project_id: "test-project-123".to_string(),
+            language: Language::Python,
+            project_root: "/home/user/project".to_string(),
+            restart_count: 2,
+            last_started_at: Utc::now(),
+            executable_path: Some("/usr/bin/pyright".to_string()),
+            metadata: HashMap::new(),
+        };
+        manager.store_project_server_state(&state).await.unwrap();
+
+        // Verify count
+        let count = manager.get_project_server_state_count().await.unwrap();
+        assert_eq!(count, 1);
+
+        // Restore and verify
+        let restored = manager.restore_project_server_states().await.unwrap();
+        assert_eq!(restored.len(), 1);
+
+        let key = ProjectLanguageKey {
+            project_id: "test-project-123".to_string(),
+            language: Language::Python,
+        };
+        let restored_state = restored.get(&key).unwrap();
+        assert_eq!(restored_state.project_root, "/home/user/project");
+        assert_eq!(restored_state.restart_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_project_server_state_update() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        let manager = StateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Store initial state
+        let state = ProjectServerState {
+            project_id: "test-project".to_string(),
+            language: Language::Rust,
+            project_root: "/project".to_string(),
+            restart_count: 0,
+            last_started_at: Utc::now(),
+            executable_path: Some("/usr/bin/rust-analyzer".to_string()),
+            metadata: HashMap::new(),
+        };
+        manager.store_project_server_state(&state).await.unwrap();
+
+        // Update with same project_id and language
+        let updated_state = ProjectServerState {
+            project_id: "test-project".to_string(),
+            language: Language::Rust,
+            project_root: "/project".to_string(),
+            restart_count: 5,  // Updated
+            last_started_at: Utc::now(),
+            executable_path: Some("/usr/bin/rust-analyzer".to_string()),
+            metadata: HashMap::new(),
+        };
+        manager.store_project_server_state(&updated_state).await.unwrap();
+
+        // Verify count is still 1 (upsert worked)
+        let count = manager.get_project_server_state_count().await.unwrap();
+        assert_eq!(count, 1);
+
+        // Verify updated value
+        let restored = manager.restore_project_server_states().await.unwrap();
+        let key = ProjectLanguageKey {
+            project_id: "test-project".to_string(),
+            language: Language::Rust,
+        };
+        assert_eq!(restored.get(&key).unwrap().restart_count, 5);
+    }
+
+    #[tokio::test]
+    async fn test_project_server_state_removal() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        let manager = StateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Store state
+        let state = ProjectServerState {
+            project_id: "to-remove".to_string(),
+            language: Language::TypeScript,
+            project_root: "/ts-project".to_string(),
+            restart_count: 0,
+            last_started_at: Utc::now(),
+            executable_path: None,
+            metadata: HashMap::new(),
+        };
+        manager.store_project_server_state(&state).await.unwrap();
+        assert_eq!(manager.get_project_server_state_count().await.unwrap(), 1);
+
+        // Remove it
+        manager
+            .remove_project_server_state("to-remove", &Language::TypeScript)
+            .await
+            .unwrap();
+
+        // Verify it's gone
+        assert_eq!(manager.get_project_server_state_count().await.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_stale_project_states() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        let manager = StateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Store a state from 2 days ago
+        let old_state = ProjectServerState {
+            project_id: "old-project".to_string(),
+            language: Language::Go,
+            project_root: "/old".to_string(),
+            restart_count: 0,
+            last_started_at: Utc::now() - chrono::Duration::hours(50),
+            executable_path: None,
+            metadata: HashMap::new(),
+        };
+        manager.store_project_server_state(&old_state).await.unwrap();
+
+        // Store a recent state
+        let new_state = ProjectServerState {
+            project_id: "new-project".to_string(),
+            language: Language::Python,
+            project_root: "/new".to_string(),
+            restart_count: 0,
+            last_started_at: Utc::now(),
+            executable_path: None,
+            metadata: HashMap::new(),
+        };
+        manager.store_project_server_state(&new_state).await.unwrap();
+
+        assert_eq!(manager.get_project_server_state_count().await.unwrap(), 2);
+
+        // Cleanup states older than 24 hours
+        let deleted = manager.cleanup_stale_project_states(24).await.unwrap();
+        assert_eq!(deleted, 1);
+
+        // Verify only new state remains
+        assert_eq!(manager.get_project_server_state_count().await.unwrap(), 1);
+        let restored = manager.restore_project_server_states().await.unwrap();
+        assert!(restored.contains_key(&ProjectLanguageKey {
+            project_id: "new-project".to_string(),
+            language: Language::Python,
+        }));
+    }
+
+    #[tokio::test]
+    async fn test_multiple_languages_same_project() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+
+        let manager = StateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Store multiple languages for same project
+        for lang in [Language::Python, Language::Rust, Language::TypeScript] {
+            let state = ProjectServerState {
+                project_id: "multi-lang".to_string(),
+                language: lang,
+                project_root: "/multi".to_string(),
+                restart_count: 0,
+                last_started_at: Utc::now(),
+                executable_path: None,
+                metadata: HashMap::new(),
+            };
+            manager.store_project_server_state(&state).await.unwrap();
+        }
+
+        // Verify all 3 are stored
+        assert_eq!(manager.get_project_server_state_count().await.unwrap(), 3);
+
+        // Restore and verify
+        let restored = manager.restore_project_server_states().await.unwrap();
+        assert_eq!(restored.len(), 3);
+
+        // Remove just one
+        manager
+            .remove_project_server_state("multi-lang", &Language::Rust)
+            .await
+            .unwrap();
+        assert_eq!(manager.get_project_server_state_count().await.unwrap(), 2);
     }
 }
