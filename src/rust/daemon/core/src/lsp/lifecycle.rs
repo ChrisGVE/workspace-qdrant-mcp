@@ -4,7 +4,7 @@
 //! health monitoring, restart on failure, and graceful shutdown.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
@@ -182,6 +182,21 @@ impl ServerInstance {
         };
 
         Ok(instance)
+    }
+
+    /// Set the working directory for the LSP server
+    ///
+    /// This should be called before `start()` to set the project root
+    /// for the LSP server. The working directory is used as the rootUri
+    /// in the LSP initialize request.
+    pub fn with_working_directory(mut self, path: PathBuf) -> Self {
+        self.metadata.working_directory = path;
+        self
+    }
+
+    /// Get the current working directory
+    pub fn working_directory(&self) -> &Path {
+        &self.metadata.working_directory
     }
 
     /// Start the LSP server process
@@ -1049,5 +1064,30 @@ mod tests {
         // No process started yet, should return false
         let alive = instance.is_alive().await;
         assert!(!alive);
+    }
+
+    #[tokio::test]
+    async fn test_server_instance_with_working_directory() {
+        let detected = DetectedServer {
+            name: "test-server".to_string(),
+            path: PathBuf::from("/usr/bin/test"),
+            languages: vec![Language::Rust],
+            version: Some("1.0".to_string()),
+            capabilities: ServerCapabilities::default(),
+            priority: 1,
+        };
+
+        let instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+
+        // Default working directory should be current directory
+        let default_dir = instance.working_directory().to_path_buf();
+        assert!(!default_dir.as_os_str().is_empty());
+
+        // Set custom working directory
+        let project_root = PathBuf::from("/path/to/project");
+        let instance = instance.with_working_directory(project_root.clone());
+
+        // Verify it was set
+        assert_eq!(instance.working_directory(), project_root);
     }
 }

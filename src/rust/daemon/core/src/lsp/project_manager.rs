@@ -391,16 +391,18 @@ impl LanguageServerManager {
             priority: 1,
         };
 
-        // Create and start the server instance
+        // Create and start the server instance with project root as working directory
         let mut instance = ServerInstance::new(detected, self.config.lsp_config.clone())
             .await
-            .map_err(|e| ProjectLspError::Lsp(e))?;
+            .map_err(|e| ProjectLspError::Lsp(e))?
+            .with_working_directory(project_root.to_path_buf());
 
-        // Set the working directory to the project root
-        // Note: ServerInstance uses metadata.working_directory internally
-        // We need to reinitialize with the correct project root
-        // For now, start the server with the default working directory
-        // and let it re-initialize when we send textDocument/didOpen
+        tracing::debug!(
+            project_id = project_id,
+            language = ?language,
+            working_directory = %project_root.display(),
+            "Created server instance with project root"
+        );
 
         if let Err(e) = instance.start().await {
             tracing::warn!(
