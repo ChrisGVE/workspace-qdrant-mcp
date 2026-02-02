@@ -371,6 +371,11 @@ impl GrammarManager {
         self.loader.cache_paths()
     }
 
+    /// Check if auto-download is enabled (downloader is available).
+    pub fn has_downloader(&self) -> bool {
+        self.downloader.is_some()
+    }
+
     /// Set the default grammar version for downloads.
     pub fn set_default_version(&mut self, version: impl Into<String>) {
         self.default_version = version.into();
