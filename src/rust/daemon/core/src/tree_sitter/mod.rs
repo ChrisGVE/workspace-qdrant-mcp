@@ -19,7 +19,7 @@ pub use grammar_downloader::{DownloadError, GrammarDownloader};
 pub use grammar_loader::{GrammarLoader, LoadedGrammar};
 pub use grammar_manager::{
     create_grammar_manager, GrammarError, GrammarInfo, GrammarManager, GrammarResult,
-    GrammarStatus, LoadedGrammarsProvider,
+    GrammarStatus, GrammarValidationResult, LoadedGrammarsProvider,
 };
 pub use parser::{
     get_language, get_static_language, LanguageProvider, StaticLanguageProvider, TreeSitterParser,

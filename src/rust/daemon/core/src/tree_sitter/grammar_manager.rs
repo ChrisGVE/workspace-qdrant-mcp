@@ -356,6 +356,130 @@ pub fn create_grammar_manager(config: GrammarConfig) -> GrammarManager {
     GrammarManager::new(config)
 }
 
+/// Validation result for grammar availability checks.
+#[derive(Debug, Clone)]
+pub struct GrammarValidationResult {
+    /// Grammars that are fully available (loaded or can be loaded)
+    pub available: Vec<String>,
+    /// Grammars that need to be downloaded
+    pub needs_download: Vec<String>,
+    /// Grammars that are not available and cannot be obtained
+    pub unavailable: Vec<String>,
+    /// Whether all required grammars are available
+    pub all_required_available: bool,
+    /// Validation messages for logging/reporting
+    pub messages: Vec<String>,
+}
+
+impl GrammarValidationResult {
+    /// Check if validation passed (all required grammars available).
+    pub fn is_valid(&self) -> bool {
+        self.all_required_available
+    }
+
+    /// Get a summary of the validation result.
+    pub fn summary(&self) -> String {
+        format!(
+            "Grammars: {} available, {} need download, {} unavailable",
+            self.available.len(),
+            self.needs_download.len(),
+            self.unavailable.len()
+        )
+    }
+}
+
+impl GrammarManager {
+    /// Validate grammar availability at startup.
+    ///
+    /// This checks all required grammars and returns a validation result
+    /// that can be used for logging and decision making.
+    ///
+    /// Returns a GrammarValidationResult indicating which grammars are
+    /// available, which need downloading, and which are unavailable.
+    pub fn validate_grammars(&self) -> GrammarValidationResult {
+        let mut available = Vec::new();
+        let mut needs_download = Vec::new();
+        let mut unavailable = Vec::new();
+        let mut messages = Vec::new();
+
+        for language in &self.config.required {
+            match self.grammar_status(language) {
+                GrammarStatus::Loaded => {
+                    available.push(language.clone());
+                    messages.push(format!("{}: loaded", language));
+                }
+                GrammarStatus::Cached => {
+                    available.push(language.clone());
+                    messages.push(format!("{}: cached", language));
+                }
+                GrammarStatus::NeedsDownload => {
+                    needs_download.push(language.clone());
+                    messages.push(format!("{}: needs download", language));
+                }
+                GrammarStatus::IncompatibleVersion => {
+                    needs_download.push(language.clone());
+                    messages.push(format!("{}: incompatible version, needs re-download", language));
+                }
+                GrammarStatus::NotAvailable => {
+                    unavailable.push(language.clone());
+                    messages.push(format!(
+                        "{}: not available (auto_download disabled)",
+                        language
+                    ));
+                }
+            }
+        }
+
+        // All required are available if none are in unavailable
+        // (needs_download is OK if auto_download is enabled)
+        let all_required_available = unavailable.is_empty();
+
+        GrammarValidationResult {
+            available,
+            needs_download,
+            unavailable,
+            all_required_available,
+            messages,
+        }
+    }
+
+    /// Validate and optionally preload required grammars.
+    ///
+    /// This performs validation and, if auto_download is enabled, attempts
+    /// to download and load any missing grammars.
+    ///
+    /// Returns the validation result after any download attempts.
+    pub async fn validate_and_preload(&mut self) -> GrammarValidationResult {
+        // First, run initial validation
+        let initial = self.validate_grammars();
+
+        // Log initial status
+        for msg in &initial.messages {
+            debug!("{}", msg);
+        }
+
+        // If all required are available or auto_download is disabled, return
+        if initial.is_valid() || self.downloader.is_none() {
+            return initial;
+        }
+
+        // Try to preload required grammars
+        info!("Preloading required grammars...");
+        let results = self.preload_required().await;
+
+        // Log results
+        for (language, result) in &results {
+            match result {
+                Ok(_) => info!("Grammar '{}' loaded successfully", language),
+                Err(e) => warn!("Failed to load grammar '{}': {}", language, e),
+            }
+        }
+
+        // Re-validate after preloading
+        self.validate_grammars()
+    }
+}
+
 /// A synchronous LanguageProvider backed by pre-loaded grammars.
 ///
 /// This provider is created from a GrammarManager's loaded grammars and can be
@@ -643,5 +767,74 @@ mod tests {
         // Manager has no loaded grammars yet
         let provider = manager.create_language_provider();
         assert!(provider.is_empty());
+    }
+
+    // Tests for grammar validation
+    #[test]
+    fn test_validate_grammars_with_auto_download() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, true); // auto_download enabled
+        let manager = GrammarManager::new(config);
+
+        let result = manager.validate_grammars();
+
+        // With auto_download, missing grammars should be in needs_download
+        assert!(!result.needs_download.is_empty());
+        assert!(result.unavailable.is_empty());
+        // All required are "available" because they can be downloaded
+        assert!(result.is_valid());
+    }
+
+    #[test]
+    fn test_validate_grammars_without_auto_download() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, false); // auto_download disabled
+        let manager = GrammarManager::new(config);
+
+        let result = manager.validate_grammars();
+
+        // Without auto_download, missing grammars should be unavailable
+        assert!(!result.unavailable.is_empty());
+        // Not all required are available
+        assert!(!result.is_valid());
+    }
+
+    #[test]
+    fn test_validation_result_summary() {
+        let result = GrammarValidationResult {
+            available: vec!["rust".to_string()],
+            needs_download: vec!["python".to_string()],
+            unavailable: vec!["go".to_string()],
+            all_required_available: false,
+            messages: vec![],
+        };
+
+        let summary = result.summary();
+        assert!(summary.contains("1 available"));
+        assert!(summary.contains("1 need download"));
+        assert!(summary.contains("1 unavailable"));
+    }
+
+    #[test]
+    fn test_validation_result_is_valid() {
+        // Valid: all required available
+        let valid_result = GrammarValidationResult {
+            available: vec!["rust".to_string()],
+            needs_download: vec![],
+            unavailable: vec![],
+            all_required_available: true,
+            messages: vec![],
+        };
+        assert!(valid_result.is_valid());
+
+        // Invalid: some unavailable
+        let invalid_result = GrammarValidationResult {
+            available: vec![],
+            needs_download: vec![],
+            unavailable: vec!["rust".to_string()],
+            all_required_available: false,
+            messages: vec![],
+        };
+        assert!(!invalid_result.is_valid());
     }
 }

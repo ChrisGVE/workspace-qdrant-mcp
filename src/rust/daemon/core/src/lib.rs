@@ -181,7 +181,7 @@ pub use crate::tree_sitter::{
     // Grammar management
     GrammarManager, GrammarError, GrammarResult, GrammarStatus, GrammarInfo,
     GrammarCachePaths, GrammarMetadata, GrammarLoader, LoadedGrammar,
-    GrammarDownloader, DownloadError, LoadedGrammarsProvider,
+    GrammarDownloader, DownloadError, LoadedGrammarsProvider, GrammarValidationResult,
     // Language provider system
     LanguageProvider, StaticLanguageProvider, get_language, get_static_language,
     // Version checking
