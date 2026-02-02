@@ -540,8 +540,11 @@ impl GrpcServer {
 
         // Conditionally add ProjectService if database pool was provided
         if let Some(project_svc_impl) = project_service {
+            // Start the deferred shutdown monitor background task (Task 1.12)
+            project_svc_impl.start_deferred_shutdown_monitor();
+
             let project_svc = proto::project_service_server::ProjectServiceServer::new(project_svc_impl);
-            tracing::info!("Registering ProjectService gRPC endpoint");
+            tracing::info!("Registering ProjectService gRPC endpoint with deferred shutdown monitor");
             router = router.add_service(project_svc);
         }
 

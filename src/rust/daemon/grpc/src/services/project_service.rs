@@ -11,7 +11,7 @@
 //!   - Respects deactivation_delay_secs config before stopping
 
 use chrono::Utc;
-use sqlx::{SqlitePool, Row};
+use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -118,6 +118,139 @@ impl ProjectServiceImpl {
             deactivation_delay_secs,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Start the background task that monitors and executes deferred LSP shutdowns
+    ///
+    /// This spawns an async task that:
+    /// - Runs every 10 seconds
+    /// - Checks for expired shutdown entries
+    /// - Verifies queue is empty before executing shutdown
+    /// - Removes completed/cancelled entries
+    ///
+    /// Call this after construction to enable deferred shutdown monitoring.
+    pub fn start_deferred_shutdown_monitor(&self) {
+        let pending_shutdowns = Arc::clone(&self.pending_shutdowns);
+        let db_pool = self.db_pool.clone();
+        let lsp_manager = self.lsp_manager.clone();
+        let language_detector = Arc::clone(&self.language_detector);
+
+        tokio::spawn(async move {
+            info!("Started deferred LSP shutdown monitor (10s interval)");
+
+            loop {
+                // Wait 10 seconds between checks
+                tokio::time::sleep(Duration::from_secs(10)).await;
+
+                // Get a snapshot of pending shutdowns
+                let pending: Vec<(String, Instant, bool)> = {
+                    let shutdowns = pending_shutdowns.read().await;
+                    shutdowns
+                        .iter()
+                        .map(|(k, (time, checked))| (k.clone(), *time, *checked))
+                        .collect()
+                };
+
+                if pending.is_empty() {
+                    continue;
+                }
+
+                debug!("Checking {} pending shutdowns", pending.len());
+
+                let now = Instant::now();
+                for (project_id, scheduled_time, _was_queue_checked) in pending {
+                    // Check if delay has expired
+                    if scheduled_time > now {
+                        debug!(
+                            project_id = %project_id,
+                            remaining_secs = (scheduled_time - now).as_secs(),
+                            "Shutdown not yet due"
+                        );
+                        continue;
+                    }
+
+                    // Check queue depth
+                    let queue_depth: i64 = match sqlx::query_scalar(
+                        "SELECT COUNT(*) FROM unified_queue WHERE status = 'pending' AND tenant_id = ?1"
+                    )
+                        .bind(&project_id)
+                        .fetch_one(&db_pool)
+                        .await
+                    {
+                        Ok(count) => count,
+                        Err(e) => {
+                            if e.to_string().contains("no such table") {
+                                // Table doesn't exist yet, treat as empty
+                                0
+                            } else {
+                                warn!(
+                                    project_id = %project_id,
+                                    error = %e,
+                                    "Failed to check queue depth, skipping this iteration"
+                                );
+                                continue;
+                            }
+                        }
+                    };
+
+                    if queue_depth > 0 {
+                        debug!(
+                            project_id = %project_id,
+                            pending_items = queue_depth,
+                            "Queue not empty, deferring shutdown"
+                        );
+                        continue;
+                    }
+
+                    // Ready to shutdown - remove from pending and execute
+                    {
+                        let mut shutdowns = pending_shutdowns.write().await;
+                        shutdowns.remove(&project_id);
+                    }
+
+                    info!(
+                        project_id = %project_id,
+                        "Executing deferred LSP shutdown (queue empty, delay expired)"
+                    );
+
+                    // Invalidate language detection cache
+                    language_detector.invalidate_cache(&project_id).await;
+
+                    // Stop LSP servers
+                    let Some(lsp_mgr) = &lsp_manager else {
+                        continue;
+                    };
+
+                    let manager = lsp_mgr.read().await;
+                    let languages_to_stop = vec![
+                        Language::Python,
+                        Language::Rust,
+                        Language::TypeScript,
+                        Language::JavaScript,
+                        Language::Go,
+                        Language::C,
+                        Language::Cpp,
+                        Language::Java,
+                    ];
+
+                    for language in languages_to_stop {
+                        if let Err(e) = manager.stop_server(&project_id, language.clone()).await {
+                            debug!(
+                                project_id = %project_id,
+                                language = ?language,
+                                error = %e,
+                                "Error stopping LSP server (may not have been running)"
+                            );
+                        }
+                    }
+
+                    info!(
+                        project_id = %project_id,
+                        "Deferred LSP shutdown complete"
+                    );
+                }
+            }
+        });
     }
 
     /// Start LSP servers for a project's detected languages
@@ -1255,5 +1388,59 @@ mod tests {
 
         // Shutdown should still be pending
         assert!(service.get_pending_shutdowns().await.contains_key("abcd12345678"));
+    }
+
+    #[tokio::test]
+    async fn test_background_monitor_can_be_started() {
+        let (pool, _temp_dir) = setup_test_db_with_queue().await;
+
+        let service = ProjectServiceImpl {
+            priority_manager: PriorityManager::new(pool.clone()),
+            db_pool: pool,
+            lsp_manager: None,
+            language_detector: Arc::new(ProjectLanguageDetector::new()),
+            deactivation_delay_secs: 0,
+            pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
+        };
+
+        // Start the background monitor - should not panic
+        service.start_deferred_shutdown_monitor();
+
+        // Give the background task a moment to start
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // If we get here without panic, the test passes
+        // The task will be cleaned up when the tokio runtime drops
+    }
+
+    #[tokio::test]
+    async fn test_execute_deferred_shutdown_succeeds_when_queue_empty() {
+        let (pool, _temp_dir) = setup_test_db_with_queue().await;
+
+        let service = ProjectServiceImpl {
+            priority_manager: PriorityManager::new(pool.clone()),
+            db_pool: pool,
+            lsp_manager: None,
+            language_detector: Arc::new(ProjectLanguageDetector::new()),
+            deactivation_delay_secs: 0,
+            pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
+        };
+
+        // Schedule a deferred shutdown with immediate expiry
+        {
+            let mut shutdowns = service.pending_shutdowns.write().await;
+            // Use Instant::now() - 1 second to make it already expired
+            shutdowns.insert(
+                "abcd12345678".to_string(),
+                (Instant::now() - Duration::from_secs(1), true)
+            );
+        }
+
+        // Try to execute - should succeed because queue is empty
+        let result = service.execute_deferred_shutdown("abcd12345678").await.unwrap();
+        assert!(result); // Did execute
+
+        // Shutdown should no longer be pending
+        assert!(!service.get_pending_shutdowns().await.contains_key("abcd12345678"));
     }
 }
