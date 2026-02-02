@@ -1,18 +1,16 @@
 //! Fairness Scheduler Module
 //!
-//! Implements Task 34: Weighted scheduling algorithm that processes N items per active
-//! project before processing global oldest items. Provides fairness across projects
-//! while preventing starvation.
+//! Implements Task 21: 10-item anti-starvation alternation.
+//! Every 10 items, flips between priority DESC (active first) and priority ASC
+//! (inactive projects get a turn) to prevent starvation.
 
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use std::collections::HashMap;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 use crate::queue_operations::{QueueManager, QueueError};
-use crate::unified_queue_schema::UnifiedQueueItem;
+use crate::unified_queue_schema::{ItemType, UnifiedQueueItem};
 
 /// Fairness scheduler errors
 #[derive(Error, Debug)]
@@ -33,17 +31,11 @@ pub type FairnessResult<T> = Result<T, FairnessError>;
 /// Configuration for the fairness scheduler
 #[derive(Debug, Clone)]
 pub struct FairnessSchedulerConfig {
-    /// Whether fairness scheduling is enabled (if disabled, falls back to FIFO)
+    /// Whether fairness scheduling is enabled (if disabled, falls back to priority DESC always)
     pub enabled: bool,
 
-    /// Maximum items to dequeue per active project before moving to next
-    pub items_per_active_project: i32,
-
-    /// Maximum age in seconds for global items before starvation guard triggers
-    pub max_global_item_age_secs: i64,
-
-    /// Threshold in hours for considering a project "active"
-    pub active_project_threshold_hours: i64,
+    /// Number of items between priority direction flips (spec: 10)
+    pub items_per_flip: u64,
 
     /// Worker ID for lease acquisition
     pub worker_id: String,
@@ -56,73 +48,58 @@ impl Default for FairnessSchedulerConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            items_per_active_project: 5,
-            max_global_item_age_secs: 600, // 10 minutes
-            active_project_threshold_hours: 1,
+            items_per_flip: 10, // Spec: every 10 items
             worker_id: format!("fairness-worker-{}", uuid::Uuid::new_v4()),
             lease_duration_secs: 300, // 5 minutes
         }
     }
 }
 
-/// Local tracking state for an active project during scheduling
-#[derive(Debug, Clone)]
-struct ProjectSchedulingState {
-    /// Project ID (tenant_id)
-    project_id: String,
-
-    /// Number of items processed in the current round
-    items_processed_this_round: i32,
-
-    /// Last time we processed an item for this project
-    last_processed_at: DateTime<Utc>,
-}
-
-impl ProjectSchedulingState {
-    fn new(project_id: &str) -> Self {
-        Self {
-            project_id: project_id.to_string(),
-            items_processed_this_round: 0,
-            last_processed_at: Utc::now(),
-        }
-    }
-
-    fn increment(&mut self) {
-        self.items_processed_this_round += 1;
-        self.last_processed_at = Utc::now();
-    }
-
-    fn reset_round(&mut self) {
-        self.items_processed_this_round = 0;
-    }
-}
-
 /// Metrics tracked by the fairness scheduler
 #[derive(Debug, Clone, Default)]
 pub struct FairnessMetrics {
-    /// Number of times starvation guard was triggered
-    pub starvation_overrides_total: u64,
+    /// Number of times priority direction was flipped
+    pub direction_flips_total: u64,
 
-    /// Current count of active projects
-    pub active_projects_count: u64,
+    /// Items dequeued with high priority first (DESC)
+    pub high_priority_first_items: u64,
 
-    /// Items dequeued per project in current round
-    pub items_per_project: HashMap<String, u64>,
+    /// Items dequeued with low priority first (ASC)
+    pub low_priority_first_items: u64,
 
     /// Total items dequeued via fairness scheduling
     pub total_items_dequeued: u64,
 
-    /// Total global (non-project) items dequeued
-    pub global_items_dequeued: u64,
+    /// Current priority direction (true = DESC, false = ASC)
+    pub current_priority_descending: bool,
 
-    /// Last refresh of active projects
-    pub last_active_projects_refresh: Option<DateTime<Utc>>,
+    /// Items processed since last flip
+    pub items_since_flip: u64,
+}
+
+/// Anti-starvation state for the scheduler
+struct AlternationState {
+    /// Whether to use priority DESC (true) or ASC (false)
+    use_priority_descending: bool,
+
+    /// Items processed since last flip
+    items_since_flip: u64,
+}
+
+impl Default for AlternationState {
+    fn default() -> Self {
+        Self {
+            use_priority_descending: true, // Start with high priority first
+            items_since_flip: 0,
+        }
+    }
 }
 
 /// Fairness scheduler for balanced queue processing
 ///
-/// Implements a weighted scheduling algorithm that ensures all active projects
-/// get fair processing time while preventing starvation of older items.
+/// Implements the spec's anti-starvation mechanism: every 10 items,
+/// alternate between priority DESC (active projects first) and
+/// priority ASC (inactive projects get a turn).
 pub struct FairnessScheduler {
     /// Queue manager for database operations
     queue_manager: QueueManager,
@@ -130,14 +107,8 @@ pub struct FairnessScheduler {
     /// Scheduler configuration
     config: FairnessSchedulerConfig,
 
-    /// Local tracking of active projects for scheduling
-    project_states: Arc<RwLock<HashMap<String, ProjectSchedulingState>>>,
-
-    /// Current position in round-robin (index into active projects)
-    current_project_index: Arc<RwLock<usize>>,
-
-    /// Cached list of active project IDs (refreshed periodically)
-    active_project_ids: Arc<RwLock<Vec<String>>>,
+    /// Anti-starvation alternation state
+    alternation_state: Arc<RwLock<AlternationState>>,
 
     /// Metrics for monitoring
     metrics: Arc<RwLock<FairnessMetrics>>,
@@ -147,17 +118,18 @@ impl FairnessScheduler {
     /// Create a new fairness scheduler
     pub fn new(queue_manager: QueueManager, config: FairnessSchedulerConfig) -> Self {
         info!(
-            "Creating fairness scheduler (enabled={}, items_per_project={}, max_age={}s)",
-            config.enabled, config.items_per_active_project, config.max_global_item_age_secs
+            "Creating fairness scheduler (enabled={}, items_per_flip={})",
+            config.enabled, config.items_per_flip
         );
 
         Self {
             queue_manager,
             config,
-            project_states: Arc::new(RwLock::new(HashMap::new())),
-            current_project_index: Arc::new(RwLock::new(0)),
-            active_project_ids: Arc::new(RwLock::new(Vec::new())),
-            metrics: Arc::new(RwLock::new(FairnessMetrics::default())),
+            alternation_state: Arc::new(RwLock::new(AlternationState::default())),
+            metrics: Arc::new(RwLock::new(FairnessMetrics {
+                current_priority_descending: true,
+                ..Default::default()
+            })),
         }
     }
 
@@ -166,99 +138,12 @@ impl FairnessScheduler {
         self.metrics.read().await.clone()
     }
 
-    /// Refresh the list of active projects from the database
-    ///
-    /// Active projects are those with:
-    /// - items_in_queue > 0, OR
-    /// - activity within the threshold hours
-    pub async fn refresh_active_projects(&self) -> FairnessResult<Vec<String>> {
-        let threshold = Utc::now() - ChronoDuration::hours(self.config.active_project_threshold_hours);
-
-        // Get all active projects from the database
-        let projects = self.queue_manager
-            .list_active_projects(None, false, None)
-            .await?;
-
-        // Filter to those that are truly active (have queue items or recent activity)
-        let active_ids: Vec<String> = projects
-            .into_iter()
-            .filter(|p| p.items_in_queue > 0 || p.last_activity_at >= threshold)
-            .map(|p| p.project_id)
-            .collect();
-
-        // Update cached list
-        {
-            let mut ids = self.active_project_ids.write().await;
-            *ids = active_ids.clone();
-        }
-
-        // Update project states - add new, keep existing
-        {
-            let mut states = self.project_states.write().await;
-
-            // Add states for new projects
-            for project_id in &active_ids {
-                states
-                    .entry(project_id.clone())
-                    .or_insert_with(|| ProjectSchedulingState::new(project_id));
-            }
-
-            // Remove states for projects no longer active
-            states.retain(|id, _| active_ids.contains(id));
-        }
-
-        // Update metrics
-        {
-            let mut metrics = self.metrics.write().await;
-            metrics.active_projects_count = active_ids.len() as u64;
-            metrics.last_active_projects_refresh = Some(Utc::now());
-        }
-
-        debug!(
-            "Refreshed active projects: {} active",
-            active_ids.len()
-        );
-
-        Ok(active_ids)
-    }
-
-    /// Check if there's a stale global item that should be prioritized
-    ///
-    /// Returns the item if found, along with how old it is in seconds.
-    pub async fn check_starvation_guard(&self) -> FairnessResult<Option<(UnifiedQueueItem, i64)>> {
-        let max_age_secs = self.config.max_global_item_age_secs;
-        let threshold = Utc::now() - ChronoDuration::seconds(max_age_secs);
-
-        // Query for oldest pending item across all projects
-        let oldest_item = self.queue_manager
-            .get_oldest_pending_unified_item()
-            .await?;
-
-        if let Some(item) = oldest_item {
-            // Parse the created_at timestamp
-            if let Ok(created_at) = DateTime::parse_from_rfc3339(&item.created_at) {
-                let age_secs = (Utc::now() - created_at.with_timezone(&Utc)).num_seconds();
-
-                if created_at.with_timezone(&Utc) < threshold {
-                    debug!(
-                        "Starvation guard triggered: item {} is {}s old (threshold: {}s)",
-                        item.queue_id, age_secs, max_age_secs
-                    );
-                    return Ok(Some((item, age_secs)));
-                }
-            }
-        }
-
-        Ok(None)
-    }
-
-    /// Dequeue items for a specific project
-    ///
-    /// Returns up to N items for the given project.
+    /// Dequeue items for a specific project with current priority direction
     async fn dequeue_project_batch(
         &self,
         project_id: &str,
         max_items: i32,
+        priority_descending: bool,
     ) -> FairnessResult<Vec<UnifiedQueueItem>> {
         let items = self.queue_manager
             .dequeue_unified(
@@ -267,241 +152,207 @@ impl FairnessScheduler {
                 Some(self.config.lease_duration_secs),
                 Some(project_id),
                 None,
+                Some(priority_descending),
             )
             .await?;
 
         Ok(items)
     }
 
-    /// Dequeue the oldest global item (regardless of project)
-    async fn dequeue_global_oldest(&self) -> FairnessResult<Option<UnifiedQueueItem>> {
+    /// Dequeue items globally with current priority direction
+    async fn dequeue_global_batch(
+        &self,
+        max_items: i32,
+        priority_descending: bool,
+    ) -> FairnessResult<Vec<UnifiedQueueItem>> {
         let items = self.queue_manager
             .dequeue_unified(
-                1,
+                max_items,
                 &self.config.worker_id,
                 Some(self.config.lease_duration_secs),
                 None,
                 None,
+                Some(priority_descending),
             )
             .await?;
 
-        Ok(items.into_iter().next())
+        Ok(items)
+    }
+
+    /// Dequeue items by type with current priority direction
+    async fn dequeue_by_type(
+        &self,
+        max_items: i32,
+        item_type: ItemType,
+        priority_descending: bool,
+    ) -> FairnessResult<Vec<UnifiedQueueItem>> {
+        let items = self.queue_manager
+            .dequeue_unified(
+                max_items,
+                &self.config.worker_id,
+                Some(self.config.lease_duration_secs),
+                None,
+                Some(item_type),
+                Some(priority_descending),
+            )
+            .await?;
+
+        Ok(items)
     }
 
     /// Main scheduling method: dequeue the next batch of items
     ///
-    /// Algorithm:
-    /// 1. Check starvation guard - if triggered, prioritize oldest global item
-    /// 2. For each active project (round-robin):
-    ///    - Dequeue up to N items
-    ///    - Track how many processed this round
-    /// 3. After all active projects get their items, dequeue 1 global oldest
-    /// 4. Repeat
+    /// Algorithm (Task 21 - Anti-starvation alternation):
+    /// 1. Get current priority direction (DESC or ASC)
+    /// 2. Dequeue up to batch_size items with that direction
+    /// 3. Track items processed
+    /// 4. Every items_per_flip items (default 10), flip the direction
+    ///
+    /// This ensures:
+    /// - Most of the time, high priority (active projects/memory) go first
+    /// - Every 10 items, low priority (inactive projects/libraries) get a turn
+    /// - No items starve indefinitely
     pub async fn dequeue_next_batch(&self, max_batch_size: i32) -> FairnessResult<Vec<UnifiedQueueItem>> {
-        // If fairness is disabled, fall back to simple FIFO
+        // If fairness is disabled, always use priority DESC
         if !self.config.enabled {
-            debug!("Fairness disabled, using FIFO dequeue");
-            return Ok(self.queue_manager
-                .dequeue_unified(
-                    max_batch_size,
-                    &self.config.worker_id,
-                    Some(self.config.lease_duration_secs),
-                    None,
-                    None,
-                )
-                .await?);
+            debug!("Fairness disabled, using priority DESC");
+            return self.dequeue_global_batch(max_batch_size, true).await;
         }
 
-        let mut batch = Vec::new();
-        let items_per_project = self.config.items_per_active_project;
-
-        // Step 1: Check starvation guard
-        if let Some((stale_item, age_secs)) = self.check_starvation_guard().await? {
-            info!(
-                "Starvation guard: prioritizing item {} (age: {}s)",
-                stale_item.queue_id, age_secs
-            );
-
-            // Dequeue this specific item
-            let items = self.queue_manager
-                .dequeue_unified(
-                    1,
-                    &self.config.worker_id,
-                    Some(self.config.lease_duration_secs),
-                    Some(&stale_item.tenant_id),
-                    None,
-                )
-                .await?;
-
-            if !items.is_empty() {
-                batch.extend(items);
-
-                // Update starvation metrics
-                {
-                    let mut metrics = self.metrics.write().await;
-                    metrics.starvation_overrides_total += 1;
-                    metrics.global_items_dequeued += 1;
-                }
-
-                // If batch is full, return
-                if batch.len() as i32 >= max_batch_size {
-                    return Ok(batch);
-                }
-            }
-        }
-
-        // Step 2: Refresh active projects periodically
-        let active_ids = {
-            let last_refresh = self.metrics.read().await.last_active_projects_refresh;
-            let should_refresh = match last_refresh {
-                Some(t) => (Utc::now() - t).num_seconds() > 60, // Refresh every minute
-                None => true,
-            };
-
-            if should_refresh {
-                self.refresh_active_projects().await?
-            } else {
-                self.active_project_ids.read().await.clone()
-            }
+        // Get current direction
+        let priority_descending = {
+            let state = self.alternation_state.read().await;
+            state.use_priority_descending
         };
 
-        if active_ids.is_empty() {
-            // No active projects, fall back to global dequeue
-            debug!("No active projects, dequeuing globally");
-            let remaining = max_batch_size - batch.len() as i32;
-            if remaining > 0 {
-                let items = self.dequeue_global_oldest().await?;
-                if let Some(item) = items {
-                    batch.push(item);
-                }
-            }
-            return Ok(batch);
-        }
+        debug!(
+            "Dequeuing batch with priority {} (items_per_flip={})",
+            if priority_descending { "DESC (high first)" } else { "ASC (low first)" },
+            self.config.items_per_flip
+        );
 
-        // Step 3: Round-robin through active projects
-        let num_projects = active_ids.len();
-        let mut projects_visited = 0;
-        let mut all_projects_exhausted = false;
+        // Dequeue items with current direction
+        let items = self.dequeue_global_batch(max_batch_size, priority_descending).await?;
+        let items_count = items.len() as u64;
 
-        while batch.len() < max_batch_size as usize && !all_projects_exhausted {
-            let current_idx = {
-                let idx = self.current_project_index.read().await;
-                *idx
-            };
+        if items_count > 0 {
+            // Update alternation state and metrics
+            let mut state = self.alternation_state.write().await;
+            let mut metrics = self.metrics.write().await;
 
-            let project_id = &active_ids[current_idx % num_projects];
+            state.items_since_flip += items_count;
+            metrics.total_items_dequeued += items_count;
+            metrics.items_since_flip = state.items_since_flip;
 
-            // Check how many items this project has gotten this round
-            let items_this_round = {
-                let states = self.project_states.read().await;
-                states
-                    .get(project_id)
-                    .map(|s| s.items_processed_this_round)
-                    .unwrap_or(0)
-            };
-
-            if items_this_round < items_per_project {
-                // Still have quota for this project
-                let remaining_quota = items_per_project - items_this_round;
-                let remaining_batch = max_batch_size - batch.len() as i32;
-                let to_fetch = remaining_quota.min(remaining_batch);
-
-                let items = self.dequeue_project_batch(project_id, to_fetch).await?;
-
-                if !items.is_empty() {
-                    let count = items.len();
-                    batch.extend(items);
-
-                    // Update project state
-                    {
-                        let mut states = self.project_states.write().await;
-                        if let Some(state) = states.get_mut(project_id) {
-                            for _ in 0..count {
-                                state.increment();
-                            }
-                        }
-                    }
-
-                    // Update metrics
-                    {
-                        let mut metrics = self.metrics.write().await;
-                        *metrics.items_per_project.entry(project_id.clone()).or_insert(0) += count as u64;
-                        metrics.total_items_dequeued += count as u64;
-                    }
-
-                    debug!(
-                        "Dequeued {} items for project {} (this round: {})",
-                        count,
-                        project_id,
-                        items_this_round + count as i32
-                    );
-                }
+            if priority_descending {
+                metrics.high_priority_first_items += items_count;
+            } else {
+                metrics.low_priority_first_items += items_count;
             }
 
-            // Move to next project
-            {
-                let mut idx = self.current_project_index.write().await;
-                *idx = (*idx + 1) % num_projects;
+            // Check if we should flip direction
+            if state.items_since_flip >= self.config.items_per_flip {
+                state.use_priority_descending = !state.use_priority_descending;
+                state.items_since_flip = 0;
+                metrics.direction_flips_total += 1;
+                metrics.current_priority_descending = state.use_priority_descending;
+                metrics.items_since_flip = 0;
+
+                info!(
+                    "Anti-starvation flip: switching to priority {} (flip #{})",
+                    if state.use_priority_descending { "DESC" } else { "ASC" },
+                    metrics.direction_flips_total
+                );
             }
-            projects_visited += 1;
 
-            // Check if we've completed a full round
-            if projects_visited >= num_projects {
-                // Reset all project round counters
-                {
-                    let mut states = self.project_states.write().await;
-                    for state in states.values_mut() {
-                        state.reset_round();
-                    }
-                }
-
-                // After a full round, dequeue 1 global oldest item
-                if batch.len() < max_batch_size as usize {
-                    if let Some(item) = self.dequeue_global_oldest().await? {
-                        debug!("Dequeued global oldest item: {}", item.queue_id);
-                        batch.push(item);
-
-                        let mut metrics = self.metrics.write().await;
-                        metrics.global_items_dequeued += 1;
-                        metrics.total_items_dequeued += 1;
-                    }
-                }
-
-                // Start a new round
-                projects_visited = 0;
-
-                // Check if all projects are exhausted
-                // (no items were dequeued in the last full round)
-                if batch.is_empty() {
-                    all_projects_exhausted = true;
-                }
-            }
-        }
-
-        if batch.is_empty() {
-            debug!("No items available in queue");
-        } else {
             info!(
-                "Fairness scheduler dequeued {} items (from {} active projects)",
-                batch.len(),
-                active_ids.len()
+                "Fairness scheduler dequeued {} items (priority {}, {}/{} until flip)",
+                items_count,
+                if priority_descending { "DESC" } else { "ASC" },
+                state.items_since_flip,
+                self.config.items_per_flip
             );
+        } else {
+            debug!("No items available in queue");
         }
 
-        Ok(batch)
+        Ok(items)
     }
 
-    /// Reset the round-robin position and project states
-    pub async fn reset(&self) {
-        let mut idx = self.current_project_index.write().await;
-        *idx = 0;
+    /// Dequeue next batch for a specific project
+    ///
+    /// Uses the anti-starvation alternation for the priority direction.
+    pub async fn dequeue_project_next_batch(
+        &self,
+        project_id: &str,
+        max_batch_size: i32,
+    ) -> FairnessResult<Vec<UnifiedQueueItem>> {
+        let priority_descending = if !self.config.enabled {
+            true
+        } else {
+            let state = self.alternation_state.read().await;
+            state.use_priority_descending
+        };
 
-        let mut states = self.project_states.write().await;
-        for state in states.values_mut() {
-            state.reset_round();
+        let items = self.dequeue_project_batch(project_id, max_batch_size, priority_descending).await?;
+        let items_count = items.len() as u64;
+
+        if items_count > 0 && self.config.enabled {
+            let mut state = self.alternation_state.write().await;
+            let mut metrics = self.metrics.write().await;
+
+            state.items_since_flip += items_count;
+            metrics.total_items_dequeued += items_count;
+
+            if priority_descending {
+                metrics.high_priority_first_items += items_count;
+            } else {
+                metrics.low_priority_first_items += items_count;
+            }
+
+            if state.items_since_flip >= self.config.items_per_flip {
+                state.use_priority_descending = !state.use_priority_descending;
+                state.items_since_flip = 0;
+                metrics.direction_flips_total += 1;
+                metrics.current_priority_descending = state.use_priority_descending;
+
+                info!(
+                    "Anti-starvation flip: switching to priority {} (flip #{})",
+                    if state.use_priority_descending { "DESC" } else { "ASC" },
+                    metrics.direction_flips_total
+                );
+            }
         }
 
+        Ok(items)
+    }
+
+    /// Reset the alternation state
+    pub async fn reset(&self) {
+        let mut state = self.alternation_state.write().await;
+        *state = AlternationState::default();
+
+        let mut metrics = self.metrics.write().await;
+        metrics.current_priority_descending = true;
+        metrics.items_since_flip = 0;
+
         debug!("Fairness scheduler state reset");
+    }
+
+    /// Force a specific priority direction (for testing or manual override)
+    pub async fn set_priority_direction(&self, descending: bool) {
+        let mut state = self.alternation_state.write().await;
+        state.use_priority_descending = descending;
+        state.items_since_flip = 0;
+
+        let mut metrics = self.metrics.write().await;
+        metrics.current_priority_descending = descending;
+        metrics.items_since_flip = 0;
+
+        debug!(
+            "Priority direction manually set to {}",
+            if descending { "DESC" } else { "ASC" }
+        );
     }
 }
 
@@ -513,37 +364,26 @@ mod tests {
     fn test_fairness_scheduler_config_default() {
         let config = FairnessSchedulerConfig::default();
         assert!(config.enabled);
-        assert_eq!(config.items_per_active_project, 5);
-        assert_eq!(config.max_global_item_age_secs, 600);
-        assert_eq!(config.active_project_threshold_hours, 1);
+        assert_eq!(config.items_per_flip, 10);
         assert_eq!(config.lease_duration_secs, 300);
         assert!(config.worker_id.starts_with("fairness-worker-"));
     }
 
     #[test]
-    fn test_project_scheduling_state() {
-        let mut state = ProjectSchedulingState::new("test-project");
-        assert_eq!(state.project_id, "test-project");
-        assert_eq!(state.items_processed_this_round, 0);
-
-        state.increment();
-        assert_eq!(state.items_processed_this_round, 1);
-
-        state.increment();
-        assert_eq!(state.items_processed_this_round, 2);
-
-        state.reset_round();
-        assert_eq!(state.items_processed_this_round, 0);
+    fn test_alternation_state_default() {
+        let state = AlternationState::default();
+        assert!(state.use_priority_descending);
+        assert_eq!(state.items_since_flip, 0);
     }
 
     #[test]
     fn test_fairness_metrics_default() {
         let metrics = FairnessMetrics::default();
-        assert_eq!(metrics.starvation_overrides_total, 0);
-        assert_eq!(metrics.active_projects_count, 0);
-        assert!(metrics.items_per_project.is_empty());
+        assert_eq!(metrics.direction_flips_total, 0);
+        assert_eq!(metrics.high_priority_first_items, 0);
+        assert_eq!(metrics.low_priority_first_items, 0);
         assert_eq!(metrics.total_items_dequeued, 0);
-        assert_eq!(metrics.global_items_dequeued, 0);
-        assert!(metrics.last_active_projects_refresh.is_none());
+        assert!(!metrics.current_priority_descending); // Default bool is false
+        assert_eq!(metrics.items_since_flip, 0);
     }
 }

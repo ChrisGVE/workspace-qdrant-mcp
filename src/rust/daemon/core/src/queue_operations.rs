@@ -1723,6 +1723,8 @@ impl QueueManager {
     /// * `lease_duration_secs` - How long to hold the lease (default: 300 seconds)
     /// * `tenant_id` - Optional filter by tenant
     /// * `item_type` - Optional filter by item type
+    /// * `priority_descending` - If true, high priority first (DESC); if false, low priority first (ASC)
+    ///   Used for anti-starvation alternation. Defaults to true if None.
     pub async fn dequeue_unified(
         &self,
         batch_size: i32,
@@ -1730,11 +1732,21 @@ impl QueueManager {
         lease_duration_secs: Option<i64>,
         tenant_id: Option<&str>,
         item_type: Option<ItemType>,
+        priority_descending: Option<bool>,
     ) -> QueueResult<Vec<UnifiedQueueItem>> {
         let lease_duration = lease_duration_secs.unwrap_or(300);
         let lease_until = Utc::now() + ChronoDuration::seconds(lease_duration);
         let lease_until_str = lease_until.to_rfc3339();
         let now_str = Utc::now().to_rfc3339();
+
+        // Task 21: Priority direction for anti-starvation alternation
+        // When true (default): high priority first (DESC) - active projects prioritized
+        // When false: low priority first (ASC) - inactive projects get a turn
+        let priority_order = if priority_descending.unwrap_or(true) {
+            "DESC"
+        } else {
+            "ASC"
+        };
 
         // First, select the queue_ids to process with calculated priority (Task 20)
         // Priority is computed at query time via JOIN with watch_folders:
@@ -1744,7 +1756,8 @@ impl QueueManager {
         // - projects collection with is_active=0: 0 (low)
         let queue_ids: Vec<String> = match (tenant_id, item_type) {
             (Some(tid), Some(itype)) => {
-                sqlx::query_scalar::<_, String>(
+                // Task 21: Dynamic priority ordering for anti-starvation
+                let query = format!(
                     r#"
                     SELECT q.queue_id
                     FROM unified_queue q
@@ -1761,11 +1774,13 @@ impl QueueManager {
                             WHEN q.collection = 'libraries' THEN 0
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
-                        END DESC,
+                        END {},
                         q.created_at ASC
                     LIMIT ?4
                     "#,
-                )
+                    priority_order
+                );
+                sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)
                     .bind(tid)
                     .bind(itype.to_string())
@@ -1774,7 +1789,8 @@ impl QueueManager {
                     .await?
             }
             (Some(tid), None) => {
-                sqlx::query_scalar::<_, String>(
+                // Task 21: Dynamic priority ordering for anti-starvation
+                let query = format!(
                     r#"
                     SELECT q.queue_id
                     FROM unified_queue q
@@ -1790,11 +1806,13 @@ impl QueueManager {
                             WHEN q.collection = 'libraries' THEN 0
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
-                        END DESC,
+                        END {},
                         q.created_at ASC
                     LIMIT ?3
                     "#,
-                )
+                    priority_order
+                );
+                sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)
                     .bind(tid)
                     .bind(batch_size)
@@ -1802,7 +1820,8 @@ impl QueueManager {
                     .await?
             }
             (None, Some(itype)) => {
-                sqlx::query_scalar::<_, String>(
+                // Task 21: Dynamic priority ordering for anti-starvation
+                let query = format!(
                     r#"
                     SELECT q.queue_id
                     FROM unified_queue q
@@ -1818,11 +1837,13 @@ impl QueueManager {
                             WHEN q.collection = 'libraries' THEN 0
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
-                        END DESC,
+                        END {},
                         q.created_at ASC
                     LIMIT ?3
                     "#,
-                )
+                    priority_order
+                );
+                sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)
                     .bind(itype.to_string())
                     .bind(batch_size)
@@ -1830,7 +1851,8 @@ impl QueueManager {
                     .await?
             }
             (None, None) => {
-                sqlx::query_scalar::<_, String>(
+                // Task 21: Dynamic priority ordering for anti-starvation
+                let query = format!(
                     r#"
                     SELECT q.queue_id
                     FROM unified_queue q
@@ -1845,11 +1867,13 @@ impl QueueManager {
                             WHEN q.collection = 'libraries' THEN 0
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
-                        END DESC,
+                        END {},
                         q.created_at ASC
                     LIMIT ?2
                     "#,
-                )
+                    priority_order
+                );
+                sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)
                     .bind(batch_size)
                     .fetch_all(&self.pool)
@@ -3024,7 +3048,7 @@ mod tests {
 
         // Dequeue
         let items = manager
-            .dequeue_unified(10, "worker-1", Some(300), None, None)
+            .dequeue_unified(10, "worker-1", Some(300), None, None, None)
             .await
             .unwrap();
 
@@ -3069,7 +3093,7 @@ mod tests {
             .unwrap();
 
         let items = manager
-            .dequeue_unified(10, "worker-1", None, None, None)
+            .dequeue_unified(10, "worker-1", None, None, None, None)
             .await
             .unwrap();
         assert_eq!(items.len(), 1);
@@ -3120,7 +3144,7 @@ mod tests {
 
         // Dequeue
         manager
-            .dequeue_unified(10, "worker-1", None, None, None)
+            .dequeue_unified(10, "worker-1", None, None, None, None)
             .await
             .unwrap();
 
@@ -3138,7 +3162,7 @@ mod tests {
         // Dequeue again and fail until max retries
         for i in 2..=3 {
             manager
-                .dequeue_unified(10, "worker-1", None, None, None)
+                .dequeue_unified(10, "worker-1", None, None, None, None)
                 .await
                 .unwrap();
             let will_retry = manager
@@ -3195,7 +3219,7 @@ mod tests {
 
         // Dequeue with very short lease (1 second)
         manager
-            .dequeue_unified(10, "worker-1", Some(1), None, None)
+            .dequeue_unified(10, "worker-1", Some(1), None, None, None)
             .await
             .unwrap();
 
@@ -3311,7 +3335,7 @@ mod tests {
             .unwrap();
 
         manager
-            .dequeue_unified(10, "worker-1", None, None, None)
+            .dequeue_unified(10, "worker-1", None, None, None, None)
             .await
             .unwrap();
         manager.mark_unified_done(&queue_id).await.unwrap();
@@ -3591,7 +3615,7 @@ mod tests {
 
         // Dequeue with worker-1
         let items = manager
-            .dequeue_unified(10, "worker-1", Some(300), None, None)
+            .dequeue_unified(10, "worker-1", Some(300), None, None, None)
             .await
             .unwrap();
         assert_eq!(items.len(), 1);
@@ -3618,7 +3642,7 @@ mod tests {
 
         // Item should still be in_progress with worker-1's lease
         let items_after = manager
-            .dequeue_unified(10, "worker-2", Some(300), None, None)
+            .dequeue_unified(10, "worker-2", Some(300), None, None, None)
             .await
             .unwrap();
         assert_eq!(items_after.len(), 0, "No items should be available - lease still held by worker-1");
