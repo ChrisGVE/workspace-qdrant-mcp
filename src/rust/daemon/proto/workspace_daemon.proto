@@ -9,8 +9,17 @@ import "google/protobuf/empty.proto";
 // =============================================================================
 // SERVICE DEFINITIONS
 // =============================================================================
-// This protocol defines 5 services with 22 total RPCs for communication
-// between the Rust daemon and TypeScript/Python components (MCP server, CLI).
+// This protocol defines 5 services for communication between the Rust daemon
+// and TypeScript components (MCP server, CLI).
+//
+// Core Services (spec-defined):
+// - SystemService: Health, metrics, queue stats, lifecycle
+// - CollectionService: Qdrant collection CRUD and alias management
+// - DocumentService: Direct text ingestion (not file-based)
+//
+// Supporting Services:
+// - EmbeddingService: Generate embeddings for MCP server hybrid search
+// - ProjectService: Multi-tenant project lifecycle and session management
 //
 // Design principles:
 // - Single writer pattern: Only daemon writes to Qdrant
@@ -21,20 +30,26 @@ import "google/protobuf/empty.proto";
 // =============================================================================
 
 // -----------------------------------------------------------------------------
-// 1. SystemService (7 RPCs)
+// 1. SystemService (9 RPCs)
 // -----------------------------------------------------------------------------
 // Purpose: System health monitoring, status reporting, refresh signaling,
 //          and lifecycle management.
 
 service SystemService {
-    // Quick health check for monitoring/alerting
-    rpc HealthCheck(google.protobuf.Empty) returns (HealthCheckResponse);
+    // Quick health check for monitoring/alerting (spec: Health)
+    rpc Health(google.protobuf.Empty) returns (HealthResponse);
 
     // Comprehensive system state snapshot
     rpc GetStatus(google.protobuf.Empty) returns (SystemStatusResponse);
 
     // Current performance metrics (no historical data)
     rpc GetMetrics(google.protobuf.Empty) returns (MetricsResponse);
+
+    // Queue statistics for monitoring (spec: GetQueueStats)
+    rpc GetQueueStats(google.protobuf.Empty) returns (QueueStatsResponse);
+
+    // Graceful daemon shutdown (spec: Shutdown)
+    rpc Shutdown(google.protobuf.Empty) returns (google.protobuf.Empty);
 
     // Signal database state changes for event-driven refresh
     rpc SendRefreshSignal(RefreshSignalRequest) returns (google.protobuf.Empty);
@@ -50,10 +65,9 @@ service SystemService {
 }
 
 // -----------------------------------------------------------------------------
-// 2. CollectionService (5 RPCs)
+// 2. CollectionService (7 RPCs)
 // -----------------------------------------------------------------------------
 // Purpose: Qdrant collection lifecycle and alias management.
-// Note: ListCollections removed - MCP queries Qdrant directly.
 
 service CollectionService {
     // Create collection with proper configuration
@@ -61,6 +75,12 @@ service CollectionService {
 
     // Delete collection and all its data
     rpc DeleteCollection(DeleteCollectionRequest) returns (google.protobuf.Empty);
+
+    // List all collections (spec: ListCollections)
+    rpc ListCollections(google.protobuf.Empty) returns (ListCollectionsResponse);
+
+    // Get collection metadata (spec: GetCollection)
+    rpc GetCollection(GetCollectionRequest) returns (GetCollectionResponse);
 
     // Create collection alias (for tenant_id changes)
     rpc CreateCollectionAlias(CreateAliasRequest) returns (google.protobuf.Empty);
@@ -83,11 +103,11 @@ service DocumentService {
     // Ingest text content directly (synchronous)
     rpc IngestText(IngestTextRequest) returns (IngestTextResponse);
 
-    // Update previously ingested text
-    rpc UpdateText(UpdateTextRequest) returns (UpdateTextResponse);
+    // Update previously ingested document (spec: UpdateDocument)
+    rpc UpdateDocument(UpdateDocumentRequest) returns (UpdateDocumentResponse);
 
-    // Delete ingested text document
-    rpc DeleteText(DeleteTextRequest) returns (google.protobuf.Empty);
+    // Delete ingested document (spec: DeleteDocument)
+    rpc DeleteDocument(DeleteDocumentRequest) returns (google.protobuf.Empty);
 }
 
 // -----------------------------------------------------------------------------
@@ -136,11 +156,23 @@ service ProjectService {
 // MESSAGE TYPES - SystemService
 // =============================================================================
 
-// HealthCheck Response
-message HealthCheckResponse {
+// Health Response (spec: HealthResponse)
+message HealthResponse {
     ServiceStatus status = 1;                     // Overall health
     repeated ComponentHealth components = 2;      // Per-component status
     google.protobuf.Timestamp timestamp = 3;      // Check timestamp
+}
+
+// QueueStats Response (spec: GetQueueStats)
+message QueueStatsResponse {
+    int32 pending_count = 1;                      // Items pending processing
+    int32 in_progress_count = 2;                  // Items currently processing
+    int32 completed_count = 3;                    // Items completed (last 24h)
+    int32 failed_count = 4;                       // Items failed (last 24h)
+    map<string, int32> by_item_type = 5;          // Breakdown by item_type
+    map<string, int32> by_collection = 6;         // Breakdown by collection
+    int32 stale_items_count = 7;                  // Items with expired leases
+    google.protobuf.Timestamp collected_at = 8;   // Stats collection time
 }
 
 message ComponentHealth {
@@ -247,6 +279,32 @@ message RenameAliasRequest {
     string collection_name = 3;                   // The collection it points to
 }
 
+// ListCollections Response (spec: ListCollections)
+message ListCollectionsResponse {
+    repeated CollectionInfo collections = 1;
+    int32 total_count = 2;
+}
+
+message CollectionInfo {
+    string name = 1;                              // Collection name
+    int64 vectors_count = 2;                      // Number of vectors
+    int64 points_count = 3;                       // Number of points
+    string status = 4;                            // "green", "yellow", "red"
+    google.protobuf.Timestamp created_at = 5;
+    repeated string aliases = 6;                  // Collection aliases
+}
+
+// GetCollection Request/Response (spec: GetCollection)
+message GetCollectionRequest {
+    string name = 1;                              // Collection name or alias
+}
+
+message GetCollectionResponse {
+    bool found = 1;                               // Whether collection exists
+    CollectionInfo info = 2;                      // Collection metadata
+    CollectionConfig config = 3;                  // Collection configuration
+}
+
 // =============================================================================
 // MESSAGE TYPES - DocumentService
 // =============================================================================
@@ -268,22 +326,22 @@ message IngestTextResponse {
     string error_message = 4;
 }
 
-// UpdateText Request/Response
-message UpdateTextRequest {
+// UpdateDocument Request/Response (spec: UpdateDocument)
+message UpdateDocumentRequest {
     string document_id = 1;                       // From IngestTextResponse
     string content = 2;                           // New content
     optional string collection_name = 3;          // If moving to different collection
     map<string, string> metadata = 4;             // Updated metadata
 }
 
-message UpdateTextResponse {
+message UpdateDocumentResponse {
     bool success = 1;
     string error_message = 2;
     google.protobuf.Timestamp updated_at = 3;
 }
 
-// DeleteText Request
-message DeleteTextRequest {
+// DeleteDocument Request (spec: DeleteDocument)
+message DeleteDocumentRequest {
     string document_id = 1;
     string collection_name = 2;                   // For validation
 }

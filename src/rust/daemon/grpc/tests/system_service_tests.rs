@@ -10,7 +10,7 @@
 
 use workspace_qdrant_grpc::proto::{
     system_service_server::SystemService,
-    HealthCheckResponse, SystemStatusResponse, MetricsResponse,
+    HealthResponse, SystemStatusResponse, MetricsResponse,
     RefreshSignalRequest, ServerStatusNotification,
     ServiceStatus, QueueType, ServerState,
 };
@@ -28,7 +28,7 @@ async fn test_health_check_success() {
     let service = create_service();
     let request = Request::new(());
 
-    let response = service.health_check(request).await;
+    let response = service.health(request).await;
     assert!(response.is_ok());
 
     let health_response = response.unwrap().into_inner();
@@ -42,7 +42,7 @@ async fn test_health_check_components() {
     let service = create_service();
     let request = Request::new(());
 
-    let response = service.health_check(request).await.unwrap();
+    let response = service.health(request).await.unwrap();
     let health_response = response.into_inner();
 
     // Should have at least one component
@@ -61,7 +61,7 @@ async fn test_health_check_serialization() {
     let service = create_service();
     let request = Request::new(());
 
-    let response = service.health_check(request).await.unwrap();
+    let response = service.health(request).await.unwrap();
     let health_response = response.into_inner();
 
     // Test protobuf serialization
@@ -69,7 +69,7 @@ async fn test_health_check_serialization() {
     assert!(!bytes.is_empty());
 
     // Test deserialization
-    let decoded = HealthCheckResponse::decode(&bytes[..]).unwrap();
+    let decoded = HealthResponse::decode(&bytes[..]).unwrap();
     assert_eq!(decoded.status, ServiceStatus::Healthy as i32);
     assert_eq!(decoded.components.len(), health_response.components.len());
 }
@@ -312,7 +312,7 @@ async fn test_multiple_health_checks() {
 
     // Multiple calls should all succeed
     for _ in 0..5 {
-        let response = service.health_check(Request::new(())).await;
+        let response = service.health(Request::new(())).await;
         assert!(response.is_ok());
 
         let health_response = response.unwrap().into_inner();
@@ -369,7 +369,7 @@ async fn test_timestamp_fields() {
     let service = create_service();
 
     // HealthCheck timestamp
-    let health = service.health_check(Request::new(())).await.unwrap().into_inner();
+    let health = service.health(Request::new(())).await.unwrap().into_inner();
     assert!(health.timestamp.is_some());
     let ts = health.timestamp.unwrap();
     assert!(ts.seconds > 0);

@@ -9,8 +9,8 @@
 use workspace_qdrant_grpc::proto::{
     document_service_server::DocumentService,
     IngestTextRequest, IngestTextResponse,
-    UpdateTextRequest, UpdateTextResponse,
-    DeleteTextRequest,
+    UpdateDocumentRequest, UpdateDocumentResponse,
+    DeleteDocumentRequest,
 };
 use workspace_qdrant_grpc::services::DocumentServiceImpl;
 use tonic::{Request, Code};
@@ -308,7 +308,7 @@ async fn test_update_text_request_serialization() {
     let mut metadata = HashMap::new();
     metadata.insert("updated".to_string(), "true".to_string());
 
-    let request = UpdateTextRequest {
+    let request = UpdateDocumentRequest {
         document_id: "doc-123".to_string(),
         content: "Updated content".to_string(),
         collection_name: Some("new-collection".to_string()),
@@ -320,7 +320,7 @@ async fn test_update_text_request_serialization() {
     assert!(!bytes.is_empty());
 
     // Test deserialization
-    let decoded = UpdateTextRequest::decode(&bytes[..]).unwrap();
+    let decoded = UpdateDocumentRequest::decode(&bytes[..]).unwrap();
     assert_eq!(decoded.document_id, "doc-123");
     assert_eq!(decoded.content, "Updated content");
     assert_eq!(decoded.collection_name, Some("new-collection".to_string()));
@@ -328,7 +328,7 @@ async fn test_update_text_request_serialization() {
 
 #[tokio::test]
 async fn test_delete_text_request_serialization() {
-    let request = DeleteTextRequest {
+    let request = DeleteDocumentRequest {
         document_id: "doc-to-delete".to_string(),
         collection_name: "test-collection".to_string(),
     };
@@ -338,7 +338,7 @@ async fn test_delete_text_request_serialization() {
     assert!(!bytes.is_empty());
 
     // Test deserialization
-    let decoded = DeleteTextRequest::decode(&bytes[..]).unwrap();
+    let decoded = DeleteDocumentRequest::decode(&bytes[..]).unwrap();
     assert_eq!(decoded.document_id, "doc-to-delete");
     assert_eq!(decoded.collection_name, "test-collection");
 }

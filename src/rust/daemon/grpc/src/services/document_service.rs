@@ -1,7 +1,7 @@
 //! DocumentService gRPC implementation
 //!
 //! Handles direct text ingestion for non-file-based content.
-//! Provides 3 RPCs: IngestText, UpdateText, DeleteText
+//! Provides 3 RPCs: IngestText, UpdateDocument, DeleteDocument
 //!
 //! This service is designed for user-provided text content such as:
 //! - Manual notes and annotations
@@ -90,8 +90,8 @@ pub static CACHE_METRICS: EmbeddingCacheMetrics = EmbeddingCacheMetrics::new();
 use crate::proto::{
     document_service_server::DocumentService,
     IngestTextRequest, IngestTextResponse,
-    UpdateTextRequest, UpdateTextResponse,
-    DeleteTextRequest,
+    UpdateDocumentRequest, UpdateDocumentResponse,
+    DeleteDocumentRequest,
 };
 
 /// Default chunk size in characters for text chunking
@@ -788,10 +788,10 @@ impl DocumentService for DocumentServiceImpl {
         Ok(Response::new(response))
     }
 
-    async fn update_text(
+    async fn update_document(
         &self,
-        request: Request<UpdateTextRequest>,
-    ) -> Result<Response<UpdateTextResponse>, Status> {
+        request: Request<UpdateDocumentRequest>,
+    ) -> Result<Response<UpdateDocumentResponse>, Status> {
         let req = request.into_inner();
 
         info!("Updating document '{}'", req.document_id);
@@ -811,7 +811,7 @@ impl DocumentService for DocumentServiceImpl {
         };
 
         info!(
-            "UpdateText: collection='{}', document='{}'",
+            "UpdateDocument: collection='{}', document='{}'",
             collection_name, req.document_id
         );
 
@@ -819,7 +819,7 @@ impl DocumentService for DocumentServiceImpl {
         // This requires implementing a delete-by-metadata filter in StorageClient
         // For now, we'll log a warning
         warn!(
-            "UpdateText: Cannot delete existing chunks for document {} - delete_by_filter not yet implemented",
+            "UpdateDocument: Cannot delete existing chunks for document {} - delete_by_filter not yet implemented",
             req.document_id
         );
 
@@ -836,7 +836,7 @@ impl DocumentService for DocumentServiceImpl {
             true, // Always chunk for updates
         ).await?;
 
-        Ok(Response::new(UpdateTextResponse {
+        Ok(Response::new(UpdateDocumentResponse {
             success: response.success,
             error_message: response.error_message,
             updated_at: Some(prost_types::Timestamp {
@@ -846,14 +846,14 @@ impl DocumentService for DocumentServiceImpl {
         }))
     }
 
-    async fn delete_text(
+    async fn delete_document(
         &self,
-        request: Request<DeleteTextRequest>,
+        request: Request<DeleteDocumentRequest>,
     ) -> Result<Response<()>, Status> {
         let req = request.into_inner();
 
         info!(
-            "DeleteText: document='{}', collection='{}'",
+            "DeleteDocument: document='{}', collection='{}'",
             req.document_id, req.collection_name
         );
 
@@ -875,7 +875,7 @@ impl DocumentService for DocumentServiceImpl {
         // This requires adding a delete_by_filter method to StorageClient
         // For now, return unimplemented
         Err(Status::unimplemented(
-            "DeleteText not yet implemented - requires delete_by_filter support in StorageClient"
+            "DeleteDocument not yet implemented - requires delete_by_filter support in StorageClient"
         ))
     }
 }

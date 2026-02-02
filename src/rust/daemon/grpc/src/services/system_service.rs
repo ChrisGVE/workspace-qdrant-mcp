@@ -2,18 +2,18 @@
 //!
 //! Handles system health monitoring, status reporting, refresh signaling,
 //! and lifecycle management operations.
-//! Provides 7 RPCs: HealthCheck, GetStatus, GetMetrics, SendRefreshSignal,
-//! NotifyServerStatus, PauseAllWatchers, ResumeAllWatchers
+//! Provides 9 RPCs: Health, GetStatus, GetMetrics, GetQueueStats, Shutdown,
+//! SendRefreshSignal, NotifyServerStatus, PauseAllWatchers, ResumeAllWatchers
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
 use tonic::{Request, Response, Status};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::proto::{
     system_service_server::SystemService,
-    HealthCheckResponse, SystemStatusResponse, MetricsResponse,
+    HealthResponse, SystemStatusResponse, MetricsResponse, QueueStatsResponse,
     RefreshSignalRequest, ServerStatusNotification,
     ComponentHealth, SystemMetrics, Metric,
     ServiceStatus,
@@ -249,11 +249,11 @@ impl Default for SystemServiceImpl {
 
 #[tonic::async_trait]
 impl SystemService for SystemServiceImpl {
-    /// Quick health check for monitoring/alerting
-    async fn health_check(
+    /// Quick health check for monitoring/alerting (spec: Health)
+    async fn health(
         &self,
         _request: Request<()>,
-    ) -> Result<Response<HealthCheckResponse>, Status> {
+    ) -> Result<Response<HealthResponse>, Status> {
         debug!("Health check requested");
 
         // Build component health list
@@ -287,13 +287,59 @@ impl SystemService for SystemServiceImpl {
             ServiceStatus::Healthy
         };
 
-        let response = HealthCheckResponse {
+        let response = HealthResponse {
             status: overall_status as i32,
             components,
             timestamp: Some(prost_types::Timestamp::from(SystemTime::now())),
         };
 
         Ok(Response::new(response))
+    }
+
+    /// Queue statistics for monitoring (spec: GetQueueStats)
+    async fn get_queue_stats(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<QueueStatsResponse>, Status> {
+        debug!("Queue stats requested");
+
+        let (pending, in_progress, completed, failed) = if let Some(health) = &self.queue_health {
+            (
+                health.queue_depth.load(Ordering::SeqCst) as i32,
+                0, // Would need additional tracking
+                health.items_processed.load(Ordering::SeqCst) as i32,
+                health.items_failed.load(Ordering::SeqCst) as i32,
+            )
+        } else {
+            (0, 0, 0, 0)
+        };
+
+        let response = QueueStatsResponse {
+            pending_count: pending,
+            in_progress_count: in_progress,
+            completed_count: completed,
+            failed_count: failed,
+            by_item_type: std::collections::HashMap::new(),
+            by_collection: std::collections::HashMap::new(),
+            stale_items_count: 0,
+            collected_at: Some(prost_types::Timestamp::from(SystemTime::now())),
+        };
+
+        Ok(Response::new(response))
+    }
+
+    /// Graceful daemon shutdown (spec: Shutdown)
+    async fn shutdown(
+        &self,
+        _request: Request<()>,
+    ) -> Result<Response<()>, Status> {
+        warn!("Shutdown requested via gRPC");
+
+        // In a real implementation, this would trigger graceful shutdown
+        // For now, we just acknowledge the request
+        // The actual shutdown would be handled by the main daemon process
+
+        Ok(Response::new(()))
     }
 
     /// Comprehensive system state snapshot
@@ -446,7 +492,7 @@ mod tests {
         assert!(service.queue_health.is_some());
 
         // Test health check includes queue processor
-        let response = service.health_check(Request::new(())).await.unwrap();
+        let response = service.health(Request::new(())).await.unwrap();
         let health_response = response.into_inner();
         assert!(health_response.components.len() >= 2);
         assert!(health_response.components.iter().any(|c| c.component_name == "queue_processor"));
@@ -549,7 +595,7 @@ mod tests {
         }
 
         let service = SystemServiceImpl::with_queue_health(health);
-        let response = service.health_check(Request::new(())).await.unwrap();
+        let response = service.health(Request::new(())).await.unwrap();
         let health_response = response.into_inner();
 
         let queue_comp = health_response.components.iter()
@@ -564,12 +610,36 @@ mod tests {
         health.set_running(false);
 
         let service = SystemServiceImpl::with_queue_health(health);
-        let response = service.health_check(Request::new(())).await.unwrap();
+        let response = service.health(Request::new(())).await.unwrap();
         let health_response = response.into_inner();
 
         let queue_comp = health_response.components.iter()
             .find(|c| c.component_name == "queue_processor")
             .unwrap();
         assert_eq!(queue_comp.status, ServiceStatus::Unhealthy as i32);
+    }
+
+    #[tokio::test]
+    async fn test_get_queue_stats() {
+        let health = Arc::new(QueueProcessorHealth::new());
+        health.set_queue_depth(15);
+        health.record_success(100);
+        health.record_success(200);
+        health.record_failure();
+
+        let service = SystemServiceImpl::with_queue_health(health);
+        let response = service.get_queue_stats(Request::new(())).await.unwrap();
+        let stats = response.into_inner();
+
+        assert_eq!(stats.pending_count, 15);
+        assert_eq!(stats.completed_count, 2);
+        assert_eq!(stats.failed_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_shutdown() {
+        let service = SystemServiceImpl::new();
+        let response = service.shutdown(Request::new(())).await;
+        assert!(response.is_ok());
     }
 }
