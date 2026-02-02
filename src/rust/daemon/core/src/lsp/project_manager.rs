@@ -508,6 +508,61 @@ impl LanguageServerManager {
         Ok(())
     }
 
+    /// Get a server instance for a specific project and language
+    ///
+    /// Returns the ServerInstance if it exists and is running.
+    pub async fn get_server(
+        &self,
+        project_id: &str,
+        language: Language,
+    ) -> Option<Arc<tokio::sync::Mutex<ServerInstance>>> {
+        let key = ProjectLanguageKey::new(project_id, language);
+        let instances = self.instances.read().await;
+        instances.get(&key).cloned()
+    }
+
+    /// Get the state for a specific project and language
+    pub async fn get_server_state(
+        &self,
+        project_id: &str,
+        language: Language,
+    ) -> Option<ProjectServerState> {
+        let key = ProjectLanguageKey::new(project_id, language);
+        let servers = self.servers.read().await;
+        servers.get(&key).cloned()
+    }
+
+    /// Get all running servers for a project
+    pub async fn get_project_servers(
+        &self,
+        project_id: &str,
+    ) -> Vec<(Language, Arc<tokio::sync::Mutex<ServerInstance>>)> {
+        let instances = self.instances.read().await;
+        instances
+            .iter()
+            .filter_map(|(key, instance)| {
+                if key.project_id == project_id {
+                    Some((key.language.clone(), Arc::clone(instance)))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    /// Check if a server is running for a specific project and language
+    pub async fn is_server_running(
+        &self,
+        project_id: &str,
+        language: Language,
+    ) -> bool {
+        if let Some(state) = self.get_server_state(project_id, language.clone()).await {
+            matches!(state.status, ServerStatus::Running)
+        } else {
+            false
+        }
+    }
+
     /// Find a running server instance for a file based on its language
     async fn find_server_for_file(
         &self,
@@ -1605,5 +1660,45 @@ mod tests {
 
         assert_eq!(deserialized.references.len(), 1);
         assert_eq!(deserialized.enrichment_status, EnrichmentStatus::Success);
+    }
+
+    #[tokio::test]
+    async fn test_get_server_not_found() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // Server doesn't exist
+        let server = manager.get_server("project-1", Language::Rust).await;
+        assert!(server.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_server_state_not_found() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // State doesn't exist
+        let state = manager.get_server_state("project-1", Language::Rust).await;
+        assert!(state.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_get_project_servers_empty() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // No servers for this project
+        let servers = manager.get_project_servers("project-1").await;
+        assert!(servers.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_is_server_running_no_server() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // No server exists
+        let running = manager.is_server_running("project-1", Language::Rust).await;
+        assert!(!running);
     }
 }
