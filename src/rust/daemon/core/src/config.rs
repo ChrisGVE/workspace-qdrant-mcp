@@ -572,6 +572,104 @@ impl LspSettings {
     }
 }
 
+/// Tree-sitter grammar configuration for dynamic grammar loading
+///
+/// These settings configure how tree-sitter grammars are loaded at runtime.
+/// Dynamic loading allows adding language support without recompiling the daemon.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GrammarConfig {
+    /// Directory for storing grammar shared libraries
+    /// Default: ~/.workspace-qdrant/grammars
+    #[serde(default = "default_grammar_cache_dir")]
+    pub cache_dir: PathBuf,
+
+    /// List of required language grammars for daemon startup
+    /// Daemon verifies these exist on startup
+    #[serde(default = "default_required_grammars")]
+    pub required: Vec<String>,
+
+    /// Auto-download missing grammars from download sources
+    #[serde(default = "default_true")]
+    pub auto_download: bool,
+
+    /// Expected tree-sitter ABI version for grammar compatibility
+    #[serde(default = "default_tree_sitter_version")]
+    pub tree_sitter_version: String,
+
+    /// Base URL template for grammar downloads
+    /// Supports {language}, {version}, {platform}, {ext} placeholders
+    #[serde(default = "default_download_base_url")]
+    pub download_base_url: String,
+
+    /// Verify checksums of downloaded grammars
+    #[serde(default = "default_true")]
+    pub verify_checksums: bool,
+
+    /// Load grammars on first use instead of at startup
+    #[serde(default = "default_true")]
+    pub lazy_loading: bool,
+}
+
+fn default_grammar_cache_dir() -> PathBuf {
+    // Use ~ which will be expanded by unified_config
+    PathBuf::from("~/.workspace-qdrant/grammars")
+}
+
+fn default_required_grammars() -> Vec<String> {
+    vec![
+        "rust".to_string(),
+        "python".to_string(),
+        "javascript".to_string(),
+        "typescript".to_string(),
+        "go".to_string(),
+        "java".to_string(),
+        "c".to_string(),
+        "cpp".to_string(),
+    ]
+}
+
+fn default_tree_sitter_version() -> String {
+    "0.24".to_string()
+}
+
+fn default_download_base_url() -> String {
+    "https://github.com/tree-sitter/tree-sitter-{language}/releases/download".to_string()
+}
+
+impl Default for GrammarConfig {
+    fn default() -> Self {
+        Self {
+            cache_dir: default_grammar_cache_dir(),
+            required: default_required_grammars(),
+            auto_download: default_true(),
+            tree_sitter_version: default_tree_sitter_version(),
+            download_base_url: default_download_base_url(),
+            verify_checksums: default_true(),
+            lazy_loading: default_true(),
+        }
+    }
+}
+
+impl GrammarConfig {
+    /// Validate grammar configuration settings
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tree_sitter_version.is_empty() {
+            return Err("tree_sitter_version cannot be empty".to_string());
+        }
+        if self.download_base_url.is_empty() && self.auto_download {
+            return Err("download_base_url required when auto_download is enabled".to_string());
+        }
+        Ok(())
+    }
+
+    /// Get the expanded cache directory (with ~ and env vars expanded)
+    pub fn expanded_cache_dir(&self) -> PathBuf {
+        let path_str = self.cache_dir.to_string_lossy().into_owned();
+        let expanded = shellexpand::tilde(&path_str);
+        PathBuf::from(expanded.into_owned())
+    }
+}
+
 /// Complete daemon configuration that matches the TOML structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
@@ -613,6 +711,9 @@ pub struct DaemonConfig {
     /// LSP (Language Server Protocol) integration configuration
     #[serde(default)]
     pub lsp: LspSettings,
+    /// Tree-sitter grammar configuration for dynamic loading
+    #[serde(default)]
+    pub grammars: GrammarConfig,
 }
 
 impl Default for DaemonConfig {
@@ -634,6 +735,7 @@ impl Default for DaemonConfig {
             observability: ObservabilityConfig::default(),
             embedding: EmbeddingSettings::default(),
             lsp: LspSettings::default(),
+            grammars: GrammarConfig::default(),
         }
     }
 }
@@ -951,5 +1053,76 @@ mod tests {
         let deserialized: LspSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.user_path, Some("/usr/local/bin".to_string()));
         assert_eq!(deserialized.max_servers_per_project, 5);
+    }
+
+    #[test]
+    fn test_grammar_config_defaults() {
+        let config = GrammarConfig::default();
+        assert_eq!(config.cache_dir, PathBuf::from("~/.workspace-qdrant/grammars"));
+        assert!(config.required.contains(&"rust".to_string()));
+        assert!(config.required.contains(&"python".to_string()));
+        assert!(config.auto_download);
+        assert_eq!(config.tree_sitter_version, "0.24");
+        assert!(config.verify_checksums);
+        assert!(config.lazy_loading);
+    }
+
+    #[test]
+    fn test_grammar_config_validation() {
+        let mut config = GrammarConfig::default();
+
+        // Valid settings
+        assert!(config.validate().is_ok());
+
+        // Invalid tree_sitter_version
+        config.tree_sitter_version = String::new();
+        assert!(config.validate().is_err());
+        config.tree_sitter_version = "0.24".to_string();
+
+        // Invalid download_base_url when auto_download enabled
+        config.download_base_url = String::new();
+        assert!(config.validate().is_err());
+        config.auto_download = false;
+        assert!(config.validate().is_ok()); // Empty URL ok when auto_download disabled
+    }
+
+    #[test]
+    fn test_grammar_config_expanded_cache_dir() {
+        let config = GrammarConfig::default();
+        let expanded = config.expanded_cache_dir();
+        // Should expand ~ to home directory
+        assert!(!expanded.to_string_lossy().contains('~'));
+        assert!(expanded.to_string_lossy().ends_with("grammars"));
+    }
+
+    #[test]
+    fn test_grammar_config_serialization() {
+        let config = GrammarConfig {
+            cache_dir: PathBuf::from("/custom/grammars"),
+            required: vec!["rust".to_string(), "python".to_string()],
+            auto_download: false,
+            tree_sitter_version: "0.24".to_string(),
+            download_base_url: "https://example.com".to_string(),
+            verify_checksums: true,
+            lazy_loading: true,
+        };
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("\"/custom/grammars\""));
+        assert!(json.contains("\"auto_download\":false"));
+
+        // Deserialize back
+        let deserialized: GrammarConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.cache_dir, PathBuf::from("/custom/grammars"));
+        assert!(!deserialized.auto_download);
+    }
+
+    #[test]
+    fn test_daemon_config_includes_grammars() {
+        let config = DaemonConfig::default();
+        // Verify grammars field exists and has defaults
+        assert!(!config.grammars.required.is_empty());
+        assert!(config.grammars.auto_download);
     }
 }
