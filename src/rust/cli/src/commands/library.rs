@@ -8,12 +8,15 @@
 //! Note: Library management uses SQLite for watch configuration.
 //! The daemon reads from SQLite and manages the actual watching.
 
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand, ValueEnum};
+use rusqlite::Connection;
 
 use crate::grpc::client::DaemonClient;
+use crate::queue::{UnifiedQueueClient, ItemType, QueueOperation};
 
 /// Library sync mode controlling how file deletions are handled
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -89,6 +92,16 @@ enum LibraryCommand {
         tag: String,
     },
 
+    /// Remove a library (deletes watch config AND all vectors from Qdrant)
+    Remove {
+        /// Library tag to remove
+        tag: String,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
+    },
+
     /// Rescan and re-ingest a library
     Rescan {
         /// Library tag to rescan
@@ -121,6 +134,7 @@ pub async fn execute(args: LibraryArgs) -> Result<()> {
             mode,
         } => watch(&tag, &path, &patterns, mode).await,
         LibraryCommand::Unwatch { tag } => unwatch(&tag).await,
+        LibraryCommand::Remove { tag, yes } => remove(&tag, yes).await,
         LibraryCommand::Rescan { tag, force } => rescan(&tag, force).await,
         LibraryCommand::Info { tag } => info(tag.as_deref()).await,
         LibraryCommand::Status => status().await,
@@ -332,6 +346,144 @@ async fn unwatch(tag: &str) -> Result<()> {
             output::success("Daemon notified of configuration change");
         }
     }
+
+    Ok(())
+}
+
+async fn remove(tag: &str, skip_confirm: bool) -> Result<()> {
+    output::section(format!("Remove Library: {}", tag));
+
+    let watch_id = format!("lib-{}", tag);
+    let db_path = get_db_path()?;
+
+    // Check if database exists
+    if !db_path.exists() {
+        output::error("Database not found. Run daemon first to initialize.");
+        return Ok(());
+    }
+
+    // Check if library exists in watch_folders
+    let conn = Connection::open(&db_path)
+        .context("Failed to open state database")?;
+
+    let exists: bool = conn.query_row(
+        "SELECT 1 FROM watch_folders WHERE watch_id = ?",
+        [&watch_id],
+        |_| Ok(true),
+    ).unwrap_or(false);
+
+    if !exists {
+        output::error(format!("Library '{}' not found (watch_id: {})", tag, watch_id));
+        return Ok(());
+    }
+
+    // Confirm deletion unless --yes flag
+    if !skip_confirm {
+        output::warning(format!(
+            "This will delete ALL vectors for library '{}' from Qdrant.",
+            tag
+        ));
+        output::warning("This action cannot be undone.");
+        output::info("");
+        print!("Continue? (y/N): ");
+        io::stdout().flush()?;
+
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        if !input.trim().eq_ignore_ascii_case("y") {
+            output::info("Cancelled.");
+            return Ok(());
+        }
+    }
+
+    output::separator();
+
+    // Step 1: Delete watch folder config from SQLite
+    output::info("Removing watch configuration...");
+    let deleted = conn.execute(
+        "DELETE FROM watch_folders WHERE watch_id = ?",
+        [&watch_id],
+    ).context("Failed to delete watch folder config")?;
+
+    if deleted > 0 {
+        output::success(format!("Removed watch config for '{}'", tag));
+    }
+
+    // Step 2: Enqueue deletion of vectors from Qdrant
+    output::info("Queueing vector deletion...");
+
+    // Libraries are stored in the unified 'libraries' collection
+    let collection = "libraries";
+
+    // Build delete tenant payload
+    let payload_json = serde_json::json!({
+        "tenant_id_to_delete": tag
+    }).to_string();
+
+    match UnifiedQueueClient::connect() {
+        Ok(client) => {
+            match client.enqueue(
+                ItemType::DeleteTenant,
+                QueueOperation::Delete,
+                tag,            // tenant_id
+                collection,     // collection
+                &payload_json,  // payload
+                9,              // priority (high for deletions)
+                "",             // branch (not applicable for libraries)
+                None,           // metadata
+            ) {
+                Ok(result) => {
+                    if result.was_duplicate {
+                        output::info("Vector deletion already queued (duplicate)");
+                    } else {
+                        output::success(format!(
+                            "Vector deletion queued (queue_id: {})",
+                            result.queue_id
+                        ));
+                    }
+                }
+                Err(e) => {
+                    output::warning(format!("Could not queue vector deletion: {}", e));
+                    output::info("You may need to manually delete vectors from Qdrant:");
+                    output::info(&format!(
+                        "  curl -X POST 'http://localhost:6333/collections/{}/points/delete' \\",
+                        collection
+                    ));
+                    output::info(&format!(
+                        "    -H 'Content-Type: application/json' \\",
+                    ));
+                    output::info(&format!(
+                        "    -d '{{\"filter\": {{\"must\": [{{\"key\": \"library_name\", \"match\": {{\"value\": \"{}\"}}}}]}}}}'",
+                        tag
+                    ));
+                }
+            }
+        }
+        Err(e) => {
+            output::warning(format!("Could not connect to queue: {}", e));
+            output::info("Vectors will need to be deleted manually or when daemon starts.");
+        }
+    }
+
+    // Signal daemon if available
+    if let Ok(mut client) = DaemonClient::connect_default().await {
+        output::separator();
+        output::info("Signaling daemon...");
+        let request = RefreshSignalRequest {
+            queue_type: QueueType::WatchedFolders as i32,
+            lsp_languages: vec![],
+            grammar_languages: vec![],
+        };
+        if client.system().send_refresh_signal(request).await.is_ok() {
+            output::success("Daemon notified - will process deletion shortly");
+        }
+    } else {
+        output::separator();
+        output::info("Daemon not running. Vector deletion will occur when daemon starts.");
+    }
+
+    output::separator();
+    output::success(format!("Library '{}' removed", tag));
 
     Ok(())
 }
