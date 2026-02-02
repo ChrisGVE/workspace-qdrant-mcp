@@ -1368,6 +1368,56 @@ Runs when project is active:
 
 **One server per language per project.** Multi-target projects (e.g., Cargo workspace with multiple crates) are handled by single language server.
 
+### LSP Server Lifecycle
+
+The daemon manages LSP server instances through a state machine:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    LSP Server Lifecycle                              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│   RegisterProject          DeprioritizeProject                       │
+│        │                          │                                  │
+│        ▼                          ▼                                  │
+│  ┌───────────┐            ┌───────────────┐                         │
+│  │  Stopped  │──spawn──→  │  Initializing │                         │
+│  └───────────┘            └───────┬───────┘                         │
+│        ▲                          │                                  │
+│        │                          ▼ initialized                      │
+│        │                   ┌───────────┐                            │
+│        │◄──stop────────────│  Running  │◄──────┐                    │
+│        │                   └───────┬───┘       │                    │
+│        │                          │            │                    │
+│        │                          ▼ unhealthy  │ healthy            │
+│        │                   ┌───────────┐       │                    │
+│        │◄──max retries─────│  Failed   │───────┘                    │
+│        │                   └───────────┘  restart                   │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Lifecycle states:**
+- **Stopped**: No server process running
+- **Initializing**: Server spawned, waiting for LSP initialize handshake
+- **Running**: Server healthy, accepting queries
+- **Failed**: Server crashed or unhealthy
+
+**Deferred shutdown:**
+When a project is deprioritized, the daemon checks the queue before stopping LSP servers:
+1. Check `unified_queue` for pending items with `tenant_id = project_id`
+2. If queue has items, defer shutdown (configurable delay, default 60s)
+3. Re-check queue after delay
+4. Only stop server when queue is empty
+
+This prevents stopping LSP servers while enrichment queries are still pending.
+
+**State persistence (Task 1.18):**
+Server states are persisted to SQLite for recovery after daemon restart:
+- Stored: `project_id`, `language`, `project_root`, `restart_count`, `last_started_at`
+- Cleaned up: States older than 24 hours
+- On initialization: Restore states and re-spawn servers for active projects
+
 **Language server management:**
 
 ```bash
@@ -1375,6 +1425,7 @@ wqm lsp install python    # Installs pyright or pylsp
 wqm lsp install rust      # Installs rust-analyzer
 wqm lsp list              # Shows available/installed servers
 wqm lsp remove <lang>     # Removes language server
+wqm lsp status            # Show running LSP servers and metrics
 ```
 
 **PATH configuration:** CLI manages `environment.user_path` in the configuration file.
@@ -1946,6 +1997,7 @@ The daemon checks this table on startup and runs migrations if needed. Other com
 | [ADR-002](./docs/adr/ADR-002-daemon-only-write-policy.md)          | Write policy decision            |
 | [ADR-003](./docs/adr/ADR-003-daemon-owns-sqlite.md)                | SQLite ownership decision        |
 | [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)                     | Visual architecture diagrams     |
+| [docs/LSP_INTEGRATION.md](./docs/LSP_INTEGRATION.md)               | LSP integration guide            |
 | [README.md](./README.md)                                           | User documentation               |
 
 ---
