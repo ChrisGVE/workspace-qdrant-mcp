@@ -1,7 +1,7 @@
 # workspace-qdrant-mcp Specification
 
-**Version:** 1.6.4
-**Date:** 2026-02-01
+**Version:** 1.6.6
+**Date:** 2026-02-02
 **Status:** Authoritative Specification
 **Supersedes:** CONSOLIDATED_PRD_V2.md, PRDv3.txt, PRDv3-snapshot1.txt
 
@@ -117,26 +117,27 @@ The system consists of two primary processes:
 
 **Why TypeScript:**
 
-- Claude Agent SDK (TypeScript) provides `SessionStart` and `SessionEnd` hooks for memory injection
-- Python SDK lacks these hooks (essential for session lifecycle)
 - Type safety for structured data (gRPC, Qdrant payloads, MCP tool schemas)
 - MCP ecosystem is TypeScript-first
+- Native SDK support with `@modelcontextprotocol/sdk`
 
 **Dependencies:**
 
-- `@modelcontextprotocol/sdk` - MCP server framework (tool registration, transports, session callbacks)
-- `@anthropic-ai/claude-agent-sdk` - Claude hooks (`SessionStart` for memory injection, `SessionEnd` for cleanup)
+- `@modelcontextprotocol/sdk` - MCP server framework (tool registration, transports, lifecycle callbacks)
 - `@qdrant/js-client-rest` - Qdrant queries
 - `better-sqlite3` - SQLite queue access
 - `@grpc/grpc-js` - gRPC client for daemon communication
 
-**SDK Architecture:**
+**Session Lifecycle:**
 
-The MCP server uses two complementary SDKs:
-1. **`@modelcontextprotocol/sdk`** provides the MCP protocol implementation (stdio/HTTP transport, `onsessioninitialized`/`onclose` callbacks, tool registration)
-2. **`@anthropic-ai/claude-agent-sdk`** provides Claude-specific hooks (`SessionStart` for memory injection into Claude's context, `SessionEnd` for project deactivation)
+The MCP SDK provides lifecycle callbacks via `Server`:
+- `server.onclose` - Called when session ends (for cleanup)
+- `server.onerror` - Called on protocol errors
+- For HTTP transport: `onsessioninitialized` callback available
 
-These SDKs are designed to work together - the Claude Agent SDK natively imports types from `@modelcontextprotocol/sdk/types.js`.
+**Note on Claude Code Hooks:** Claude Code's `SessionStart` and `SessionEnd` hooks are **external** to MCP servers. They are shell commands configured in `~/.claude/settings.json` or `.claude/settings.json`, not SDK callbacks. If memory injection at session start is needed, it could be implemented via:
+1. An external hook script that calls our MCP `memory` tool
+2. Server initialization logic that runs when the transport connects
 
 ### SQLite Database Ownership
 
@@ -1664,21 +1665,25 @@ store(
 
 ### Session Lifecycle
 
-Session lifecycle is **automatic**, managed via Claude Code SDK hooks.
+Session lifecycle is **automatic**, managed by the MCP server using the MCP SDK's `server.onclose` callback and server initialization logic.
 
-**Implementation:** The MCP server is written in TypeScript to leverage the Claude Code SDK's native `SessionStart` and `SessionEnd` hooks. The Python SDK does not support these hooks.
+**Implementation:** The MCP server uses `@modelcontextprotocol/sdk` which provides:
+- Session initialization on transport connection (stdio or HTTP)
+- `server.onclose` callback for cleanup when session ends
 
-#### On SessionStart (or server first load)
+#### On Server Start (Transport Connection)
 
-1. **Memory injection into Claude context** (via Claude SDK):
-   - First, inject all **global memory** (`project_id = null`)
-   - Then, inject all **project-specific memory** for the current `project_id`
+When the MCP server connects to the transport (stdio or HTTP):
 
-2. **Project activation:**
+1. **Project detection and activation:**
+   - Server detects project from working directory
    - Server sends `RegisterProject` to daemon with current `project_id`
    - Daemon sets `is_active = true` and updates `last_activity_at`
 
-#### On SessionEnd
+2. **Start heartbeat:**
+   - Periodic heartbeat with daemon to prevent timeout-based deactivation
+
+#### On Session End (server.onclose)
 
 1. **Project deactivation:**
    - Server sends `DeprioritizeProject` to daemon
@@ -1687,15 +1692,30 @@ Session lifecycle is **automatic**, managed via Claude Code SDK hooks.
 2. **Process cleanup:**
    - Daemon shuts down any spawned processes for that project (e.g., LSP servers)
 
-#### Heartbeat
+#### Memory Injection
 
-MCP server maintains periodic heartbeat with daemon to prevent timeout-based deactivation.
+Memory injection is handled via the `memory` MCP tool:
+- Claude reads memory rules by calling the `memory` tool with `action: "list"`
+- Memory is NOT automatically injected at session start (that would require external hooks)
+
+**Optional Enhancement via Claude Code Hooks:** For automatic memory injection, users can configure a `SessionStart` hook in their `~/.claude/settings.json`:
+```json
+{
+  "hooks": {
+    "SessionStart": [{
+      "hooks": [{
+        "type": "command",
+        "command": "/path/to/inject-memory.sh"
+      }]
+    }]
+  }
+}
+```
+This is external to the MCP server and optional.
 
 #### Memory and Project ID Changes
 
 When a project is renamed or its `project_id` changes (e.g., due to disambiguation when a second clone is detected), the memory records in Qdrant must have their `project_id` field updated to maintain association.
-
-> **Note:** Hook support in Codex CLI and Gemini CLI requires verification for multi-platform compatibility.
 
 ### Health Status Integration
 
@@ -2006,6 +2026,7 @@ The daemon checks this table on startup and runs migrations if needed. Other com
 **Last Updated:** 2026-02-02
 **Changes:**
 
+- v1.6.6: Corrected session lifecycle documentation - clarified that Claude Code's SessionStart/SessionEnd are external hooks (shell commands configured in settings.json), not SDK callbacks; removed incorrect @anthropic-ai/claude-agent-sdk dependency (not needed); documented actual MCP SDK callbacks (server.onclose, onsessioninitialized for HTTP transport); clarified memory injection is via memory tool, not automatic session hooks
 - v1.6.5: Updated all references from legacy `registered_projects` table to consolidated `watch_folders` table (priority calculation, activity tracking, batch processing); Python codebase removed in preparation for TypeScript MCP server
 - v1.6.4: Updated unified_queue schema to match robust implementation - added status column for lifecycle tracking, lease_until/worker_id for crash recovery, idempotency_key for deduplication (supports content items without file paths), priority column for item type prioritization; documented idempotency key calculation and crash recovery procedure
 - v1.6.3: Corrected SDK references from non-existent @anthropic/claude-code-sdk to actual packages (@modelcontextprotocol/sdk and @anthropic-ai/claude-agent-sdk); added SDK Architecture section explaining dual-SDK pattern
