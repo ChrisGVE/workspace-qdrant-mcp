@@ -548,6 +548,115 @@ impl ServerInstance {
     pub fn rpc_client(&self) -> Arc<JsonRpcClient> {
         self.rpc_client.clone()
     }
+
+    /// Check if the server process is still alive
+    pub async fn is_alive(&self) -> bool {
+        let mut process_guard = self.process.lock().await;
+        if let Some(ref mut child) = *process_guard {
+            // try_wait returns Ok(None) if process is still running
+            // Ok(Some(status)) if process has exited
+            // Err if there's an error checking
+            match child.try_wait() {
+                Ok(None) => true,  // Still running
+                Ok(Some(_)) => {
+                    // Process exited
+                    debug!("LSP server {} has exited", self.metadata.name);
+                    false
+                }
+                Err(e) => {
+                    // Error checking - assume dead
+                    debug!("Error checking LSP server {} status: {}", self.metadata.name, e);
+                    false
+                }
+            }
+        } else {
+            // No process started
+            false
+        }
+    }
+
+    /// Check server health and restart if needed
+    /// Returns true if server needed restart, false otherwise
+    pub async fn check_and_restart_if_needed(&mut self) -> LspResult<bool> {
+        // Check if process is alive
+        if self.is_alive().await {
+            return Ok(false); // No restart needed
+        }
+
+        // Process died - extract values from restart policy
+        let enabled = self.restart_policy.enabled;
+        let max_attempts = self.restart_policy.max_attempts;
+        let current_attempts = self.restart_policy.current_attempts;
+        let last_restart = self.restart_policy.last_restart;
+        let reset_window = self.restart_policy.reset_window;
+
+        // Check if restart is enabled
+        if !enabled {
+            info!(
+                "LSP server {} crashed but restart is disabled",
+                self.metadata.name
+            );
+            let mut metrics = self.health_metrics.write().await;
+            metrics.status = ServerStatus::Failed;
+            return Ok(false);
+        }
+
+        // Check if we exceeded max restart attempts
+        if current_attempts >= max_attempts {
+            info!(
+                "LSP server {} crashed and exceeded max restart attempts ({})",
+                self.metadata.name, max_attempts
+            );
+            let mut metrics = self.health_metrics.write().await;
+            metrics.status = ServerStatus::Failed;
+            return Ok(false);
+        }
+
+        // Check if we should reset restart counter based on time window
+        if let Some(last) = last_restart {
+            if last.elapsed() > reset_window {
+                // Reset counter - server was stable for a while
+                self.restart_policy.current_attempts = 0;
+            }
+        }
+
+        // Attempt restart
+        let attempt_number = self.restart_policy.current_attempts + 1;
+        info!(
+            "LSP server {} crashed, attempting restart (attempt {} of {})",
+            self.metadata.name,
+            attempt_number,
+            max_attempts
+        );
+
+        // Update metrics
+        {
+            let mut metrics = self.health_metrics.write().await;
+            metrics.status = ServerStatus::Failed;
+            metrics.consecutive_failures += 1;
+        }
+
+        // Perform restart with backoff
+        self.restart().await?;
+
+        info!(
+            "LSP server {} restarted successfully",
+            self.metadata.name
+        );
+
+        Ok(true)
+    }
+
+    /// Get restart policy (for monitoring/debugging)
+    pub fn restart_policy(&self) -> &RestartPolicy {
+        &self.restart_policy
+    }
+
+    /// Reset restart attempts counter (e.g., after extended stable period)
+    pub fn reset_restart_attempts(&mut self) {
+        self.restart_policy.current_attempts = 0;
+        self.restart_policy.last_restart = None;
+    }
 }
 
 impl Clone for ServerInstance {

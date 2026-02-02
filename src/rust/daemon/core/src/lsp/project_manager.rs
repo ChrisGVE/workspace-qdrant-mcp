@@ -1137,6 +1137,152 @@ impl LanguageServerManager {
         }
     }
 
+    /// Check health of all active servers and restart crashed ones
+    ///
+    /// Returns summary of health check: (checked_count, restarted_count, failed_count)
+    pub async fn check_all_servers_health(&self) -> (usize, usize, usize) {
+        let mut checked = 0;
+        let mut restarted = 0;
+        let mut failed = 0;
+
+        // Get list of active server keys
+        let keys: Vec<ProjectLanguageKey> = {
+            let servers = self.servers.read().await;
+            servers.iter()
+                .filter(|(_, state)| state.is_active)
+                .map(|(k, _)| k.clone())
+                .collect()
+        };
+
+        tracing::debug!(
+            "Checking health of {} active LSP servers",
+            keys.len()
+        );
+
+        // Check each server
+        for key in keys {
+            checked += 1;
+
+            // Get the instance and check if it's alive
+            let restart_needed = {
+                let instances = self.instances.read().await;
+                if let Some(instance_arc) = instances.get(&key) {
+                    let instance = instance_arc.lock().await;
+                    !instance.is_alive().await
+                } else {
+                    // No instance - might need to start one
+                    false
+                }
+            };
+
+            if restart_needed {
+                tracing::info!(
+                    "LSP server for {:?} in project {} has crashed, attempting restart",
+                    key.language, key.project_id
+                );
+
+                // Attempt restart
+                let mut instances = self.instances.write().await;
+                if let Some(instance_arc) = instances.get(&key) {
+                    let mut instance = instance_arc.lock().await;
+                    match instance.check_and_restart_if_needed().await {
+                        Ok(true) => {
+                            restarted += 1;
+                            tracing::info!(
+                                "Successfully restarted LSP server for {:?} in project {}",
+                                key.language, key.project_id
+                            );
+                        }
+                        Ok(false) => {
+                            // Couldn't restart (exceeded attempts or disabled)
+                            failed += 1;
+
+                            // Update server state
+                            let mut servers = self.servers.write().await;
+                            if let Some(state) = servers.get_mut(&key) {
+                                state.status = ServerStatus::Failed;
+                                state.is_active = false;
+                            }
+                        }
+                        Err(e) => {
+                            failed += 1;
+                            tracing::error!(
+                                "Failed to restart LSP server for {:?} in project {}: {}",
+                                key.language, key.project_id, e
+                            );
+
+                            // Update server state
+                            let mut servers = self.servers.write().await;
+                            if let Some(state) = servers.get_mut(&key) {
+                                state.status = ServerStatus::Failed;
+                                state.is_active = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if restarted > 0 || failed > 0 {
+            tracing::info!(
+                "Health check complete: {} checked, {} restarted, {} failed",
+                checked, restarted, failed
+            );
+        }
+
+        (checked, restarted, failed)
+    }
+
+    /// Check health of a specific project's servers
+    pub async fn check_project_servers_health(&self, project_id: &str) -> (usize, usize, usize) {
+        let mut checked = 0;
+        let mut restarted = 0;
+        let mut failed = 0;
+
+        // Get keys for this project
+        let keys: Vec<ProjectLanguageKey> = {
+            let servers = self.servers.read().await;
+            servers.iter()
+                .filter(|(k, state)| k.project_id == project_id && state.is_active)
+                .map(|(k, _)| k.clone())
+                .collect()
+        };
+
+        for key in keys {
+            checked += 1;
+
+            let restart_needed = {
+                let instances = self.instances.read().await;
+                if let Some(instance_arc) = instances.get(&key) {
+                    let instance = instance_arc.lock().await;
+                    !instance.is_alive().await
+                } else {
+                    false
+                }
+            };
+
+            if restart_needed {
+                let mut instances = self.instances.write().await;
+                if let Some(instance_arc) = instances.get(&key) {
+                    let mut instance = instance_arc.lock().await;
+                    match instance.check_and_restart_if_needed().await {
+                        Ok(true) => restarted += 1,
+                        Ok(false) | Err(_) => {
+                            failed += 1;
+                            let mut servers = self.servers.write().await;
+                            if let Some(state) = servers.get_mut(&key) {
+                                state.status = ServerStatus::Failed;
+                                state.is_active = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        (checked, restarted, failed)
+    }
+
     /// Shutdown the manager and all servers
     pub async fn shutdown(&self) -> ProjectLspResult<()> {
         *self.running.write().await = false;
