@@ -16,6 +16,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig};
+use crate::lsp::{
+    LanguageServerManager, LspEnrichment, EnrichmentStatus,
+};
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{
     ItemType, QueueOperation, UnifiedQueueItem,
@@ -152,6 +155,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Storage client for Qdrant operations
     storage_client: Arc<StorageClient>,
+
+    /// LSP manager for code intelligence enrichment (optional)
+    lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
 }
 
 impl UnifiedQueueProcessor {
@@ -191,6 +197,7 @@ impl UnifiedQueueProcessor {
             document_processor,
             embedding_generator,
             storage_client,
+            lsp_manager: None,
         }
     }
 
@@ -227,7 +234,14 @@ impl UnifiedQueueProcessor {
             document_processor,
             embedding_generator,
             storage_client,
+            lsp_manager: None,
         }
+    }
+
+    /// Set the LSP manager for code intelligence enrichment
+    pub fn with_lsp_manager(mut self, lsp_manager: Arc<RwLock<LanguageServerManager>>) -> Self {
+        self.lsp_manager = Some(lsp_manager);
+        self
     }
 
     /// Recover stale leases at startup (Task 37.19)
@@ -264,6 +278,7 @@ impl UnifiedQueueProcessor {
         let document_processor = self.document_processor.clone();
         let embedding_generator = self.embedding_generator.clone();
         let storage_client = self.storage_client.clone();
+        let lsp_manager = self.lsp_manager.clone();
 
         let task_handle = tokio::spawn(async move {
             if let Err(e) = Self::processing_loop(
@@ -275,6 +290,7 @@ impl UnifiedQueueProcessor {
                 document_processor,
                 embedding_generator,
                 storage_client,
+                lsp_manager,
             )
             .await
             {
@@ -328,6 +344,7 @@ impl UnifiedQueueProcessor {
         document_processor: Arc<DocumentProcessor>,
         embedding_generator: Arc<EmbeddingGenerator>,
         storage_client: Arc<StorageClient>,
+        lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let mut last_metrics_log = Utc::now();
@@ -394,6 +411,7 @@ impl UnifiedQueueProcessor {
                             &document_processor,
                             &embedding_generator,
                             &storage_client,
+                            &lsp_manager,
                         )
                         .await
                         {
@@ -486,6 +504,7 @@ impl UnifiedQueueProcessor {
         document_processor: &Arc<DocumentProcessor>,
         embedding_generator: &Arc<EmbeddingGenerator>,
         storage_client: &Arc<StorageClient>,
+        lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
     ) -> UnifiedProcessorResult<()> {
         debug!(
             "Processing unified item: {} (type={:?}, op={:?}, collection={})",
@@ -497,7 +516,7 @@ impl UnifiedQueueProcessor {
                 Self::process_content_item(item, embedding_generator, storage_client).await
             }
             ItemType::File => {
-                Self::process_file_item(item, document_processor, embedding_generator, storage_client).await
+                Self::process_file_item(item, document_processor, embedding_generator, storage_client, lsp_manager).await
             }
             ItemType::Folder => {
                 // Folder operations typically trigger file enqueues
@@ -599,6 +618,7 @@ impl UnifiedQueueProcessor {
         document_processor: &Arc<DocumentProcessor>,
         embedding_generator: &Arc<EmbeddingGenerator>,
         storage_client: &Arc<StorageClient>,
+        lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
     ) -> UnifiedProcessorResult<()> {
         info!(
             "Processing file item: {} → collection: {}",
@@ -660,9 +680,26 @@ impl UnifiedQueueProcessor {
             payload.file_path
         );
 
+        // Check if LSP enrichment is available for this project
+        let (is_project_active, lsp_mgr_guard) = if let Some(lsp_mgr) = lsp_manager {
+            let mgr = lsp_mgr.read().await;
+            let is_active = mgr.has_active_servers(&item.tenant_id).await;
+            if is_active {
+                debug!(
+                    "LSP enrichment available for project {} on file {}",
+                    item.tenant_id, payload.file_path
+                );
+            }
+            // We need to drop the read lock before processing chunks
+            // to avoid holding it for too long
+            (is_active, Some(lsp_mgr.clone()))
+        } else {
+            (false, None)
+        };
+
         // Process each chunk
         let mut points = Vec::new();
-        for chunk in document_content.chunks {
+        for (chunk_idx, chunk) in document_content.chunks.iter().enumerate() {
             let embedding_result = embedding_generator
                 .generate_embedding(&chunk.content, "bge-small-en-v1.5")
                 .await
@@ -686,8 +723,39 @@ impl UnifiedQueueProcessor {
             }
 
             // Add chunk metadata
-            for (key, value) in chunk.metadata {
+            for (key, value) in &chunk.metadata {
                 point_payload.insert(format!("chunk_{}", key), serde_json::json!(value));
+            }
+
+            // LSP enrichment (if available)
+            if let Some(lsp_mgr) = &lsp_mgr_guard {
+                let mgr = lsp_mgr.read().await;
+
+                // Extract symbol name from metadata if available
+                let symbol_name = chunk.metadata.get("symbol_name")
+                    .map(|s| s.as_str())
+                    .unwrap_or("unknown");
+
+                // Get start line from metadata or estimate from chunk index
+                let start_line = chunk.metadata.get("start_line")
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(chunk_idx as u32 * 20); // Rough estimate
+
+                let end_line = chunk.metadata.get("end_line")
+                    .and_then(|s| s.parse::<u32>().ok())
+                    .unwrap_or(start_line + 20);
+
+                let enrichment = mgr.enrich_chunk(
+                    &item.tenant_id,
+                    file_path,
+                    symbol_name,
+                    start_line,
+                    end_line,
+                    is_project_active,
+                ).await;
+
+                // Add enrichment data to payload
+                Self::add_lsp_enrichment_to_payload(&mut point_payload, &enrichment);
             }
 
             let point = DocumentPoint {
@@ -715,6 +783,81 @@ impl UnifiedQueueProcessor {
         );
 
         Ok(())
+    }
+
+    /// Add LSP enrichment data to a point payload
+    fn add_lsp_enrichment_to_payload(
+        payload: &mut std::collections::HashMap<String, serde_json::Value>,
+        enrichment: &LspEnrichment,
+    ) {
+        // Add enrichment status
+        payload.insert(
+            "lsp_enrichment_status".to_string(),
+            serde_json::json!(format!("{:?}", enrichment.enrichment_status)),
+        );
+
+        // Skip adding empty data for non-success status
+        if enrichment.enrichment_status == EnrichmentStatus::Skipped
+            || enrichment.enrichment_status == EnrichmentStatus::Failed
+        {
+            if let Some(error) = &enrichment.error_message {
+                payload.insert("lsp_enrichment_error".to_string(), serde_json::json!(error));
+            }
+            return;
+        }
+
+        // Add references (limited to avoid huge payloads)
+        if !enrichment.references.is_empty() {
+            let refs: Vec<_> = enrichment.references.iter().take(20).map(|r| {
+                serde_json::json!({
+                    "file": r.file,
+                    "line": r.line,
+                    "column": r.column
+                })
+            }).collect();
+            payload.insert("lsp_references".to_string(), serde_json::json!(refs));
+            payload.insert(
+                "lsp_references_count".to_string(),
+                serde_json::json!(enrichment.references.len()),
+            );
+        }
+
+        // Add type info
+        if let Some(type_info) = &enrichment.type_info {
+            payload.insert("lsp_type_signature".to_string(), serde_json::json!(type_info.type_signature));
+            payload.insert("lsp_type_kind".to_string(), serde_json::json!(type_info.kind));
+            if let Some(doc) = &type_info.documentation {
+                // Truncate long docs
+                let truncated = if doc.len() > 500 {
+                    format!("{}...", &doc[..500])
+                } else {
+                    doc.clone()
+                };
+                payload.insert("lsp_type_documentation".to_string(), serde_json::json!(truncated));
+            }
+        }
+
+        // Add resolved imports
+        if !enrichment.resolved_imports.is_empty() {
+            let imports: Vec<_> = enrichment.resolved_imports.iter().map(|imp| {
+                serde_json::json!({
+                    "name": imp.import_name,
+                    "target_file": imp.target_file,
+                    "is_stdlib": imp.is_stdlib,
+                    "resolved": imp.resolved
+                })
+            }).collect();
+            payload.insert("lsp_imports".to_string(), serde_json::json!(imports));
+        }
+
+        // Add definition location
+        if let Some(def) = &enrichment.definition {
+            payload.insert("lsp_definition".to_string(), serde_json::json!({
+                "file": def.file,
+                "line": def.line,
+                "column": def.column
+            }));
+        }
     }
 
     /// Process folder item - typically triggers scanning
