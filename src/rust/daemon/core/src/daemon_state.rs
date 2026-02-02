@@ -1007,6 +1007,177 @@ impl DaemonStateManager {
         Ok(result.rows_affected() > 0)
     }
 
+    // ========================================================================
+    // Project Disambiguation methods (Task 3)
+    // ========================================================================
+
+    /// Find existing watch folders (clones) with the same remote_hash
+    ///
+    /// Used for duplicate detection when registering a new project.
+    /// Returns all top-level watch folders (parent_watch_id IS NULL) with matching remote_hash.
+    pub async fn find_clones_by_remote_hash(
+        &self,
+        remote_hash: &str,
+    ) -> DaemonStateResult<Vec<WatchFolderRecord>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT watch_id, path, collection, tenant_id,
+                   parent_watch_id, submodule_path,
+                   git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                   library_mode,
+                   follow_symlinks, enabled, cleanup_on_disable,
+                   created_at, updated_at, last_scan
+            FROM watch_folders
+            WHERE remote_hash = ?1 AND parent_watch_id IS NULL AND collection = 'projects'
+            ORDER BY created_at ASC
+            "#,
+        )
+        .bind(remote_hash)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(self.row_to_watch_folder(&row)?);
+        }
+
+        Ok(results)
+    }
+
+    /// Update disambiguation_path and tenant_id for a watch folder
+    ///
+    /// Used when disambiguating clones. Updates the project_id (tenant_id)
+    /// to include the disambiguation component.
+    pub async fn update_project_disambiguation(
+        &self,
+        watch_id: &str,
+        new_tenant_id: &str,
+        disambiguation_path: &str,
+    ) -> DaemonStateResult<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET tenant_id = ?1,
+                disambiguation_path = ?2,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE watch_id = ?3
+            "#,
+        )
+        .bind(new_tenant_id)
+        .bind(disambiguation_path)
+        .bind(watch_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Register a project with automatic duplicate detection and disambiguation
+    ///
+    /// This method handles the full disambiguation workflow:
+    /// 1. Check for existing clones with the same remote_hash
+    /// 2. If duplicates found, compute disambiguation paths for ALL clones
+    /// 3. Update existing clones with new disambiguation paths
+    /// 4. Store the new project with its disambiguation path
+    ///
+    /// Returns (WatchFolderRecord, Vec<(old_tenant_id, new_tenant_id)>) where the second
+    /// element contains alias mappings for any updated existing projects.
+    pub async fn register_project_with_disambiguation(
+        &self,
+        mut record: WatchFolderRecord,
+    ) -> DaemonStateResult<(WatchFolderRecord, Vec<(String, String)>)> {
+        use crate::project_disambiguation::{DisambiguationPathComputer, ProjectIdCalculator};
+        use std::path::PathBuf;
+
+        let mut aliases: Vec<(String, String)> = Vec::new();
+
+        // Only handle disambiguation for projects with git remotes
+        if let Some(ref remote_hash) = record.remote_hash {
+            // Find existing clones with the same remote
+            let existing_clones = self.find_clones_by_remote_hash(remote_hash).await?;
+
+            if !existing_clones.is_empty() {
+                // Collect all paths including the new one
+                let mut all_paths: Vec<PathBuf> = existing_clones
+                    .iter()
+                    .map(|c| PathBuf::from(&c.path))
+                    .collect();
+                all_paths.push(PathBuf::from(&record.path));
+
+                // Recompute disambiguation for all clones
+                let disambig_map = DisambiguationPathComputer::recompute_all(&all_paths);
+
+                let calculator = ProjectIdCalculator::new();
+
+                // Update existing clones with new disambiguation paths
+                for clone in &existing_clones {
+                    let clone_path = PathBuf::from(&clone.path);
+                    if let Some(new_disambig) = disambig_map.get(&clone_path) {
+                        // Skip if disambiguation hasn't changed
+                        let current_disambig = clone.disambiguation_path.as_deref().unwrap_or("");
+                        if new_disambig == current_disambig {
+                            continue;
+                        }
+
+                        // Calculate new tenant_id with disambiguation
+                        let new_tenant_id = calculator.calculate(
+                            &clone_path,
+                            clone.git_remote_url.as_deref(),
+                            if new_disambig.is_empty() { None } else { Some(new_disambig) },
+                        );
+
+                        // Record the alias (old_id -> new_id)
+                        if clone.tenant_id != new_tenant_id {
+                            aliases.push((clone.tenant_id.clone(), new_tenant_id.clone()));
+                        }
+
+                        // Update the existing clone
+                        self.update_project_disambiguation(
+                            &clone.watch_id,
+                            &new_tenant_id,
+                            new_disambig,
+                        )
+                        .await?;
+                    }
+                }
+
+                // Set disambiguation path for the new project
+                let new_path = PathBuf::from(&record.path);
+                if let Some(new_disambig) = disambig_map.get(&new_path) {
+                    record.disambiguation_path = if new_disambig.is_empty() {
+                        None
+                    } else {
+                        Some(new_disambig.clone())
+                    };
+
+                    // Recalculate tenant_id with disambiguation
+                    record.tenant_id = calculator.calculate(
+                        &new_path,
+                        record.git_remote_url.as_deref(),
+                        record.disambiguation_path.as_deref(),
+                    );
+                }
+            }
+        }
+
+        // Store the new project
+        self.store_watch_folder(&record).await?;
+
+        Ok((record, aliases))
+    }
+
+    /// Check if a path is already registered as a project
+    pub async fn is_path_registered(&self, path: &str) -> DaemonStateResult<bool> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM watch_folders WHERE path = ?1 AND collection = 'projects'"
+        )
+        .bind(path)
+        .fetch_one(&self.pool)
+        .await?;
+
+        Ok(count > 0)
+    }
+
     /// Helper to convert a database row to WatchFolderRecord
     fn row_to_watch_folder(&self, row: &sqlx::sqlite::SqliteRow) -> DaemonStateResult<WatchFolderRecord> {
         use chrono::TimeZone;
@@ -2046,5 +2217,263 @@ mod tests {
         let found = manager2.get_watch_folder("test-001").await.unwrap();
         assert!(found.is_some());
         assert_eq!(found.unwrap().tenant_id, "test-tenant");
+    }
+
+    // ========================================================================
+    // Disambiguation Tests (Task 3)
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_find_clones_by_remote_hash() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_find_clones.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Create two projects with the same remote_hash (same repo, different paths)
+        let remote_hash = "abc123hashxyz";
+
+        let record1 = WatchFolderRecord {
+            watch_id: "clone-001".to_string(),
+            path: "/home/user/work/project".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "project-tenant-1".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: Some("https://github.com/user/repo.git".to_string()),
+            remote_hash: Some(remote_hash.to_string()),
+            disambiguation_path: Some("work/project".to_string()),
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+
+        let record2 = WatchFolderRecord {
+            watch_id: "clone-002".to_string(),
+            path: "/home/user/personal/project".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "project-tenant-2".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: Some("https://github.com/user/repo.git".to_string()),
+            remote_hash: Some(remote_hash.to_string()),
+            disambiguation_path: Some("personal/project".to_string()),
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+
+        manager.store_watch_folder(&record1).await.unwrap();
+        manager.store_watch_folder(&record2).await.unwrap();
+
+        // Find clones by remote_hash
+        let clones = manager.find_clones_by_remote_hash(remote_hash).await.unwrap();
+        assert_eq!(clones.len(), 2);
+
+        // Verify different tenant_ids
+        let tenant_ids: Vec<_> = clones.iter().map(|c| &c.tenant_id).collect();
+        assert!(tenant_ids.contains(&&"project-tenant-1".to_string()));
+        assert!(tenant_ids.contains(&&"project-tenant-2".to_string()));
+
+        // Search for non-existent hash
+        let no_clones = manager.find_clones_by_remote_hash("nonexistent").await.unwrap();
+        assert!(no_clones.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_register_project_with_disambiguation_first_clone() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_disambig_first.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        use crate::project_disambiguation::ProjectIdCalculator;
+        let calculator = ProjectIdCalculator::new();
+
+        // Register first clone (no disambiguation needed)
+        let remote_hash = calculator.calculate_remote_hash("https://github.com/user/repo.git");
+        let tenant_id = calculator.calculate(
+            std::path::Path::new("/home/user/work/project"),
+            Some("https://github.com/user/repo.git"),
+            None,
+        );
+
+        let record = WatchFolderRecord {
+            watch_id: "first-clone".to_string(),
+            path: "/home/user/work/project".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: tenant_id.clone(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: Some("https://github.com/user/repo.git".to_string()),
+            remote_hash: Some(remote_hash.clone()),
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+
+        let (result, aliases) = manager.register_project_with_disambiguation(record).await.unwrap();
+
+        // First clone should have no aliases
+        assert!(aliases.is_empty());
+
+        // First clone should not need disambiguation
+        assert!(result.disambiguation_path.is_none() || result.disambiguation_path.as_deref() == Some(""));
+    }
+
+    #[tokio::test]
+    async fn test_register_project_with_disambiguation_second_clone() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_disambig_second.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        use crate::project_disambiguation::ProjectIdCalculator;
+        let calculator = ProjectIdCalculator::new();
+
+        let git_remote = "https://github.com/user/repo.git";
+        let remote_hash = calculator.calculate_remote_hash(git_remote);
+
+        // Register first clone
+        let first_record = WatchFolderRecord {
+            watch_id: "first-clone".to_string(),
+            path: "/home/user/work/project".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: calculator.calculate(
+                std::path::Path::new("/home/user/work/project"),
+                Some(git_remote),
+                None,
+            ),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: Some(git_remote.to_string()),
+            remote_hash: Some(remote_hash.clone()),
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+
+        let (first_result, _) = manager.register_project_with_disambiguation(first_record).await.unwrap();
+        let original_tenant_id = first_result.tenant_id.clone();
+
+        // Register second clone (should trigger disambiguation for both)
+        let second_record = WatchFolderRecord {
+            watch_id: "second-clone".to_string(),
+            path: "/home/user/personal/project".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: calculator.calculate(
+                std::path::Path::new("/home/user/personal/project"),
+                Some(git_remote),
+                None,
+            ),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: Some(git_remote.to_string()),
+            remote_hash: Some(remote_hash.clone()),
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+
+        let (second_result, aliases) = manager.register_project_with_disambiguation(second_record).await.unwrap();
+
+        // Second clone should have disambiguation path
+        assert!(second_result.disambiguation_path.is_some());
+        let second_disambig = second_result.disambiguation_path.as_ref().unwrap();
+        assert!(second_disambig.contains("personal"), "Expected 'personal' in disambiguation path: {}", second_disambig);
+
+        // Verify first clone was updated with disambiguation
+        let updated_first = manager.get_watch_folder("first-clone").await.unwrap().unwrap();
+        assert!(updated_first.disambiguation_path.is_some());
+        let first_disambig = updated_first.disambiguation_path.as_ref().unwrap();
+        assert!(first_disambig.contains("work"), "Expected 'work' in disambiguation path: {}", first_disambig);
+
+        // Verify tenant_ids are now different
+        assert_ne!(updated_first.tenant_id, second_result.tenant_id,
+            "Both clones should have different tenant_ids");
+
+        // Verify alias was created for the first clone
+        assert!(!aliases.is_empty(), "Should have created alias for first clone");
+        let (old_id, new_id) = &aliases[0];
+        assert_eq!(old_id, &original_tenant_id, "Alias should map from original tenant_id");
+        assert_eq!(new_id, &updated_first.tenant_id, "Alias should map to new tenant_id");
+    }
+
+    #[tokio::test]
+    async fn test_is_path_registered() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_path_registered.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        let record = WatchFolderRecord {
+            watch_id: "test-project".to_string(),
+            path: "/home/user/myproject".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "test-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+
+        // Path should not be registered initially
+        assert!(!manager.is_path_registered("/home/user/myproject").await.unwrap());
+
+        // Register the project
+        manager.store_watch_folder(&record).await.unwrap();
+
+        // Path should now be registered
+        assert!(manager.is_path_registered("/home/user/myproject").await.unwrap());
+
+        // Different path should not be registered
+        assert!(!manager.is_path_registered("/home/user/other").await.unwrap());
     }
 }
