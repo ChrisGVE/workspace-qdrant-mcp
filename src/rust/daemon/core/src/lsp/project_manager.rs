@@ -286,6 +286,80 @@ pub enum EnrichmentStatus {
     Skipped,
 }
 
+/// LSP usage metrics tracking (Task 1.17)
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct LspMetrics {
+    /// Total enrichment queries made
+    pub total_enrichment_queries: u64,
+
+    /// Successful enrichments (full data returned)
+    pub successful_enrichments: u64,
+
+    /// Partial enrichments (some queries failed or no data)
+    pub partial_enrichments: u64,
+
+    /// Failed enrichments (all queries failed)
+    pub failed_enrichments: u64,
+
+    /// Skipped enrichments (project inactive)
+    pub skipped_enrichments: u64,
+
+    /// Cache hits (enrichment returned from cache)
+    pub cache_hits: u64,
+
+    /// Cache misses (enrichment not in cache)
+    pub cache_misses: u64,
+
+    /// Total references queries made
+    pub total_references_queries: u64,
+
+    /// Total type info queries made
+    pub total_type_info_queries: u64,
+
+    /// Total import resolution queries made
+    pub total_import_queries: u64,
+
+    /// Total successful server starts
+    pub total_server_starts: u64,
+
+    /// Total server restarts
+    pub total_server_restarts: u64,
+
+    /// Total server stops
+    pub total_server_stops: u64,
+}
+
+impl LspMetrics {
+    /// Create new metrics instance
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Get a snapshot of current metrics
+    pub fn snapshot(&self) -> Self {
+        self.clone()
+    }
+
+    /// Get cache hit rate as a percentage (0-100)
+    pub fn cache_hit_rate(&self) -> f64 {
+        let total = self.cache_hits + self.cache_misses;
+        if total == 0 {
+            0.0
+        } else {
+            (self.cache_hits as f64 / total as f64) * 100.0
+        }
+    }
+
+    /// Get enrichment success rate as a percentage (0-100)
+    pub fn enrichment_success_rate(&self) -> f64 {
+        if self.total_enrichment_queries == 0 {
+            0.0
+        } else {
+            (self.successful_enrichments as f64 / self.total_enrichment_queries as f64) * 100.0
+        }
+    }
+}
+
 /// Manages LSP servers for all active projects
 pub struct LanguageServerManager {
     /// Configuration
@@ -308,6 +382,9 @@ pub struct LanguageServerManager {
 
     /// Running flag
     running: Arc<RwLock<bool>>,
+
+    /// Usage metrics (Task 1.17)
+    metrics: Arc<RwLock<LspMetrics>>,
 }
 
 impl LanguageServerManager {
@@ -323,7 +400,19 @@ impl LanguageServerManager {
             cache: Arc::new(RwLock::new(HashMap::new())),
             available_servers: Arc::new(RwLock::new(HashMap::new())),
             running: Arc::new(RwLock::new(false)),
+            metrics: Arc::new(RwLock::new(LspMetrics::new())),
         })
+    }
+
+    /// Get a snapshot of current LSP metrics
+    pub async fn get_metrics(&self) -> LspMetrics {
+        self.metrics.read().await.snapshot()
+    }
+
+    /// Reset all metrics to zero
+    pub async fn reset_metrics(&self) {
+        let mut metrics = self.metrics.write().await;
+        *metrics = LspMetrics::new();
     }
 
     /// Initialize the manager and detect available servers
@@ -675,6 +764,12 @@ impl LanguageServerManager {
             "Language server started successfully"
         );
 
+        // Track server start metric
+        {
+            let mut metrics = self.metrics.write().await;
+            metrics.total_server_starts += 1;
+        }
+
         Ok(Arc::new(instance))
     }
 
@@ -729,6 +824,12 @@ impl LanguageServerManager {
         {
             let mut servers = self.servers.write().await;
             servers.remove(&key);
+        }
+
+        // Track server stop metric
+        {
+            let mut metrics = self.metrics.write().await;
+            metrics.total_server_stops += 1;
         }
 
         Ok(())
@@ -836,13 +937,30 @@ impl LanguageServerManager {
         line: u32,
         column: u32,
     ) -> ProjectLspResult<Vec<Reference>> {
+        // Track query metric
+        {
+            let mut metrics = self.metrics.write().await;
+            metrics.total_references_queries += 1;
+        }
+
         // Check cache first
         let cache_key = format!("refs:{}:{}:{}", file.display(), line, column);
         {
             let cache = self.cache.read().await;
             if let Some(enrichment) = cache.get(&cache_key) {
+                // Track cache hit
+                {
+                    let mut metrics = self.metrics.write().await;
+                    metrics.cache_hits += 1;
+                }
                 return Ok(enrichment.references.clone());
             }
+        }
+
+        // Track cache miss
+        {
+            let mut metrics = self.metrics.write().await;
+            metrics.cache_misses += 1;
         }
 
         // Try to find a server for this file
@@ -994,13 +1112,30 @@ impl LanguageServerManager {
         line: u32,
         column: u32,
     ) -> ProjectLspResult<Option<TypeInfo>> {
+        // Track query metric
+        {
+            let mut metrics = self.metrics.write().await;
+            metrics.total_type_info_queries += 1;
+        }
+
         // Check cache first
         let cache_key = format!("type:{}:{}:{}", file.display(), line, column);
         {
             let cache = self.cache.read().await;
             if let Some(enrichment) = cache.get(&cache_key) {
+                // Track cache hit
+                {
+                    let mut metrics = self.metrics.write().await;
+                    metrics.cache_hits += 1;
+                }
                 return Ok(enrichment.type_info.clone());
             }
+        }
+
+        // Track cache miss
+        {
+            let mut metrics = self.metrics.write().await;
+            metrics.cache_misses += 1;
         }
 
         // Try to find a server for this file
@@ -1171,13 +1306,30 @@ impl LanguageServerManager {
         &self,
         file: &Path,
     ) -> ProjectLspResult<Vec<ResolvedImport>> {
+        // Track query metric
+        {
+            let mut metrics = self.metrics.write().await;
+            metrics.total_import_queries += 1;
+        }
+
         // Check cache first
         let cache_key = format!("imports:{}", file.display());
         {
             let cache = self.cache.read().await;
             if let Some(enrichment) = cache.get(&cache_key) {
+                // Track cache hit
+                {
+                    let mut metrics = self.metrics.write().await;
+                    metrics.cache_hits += 1;
+                }
                 return Ok(enrichment.resolved_imports.clone());
             }
+        }
+
+        // Track cache miss
+        {
+            let mut metrics = self.metrics.write().await;
+            metrics.cache_misses += 1;
         }
 
         // Try to find a server for this file
@@ -1331,8 +1483,19 @@ impl LanguageServerManager {
         _end_line: u32,
         is_project_active: bool,
     ) -> LspEnrichment {
+        // Track total enrichment queries
+        {
+            let mut metrics = self.metrics.write().await;
+            metrics.total_enrichment_queries += 1;
+        }
+
         // Skip enrichment if project is not active
         if !is_project_active {
+            // Track skipped enrichment
+            {
+                let mut metrics = self.metrics.write().await;
+                metrics.skipped_enrichments += 1;
+            }
             return LspEnrichment {
                 references: Vec::new(),
                 type_info: None,
@@ -1429,6 +1592,17 @@ impl LanguageServerManager {
             (EnrichmentStatus::Partial, None)
         };
 
+        // Track enrichment status metrics
+        {
+            let mut metrics = self.metrics.write().await;
+            match status {
+                EnrichmentStatus::Success => metrics.successful_enrichments += 1,
+                EnrichmentStatus::Partial => metrics.partial_enrichments += 1,
+                EnrichmentStatus::Failed => metrics.failed_enrichments += 1,
+                EnrichmentStatus::Skipped => metrics.skipped_enrichments += 1,
+            }
+        }
+
         LspEnrichment {
             references,
             type_info,
@@ -1454,12 +1628,14 @@ impl LanguageServerManager {
         let servers = self.servers.read().await;
         let available = self.available_servers.read().await;
         let cache = self.cache.read().await;
+        let metrics = self.metrics.read().await;
 
         ProjectLspStats {
             active_servers: servers.values().filter(|s| s.is_active).count(),
             total_servers: servers.len(),
             available_languages: available.len(),
             cache_entries: cache.len(),
+            metrics: metrics.snapshot(),
         }
     }
 
@@ -1632,12 +1808,22 @@ impl LanguageServerManager {
 }
 
 /// Statistics for the project LSP manager
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct ProjectLspStats {
+    /// Number of currently active LSP servers
     pub active_servers: usize,
+
+    /// Total number of LSP servers (active + inactive)
     pub total_servers: usize,
+
+    /// Number of languages with available servers
     pub available_languages: usize,
+
+    /// Number of entries in the enrichment cache
     pub cache_entries: usize,
+
+    /// LSP usage metrics
+    pub metrics: LspMetrics,
 }
 
 #[cfg(test)]
@@ -1909,6 +2095,100 @@ mod tests {
         assert_eq!(stats.total_servers, 0);
         assert_eq!(stats.available_languages, 0);
         assert_eq!(stats.cache_entries, 0);
+        // Check metrics field
+        assert_eq!(stats.metrics.total_enrichment_queries, 0);
+        assert_eq!(stats.metrics.cache_hits, 0);
+    }
+
+    #[tokio::test]
+    async fn test_lsp_metrics_default() {
+        let metrics = LspMetrics::default();
+        assert_eq!(metrics.total_enrichment_queries, 0);
+        assert_eq!(metrics.successful_enrichments, 0);
+        assert_eq!(metrics.partial_enrichments, 0);
+        assert_eq!(metrics.failed_enrichments, 0);
+        assert_eq!(metrics.skipped_enrichments, 0);
+        assert_eq!(metrics.cache_hits, 0);
+        assert_eq!(metrics.cache_misses, 0);
+        assert_eq!(metrics.total_references_queries, 0);
+        assert_eq!(metrics.total_type_info_queries, 0);
+        assert_eq!(metrics.total_import_queries, 0);
+        assert_eq!(metrics.total_server_starts, 0);
+        assert_eq!(metrics.total_server_restarts, 0);
+        assert_eq!(metrics.total_server_stops, 0);
+    }
+
+    #[tokio::test]
+    async fn test_lsp_metrics_rates() {
+        let mut metrics = LspMetrics::default();
+
+        // Test cache hit rate with no data
+        assert_eq!(metrics.cache_hit_rate(), 0.0);
+
+        // Test cache hit rate with data
+        metrics.cache_hits = 7;
+        metrics.cache_misses = 3;
+        assert_eq!(metrics.cache_hit_rate(), 70.0);
+
+        // Test enrichment success rate with no data
+        let mut metrics2 = LspMetrics::default();
+        assert_eq!(metrics2.enrichment_success_rate(), 0.0);
+
+        // Test enrichment success rate with data
+        metrics2.total_enrichment_queries = 10;
+        metrics2.successful_enrichments = 8;
+        assert_eq!(metrics2.enrichment_success_rate(), 80.0);
+    }
+
+    #[tokio::test]
+    async fn test_lsp_metrics_snapshot() {
+        let mut metrics = LspMetrics::default();
+        metrics.total_enrichment_queries = 100;
+        metrics.cache_hits = 50;
+
+        let snapshot = metrics.snapshot();
+        assert_eq!(snapshot.total_enrichment_queries, 100);
+        assert_eq!(snapshot.cache_hits, 50);
+
+        // Ensure snapshot is a copy
+        let metrics2 = LspMetrics::default();
+        assert_eq!(metrics2.total_enrichment_queries, 0);
+    }
+
+    #[tokio::test]
+    async fn test_manager_get_metrics() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // Initial metrics should be zero
+        let metrics = manager.get_metrics().await;
+        assert_eq!(metrics.total_enrichment_queries, 0);
+
+        // Reset should work
+        manager.reset_metrics().await;
+        let metrics2 = manager.get_metrics().await;
+        assert_eq!(metrics2.total_enrichment_queries, 0);
+    }
+
+    #[tokio::test]
+    async fn test_enrich_chunk_increments_metrics() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // Enrich with inactive project
+        let _enrichment = manager.enrich_chunk(
+            "test-project",
+            Path::new("/test/file.rs"),
+            "test_function",
+            10,
+            20,
+            false,  // inactive
+        ).await;
+
+        // Should have 1 total, 1 skipped
+        let metrics = manager.get_metrics().await;
+        assert_eq!(metrics.total_enrichment_queries, 1);
+        assert_eq!(metrics.skipped_enrichments, 1);
     }
 
     #[tokio::test]
