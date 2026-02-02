@@ -1316,13 +1316,19 @@ impl LanguageServerManager {
     ///
     /// This is the main entry point for queue processor integration.
     /// Returns enrichment data or gracefully degrades if LSP unavailable.
+    ///
+    /// Status determination:
+    /// - Skipped: project not active
+    /// - Success: at least one query returned data
+    /// - Partial: some queries failed but at least one succeeded
+    /// - Failed: all queries failed
     pub async fn enrich_chunk(
         &self,
         project_id: &str,
         file: &Path,
-        symbol_name: &str,
+        _symbol_name: &str,
         start_line: u32,
-        end_line: u32,
+        _end_line: u32,
         is_project_active: bool,
     ) -> LspEnrichment {
         // Skip enrichment if project is not active
@@ -1337,53 +1343,90 @@ impl LanguageServerManager {
             };
         }
 
+        // Track successes and failures for each query
+        let mut errors: Vec<String> = Vec::new();
+        let mut successes = 0;
+
         // Try to get references
         let references = match self.get_references(file, start_line, 0).await {
-            Ok(refs) => refs,
+            Ok(refs) => {
+                successes += 1;
+                refs
+            }
             Err(e) => {
+                let error_msg = format!("get_references: {}", e);
                 tracing::debug!(
                     project_id = project_id,
                     file = %file.display(),
                     error = %e,
                     "Failed to get references"
                 );
+                errors.push(error_msg);
                 Vec::new()
             }
         };
 
         // Try to get type info
         let type_info = match self.get_type_info(file, start_line, 0).await {
-            Ok(info) => info,
+            Ok(info) => {
+                successes += 1;
+                info
+            }
             Err(e) => {
+                let error_msg = format!("get_type_info: {}", e);
                 tracing::debug!(
                     project_id = project_id,
                     file = %file.display(),
                     error = %e,
                     "Failed to get type info"
                 );
+                errors.push(error_msg);
                 None
             }
         };
 
         // Try to resolve imports
         let resolved_imports = match self.resolve_imports(file).await {
-            Ok(imports) => imports,
+            Ok(imports) => {
+                successes += 1;
+                imports
+            }
             Err(e) => {
+                let error_msg = format!("resolve_imports: {}", e);
                 tracing::debug!(
                     project_id = project_id,
                     file = %file.display(),
                     error = %e,
                     "Failed to resolve imports"
                 );
+                errors.push(error_msg);
                 Vec::new()
             }
         };
 
-        // Determine enrichment status
-        let status = if !references.is_empty() || type_info.is_some() || !resolved_imports.is_empty() {
-            EnrichmentStatus::Success
+        // Determine enrichment status based on successes and data
+        let has_data = !references.is_empty() || type_info.is_some() || !resolved_imports.is_empty();
+        let all_failed = successes == 0;
+        let some_failed = !errors.is_empty() && successes > 0;
+
+        let (status, error_message) = if all_failed {
+            // All queries failed
+            (
+                EnrichmentStatus::Failed,
+                Some(format!("All queries failed: {}", errors.join("; "))),
+            )
+        } else if has_data {
+            // At least one query returned data
+            (EnrichmentStatus::Success, None)
+        } else if some_failed {
+            // Some queries failed but at least one succeeded (with no data)
+            (
+                EnrichmentStatus::Partial,
+                Some(format!("Some queries failed: {}", errors.join("; "))),
+            )
         } else {
-            EnrichmentStatus::Partial
+            // All queries succeeded but no data
+            (EnrichmentStatus::Partial, None)
         };
 
         LspEnrichment {
@@ -1392,7 +1435,7 @@ impl LanguageServerManager {
             resolved_imports,
             definition: None,
             enrichment_status: status,
-            error_message: None,
+            error_message,
         }
     }
 
@@ -2037,5 +2080,111 @@ mod tests {
         assert!(!config.lsp_config.enable_auto_restart);
         assert_eq!(config.lsp_config.max_restart_attempts, 5);
         assert_eq!(config.lsp_config.restart_backoff_multiplier, 3.0);
+    }
+
+    #[tokio::test]
+    async fn test_enrich_chunk_skipped_inactive_project() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        let result = manager.enrich_chunk(
+            "test-project",
+            Path::new("/test/file.rs"),
+            "test_symbol",
+            10,
+            20,
+            false, // project not active
+        ).await;
+
+        assert_eq!(result.enrichment_status, EnrichmentStatus::Skipped);
+        assert!(result.error_message.is_some());
+        assert!(result.error_message.unwrap().contains("not active"));
+        assert!(result.references.is_empty());
+        assert!(result.type_info.is_none());
+        assert!(result.resolved_imports.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_enrich_chunk_returns_enrichment_structure() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // Even with no servers, should return a valid structure
+        let result = manager.enrich_chunk(
+            "test-project",
+            Path::new("/test/file.rs"),
+            "test_symbol",
+            10,
+            20,
+            true, // project active
+        ).await;
+
+        // Without any servers, queries succeed but return no data → Partial status
+        // (queries succeed with empty results, not errors)
+        assert_eq!(result.enrichment_status, EnrichmentStatus::Partial);
+        // No error_message when queries succeed but return no data
+        assert!(result.error_message.is_none());
+        // Verify empty results
+        assert!(result.references.is_empty());
+        assert!(result.type_info.is_none());
+        assert!(result.resolved_imports.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_enrichment_status_display() {
+        // Test that status values have expected string representations
+        assert_eq!(format!("{:?}", EnrichmentStatus::Success), "Success");
+        assert_eq!(format!("{:?}", EnrichmentStatus::Partial), "Partial");
+        assert_eq!(format!("{:?}", EnrichmentStatus::Failed), "Failed");
+        assert_eq!(format!("{:?}", EnrichmentStatus::Skipped), "Skipped");
+    }
+
+    #[tokio::test]
+    async fn test_lsp_enrichment_structure_complete() {
+        // Test creating a complete enrichment structure
+        let enrichment = LspEnrichment {
+            references: vec![
+                Reference {
+                    file: "src/lib.rs".to_string(),
+                    line: 10,
+                    column: 5,
+                    end_line: Some(10),
+                    end_column: Some(15),
+                },
+                Reference {
+                    file: "src/main.rs".to_string(),
+                    line: 25,
+                    column: 8,
+                    end_line: None,
+                    end_column: None,
+                },
+            ],
+            type_info: Some(TypeInfo {
+                type_signature: "fn process() -> Result<(), Error>".to_string(),
+                documentation: Some("Process the data".to_string()),
+                kind: "function".to_string(),
+                container: Some("MyModule".to_string()),
+            }),
+            resolved_imports: vec![
+                ResolvedImport {
+                    import_name: "std::collections::HashMap".to_string(),
+                    target_file: Some("/rustlib/std/collections/hash_map.rs".to_string()),
+                    target_symbol: Some("HashMap".to_string()),
+                    is_stdlib: true,
+                    resolved: true,
+                },
+            ],
+            definition: None,
+            enrichment_status: EnrichmentStatus::Success,
+            error_message: None,
+        };
+
+        // Verify structure
+        assert_eq!(enrichment.references.len(), 2);
+        assert!(enrichment.type_info.is_some());
+        assert_eq!(enrichment.resolved_imports.len(), 1);
+        assert!(enrichment.resolved_imports[0].is_stdlib);
+        assert_eq!(enrichment.enrichment_status, EnrichmentStatus::Success);
+        assert!(enrichment.error_message.is_none());
     }
 }
