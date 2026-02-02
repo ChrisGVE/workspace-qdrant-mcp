@@ -189,10 +189,12 @@ pub use crate::tree_sitter::{
     create_grammar_manager,
 };
 pub use crate::project_disambiguation::{
-    ProjectIdCalculator, DisambiguationPathComputer, AliasManager,
-    ProjectRecord, ProjectAlias, RegisteredProject, DisambiguationConfig,
+    ProjectIdCalculator, DisambiguationPathComputer,
+    ProjectRecord, RegisteredProject, DisambiguationConfig,
     DisambiguationError, DisambiguationResult,
-    CREATE_REGISTERED_PROJECTS_SQL, CREATE_REGISTERED_PROJECTS_INDEXES_SQL
+    // NOTE: AliasManager, ProjectAlias, CREATE_REGISTERED_PROJECTS_SQL,
+    // CREATE_REGISTERED_PROJECTS_INDEXES_SQL have been removed.
+    // Use watch_folders_schema::WatchFolder for project tracking.
 };
 pub use crate::lsp::{
     LanguageServerManager, ProjectLspConfig, ProjectLspError, ProjectLspResult,

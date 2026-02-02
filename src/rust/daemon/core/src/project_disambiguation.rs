@@ -67,22 +67,6 @@ pub struct ProjectRecord {
     pub last_activity: Option<DateTime<Utc>>,
 }
 
-/// A project alias mapping old project ID to new project ID
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProjectAlias {
-    /// The old project ID (before transition)
-    pub old_id: String,
-
-    /// The new project ID (after transition)
-    pub new_id: String,
-
-    /// When the alias was created
-    pub created_at: DateTime<Utc>,
-
-    /// Reason for the alias (e.g., "local_to_remote")
-    pub reason: String,
-}
-
 /// Configuration for project ID calculation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DisambiguationConfig {
@@ -325,50 +309,11 @@ impl DisambiguationPathComputer {
     }
 }
 
-/// Manages project aliases for ID transitions
-pub struct AliasManager;
-
-impl AliasManager {
-    /// Create an alias when a project transitions from local to remote
-    pub fn create_transition_alias(
-        old_id: &str,
-        new_id: &str,
-        reason: &str,
-    ) -> ProjectAlias {
-        ProjectAlias {
-            old_id: old_id.to_string(),
-            new_id: new_id.to_string(),
-            created_at: Utc::now(),
-            reason: reason.to_string(),
-        }
-    }
-
-    /// SQL to create the project_aliases table
-    pub const CREATE_TABLE_SQL: &'static str = r#"
-        CREATE TABLE IF NOT EXISTS project_aliases (
-            old_id TEXT NOT NULL,
-            new_id TEXT NOT NULL,
-            created_at TEXT NOT NULL,
-            reason TEXT NOT NULL,
-            PRIMARY KEY (old_id, new_id)
-        )
-    "#;
-
-    /// SQL to create index on old_id for efficient lookups
-    pub const CREATE_INDEX_SQL: &'static str = r#"
-        CREATE INDEX IF NOT EXISTS idx_alias_old_id ON project_aliases(old_id)
-    "#;
-
-    /// SQL to clean up old aliases
-    pub fn cleanup_sql(retention_days: u32) -> String {
-        format!(
-            "DELETE FROM project_aliases WHERE created_at < datetime('now', '-{} days')",
-            retention_days
-        )
-    }
-}
-
 /// Extended project registration record with disambiguation
+///
+/// NOTE: This struct is deprecated. Use `WatchFolder` from `watch_folders_schema` instead.
+/// The unified `watch_folders` table consolidates all project/library tracking.
+/// This struct remains for backward compatibility during migration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegisteredProject {
     /// Unique project ID
@@ -396,27 +341,9 @@ pub struct RegisteredProject {
     pub is_active: bool,
 }
 
-/// SQL schema for registered_projects table with disambiguation support
-pub const CREATE_REGISTERED_PROJECTS_SQL: &str = r#"
-    CREATE TABLE IF NOT EXISTS registered_projects (
-        project_id TEXT PRIMARY KEY,
-        project_path TEXT NOT NULL UNIQUE,
-        git_remote_url TEXT,
-        remote_hash TEXT,
-        disambiguation_path TEXT,
-        registered_at TEXT NOT NULL,
-        last_activity_at TEXT,
-        is_active INTEGER DEFAULT 0,
-        metadata TEXT
-    )
-"#;
-
-/// SQL indexes for registered_projects
-pub const CREATE_REGISTERED_PROJECTS_INDEXES_SQL: &str = r#"
-    CREATE INDEX IF NOT EXISTS idx_registered_remote_hash ON registered_projects(remote_hash);
-    CREATE INDEX IF NOT EXISTS idx_registered_active ON registered_projects(is_active);
-    CREATE INDEX IF NOT EXISTS idx_registered_path ON registered_projects(project_path);
-"#;
+// NOTE: Legacy SQL constants (CREATE_REGISTERED_PROJECTS_SQL, CREATE_REGISTERED_PROJECTS_INDEXES_SQL)
+// have been removed. Use the unified `watch_folders` table from `watch_folders_schema.rs` instead.
+// See WORKSPACE_QDRANT_MCP.md v1.6.2+ for the consolidated schema.
 
 #[cfg(test)]
 mod tests {
@@ -577,16 +504,4 @@ mod tests {
         assert_eq!(hash2, hash3);
     }
 
-    #[test]
-    fn test_alias_creation() {
-        let alias = AliasManager::create_transition_alias(
-            "local_abc123",
-            "def456789012",
-            "local_to_remote",
-        );
-
-        assert_eq!(alias.old_id, "local_abc123");
-        assert_eq!(alias.new_id, "def456789012");
-        assert_eq!(alias.reason, "local_to_remote");
-    }
 }

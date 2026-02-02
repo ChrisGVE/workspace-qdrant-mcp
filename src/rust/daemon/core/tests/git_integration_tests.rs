@@ -16,7 +16,7 @@ use workspace_qdrant_core::git_integration::{
     BranchEvent,
 };
 use workspace_qdrant_core::project_disambiguation::{
-    ProjectIdCalculator, DisambiguationPathComputer, AliasManager,
+    ProjectIdCalculator, DisambiguationPathComputer,
 };
 
 // ============================================================================
@@ -282,21 +282,8 @@ fn test_local_project_id_generation() {
     assert_eq!(id.len(), 18, "local_ (6) + 12-char hash = 18 characters");
 }
 
-#[test]
-fn test_project_alias_creation() {
-    let old_id = "local_abc123def456";
-    let new_id = "xyz789012345";
-
-    let alias = AliasManager::create_transition_alias(
-        old_id,
-        new_id,
-        "local_to_remote",
-    );
-
-    assert_eq!(alias.old_id, old_id);
-    assert_eq!(alias.new_id, new_id);
-    assert_eq!(alias.reason, "local_to_remote");
-}
+// NOTE: test_project_alias_creation removed - AliasManager has been deprecated.
+// Project aliases are no longer needed with the unified watch_folders table.
 
 #[test]
 fn test_git_url_normalization_comprehensive() {
