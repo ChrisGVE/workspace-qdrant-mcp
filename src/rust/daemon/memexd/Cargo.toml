@@ -12,7 +12,7 @@ path = "src/main.rs"
 
 [dependencies]
 # Internal dependencies
-workspace-qdrant-core = { path = "../core" }
+workspace-qdrant-core = { path = "../core", default-features = false }
 workspace-qdrant-grpc = { path = "../grpc" }
 
 # CLI and argument parsing
@@ -33,3 +33,8 @@ libc = "0.2"
 
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3", features = ["processthreadsapi", "winnt", "handleapi", "minwinbase", "processenv", "winbase"] }
+
+[features]
+default = ["static-grammars"]
+# Include bundled tree-sitter grammars as fallback (increases binary size ~5-10MB)
+static-grammars = ["workspace-qdrant-core/static-grammars"]

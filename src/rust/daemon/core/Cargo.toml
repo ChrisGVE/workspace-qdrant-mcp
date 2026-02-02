@@ -85,15 +85,17 @@ fastembed = { version = "5", default-features = false, features = ["ort-load-dyn
 # Code parsing (semantic chunking)
 tree-sitter = "0.24"
 libloading = "0.9"  # Dynamic library loading for tree-sitter grammars
-tree-sitter-rust = "0.23"
-tree-sitter-python = "0.23"
-tree-sitter-javascript = "0.23"
-tree-sitter-typescript = "0.23"
-tree-sitter-go = "0.23"
-tree-sitter-java = "0.23"
-tree-sitter-c = "0.23"
-tree-sitter-cpp = "0.23"
-tree-sitter-json = "0.23"
+
+# Static grammar libraries (optional - enable 'static-grammars' feature for bundled fallback)
+tree-sitter-rust = { version = "0.23", optional = true }
+tree-sitter-python = { version = "0.23", optional = true }
+tree-sitter-javascript = { version = "0.23", optional = true }
+tree-sitter-typescript = { version = "0.23", optional = true }
+tree-sitter-go = { version = "0.23", optional = true }
+tree-sitter-java = { version = "0.23", optional = true }
+tree-sitter-c = { version = "0.23", optional = true }
+tree-sitter-cpp = { version = "0.23", optional = true }
+tree-sitter-json = { version = "0.23", optional = true }
 
 # Platform-specific dependencies
 [target.'cfg(unix)'.dependencies]
@@ -109,7 +111,22 @@ windows = { version = "0.52", features = [
 ] }
 
 [features]
-default = []
+default = ["static-grammars"]
+
+# Static grammar support - includes bundled tree-sitter grammars as fallback
+# Disable to reduce binary size (~5-10MB) when using only dynamic loading
+static-grammars = [
+    "tree-sitter-rust",
+    "tree-sitter-python",
+    "tree-sitter-javascript",
+    "tree-sitter-typescript",
+    "tree-sitter-go",
+    "tree-sitter-java",
+    "tree-sitter-c",
+    "tree-sitter-cpp",
+    "tree-sitter-json",
+]
+
 macos-fsevents = []
 integration = []
 processing_engine = []

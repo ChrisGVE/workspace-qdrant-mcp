@@ -7,32 +7,47 @@
 //!
 //! Languages can be loaded in two ways:
 //!
-//! 1. **Static loading** (default): Uses grammars compiled into the binary via
-//!    the `tree_sitter_*` crates. This is fast and reliable but requires
-//!    recompilation to add new languages.
+//! 1. **Static loading** (with `static-grammars` feature): Uses grammars compiled
+//!    into the binary via the `tree_sitter_*` crates. This is fast and reliable
+//!    but increases binary size.
 //!
 //! 2. **Dynamic loading**: Uses the `GrammarManager` to load grammars from
 //!    shared library files at runtime. This allows adding language support
-//!    without recompilation.
+//!    without recompilation and reduces binary size.
 //!
-//! The `TreeSitterParser` tries static loading first, then falls back to
-//! dynamic loading if a `LanguageProvider` is available.
-
-use std::sync::OnceLock;
+//! The `TreeSitterParser` tries static loading first (if available), then falls
+//! back to dynamic loading if a `LanguageProvider` is available.
+//!
+//! # Features
+//!
+//! - `static-grammars` (default): Include bundled tree-sitter grammars for
+//!   common languages. Disable to reduce binary size by ~5-10MB.
 
 use tree_sitter::{Language, Parser, Tree};
 
 use crate::error::DaemonError;
 
-/// Thread-safe language instances for static loading.
+// Static language instances (only when static-grammars feature is enabled)
+#[cfg(feature = "static-grammars")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "static-grammars")]
 static RUST_LANGUAGE: OnceLock<Language> = OnceLock::new();
+#[cfg(feature = "static-grammars")]
 static PYTHON_LANGUAGE: OnceLock<Language> = OnceLock::new();
+#[cfg(feature = "static-grammars")]
 static JAVASCRIPT_LANGUAGE: OnceLock<Language> = OnceLock::new();
+#[cfg(feature = "static-grammars")]
 static TYPESCRIPT_LANGUAGE: OnceLock<Language> = OnceLock::new();
+#[cfg(feature = "static-grammars")]
 static TSX_LANGUAGE: OnceLock<Language> = OnceLock::new();
+#[cfg(feature = "static-grammars")]
 static GO_LANGUAGE: OnceLock<Language> = OnceLock::new();
+#[cfg(feature = "static-grammars")]
 static JAVA_LANGUAGE: OnceLock<Language> = OnceLock::new();
+#[cfg(feature = "static-grammars")]
 static C_LANGUAGE: OnceLock<Language> = OnceLock::new();
+#[cfg(feature = "static-grammars")]
 static CPP_LANGUAGE: OnceLock<Language> = OnceLock::new();
 
 /// Trait for providing tree-sitter languages.
@@ -56,7 +71,10 @@ pub trait LanguageProvider: Send + Sync {
 
 /// Static language provider using compiled-in grammars.
 ///
-/// This is the default provider that uses the `tree_sitter_*` crates.
+/// This provider uses the `tree_sitter_*` crates that are compiled into the binary.
+/// It's only available when the `static-grammars` feature is enabled.
+///
+/// When `static-grammars` is disabled, use dynamic loading via `GrammarManager`.
 #[derive(Debug, Default, Clone)]
 pub struct StaticLanguageProvider;
 
@@ -67,6 +85,9 @@ impl StaticLanguageProvider {
     }
 
     /// List of languages supported by the static provider.
+    ///
+    /// Note: This list is populated only when `static-grammars` feature is enabled.
+    #[cfg(feature = "static-grammars")]
     pub const SUPPORTED_LANGUAGES: &'static [&'static str] = &[
         "rust",
         "python",
@@ -79,6 +100,10 @@ impl StaticLanguageProvider {
         "c",
         "cpp",
     ];
+
+    /// When static-grammars is disabled, no languages are supported statically.
+    #[cfg(not(feature = "static-grammars"))]
+    pub const SUPPORTED_LANGUAGES: &'static [&'static str] = &[];
 }
 
 impl LanguageProvider for StaticLanguageProvider {
@@ -95,63 +120,65 @@ impl LanguageProvider for StaticLanguageProvider {
     }
 }
 
-/// Get the tree-sitter language for Rust (static).
+// Static language loading functions (only when static-grammars feature is enabled)
+
+#[cfg(feature = "static-grammars")]
 fn rust_language() -> Language {
     RUST_LANGUAGE
         .get_or_init(|| tree_sitter_rust::LANGUAGE.into())
         .clone()
 }
 
-/// Get the tree-sitter language for Python (static).
+#[cfg(feature = "static-grammars")]
 fn python_language() -> Language {
     PYTHON_LANGUAGE
         .get_or_init(|| tree_sitter_python::LANGUAGE.into())
         .clone()
 }
 
-/// Get the tree-sitter language for JavaScript (static).
+#[cfg(feature = "static-grammars")]
 fn javascript_language() -> Language {
     JAVASCRIPT_LANGUAGE
         .get_or_init(|| tree_sitter_javascript::LANGUAGE.into())
         .clone()
 }
 
-/// Get the tree-sitter language for TypeScript (static).
+#[cfg(feature = "static-grammars")]
 fn typescript_language() -> Language {
     TYPESCRIPT_LANGUAGE
         .get_or_init(|| tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())
         .clone()
 }
 
-/// Get the tree-sitter language for TSX (static).
+#[cfg(feature = "static-grammars")]
 fn tsx_language() -> Language {
     TSX_LANGUAGE
         .get_or_init(|| tree_sitter_typescript::LANGUAGE_TSX.into())
         .clone()
 }
 
-/// Get the tree-sitter language for Go (static).
+#[cfg(feature = "static-grammars")]
 fn go_language() -> Language {
     GO_LANGUAGE
         .get_or_init(|| tree_sitter_go::LANGUAGE.into())
         .clone()
 }
 
-/// Get the tree-sitter language for Java (static).
+#[cfg(feature = "static-grammars")]
 fn java_language() -> Language {
     JAVA_LANGUAGE
         .get_or_init(|| tree_sitter_java::LANGUAGE.into())
         .clone()
 }
 
-/// Get the tree-sitter language for C (static).
+#[cfg(feature = "static-grammars")]
 fn c_language() -> Language {
     C_LANGUAGE
         .get_or_init(|| tree_sitter_c::LANGUAGE.into())
         .clone()
 }
 
-/// Get the tree-sitter language for C++ (static).
+#[cfg(feature = "static-grammars")]
 fn cpp_language() -> Language {
     CPP_LANGUAGE
         .get_or_init(|| tree_sitter_cpp::LANGUAGE.into())
@@ -160,8 +187,10 @@ fn cpp_language() -> Language {
 
 /// Get a statically-compiled tree-sitter Language for a language name.
 ///
-/// This function only returns languages that are compiled into the binary.
+/// This function only returns languages that are compiled into the binary
+/// when the `static-grammars` feature is enabled.
 /// For dynamically loaded languages, use a `LanguageProvider` implementation.
+#[cfg(feature = "static-grammars")]
 pub fn get_static_language(name: &str) -> Option<Language> {
     match name {
         "rust" => Some(rust_language()),
@@ -175,6 +204,12 @@ pub fn get_static_language(name: &str) -> Option<Language> {
         "cpp" => Some(cpp_language()),
         _ => None,
     }
+}
+
+/// Without static-grammars feature, no languages are available statically.
+#[cfg(not(feature = "static-grammars"))]
+pub fn get_static_language(_name: &str) -> Option<Language> {
+    None
 }
 
 /// Get the tree-sitter Language for a language name.
