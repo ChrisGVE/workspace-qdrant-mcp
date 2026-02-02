@@ -20,8 +20,9 @@ use std::time::Instant;
 use chardet::detect;
 use encoding_rs::Encoding;
 use thiserror::Error;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
+use crate::tree_sitter::{extract_chunks, is_language_supported, SemanticChunk};
 use crate::{ChunkingConfig, DocumentContent, DocumentResult, DocumentType, TextChunk};
 
 /// Document processing errors
@@ -203,8 +204,34 @@ fn process_file_sync(
     // Add collection to metadata
     metadata.insert("collection".to_string(), collection.to_string());
 
-    // Generate chunks
-    let chunks = chunk_text(&raw_text, &metadata, chunking_config);
+    // Generate chunks - use semantic chunking for supported code files
+    let chunks = match &document_type {
+        DocumentType::Code(lang) if is_language_supported(lang) => {
+            // Use tree-sitter semantic chunking for supported languages
+            match extract_chunks(&raw_text, file_path, chunking_config.chunk_size) {
+                Ok(semantic_chunks) => {
+                    info!(
+                        "Extracted {} semantic chunks from {:?} ({})",
+                        semantic_chunks.len(),
+                        file_path.file_name(),
+                        lang
+                    );
+                    convert_semantic_chunks_to_text_chunks(semantic_chunks, &metadata)
+                }
+                Err(e) => {
+                    warn!(
+                        "Semantic chunking failed for {:?}: {}, falling back to text chunking",
+                        file_path, e
+                    );
+                    chunk_text(&raw_text, &metadata, chunking_config)
+                }
+            }
+        }
+        _ => {
+            // Use text-based chunking for non-code files or unsupported languages
+            chunk_text(&raw_text, &metadata, chunking_config)
+        }
+    };
 
     Ok(DocumentContent {
         raw_text,
@@ -212,6 +239,72 @@ fn process_file_sync(
         document_type,
         chunks,
     })
+}
+
+/// Convert SemanticChunks to TextChunks with semantic metadata preserved
+fn convert_semantic_chunks_to_text_chunks(
+    semantic_chunks: Vec<SemanticChunk>,
+    base_metadata: &HashMap<String, String>,
+) -> Vec<TextChunk> {
+    semantic_chunks
+        .into_iter()
+        .enumerate()
+        .map(|(idx, chunk)| {
+            let mut metadata = base_metadata.clone();
+
+            // Add semantic chunk metadata (Task 4 requirements)
+            metadata.insert(
+                "chunk_type".to_string(),
+                chunk.chunk_type.display_name().to_string(),
+            );
+            metadata.insert("symbol_name".to_string(), chunk.symbol_name.clone());
+            metadata.insert("symbol_kind".to_string(), chunk.symbol_kind.clone());
+
+            // Add parent symbol for methods (key for Task 4)
+            if let Some(ref parent) = chunk.parent_symbol {
+                metadata.insert("parent_symbol".to_string(), parent.clone());
+            }
+
+            // Add signature if available
+            if let Some(ref sig) = chunk.signature {
+                metadata.insert("signature".to_string(), sig.clone());
+            }
+
+            // Add docstring if available
+            if let Some(ref doc) = chunk.docstring {
+                metadata.insert("docstring".to_string(), doc.clone());
+            }
+
+            // Add function calls if any
+            if !chunk.calls.is_empty() {
+                metadata.insert("calls".to_string(), chunk.calls.join(","));
+            }
+
+            // Add line range
+            metadata.insert("start_line".to_string(), chunk.start_line.to_string());
+            metadata.insert("end_line".to_string(), chunk.end_line.to_string());
+            metadata.insert("language".to_string(), chunk.language.clone());
+
+            // Add fragment info if applicable
+            if chunk.is_fragment {
+                metadata.insert("is_fragment".to_string(), "true".to_string());
+                if let Some(frag_idx) = chunk.fragment_index {
+                    metadata.insert("fragment_index".to_string(), frag_idx.to_string());
+                }
+                if let Some(total) = chunk.total_fragments {
+                    metadata.insert("total_fragments".to_string(), total.to_string());
+                }
+            }
+
+            TextChunk {
+                content: chunk.content,
+                chunk_index: idx,
+                start_char: 0, // Line-based, not char-based
+                end_char: 0,   // Line-based, not char-based
+                metadata,
+            }
+        })
+        .collect()
 }
 
 /// Detect document type from file extension
