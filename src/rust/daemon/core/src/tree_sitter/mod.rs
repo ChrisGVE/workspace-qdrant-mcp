@@ -5,6 +5,7 @@
 
 pub mod chunker;
 pub mod grammar_cache;
+pub mod grammar_loader;
 pub mod languages;
 pub mod parser;
 pub mod types;
