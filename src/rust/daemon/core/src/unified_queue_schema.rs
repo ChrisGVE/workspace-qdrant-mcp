@@ -360,6 +360,10 @@ pub struct UnifiedQueueItem {
     /// Timestamp of last error (RFC3339)
     #[serde(default)]
     pub last_error_at: Option<String>,
+    /// File path for file item types (Task 22: per-file deduplication)
+    /// Only set for item_type='file', None for other types
+    #[serde(default)]
+    pub file_path: Option<String>,
 }
 
 fn default_max_retries() -> i32 { 3 }
@@ -605,7 +609,11 @@ CREATE TABLE IF NOT EXISTS unified_queue (
     error_message TEXT,
     last_error_at TEXT,
     branch TEXT DEFAULT 'main',
-    metadata TEXT DEFAULT '{}'
+    metadata TEXT DEFAULT '{}',
+    -- Task 22: Per-file deduplication
+    -- Only set for item_type='file', NULL for other types
+    -- UNIQUE constraint prevents duplicate file ingestion
+    file_path TEXT UNIQUE
 )
 "#;
 
@@ -626,6 +634,10 @@ pub const CREATE_UNIFIED_QUEUE_INDEXES_SQL: &[&str] = &[
     r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_failed
        ON unified_queue(status, last_error_at DESC)
        WHERE status = 'failed'"#,
+    // Task 22: Per-file deduplication index
+    r#"CREATE INDEX IF NOT EXISTS idx_unified_queue_file_path
+       ON unified_queue(file_path)
+       WHERE file_path IS NOT NULL"#,
 ];
 
 #[cfg(test)]

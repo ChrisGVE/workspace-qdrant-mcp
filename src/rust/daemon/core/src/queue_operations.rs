@@ -1648,12 +1648,23 @@ impl QueueManager {
         let branch = branch.unwrap_or("main");
         let metadata = metadata.unwrap_or("{}");
 
+        // Task 22: Extract file_path for per-file deduplication
+        // Only set for item_type='file', NULL for other types
+        let file_path: Option<String> = if item_type == ItemType::File {
+            payload.get("file_path")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string())
+        } else {
+            None
+        };
+
         // Use INSERT OR IGNORE to handle race conditions, then check what happened
+        // The UNIQUE constraint on file_path will also prevent duplicate file entries
         let insert_query = r#"
             INSERT OR IGNORE INTO unified_queue (
                 item_type, op, tenant_id, collection, priority,
-                branch, payload_json, metadata, idempotency_key
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                branch, payload_json, metadata, idempotency_key, file_path
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
         "#;
 
         let result = sqlx::query(insert_query)
@@ -1666,6 +1677,7 @@ impl QueueManager {
             .bind(payload_json)
             .bind(metadata)
             .bind(&idempotency_key)
+            .bind(&file_path)
             .execute(&self.pool)
             .await?;
 
@@ -1956,6 +1968,7 @@ impl QueueManager {
                 max_retries: row.try_get("max_retries")?,
                 error_message: row.try_get("error_message")?,
                 last_error_at: row.try_get("last_error_at")?,
+                file_path: row.try_get("file_path")?, // Task 22
             });
         }
 
@@ -2261,6 +2274,7 @@ impl QueueManager {
                     max_retries: row.try_get("max_retries")?,
                     error_message: row.try_get("error_message")?,
                     last_error_at: row.try_get("last_error_at")?,
+                    file_path: row.try_get("file_path")?, // Task 22
                 }))
             }
             None => Ok(None),
