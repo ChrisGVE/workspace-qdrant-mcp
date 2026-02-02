@@ -213,20 +213,61 @@ jobs:
 
           Compress-Archive -Path artifacts/* -DestinationPath workspace-qdrant-mcp-${{ matrix.artifact_name }}.zip
 
+      # Create individual binary files for direct download (used by wqm update)
+      - name: Prepare individual binaries (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          # Copy daemon binary with target-specific name
+          cp artifacts/memexd memexd-${{ matrix.target }}
+
+          # Generate checksum for individual binary
+          sha256sum memexd-${{ matrix.target }} | awk '{print $1}' > memexd-${{ matrix.target }}.sha256
+
+          # Also prepare CLI binary
+          cp artifacts/wqm wqm-${{ matrix.target }}
+          sha256sum wqm-${{ matrix.target }} | awk '{print $1}' > wqm-${{ matrix.target }}.sha256
+
+      - name: Prepare individual binaries (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Copy daemon binary with target-specific name
+          Copy-Item artifacts/memexd.exe memexd-${{ matrix.target }}.exe
+
+          # Generate checksum for individual binary
+          $hash = (Get-FileHash -Algorithm SHA256 memexd-${{ matrix.target }}.exe).Hash.ToLower()
+          $hash | Out-File -NoNewline memexd-${{ matrix.target }}.exe.sha256
+
+          # Also prepare CLI binary
+          Copy-Item artifacts/wqm.exe wqm-${{ matrix.target }}.exe
+          $hash = (Get-FileHash -Algorithm SHA256 wqm-${{ matrix.target }}.exe).Hash.ToLower()
+          $hash | Out-File -NoNewline wqm-${{ matrix.target }}.exe.sha256
+
       # Upload artifacts
       - name: Upload artifact (Unix)
         if: runner.os != 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: workspace-qdrant-mcp-${{ matrix.artifact_name }}
-          path: workspace-qdrant-mcp-${{ matrix.artifact_name }}.tar.gz
+          path: |
+            workspace-qdrant-mcp-${{ matrix.artifact_name }}.tar.gz
+            memexd-${{ matrix.target }}
+            memexd-${{ matrix.target }}.sha256
+            wqm-${{ matrix.target }}
+            wqm-${{ matrix.target }}.sha256
 
       - name: Upload artifact (Windows)
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v4
         with:
           name: workspace-qdrant-mcp-${{ matrix.artifact_name }}
-          path: workspace-qdrant-mcp-${{ matrix.artifact_name }}.zip
+          path: |
+            workspace-qdrant-mcp-${{ matrix.artifact_name }}.zip
+            memexd-${{ matrix.target }}.exe
+            memexd-${{ matrix.target }}.exe.sha256
+            wqm-${{ matrix.target }}.exe
+            wqm-${{ matrix.target }}.exe.sha256
 
   # Create release with all artifacts
   release:
@@ -246,6 +287,7 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
+          # Checksum for archives
           find . -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec sha256sum {} \; > checksums.txt
           cat checksums.txt
 
@@ -255,6 +297,8 @@ jobs:
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
+            artifacts/**/memexd-*
+            artifacts/**/wqm-*
             artifacts/checksums.txt
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
