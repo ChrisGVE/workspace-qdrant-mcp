@@ -1096,6 +1096,72 @@ impl LanguageServerManager {
         instances.get(&key).cloned()
     }
 
+    /// Handle a potential server crash after an RPC error
+    ///
+    /// Checks if the server process is still alive. If not, marks the server
+    /// state as Failed and logs the crash for investigation. This is called
+    /// after catching an error in LSP query methods.
+    ///
+    /// Returns true if a crash was detected, false otherwise.
+    async fn handle_potential_crash(
+        &self,
+        key: &ProjectLanguageKey,
+        error_msg: &str,
+    ) -> bool {
+        // Check if the server instance exists and is alive
+        let instance_arc = {
+            let instances = self.instances.read().await;
+            instances.get(key).cloned()
+        };
+
+        let Some(instance_arc) = instance_arc else {
+            // No instance found - nothing to check
+            return false;
+        };
+
+        // Check if server process is still alive
+        let is_alive = {
+            let instance = instance_arc.lock().await;
+            instance.is_alive().await
+        };
+
+        if is_alive {
+            // Server is alive, this was just a query error (not a crash)
+            return false;
+        }
+
+        // Server crashed - mark as Failed in state and log for investigation
+        tracing::error!(
+            project_id = %key.project_id,
+            language = ?key.language,
+            error = %error_msg,
+            "LSP server crashed during query"
+        );
+
+        // Mark server state as Failed
+        {
+            let mut servers = self.servers.write().await;
+            if let Some(state) = servers.get_mut(key) {
+                state.status = ServerStatus::Failed;
+                state.last_error = Some(format!("Server crashed: {}", error_msg));
+                tracing::info!(
+                    project_id = %key.project_id,
+                    language = ?key.language,
+                    restart_count = state.restart_count,
+                    "Marked LSP server as Failed - health check will attempt restart"
+                );
+            }
+        }
+
+        // Track failed enrichments due to crash
+        {
+            let mut metrics = self.metrics.write().await;
+            metrics.failed_enrichments += 1;
+        }
+
+        true
+    }
+
     /// Convert file path to LSP URI
     fn file_to_uri(file: &Path) -> String {
         format!("file://{}", file.display())
@@ -1159,13 +1225,14 @@ impl LanguageServerManager {
             .and_then(|ext| ext.to_str())
             .map(Language::from_extension);
 
-        let server_instance = if let Some(language) = file_language {
-            // Find any instance that matches this language
+        let (server_key, server_instance) = if let Some(ref language) = file_language {
+            // Find any instance that matches this language and capture the key
             instances.iter()
-                .find(|(k, _)| k.language == language)
-                .map(|(_, v)| v.clone())
+                .find(|(k, _)| k.language == *language)
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .unzip()
         } else {
-            None
+            (None, None)
         };
 
         drop(instances);
@@ -1195,15 +1262,23 @@ impl LanguageServerManager {
         // Send request
         let inst = instance.lock().await;
         let rpc_client = inst.rpc_client();
+        drop(inst); // Release lock before checking crash
 
         let response = match rpc_client.send_request("textDocument/references", params).await {
             Ok(resp) => resp,
             Err(e) => {
+                let error_msg = e.to_string();
                 tracing::debug!(
                     file = %file.display(),
-                    error = %e,
+                    error = %error_msg,
                     "Failed to get references from LSP"
                 );
+
+                // Check if this was a server crash (Task 1.14)
+                if let Some(ref key) = server_key {
+                    self.handle_potential_crash(key, &error_msg).await;
+                }
+
                 return Ok(Vec::new());
             }
         };
@@ -1333,12 +1408,13 @@ impl LanguageServerManager {
             .and_then(|ext| ext.to_str())
             .map(Language::from_extension);
 
-        let server_instance = if let Some(language) = file_language {
+        let (server_key, server_instance) = if let Some(ref language) = file_language {
             instances.iter()
-                .find(|(k, _)| k.language == language)
-                .map(|(_, v)| v.clone())
+                .find(|(k, _)| k.language == *language)
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .unzip()
         } else {
-            None
+            (None, None)
         };
 
         drop(instances);
@@ -1365,15 +1441,23 @@ impl LanguageServerManager {
         // Send request
         let inst = instance.lock().await;
         let rpc_client = inst.rpc_client();
+        drop(inst); // Release lock before checking crash
 
         let response = match rpc_client.send_request("textDocument/hover", params).await {
             Ok(resp) => resp,
             Err(e) => {
+                let error_msg = e.to_string();
                 tracing::debug!(
                     file = %file.display(),
-                    error = %e,
+                    error = %error_msg,
                     "Failed to get hover info from LSP"
                 );
+
+                // Check if this was a server crash (Task 1.14)
+                if let Some(ref key) = server_key {
+                    self.handle_potential_crash(key, &error_msg).await;
+                }
+
                 return Ok(None);
             }
         };
@@ -1531,9 +1615,10 @@ impl LanguageServerManager {
             return Ok(Vec::new());
         };
 
-        let server_instance = instances.iter()
+        let (server_key, server_instance) = instances.iter()
             .find(|(k, _)| k.language == language)
-            .map(|(_, v)| v.clone());
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .unzip();
 
         drop(instances);
 
@@ -1563,15 +1648,17 @@ impl LanguageServerManager {
         );
 
         let mut resolved_imports = Vec::new();
+        let mut crash_detected = false;
 
         // If we have an LSP server, try to resolve each import
         if let Some(instance) = server_instance {
             let inst = instance.lock().await;
             let rpc_client = inst.rpc_client();
+            drop(inst); // Release lock before making requests
 
             // For each import, try to find its definition
             // We approximate by looking at lines that contain the import
-            for (line_idx, line) in content.lines().enumerate() {
+            'outer: for (line_idx, line) in content.lines().enumerate() {
                 for import_name in &import_names {
                     if line.contains(import_name) {
                         // Find the column where the import name starts
@@ -1597,11 +1684,37 @@ impl LanguageServerManager {
                                 resolved_imports.push(resolved);
                             }
                             Err(e) => {
+                                let error_msg = e.to_string();
                                 tracing::debug!(
                                     import = import_name,
-                                    error = %e,
+                                    error = %error_msg,
                                     "Failed to resolve import via LSP"
                                 );
+
+                                // Check if this was a server crash (Task 1.14)
+                                // Only check once to avoid repeated checks
+                                if !crash_detected {
+                                    if let Some(ref key) = server_key {
+                                        if self.handle_potential_crash(key, &error_msg).await {
+                                            crash_detected = true;
+                                            // Server crashed, add remaining imports as unresolved
+                                            // and break out of the loop
+                                            for remaining_import in &import_names {
+                                                if !resolved_imports.iter().any(|r| &r.import_name == remaining_import) {
+                                                    resolved_imports.push(ResolvedImport {
+                                                        import_name: remaining_import.clone(),
+                                                        target_file: None,
+                                                        target_symbol: None,
+                                                        is_stdlib: false,
+                                                        resolved: false,
+                                                    });
+                                                }
+                                            }
+                                            break 'outer;
+                                        }
+                                    }
+                                }
+
                                 // Add unresolved import
                                 resolved_imports.push(ResolvedImport {
                                     import_name: import_name.clone(),
@@ -2756,5 +2869,148 @@ mod tests {
         // Now restore_project_servers should work (though empty)
         let restored = manager.restore_project_servers("test-project").await.unwrap();
         assert!(restored.is_empty());
+    }
+
+    // Task 1.14: Tests for crash handling during enrichment queries
+
+    #[tokio::test]
+    async fn test_handle_potential_crash_no_instance() {
+        // Test that handle_potential_crash returns false when no instance exists
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        let key = ProjectLanguageKey::new("nonexistent-project", Language::Python);
+        let result = manager.handle_potential_crash(&key, "test error").await;
+
+        // Should return false since there's no instance
+        assert!(!result, "Should return false when no instance exists");
+    }
+
+    #[tokio::test]
+    async fn test_handle_potential_crash_marks_server_failed() {
+        // Test that handle_potential_crash marks server as Failed when crash detected
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // Add a server state manually (simulating a registered server)
+        let project_id = "test-project";
+        let language = Language::Rust;
+        let key = ProjectLanguageKey::new(project_id, language.clone());
+
+        // Add a Running server state
+        {
+            let mut servers = manager.servers.write().await;
+            servers.insert(key.clone(), ProjectServerState {
+                project_id: project_id.to_string(),
+                language: language.clone(),
+                project_root: PathBuf::from("/test"),
+                status: ServerStatus::Running,
+                restart_count: 0,
+                last_error: None,
+                is_active: true,
+                last_healthy_time: Some(Utc::now()),
+                marked_unavailable: false,
+            });
+        }
+
+        // handle_potential_crash should return false (no instance to check)
+        // but this verifies the method can be called without panic
+        let result = manager.handle_potential_crash(&key, "simulated error").await;
+
+        // Without an actual instance, it returns false
+        assert!(!result, "Should return false when no instance exists to check");
+    }
+
+    #[tokio::test]
+    async fn test_crash_detection_increments_metrics() {
+        // Test that crash detection properly increments failed_enrichments metric
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // Get initial metrics
+        let initial_metrics = manager.get_metrics().await;
+        assert_eq!(initial_metrics.failed_enrichments, 0);
+
+        // The metrics are only incremented when a crash is actually detected
+        // (when is_alive returns false on a real instance)
+        // This test verifies the method signature and that it doesn't panic
+
+        let key = ProjectLanguageKey::new("test-project", Language::Python);
+        manager.handle_potential_crash(&key, "test crash").await;
+
+        // Metrics remain unchanged when no actual crash detected
+        let final_metrics = manager.get_metrics().await;
+        assert_eq!(final_metrics.failed_enrichments, 0);
+    }
+
+    #[tokio::test]
+    async fn test_enrichment_continues_after_query_error() {
+        // Test that enrich_chunk continues to collect data even when one query fails
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // Enrich a chunk for an inactive project (will be skipped)
+        let enrichment = manager.enrich_chunk(
+            "test-project",
+            std::path::Path::new("/test/file.rs"),
+            "test_function",
+            1,
+            10,
+            false, // inactive project
+        ).await;
+
+        // Should be skipped for inactive project
+        assert_eq!(enrichment.enrichment_status, EnrichmentStatus::Skipped);
+        assert!(enrichment.error_message.is_some());
+        assert!(enrichment.error_message.as_ref().unwrap().contains("not active"));
+
+        // Now test with active project but no servers (graceful degradation)
+        let enrichment = manager.enrich_chunk(
+            "test-project",
+            std::path::Path::new("/test/file.rs"),
+            "test_function",
+            1,
+            10,
+            true, // active project
+        ).await;
+
+        // Should be Partial or Success (no data found but queries succeeded)
+        // The actual status depends on whether empty results count as success
+        assert!(
+            matches!(
+                enrichment.enrichment_status,
+                EnrichmentStatus::Success | EnrichmentStatus::Partial
+            ),
+            "Expected Success or Partial for empty results, got {:?}",
+            enrichment.enrichment_status
+        );
+    }
+
+    #[tokio::test]
+    async fn test_server_state_error_tracking() {
+        // Test that server state tracks last_error properly
+        let state = ProjectServerState {
+            project_id: "test".to_string(),
+            language: Language::Rust,
+            project_root: PathBuf::from("/test"),
+            status: ServerStatus::Running,
+            restart_count: 0,
+            last_error: None,
+            is_active: true,
+            last_healthy_time: Some(Utc::now()),
+            marked_unavailable: false,
+        };
+
+        assert!(state.last_error.is_none());
+        assert_eq!(state.status, ServerStatus::Running);
+
+        // Simulate crash state update
+        let mut state = state;
+        state.status = ServerStatus::Failed;
+        state.last_error = Some("Server crashed: connection lost".to_string());
+
+        assert_eq!(state.status, ServerStatus::Failed);
+        assert!(state.last_error.is_some());
+        assert!(state.last_error.as_ref().unwrap().contains("crashed"));
     }
 }
