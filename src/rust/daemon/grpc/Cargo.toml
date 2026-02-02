@@ -46,6 +46,9 @@ chrono = { version = "0.4", features = ["serde"] }
 # Database access (for ProjectService)
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono"] }
 
+# File system traversal (for language detection)
+walkdir = "2.4"
+
 [build-dependencies]
 tonic-build = { version = "0.12", features = ["prost"] }
 prost-build = "0.13"

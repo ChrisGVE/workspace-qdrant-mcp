@@ -276,6 +276,8 @@ pub struct GrpcServer {
     metrics: Arc<ServerMetrics>,
     /// Optional database pool for ProjectService
     db_pool: Option<SqlitePool>,
+    /// Whether to enable LSP lifecycle management in ProjectService
+    enable_lsp: bool,
 }
 
 /// Server metrics for monitoring
@@ -348,6 +350,7 @@ impl GrpcServer {
             shutdown_signal: None,
             metrics: Arc::new(ServerMetrics::default()),
             db_pool: None,
+            enable_lsp: false,
         }
     }
 
@@ -362,6 +365,15 @@ impl GrpcServer {
     /// enabling project registration, heartbeat, and priority management.
     pub fn with_database_pool(mut self, pool: SqlitePool) -> Self {
         self.db_pool = Some(pool);
+        self
+    }
+
+    /// Enable LSP lifecycle management in ProjectService
+    ///
+    /// When enabled, ProjectService will automatically start/stop LSP servers
+    /// for projects when they are registered/deprioritized.
+    pub fn with_lsp_enabled(mut self, enable: bool) -> Self {
+        self.enable_lsp = enable;
         self
     }
 
@@ -401,10 +413,36 @@ impl GrpcServer {
         let embedding_service = EmbeddingServiceImpl::new();
 
         // Create ProjectService if database pool is available
-        let project_service = self.db_pool.as_ref().map(|pool| {
+        let project_service = if let Some(pool) = self.db_pool.as_ref() {
             tracing::info!("Creating ProjectService with database pool");
-            ProjectServiceImpl::new(pool.clone())
-        });
+
+            // Create LSP manager if enabled
+            if self.enable_lsp {
+                use workspace_qdrant_core::{LanguageServerManager, ProjectLspConfig};
+                use tokio::sync::RwLock;
+
+                match LanguageServerManager::new(ProjectLspConfig::default()).await {
+                    Ok(mut lsp_manager) => {
+                        // Initialize the LSP manager
+                        if let Err(e) = lsp_manager.initialize().await {
+                            tracing::warn!("Failed to initialize LSP manager: {}", e);
+                        }
+
+                        let lsp_manager = Arc::new(RwLock::new(lsp_manager));
+                        tracing::info!("LSP lifecycle management enabled for ProjectService");
+                        Some(ProjectServiceImpl::with_lsp_manager(pool.clone(), lsp_manager))
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to create LSP manager, continuing without LSP: {}", e);
+                        Some(ProjectServiceImpl::new(pool.clone()))
+                    }
+                }
+            } else {
+                Some(ProjectServiceImpl::new(pool.clone()))
+            }
+        } else {
+            None
+        };
 
         tracing::info!("Starting gRPC server on {}", self.config.bind_addr);
         tracing::info!("gRPC server configuration: TLS={}, Auth={}, Timeouts={:?}",

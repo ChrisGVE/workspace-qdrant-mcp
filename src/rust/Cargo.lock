@@ -6775,6 +6775,7 @@ dependencies = [
  "tonic-build",
  "tracing",
  "uuid",
+ "walkdir",
  "workspace-qdrant-core",
 ]
 

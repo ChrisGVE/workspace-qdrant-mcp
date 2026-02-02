@@ -3,9 +3,16 @@
 //! Handles multi-tenant project lifecycle and session management.
 //! Provides 5 RPCs: RegisterProject, DeprioritizeProject, GetProjectStatus,
 //! ListProjects, Heartbeat
+//!
+//! LSP Integration:
+//! - On RegisterProject: detects project languages and starts LSP servers
+//! - On DeprioritizeProject (remaining_sessions=0): stops LSP servers
 
 use chrono::Utc;
 use sqlx::SqlitePool;
+use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
 
@@ -18,7 +25,10 @@ use crate::proto::{
     HeartbeatRequest, HeartbeatResponse,
 };
 
-use workspace_qdrant_core::PriorityManager;
+use workspace_qdrant_core::{
+    PriorityManager,
+    LanguageServerManager, Language,
+};
 
 /// Default heartbeat timeout in seconds
 const HEARTBEAT_TIMEOUT_SECS: u64 = 60;
@@ -27,10 +37,17 @@ const HEARTBEAT_TIMEOUT_SECS: u64 = 60;
 ///
 /// Manages project registration, session tracking, and priority management
 /// for the multi-tenant ingestion queue.
+///
+/// LSP Lifecycle:
+/// - Owns a `LanguageServerManager` for per-project LSP servers
+/// - Starts LSP servers when a project is registered
+/// - Stops LSP servers when a project has no remaining sessions
 #[derive(Clone)]
 pub struct ProjectServiceImpl {
     priority_manager: PriorityManager,
     db_pool: SqlitePool,
+    /// Language server manager for per-project LSP lifecycle
+    lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
 }
 
 impl ProjectServiceImpl {
@@ -39,6 +56,7 @@ impl ProjectServiceImpl {
         Self {
             priority_manager: PriorityManager::new(db_pool.clone()),
             db_pool,
+            lsp_manager: None,
         }
     }
 
@@ -47,7 +65,156 @@ impl ProjectServiceImpl {
         Self {
             priority_manager,
             db_pool,
+            lsp_manager: None,
         }
+    }
+
+    /// Create with LSP manager for language server lifecycle management
+    pub fn with_lsp_manager(
+        db_pool: SqlitePool,
+        lsp_manager: Arc<RwLock<LanguageServerManager>>,
+    ) -> Self {
+        Self {
+            priority_manager: PriorityManager::new(db_pool.clone()),
+            db_pool,
+            lsp_manager: Some(lsp_manager),
+        }
+    }
+
+    /// Detect languages in a project directory by scanning file extensions
+    async fn detect_project_languages(&self, project_root: &PathBuf) -> Vec<Language> {
+        let mut languages = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        // Walk the project directory (limited depth for performance)
+        let walker = walkdir::WalkDir::new(project_root)
+            .max_depth(5)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|e| {
+                // Skip hidden directories and common non-code directories
+                let name = e.file_name().to_string_lossy();
+                !name.starts_with('.') &&
+                !matches!(name.as_ref(), "node_modules" | "target" | "build" | "__pycache__" | "venv" | ".venv")
+            });
+
+        for entry in walker.filter_map(|e| e.ok()) {
+            if entry.file_type().is_file() {
+                if let Some(ext) = entry.path().extension() {
+                    let ext_str = ext.to_string_lossy().to_lowercase();
+                    let lang = Language::from_extension(&ext_str);
+
+                    // Only add supported languages (not Other)
+                    if !matches!(lang, Language::Other(_)) && !seen.contains(&ext_str) {
+                        seen.insert(ext_str);
+                        languages.push(lang);
+                    }
+                }
+            }
+
+            // Limit to first 100 unique file types to avoid over-scanning
+            if seen.len() >= 100 {
+                break;
+            }
+        }
+
+        debug!(
+            project_root = %project_root.display(),
+            languages = ?languages,
+            "Detected project languages"
+        );
+
+        languages
+    }
+
+    /// Start LSP servers for a project's detected languages
+    async fn start_project_lsp_servers(
+        &self,
+        project_id: &str,
+        project_root: &PathBuf,
+    ) -> Result<usize, Status> {
+        let Some(lsp_manager) = &self.lsp_manager else {
+            debug!("No LSP manager configured, skipping LSP server startup");
+            return Ok(0);
+        };
+
+        let languages = self.detect_project_languages(project_root).await;
+        if languages.is_empty() {
+            debug!(
+                project_id = project_id,
+                "No supported languages detected in project"
+            );
+            return Ok(0);
+        }
+
+        let manager = lsp_manager.read().await;
+        let mut started = 0;
+
+        for language in languages {
+            match manager.start_server(project_id, language.clone(), project_root).await {
+                Ok(_) => {
+                    info!(
+                        project_id = project_id,
+                        language = ?language,
+                        "Started LSP server"
+                    );
+                    started += 1;
+                }
+                Err(e) => {
+                    // Log but don't fail - LSP is enhancement, not critical
+                    debug!(
+                        project_id = project_id,
+                        language = ?language,
+                        error = %e,
+                        "Failed to start LSP server (non-critical)"
+                    );
+                }
+            }
+        }
+
+        info!(
+            project_id = project_id,
+            servers_started = started,
+            "LSP server startup complete"
+        );
+
+        Ok(started)
+    }
+
+    /// Stop all LSP servers for a project
+    async fn stop_project_lsp_servers(&self, project_id: &str) -> Result<(), Status> {
+        let Some(lsp_manager) = &self.lsp_manager else {
+            return Ok(());
+        };
+
+        let manager = lsp_manager.read().await;
+
+        // Get languages that might have servers running for this project
+        // We need to stop servers for all languages
+        let languages_to_stop = vec![
+            Language::Python,
+            Language::Rust,
+            Language::TypeScript,
+            Language::JavaScript,
+            Language::Go,
+            Language::C,
+            Language::Cpp,
+            Language::Java,
+        ];
+
+        for language in languages_to_stop {
+            if let Err(e) = manager.stop_server(project_id, language.clone()).await {
+                debug!(
+                    project_id = project_id,
+                    language = ?language,
+                    error = %e,
+                    "Error stopping LSP server (may not have been running)"
+                );
+            }
+        }
+
+        info!(project_id = project_id, "LSP servers stopped for project");
+        Ok(())
     }
 
     /// Convert chrono DateTime to prost Timestamp
@@ -150,6 +317,16 @@ impl ProjectService for ProjectServiceImpl {
             }
         };
 
+        // Start LSP servers for the project (non-blocking, best-effort)
+        let project_root = PathBuf::from(&req.path);
+        if let Err(e) = self.start_project_lsp_servers(&req.project_id, &project_root).await {
+            warn!(
+                project_id = %req.project_id,
+                error = %e,
+                "Failed to start LSP servers (non-critical)"
+            );
+        }
+
         let response = RegisterProjectResponse {
             created,
             project_id: req.project_id,
@@ -180,6 +357,21 @@ impl ProjectService for ProjectServiceImpl {
         match self.priority_manager.unregister_session(&req.project_id, "main").await {
             Ok(remaining_sessions) => {
                 let new_priority = if remaining_sessions > 0 { "high" } else { "normal" };
+
+                // Stop LSP servers when no active sessions remain
+                if remaining_sessions == 0 {
+                    info!(
+                        project_id = %req.project_id,
+                        "No active sessions remaining, stopping LSP servers"
+                    );
+                    if let Err(e) = self.stop_project_lsp_servers(&req.project_id).await {
+                        warn!(
+                            project_id = %req.project_id,
+                            error = %e,
+                            "Failed to stop LSP servers (non-critical)"
+                        );
+                    }
+                }
 
                 let response = DeprioritizeProjectResponse {
                     success: true,

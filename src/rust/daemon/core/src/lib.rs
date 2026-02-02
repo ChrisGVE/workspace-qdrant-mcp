@@ -184,6 +184,12 @@ pub use crate::project_disambiguation::{
     DisambiguationError, DisambiguationResult,
     CREATE_REGISTERED_PROJECTS_SQL, CREATE_REGISTERED_PROJECTS_INDEXES_SQL
 };
+pub use crate::lsp::{
+    LanguageServerManager, ProjectLspConfig, ProjectLspError, ProjectLspResult,
+    ProjectLanguageKey, ProjectServerState, ProjectLspStats,
+    LspEnrichment, EnrichmentStatus, Reference, TypeInfo, ResolvedImport,
+    Language, LspError, LspResult,
+};
 
 /// Core processing errors
 #[derive(Error, Debug)]
