@@ -6803,6 +6803,7 @@ dependencies = [
  "tonic-build",
  "uuid",
  "which",
+ "workspace-qdrant-core",
 ]
 
 [[package]]

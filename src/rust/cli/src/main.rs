@@ -59,6 +59,9 @@ enum Commands {
     /// LSP server management (list, status, restart, install, check)
     Lsp(commands::lsp::LspArgs),
 
+    /// Tree-sitter grammar management (list, install, remove, verify, reload)
+    Grammar(commands::grammar::GrammarArgs),
+
     // =========================================================================
     // Phase 2 - MEDIUM priority (behind feature flag)
     // =========================================================================
@@ -134,6 +137,7 @@ async fn main() -> Result<()> {
         Commands::Library(args) => commands::library::execute(args).await,
         Commands::Queue(args) => commands::queue::execute(args).await,
         Commands::Lsp(args) => commands::lsp::execute(args).await,
+        Commands::Grammar(args) => commands::grammar::execute(args).await,
 
         // Phase 2 commands
         #[cfg(feature = "phase2")]

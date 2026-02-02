@@ -366,6 +366,11 @@ impl GrammarManager {
         &self.config
     }
 
+    /// Get the grammar cache paths.
+    pub fn cache_paths(&self) -> &GrammarCachePaths {
+        self.loader.cache_paths()
+    }
+
     /// Set the default grammar version for downloads.
     pub fn set_default_version(&mut self, version: impl Into<String>) {
         self.default_version = version.into();

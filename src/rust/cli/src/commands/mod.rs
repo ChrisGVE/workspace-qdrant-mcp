@@ -7,6 +7,7 @@
 
 // Phase 1 - HIGH priority (always available)
 pub mod admin;
+pub mod grammar;
 pub mod library;
 pub mod lsp;
 pub mod queue;
