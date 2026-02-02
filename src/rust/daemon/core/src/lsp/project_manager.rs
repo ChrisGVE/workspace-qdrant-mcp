@@ -1383,4 +1383,225 @@ mod tests {
         assert_eq!(stats.active_servers, 0);
         assert_eq!(stats.total_servers, 0);
     }
+
+    #[tokio::test]
+    async fn test_has_active_servers_empty() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        let has_active = manager.has_active_servers("project-1").await;
+        assert!(!has_active);
+    }
+
+    #[tokio::test]
+    async fn test_health_check_no_servers() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // Should return (0, 0, 0) when no servers exist
+        let (checked, restarted, failed) = manager.check_all_servers_health().await;
+        assert_eq!(checked, 0);
+        assert_eq!(restarted, 0);
+        assert_eq!(failed, 0);
+    }
+
+    #[tokio::test]
+    async fn test_project_health_check_no_servers() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // Should return (0, 0, 0) for non-existent project
+        let (checked, restarted, failed) = manager.check_project_servers_health("non-existent").await;
+        assert_eq!(checked, 0);
+        assert_eq!(restarted, 0);
+        assert_eq!(failed, 0);
+    }
+
+    #[tokio::test]
+    async fn test_type_info_structure() {
+        let type_info = TypeInfo {
+            type_signature: "fn foo() -> i32".to_string(),
+            documentation: Some("Returns a number".to_string()),
+            kind: "function".to_string(),
+            container: Some("MyModule".to_string()),
+        };
+
+        assert_eq!(type_info.type_signature, "fn foo() -> i32");
+        assert!(type_info.documentation.is_some());
+        assert_eq!(type_info.kind, "function");
+        assert!(type_info.container.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_resolved_import_structure() {
+        let import = ResolvedImport {
+            import_name: "std::collections::HashMap".to_string(),
+            target_file: Some("/usr/lib/rust/std/collections/hash_map.rs".to_string()),
+            target_symbol: Some("HashMap".to_string()),
+            is_stdlib: true,
+            resolved: true,
+        };
+
+        assert!(import.is_stdlib);
+        assert!(import.resolved);
+        assert!(import.target_file.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_resolved_import_unresolved() {
+        let import = ResolvedImport {
+            import_name: "unknown_crate::Thing".to_string(),
+            target_file: None,
+            target_symbol: None,
+            is_stdlib: false,
+            resolved: false,
+        };
+
+        assert!(!import.is_stdlib);
+        assert!(!import.resolved);
+        assert!(import.target_file.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_lsp_enrichment_success() {
+        let enrichment = LspEnrichment {
+            references: vec![
+                Reference {
+                    file: "src/main.rs".to_string(),
+                    line: 10,
+                    column: 5,
+                    end_line: Some(10),
+                    end_column: Some(15),
+                },
+            ],
+            type_info: Some(TypeInfo {
+                type_signature: "fn main()".to_string(),
+                documentation: None,
+                kind: "function".to_string(),
+                container: None,
+            }),
+            resolved_imports: vec![],
+            definition: None,
+            enrichment_status: EnrichmentStatus::Success,
+            error_message: None,
+        };
+
+        assert_eq!(enrichment.enrichment_status, EnrichmentStatus::Success);
+        assert_eq!(enrichment.references.len(), 1);
+        assert!(enrichment.type_info.is_some());
+        assert!(enrichment.error_message.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_lsp_enrichment_partial() {
+        let enrichment = LspEnrichment {
+            references: vec![],
+            type_info: Some(TypeInfo {
+                type_signature: "i32".to_string(),
+                documentation: None,
+                kind: "type".to_string(),
+                container: None,
+            }),
+            resolved_imports: vec![],
+            definition: None,
+            enrichment_status: EnrichmentStatus::Partial,
+            error_message: None,
+        };
+
+        assert_eq!(enrichment.enrichment_status, EnrichmentStatus::Partial);
+    }
+
+    #[tokio::test]
+    async fn test_lsp_enrichment_failed() {
+        let enrichment = LspEnrichment {
+            references: vec![],
+            type_info: None,
+            resolved_imports: vec![],
+            definition: None,
+            enrichment_status: EnrichmentStatus::Failed,
+            error_message: Some("LSP server crashed".to_string()),
+        };
+
+        assert_eq!(enrichment.enrichment_status, EnrichmentStatus::Failed);
+        assert!(enrichment.error_message.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_project_server_state_initial() {
+        let state = ProjectServerState {
+            project_id: "test-project".to_string(),
+            language: Language::Rust,
+            project_root: PathBuf::from("/test/path"),
+            status: ServerStatus::Initializing,
+            restart_count: 0,
+            last_error: None,
+            is_active: false,
+        };
+
+        assert_eq!(state.status, ServerStatus::Initializing);
+        assert!(!state.is_active);
+        assert_eq!(state.restart_count, 0);
+        assert!(state.last_error.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_project_server_state_running() {
+        let state = ProjectServerState {
+            project_id: "test-project".to_string(),
+            language: Language::Python,
+            project_root: PathBuf::from("/test/path"),
+            status: ServerStatus::Running,
+            restart_count: 0,
+            last_error: None,
+            is_active: true,
+        };
+
+        assert_eq!(state.status, ServerStatus::Running);
+        assert!(state.is_active);
+        assert_eq!(state.project_id, "test-project");
+    }
+
+    #[tokio::test]
+    async fn test_enrichment_status_equality() {
+        assert_eq!(EnrichmentStatus::Success, EnrichmentStatus::Success);
+        assert_eq!(EnrichmentStatus::Partial, EnrichmentStatus::Partial);
+        assert_eq!(EnrichmentStatus::Failed, EnrichmentStatus::Failed);
+        assert_eq!(EnrichmentStatus::Skipped, EnrichmentStatus::Skipped);
+
+        assert_ne!(EnrichmentStatus::Success, EnrichmentStatus::Failed);
+        assert_ne!(EnrichmentStatus::Partial, EnrichmentStatus::Skipped);
+    }
+
+    #[tokio::test]
+    async fn test_project_lsp_stats_default() {
+        let stats = ProjectLspStats::default();
+        assert_eq!(stats.active_servers, 0);
+        assert_eq!(stats.total_servers, 0);
+        assert_eq!(stats.available_languages, 0);
+        assert_eq!(stats.cache_entries, 0);
+    }
+
+    #[tokio::test]
+    async fn test_lsp_enrichment_serialization() {
+        let enrichment = LspEnrichment {
+            references: vec![Reference {
+                file: "test.rs".to_string(),
+                line: 1,
+                column: 0,
+                end_line: None,
+                end_column: None,
+            }],
+            type_info: None,
+            resolved_imports: vec![],
+            definition: None,
+            enrichment_status: EnrichmentStatus::Success,
+            error_message: None,
+        };
+
+        let json = serde_json::to_string(&enrichment).unwrap();
+        let deserialized: LspEnrichment = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.references.len(), 1);
+        assert_eq!(deserialized.enrichment_status, EnrichmentStatus::Success);
+    }
 }

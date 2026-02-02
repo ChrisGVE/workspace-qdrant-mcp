@@ -771,6 +771,7 @@ impl Clone for LspServerManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lsp::detection::ServerCapabilities;
     use tempfile::tempdir;
 
     #[test]
@@ -788,6 +789,131 @@ mod tests {
         assert_eq!(metrics.consecutive_failures, 0);
     }
 
+    #[test]
+    fn test_restart_policy_backoff_calculation() {
+        // Test exponential backoff calculation
+        let policy = RestartPolicy {
+            enabled: true,
+            max_attempts: 5,
+            current_attempts: 0,
+            base_delay: Duration::from_secs(1),
+            max_delay: Duration::from_secs(300),
+            backoff_multiplier: 2.0,
+            reset_window: Duration::from_secs(3600),
+            last_restart: None,
+        };
+
+        // Attempt 1: base_delay * 2^0 = 1s
+        let delay1 = {
+            let base = policy.base_delay.as_secs_f64();
+            let multiplier = policy.backoff_multiplier;
+            Duration::from_secs_f64(base * multiplier.powf(0.0))
+        };
+        assert_eq!(delay1, Duration::from_secs(1));
+
+        // Attempt 2: base_delay * 2^1 = 2s
+        let delay2 = {
+            let base = policy.base_delay.as_secs_f64();
+            let multiplier = policy.backoff_multiplier;
+            Duration::from_secs_f64(base * multiplier.powf(1.0))
+        };
+        assert_eq!(delay2, Duration::from_secs(2));
+
+        // Attempt 3: base_delay * 2^2 = 4s
+        let delay3 = {
+            let base = policy.base_delay.as_secs_f64();
+            let multiplier = policy.backoff_multiplier;
+            Duration::from_secs_f64(base * multiplier.powf(2.0))
+        };
+        assert_eq!(delay3, Duration::from_secs(4));
+    }
+
+    #[test]
+    fn test_restart_policy_max_delay_cap() {
+        let policy = RestartPolicy {
+            enabled: true,
+            max_attempts: 10,
+            current_attempts: 9,
+            base_delay: Duration::from_secs(1),
+            max_delay: Duration::from_secs(60),
+            backoff_multiplier: 2.0,
+            reset_window: Duration::from_secs(3600),
+            last_restart: None,
+        };
+
+        // Attempt 9: base_delay * 2^8 = 256s, but capped at max_delay = 60s
+        let base = policy.base_delay.as_secs_f64();
+        let multiplier = policy.backoff_multiplier;
+        let max = policy.max_delay.as_secs_f64();
+        let delay = (base * multiplier.powf(8.0)).min(max);
+
+        assert_eq!(delay, 60.0);
+    }
+
+    #[test]
+    fn test_restart_policy_disabled() {
+        let policy = RestartPolicy {
+            enabled: false,
+            ..Default::default()
+        };
+        assert!(!policy.enabled);
+    }
+
+    #[test]
+    fn test_restart_policy_exceeded_max_attempts() {
+        let policy = RestartPolicy {
+            enabled: true,
+            max_attempts: 3,
+            current_attempts: 3,
+            ..Default::default()
+        };
+
+        // Should not restart when current_attempts >= max_attempts
+        assert!(policy.current_attempts >= policy.max_attempts);
+    }
+
+    #[test]
+    fn test_server_status_variants() {
+        assert_eq!(ServerStatus::Initializing, ServerStatus::Initializing);
+        assert_ne!(ServerStatus::Running, ServerStatus::Failed);
+
+        let statuses = vec![
+            ServerStatus::Initializing,
+            ServerStatus::Running,
+            ServerStatus::Stopping,
+            ServerStatus::Stopped,
+            ServerStatus::Failed,
+            ServerStatus::Degraded,
+        ];
+
+        // All variants should be distinct
+        for (i, s1) in statuses.iter().enumerate() {
+            for (j, s2) in statuses.iter().enumerate() {
+                if i == j {
+                    assert_eq!(s1, s2);
+                } else {
+                    assert_ne!(s1, s2);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_health_metrics_failure_tracking() {
+        let mut metrics = HealthMetrics::default();
+        assert_eq!(metrics.consecutive_failures, 0);
+
+        metrics.consecutive_failures += 1;
+        assert_eq!(metrics.consecutive_failures, 1);
+
+        metrics.consecutive_failures += 1;
+        assert_eq!(metrics.consecutive_failures, 2);
+
+        // Reset on success
+        metrics.consecutive_failures = 0;
+        assert_eq!(metrics.consecutive_failures, 0);
+    }
+
     #[tokio::test]
     async fn test_server_manager_creation() {
         let temp_dir = tempdir().unwrap();
@@ -798,5 +924,130 @@ mod tests {
 
         let manager = LspServerManager::new(config).await;
         assert!(manager.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_server_manager_should_restart_disabled() {
+        let temp_dir = tempdir().unwrap();
+        let config = LspConfig {
+            database_path: temp_dir.path().join("test.db"),
+            ..Default::default()
+        };
+
+        let manager = LspServerManager::new(config).await.unwrap();
+
+        // Create a mock-like server instance using DetectedServer
+        let detected = DetectedServer {
+            name: "test-server".to_string(),
+            path: PathBuf::from("/usr/bin/test"),
+            languages: vec![Language::Rust],
+            version: Some("1.0".to_string()),
+            capabilities: ServerCapabilities::default(),
+            priority: 1,
+        };
+
+        let mut instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+
+        // Disable restart and set to failed state
+        instance.restart_policy.enabled = false;
+        {
+            let mut metrics = instance.health_metrics.write().await;
+            metrics.status = ServerStatus::Failed;
+        }
+
+        let should_restart = manager.should_restart(&instance).await;
+        assert!(!should_restart);
+    }
+
+    #[tokio::test]
+    async fn test_server_manager_should_restart_exceeded() {
+        let temp_dir = tempdir().unwrap();
+        let config = LspConfig {
+            database_path: temp_dir.path().join("test.db"),
+            ..Default::default()
+        };
+
+        let manager = LspServerManager::new(config).await.unwrap();
+
+        let detected = DetectedServer {
+            name: "test-server".to_string(),
+            path: PathBuf::from("/usr/bin/test"),
+            languages: vec![Language::Rust],
+            version: Some("1.0".to_string()),
+            capabilities: ServerCapabilities::default(),
+            priority: 1,
+        };
+
+        let mut instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+
+        // Set to max attempts
+        instance.restart_policy.current_attempts = 5;
+        {
+            let mut metrics = instance.health_metrics.write().await;
+            metrics.status = ServerStatus::Failed;
+        }
+
+        let should_restart = manager.should_restart(&instance).await;
+        assert!(!should_restart);
+    }
+
+    #[tokio::test]
+    async fn test_server_instance_restart_policy_getter() {
+        let detected = DetectedServer {
+            name: "test-server".to_string(),
+            path: PathBuf::from("/usr/bin/test"),
+            languages: vec![Language::Rust],
+            version: Some("1.0".to_string()),
+            capabilities: ServerCapabilities::default(),
+            priority: 1,
+        };
+
+        let instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+        let policy = instance.restart_policy();
+
+        assert!(policy.enabled);
+        assert_eq!(policy.max_attempts, 5);
+    }
+
+    #[tokio::test]
+    async fn test_server_instance_reset_restart_attempts() {
+        let detected = DetectedServer {
+            name: "test-server".to_string(),
+            path: PathBuf::from("/usr/bin/test"),
+            languages: vec![Language::Rust],
+            version: Some("1.0".to_string()),
+            capabilities: ServerCapabilities::default(),
+            priority: 1,
+        };
+
+        let mut instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+
+        // Simulate some restart attempts
+        instance.restart_policy.current_attempts = 3;
+        instance.restart_policy.last_restart = Some(Instant::now());
+
+        // Reset
+        instance.reset_restart_attempts();
+
+        assert_eq!(instance.restart_policy.current_attempts, 0);
+        assert!(instance.restart_policy.last_restart.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_server_instance_is_alive_no_process() {
+        let detected = DetectedServer {
+            name: "test-server".to_string(),
+            path: PathBuf::from("/usr/bin/test"),
+            languages: vec![Language::Rust],
+            version: Some("1.0".to_string()),
+            capabilities: ServerCapabilities::default(),
+            priority: 1,
+        };
+
+        let instance = ServerInstance::new(detected, LspConfig::default()).await.unwrap();
+
+        // No process started yet, should return false
+        let alive = instance.is_alive().await;
+        assert!(!alive);
     }
 }
