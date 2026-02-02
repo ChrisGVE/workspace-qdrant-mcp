@@ -289,10 +289,11 @@ impl OrphanCleanupActions {
         let project_id = &self.project_id;
         let path_str = self.path.to_string_lossy();
 
+        // NOTE: registered_projects table has been consolidated into watch_folders
+        // per WORKSPACE_QDRANT_MCP.md v1.6.2+
         vec![
             ("unified_queue", format!("tenant_id = '{}'", project_id)),
             ("watch_folders", format!("path = '{}' OR path LIKE '{}/%'", path_str, path_str)),
-            ("registered_projects", format!("project_id = '{}'", project_id)),
         ]
     }
 
@@ -456,12 +457,12 @@ mod tests {
         };
 
         let statements = actions.sqlite_cleanup_statements();
-        assert_eq!(statements.len(), 3);
+        // NOTE: registered_projects removed - consolidated into watch_folders
+        assert_eq!(statements.len(), 2);
 
         // Check that statements contain expected tables
         assert!(statements.iter().any(|(table, _)| *table == "unified_queue"));
         assert!(statements.iter().any(|(table, _)| *table == "watch_folders"));
-        assert!(statements.iter().any(|(table, _)| *table == "registered_projects"));
     }
 
     #[tokio::test]

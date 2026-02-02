@@ -834,9 +834,14 @@ pub trait BranchEventHandler: Send + Sync {
 
 /// SQL schemas for branch lifecycle tracking
 pub mod branch_schema {
-    /// Add default_branch column to registered_projects
+    /// Add default_branch column to watch_folders (legacy migration)
+    ///
+    /// NOTE: This migration targets the legacy `registered_projects` table which has
+    /// been consolidated into `watch_folders` per WORKSPACE_QDRANT_MCP.md v1.6.2+.
+    /// If default_branch tracking is needed, update to use `watch_folders` instead.
+    #[deprecated(note = "registered_projects table has been removed; use watch_folders")]
     pub const ALTER_ADD_DEFAULT_BRANCH: &str = r#"
-        ALTER TABLE registered_projects ADD COLUMN default_branch TEXT
+        ALTER TABLE watch_folders ADD COLUMN default_branch TEXT
     "#;
 
     /// Create branch_events table for auditing
@@ -1225,10 +1230,12 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_branch_schema_sql() {
         // Verify SQL statements are valid syntax
         assert!(branch_schema::CREATE_BRANCH_EVENTS_TABLE.contains("CREATE TABLE"));
         assert!(branch_schema::CREATE_BRANCH_EVENTS_INDEX.contains("CREATE INDEX"));
+        // NOTE: ALTER_ADD_DEFAULT_BRANCH is deprecated but kept for backward compatibility
         assert!(branch_schema::ALTER_ADD_DEFAULT_BRANCH.contains("ALTER TABLE"));
     }
 }
