@@ -2517,3 +2517,53 @@ grammars:
   # Format: Boolean
   # Default reasoning: true for better resource usage in typical scenarios
   lazy_loading: true
+
+  # check_interval_hours: Interval to check for grammar updates
+  # Purpose: Controls how often daemon checks for newer grammar versions
+  # When set: Periodic background checks for grammar updates
+  # Set to 0: Disable automatic update checks
+  # Format: Integer (hours)
+  # Default reasoning: 168 (weekly) balances freshness with network traffic
+  check_interval_hours: 168
+
+# =============================================================================
+# DAEMON SELF-UPDATE CONFIGURATION
+# =============================================================================
+# Purpose: Controls how the daemon checks for and applies updates.
+# The daemon can automatically check for new versions and either notify
+# the user or automatically download and install updates.
+updates:
+  # auto_check: Check for updates on daemon startup
+  # Purpose: Whether daemon should check for new versions when starting
+  # When enabled: Daemon contacts update server on startup
+  # When disabled: No automatic version checks
+  # Manual check: Can always use 'wqm update --check' CLI command
+  # Format: Boolean
+  # Default reasoning: true keeps users informed of important updates
+  auto_check: true
+
+  # channel: Update channel to follow
+  # Purpose: Controls which release stream daemon follows for updates
+  # Options:
+  #   - stable: Production releases only (recommended)
+  #   - beta: Include beta releases for early access to features
+  #   - dev: Include development builds (may be unstable)
+  # Format: String (stable, beta, dev)
+  # Default reasoning: stable for production reliability
+  channel: stable
+
+  # notify_only: Only notify about updates, don't auto-install
+  # Purpose: Controls whether updates are automatically applied
+  # When true: Updates announced but user must run 'wqm update install'
+  # When false: Updates automatically downloaded and installed
+  # Safety: Recommended true for production systems
+  # Format: Boolean
+  # Default reasoning: true for user control over when updates are applied
+  notify_only: true
+
+  # check_interval_hours: Interval to check for daemon updates
+  # Purpose: How often to check for new daemon versions (when auto_check=true)
+  # Set to 0: Only check on startup
+  # Format: Integer (hours)
+  # Default reasoning: 24 (daily) balances awareness with network traffic
+  check_interval_hours: 24

@@ -608,6 +608,15 @@ pub struct GrammarConfig {
     /// Load grammars on first use instead of at startup
     #[serde(default = "default_true")]
     pub lazy_loading: bool,
+
+    /// Interval in hours to check for grammar updates
+    /// Default: 168 (weekly)
+    #[serde(default = "default_grammar_check_interval")]
+    pub check_interval_hours: u32,
+}
+
+fn default_grammar_check_interval() -> u32 {
+    168 // Weekly
 }
 
 fn default_grammar_cache_dir() -> PathBuf {
@@ -646,6 +655,7 @@ impl Default for GrammarConfig {
             download_base_url: default_download_base_url(),
             verify_checksums: default_true(),
             lazy_loading: default_true(),
+            check_interval_hours: default_grammar_check_interval(),
         }
     }
 }
@@ -667,6 +677,58 @@ impl GrammarConfig {
         let path_str = self.cache_dir.to_string_lossy().into_owned();
         let expanded = shellexpand::tilde(&path_str);
         PathBuf::from(expanded.into_owned())
+    }
+}
+
+/// Update channel for daemon self-updates
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum UpdateChannel {
+    /// Stable releases only (default)
+    #[default]
+    Stable,
+    /// Beta releases for testing
+    Beta,
+    /// Development builds (may be unstable)
+    Dev,
+}
+
+/// Daemon self-update configuration
+///
+/// Controls how the daemon checks for and applies updates.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdatesConfig {
+    /// Check for updates on daemon startup
+    #[serde(default = "default_true")]
+    pub auto_check: bool,
+
+    /// Update channel to follow
+    #[serde(default)]
+    pub channel: UpdateChannel,
+
+    /// Only notify about updates, don't auto-install
+    /// When true, updates are announced but not automatically applied
+    #[serde(default = "default_true")]
+    pub notify_only: bool,
+
+    /// Interval in hours to check for updates (when auto_check is true)
+    /// Default: 24 (daily)
+    #[serde(default = "default_update_check_interval")]
+    pub check_interval_hours: u32,
+}
+
+fn default_update_check_interval() -> u32 {
+    24 // Daily
+}
+
+impl Default for UpdatesConfig {
+    fn default() -> Self {
+        Self {
+            auto_check: default_true(),
+            channel: UpdateChannel::default(),
+            notify_only: default_true(),
+            check_interval_hours: default_update_check_interval(),
+        }
     }
 }
 
@@ -714,6 +776,9 @@ pub struct DaemonConfig {
     /// Tree-sitter grammar configuration for dynamic loading
     #[serde(default)]
     pub grammars: GrammarConfig,
+    /// Daemon self-update configuration
+    #[serde(default)]
+    pub updates: UpdatesConfig,
 }
 
 impl Default for DaemonConfig {
@@ -736,6 +801,7 @@ impl Default for DaemonConfig {
             embedding: EmbeddingSettings::default(),
             lsp: LspSettings::default(),
             grammars: GrammarConfig::default(),
+            updates: UpdatesConfig::default(),
         }
     }
 }
