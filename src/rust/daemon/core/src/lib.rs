@@ -175,8 +175,18 @@ pub use crate::storage::{
     collections
 };
 pub use crate::tree_sitter::{
+    // Core types
     SemanticChunker, TreeSitterParser, ChunkExtractor, ChunkType, SemanticChunk,
-    extract_chunks, detect_language, is_language_supported
+    extract_chunks, detect_language, is_language_supported,
+    // Grammar management
+    GrammarManager, GrammarError, GrammarResult, GrammarStatus, GrammarInfo,
+    GrammarCachePaths, GrammarMetadata, GrammarLoader, LoadedGrammar,
+    GrammarDownloader, DownloadError, LoadedGrammarsProvider,
+    // Language provider system
+    LanguageProvider, StaticLanguageProvider, get_language, get_static_language,
+    // Version checking
+    check_grammar_compatibility, CompatibilityStatus, RuntimeInfo, VersionError,
+    create_grammar_manager,
 };
 pub use crate::project_disambiguation::{
     ProjectIdCalculator, DisambiguationPathComputer, AliasManager,

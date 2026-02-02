@@ -14,10 +14,20 @@ pub mod types;
 pub mod version_checker;
 
 pub use chunker::SemanticChunker;
+pub use grammar_cache::{GrammarCachePaths, GrammarMetadata};
+pub use grammar_downloader::{DownloadError, GrammarDownloader};
+pub use grammar_loader::{GrammarLoader, LoadedGrammar};
+pub use grammar_manager::{
+    create_grammar_manager, GrammarError, GrammarInfo, GrammarManager, GrammarResult,
+    GrammarStatus, LoadedGrammarsProvider,
+};
 pub use parser::{
     get_language, get_static_language, LanguageProvider, StaticLanguageProvider, TreeSitterParser,
 };
 pub use types::{ChunkExtractor, ChunkType, SemanticChunk};
+pub use version_checker::{
+    check_grammar_compatibility, CompatibilityStatus, RuntimeInfo, VersionError,
+};
 
 use std::path::Path;
 
