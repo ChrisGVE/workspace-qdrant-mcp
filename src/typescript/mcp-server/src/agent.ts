@@ -28,13 +28,14 @@ import { loadConfig } from './config.js';
 import { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import { DaemonClient } from './clients/daemon-client.js';
 import { ProjectDetector } from './utils/project-detector.js';
+import { MemoryTool, type MemoryRule } from './tools/memory.js';
 
 // Session state for agent lifecycle
 interface AgentSessionState {
   sessionId: string | null;
   projectId: string | null;
   projectPath: string | null;
-  memoryRules: string[];
+  memoryRules: MemoryRule[];
 }
 
 const sessionState: AgentSessionState = {
@@ -45,41 +46,87 @@ const sessionState: AgentSessionState = {
 };
 
 /**
- * Fetch memory rules from Qdrant via daemon or direct query
+ * Fetch memory rules from Qdrant via MemoryTool
+ *
+ * Fetches both global rules and project-specific rules (if project detected).
+ * Rules are sorted by priority (highest first) and formatted for injection.
  */
 async function fetchMemoryRules(
-  _projectId: string | null,
+  projectId: string | null,
   config: ReturnType<typeof loadConfig>
-): Promise<string[]> {
-  const rules: string[] = [];
+): Promise<MemoryRule[]> {
+  const rules: MemoryRule[] = [];
 
   try {
+    // Initialize components needed for MemoryTool
     const daemonClient = new DaemonClient({
       port: config.daemon.grpcPort,
       timeoutMs: 5000,
     });
 
-    // Try to connect to daemon
-    try {
-      await daemonClient.connect();
-    } catch {
-      console.warn('[Agent] Daemon not available, skipping memory rule fetch');
-      return rules;
-    }
-
-    // TODO: Implement memory rule fetching from daemon
-    // For now, we'll use the SQLite state manager to check if we have rules
     const stateManager = new SqliteStateManager({
       dbPath: config.database.path.replace('~', process.env['HOME'] ?? ''),
     });
-
     await stateManager.initialize();
 
-    // Fetch global rules (scope='global')
-    // Fetch project-specific rules if projectId is available
-    // This will be implemented in Task 17
+    const projectDetector = new ProjectDetector();
 
-    console.log('[Agent] Memory rules fetched:', rules.length);
+    // Create MemoryTool instance
+    const memoryToolConfig = {
+      qdrantUrl: config.qdrant?.url ?? 'http://localhost:6333',
+      qdrantTimeout: 5000,
+    } as { qdrantUrl: string; qdrantApiKey?: string; qdrantTimeout?: number };
+
+    if (config.qdrant?.apiKey) {
+      memoryToolConfig.qdrantApiKey = config.qdrant.apiKey;
+    }
+
+    const memoryTool = new MemoryTool(
+      memoryToolConfig,
+      daemonClient,
+      stateManager,
+      projectDetector
+    );
+
+    // Fetch global rules
+    const globalResponse = await memoryTool.execute({
+      action: 'list',
+      scope: 'global',
+      limit: 50,
+    });
+
+    if (globalResponse.success && globalResponse.rules) {
+      rules.push(...globalResponse.rules);
+      console.log(`[Agent] Fetched ${globalResponse.rules.length} global rule(s)`);
+    }
+
+    // Fetch project-specific rules if project detected
+    if (projectId) {
+      const projectResponse = await memoryTool.execute({
+        action: 'list',
+        scope: 'project',
+        projectId,
+        limit: 50,
+      });
+
+      if (projectResponse.success && projectResponse.rules) {
+        rules.push(...projectResponse.rules);
+        console.log(`[Agent] Fetched ${projectResponse.rules.length} project rule(s) for ${projectId}`);
+      }
+    }
+
+    // Sort by priority (highest first), then by creation date (newest first)
+    rules.sort((a, b) => {
+      const priorityDiff = (b.priority ?? 0) - (a.priority ?? 0);
+      if (priorityDiff !== 0) return priorityDiff;
+
+      // Sort by createdAt (newest first) if priority is equal
+      const aDate = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bDate = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bDate - aDate;
+    });
+
+    console.log(`[Agent] Total memory rules fetched: ${rules.length}`);
     return rules;
   } catch (error) {
     console.error('[Agent] Error fetching memory rules:', error);
@@ -89,16 +136,58 @@ async function fetchMemoryRules(
 
 /**
  * Format memory rules for system prompt injection
+ *
+ * Organizes rules by scope and priority for clear presentation:
+ * 1. Global rules (apply everywhere)
+ * 2. Project-specific rules (apply to current project)
+ *
+ * Each rule shows title (if available), priority indicator, and content.
  */
-function formatMemoryRulesForPrompt(rules: string[]): string {
+function formatMemoryRulesForPrompt(rules: MemoryRule[]): string {
   if (rules.length === 0) {
     return '';
   }
 
-  const header = '# Memory Rules\n\nThe following rules have been configured for this session:\n\n';
-  const formattedRules = rules.map((rule, index) => `${index + 1}. ${rule}`).join('\n');
+  const lines: string[] = [
+    '# Memory Rules',
+    '',
+    'The following behavioral rules have been configured and should be followed:',
+    '',
+  ];
 
-  return `${header}${formattedRules}\n`;
+  // Separate rules by scope
+  const globalRules = rules.filter(r => r.scope === 'global');
+  const projectRules = rules.filter(r => r.scope === 'project');
+
+  // Format global rules
+  if (globalRules.length > 0) {
+    lines.push('## Global Rules');
+    lines.push('');
+    globalRules.forEach((rule, index) => {
+      const title = rule.title ? `**${rule.title}**` : `Rule ${index + 1}`;
+      const priority = rule.priority !== undefined ? ` [Priority: ${rule.priority}]` : '';
+      lines.push(`### ${title}${priority}`);
+      lines.push('');
+      lines.push(rule.content);
+      lines.push('');
+    });
+  }
+
+  // Format project rules
+  if (projectRules.length > 0) {
+    lines.push('## Project-Specific Rules');
+    lines.push('');
+    projectRules.forEach((rule, index) => {
+      const title = rule.title ? `**${rule.title}**` : `Rule ${index + 1}`;
+      const priority = rule.priority !== undefined ? ` [Priority: ${rule.priority}]` : '';
+      lines.push(`### ${title}${priority}`);
+      lines.push('');
+      lines.push(rule.content);
+      lines.push('');
+    });
+  }
+
+  return lines.join('\n');
 }
 
 /**
