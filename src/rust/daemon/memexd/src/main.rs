@@ -477,8 +477,14 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     // Initialize LSP lifecycle manager (Task 1.1)
     // Created centrally to share between gRPC server and UnifiedQueueProcessor
-    info!("Initializing LSP lifecycle manager...");
-    let lsp_manager = match LanguageServerManager::new(ProjectLspConfig::default()).await {
+    // Configuration loaded from daemon config.yaml (Task 1.15)
+    let lsp_config = ProjectLspConfig::from(daemon_config.lsp.clone());
+    info!(
+        "Initializing LSP lifecycle manager (max_servers={}, health_interval={}s)...",
+        lsp_config.max_servers_per_project,
+        lsp_config.health_check_interval_secs
+    );
+    let lsp_manager = match LanguageServerManager::new(lsp_config).await {
         Ok(mut manager) => {
             // Initialize the LSP manager
             if let Err(e) = manager.initialize().await {

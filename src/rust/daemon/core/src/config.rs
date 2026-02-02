@@ -455,6 +455,123 @@ impl EmbeddingSettings {
     }
 }
 
+/// LSP (Language Server Protocol) configuration settings
+///
+/// These settings configure the daemon's LSP integration for code intelligence
+/// features. LSP servers are started for active projects and provide enrichment
+/// data like references, type information, and import resolution.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LspSettings {
+    /// User PATH for finding language servers
+    /// CLI stores user's PATH here so daemon can find servers
+    #[serde(default)]
+    pub user_path: Option<String>,
+
+    /// Maximum number of LSP servers per active project
+    #[serde(default = "default_max_servers_per_project")]
+    pub max_servers_per_project: usize,
+
+    /// Auto-start LSP servers when project becomes active
+    #[serde(default = "default_true")]
+    pub auto_start_on_activation: bool,
+
+    /// Delay in seconds before stopping servers after project deactivation
+    #[serde(default = "default_deactivation_delay")]
+    pub deactivation_delay_secs: u64,
+
+    /// Enable caching of LSP enrichment query results
+    #[serde(default = "default_true")]
+    pub enable_enrichment_cache: bool,
+
+    /// TTL in seconds for cached enrichment data
+    #[serde(default = "default_cache_ttl")]
+    pub cache_ttl_secs: u64,
+
+    /// Timeout in seconds for LSP server startup
+    #[serde(default = "default_startup_timeout")]
+    pub startup_timeout_secs: u64,
+
+    /// Timeout in seconds for individual LSP requests
+    #[serde(default = "default_request_timeout")]
+    pub request_timeout_secs: u64,
+
+    /// Interval in seconds between health checks
+    #[serde(default = "default_health_check_interval")]
+    pub health_check_interval_secs: u64,
+
+    /// Maximum restart attempts before marking server unavailable
+    #[serde(default = "default_max_restart_attempts")]
+    pub max_restart_attempts: u32,
+
+    /// Backoff multiplier for restart delays
+    #[serde(default = "default_backoff_multiplier")]
+    pub restart_backoff_multiplier: f64,
+
+    /// Enable auto-restart of failed servers
+    #[serde(default = "default_true")]
+    pub enable_auto_restart: bool,
+
+    /// Stability period in seconds before resetting restart count
+    #[serde(default = "default_stability_reset")]
+    pub stability_reset_secs: u64,
+}
+
+fn default_max_servers_per_project() -> usize { 3 }
+fn default_true() -> bool { true }
+fn default_deactivation_delay() -> u64 { 60 }
+fn default_cache_ttl() -> u64 { 300 }
+fn default_startup_timeout() -> u64 { 30 }
+fn default_request_timeout() -> u64 { 10 }
+fn default_health_check_interval() -> u64 { 60 }
+fn default_max_restart_attempts() -> u32 { 3 }
+fn default_backoff_multiplier() -> f64 { 2.0 }
+fn default_stability_reset() -> u64 { 3600 }
+
+impl Default for LspSettings {
+    fn default() -> Self {
+        Self {
+            user_path: None,
+            max_servers_per_project: default_max_servers_per_project(),
+            auto_start_on_activation: default_true(),
+            deactivation_delay_secs: default_deactivation_delay(),
+            enable_enrichment_cache: default_true(),
+            cache_ttl_secs: default_cache_ttl(),
+            startup_timeout_secs: default_startup_timeout(),
+            request_timeout_secs: default_request_timeout(),
+            health_check_interval_secs: default_health_check_interval(),
+            max_restart_attempts: default_max_restart_attempts(),
+            restart_backoff_multiplier: default_backoff_multiplier(),
+            enable_auto_restart: default_true(),
+            stability_reset_secs: default_stability_reset(),
+        }
+    }
+}
+
+impl LspSettings {
+    /// Validate LSP configuration settings
+    pub fn validate(&self) -> Result<(), String> {
+        if self.max_servers_per_project == 0 {
+            return Err("max_servers_per_project must be greater than 0".to_string());
+        }
+        if self.cache_ttl_secs == 0 {
+            return Err("cache_ttl_secs must be greater than 0".to_string());
+        }
+        if self.startup_timeout_secs == 0 {
+            return Err("startup_timeout_secs must be greater than 0".to_string());
+        }
+        if self.request_timeout_secs == 0 {
+            return Err("request_timeout_secs must be greater than 0".to_string());
+        }
+        if self.health_check_interval_secs == 0 {
+            return Err("health_check_interval_secs must be greater than 0".to_string());
+        }
+        if self.restart_backoff_multiplier < 1.0 {
+            return Err("restart_backoff_multiplier must be >= 1.0".to_string());
+        }
+        Ok(())
+    }
+}
+
 /// Complete daemon configuration that matches the TOML structure
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonConfig {
@@ -493,6 +610,9 @@ pub struct DaemonConfig {
     /// Embedding generation configuration
     #[serde(default)]
     pub embedding: EmbeddingSettings,
+    /// LSP (Language Server Protocol) integration configuration
+    #[serde(default)]
+    pub lsp: LspSettings,
 }
 
 impl Default for DaemonConfig {
@@ -513,6 +633,7 @@ impl Default for DaemonConfig {
             git: GitConfig::default(),
             observability: ObservabilityConfig::default(),
             embedding: EmbeddingSettings::default(),
+            lsp: LspSettings::default(),
         }
     }
 }
@@ -752,5 +873,83 @@ mod tests {
         // Reset for other tests
         settings.model_cache_dir = None;
         assert!(settings.validate().is_ok());
+    }
+
+    #[test]
+    fn test_lsp_settings_defaults() {
+        let settings = LspSettings::default();
+        assert!(settings.user_path.is_none());
+        assert_eq!(settings.max_servers_per_project, 3);
+        assert!(settings.auto_start_on_activation);
+        assert_eq!(settings.deactivation_delay_secs, 60);
+        assert!(settings.enable_enrichment_cache);
+        assert_eq!(settings.cache_ttl_secs, 300);
+        assert_eq!(settings.startup_timeout_secs, 30);
+        assert_eq!(settings.request_timeout_secs, 10);
+        assert_eq!(settings.health_check_interval_secs, 60);
+        assert_eq!(settings.max_restart_attempts, 3);
+        assert_eq!(settings.restart_backoff_multiplier, 2.0);
+        assert!(settings.enable_auto_restart);
+        assert_eq!(settings.stability_reset_secs, 3600);
+    }
+
+    #[test]
+    fn test_lsp_settings_validation() {
+        let mut settings = LspSettings::default();
+
+        // Valid settings
+        assert!(settings.validate().is_ok());
+
+        // Invalid max_servers_per_project
+        settings.max_servers_per_project = 0;
+        assert!(settings.validate().is_err());
+        settings.max_servers_per_project = 3;
+
+        // Invalid cache_ttl_secs
+        settings.cache_ttl_secs = 0;
+        assert!(settings.validate().is_err());
+        settings.cache_ttl_secs = 300;
+
+        // Invalid startup_timeout_secs
+        settings.startup_timeout_secs = 0;
+        assert!(settings.validate().is_err());
+        settings.startup_timeout_secs = 30;
+
+        // Invalid request_timeout_secs
+        settings.request_timeout_secs = 0;
+        assert!(settings.validate().is_err());
+        settings.request_timeout_secs = 10;
+
+        // Invalid health_check_interval_secs
+        settings.health_check_interval_secs = 0;
+        assert!(settings.validate().is_err());
+        settings.health_check_interval_secs = 60;
+
+        // Invalid restart_backoff_multiplier
+        settings.restart_backoff_multiplier = 0.5;
+        assert!(settings.validate().is_err());
+        settings.restart_backoff_multiplier = 2.0;
+
+        // All valid again
+        assert!(settings.validate().is_ok());
+    }
+
+    #[test]
+    fn test_lsp_settings_serialization() {
+        let settings = LspSettings {
+            user_path: Some("/usr/local/bin".to_string()),
+            max_servers_per_project: 5,
+            ..Default::default()
+        };
+
+        // Serialize to JSON
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains("\"max_servers_per_project\":5"));
+        assert!(json.contains("\"/usr/local/bin\""));
+
+        // Deserialize back
+        let deserialized: LspSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.user_path, Some("/usr/local/bin".to_string()));
+        assert_eq!(deserialized.max_servers_per_project, 5);
     }
 }

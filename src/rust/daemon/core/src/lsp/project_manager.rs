@@ -31,6 +31,7 @@ use super::{
     Language, LspConfig, LspError,
     LspServerDetector, ServerInstance, ServerStatus,
 };
+use crate::config::LspSettings;
 
 /// Errors specific to project-level LSP management
 #[derive(Error, Debug)]
@@ -157,6 +158,38 @@ impl Default for ProjectLspConfig {
             max_restarts: 3,
             stability_reset_secs: 3600, // 1 hour
             enable_auto_restart: true,
+        }
+    }
+}
+
+impl From<LspSettings> for ProjectLspConfig {
+    /// Convert daemon LspSettings to ProjectLspConfig
+    ///
+    /// This allows the daemon config to be used directly when creating
+    /// the LanguageServerManager.
+    fn from(settings: LspSettings) -> Self {
+        let mut lsp_config = LspConfig::default();
+
+        // Apply settings to base LspConfig
+        lsp_config.startup_timeout = Duration::from_secs(settings.startup_timeout_secs);
+        lsp_config.request_timeout = Duration::from_secs(settings.request_timeout_secs);
+        lsp_config.health_check_interval = Duration::from_secs(settings.health_check_interval_secs);
+        lsp_config.enable_auto_restart = settings.enable_auto_restart;
+        lsp_config.max_restart_attempts = settings.max_restart_attempts;
+        lsp_config.restart_backoff_multiplier = settings.restart_backoff_multiplier;
+
+        Self {
+            lsp_config,
+            user_path: settings.user_path,
+            max_servers_per_project: settings.max_servers_per_project,
+            auto_start_on_activation: settings.auto_start_on_activation,
+            deactivation_delay_secs: settings.deactivation_delay_secs,
+            enable_enrichment_cache: settings.enable_enrichment_cache,
+            cache_ttl_secs: settings.cache_ttl_secs,
+            health_check_interval_secs: settings.health_check_interval_secs,
+            max_restarts: settings.max_restart_attempts,
+            stability_reset_secs: settings.stability_reset_secs,
+            enable_auto_restart: settings.enable_auto_restart,
         }
     }
 }
@@ -1963,5 +1996,46 @@ mod tests {
         let mut manager = LanguageServerManager::new(config).await.unwrap();
         let result = manager.initialize().await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_project_lsp_config_from_lsp_settings() {
+        let settings = LspSettings {
+            user_path: Some("/usr/local/bin".to_string()),
+            max_servers_per_project: 5,
+            auto_start_on_activation: false,
+            deactivation_delay_secs: 120,
+            enable_enrichment_cache: false,
+            cache_ttl_secs: 600,
+            startup_timeout_secs: 45,
+            request_timeout_secs: 15,
+            health_check_interval_secs: 90,
+            max_restart_attempts: 5,
+            restart_backoff_multiplier: 3.0,
+            enable_auto_restart: false,
+            stability_reset_secs: 7200,
+        };
+
+        let config = ProjectLspConfig::from(settings);
+
+        // Verify all settings were converted correctly
+        assert_eq!(config.user_path, Some("/usr/local/bin".to_string()));
+        assert_eq!(config.max_servers_per_project, 5);
+        assert!(!config.auto_start_on_activation);
+        assert_eq!(config.deactivation_delay_secs, 120);
+        assert!(!config.enable_enrichment_cache);
+        assert_eq!(config.cache_ttl_secs, 600);
+        assert_eq!(config.health_check_interval_secs, 90);
+        assert_eq!(config.max_restarts, 5);
+        assert!(!config.enable_auto_restart);
+        assert_eq!(config.stability_reset_secs, 7200);
+
+        // Verify nested LspConfig was updated
+        assert_eq!(config.lsp_config.startup_timeout.as_secs(), 45);
+        assert_eq!(config.lsp_config.request_timeout.as_secs(), 15);
+        assert_eq!(config.lsp_config.health_check_interval.as_secs(), 90);
+        assert!(!config.lsp_config.enable_auto_restart);
+        assert_eq!(config.lsp_config.max_restart_attempts, 5);
+        assert_eq!(config.lsp_config.restart_backoff_multiplier, 3.0);
     }
 }
