@@ -62,6 +62,36 @@ async fn setup_test_db() -> (SqlitePool, TempDir) {
     .await
     .expect("Failed to create ingestion_queue table");
 
+    // Create watch_folders table (required for JOIN in dequeue_batch priority calculation)
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS watch_folders (
+            watch_id TEXT PRIMARY KEY,
+            path TEXT NOT NULL UNIQUE,
+            collection TEXT NOT NULL CHECK (collection IN ('projects', 'libraries')),
+            tenant_id TEXT NOT NULL,
+            parent_watch_id TEXT,
+            submodule_path TEXT,
+            git_remote_url TEXT,
+            remote_hash TEXT,
+            disambiguation_path TEXT,
+            is_active INTEGER DEFAULT 0 CHECK (is_active IN (0, 1)),
+            last_activity_at TEXT,
+            library_mode TEXT CHECK (library_mode IS NULL OR library_mode IN ('sync', 'incremental')),
+            follow_symlinks INTEGER DEFAULT 0 CHECK (follow_symlinks IN (0, 1)),
+            enabled INTEGER DEFAULT 1 CHECK (enabled IN (0, 1)),
+            cleanup_on_disable INTEGER DEFAULT 0 CHECK (cleanup_on_disable IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_scan TEXT,
+            FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create watch_folders table");
+
     // Initialize missing_metadata_queue table
     let queue_manager = QueueManager::new(pool.clone());
     queue_manager
@@ -643,58 +673,160 @@ async fn test_throughput_target() {
     }
 }
 
+/// Test two-level priority ordering with calculated priority at query time.
+///
+/// Per Task 20, priority is now calculated at query time using a two-level system:
+/// - global (memory): high priority (1)
+/// - library (prefixed with _): low priority (0)
+/// - project (contains -) with is_active=1: high priority (1)
+/// - project (contains -) with is_active=0: low priority (0)
+///
+/// Collection type is auto-detected by classify_collection_type():
+/// - collection 'memory' → type 'global'
+/// - collection '_<name>' → type 'library'
+/// - collection '<project>-<suffix>' → type 'project'
 #[tokio::test]
 #[serial]
 async fn test_priority_ordering() {
     let (pool, _temp_dir) = setup_test_db().await;
     let queue_manager = QueueManager::new(pool.clone());
 
-    // Enqueue items with different priorities (reverse order)
-    let priorities = vec![2, 5, 8, 3, 10, 1];
+    // Create watch_folder entries for test tenants with different is_active states
+    let now = chrono::Utc::now().to_rfc3339();
+
+    // Active project watch folder
+    sqlx::query(
+        r#"INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+           VALUES ('watch-active', '/test/active', 'projects', 'active_tenant', 1, ?1, ?1)"#
+    )
+    .bind(&now)
+    .execute(&pool)
+    .await
+    .expect("Failed to create active watch folder");
+
+    // Inactive project watch folder
+    sqlx::query(
+        r#"INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+           VALUES ('watch-inactive', '/test/inactive', 'projects', 'inactive_tenant', 0, ?1, ?1)"#
+    )
+    .bind(&now)
+    .execute(&pool)
+    .await
+    .expect("Failed to create inactive watch folder");
+
+    // Enqueue items with different collection types:
+    // Collection names trigger classify_collection_type():
+    // - 'memory' → type 'global' (high priority)
+    // - '_libname' → type 'library' (low priority)
+    // - 'proj-code' → type 'project' (priority based on is_active)
+
     let mut temp_files = Vec::new();
 
-    for (i, priority) in priorities.iter().enumerate() {
-        let content = format!("Priority {} content", priority);
-        let temp_file = create_test_file(&content, "txt").await;
-        let file_path = temp_file.path().to_string_lossy().to_string();
+    // Enqueue in reverse priority order to test sorting
 
-        queue_manager
-            .enqueue_file(
-                &file_path,
-                "priority_test_collection",
-                "test_tenant",
-                "main",
-                QueueOperation::Ingest,
-                *priority,
-                None,
-            )
-            .await
-            .expect("Failed to enqueue file");
+    // 1. Inactive project item (low priority, first queued)
+    // Collection name with dash triggers 'project' type
+    let temp_file1 = create_test_file("Inactive project content", "txt").await;
+    queue_manager
+        .enqueue_file(
+            &temp_file1.path().to_string_lossy(),
+            "inactive-code",  // dash pattern → 'project' type
+            "inactive_tenant",
+            "main",
+            QueueOperation::Ingest,
+            5,
+            None,
+        )
+        .await
+        .expect("Failed to enqueue inactive project file");
+    temp_files.push(temp_file1);
 
-        temp_files.push(temp_file);
-    }
+    // 2. Library item (low priority)
+    // Collection name with underscore prefix triggers 'library' type
+    let temp_file2 = create_test_file("Library content", "txt").await;
+    queue_manager
+        .enqueue_file(
+            &temp_file2.path().to_string_lossy(),
+            "_testlib",  // underscore prefix → 'library' type
+            "lib_tenant",
+            "main",
+            QueueOperation::Ingest,
+            5,
+            None,
+        )
+        .await
+        .expect("Failed to enqueue library file");
+    temp_files.push(temp_file2);
 
-    // Dequeue items and verify priority ordering
+    // 3. Active project item (high priority)
+    let temp_file3 = create_test_file("Active project content", "txt").await;
+    queue_manager
+        .enqueue_file(
+            &temp_file3.path().to_string_lossy(),
+            "active-code",  // dash pattern → 'project' type
+            "active_tenant",
+            "main",
+            QueueOperation::Ingest,
+            5,
+            None,
+        )
+        .await
+        .expect("Failed to enqueue active project file");
+    temp_files.push(temp_file3);
+
+    // 4. Memory item (high priority)
+    // 'memory' is in the predefined global collections list
+    let temp_file4 = create_test_file("Memory content", "txt").await;
+    queue_manager
+        .enqueue_file(
+            &temp_file4.path().to_string_lossy(),
+            "memory",  // predefined name → 'global' type
+            "memory_tenant",
+            "main",
+            QueueOperation::Ingest,
+            5,
+            None,
+        )
+        .await
+        .expect("Failed to enqueue memory file");
+    temp_files.push(temp_file4);
+
+    // Dequeue items and verify two-level priority ordering
     let items = queue_manager
         .dequeue_batch(10, None, None)
         .await
         .expect("Failed to dequeue batch");
 
-    assert_eq!(items.len(), 6, "Should have 6 items");
+    assert_eq!(items.len(), 4, "Should have 4 items");
 
-    // Verify items are ordered by priority (descending)
-    let mut prev_priority = 11; // Start higher than max
-    for item in items {
-        assert!(
-            item.priority <= prev_priority,
-            "Items should be ordered by priority (desc): {} > {}",
-            prev_priority,
-            item.priority
-        );
-        prev_priority = item.priority;
-    }
+    // Expected order (calculated priority, then timestamp):
+    // High priority (1): global (memory) and active project
+    // Low priority (0): library and inactive project
+    // Within same priority, ordered by queued_timestamp ASC
 
-    println!("Priority ordering verified: items dequeued in correct order");
+    // Verify high priority items come first (global or active project)
+    let first_type = items[0].collection_type.as_deref().unwrap_or("unknown");
+    let first_tenant = &items[0].tenant_id;
+    assert!(
+        first_type == "global" ||
+        (first_type == "project" && first_tenant == "active_tenant"),
+        "First item should be global or active project, got type '{}' with tenant '{}'",
+        first_type,
+        first_tenant
+    );
+
+    // Verify low priority items come last (library or inactive project)
+    let last_type = items[3].collection_type.as_deref().unwrap_or("unknown");
+    let last_tenant = &items[3].tenant_id;
+    assert!(
+        last_type == "library" ||
+        (last_type == "project" && last_tenant == "inactive_tenant"),
+        "Last item should be library or inactive project, got type '{}' with tenant '{}'",
+        last_type,
+        last_tenant
+    );
+
+    println!("Two-level priority ordering verified: high priority items processed before low priority");
 }
 
 /// Test that items are properly marked as failed and removed from queue after max retries.

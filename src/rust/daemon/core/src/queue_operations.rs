@@ -495,6 +495,11 @@ impl QueueManager {
     /// Dequeue a batch of items for processing
     ///
     /// Filters out items with future retry_from timestamps to implement exponential backoff.
+    /// Priority is calculated at query time using a two-level system:
+    /// - memory: high priority (1)
+    /// - libraries: low priority (0)
+    /// - active projects: high priority (1)
+    /// - inactive projects: low priority (0)
     pub async fn dequeue_batch(
         &self,
         batch_size: i32,
@@ -503,27 +508,37 @@ impl QueueManager {
     ) -> QueueResult<Vec<QueueItem>> {
         let now = Utc::now().to_rfc3339();
 
+        // Use LEFT JOIN with watch_folders to calculate priority based on is_active
+        // Priority is calculated at query time using CASE expression:
+        // - collection_type = 'global' → 1 (high) - includes 'memory' collection
+        // - collection_type = 'library' → 0 (low)
+        // - collection_type = 'project' with is_active = 1 → 1 (high)
+        // - Otherwise → 0 (low)
         let mut query = String::from(
             r#"
             SELECT
-                file_absolute_path, collection_name, tenant_id, branch,
-                operation, priority, queued_timestamp, retry_count,
-                retry_from, error_message_id, collection_type
-            FROM ingestion_queue
+                q.file_absolute_path, q.collection_name, q.tenant_id, q.branch,
+                q.operation, q.priority, q.queued_timestamp, q.retry_count,
+                q.retry_from, q.error_message_id, q.collection_type
+            FROM ingestion_queue q
+            LEFT JOIN watch_folders w
+                ON q.tenant_id = w.tenant_id
+                AND q.collection_type = 'project'
+                AND w.parent_watch_id IS NULL
             "#,
         );
 
         let mut conditions = Vec::new();
 
         // Add retry_from filter to skip items scheduled for future retry
-        conditions.push("(retry_from IS NULL OR retry_from <= ?)");
+        conditions.push("(q.retry_from IS NULL OR q.retry_from <= ?)");
 
         if tenant_id.is_some() {
-            conditions.push("tenant_id = ?");
+            conditions.push("q.tenant_id = ?");
         }
 
         if branch.is_some() {
-            conditions.push("branch = ?");
+            conditions.push("q.branch = ?");
         }
 
         if !conditions.is_empty() {
@@ -531,7 +546,22 @@ impl QueueManager {
             query.push_str(&conditions.join(" AND "));
         }
 
-        query.push_str(" ORDER BY priority DESC, queued_timestamp ASC LIMIT ?");
+        // Order by calculated priority (two-level system) then timestamp
+        // Collection types from classify_collection_type():
+        //   'global' for memory and other predefined collections (high priority)
+        //   'library' for library collections with _ prefix (low priority)
+        //   'project' for project collections with - pattern (check is_active)
+        query.push_str(
+            r#" ORDER BY
+            CASE
+                WHEN q.collection_type = 'global' THEN 1
+                WHEN q.collection_type = 'library' THEN 0
+                WHEN q.collection_type = 'project' AND w.is_active = 1 THEN 1
+                ELSE 0
+            END DESC,
+            q.queued_timestamp ASC
+            LIMIT ?"#,
+        );
 
         let mut query_builder = sqlx::query(&query);
 
@@ -1706,16 +1736,33 @@ impl QueueManager {
         let lease_until_str = lease_until.to_rfc3339();
         let now_str = Utc::now().to_rfc3339();
 
-        // First, select the queue_ids to process using a simpler approach
+        // First, select the queue_ids to process with calculated priority (Task 20)
+        // Priority is computed at query time via JOIN with watch_folders:
+        // - memory collection: 1 (high)
+        // - libraries collection: 0 (low)
+        // - projects collection with is_active=1: 1 (high)
+        // - projects collection with is_active=0: 0 (low)
         let queue_ids: Vec<String> = match (tenant_id, item_type) {
             (Some(tid), Some(itype)) => {
                 sqlx::query_scalar::<_, String>(
                     r#"
-                    SELECT queue_id FROM unified_queue
-                    WHERE (status = 'pending' OR (status = 'in_progress' AND lease_until < ?1))
-                    AND tenant_id = ?2
-                    AND item_type = ?3
-                    ORDER BY priority DESC, created_at ASC
+                    SELECT q.queue_id
+                    FROM unified_queue q
+                    LEFT JOIN watch_folders w
+                        ON q.tenant_id = w.tenant_id
+                        AND q.collection = 'projects'
+                        AND w.parent_watch_id IS NULL
+                    WHERE (q.status = 'pending' OR (q.status = 'in_progress' AND q.lease_until < ?1))
+                    AND q.tenant_id = ?2
+                    AND q.item_type = ?3
+                    ORDER BY
+                        CASE
+                            WHEN q.collection = 'memory' THEN 1
+                            WHEN q.collection = 'libraries' THEN 0
+                            WHEN w.is_active = 1 THEN 1
+                            ELSE 0
+                        END DESC,
+                        q.created_at ASC
                     LIMIT ?4
                     "#,
                 )
@@ -1729,10 +1776,22 @@ impl QueueManager {
             (Some(tid), None) => {
                 sqlx::query_scalar::<_, String>(
                     r#"
-                    SELECT queue_id FROM unified_queue
-                    WHERE (status = 'pending' OR (status = 'in_progress' AND lease_until < ?1))
-                    AND tenant_id = ?2
-                    ORDER BY priority DESC, created_at ASC
+                    SELECT q.queue_id
+                    FROM unified_queue q
+                    LEFT JOIN watch_folders w
+                        ON q.tenant_id = w.tenant_id
+                        AND q.collection = 'projects'
+                        AND w.parent_watch_id IS NULL
+                    WHERE (q.status = 'pending' OR (q.status = 'in_progress' AND q.lease_until < ?1))
+                    AND q.tenant_id = ?2
+                    ORDER BY
+                        CASE
+                            WHEN q.collection = 'memory' THEN 1
+                            WHEN q.collection = 'libraries' THEN 0
+                            WHEN w.is_active = 1 THEN 1
+                            ELSE 0
+                        END DESC,
+                        q.created_at ASC
                     LIMIT ?3
                     "#,
                 )
@@ -1745,10 +1804,22 @@ impl QueueManager {
             (None, Some(itype)) => {
                 sqlx::query_scalar::<_, String>(
                     r#"
-                    SELECT queue_id FROM unified_queue
-                    WHERE (status = 'pending' OR (status = 'in_progress' AND lease_until < ?1))
-                    AND item_type = ?2
-                    ORDER BY priority DESC, created_at ASC
+                    SELECT q.queue_id
+                    FROM unified_queue q
+                    LEFT JOIN watch_folders w
+                        ON q.tenant_id = w.tenant_id
+                        AND q.collection = 'projects'
+                        AND w.parent_watch_id IS NULL
+                    WHERE (q.status = 'pending' OR (q.status = 'in_progress' AND q.lease_until < ?1))
+                    AND q.item_type = ?2
+                    ORDER BY
+                        CASE
+                            WHEN q.collection = 'memory' THEN 1
+                            WHEN q.collection = 'libraries' THEN 0
+                            WHEN w.is_active = 1 THEN 1
+                            ELSE 0
+                        END DESC,
+                        q.created_at ASC
                     LIMIT ?3
                     "#,
                 )
@@ -1761,9 +1832,21 @@ impl QueueManager {
             (None, None) => {
                 sqlx::query_scalar::<_, String>(
                     r#"
-                    SELECT queue_id FROM unified_queue
-                    WHERE (status = 'pending' OR (status = 'in_progress' AND lease_until < ?1))
-                    ORDER BY priority DESC, created_at ASC
+                    SELECT q.queue_id
+                    FROM unified_queue q
+                    LEFT JOIN watch_folders w
+                        ON q.tenant_id = w.tenant_id
+                        AND q.collection = 'projects'
+                        AND w.parent_watch_id IS NULL
+                    WHERE (q.status = 'pending' OR (q.status = 'in_progress' AND q.lease_until < ?1))
+                    ORDER BY
+                        CASE
+                            WHEN q.collection = 'memory' THEN 1
+                            WHEN q.collection = 'libraries' THEN 0
+                            WHEN w.is_active = 1 THEN 1
+                            ELSE 0
+                        END DESC,
+                        q.created_at ASC
                     LIMIT ?2
                     "#,
                 )
@@ -2612,10 +2695,16 @@ mod tests {
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
 
-        // Initialize schema
+        // Initialize schemas (watch_folders required for JOIN in dequeue_batch)
         apply_sql_script(
             &pool,
             include_str!("schema/legacy/queue_schema.sql"),
+        )
+        .await
+        .unwrap();
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
         )
         .await
         .unwrap();
@@ -2678,14 +2767,19 @@ mod tests {
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
 
-        // Initialize base schema, then apply migration
+        // Initialize schemas (watch_folders required for JOIN in dequeue_batch)
         apply_sql_script(
             &pool,
             include_str!("schema/legacy/queue_schema.sql"),
         )
         .await
         .unwrap();
-
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
         apply_sql_script(
             &pool,
             include_str!("schema/legacy/queue_retry_timestamp_migration.sql"),
@@ -2741,10 +2835,16 @@ mod tests {
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
 
-        // Initialize schema
+        // Initialize schemas (watch_folders required for JOIN in dequeue_batch)
         apply_sql_script(
             &pool,
             include_str!("schema/legacy/queue_schema.sql"),
+        )
+        .await
+        .unwrap();
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
         )
         .await
         .unwrap();
@@ -2785,10 +2885,16 @@ mod tests {
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
 
-        // Initialize schemas
+        // Initialize schemas (watch_folders required for JOIN in dequeue_batch)
         apply_sql_script(
             &pool,
             include_str!("schema/legacy/queue_schema.sql"),
+        )
+        .await
+        .unwrap();
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
         )
         .await
         .unwrap();
@@ -2869,6 +2975,14 @@ mod tests {
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
 
+        // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
+
         let manager = QueueManager::new(pool);
         manager.init_unified_queue().await.unwrap();
 
@@ -2928,6 +3042,14 @@ mod tests {
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
 
+        // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
+
         let manager = QueueManager::new(pool);
         manager.init_unified_queue().await.unwrap();
 
@@ -2969,6 +3091,14 @@ mod tests {
 
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
+
+        // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
 
         let manager = QueueManager::new(pool);
         manager.init_unified_queue().await.unwrap();
@@ -3036,6 +3166,14 @@ mod tests {
 
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
+
+        // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
 
         let manager = QueueManager::new(pool);
         manager.init_unified_queue().await.unwrap();
@@ -3145,6 +3283,14 @@ mod tests {
 
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
+
+        // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
 
         let manager = QueueManager::new(pool);
         manager.init_unified_queue().await.unwrap();
@@ -3414,6 +3560,14 @@ mod tests {
 
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
+
+        // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
 
         let manager = Arc::new(QueueManager::new(pool));
         manager.init_unified_queue().await.unwrap();

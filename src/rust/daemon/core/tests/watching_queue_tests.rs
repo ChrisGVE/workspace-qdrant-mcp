@@ -41,13 +41,16 @@ async fn create_test_database() -> SqlitePool {
     .await
     .expect("Failed to create ingestion_queue table");
 
-    // Create watch_folders table
+    // Create watch_folders table (includes tenant_id and is_active for priority calculation JOIN)
     sqlx::query(
         r#"
         CREATE TABLE watch_folders (
             watch_id TEXT PRIMARY KEY,
-            path TEXT NOT NULL,
-            collection TEXT NOT NULL,
+            path TEXT NOT NULL UNIQUE,
+            collection TEXT NOT NULL CHECK (collection IN ('projects', 'libraries')),
+            tenant_id TEXT NOT NULL,
+            parent_watch_id TEXT,
+            is_active INTEGER DEFAULT 0 CHECK (is_active IN (0, 1)),
             patterns TEXT NOT NULL,
             ignore_patterns TEXT NOT NULL,
             auto_ingest BOOLEAN NOT NULL DEFAULT 1,
@@ -56,7 +59,8 @@ async fn create_test_database() -> SqlitePool {
             debounce_seconds REAL NOT NULL DEFAULT 2.0,
             enabled BOOLEAN NOT NULL DEFAULT 1,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
         )
         "#
     )
