@@ -21,9 +21,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use chrono::{DateTime, Utc};
 
 use super::{
     Language, LspConfig, LspError,
@@ -96,6 +98,12 @@ pub struct ProjectServerState {
 
     /// Whether the project is currently active
     pub is_active: bool,
+
+    /// Time when server was last healthy (for stability reset)
+    pub last_healthy_time: Option<DateTime<Utc>>,
+
+    /// Whether server has been marked unavailable after max restarts
+    pub marked_unavailable: bool,
 }
 
 /// Configuration for per-project LSP management
@@ -121,6 +129,18 @@ pub struct ProjectLspConfig {
 
     /// Cache TTL in seconds
     pub cache_ttl_secs: u64,
+
+    /// Health check interval in seconds (default 30)
+    pub health_check_interval_secs: u64,
+
+    /// Maximum restart attempts before marking server unavailable (default 3)
+    pub max_restarts: u32,
+
+    /// Stability period in seconds before resetting restart count (default 3600 = 1 hour)
+    pub stability_reset_secs: u64,
+
+    /// Enable auto-restart of failed servers
+    pub enable_auto_restart: bool,
 }
 
 impl Default for ProjectLspConfig {
@@ -133,6 +153,10 @@ impl Default for ProjectLspConfig {
             deactivation_delay_secs: 60,
             enable_enrichment_cache: true,
             cache_ttl_secs: 300,
+            health_check_interval_secs: 30,
+            max_restarts: 3,
+            stability_reset_secs: 3600, // 1 hour
+            enable_auto_restart: true,
         }
     }
 }
@@ -284,8 +308,175 @@ impl LanguageServerManager {
         // Detect available servers
         self.detect_available_servers().await?;
 
+        // Start health check background task
+        if self.config.enable_auto_restart {
+            self.start_health_check_task();
+        }
+
         tracing::info!("LanguageServerManager initialized");
         Ok(())
+    }
+
+    /// Start the background health check task
+    fn start_health_check_task(&self) {
+        let interval = Duration::from_secs(self.config.health_check_interval_secs);
+        let max_restarts = self.config.max_restarts;
+        let stability_reset = Duration::from_secs(self.config.stability_reset_secs);
+        let instances = Arc::clone(&self.instances);
+        let servers = Arc::clone(&self.servers);
+        let running = Arc::clone(&self.running);
+
+        tokio::spawn(async move {
+            let mut interval_timer = tokio::time::interval(interval);
+
+            loop {
+                interval_timer.tick().await;
+
+                // Check if manager is still running
+                if !*running.read().await {
+                    tracing::info!("Health check task shutting down");
+                    break;
+                }
+
+                // Perform health checks on all active servers
+                Self::perform_health_checks(
+                    &instances,
+                    &servers,
+                    max_restarts,
+                    stability_reset,
+                ).await;
+            }
+        });
+
+        tracing::info!(
+            interval_secs = self.config.health_check_interval_secs,
+            max_restarts = self.config.max_restarts,
+            "Health check background task started"
+        );
+    }
+
+    /// Perform health checks on all active server instances
+    async fn perform_health_checks(
+        instances: &Arc<RwLock<HashMap<ProjectLanguageKey, Arc<tokio::sync::Mutex<ServerInstance>>>>>,
+        servers: &Arc<RwLock<HashMap<ProjectLanguageKey, ProjectServerState>>>,
+        max_restarts: u32,
+        stability_reset: Duration,
+    ) {
+        let keys: Vec<_> = {
+            let inst = instances.read().await;
+            inst.keys().cloned().collect()
+        };
+
+        for key in keys {
+            let instance = {
+                let inst = instances.read().await;
+                inst.get(&key).cloned()
+            };
+
+            let Some(instance) = instance else {
+                continue;
+            };
+
+            // Perform health check
+            let mut inst_guard = instance.lock().await;
+            let health_result = inst_guard.health_check().await;
+
+            match health_result {
+                Ok(metrics) => {
+                    let is_healthy = matches!(metrics.status, ServerStatus::Running);
+                    let mut servers_guard = servers.write().await;
+
+                    if let Some(state) = servers_guard.get_mut(&key) {
+                        if is_healthy {
+                            state.status = ServerStatus::Running;
+                            state.last_healthy_time = Some(Utc::now());
+
+                            // Reset restart count after stability period
+                            if state.restart_count > 0 {
+                                if let Some(last_healthy) = state.last_healthy_time {
+                                    let stable_for = Utc::now() - last_healthy;
+                                    if stable_for > chrono::Duration::from_std(stability_reset).unwrap_or_default() {
+                                        tracing::info!(
+                                            project_id = %state.project_id,
+                                            language = ?state.language,
+                                            old_count = state.restart_count,
+                                            "Resetting restart count after stability period"
+                                        );
+                                        state.restart_count = 0;
+                                        state.marked_unavailable = false;
+                                        inst_guard.reset_restart_attempts();
+                                    }
+                                }
+                            }
+                        } else if !state.marked_unavailable {
+                            // Server failed health check
+                            state.status = ServerStatus::Failed;
+                            state.last_error = Some(format!("Health check failed: {:?}", metrics.status));
+
+                            if state.restart_count < max_restarts {
+                                // Attempt restart
+                                tracing::warn!(
+                                    project_id = %state.project_id,
+                                    language = ?state.language,
+                                    restart_count = state.restart_count + 1,
+                                    max_restarts = max_restarts,
+                                    "Server failed health check, attempting restart"
+                                );
+
+                                drop(servers_guard); // Release lock before restart
+
+                                match inst_guard.restart().await {
+                                    Ok(()) => {
+                                        let mut servers_guard = servers.write().await;
+                                        if let Some(state) = servers_guard.get_mut(&key) {
+                                            state.restart_count += 1;
+                                            state.status = ServerStatus::Initializing;
+                                            state.last_error = None;
+                                        }
+                                        tracing::info!(
+                                            project_id = %key.project_id,
+                                            language = ?key.language,
+                                            "Server restarted successfully"
+                                        );
+                                    }
+                                    Err(e) => {
+                                        tracing::error!(
+                                            project_id = %key.project_id,
+                                            language = ?key.language,
+                                            error = %e,
+                                            "Failed to restart server"
+                                        );
+                                        let mut servers_guard = servers.write().await;
+                                        if let Some(state) = servers_guard.get_mut(&key) {
+                                            state.restart_count += 1;
+                                            state.last_error = Some(format!("Restart failed: {}", e));
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Max restarts reached, mark as unavailable
+                                tracing::error!(
+                                    project_id = %state.project_id,
+                                    language = ?state.language,
+                                    restart_count = state.restart_count,
+                                    "Server permanently failed after max restart attempts"
+                                );
+                                state.marked_unavailable = true;
+                                state.status = ServerStatus::Failed;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        project_id = %key.project_id,
+                        language = ?key.language,
+                        error = %e,
+                        "Health check failed with error"
+                    );
+                }
+            }
+        }
     }
 
     /// Detect available language servers on the system
@@ -431,6 +622,8 @@ impl LanguageServerManager {
             restart_count: 0,
             last_error: None,
             is_active: true,
+            last_healthy_time: Some(Utc::now()),
+            marked_unavailable: false,
         };
 
         // Store the state and instance
@@ -1593,6 +1786,8 @@ mod tests {
             restart_count: 0,
             last_error: None,
             is_active: false,
+            last_healthy_time: None,
+            marked_unavailable: false,
         };
 
         assert_eq!(state.status, ServerStatus::Initializing);
@@ -1611,6 +1806,8 @@ mod tests {
             restart_count: 0,
             last_error: None,
             is_active: true,
+            last_healthy_time: Some(Utc::now()),
+            marked_unavailable: false,
         };
 
         assert_eq!(state.status, ServerStatus::Running);
@@ -1700,5 +1897,71 @@ mod tests {
         // No server exists
         let running = manager.is_server_running("project-1", Language::Rust).await;
         assert!(!running);
+    }
+
+    #[tokio::test]
+    async fn test_health_monitoring_config_defaults() {
+        let config = ProjectLspConfig::default();
+
+        // Verify health monitoring defaults
+        assert_eq!(config.health_check_interval_secs, 30);
+        assert_eq!(config.max_restarts, 3);
+        assert_eq!(config.stability_reset_secs, 3600); // 1 hour
+        assert!(config.enable_auto_restart);
+    }
+
+    #[tokio::test]
+    async fn test_project_server_state_health_tracking() {
+        let state = ProjectServerState {
+            project_id: "test-project".to_string(),
+            language: Language::Rust,
+            project_root: PathBuf::from("/test/path"),
+            status: ServerStatus::Running,
+            restart_count: 0,
+            last_error: None,
+            is_active: true,
+            last_healthy_time: Some(Utc::now()),
+            marked_unavailable: false,
+        };
+
+        assert!(state.last_healthy_time.is_some());
+        assert!(!state.marked_unavailable);
+        assert_eq!(state.restart_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_project_server_state_restart_tracking() {
+        let mut state = ProjectServerState {
+            project_id: "test-project".to_string(),
+            language: Language::Python,
+            project_root: PathBuf::from("/test/path"),
+            status: ServerStatus::Failed,
+            restart_count: 2,
+            last_error: Some("Connection failed".to_string()),
+            is_active: true,
+            last_healthy_time: None,
+            marked_unavailable: false,
+        };
+
+        // Simulate restart count increment
+        state.restart_count += 1;
+        assert_eq!(state.restart_count, 3);
+
+        // After max restarts, mark unavailable
+        state.marked_unavailable = true;
+        assert!(state.marked_unavailable);
+    }
+
+    #[tokio::test]
+    async fn test_manager_health_check_disabled() {
+        let config = ProjectLspConfig {
+            enable_auto_restart: false,
+            ..Default::default()
+        };
+
+        // Manager should create without starting health check task
+        let mut manager = LanguageServerManager::new(config).await.unwrap();
+        let result = manager.initialize().await;
+        assert!(result.is_ok());
     }
 }
