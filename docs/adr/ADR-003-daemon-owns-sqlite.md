@@ -7,18 +7,13 @@
 
 ## Context
 
-The workspace-qdrant-mcp system uses SQLite for state persistence, queue management, and watch configuration. Previously, both Python (SQLiteStateManager) and Rust (daemon) components created tables independently:
+The workspace-qdrant-mcp system uses SQLite for state persistence, queue management, and watch configuration. The Rust daemon is the sole owner of all database operations, including schema creation and migrations.
 
-- **Python** had schema versioning (v12→v14) and created tables via `_create_initial_schema()`
-- **Rust** used `CREATE TABLE IF NOT EXISTS` without version tracking
-- Both defined overlapping tables (`lsp_servers`, `unified_queue`, `watch_folders`)
-- CLI commands used inconsistent database paths
-
-This created:
-- No single source of truth for schema
-- Risk of schema conflicts between Python and Rust definitions
-- Migration complexity when both components expect different schemas
-- Inconsistent behavior depending on which component ran first
+Key tables managed by the daemon:
+- `unified_queue` - Consolidated write queue for all operations
+- `watch_folders` - File watch configuration
+- `projects` - Project metadata and tracking
+- `schema_version` - Database version tracking
 
 ## Decision
 
@@ -36,9 +31,9 @@ This created:
 
 ### Other Components
 
-**MCP Server (Python):**
+**MCP Server (TypeScript):**
 - Reads from tables created by daemon
-- Writes to: `unified_queue`, `watch_folders`, `file_processing`
+- Writes to: `unified_queue`, `watch_folders`
 - Must NOT create tables or run migrations
 - Must handle "table not found" errors gracefully (daemon not yet started)
 
@@ -98,39 +93,25 @@ CREATE TABLE schema_version (
 1. **Consistency with ADR-002**: Daemon already owns Qdrant writes; SQLite ownership follows same pattern
 2. **Single source of truth**: One component responsible for schema = no conflicts
 3. **Rust performance**: Schema operations in Rust are faster and more reliable
-4. **Simplified Python**: SQLiteStateManager becomes simpler (no migrations)
+4. **Simplified MCP server**: TypeScript server has no migration logic
 5. **Clear responsibility**: "Daemon owns all persistent state" is easy to understand
 
-### Why Not Python?
+### Why Not MCP Server?
 
-1. Python SQLiteStateManager would need to coordinate with Rust tables
+1. MCP server would need to coordinate with Rust tables
 2. MCP server may not run before daemon (daemon is background service)
 3. Rust daemon is the long-running component; MCP server is request-driven
 
 ### Why Not Shared Ownership?
 
-1. Requires coordination protocol between Python and Rust
+1. Requires coordination protocol between TypeScript and Rust
 2. Risk of race conditions during migrations
 3. More complex testing and debugging
 4. Violates "single responsibility" principle
 
 ## Implementation
 
-### Remove from Python SQLiteStateManager
-
-```python
-# REMOVE these methods:
-# - _create_initial_schema()
-# - _migrate_schema()
-# - Schema version checking in initialize()
-
-# KEEP:
-# - Connection management
-# - Read/write operations
-# - Graceful error handling for missing tables
-```
-
-### Add to Rust Daemon
+### Rust Daemon Schema Management
 
 ```rust
 // daemon/core/src/schema.rs
@@ -146,11 +127,11 @@ pub async fn initialize_database(pool: &SqlitePool) -> Result<()> {
 
 pub async fn create_tables(pool: &SqlitePool) -> Result<()> {
     // Create all tables with proper schema
-    // unified_queue, watch_folders, file_processing, etc.
+    // unified_queue, watch_folders, projects, etc.
 }
 ```
 
-### Update CLI Path Resolution
+### CLI Path Resolution
 
 ```rust
 // All CLI commands must use:
@@ -160,12 +141,19 @@ fn get_database_path() -> PathBuf {
 }
 ```
 
+### MCP Server (TypeScript)
+
+The TypeScript MCP server:
+- Connects to database at standard path
+- Reads and writes to tables but never creates them
+- Handles missing tables gracefully with appropriate error responses
+
 ## Consequences
 
 ### Positive
 
 - Single source of truth for database schema
-- Simplified Python code (no migrations)
+- Simplified MCP server code (no migrations)
 - Consistent with daemon-only-writes philosophy
 - Easier debugging (one place to check schema)
 - Rust handles schema operations efficiently
@@ -173,21 +161,12 @@ fn get_database_path() -> PathBuf {
 ### Negative
 
 - Daemon must run before MCP server can fully operate
-- Python loses ability to self-initialize database
-- Requires migration of existing Python schema code to Rust
+- MCP server cannot self-initialize database
 
 ### Risks
 
-- Existing Python-created databases may need migration
 - Users must start daemon before using MCP server
 - Error messages must clearly indicate "start daemon first"
-
-## Migration Path
-
-1. **Phase 1**: Add schema management to Rust daemon
-2. **Phase 2**: Remove schema creation from Python (keep read/write)
-3. **Phase 3**: Consolidate CLI database paths
-4. **Phase 4**: Update documentation and error messages
 
 ## Related Documents
 
