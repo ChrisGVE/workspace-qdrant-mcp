@@ -65,6 +65,9 @@ enum Commands {
     /// Update daemon from GitHub releases
     Update(commands::update::UpdateArgs),
 
+    /// Watch folder management (list, enable, disable, show)
+    Watch(commands::watch::WatchArgs),
+
     // =========================================================================
     // Phase 2 - MEDIUM priority (behind feature flag)
     // =========================================================================
@@ -142,6 +145,7 @@ async fn main() -> Result<()> {
         Commands::Lsp(args) => commands::lsp::execute(args).await,
         Commands::Grammar(args) => commands::grammar::execute(args).await,
         Commands::Update(args) => commands::update::execute(args).await,
+        Commands::Watch(args) => commands::watch::execute(args).await,
 
         // Phase 2 commands
         #[cfg(feature = "phase2")]

@@ -14,6 +14,7 @@ pub mod queue;
 pub mod service;
 pub mod status;
 pub mod update;
+pub mod watch;
 
 // Phase 2 - MEDIUM priority (behind feature flag)
 #[cfg(feature = "phase2")]
