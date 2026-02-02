@@ -286,6 +286,81 @@ impl GrammarManager {
         self.loader.unload_all();
     }
 
+    /// Reload a grammar from the cache (unload then load).
+    ///
+    /// This is useful when you want to refresh a grammar after updating
+    /// the cache, for example after downloading a new version.
+    pub async fn reload_grammar(&mut self, language: &str) -> GrammarResult<Language> {
+        info!(language = language, "Reloading grammar");
+
+        // Unload the existing grammar
+        self.unload_grammar(language);
+
+        // Load fresh from cache or download
+        self.get_grammar(language).await
+    }
+
+    /// Reload all loaded grammars.
+    ///
+    /// This unloads all grammars and reloads them from the cache.
+    /// Useful after bulk grammar updates.
+    pub async fn reload_all(&mut self) -> HashMap<String, GrammarResult<()>> {
+        let languages: Vec<String> = self.loaded_languages().iter().map(|s| s.to_string()).collect();
+
+        info!("Reloading {} grammars", languages.len());
+
+        // Unload all
+        self.unload_all();
+
+        // Reload each
+        let mut results = HashMap::new();
+        for language in languages {
+            let result = self.get_grammar(&language).await.map(|_| ());
+            results.insert(language, result);
+        }
+
+        results
+    }
+
+    /// Clear the grammar cache for a specific language.
+    ///
+    /// This removes the cached grammar file and metadata, forcing a re-download
+    /// on the next request if auto_download is enabled.
+    pub fn clear_cache(&self, language: &str) -> std::io::Result<bool> {
+        let grammar_path = self.loader.cache_paths().grammar_path(language);
+        let metadata_path = self.loader.cache_paths().metadata_path(language);
+
+        let mut cleared = false;
+
+        if grammar_path.exists() {
+            std::fs::remove_file(&grammar_path)?;
+            cleared = true;
+            info!(language = language, "Cleared cached grammar file");
+        }
+
+        if metadata_path.exists() {
+            std::fs::remove_file(&metadata_path)?;
+            info!(language = language, "Cleared cached grammar metadata");
+        }
+
+        Ok(cleared)
+    }
+
+    /// Clear all cached grammars.
+    pub fn clear_all_cache(&self) -> std::io::Result<usize> {
+        let languages = self.cached_languages()?;
+        let mut cleared = 0;
+
+        for language in languages {
+            if self.clear_cache(&language)? {
+                cleared += 1;
+            }
+        }
+
+        info!("Cleared {} cached grammars", cleared);
+        Ok(cleared)
+    }
+
     /// Get the grammar configuration.
     pub fn config(&self) -> &GrammarConfig {
         &self.config
@@ -836,5 +911,107 @@ mod tests {
             messages: vec![],
         };
         assert!(!invalid_result.is_valid());
+    }
+
+    // Tests for reload and cache clearing methods
+    #[test]
+    fn test_clear_cache_nonexistent() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, false);
+        let manager = GrammarManager::new(config);
+
+        // Clearing cache for a language that doesn't exist should return Ok(false)
+        let result = manager.clear_cache("nonexistent");
+        assert!(result.is_ok());
+        assert!(!result.unwrap()); // false = nothing was cleared
+    }
+
+    #[test]
+    fn test_clear_cache_with_cached_grammar() {
+        use crate::tree_sitter::grammar_cache::grammar_filename;
+
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, true);
+        let manager = GrammarManager::new(config);
+
+        // Create a fake cache in the correct directory structure
+        // The path is: cache_dir/<platform>/<tree_sitter_version>/<language>/grammar.<ext>
+        let grammar_path = manager.loader.cache_paths().grammar_path("rust");
+        std::fs::create_dir_all(grammar_path.parent().unwrap()).unwrap();
+        std::fs::write(&grammar_path, b"fake grammar").unwrap();
+
+        assert!(grammar_path.exists());
+
+        // Clear should succeed and return true
+        let result = manager.clear_cache("rust");
+        assert!(result.is_ok());
+        assert!(result.unwrap()); // true = something was cleared
+
+        // Grammar file should no longer exist
+        assert!(!grammar_path.exists());
+    }
+
+    #[test]
+    fn test_clear_all_cache_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, false);
+        let manager = GrammarManager::new(config);
+
+        // Clearing all cache when empty should return 0
+        let result = manager.clear_all_cache();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[test]
+    fn test_clear_all_cache_with_multiple_languages() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, true);
+        let manager = GrammarManager::new(config);
+
+        // Create fake cache directories for multiple languages with correct structure
+        for lang in &["rust", "python", "go"] {
+            let grammar_path = manager.loader.cache_paths().grammar_path(lang);
+            std::fs::create_dir_all(grammar_path.parent().unwrap()).unwrap();
+            std::fs::write(&grammar_path, b"fake grammar").unwrap();
+        }
+
+        // Clear all should succeed
+        let result = manager.clear_all_cache();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), 3); // 3 languages cleared
+
+        // Verify grammar files no longer exist
+        for lang in &["rust", "python", "go"] {
+            let grammar_path = manager.loader.cache_paths().grammar_path(lang);
+            assert!(!grammar_path.exists(), "Grammar for {} should be cleared", lang);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_reload_grammar_not_loaded() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, false);
+        let mut manager = GrammarManager::new(config);
+
+        // Reloading a grammar that was never loaded and can't be downloaded
+        // should fail with AutoDownloadDisabled (since auto_download is false)
+        let result = manager.reload_grammar("nonexistent").await;
+        assert!(result.is_err());
+        match result {
+            Err(GrammarError::AutoDownloadDisabled(lang)) => assert_eq!(lang, "nonexistent"),
+            other => panic!("Expected AutoDownloadDisabled error, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_reload_all_empty() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, false);
+        let mut manager = GrammarManager::new(config);
+
+        // Reloading all when nothing is loaded should return empty map
+        let results = manager.reload_all().await;
+        assert!(results.is_empty());
     }
 }
