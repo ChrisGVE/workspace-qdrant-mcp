@@ -56,6 +56,9 @@ enum Commands {
     /// Unified queue inspector for debugging (list, show, stats, clean)
     Queue(commands::queue::QueueArgs),
 
+    /// LSP server management (list, status, restart, install, check)
+    Lsp(commands::lsp::LspArgs),
+
     // =========================================================================
     // Phase 2 - MEDIUM priority (behind feature flag)
     // =========================================================================
@@ -130,6 +133,7 @@ async fn main() -> Result<()> {
         Commands::Status(args) => commands::status::execute(args).await,
         Commands::Library(args) => commands::library::execute(args).await,
         Commands::Queue(args) => commands::queue::execute(args).await,
+        Commands::Lsp(args) => commands::lsp::execute(args).await,
 
         // Phase 2 commands
         #[cfg(feature = "phase2")]
