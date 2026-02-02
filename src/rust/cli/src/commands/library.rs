@@ -437,7 +437,7 @@ async fn status() -> Result<()> {
         Ok(mut client) => {
             output::status_line("Daemon", ServiceStatus::Healthy);
 
-            match client.system().health_check(()).await {
+            match client.system().health(()).await {
                 Ok(response) => {
                     let health = response.into_inner();
 

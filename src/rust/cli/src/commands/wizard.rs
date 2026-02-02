@@ -149,7 +149,7 @@ async fn run_diagnose_wizard() -> Result<()> {
         Ok(mut client) => {
             output::status_line("   Connection", ServiceStatus::Healthy);
 
-            match client.system().health_check(()).await {
+            match client.system().health(()).await {
                 Ok(response) => {
                     let health = response.into_inner();
                     let status = ServiceStatus::from_proto(health.status);

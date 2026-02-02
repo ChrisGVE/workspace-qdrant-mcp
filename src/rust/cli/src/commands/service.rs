@@ -438,7 +438,7 @@ async fn status() -> Result<()> {
             output::status_line("Connection", ServiceStatus::Healthy);
 
             // Get health check
-            match client.system().health_check(()).await {
+            match client.system().health(()).await {
                 Ok(response) => {
                     let health = response.into_inner();
                     let status = ServiceStatus::from_proto(health.status);

@@ -146,7 +146,7 @@ async fn language_status(language: Option<String>) -> Result<()> {
 
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
-            match client.system().health_check(()).await {
+            match client.system().health(()).await {
                 Ok(response) => {
                     let health = response.into_inner();
 

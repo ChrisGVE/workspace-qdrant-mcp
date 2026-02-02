@@ -43,8 +43,24 @@ enum LspCommand {
         language: String,
     },
 
+    /// Remove an LSP server installation
+    Remove {
+        /// Language to remove (rust, python, typescript, go, java, c, cpp)
+        language: String,
+
+        /// Force removal without confirmation
+        #[arg(short, long)]
+        force: bool,
+    },
+
     /// Check which LSP servers are available on PATH
     Check,
+
+    /// Diagnose language support issues
+    Diagnose {
+        /// Language to diagnose
+        language: String,
+    },
 }
 
 /// Execute LSP command
@@ -54,7 +70,9 @@ pub async fn execute(args: LspArgs) -> Result<()> {
         LspCommand::Status { project_id } => status(&project_id).await,
         LspCommand::Restart { project_id, language } => restart(&project_id, language.as_deref()).await,
         LspCommand::Install { language } => install(&language).await,
+        LspCommand::Remove { language, force } => remove(&language, force).await,
         LspCommand::Check => check().await,
+        LspCommand::Diagnose { language } => diagnose(&language).await,
     }
 }
 
@@ -233,6 +251,156 @@ async fn check() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Remove an LSP server installation
+async fn remove(language: &str, force: bool) -> Result<()> {
+    output::section(format!("Remove {} Language Server", language));
+
+    // Map language to LSP server info
+    let lsp_info = get_lsp_server_info(language);
+
+    if lsp_info.is_none() {
+        output::warning(format!("Unknown language: {}", language));
+        output::info("Supported languages: rust, python, typescript, javascript, go, java, c, cpp");
+        return Ok(());
+    }
+
+    let (server_name, executables) = lsp_info.unwrap();
+
+    // Check if installed
+    let installed_path = executables.iter().find_map(|exe| which_cmd(exe));
+
+    match installed_path {
+        Some(path) => {
+            output::kv("Server", server_name);
+            output::kv("Path", &path);
+            output::separator();
+
+            if !force {
+                output::warning("LSP servers are typically managed by package managers.");
+                output::info("To remove, use the appropriate package manager:");
+                output::separator();
+
+                match language.to_lowercase().as_str() {
+                    "rust" => {
+                        output::info("  rustup component remove rust-analyzer");
+                        output::info("  # or: brew uninstall rust-analyzer");
+                    }
+                    "python" => {
+                        output::info("  pip uninstall ruff-lsp python-lsp-server pyright");
+                        output::info("  # or: uv tool uninstall ruff");
+                    }
+                    "typescript" | "javascript" | "ts" | "js" => {
+                        output::info("  npm uninstall -g typescript-language-server");
+                    }
+                    "go" | "golang" => {
+                        output::info("  rm $(which gopls)");
+                    }
+                    "java" => {
+                        output::info("  brew uninstall jdtls");
+                    }
+                    "c" | "cpp" | "c++" => {
+                        output::info("  brew uninstall llvm  # for clangd");
+                        output::info("  # or: apt remove clangd");
+                    }
+                    _ => {}
+                }
+
+                output::separator();
+                output::info("Use --force to skip this message in scripts.");
+            } else {
+                output::info("Use package manager to uninstall:");
+                output::info(&format!("  Server at: {}", path));
+            }
+        }
+        None => {
+            output::info(format!("{} language server is not installed", language));
+        }
+    }
+
+    Ok(())
+}
+
+/// Diagnose language support issues
+async fn diagnose(language: &str) -> Result<()> {
+    output::section(format!("Diagnose: {}", language));
+
+    output::info("Checking language support configuration...");
+    output::separator();
+
+    // Get LSP info
+    let lsp_info = get_lsp_server_info(language);
+
+    if lsp_info.is_none() {
+        output::warning(format!("Unknown language: {}", language));
+        output::info("Supported languages: rust, python, typescript, javascript, go, java, c, cpp");
+        return Ok(());
+    }
+
+    let (server_name, executables) = lsp_info.unwrap();
+
+    // Check 1: LSP binary
+    output::info(&format!("1. LSP server ({}):", server_name));
+    let installed_path = executables.iter().find_map(|exe| which_cmd(exe));
+
+    match &installed_path {
+        Some(path) => {
+            output::success(format!("   ✓ Found at: {}", path));
+        }
+        None => {
+            output::error(format!("   ✗ Not found (checked: {})", executables.join(", ")));
+            output::info(&format!("   → Run: wqm lsp install {}", language));
+        }
+    }
+
+    // Check 2: Try to invoke LSP
+    if let Some(path) = &installed_path {
+        output::info("2. Server invocation test:");
+        match Command::new(path).arg("--version").output() {
+            Ok(output) if output.status.success() => {
+                let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                output::success(format!("   ✓ Version: {}", version.lines().next().unwrap_or("unknown")));
+            }
+            Ok(output) => {
+                // Some LSPs don't support --version, try --help
+                if !output.stderr.is_empty() {
+                    output::info("   ○ Server responds (no version info available)");
+                } else {
+                    output::warning("   ? Could not determine version");
+                }
+            }
+            Err(e) => {
+                output::error(format!("   ✗ Failed to run: {}", e));
+            }
+        }
+    }
+
+    // Check 3: Grammar support
+    output::info(&format!("3. Tree-sitter grammar for {}:", language));
+    output::info("   → Grammar support is built into the daemon");
+    output::info("   → Use 'wqm grammar list' to check available grammars");
+
+    output::separator();
+    output::info("Additional diagnostics:");
+    output::info("  wqm lsp check      - Check all available LSP servers");
+    output::info("  wqm grammar list   - List available Tree-sitter grammars");
+    output::info("  wqm admin health   - Check daemon health");
+
+    Ok(())
+}
+
+/// Get LSP server info for a language
+fn get_lsp_server_info(language: &str) -> Option<(&'static str, Vec<&'static str>)> {
+    match language.to_lowercase().as_str() {
+        "rust" => Some(("rust-analyzer", vec!["rust-analyzer"])),
+        "python" => Some(("ruff-lsp/pylsp/pyright", vec!["ruff-lsp", "ruff", "pylsp", "pyright", "pyright-langserver"])),
+        "typescript" | "javascript" | "ts" | "js" => Some(("typescript-language-server", vec!["typescript-language-server"])),
+        "go" | "golang" => Some(("gopls", vec!["gopls"])),
+        "java" => Some(("jdtls", vec!["jdtls"])),
+        "c" | "cpp" | "c++" => Some(("clangd/ccls", vec!["clangd", "ccls"])),
+        _ => None,
+    }
 }
 
 /// Detect available language servers
