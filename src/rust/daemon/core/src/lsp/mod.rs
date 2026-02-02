@@ -60,7 +60,10 @@ pub mod project_manager;
 #[cfg(test)]
 mod tests;
 
-pub use detection::{LspServerDetector, DetectedServer, ServerCapabilities};
+pub use detection::{
+    LspServerDetector, DetectedServer, ServerCapabilities,
+    ProjectLanguageDetector, ProjectLanguageResult, LanguageMarker,
+};
 pub use lifecycle::{LspServerManager, ServerInstance, ServerStatus};
 pub use communication::{JsonRpcClient, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse};
 pub use state::{StateManager};

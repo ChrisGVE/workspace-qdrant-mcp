@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use serde::{Deserialize, Serialize};
+use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 use which::which;
 
@@ -506,6 +507,319 @@ impl Default for LspServerDetector {
     }
 }
 
+/// Project language marker - a file that indicates a specific language is used
+#[derive(Debug, Clone)]
+pub struct LanguageMarker {
+    /// File name to look for (e.g., "Cargo.toml")
+    pub filename: &'static str,
+    /// Language this marker indicates
+    pub language: Language,
+    /// Priority - lower is checked first
+    pub priority: u8,
+}
+
+/// Result of project language detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectLanguageResult {
+    /// Languages detected from marker files
+    pub marker_languages: Vec<Language>,
+    /// Languages detected from file extensions
+    pub extension_languages: Vec<Language>,
+    /// Combined deduplicated list
+    pub all_languages: Vec<Language>,
+    /// Whether the result was from cache
+    pub from_cache: bool,
+}
+
+/// Project language detector - detects programming languages used in a project
+///
+/// Detection priority:
+/// 1. Project marker files (Cargo.toml, package.json, etc.)
+/// 2. File extension scanning as fallback
+///
+/// Results are cached per project_id to avoid repeated scans.
+pub struct ProjectLanguageDetector {
+    /// Cache of detected languages per project
+    cache: RwLock<HashMap<String, ProjectLanguageResult>>,
+    /// Known language markers
+    markers: Vec<LanguageMarker>,
+}
+
+impl ProjectLanguageDetector {
+    /// Create a new project language detector
+    pub fn new() -> Self {
+        Self {
+            cache: RwLock::new(HashMap::new()),
+            markers: vec![
+                // Rust
+                LanguageMarker {
+                    filename: "Cargo.toml",
+                    language: Language::Rust,
+                    priority: 1,
+                },
+                // Python
+                LanguageMarker {
+                    filename: "pyproject.toml",
+                    language: Language::Python,
+                    priority: 1,
+                },
+                LanguageMarker {
+                    filename: "setup.py",
+                    language: Language::Python,
+                    priority: 2,
+                },
+                LanguageMarker {
+                    filename: "requirements.txt",
+                    language: Language::Python,
+                    priority: 3,
+                },
+                // TypeScript
+                LanguageMarker {
+                    filename: "tsconfig.json",
+                    language: Language::TypeScript,
+                    priority: 1,
+                },
+                // JavaScript/TypeScript (package.json)
+                LanguageMarker {
+                    filename: "package.json",
+                    language: Language::JavaScript,
+                    priority: 2,
+                },
+                // Go
+                LanguageMarker {
+                    filename: "go.mod",
+                    language: Language::Go,
+                    priority: 1,
+                },
+                // Java
+                LanguageMarker {
+                    filename: "pom.xml",
+                    language: Language::Java,
+                    priority: 1,
+                },
+                LanguageMarker {
+                    filename: "build.gradle",
+                    language: Language::Java,
+                    priority: 1,
+                },
+                LanguageMarker {
+                    filename: "build.gradle.kts",
+                    language: Language::Java,
+                    priority: 1,
+                },
+                // Ruby
+                LanguageMarker {
+                    filename: "Gemfile",
+                    language: Language::Ruby,
+                    priority: 1,
+                },
+                // PHP
+                LanguageMarker {
+                    filename: "composer.json",
+                    language: Language::Php,
+                    priority: 1,
+                },
+                // C/C++
+                LanguageMarker {
+                    filename: "CMakeLists.txt",
+                    language: Language::Cpp,
+                    priority: 1,
+                },
+                LanguageMarker {
+                    filename: "Makefile",
+                    language: Language::C,
+                    priority: 3,
+                },
+            ],
+        }
+    }
+
+    /// Detect languages in a project directory
+    ///
+    /// First checks for marker files, then scans file extensions as fallback.
+    /// Results are cached per project_id.
+    pub async fn detect(
+        &self,
+        project_id: &str,
+        project_root: &Path,
+    ) -> LspResult<ProjectLanguageResult> {
+        // Check cache first
+        {
+            let cache = self.cache.read().await;
+            if let Some(cached) = cache.get(project_id) {
+                debug!(
+                    project_id = project_id,
+                    "Returning cached language detection result"
+                );
+                return Ok(ProjectLanguageResult {
+                    marker_languages: cached.marker_languages.clone(),
+                    extension_languages: cached.extension_languages.clone(),
+                    all_languages: cached.all_languages.clone(),
+                    from_cache: true,
+                });
+            }
+        }
+
+        // Detect from marker files
+        let marker_languages = self.detect_from_markers(project_root).await;
+
+        // Detect from file extensions
+        let extension_languages = self.detect_from_extensions(project_root).await;
+
+        // Combine and deduplicate
+        let mut all_languages = marker_languages.clone();
+        for lang in &extension_languages {
+            if !all_languages.iter().any(|l| std::mem::discriminant(l) == std::mem::discriminant(lang)) {
+                all_languages.push(lang.clone());
+            }
+        }
+
+        let result = ProjectLanguageResult {
+            marker_languages,
+            extension_languages,
+            all_languages,
+            from_cache: false,
+        };
+
+        // Cache the result
+        {
+            let mut cache = self.cache.write().await;
+            cache.insert(project_id.to_string(), result.clone());
+            debug!(
+                project_id = project_id,
+                languages = ?result.all_languages,
+                "Cached language detection result"
+            );
+        }
+
+        Ok(result)
+    }
+
+    /// Detect languages from marker files
+    async fn detect_from_markers(&self, project_root: &Path) -> Vec<Language> {
+        let mut detected = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        // Sort markers by priority
+        let mut markers = self.markers.clone();
+        markers.sort_by_key(|m| m.priority);
+
+        for marker in &markers {
+            let marker_path = project_root.join(marker.filename);
+            if marker_path.exists() {
+                let discriminant = std::mem::discriminant(&marker.language);
+                if !seen.contains(&discriminant) {
+                    seen.insert(discriminant);
+
+                    // Special handling for package.json - check for TypeScript dep
+                    if marker.filename == "package.json" {
+                        if let Some(lang) = self.check_package_json(&marker_path).await {
+                            detected.push(lang);
+                        } else {
+                            detected.push(marker.language.clone());
+                        }
+                    } else {
+                        detected.push(marker.language.clone());
+                    }
+
+                    info!(
+                        marker_file = marker.filename,
+                        language = ?marker.language,
+                        "Detected language from marker file"
+                    );
+                }
+            }
+        }
+
+        detected
+    }
+
+    /// Check package.json for TypeScript dependency
+    async fn check_package_json(&self, path: &Path) -> Option<Language> {
+        let content = tokio::fs::read_to_string(path).await.ok()?;
+        let json: serde_json::Value = serde_json::from_str(&content).ok()?;
+
+        // Check dependencies and devDependencies for typescript
+        let has_typescript = ["dependencies", "devDependencies"]
+            .iter()
+            .filter_map(|key| json.get(key))
+            .any(|deps| deps.get("typescript").is_some());
+
+        if has_typescript {
+            Some(Language::TypeScript)
+        } else {
+            None
+        }
+    }
+
+    /// Detect languages from file extensions
+    async fn detect_from_extensions(&self, project_root: &Path) -> Vec<Language> {
+        let mut languages = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+
+        // Use walkdir for synchronous directory walking
+        let walker = walkdir::WalkDir::new(project_root)
+            .max_depth(5)
+            .follow_links(false)
+            .into_iter()
+            .filter_entry(|e| {
+                let name = e.file_name().to_string_lossy();
+                !name.starts_with('.') &&
+                !matches!(name.as_ref(),
+                    "node_modules" | "target" | "build" | "__pycache__" |
+                    "venv" | ".venv" | "dist" | ".git" | "vendor")
+            });
+
+        for entry in walker.filter_map(|e| e.ok()) {
+            if entry.file_type().is_file() {
+                if let Some(ext) = entry.path().extension() {
+                    let ext_str = ext.to_string_lossy().to_lowercase();
+                    let lang = Language::from_extension(&ext_str);
+
+                    // Only add supported languages (not Other)
+                    if !matches!(lang, Language::Other(_)) && !seen.contains(&ext_str) {
+                        seen.insert(ext_str);
+                        languages.push(lang);
+                    }
+                }
+            }
+
+            // Limit to avoid scanning huge projects
+            if seen.len() >= 50 {
+                break;
+            }
+        }
+
+        languages
+    }
+
+    /// Clear cache for a specific project
+    pub async fn invalidate_cache(&self, project_id: &str) {
+        let mut cache = self.cache.write().await;
+        cache.remove(project_id);
+        debug!(project_id = project_id, "Invalidated language detection cache");
+    }
+
+    /// Clear all cached results
+    pub async fn clear_cache(&self) {
+        let mut cache = self.cache.write().await;
+        cache.clear();
+        debug!("Cleared all language detection cache");
+    }
+
+    /// Get cached result for a project (if available)
+    pub async fn get_cached(&self, project_id: &str) -> Option<ProjectLanguageResult> {
+        let cache = self.cache.read().await;
+        cache.get(project_id).cloned()
+    }
+}
+
+impl Default for ProjectLanguageDetector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -556,5 +870,150 @@ mod tests {
         // This test will depend on what's installed on the system
         let result = detector.detect_servers().await;
         assert!(result.is_ok());
+    }
+
+    // ProjectLanguageDetector tests
+
+    #[test]
+    fn test_project_language_detector_creation() {
+        let detector = ProjectLanguageDetector::new();
+        assert!(!detector.markers.is_empty());
+    }
+
+    #[test]
+    fn test_language_markers_include_common_files() {
+        let detector = ProjectLanguageDetector::new();
+        let marker_filenames: Vec<&str> = detector.markers.iter()
+            .map(|m| m.filename)
+            .collect();
+
+        // Verify common marker files are present
+        assert!(marker_filenames.contains(&"Cargo.toml"));
+        assert!(marker_filenames.contains(&"pyproject.toml"));
+        assert!(marker_filenames.contains(&"package.json"));
+        assert!(marker_filenames.contains(&"go.mod"));
+        assert!(marker_filenames.contains(&"pom.xml"));
+    }
+
+    #[tokio::test]
+    async fn test_project_language_detector_caching() {
+        let detector = ProjectLanguageDetector::new();
+
+        // Initially cache should be empty
+        assert!(detector.get_cached("test-project").await.is_none());
+
+        // After detection, result should be cached
+        let temp_dir = std::env::temp_dir().join("test_project_lang_detect");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        // Create a Cargo.toml to detect Rust
+        let cargo_path = temp_dir.join("Cargo.toml");
+        std::fs::write(&cargo_path, "[package]\nname = \"test\"").unwrap();
+
+        // Detect languages
+        let result = detector.detect("test-project", &temp_dir).await;
+        assert!(result.is_ok());
+        let result = result.unwrap();
+        assert!(!result.from_cache);
+
+        // Second detection should be from cache
+        let cached = detector.detect("test-project", &temp_dir).await;
+        assert!(cached.is_ok());
+        let cached = cached.unwrap();
+        assert!(cached.from_cache);
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_project_language_detector_cache_invalidation() {
+        let detector = ProjectLanguageDetector::new();
+
+        let temp_dir = std::env::temp_dir().join("test_cache_invalidation");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        // Detect once to populate cache
+        let _ = detector.detect("test-project-inv", &temp_dir).await;
+        assert!(detector.get_cached("test-project-inv").await.is_some());
+
+        // Invalidate cache
+        detector.invalidate_cache("test-project-inv").await;
+        assert!(detector.get_cached("test-project-inv").await.is_none());
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_project_language_detector_rust_project() {
+        let detector = ProjectLanguageDetector::new();
+
+        let temp_dir = std::env::temp_dir().join("test_rust_project");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        // Create a Cargo.toml
+        let cargo_path = temp_dir.join("Cargo.toml");
+        std::fs::write(&cargo_path, "[package]\nname = \"test\"\nversion = \"0.1.0\"").unwrap();
+
+        // Create a src/main.rs
+        let src_dir = temp_dir.join("src");
+        let _ = std::fs::create_dir_all(&src_dir);
+        std::fs::write(src_dir.join("main.rs"), "fn main() {}").unwrap();
+
+        // Detect languages
+        let result = detector.detect("rust-test", &temp_dir).await.unwrap();
+
+        // Should detect Rust from marker
+        assert!(result.marker_languages.iter().any(|l| matches!(l, Language::Rust)));
+
+        // All languages should include Rust
+        assert!(result.all_languages.iter().any(|l| matches!(l, Language::Rust)));
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_project_language_detector_python_project() {
+        let detector = ProjectLanguageDetector::new();
+
+        let temp_dir = std::env::temp_dir().join("test_python_project");
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        // Create a pyproject.toml
+        let pyproject_path = temp_dir.join("pyproject.toml");
+        std::fs::write(&pyproject_path, "[project]\nname = \"test\"\nversion = \"0.1.0\"").unwrap();
+
+        // Create a main.py
+        std::fs::write(temp_dir.join("main.py"), "def main(): pass").unwrap();
+
+        // Detect languages
+        let result = detector.detect("python-test", &temp_dir).await.unwrap();
+
+        // Should detect Python from marker
+        assert!(result.marker_languages.iter().any(|l| matches!(l, Language::Python)));
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[tokio::test]
+    async fn test_project_language_result_serialization() {
+        let result = ProjectLanguageResult {
+            marker_languages: vec![Language::Rust],
+            extension_languages: vec![Language::Python, Language::JavaScript],
+            all_languages: vec![Language::Rust, Language::Python, Language::JavaScript],
+            from_cache: false,
+        };
+
+        // Test serialization
+        let json = serde_json::to_string(&result).unwrap();
+        assert!(json.contains("Rust"));
+
+        // Test deserialization
+        let deserialized: ProjectLanguageResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.marker_languages.len(), 1);
+        assert_eq!(deserialized.all_languages.len(), 3);
     }
 }

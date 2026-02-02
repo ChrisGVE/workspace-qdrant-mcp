@@ -189,6 +189,8 @@ pub use crate::lsp::{
     ProjectLanguageKey, ProjectServerState, ProjectLspStats,
     LspEnrichment, EnrichmentStatus, Reference, TypeInfo, ResolvedImport,
     Language, LspError, LspResult,
+    // Project language detection (Task 1.3)
+    ProjectLanguageDetector, ProjectLanguageResult, LanguageMarker,
 };
 
 /// Core processing errors

@@ -28,6 +28,7 @@ use crate::proto::{
 use workspace_qdrant_core::{
     PriorityManager,
     LanguageServerManager, Language,
+    ProjectLanguageDetector,
 };
 
 /// Default heartbeat timeout in seconds
@@ -42,12 +43,13 @@ const HEARTBEAT_TIMEOUT_SECS: u64 = 60;
 /// - Owns a `LanguageServerManager` for per-project LSP servers
 /// - Starts LSP servers when a project is registered
 /// - Stops LSP servers when a project has no remaining sessions
-#[derive(Clone)]
 pub struct ProjectServiceImpl {
     priority_manager: PriorityManager,
     db_pool: SqlitePool,
     /// Language server manager for per-project LSP lifecycle
     lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
+    /// Language detector with caching
+    language_detector: Arc<ProjectLanguageDetector>,
 }
 
 impl ProjectServiceImpl {
@@ -57,6 +59,7 @@ impl ProjectServiceImpl {
             priority_manager: PriorityManager::new(db_pool.clone()),
             db_pool,
             lsp_manager: None,
+            language_detector: Arc::new(ProjectLanguageDetector::new()),
         }
     }
 
@@ -66,6 +69,7 @@ impl ProjectServiceImpl {
             priority_manager,
             db_pool,
             lsp_manager: None,
+            language_detector: Arc::new(ProjectLanguageDetector::new()),
         }
     }
 
@@ -78,56 +82,16 @@ impl ProjectServiceImpl {
             priority_manager: PriorityManager::new(db_pool.clone()),
             db_pool,
             lsp_manager: Some(lsp_manager),
+            language_detector: Arc::new(ProjectLanguageDetector::new()),
         }
-    }
-
-    /// Detect languages in a project directory by scanning file extensions
-    async fn detect_project_languages(&self, project_root: &PathBuf) -> Vec<Language> {
-        let mut languages = Vec::new();
-        let mut seen = std::collections::HashSet::new();
-
-        // Walk the project directory (limited depth for performance)
-        let walker = walkdir::WalkDir::new(project_root)
-            .max_depth(5)
-            .follow_links(false)
-            .into_iter()
-            .filter_entry(|e| {
-                // Skip hidden directories and common non-code directories
-                let name = e.file_name().to_string_lossy();
-                !name.starts_with('.') &&
-                !matches!(name.as_ref(), "node_modules" | "target" | "build" | "__pycache__" | "venv" | ".venv")
-            });
-
-        for entry in walker.filter_map(|e| e.ok()) {
-            if entry.file_type().is_file() {
-                if let Some(ext) = entry.path().extension() {
-                    let ext_str = ext.to_string_lossy().to_lowercase();
-                    let lang = Language::from_extension(&ext_str);
-
-                    // Only add supported languages (not Other)
-                    if !matches!(lang, Language::Other(_)) && !seen.contains(&ext_str) {
-                        seen.insert(ext_str);
-                        languages.push(lang);
-                    }
-                }
-            }
-
-            // Limit to first 100 unique file types to avoid over-scanning
-            if seen.len() >= 100 {
-                break;
-            }
-        }
-
-        debug!(
-            project_root = %project_root.display(),
-            languages = ?languages,
-            "Detected project languages"
-        );
-
-        languages
     }
 
     /// Start LSP servers for a project's detected languages
+    ///
+    /// Uses ProjectLanguageDetector which:
+    /// 1. Checks for marker files (Cargo.toml, package.json, etc.)
+    /// 2. Falls back to extension scanning
+    /// 3. Caches results per project_id
     async fn start_project_lsp_servers(
         &self,
         project_id: &str,
@@ -138,7 +102,21 @@ impl ProjectServiceImpl {
             return Ok(0);
         };
 
-        let languages = self.detect_project_languages(project_root).await;
+        // Use the centralized language detector with caching
+        let detection_result = self.language_detector
+            .detect(project_id, project_root)
+            .await
+            .map_err(|e| {
+                warn!(
+                    project_id = project_id,
+                    error = %e,
+                    "Failed to detect project languages"
+                );
+                Status::internal(format!("Language detection failed: {}", e))
+            })?;
+
+        let languages = detection_result.all_languages;
+
         if languages.is_empty() {
             debug!(
                 project_id = project_id,
@@ -146,6 +124,14 @@ impl ProjectServiceImpl {
             );
             return Ok(0);
         }
+
+        info!(
+            project_id = project_id,
+            marker_languages = ?detection_result.marker_languages,
+            extension_languages = ?detection_result.extension_languages,
+            from_cache = detection_result.from_cache,
+            "Detected project languages"
+        );
 
         let manager = lsp_manager.read().await;
         let mut started = 0;
@@ -183,6 +169,9 @@ impl ProjectServiceImpl {
 
     /// Stop all LSP servers for a project
     async fn stop_project_lsp_servers(&self, project_id: &str) -> Result<(), Status> {
+        // Invalidate language detection cache - next registration will rescan
+        self.language_detector.invalidate_cache(project_id).await;
+
         let Some(lsp_manager) = &self.lsp_manager else {
             return Ok(());
         };
