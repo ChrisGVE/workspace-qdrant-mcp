@@ -1771,21 +1771,25 @@ The following are **not exposed as MCP tools**:
 
 ### gRPC Services
 
-The daemon exposes 3 gRPC services on port 50051.
+The daemon exposes 5 gRPC services on port 50051.
 
-#### SystemService
+#### SystemService (7 RPCs)
 
-| Method                | Used By  | Purpose                    | Status                       |
-| --------------------- | -------- | -------------------------- | ---------------------------- |
-| `Health`              | MCP, CLI | Health check               | Production                   |
-| `GetMetrics`          | CLI      | System metrics             | Production                   |
-| `GetQueueStats`       | CLI      | Queue statistics           | Production                   |
-| `RegisterProject`     | MCP      | Notify project is active   | **Production (direct gRPC)** |
-| `DeprioritizeProject` | MCP      | Notify project is inactive | **Production (direct gRPC)** |
-| `Heartbeat`           | MCP      | Session heartbeat          | Production                   |
-| `Shutdown`            | CLI      | Graceful shutdown          | Production                   |
+System-level operations for monitoring, metrics, and lifecycle management.
 
-#### CollectionService
+| Method                | Used By  | Purpose                         | Status     |
+| --------------------- | -------- | ------------------------------- | ---------- |
+| `Health`              | MCP, CLI | Quick health check for alerting | Production |
+| `GetStatus`           | CLI      | Comprehensive system snapshot   | Production |
+| `GetMetrics`          | CLI      | Performance metrics             | Production |
+| `GetQueueStats`       | CLI      | Queue statistics                | Production |
+| `Shutdown`            | CLI      | Graceful daemon shutdown        | Production |
+| `SendRefreshSignal`   | CLI      | Signal database state changes   | Production |
+| `NotifyServerStatus`  | MCP      | Server lifecycle notifications  | Production |
+
+#### CollectionService (7 RPCs)
+
+Collection CRUD and alias management. Most methods are daemon-internal.
 
 | Method                  | Status              | Notes                                 |
 | ----------------------- | ------------------- | ------------------------------------- |
@@ -1793,11 +1797,15 @@ The daemon exposes 3 gRPC services on port 50051.
 | `DeleteCollection`      | **Not used**        | Fixed 3-collection model              |
 | `ListCollections`       | Read-only           | Can be exposed to MCP/CLI             |
 | `GetCollection`         | Read-only           | Can be exposed to MCP/CLI             |
-| `UpdateCollectionAlias` | **Daemon internal** |                                       |
+| `CreateCollectionAlias` | **Daemon internal** | For tenant_id changes                 |
+| `DeleteCollectionAlias` | **Daemon internal** | Alias cleanup                         |
+| `RenameCollectionAlias` | **Daemon internal** | Atomic alias rename                   |
 
 **MCP/CLI must NOT call collection mutation methods.** Only read-only methods are permitted.
 
-#### DocumentService
+#### DocumentService (3 RPCs)
+
+Document ingestion and management. Reserved for admin/diagnostic use.
 
 | Method           | Status       | Notes                     |
 | ---------------- | ------------ | ------------------------- |
@@ -1806,6 +1814,37 @@ The daemon exposes 3 gRPC services on port 50051.
 | `DeleteDocument` | **Reserved** | Admin/diagnostic use only |
 
 **Production writes use SQLite queue.** These methods exist for administrative and diagnostic purposes but are not called by MCP or CLI in normal operation.
+
+#### EmbeddingService (2 RPCs)
+
+Embedding generation for TypeScript MCP server. Centralizes embedding model in daemon.
+
+| Method                 | Used By | Purpose                           | Status     |
+| ---------------------- | ------- | --------------------------------- | ---------- |
+| `EmbedText`            | MCP     | Generate dense vector (384 dims)  | Production |
+| `GenerateSparseVector` | MCP     | Generate BM25 sparse vector       | Production |
+
+**Usage:**
+- TypeScript MCP server calls `EmbedText` when performing hybrid search
+- Dense vectors use FastEmbed `all-MiniLM-L6-v2` model (384 dimensions)
+- Sparse vectors use BM25 algorithm with configurable `k1` (default: 1.2) and `b` (default: 0.75)
+
+#### ProjectService (5 RPCs)
+
+Multi-tenant project lifecycle and session management.
+
+| Method                | Used By | Purpose                     | Status                       |
+| --------------------- | ------- | --------------------------- | ---------------------------- |
+| `RegisterProject`     | MCP     | Register project as active  | **Production (direct gRPC)** |
+| `DeprioritizeProject` | MCP     | Decrement session count     | **Production (direct gRPC)** |
+| `GetProjectStatus`    | MCP     | Get project status          | Production                   |
+| `ListProjects`        | CLI     | List all registered projects| Production                   |
+| `Heartbeat`           | MCP     | Keep session alive (60s)    | Production                   |
+
+**Session Management:**
+- MCP servers call `RegisterProject` on startup to prioritize their project's ingestion
+- `Heartbeat` must be called periodically (within 60s timeout) to maintain session
+- `DeprioritizeProject` is called when MCP server stops
 
 ---
 
