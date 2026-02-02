@@ -238,8 +238,11 @@ pub struct LanguageServerManager {
     /// Server detector
     detector: LspServerDetector,
 
-    /// Active server instances by (project_id, language)
+    /// Server state by (project_id, language)
     servers: Arc<RwLock<HashMap<ProjectLanguageKey, ProjectServerState>>>,
+
+    /// Running server instances by (project_id, language)
+    instances: Arc<RwLock<HashMap<ProjectLanguageKey, Arc<tokio::sync::Mutex<ServerInstance>>>>>,
 
     /// Enrichment cache: (project_id, file_path, position) -> enrichment
     cache: Arc<RwLock<HashMap<String, LspEnrichment>>>,
@@ -260,6 +263,7 @@ impl LanguageServerManager {
             config,
             detector,
             servers: Arc::new(RwLock::new(HashMap::new())),
+            instances: Arc::new(RwLock::new(HashMap::new())),
             cache: Arc::new(RwLock::new(HashMap::new())),
             available_servers: Arc::new(RwLock::new(HashMap::new())),
             running: Arc::new(RwLock::new(false)),
@@ -330,22 +334,21 @@ impl LanguageServerManager {
     ) -> ProjectLspResult<Arc<ServerInstance>> {
         let key = ProjectLanguageKey::new(project_id, language.clone());
 
-        // Check if server already exists
+        // Check if server already exists and is running
         {
-            let servers = self.servers.read().await;
-            if let Some(state) = servers.get(&key) {
-                if matches!(state.status, ServerStatus::Running | ServerStatus::Initializing) {
+            let instances = self.instances.read().await;
+            if let Some(instance) = instances.get(&key) {
+                let inst = instance.lock().await;
+                let status = inst.status().await;
+                if matches!(status, ServerStatus::Running | ServerStatus::Initializing) {
                     tracing::debug!(
                         project_id = project_id,
                         language = ?language,
                         "Server already running"
                     );
-                    // Return existing instance - for now just return a placeholder error
-                    // In full implementation, we'd track the actual ServerInstance
-                    return Err(ProjectLspError::ServerUnavailable {
-                        project_id: project_id.to_string(),
-                        language,
-                    });
+                    // Return the existing instance
+                    drop(inst);
+                    return Ok(Arc::new(instance.lock().await.clone()));
                 }
             }
         }
@@ -357,7 +360,65 @@ impl LanguageServerManager {
         })?;
 
         if server_names.is_empty() {
-            return Err(ProjectLspError::LanguageNotSupported { language });
+            return Err(ProjectLspError::LanguageNotSupported { language: language.clone() });
+        }
+
+        let server_name = &server_names[0];
+
+        // Find the server executable path
+        let server_path = which::which(server_name).map_err(|_| {
+            ProjectLspError::ServerUnavailable {
+                project_id: project_id.to_string(),
+                language: language.clone(),
+            }
+        })?;
+
+        tracing::info!(
+            project_id = project_id,
+            language = ?language,
+            server = server_name,
+            path = %server_path.display(),
+            "Starting language server"
+        );
+
+        // Create DetectedServer for the ServerInstance
+        use super::detection::{DetectedServer, ServerCapabilities};
+        let detected = DetectedServer {
+            name: server_name.clone(),
+            path: server_path,
+            languages: vec![language.clone()],
+            version: None,
+            capabilities: ServerCapabilities::default(),
+            priority: 1,
+        };
+
+        // Create and start the server instance
+        let mut instance = ServerInstance::new(detected, self.config.lsp_config.clone())
+            .await
+            .map_err(|e| ProjectLspError::Lsp(e))?;
+
+        // Set the working directory to the project root
+        // Note: ServerInstance uses metadata.working_directory internally
+        // We need to reinitialize with the correct project root
+        // For now, start the server with the default working directory
+        // and let it re-initialize when we send textDocument/didOpen
+
+        if let Err(e) = instance.start().await {
+            tracing::warn!(
+                project_id = project_id,
+                language = ?language,
+                error = %e,
+                "Failed to start LSP server"
+            );
+
+            // Update state to failed
+            let mut servers = self.servers.write().await;
+            if let Some(state) = servers.get_mut(&key) {
+                state.status = ServerStatus::Failed;
+                state.last_error = Some(e.to_string());
+            }
+
+            return Err(ProjectLspError::Lsp(e));
         }
 
         // Create server state
@@ -365,33 +426,29 @@ impl LanguageServerManager {
             project_id: project_id.to_string(),
             language: language.clone(),
             project_root: project_root.to_path_buf(),
-            status: ServerStatus::Initializing,
+            status: ServerStatus::Running,
             restart_count: 0,
             last_error: None,
             is_active: true,
         };
 
-        // Store the state
+        // Store the state and instance
         {
             let mut servers = self.servers.write().await;
             servers.insert(key.clone(), state);
+        }
+        {
+            let mut instances = self.instances.write().await;
+            instances.insert(key.clone(), Arc::new(tokio::sync::Mutex::new(instance.clone())));
         }
 
         tracing::info!(
             project_id = project_id,
             language = ?language,
-            server = &server_names[0],
-            "Starting language server"
+            "Language server started successfully"
         );
 
-        // In a full implementation, we would actually spawn the server process here
-        // and return the Arc<ServerInstance>. For now, we'll mark this as TODO.
-        // The existing LspServerManager has the spawn logic we need to integrate.
-
-        Err(ProjectLspError::ServerUnavailable {
-            project_id: project_id.to_string(),
-            language,
-        })
+        Ok(Arc::new(instance))
     }
 
     /// Stop a server for a specific project and language
@@ -402,19 +459,51 @@ impl LanguageServerManager {
     ) -> ProjectLspResult<()> {
         let key = ProjectLanguageKey::new(project_id, language.clone());
 
-        let mut servers = self.servers.write().await;
-        if let Some(state) = servers.get_mut(&key) {
-            state.status = ServerStatus::Stopping;
-            state.is_active = false;
+        // Update state to stopping
+        {
+            let mut servers = self.servers.write().await;
+            if let Some(state) = servers.get_mut(&key) {
+                state.status = ServerStatus::Stopping;
+                state.is_active = false;
+            }
+        }
+
+        // Get and shutdown the server instance
+        let instance_opt = {
+            let mut instances = self.instances.write().await;
+            instances.remove(&key)
+        };
+
+        if let Some(instance) = instance_opt {
             tracing::info!(
                 project_id = project_id,
                 language = ?language,
                 "Stopping language server"
             );
+
+            let mut inst = instance.lock().await;
+            if let Err(e) = inst.shutdown().await {
+                tracing::warn!(
+                    project_id = project_id,
+                    language = ?language,
+                    error = %e,
+                    "Error during LSP server shutdown"
+                );
+            }
+
+            tracing::info!(
+                project_id = project_id,
+                language = ?language,
+                "Language server stopped"
+            );
         }
 
-        // In a full implementation, we would gracefully shutdown the server process
-        servers.remove(&key);
+        // Remove state
+        {
+            let mut servers = self.servers.write().await;
+            servers.remove(&key);
+        }
+
         Ok(())
     }
 
