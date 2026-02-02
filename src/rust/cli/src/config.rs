@@ -1,13 +1,15 @@
 //! CLI configuration module
 //!
 //! Handles daemon address, output format preferences, and connection settings.
-//! Configuration can be loaded from environment variables.
+//! Configuration can be loaded from environment variables and YAML config file.
 //!
 //! Note: Some builder methods are infrastructure for future CLI features.
 
 #![allow(dead_code)]
 
 use std::env;
+use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
 
 use crate::grpc::client::DEFAULT_GRPC_PORT;
@@ -71,6 +73,146 @@ pub fn get_database_path_checked() -> Result<PathBuf, DatabasePathError> {
     }
 
     Ok(path)
+}
+
+/// Get the config directory path (~/.workspace-qdrant/)
+pub fn get_config_dir() -> Result<PathBuf, DatabasePathError> {
+    if let Ok(home) = env::var("HOME") {
+        return Ok(PathBuf::from(format!("{}/.workspace-qdrant", home)));
+    }
+
+    if let Some(home_dir) = dirs::home_dir() {
+        return Ok(home_dir.join(".workspace-qdrant"));
+    }
+
+    Err(DatabasePathError {
+        message: "Could not determine home directory for config path".to_string(),
+        path: PathBuf::new(),
+    })
+}
+
+/// Get the config file path (~/.workspace-qdrant/config.yaml)
+pub fn get_config_file_path() -> Result<PathBuf, DatabasePathError> {
+    get_config_dir().map(|dir| dir.join("config.yaml"))
+}
+
+/// Read user PATH from config file
+///
+/// Returns None if the config file doesn't exist or doesn't have user_path set.
+pub fn read_user_path() -> Option<String> {
+    let config_path = get_config_file_path().ok()?;
+
+    if !config_path.exists() {
+        return None;
+    }
+
+    let content = fs::read_to_string(&config_path).ok()?;
+
+    // Simple YAML parsing for environment.user_path
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("user_path:") {
+            let value = trimmed.strip_prefix("user_path:")?.trim();
+            // Handle quoted strings
+            let value = value.trim_matches('"').trim_matches('\'');
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Write user PATH to config file
+///
+/// Creates the config directory and file if they don't exist.
+/// Updates the environment.user_path value if the file exists.
+pub fn write_user_path(path: &str) -> Result<(), String> {
+    let config_dir = get_config_dir()
+        .map_err(|e| format!("Failed to get config directory: {}", e))?;
+
+    // Create config directory if it doesn't exist
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir)
+            .map_err(|e| format!("Failed to create config directory: {}", e))?;
+    }
+
+    let config_path = config_dir.join("config.yaml");
+
+    // Read existing config or create new
+    let mut config_content = if config_path.exists() {
+        fs::read_to_string(&config_path)
+            .map_err(|e| format!("Failed to read config file: {}", e))?
+    } else {
+        String::new()
+    };
+
+    // Check if environment section exists
+    let has_environment = config_content.contains("\nenvironment:") || config_content.starts_with("environment:");
+    let has_user_path = config_content.contains("user_path:");
+
+    if has_user_path {
+        // Update existing user_path line
+        let mut new_content = String::new();
+        for line in config_content.lines() {
+            if line.trim().starts_with("user_path:") {
+                new_content.push_str(&format!("  user_path: \"{}\"\n", path));
+            } else {
+                new_content.push_str(line);
+                new_content.push('\n');
+            }
+        }
+        config_content = new_content;
+    } else if has_environment {
+        // Add user_path under existing environment section
+        let mut new_content = String::new();
+        for line in config_content.lines() {
+            new_content.push_str(line);
+            new_content.push('\n');
+            if line.trim() == "environment:" {
+                new_content.push_str(&format!("  user_path: \"{}\"\n", path));
+            }
+        }
+        config_content = new_content;
+    } else {
+        // Add new environment section
+        if !config_content.is_empty() && !config_content.ends_with('\n') {
+            config_content.push('\n');
+        }
+        config_content.push_str(&format!("\nenvironment:\n  user_path: \"{}\"\n", path));
+    }
+
+    // Write config file
+    let mut file = fs::File::create(&config_path)
+        .map_err(|e| format!("Failed to create config file: {}", e))?;
+    file.write_all(config_content.as_bytes())
+        .map_err(|e| format!("Failed to write config file: {}", e))?;
+
+    Ok(())
+}
+
+/// Get current system PATH
+pub fn get_current_path() -> String {
+    env::var("PATH").unwrap_or_default()
+}
+
+/// Capture and store current PATH to config
+///
+/// Returns true if PATH was captured, false if it was already stored.
+pub fn capture_user_path() -> Result<bool, String> {
+    // Check if PATH is already stored
+    if read_user_path().is_some() {
+        return Ok(false);
+    }
+
+    let current_path = get_current_path();
+    if current_path.is_empty() {
+        return Err("Current PATH is empty".to_string());
+    }
+
+    write_user_path(&current_path)?;
+    Ok(true)
 }
 
 /// Output format for CLI responses

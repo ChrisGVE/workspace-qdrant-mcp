@@ -1,12 +1,13 @@
 //! LSP management commands
 //!
 //! Commands for managing Language Server Protocol (LSP) integration.
-//! Subcommands: list, status, restart, install, check
+//! Subcommands: list, status, restart, install, remove, check, diagnose, path
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
 use std::process::Command;
 
+use crate::config;
 use crate::output;
 
 /// LSP command arguments
@@ -61,6 +62,17 @@ enum LspCommand {
         /// Language to diagnose
         language: String,
     },
+
+    /// Show or update stored PATH for LSP discovery
+    Path {
+        /// Update stored PATH with current environment PATH
+        #[arg(short, long)]
+        update: bool,
+
+        /// Show current system PATH (not stored PATH)
+        #[arg(short, long)]
+        current: bool,
+    },
 }
 
 /// Execute LSP command
@@ -73,6 +85,7 @@ pub async fn execute(args: LspArgs) -> Result<()> {
         LspCommand::Remove { language, force } => remove(&language, force).await,
         LspCommand::Check => check().await,
         LspCommand::Diagnose { language } => diagnose(&language).await,
+        LspCommand::Path { update, current } => path(update, current).await,
     }
 }
 
@@ -133,6 +146,21 @@ async fn restart(project_id: &str, language: Option<&str>) -> Result<()> {
 
 /// Show installation guide for a language server
 async fn install(language: &str) -> Result<()> {
+    // Capture PATH on first install command (for LSP discovery)
+    match config::capture_user_path() {
+        Ok(true) => {
+            output::success("Captured user PATH for LSP discovery");
+            output::info("Daemon will use this PATH to find LSP servers.");
+            output::separator();
+        }
+        Ok(false) => {
+            // PATH already stored, no action needed
+        }
+        Err(e) => {
+            output::warning(format!("Could not capture PATH: {}", e));
+        }
+    }
+
     output::section(format!("Installing {} Language Server", language));
 
     match language.to_lowercase().as_str() {
@@ -388,6 +416,70 @@ async fn diagnose(language: &str) -> Result<()> {
     output::info("  wqm admin health   - Check daemon health");
 
     Ok(())
+}
+
+/// Show or update stored PATH for LSP discovery
+async fn path(update: bool, current: bool) -> Result<()> {
+    output::section("LSP PATH Configuration");
+
+    if update {
+        // Update stored PATH with current environment PATH
+        let current_path = config::get_current_path();
+        output::kv("Current PATH", &truncate_path(&current_path, 100));
+        output::separator();
+
+        match config::write_user_path(&current_path) {
+            Ok(()) => {
+                output::success("Stored PATH updated");
+                output::info("Daemon will use this PATH to find LSP servers on next restart.");
+            }
+            Err(e) => {
+                output::error(format!("Failed to update PATH: {}", e));
+            }
+        }
+    } else if current {
+        // Show current system PATH
+        let current_path = config::get_current_path();
+        output::kv("Current System PATH", "");
+        output::separator();
+        for (i, segment) in current_path.split(':').enumerate() {
+            if !segment.is_empty() {
+                output::info(&format!("  {}. {}", i + 1, segment));
+            }
+        }
+    } else {
+        // Show stored PATH
+        match config::read_user_path() {
+            Some(stored_path) => {
+                output::kv("Stored PATH", "");
+                output::separator();
+                for (i, segment) in stored_path.split(':').enumerate() {
+                    if !segment.is_empty() {
+                        output::info(&format!("  {}. {}", i + 1, segment));
+                    }
+                }
+                output::separator();
+                output::info("This PATH is used by the daemon to find LSP servers.");
+                output::info("Use 'wqm lsp path --update' to refresh from current environment.");
+            }
+            None => {
+                output::warning("No PATH stored yet");
+                output::info("PATH will be captured automatically on first 'wqm lsp install' command.");
+                output::info("Or use 'wqm lsp path --update' to store current PATH now.");
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Truncate PATH for display
+fn truncate_path(path: &str, max_len: usize) -> String {
+    if path.len() <= max_len {
+        path.to_string()
+    } else {
+        format!("{}...", &path[..max_len])
+    }
 }
 
 /// Get LSP server info for a language
