@@ -4,6 +4,7 @@
 //! semantic units (functions, classes, methods, structs, traits) from source code.
 
 pub mod chunker;
+pub mod grammar_cache;
 pub mod languages;
 pub mod parser;
 pub mod types;

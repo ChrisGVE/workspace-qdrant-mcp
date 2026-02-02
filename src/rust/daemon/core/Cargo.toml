@@ -73,6 +73,9 @@ atty = "0.2"
 # Environment variable expansion for config paths
 shellexpand = "3.1"
 
+# Platform directories (home dir, config dir, etc.)
+dirs = "5.0"
+
 # Embedding generation
 # Use ort-load-dynamic because ort doesn't provide prebuilt binaries for Intel Mac (x86_64-apple-darwin)
 # Static bundling (default features) works on ARM Mac and Linux but not Intel Mac
