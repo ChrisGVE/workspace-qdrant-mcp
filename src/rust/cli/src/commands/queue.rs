@@ -15,6 +15,7 @@ use rusqlite::{Connection, params};
 use serde::Serialize;
 use tabled::{settings::Style, Table, Tabled};
 
+use crate::config::get_database_path_checked;
 use crate::output;
 
 /// Queue command arguments
@@ -231,11 +232,8 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
 
 /// Connect to the state database (read-only for safety)
 fn connect_readonly() -> Result<Connection> {
-    let db_path = get_state_db_path()?;
-
-    if !db_path.exists() {
-        anyhow::bail!("State database not found at {:?}. Initialize with: wqm init", db_path);
-    }
+    let db_path = get_database_path_checked()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let conn = Connection::open_with_flags(
         &db_path,
@@ -248,11 +246,8 @@ fn connect_readonly() -> Result<Connection> {
 
 /// Connect to the state database (read-write for clean command)
 fn connect_readwrite() -> Result<Connection> {
-    let db_path = get_state_db_path()?;
-
-    if !db_path.exists() {
-        anyhow::bail!("State database not found at {:?}. Initialize with: wqm init", db_path);
-    }
+    let db_path = get_database_path_checked()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let conn = Connection::open(&db_path)
         .context(format!("Failed to open state database at {:?}", db_path))?;
@@ -262,47 +257,6 @@ fn connect_readwrite() -> Result<Connection> {
         .context("Failed to set SQLite pragmas")?;
 
     Ok(conn)
-}
-
-/// Get the path to the state database
-fn get_state_db_path() -> Result<std::path::PathBuf> {
-    // Check platform-specific paths
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(home) = std::env::var("HOME") {
-            return Ok(std::path::PathBuf::from(format!(
-                "{}/Library/Application Support/workspace-qdrant-mcp/state.db",
-                home
-            )));
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(home) = std::env::var("HOME") {
-            return Ok(std::path::PathBuf::from(format!(
-                "{}/.local/share/workspace-qdrant-mcp/state.db",
-                home
-            )));
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
-            return Ok(std::path::PathBuf::from(format!(
-                "{}/workspace-qdrant-mcp/state.db",
-                local_app_data
-            )));
-        }
-    }
-
-    // Fallback
-    if let Some(data_dir) = dirs::data_local_dir() {
-        return Ok(data_dir.join("workspace-qdrant-mcp").join("state.db"));
-    }
-
-    anyhow::bail!("Could not determine state database path")
 }
 
 /// Format relative time from ISO timestamp

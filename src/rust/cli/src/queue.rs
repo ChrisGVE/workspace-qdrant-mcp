@@ -9,13 +9,13 @@
 
 #![allow(dead_code)]
 
-use std::path::PathBuf;
-
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rusqlite::Connection;
 use sha2::{Sha256, Digest};
 use uuid::Uuid;
+
+use crate::config::get_database_path;
 
 /// Item types that can be enqueued (mirrors daemon's ItemType)
 #[derive(Debug, Clone, Copy)]
@@ -120,12 +120,24 @@ pub struct UnifiedQueueClient {
 
 impl UnifiedQueueClient {
     /// Connect to the state database
+    ///
+    /// Creates the database directory if needed (for write operations).
+    /// Returns error with helpful message if database doesn't exist.
     pub fn connect() -> Result<Self> {
-        let db_path = get_state_db_path()?;
+        let db_path = get_database_path()
+            .map_err(|e| anyhow::anyhow!("{}", e))?;
 
-        // Ensure parent directory exists
+        // Ensure parent directory exists (needed for first write)
         if let Some(parent) = db_path.parent() {
             std::fs::create_dir_all(parent).context("Failed to create database directory")?;
+        }
+
+        // Check if database exists - if not, provide helpful error
+        if !db_path.exists() {
+            anyhow::bail!(
+                "Database not found at {}. Run daemon first: wqm service start",
+                db_path.display()
+            );
         }
 
         let conn = Connection::open(&db_path)
@@ -341,22 +353,6 @@ fn generate_idempotency_key(
     let hash = hasher.finalize();
     // Convert to hex and take first 32 characters
     format!("{:x}", hash)[..32].to_string()
-}
-
-/// Get the path to the state database
-fn get_state_db_path() -> Result<PathBuf> {
-    // First check HOME-based path (Unix standard)
-    if let Ok(home) = std::env::var("HOME") {
-        return Ok(PathBuf::from(format!("{}/.workspace-qdrant/state.db", home)));
-    }
-
-    // Fallback to dirs crate
-    if let Some(data_dir) = dirs::data_local_dir() {
-        return Ok(data_dir.join("workspace-qdrant").join("state.db"));
-    }
-
-    // Last resort
-    Ok(PathBuf::from("/tmp/.workspace-qdrant/state.db"))
 }
 
 #[cfg(test)]

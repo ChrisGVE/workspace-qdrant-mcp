@@ -8,8 +8,70 @@
 #![allow(dead_code)]
 
 use std::env;
+use std::path::PathBuf;
 
 use crate::grpc::client::DEFAULT_GRPC_PORT;
+
+/// Database path error with helpful message
+#[derive(Debug)]
+pub struct DatabasePathError {
+    pub message: String,
+    pub path: PathBuf,
+}
+
+impl std::fmt::Display for DatabasePathError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl std::error::Error for DatabasePathError {}
+
+/// Get the canonical path to the state database
+///
+/// Per spec, the canonical path is `~/.workspace-qdrant/state.db`
+/// This is shared between the daemon and CLI for consistency.
+pub fn get_database_path() -> Result<PathBuf, DatabasePathError> {
+    // First check environment variable override
+    if let Ok(path) = env::var("WQM_DATABASE_PATH") {
+        return Ok(PathBuf::from(path));
+    }
+
+    // Use canonical path: ~/.workspace-qdrant/state.db
+    if let Ok(home) = env::var("HOME") {
+        return Ok(PathBuf::from(format!("{}/.workspace-qdrant/state.db", home)));
+    }
+
+    // Fallback for systems without HOME
+    if let Some(home_dir) = dirs::home_dir() {
+        return Ok(home_dir.join(".workspace-qdrant").join("state.db"));
+    }
+
+    Err(DatabasePathError {
+        message: "Could not determine home directory for database path".to_string(),
+        path: PathBuf::new(),
+    })
+}
+
+/// Get the database path, checking if it exists
+///
+/// Returns an error with a helpful message if the database doesn't exist,
+/// indicating the user should start the daemon first.
+pub fn get_database_path_checked() -> Result<PathBuf, DatabasePathError> {
+    let path = get_database_path()?;
+
+    if !path.exists() {
+        return Err(DatabasePathError {
+            message: format!(
+                "Database not found at {}. Run daemon first: wqm service start",
+                path.display()
+            ),
+            path,
+        });
+    }
+
+    Ok(path)
+}
 
 /// Output format for CLI responses
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -230,5 +292,35 @@ mod tests {
 
         let config = Config::new().with_timeout(500);
         assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_get_database_path() {
+        // Should return a valid path (assuming HOME is set)
+        let result = get_database_path();
+        assert!(result.is_ok());
+
+        let path = result.unwrap();
+        assert!(path.to_string_lossy().contains(".workspace-qdrant"));
+        assert!(path.to_string_lossy().ends_with("state.db"));
+    }
+
+    #[test]
+    fn test_get_database_path_with_env_override() {
+        // Test environment variable override
+        std::env::set_var("WQM_DATABASE_PATH", "/custom/path/state.db");
+        let result = get_database_path();
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), PathBuf::from("/custom/path/state.db"));
+        std::env::remove_var("WQM_DATABASE_PATH");
+    }
+
+    #[test]
+    fn test_database_path_error_display() {
+        let error = DatabasePathError {
+            message: "Test error message".to_string(),
+            path: PathBuf::from("/test/path"),
+        };
+        assert_eq!(error.to_string(), "Test error message");
     }
 }
