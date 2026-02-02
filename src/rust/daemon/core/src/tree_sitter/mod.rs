@@ -9,6 +9,7 @@ pub mod grammar_loader;
 pub mod languages;
 pub mod parser;
 pub mod types;
+pub mod version_checker;
 
 pub use chunker::SemanticChunker;
 pub use parser::TreeSitterParser;
