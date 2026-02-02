@@ -21,6 +21,7 @@ use crate::lsp::{
 
 /// Current status of an LSP server instance
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum ServerStatus {
     /// Server is initializing
     Initializing,

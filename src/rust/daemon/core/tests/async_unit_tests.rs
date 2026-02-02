@@ -95,9 +95,10 @@ async_test!(test_async_file_processing_text, {
     let temp_file = create_test_document(test_content, "txt").await?;
     
     // Test async file processing with timing verification
+    // Note: No minimum time assertion as fast hardware can complete sub-millisecond
     let result = verify_async_timing(
         processor.process_file(temp_file.path(), "test_collection"),
-        Duration::from_millis(1),
+        Duration::ZERO,
         Duration::from_secs(5)
     ).await?;
     
@@ -105,8 +106,8 @@ async_test!(test_async_file_processing_text, {
     assert!(!doc_result.document_id.is_empty());
     assert_eq!(doc_result.collection, "test_collection");
     assert!(doc_result.chunks_created.unwrap_or(0) > 0);
-    assert!(doc_result.processing_time_ms > 0);
-    
+    // Note: processing_time_ms can be 0 on fast hardware (sub-millisecond operations)
+
     Ok(())
 });
 
@@ -492,7 +493,7 @@ async_test!(test_async_performance_metrics, {
     let doc_result = result?;
     
     // Verify performance characteristics
-    assert!(doc_result.processing_time_ms > 0);
+    // Note: processing_time_ms can be 0 on fast hardware (sub-millisecond operations)
     assert!(total_time.as_millis() as u64 >= doc_result.processing_time_ms);
     
     // Performance should be reasonable for this size document
