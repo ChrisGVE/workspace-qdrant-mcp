@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use tree_sitter::Node;
+use tree_sitter::{Language, Node};
 
 use crate::error::DaemonError;
 use crate::tree_sitter::chunker::{extract_function_calls, find_child_by_kind, node_text};
@@ -10,11 +10,35 @@ use crate::tree_sitter::parser::TreeSitterParser;
 use crate::tree_sitter::types::{ChunkExtractor, ChunkType, SemanticChunk};
 
 /// Extractor for Rust source code.
-pub struct RustExtractor;
+///
+/// Supports both static and dynamically loaded tree-sitter grammars.
+pub struct RustExtractor {
+    /// Optional pre-loaded language for dynamic grammar support.
+    language: Option<Language>,
+}
 
 impl RustExtractor {
+    /// Create a new extractor using the static Rust grammar.
     pub fn new() -> Self {
-        Self
+        Self { language: None }
+    }
+
+    /// Create an extractor with a pre-loaded Language.
+    ///
+    /// Use this when you have a dynamically loaded grammar from
+    /// the GrammarManager.
+    pub fn with_language(language: Language) -> Self {
+        Self {
+            language: Some(language),
+        }
+    }
+
+    /// Create a parser, using the pre-loaded language if available.
+    fn create_parser(&self) -> Result<TreeSitterParser, DaemonError> {
+        match &self.language {
+            Some(lang) => TreeSitterParser::with_language("rust", lang.clone()),
+            None => TreeSitterParser::new("rust"),
+        }
     }
 
     /// Extract preamble (use statements, extern crates, mod declarations at top).
@@ -429,7 +453,7 @@ impl ChunkExtractor for RustExtractor {
         source: &str,
         file_path: &Path,
     ) -> Result<Vec<SemanticChunk>, DaemonError> {
-        let mut parser = TreeSitterParser::new("rust")?;
+        let mut parser = self.create_parser()?;
         let tree = parser.parse(source)?;
         let root = tree.root_node();
         let file_path_str = file_path.to_string_lossy().to_string();

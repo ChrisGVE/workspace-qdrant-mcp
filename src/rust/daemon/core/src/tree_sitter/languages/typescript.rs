@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use tree_sitter::Node;
+use tree_sitter::{Language, Node};
 
 use crate::error::DaemonError;
 use crate::tree_sitter::chunker::{extract_function_calls, find_child_by_kind, node_text};
@@ -12,15 +12,38 @@ use crate::tree_sitter::types::{ChunkExtractor, ChunkType, SemanticChunk};
 /// Extractor for TypeScript source code.
 pub struct TypeScriptExtractor {
     is_tsx: bool,
+    language: Option<Language>,
 }
 
 impl TypeScriptExtractor {
     pub fn new(is_tsx: bool) -> Self {
-        Self { is_tsx }
+        Self {
+            is_tsx,
+            language: None,
+        }
+    }
+
+    /// Create an extractor with a pre-loaded Language.
+    pub fn with_language(language: Language, is_tsx: bool) -> Self {
+        Self {
+            is_tsx,
+            language: Some(language),
+        }
     }
 
     fn language_name(&self) -> &'static str {
-        if self.is_tsx { "tsx" } else { "typescript" }
+        if self.is_tsx {
+            "tsx"
+        } else {
+            "typescript"
+        }
+    }
+
+    fn create_parser(&self) -> Result<TreeSitterParser, DaemonError> {
+        match &self.language {
+            Some(lang) => TreeSitterParser::with_language(self.language_name(), lang.clone()),
+            None => TreeSitterParser::new(self.language_name()),
+        }
     }
 
     /// Extract preamble (imports, type imports).
@@ -260,8 +283,7 @@ impl ChunkExtractor for TypeScriptExtractor {
         source: &str,
         file_path: &Path,
     ) -> Result<Vec<SemanticChunk>, DaemonError> {
-        let lang = if self.is_tsx { "tsx" } else { "typescript" };
-        let mut parser = TreeSitterParser::new(lang)?;
+        let mut parser = self.create_parser()?;
         let tree = parser.parse(source)?;
         let root = tree.root_node();
         let file_path_str = file_path.to_string_lossy().to_string();

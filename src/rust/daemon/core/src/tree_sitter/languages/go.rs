@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use tree_sitter::Node;
+use tree_sitter::{Language, Node};
 
 use crate::error::DaemonError;
 use crate::tree_sitter::chunker::{extract_function_calls, find_child_by_kind, node_text};
@@ -10,11 +10,27 @@ use crate::tree_sitter::parser::TreeSitterParser;
 use crate::tree_sitter::types::{ChunkExtractor, ChunkType, SemanticChunk};
 
 /// Extractor for Go source code.
-pub struct GoExtractor;
+pub struct GoExtractor {
+    language: Option<Language>,
+}
 
 impl GoExtractor {
     pub fn new() -> Self {
-        Self
+        Self { language: None }
+    }
+
+    /// Create an extractor with a pre-loaded Language.
+    pub fn with_language(language: Language) -> Self {
+        Self {
+            language: Some(language),
+        }
+    }
+
+    fn create_parser(&self) -> Result<TreeSitterParser, DaemonError> {
+        match &self.language {
+            Some(lang) => TreeSitterParser::with_language("go", lang.clone()),
+            None => TreeSitterParser::new("go"),
+        }
     }
 
     /// Extract preamble (package, imports).
@@ -246,7 +262,7 @@ impl ChunkExtractor for GoExtractor {
         source: &str,
         file_path: &Path,
     ) -> Result<Vec<SemanticChunk>, DaemonError> {
-        let mut parser = TreeSitterParser::new("go")?;
+        let mut parser = self.create_parser()?;
         let tree = parser.parse(source)?;
         let root = tree.root_node();
         let file_path_str = file_path.to_string_lossy().to_string();

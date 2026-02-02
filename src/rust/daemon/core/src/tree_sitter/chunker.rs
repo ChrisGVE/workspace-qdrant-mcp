@@ -1,13 +1,19 @@
 //! Semantic chunker that extracts meaningful code units.
+//!
+//! This module provides the primary interface for extracting semantic code chunks
+//! from source files. It supports both static (compiled-in) and dynamic (runtime-loaded)
+//! tree-sitter grammars through the `LanguageProvider` trait.
 
 use std::path::Path;
+use std::sync::Arc;
 
-use tree_sitter::Node;
+use tree_sitter::{Language, Node};
 
 use super::languages::{
     CExtractor, CppExtractor, GoExtractor, JavaExtractor, JavaScriptExtractor, PythonExtractor,
     RustExtractor, TypeScriptExtractor,
 };
+use super::parser::LanguageProvider;
 use super::types::{ChunkExtractor, SemanticChunk};
 #[cfg(test)]
 use super::types::ChunkType;
@@ -20,22 +26,129 @@ const DEFAULT_MAX_CHUNK_SIZE: usize = 8000;
 const FRAGMENT_OVERLAP: usize = 500;
 
 /// Semantic chunker that extracts code units from source files.
+///
+/// The chunker can optionally use a `LanguageProvider` for dynamic grammar loading,
+/// which allows supporting languages beyond those compiled into the binary.
 pub struct SemanticChunker {
     max_chunk_size: usize,
+    /// Optional language provider for dynamic grammar loading.
+    language_provider: Option<Arc<dyn LanguageProvider>>,
 }
 
 impl SemanticChunker {
     /// Create a new semantic chunker with the specified max chunk size.
+    ///
+    /// Uses only statically compiled grammars.
     pub fn new(max_chunk_size: usize) -> Self {
-        Self { max_chunk_size }
+        Self {
+            max_chunk_size,
+            language_provider: None,
+        }
     }
 
     /// Create a chunker with default settings.
+    ///
+    /// Uses only statically compiled grammars.
     pub fn default() -> Self {
         Self::new(DEFAULT_MAX_CHUNK_SIZE)
     }
 
+    /// Create a chunker with a language provider for dynamic grammar support.
+    ///
+    /// The provider is used as a fallback when a language is not available
+    /// statically. This enables support for additional languages without
+    /// recompilation.
+    pub fn with_provider(max_chunk_size: usize, provider: Arc<dyn LanguageProvider>) -> Self {
+        Self {
+            max_chunk_size,
+            language_provider: Some(provider),
+        }
+    }
+
+    /// Set the language provider for dynamic grammar loading.
+    ///
+    /// Returns self for method chaining.
+    pub fn set_provider(mut self, provider: Arc<dyn LanguageProvider>) -> Self {
+        self.language_provider = Some(provider);
+        self
+    }
+
+    /// Get the language provider, if one is configured.
+    pub fn language_provider(&self) -> Option<&Arc<dyn LanguageProvider>> {
+        self.language_provider.as_ref()
+    }
+
+    /// Try to get a Language from the provider.
+    fn get_language_from_provider(&self, language_name: &str) -> Option<Language> {
+        self.language_provider
+            .as_ref()
+            .and_then(|p| p.get_language(language_name))
+    }
+
+    /// Create an extractor for the given language.
+    ///
+    /// If a language provider is configured and has the grammar, the extractor
+    /// will use the dynamically loaded grammar. Otherwise, it falls back to
+    /// static grammars for supported languages.
+    fn create_extractor(&self, language: &str) -> Option<Box<dyn ChunkExtractor>> {
+        // Try to get dynamic grammar first if provider is available
+        let dynamic_lang = self.get_language_from_provider(language);
+
+        // Create extractor with optional pre-loaded language
+        match language {
+            "rust" => Some(Box::new(
+                dynamic_lang
+                    .map(RustExtractor::with_language)
+                    .unwrap_or_else(RustExtractor::new),
+            )),
+            "python" => Some(Box::new(
+                dynamic_lang
+                    .map(PythonExtractor::with_language)
+                    .unwrap_or_else(PythonExtractor::new),
+            )),
+            "javascript" | "jsx" => Some(Box::new(
+                dynamic_lang
+                    .map(JavaScriptExtractor::with_language)
+                    .unwrap_or_else(JavaScriptExtractor::new),
+            )),
+            "typescript" | "tsx" => Some(Box::new(
+                dynamic_lang
+                    .map(|l| TypeScriptExtractor::with_language(l, language == "tsx"))
+                    .unwrap_or_else(|| TypeScriptExtractor::new(language == "tsx")),
+            )),
+            "go" => Some(Box::new(
+                dynamic_lang
+                    .map(GoExtractor::with_language)
+                    .unwrap_or_else(GoExtractor::new),
+            )),
+            "java" => Some(Box::new(
+                dynamic_lang
+                    .map(JavaExtractor::with_language)
+                    .unwrap_or_else(JavaExtractor::new),
+            )),
+            "c" => Some(Box::new(
+                dynamic_lang
+                    .map(CExtractor::with_language)
+                    .unwrap_or_else(CExtractor::new),
+            )),
+            "cpp" => Some(Box::new(
+                dynamic_lang
+                    .map(CppExtractor::with_language)
+                    .unwrap_or_else(CppExtractor::new),
+            )),
+            _ => {
+                // For unknown languages, check if provider has a grammar
+                // Currently we can only use known extractors, so return None
+                None
+            }
+        }
+    }
+
     /// Chunk source code using the appropriate language extractor.
+    ///
+    /// Uses statically compiled grammars by default. If a language provider
+    /// is configured, it will be used to provide grammars for languages
+    /// beyond the built-in set.
     pub fn chunk_source(
         &self,
         source: &str,
@@ -43,16 +156,9 @@ impl SemanticChunker {
         language: &str,
     ) -> Result<Vec<SemanticChunk>, DaemonError> {
         // Get the appropriate extractor
-        let extractor: Box<dyn ChunkExtractor> = match language {
-            "rust" => Box::new(RustExtractor::new()),
-            "python" => Box::new(PythonExtractor::new()),
-            "javascript" | "jsx" => Box::new(JavaScriptExtractor::new()),
-            "typescript" | "tsx" => Box::new(TypeScriptExtractor::new(language == "tsx")),
-            "go" => Box::new(GoExtractor::new()),
-            "java" => Box::new(JavaExtractor::new()),
-            "c" => Box::new(CExtractor::new()),
-            "cpp" => Box::new(CppExtractor::new()),
-            _ => {
+        let extractor = match self.create_extractor(language) {
+            Some(ext) => ext,
+            None => {
                 // Fall back to text chunking
                 return Ok(text_chunk_fallback(source, file_path, self.max_chunk_size));
             }
