@@ -296,6 +296,10 @@ mod tests {
 
     #[test]
     fn test_get_database_path() {
+        // Clear any env override first to ensure we test the default path
+        let prev = std::env::var("WQM_DATABASE_PATH").ok();
+        std::env::remove_var("WQM_DATABASE_PATH");
+
         // Should return a valid path (assuming HOME is set)
         let result = get_database_path();
         assert!(result.is_ok());
@@ -303,16 +307,29 @@ mod tests {
         let path = result.unwrap();
         assert!(path.to_string_lossy().contains(".workspace-qdrant"));
         assert!(path.to_string_lossy().ends_with("state.db"));
+
+        // Restore env var if it was set
+        if let Some(val) = prev {
+            std::env::set_var("WQM_DATABASE_PATH", val);
+        }
     }
 
     #[test]
     fn test_get_database_path_with_env_override() {
+        // Save and restore to avoid test interference
+        let prev = std::env::var("WQM_DATABASE_PATH").ok();
+
         // Test environment variable override
         std::env::set_var("WQM_DATABASE_PATH", "/custom/path/state.db");
         let result = get_database_path();
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), PathBuf::from("/custom/path/state.db"));
-        std::env::remove_var("WQM_DATABASE_PATH");
+
+        // Restore previous state
+        match prev {
+            Some(val) => std::env::set_var("WQM_DATABASE_PATH", val),
+            None => std::env::remove_var("WQM_DATABASE_PATH"),
+        }
     }
 
     #[test]

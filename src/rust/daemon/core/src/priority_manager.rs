@@ -948,12 +948,12 @@ mod tests {
         let pool = config.create_pool().await.unwrap();
 
         // Initialize schema
-        sqlx::query(include_str!("../../../../python/common/core/queue_schema.sql"))
+        sqlx::query(include_str!("schema/legacy/queue_schema.sql"))
             .execute(&pool)
             .await
             .unwrap();
 
-        sqlx::query(include_str!("../../../../python/common/core/missing_metadata_queue_schema.sql"))
+        sqlx::query(include_str!("schema/legacy/missing_metadata_queue_schema.sql"))
             .execute(&pool)
             .await
             .unwrap();

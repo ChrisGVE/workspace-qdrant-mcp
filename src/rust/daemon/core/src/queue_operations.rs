@@ -418,7 +418,7 @@ impl QueueManager {
 
     /// Initialize the missing_metadata_queue table
     pub async fn init_missing_metadata_queue(&self) -> QueueResult<()> {
-        let schema = include_str!("../../../../python/common/core/missing_metadata_queue_schema.sql");
+        let schema = include_str!("schema/legacy/missing_metadata_queue_schema.sql");
         sqlx::query(schema).execute(&self.pool).await?;
         debug!("Missing metadata queue table initialized");
         Ok(())
@@ -2615,7 +2615,7 @@ mod tests {
         // Initialize schema
         apply_sql_script(
             &pool,
-            include_str!("../../../../python/common/core/queue_schema.sql"),
+            include_str!("schema/legacy/queue_schema.sql"),
         )
         .await
         .unwrap();
@@ -2681,14 +2681,14 @@ mod tests {
         // Initialize base schema, then apply migration
         apply_sql_script(
             &pool,
-            include_str!("../../../../python/common/core/queue_schema.sql"),
+            include_str!("schema/legacy/queue_schema.sql"),
         )
         .await
         .unwrap();
 
         apply_sql_script(
             &pool,
-            include_str!("../../../../python/common/core/schema/queue_retry_timestamp_migration.sql"),
+            include_str!("schema/legacy/queue_retry_timestamp_migration.sql"),
         )
         .await
         .unwrap();
@@ -2744,7 +2744,7 @@ mod tests {
         // Initialize schema
         apply_sql_script(
             &pool,
-            include_str!("../../../../python/common/core/queue_schema.sql"),
+            include_str!("schema/legacy/queue_schema.sql"),
         )
         .await
         .unwrap();
@@ -2788,7 +2788,7 @@ mod tests {
         // Initialize schemas
         apply_sql_script(
             &pool,
-            include_str!("../../../../python/common/core/queue_schema.sql"),
+            include_str!("schema/legacy/queue_schema.sql"),
         )
         .await
         .unwrap();

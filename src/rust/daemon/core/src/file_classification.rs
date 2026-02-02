@@ -1,8 +1,7 @@
 //! File type classification for metadata-based routing
 //!
 //! This module provides file type classification to replace collection-based routing
-//! with metadata-based differentiation. Mirrors the Python implementation in
-//! `src/python/common/utils/file_type_classifier.py`.
+//! with metadata-based differentiation.
 //!
 //! File Types:
 //! - code: Source code files (.py, .rs, .js, etc.)

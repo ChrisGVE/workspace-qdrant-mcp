@@ -423,13 +423,13 @@ mod tests {
         let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
         let pool = SqlitePool::connect(&db_url).await.unwrap();
 
-        // Initialize queue schema
-        sqlx::query(include_str!("../../../../../python/common/core/queue_schema.sql"))
+        // Initialize queue schema (legacy tables for test compatibility)
+        sqlx::query(include_str!("../../../core/src/schema/legacy/queue_schema.sql"))
             .execute(&pool)
             .await
             .unwrap();
 
-        sqlx::query(include_str!("../../../../../python/common/core/missing_metadata_queue_schema.sql"))
+        sqlx::query(include_str!("../../../core/src/schema/legacy/missing_metadata_queue_schema.sql"))
             .execute(&pool)
             .await
             .unwrap();
