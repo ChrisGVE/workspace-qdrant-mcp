@@ -80,5 +80,13 @@ main().catch((error: unknown) => {
   process.exit(1);
 });
 
+/**
+ * Start the MCP server
+ * Used by agent.ts when running in --mcp-only mode
+ */
+export async function startServer(): Promise<void> {
+  await main();
+}
+
 // Export for testing
-export { WorkspaceQdrantMcpServer, createServer };
+export { WorkspaceQdrantMcpServer, createServer, startServer as main };

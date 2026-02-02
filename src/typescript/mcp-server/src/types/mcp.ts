@@ -53,7 +53,7 @@ export interface SearchOutput {
 export const RetrieveInputSchema = z.object({
   document_id: z.string().optional().describe('Specific document ID'),
   collection: CollectionSchema.default('projects').describe('Target collection'),
-  metadata: z.record(z.unknown()).optional().describe('Metadata filters'),
+  metadata: z.record(z.string(), z.unknown()).optional().describe('Metadata filters'),
   limit: z.number().int().min(1).max(100).default(10).describe('Maximum documents'),
   offset: z.number().int().min(0).default(0).describe('Pagination offset'),
 });
@@ -117,7 +117,7 @@ export const StoreInputSchema = z.object({
   title: z.string().optional().describe('Document title'),
   source: StoreSourceSchema.default('user_input').describe('Content source type'),
   url: z.string().url().optional().describe('Source URL for web content'),
-  metadata: z.record(z.unknown()).optional().describe('Additional metadata'),
+  metadata: z.record(z.string(), z.unknown()).optional().describe('Additional metadata'),
 });
 
 export type StoreInput = z.infer<typeof StoreInputSchema>;
