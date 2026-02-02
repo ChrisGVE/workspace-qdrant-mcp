@@ -1828,6 +1828,12 @@ impl LanguageServerManager {
         }
     }
 
+    /// Get list of languages that have available servers (Task 1.19)
+    pub async fn available_languages(&self) -> Vec<Language> {
+        let available = self.available_servers.read().await;
+        available.keys().cloned().collect()
+    }
+
     /// Check health of all active servers and restart crashed ones
     ///
     /// Returns summary of health check: (checked_count, restarted_count, failed_count)
