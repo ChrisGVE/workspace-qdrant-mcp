@@ -33,6 +33,7 @@ use workspace_qdrant_core::{
     PriorityManager,
     LanguageServerManager, Language,
     ProjectLanguageDetector,
+    DaemonStateManager,
 };
 
 /// Default heartbeat timeout in seconds
@@ -48,9 +49,17 @@ const HEARTBEAT_TIMEOUT_SECS: u64 = 60;
 /// - Starts LSP servers when a project is registered
 /// - Stops LSP servers when a project has no remaining sessions
 /// - Checks queue before stopping and respects deactivation delay
+///
+/// Activity Inheritance:
+/// - Uses DaemonStateManager to propagate is_active to watch_folders
+/// - RegisterProject sets is_active=true for project and all submodules
+/// - DeprioritizeProject sets is_active=false when no sessions remain
+/// - Heartbeat updates last_activity_at for project and all submodules
 pub struct ProjectServiceImpl {
     priority_manager: PriorityManager,
     db_pool: SqlitePool,
+    /// Daemon state manager for watch_folders activity inheritance
+    state_manager: DaemonStateManager,
     /// Language server manager for per-project LSP lifecycle
     lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
     /// Language detector with caching
@@ -69,6 +78,7 @@ impl ProjectServiceImpl {
     pub fn new(db_pool: SqlitePool) -> Self {
         Self {
             priority_manager: PriorityManager::new(db_pool.clone()),
+            state_manager: DaemonStateManager::with_pool(db_pool.clone()),
             db_pool,
             lsp_manager: None,
             language_detector: Arc::new(ProjectLanguageDetector::new()),
@@ -81,6 +91,7 @@ impl ProjectServiceImpl {
     pub fn with_priority_manager(priority_manager: PriorityManager, db_pool: SqlitePool) -> Self {
         Self {
             priority_manager,
+            state_manager: DaemonStateManager::with_pool(db_pool.clone()),
             db_pool,
             lsp_manager: None,
             language_detector: Arc::new(ProjectLanguageDetector::new()),
@@ -96,6 +107,7 @@ impl ProjectServiceImpl {
     ) -> Self {
         Self {
             priority_manager: PriorityManager::new(db_pool.clone()),
+            state_manager: DaemonStateManager::with_pool(db_pool.clone()),
             db_pool,
             lsp_manager: Some(lsp_manager),
             language_detector: Arc::new(ProjectLanguageDetector::new()),
@@ -112,6 +124,7 @@ impl ProjectServiceImpl {
     ) -> Self {
         Self {
             priority_manager: PriorityManager::new(db_pool.clone()),
+            state_manager: DaemonStateManager::with_pool(db_pool.clone()),
             db_pool,
             lsp_manager: Some(lsp_manager),
             language_detector: Arc::new(ProjectLanguageDetector::new()),
@@ -597,6 +610,34 @@ impl ProjectService for ProjectServiceImpl {
             );
         }
 
+        // Activity inheritance: Set is_active=true for project and all submodules
+        // This updates watch_folders table per Task 19 specification
+        match self.state_manager.activate_project_by_tenant_id(&req.project_id).await {
+            Ok((affected, watch_id)) => {
+                if affected > 0 {
+                    info!(
+                        project_id = %req.project_id,
+                        watch_id = ?watch_id,
+                        affected_folders = affected,
+                        "Activated project watch folders (activity inheritance)"
+                    );
+                } else {
+                    debug!(
+                        project_id = %req.project_id,
+                        "No watch folders found for activity inheritance (project may not be watched yet)"
+                    );
+                }
+            }
+            Err(e) => {
+                // Activity inheritance is best-effort, don't fail registration
+                warn!(
+                    project_id = %req.project_id,
+                    error = %e,
+                    "Failed to activate project watch folders (non-critical)"
+                );
+            }
+        }
+
         let response = RegisterProjectResponse {
             created,
             project_id: req.project_id,
@@ -635,6 +676,29 @@ impl ProjectService for ProjectServiceImpl {
 
                 // Handle LSP shutdown when no active sessions remain
                 if remaining_sessions == 0 {
+                    // Activity inheritance: Set is_active=false for project and all submodules
+                    // This updates watch_folders table per Task 19 specification
+                    match self.state_manager.deactivate_project_by_tenant_id(&req.project_id).await {
+                        Ok((affected, watch_id)) => {
+                            if affected > 0 {
+                                info!(
+                                    project_id = %req.project_id,
+                                    watch_id = ?watch_id,
+                                    affected_folders = affected,
+                                    "Deactivated project watch folders (activity inheritance)"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            // Activity inheritance is best-effort, don't fail deprioritization
+                            warn!(
+                                project_id = %req.project_id,
+                                error = %e,
+                                "Failed to deactivate project watch folders (non-critical)"
+                            );
+                        }
+                    }
+
                     // Check queue for pending items
                     let queue_depth = self.get_project_queue_depth(&req.project_id)
                         .await
@@ -867,6 +931,8 @@ impl ProjectService for ProjectServiceImpl {
     ///
     /// Called periodically by MCP servers to indicate they're still alive.
     /// Sessions without heartbeat for >60s are considered orphaned.
+    ///
+    /// Activity inheritance: Updates last_activity_at for project and all submodules
     async fn heartbeat(
         &self,
         request: Request<HeartbeatRequest>,
@@ -882,6 +948,30 @@ impl ProjectService for ProjectServiceImpl {
 
         match self.priority_manager.heartbeat(&req.project_id).await {
             Ok(acknowledged) => {
+                // Activity inheritance: Update last_activity_at for project and all submodules
+                // This updates watch_folders table per Task 19 specification
+                if acknowledged {
+                    match self.state_manager.heartbeat_project_by_tenant_id(&req.project_id).await {
+                        Ok((affected, _watch_id)) => {
+                            if affected > 0 {
+                                debug!(
+                                    project_id = %req.project_id,
+                                    affected_folders = affected,
+                                    "Updated watch folder activity timestamps (activity inheritance)"
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            // Activity inheritance is best-effort, don't fail heartbeat
+                            debug!(
+                                project_id = %req.project_id,
+                                error = %e,
+                                "Failed to update watch folder activity (non-critical)"
+                            );
+                        }
+                    }
+                }
+
                 let response = HeartbeatResponse {
                     acknowledged,
                     next_heartbeat_by: Some(Self::next_heartbeat_deadline()),
@@ -1264,6 +1354,7 @@ mod tests {
         // Service with custom delay (default is 60s)
         let service = ProjectServiceImpl {
             priority_manager: PriorityManager::new(pool.clone()),
+            state_manager: DaemonStateManager::with_pool(pool.clone()),
             db_pool: pool,
             lsp_manager: None,
             language_detector: Arc::new(ProjectLanguageDetector::new()),
@@ -1296,6 +1387,7 @@ mod tests {
 
         let service = ProjectServiceImpl {
             priority_manager: PriorityManager::new(pool.clone()),
+            state_manager: DaemonStateManager::with_pool(pool.clone()),
             db_pool: pool,
             lsp_manager: None,
             language_detector: Arc::new(ProjectLanguageDetector::new()),
@@ -1362,6 +1454,7 @@ mod tests {
 
         let service = ProjectServiceImpl {
             priority_manager: PriorityManager::new(pool.clone()),
+            state_manager: DaemonStateManager::with_pool(pool.clone()),
             db_pool: pool.clone(),
             lsp_manager: None,
             language_detector: Arc::new(ProjectLanguageDetector::new()),
@@ -1396,6 +1489,7 @@ mod tests {
 
         let service = ProjectServiceImpl {
             priority_manager: PriorityManager::new(pool.clone()),
+            state_manager: DaemonStateManager::with_pool(pool.clone()),
             db_pool: pool,
             lsp_manager: None,
             language_detector: Arc::new(ProjectLanguageDetector::new()),
@@ -1419,6 +1513,7 @@ mod tests {
 
         let service = ProjectServiceImpl {
             priority_manager: PriorityManager::new(pool.clone()),
+            state_manager: DaemonStateManager::with_pool(pool.clone()),
             db_pool: pool,
             lsp_manager: None,
             language_detector: Arc::new(ProjectLanguageDetector::new()),

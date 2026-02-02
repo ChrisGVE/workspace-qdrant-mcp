@@ -238,6 +238,14 @@ impl DaemonStateManager {
         Ok(Self { pool })
     }
 
+    /// Create a daemon state manager from an existing pool
+    ///
+    /// Use this when you already have a database pool (e.g., in gRPC services)
+    /// and don't want to create a new connection.
+    pub fn with_pool(pool: SqlitePool) -> Self {
+        Self { pool }
+    }
+
     /// Initialize the database schema
     ///
     /// Per ADR-003, the daemon owns the SQLite database and is responsible for:
@@ -844,6 +852,115 @@ impl DaemonStateManager {
         .await?;
 
         Ok(result.rows_affected())
+    }
+
+    /// Get watch folder by tenant_id (project_id for projects, library_name for libraries)
+    /// Returns the first matching top-level watch (not a submodule)
+    pub async fn get_watch_folder_by_tenant_id(
+        &self,
+        tenant_id: &str,
+        collection: &str,
+    ) -> DaemonStateResult<Option<WatchFolderRecord>> {
+        let row = sqlx::query(
+            r#"
+            SELECT watch_id, path, collection, tenant_id,
+                   parent_watch_id, submodule_path,
+                   git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                   library_mode,
+                   follow_symlinks, enabled, cleanup_on_disable,
+                   created_at, updated_at, last_scan
+            FROM watch_folders
+            WHERE tenant_id = ?1 AND collection = ?2 AND parent_watch_id IS NULL
+            LIMIT 1
+            "#,
+        )
+        .bind(tenant_id)
+        .bind(collection)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        match row {
+            Some(row) => Ok(Some(self.row_to_watch_folder(&row)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Activate a project by tenant_id (project_id)
+    /// Finds the watch folder and activates the entire project group
+    /// Returns (rows_affected, watch_id used)
+    pub async fn activate_project_by_tenant_id(
+        &self,
+        tenant_id: &str,
+    ) -> DaemonStateResult<(u64, Option<String>)> {
+        // Find the main watch folder for this tenant
+        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, "projects").await?;
+
+        match watch_folder {
+            Some(folder) => {
+                let affected = self.activate_project_group(&folder.watch_id).await?;
+                Ok((affected, Some(folder.watch_id)))
+            }
+            None => Ok((0, None)),
+        }
+    }
+
+    /// Deactivate a project by tenant_id (project_id)
+    /// Finds the watch folder and deactivates the entire project group
+    /// Returns (rows_affected, watch_id used)
+    pub async fn deactivate_project_by_tenant_id(
+        &self,
+        tenant_id: &str,
+    ) -> DaemonStateResult<(u64, Option<String>)> {
+        // Find the main watch folder for this tenant
+        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, "projects").await?;
+
+        match watch_folder {
+            Some(folder) => {
+                let affected = self.deactivate_project_group(&folder.watch_id).await?;
+                Ok((affected, Some(folder.watch_id)))
+            }
+            None => Ok((0, None)),
+        }
+    }
+
+    /// Update last_activity_at for a project and all related watches (heartbeat)
+    /// This refreshes the activity timestamp without changing is_active status
+    pub async fn heartbeat_project_group(&self, watch_id: &str) -> DaemonStateResult<u64> {
+        let result = sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE watch_id = ?1
+               OR parent_watch_id = ?1
+               OR watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
+               OR parent_watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
+            "#,
+        )
+        .bind(watch_id)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.rows_affected())
+    }
+
+    /// Update heartbeat by tenant_id (project_id)
+    /// Finds the watch folder and updates last_activity_at for the entire project group
+    /// Returns (rows_affected, watch_id used)
+    pub async fn heartbeat_project_by_tenant_id(
+        &self,
+        tenant_id: &str,
+    ) -> DaemonStateResult<(u64, Option<String>)> {
+        // Find the main watch folder for this tenant
+        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, "projects").await?;
+
+        match watch_folder {
+            Some(folder) => {
+                let affected = self.heartbeat_project_group(&folder.watch_id).await?;
+                Ok((affected, Some(folder.watch_id)))
+            }
+            None => Ok((0, None)),
+        }
     }
 
     /// Update watch folder enabled status
@@ -1542,5 +1659,392 @@ mod tests {
         // Verify last_scan is now set
         let retrieved = manager.get_watch_folder("scan-test").await.unwrap().unwrap();
         assert!(retrieved.last_scan.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_get_watch_folder_by_tenant_id() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_tenant_lookup.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Create a project watch folder
+        let record = WatchFolderRecord {
+            watch_id: "watch-001".to_string(),
+            path: "/projects/myproject".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "abc123def456".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: Some("https://github.com/user/myproject.git".to_string()),
+            remote_hash: Some("abc123hash".to_string()),
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&record).await.unwrap();
+
+        // Look up by tenant_id
+        let found = manager.get_watch_folder_by_tenant_id("abc123def456", "projects")
+            .await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().watch_id, "watch-001");
+
+        // Look up non-existent tenant_id
+        let not_found = manager.get_watch_folder_by_tenant_id("nonexistent", "projects")
+            .await.unwrap();
+        assert!(not_found.is_none());
+
+        // Look up wrong collection
+        let wrong_collection = manager.get_watch_folder_by_tenant_id("abc123def456", "libraries")
+            .await.unwrap();
+        assert!(wrong_collection.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_activate_project_by_tenant_id() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_tenant_activate.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Create parent project
+        let parent = WatchFolderRecord {
+            watch_id: "parent-001".to_string(),
+            path: "/projects/parent".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "parent-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&parent).await.unwrap();
+
+        // Create submodule
+        let submodule = WatchFolderRecord {
+            watch_id: "submodule-001".to_string(),
+            path: "/projects/parent/sub".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "sub-tenant".to_string(),
+            parent_watch_id: Some("parent-001".to_string()),
+            submodule_path: Some("sub".to_string()),
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&submodule).await.unwrap();
+
+        // Activate by tenant_id
+        let (affected, watch_id) = manager.activate_project_by_tenant_id("parent-tenant")
+            .await.unwrap();
+
+        assert_eq!(affected, 2); // Parent and submodule
+        assert_eq!(watch_id, Some("parent-001".to_string()));
+
+        // Verify both are active
+        let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
+        let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+        assert!(parent_record.is_active);
+        assert!(submodule_record.is_active);
+        assert!(parent_record.last_activity_at.is_some());
+        assert!(submodule_record.last_activity_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_deactivate_project_by_tenant_id() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_tenant_deactivate.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Create parent project (active)
+        let parent = WatchFolderRecord {
+            watch_id: "parent-001".to_string(),
+            path: "/projects/parent".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "parent-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: Some(Utc::now()),
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&parent).await.unwrap();
+
+        // Create submodule (active)
+        let submodule = WatchFolderRecord {
+            watch_id: "submodule-001".to_string(),
+            path: "/projects/parent/sub".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "sub-tenant".to_string(),
+            parent_watch_id: Some("parent-001".to_string()),
+            submodule_path: Some("sub".to_string()),
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: Some(Utc::now()),
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&submodule).await.unwrap();
+
+        // Deactivate by tenant_id
+        let (affected, watch_id) = manager.deactivate_project_by_tenant_id("parent-tenant")
+            .await.unwrap();
+
+        assert_eq!(affected, 2); // Parent and submodule
+        assert_eq!(watch_id, Some("parent-001".to_string()));
+
+        // Verify both are inactive
+        let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
+        let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+        assert!(!parent_record.is_active);
+        assert!(!submodule_record.is_active);
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_project_group() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_heartbeat.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Create parent project
+        let parent = WatchFolderRecord {
+            watch_id: "parent-001".to_string(),
+            path: "/projects/parent".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "parent-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: None, // No activity yet
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&parent).await.unwrap();
+
+        // Create submodule
+        let submodule = WatchFolderRecord {
+            watch_id: "submodule-001".to_string(),
+            path: "/projects/parent/sub".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "sub-tenant".to_string(),
+            parent_watch_id: Some("parent-001".to_string()),
+            submodule_path: Some("sub".to_string()),
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: None, // No activity yet
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&submodule).await.unwrap();
+
+        // Send heartbeat
+        let affected = manager.heartbeat_project_group("parent-001").await.unwrap();
+        assert_eq!(affected, 2); // Parent and submodule
+
+        // Verify both have activity timestamps
+        let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
+        let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+        assert!(parent_record.last_activity_at.is_some());
+        assert!(submodule_record.last_activity_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_heartbeat_project_by_tenant_id() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_heartbeat_tenant.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Create parent project
+        let parent = WatchFolderRecord {
+            watch_id: "parent-001".to_string(),
+            path: "/projects/parent".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "parent-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&parent).await.unwrap();
+
+        // Create submodule
+        let submodule = WatchFolderRecord {
+            watch_id: "submodule-001".to_string(),
+            path: "/projects/parent/sub".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "sub-tenant".to_string(),
+            parent_watch_id: Some("parent-001".to_string()),
+            submodule_path: Some("sub".to_string()),
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&submodule).await.unwrap();
+
+        // Heartbeat by tenant_id
+        let (affected, watch_id) = manager.heartbeat_project_by_tenant_id("parent-tenant")
+            .await.unwrap();
+
+        assert_eq!(affected, 2); // Parent and submodule
+        assert_eq!(watch_id, Some("parent-001".to_string()));
+
+        // Verify both have activity timestamps
+        let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
+        let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
+        assert!(parent_record.last_activity_at.is_some());
+        assert!(submodule_record.last_activity_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_activate_nonexistent_tenant_id() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_nonexistent.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Activate non-existent tenant should return 0 affected
+        let (affected, watch_id) = manager.activate_project_by_tenant_id("nonexistent")
+            .await.unwrap();
+
+        assert_eq!(affected, 0);
+        assert!(watch_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_with_pool_constructor() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_with_pool.db");
+
+        // Create manager with new() to get the pool set up
+        let manager1 = DaemonStateManager::new(&db_path).await.unwrap();
+        manager1.initialize().await.unwrap();
+
+        // Create a watch folder
+        let record = WatchFolderRecord {
+            watch_id: "test-001".to_string(),
+            path: "/projects/test".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "test-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager1.store_watch_folder(&record).await.unwrap();
+
+        // Create another manager using with_pool - simulate sharing pool
+        // Note: This simulates the gRPC service scenario
+        let connect_options = SqliteConnectOptions::new()
+            .filename(&db_path)
+            .create_if_missing(false);
+
+        let pool = SqlitePoolOptions::new()
+            .max_connections(5)
+            .connect_with(connect_options)
+            .await
+            .unwrap();
+
+        let manager2 = DaemonStateManager::with_pool(pool);
+
+        // Should be able to read the data
+        let found = manager2.get_watch_folder("test-001").await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().tenant_id, "test-tenant");
     }
 }
