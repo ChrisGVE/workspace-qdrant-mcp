@@ -21,13 +21,12 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::{RwLock, Mutex};
+use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::{
-    Language, LspConfig, LspError, LspResult, LspServerManager,
+    Language, LspConfig, LspError,
     LspServerDetector, ServerInstance, ServerStatus,
 };
 
@@ -507,6 +506,46 @@ impl LanguageServerManager {
         Ok(())
     }
 
+    /// Find a running server instance for a file based on its language
+    async fn find_server_for_file(
+        &self,
+        project_id: &str,
+        file: &Path,
+    ) -> Option<Arc<tokio::sync::Mutex<ServerInstance>>> {
+        // Determine language from file extension
+        let language = file.extension()
+            .and_then(|ext| ext.to_str())
+            .map(Language::from_extension)?;
+
+        // Look for a running instance for this project and language
+        let key = ProjectLanguageKey::new(project_id, language);
+        let instances = self.instances.read().await;
+        instances.get(&key).cloned()
+    }
+
+    /// Convert file path to LSP URI
+    fn file_to_uri(file: &Path) -> String {
+        format!("file://{}", file.display())
+    }
+
+    /// Parse LSP Location response into Reference
+    fn parse_location(location: &serde_json::Value) -> Option<Reference> {
+        let uri = location.get("uri")?.as_str()?;
+        let range = location.get("range")?;
+        let start = range.get("start")?;
+
+        // Extract file path from URI
+        let file = uri.strip_prefix("file://").unwrap_or(uri);
+
+        Some(Reference {
+            file: file.to_string(),
+            line: start.get("line")?.as_u64()? as u32,
+            column: start.get("character")?.as_u64()? as u32,
+            end_line: range.get("end").and_then(|e| e.get("line")).and_then(|l| l.as_u64()).map(|l| l as u32),
+            end_column: range.get("end").and_then(|e| e.get("character")).and_then(|c| c.as_u64()).map(|c| c as u32),
+        })
+    }
+
     /// Get references for a symbol at a specific position
     pub async fn get_references(
         &self,
@@ -523,21 +562,146 @@ impl LanguageServerManager {
             }
         }
 
-        // In full implementation, we would:
-        // 1. Find the project containing this file
-        // 2. Find the running server for the file's language
-        // 3. Send textDocument/references request
-        // 4. Parse the response
-        // 5. Cache and return results
+        // Try to find a server for this file
+        // We need to know the project_id - for now, check all projects
+        let instances = self.instances.read().await;
+        let file_language = file.extension()
+            .and_then(|ext| ext.to_str())
+            .map(Language::from_extension);
+
+        let server_instance = if let Some(language) = file_language {
+            // Find any instance that matches this language
+            instances.iter()
+                .find(|(k, _)| k.language == language)
+                .map(|(_, v)| v.clone())
+        } else {
+            None
+        };
+
+        drop(instances);
+
+        let Some(instance) = server_instance else {
+            tracing::debug!(
+                file = %file.display(),
+                "No LSP server available for file"
+            );
+            return Ok(Vec::new());
+        };
+
+        // Prepare textDocument/references request
+        let params = serde_json::json!({
+            "textDocument": {
+                "uri": Self::file_to_uri(file)
+            },
+            "position": {
+                "line": line,
+                "character": column
+            },
+            "context": {
+                "includeDeclaration": true
+            }
+        });
+
+        // Send request
+        let inst = instance.lock().await;
+        let rpc_client = inst.rpc_client();
+
+        let response = match rpc_client.send_request("textDocument/references", params).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                tracing::debug!(
+                    file = %file.display(),
+                    error = %e,
+                    "Failed to get references from LSP"
+                );
+                return Ok(Vec::new());
+            }
+        };
+
+        // Parse response
+        let references: Vec<Reference> = if let Some(result) = response.result {
+            if let Some(locations) = result.as_array() {
+                locations.iter()
+                    .filter_map(|loc| Self::parse_location(loc))
+                    .collect()
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
 
         tracing::debug!(
             file = %file.display(),
             line = line,
             column = column,
-            "References query (not yet implemented)"
+            count = references.len(),
+            "Got references from LSP"
         );
 
-        Ok(Vec::new())
+        // Cache the result
+        if !references.is_empty() {
+            let mut cache = self.cache.write().await;
+            cache.insert(cache_key, LspEnrichment {
+                references: references.clone(),
+                type_info: None,
+                resolved_imports: Vec::new(),
+                definition: None,
+                enrichment_status: EnrichmentStatus::Success,
+                error_message: None,
+            });
+        }
+
+        Ok(references)
+    }
+
+    /// Parse hover response into TypeInfo
+    fn parse_hover_response(hover: &serde_json::Value) -> Option<TypeInfo> {
+        let contents = hover.get("contents")?;
+
+        // Handle MarkupContent format
+        let type_signature = if contents.is_object() {
+            contents.get("value")?.as_str()?.to_string()
+        } else if contents.is_string() {
+            contents.as_str()?.to_string()
+        } else if contents.is_array() {
+            // Handle MarkedString[] format
+            contents.as_array()?
+                .iter()
+                .filter_map(|c| {
+                    if c.is_string() {
+                        c.as_str().map(|s| s.to_string())
+                    } else {
+                        c.get("value").and_then(|v| v.as_str()).map(|s| s.to_string())
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            return None;
+        };
+
+        // Try to extract kind from the type signature
+        let kind = if type_signature.contains("fn ") || type_signature.contains("function") {
+            "function"
+        } else if type_signature.contains("struct ") || type_signature.contains("class") {
+            "class"
+        } else if type_signature.contains("trait ") || type_signature.contains("interface") {
+            "interface"
+        } else if type_signature.contains("type ") {
+            "type"
+        } else if type_signature.contains("const ") || type_signature.contains("let ") {
+            "variable"
+        } else {
+            "unknown"
+        };
+
+        Some(TypeInfo {
+            type_signature,
+            documentation: None, // Could be extracted from contents if present
+            kind: kind.to_string(),
+            container: None,
+        })
     }
 
     /// Get type information for a symbol at a specific position
@@ -556,21 +720,167 @@ impl LanguageServerManager {
             }
         }
 
-        // In full implementation, we would:
-        // 1. Find the project containing this file
-        // 2. Find the running server for the file's language
-        // 3. Send textDocument/hover request
-        // 4. Parse the response for type info
-        // 5. Cache and return results
+        // Try to find a server for this file
+        let instances = self.instances.read().await;
+        let file_language = file.extension()
+            .and_then(|ext| ext.to_str())
+            .map(Language::from_extension);
+
+        let server_instance = if let Some(language) = file_language {
+            instances.iter()
+                .find(|(k, _)| k.language == language)
+                .map(|(_, v)| v.clone())
+        } else {
+            None
+        };
+
+        drop(instances);
+
+        let Some(instance) = server_instance else {
+            tracing::debug!(
+                file = %file.display(),
+                "No LSP server available for file"
+            );
+            return Ok(None);
+        };
+
+        // Prepare textDocument/hover request
+        let params = serde_json::json!({
+            "textDocument": {
+                "uri": Self::file_to_uri(file)
+            },
+            "position": {
+                "line": line,
+                "character": column
+            }
+        });
+
+        // Send request
+        let inst = instance.lock().await;
+        let rpc_client = inst.rpc_client();
+
+        let response = match rpc_client.send_request("textDocument/hover", params).await {
+            Ok(resp) => resp,
+            Err(e) => {
+                tracing::debug!(
+                    file = %file.display(),
+                    error = %e,
+                    "Failed to get hover info from LSP"
+                );
+                return Ok(None);
+            }
+        };
+
+        // Parse response
+        let type_info = response.result
+            .as_ref()
+            .and_then(|r| Self::parse_hover_response(r));
 
         tracing::debug!(
             file = %file.display(),
             line = line,
             column = column,
-            "Type info query (not yet implemented)"
+            has_type_info = type_info.is_some(),
+            "Got type info from LSP"
         );
 
-        Ok(None)
+        // Cache the result
+        if type_info.is_some() {
+            let mut cache = self.cache.write().await;
+            cache.insert(cache_key, LspEnrichment {
+                references: Vec::new(),
+                type_info: type_info.clone(),
+                resolved_imports: Vec::new(),
+                definition: None,
+                enrichment_status: EnrichmentStatus::Success,
+                error_message: None,
+            });
+        }
+
+        Ok(type_info)
+    }
+
+    /// Parse a definition location into a ResolvedImport
+    fn parse_definition_response(
+        import_name: &str,
+        definition: Option<&serde_json::Value>,
+    ) -> ResolvedImport {
+        let (target_file, resolved) = if let Some(def) = definition {
+            // Handle Location or Location[] response
+            let location = if def.is_array() {
+                def.as_array().and_then(|arr| arr.first())
+            } else {
+                Some(def)
+            };
+
+            if let Some(loc) = location {
+                let uri = loc.get("uri").and_then(|u| u.as_str());
+                let target = uri.map(|u| u.strip_prefix("file://").unwrap_or(u).to_string());
+                (target, uri.is_some())
+            } else {
+                (None, false)
+            }
+        } else {
+            (None, false)
+        };
+
+        // Determine if stdlib based on path patterns
+        let is_stdlib = target_file.as_ref()
+            .map(|p| {
+                p.contains("/site-packages/") ||
+                p.contains("/.rustup/") ||
+                p.contains("/lib/rustlib/") ||
+                p.contains("/node_modules/@types/") ||
+                p.contains("/usr/lib/") ||
+                p.contains("/Library/Developer/")
+            })
+            .unwrap_or(false);
+
+        ResolvedImport {
+            import_name: import_name.to_string(),
+            target_file,
+            target_symbol: None, // Would require additional parsing
+            is_stdlib,
+            resolved,
+        }
+    }
+
+    /// Extract import statements from file content (basic pattern matching)
+    fn extract_imports(content: &str, language: &Language) -> Vec<String> {
+        let mut imports = Vec::new();
+
+        let import_patterns = match language {
+            Language::Python => vec![
+                (r"^import\s+(\S+)", 1),
+                (r"^from\s+(\S+)\s+import", 1),
+            ],
+            Language::Rust => vec![
+                (r"^use\s+([^;]+)", 1),
+            ],
+            Language::TypeScript | Language::JavaScript => vec![
+                (r#"import\s+.*\s+from\s+['"]([^'"]+)['"]"#, 1),
+                (r#"require\s*\(\s*['"]([^'"]+)['"]"#, 1),
+            ],
+            Language::Go => vec![
+                (r#"import\s+["']([^"']+)["']"#, 1),
+                (r#"^\s*"([^"]+)"$"#, 1), // Inside import block
+            ],
+            _ => vec![],
+        };
+
+        for line in content.lines() {
+            for (pattern, group) in &import_patterns {
+                if let Ok(re) = regex::Regex::new(pattern) {
+                    if let Some(captures) = re.captures(line) {
+                        if let Some(import) = captures.get(*group) {
+                            imports.push(import.as_str().to_string());
+                        }
+                    }
+                }
+            }
+        }
+
+        imports
     }
 
     /// Resolve imports in a file
@@ -587,19 +897,136 @@ impl LanguageServerManager {
             }
         }
 
-        // In full implementation, we would:
-        // 1. Parse the file to find import statements
-        // 2. For each import, send textDocument/definition request
-        // 3. Collect resolved locations
-        // 4. Determine if stdlib based on resolved path
-        // 5. Cache and return results
+        // Try to find a server for this file
+        let instances = self.instances.read().await;
+        let file_language = file.extension()
+            .and_then(|ext| ext.to_str())
+            .map(Language::from_extension);
+
+        let Some(language) = file_language else {
+            return Ok(Vec::new());
+        };
+
+        let server_instance = instances.iter()
+            .find(|(k, _)| k.language == language)
+            .map(|(_, v)| v.clone());
+
+        drop(instances);
+
+        // Read file content to extract imports
+        let content = match tokio::fs::read_to_string(file).await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::debug!(
+                    file = %file.display(),
+                    error = %e,
+                    "Failed to read file for import extraction"
+                );
+                return Ok(Vec::new());
+            }
+        };
+
+        // Extract import statements
+        let import_names = Self::extract_imports(&content, &language);
+        if import_names.is_empty() {
+            return Ok(Vec::new());
+        }
 
         tracing::debug!(
             file = %file.display(),
-            "Import resolution query (not yet implemented)"
+            imports_found = import_names.len(),
+            "Extracted imports from file"
         );
 
-        Ok(Vec::new())
+        let mut resolved_imports = Vec::new();
+
+        // If we have an LSP server, try to resolve each import
+        if let Some(instance) = server_instance {
+            let inst = instance.lock().await;
+            let rpc_client = inst.rpc_client();
+
+            // For each import, try to find its definition
+            // We approximate by looking at lines that contain the import
+            for (line_idx, line) in content.lines().enumerate() {
+                for import_name in &import_names {
+                    if line.contains(import_name) {
+                        // Find the column where the import name starts
+                        let column = line.find(import_name).unwrap_or(0) as u32;
+
+                        // Send textDocument/definition request
+                        let params = serde_json::json!({
+                            "textDocument": {
+                                "uri": Self::file_to_uri(file)
+                            },
+                            "position": {
+                                "line": line_idx as u32,
+                                "character": column
+                            }
+                        });
+
+                        match rpc_client.send_request("textDocument/definition", params).await {
+                            Ok(response) => {
+                                let resolved = Self::parse_definition_response(
+                                    import_name,
+                                    response.result.as_ref()
+                                );
+                                resolved_imports.push(resolved);
+                            }
+                            Err(e) => {
+                                tracing::debug!(
+                                    import = import_name,
+                                    error = %e,
+                                    "Failed to resolve import via LSP"
+                                );
+                                // Add unresolved import
+                                resolved_imports.push(ResolvedImport {
+                                    import_name: import_name.clone(),
+                                    target_file: None,
+                                    target_symbol: None,
+                                    is_stdlib: false,
+                                    resolved: false,
+                                });
+                            }
+                        }
+
+                        break; // Only resolve once per import name
+                    }
+                }
+            }
+        } else {
+            // No LSP server available, return unresolved imports
+            for import_name in import_names {
+                resolved_imports.push(ResolvedImport {
+                    import_name,
+                    target_file: None,
+                    target_symbol: None,
+                    is_stdlib: false,
+                    resolved: false,
+                });
+            }
+        }
+
+        tracing::debug!(
+            file = %file.display(),
+            resolved = resolved_imports.iter().filter(|i| i.resolved).count(),
+            total = resolved_imports.len(),
+            "Import resolution complete"
+        );
+
+        // Cache the result
+        if !resolved_imports.is_empty() {
+            let mut cache = self.cache.write().await;
+            cache.insert(cache_key, LspEnrichment {
+                references: Vec::new(),
+                type_info: None,
+                resolved_imports: resolved_imports.clone(),
+                definition: None,
+                enrichment_status: EnrichmentStatus::Success,
+                error_message: None,
+            });
+        }
+
+        Ok(resolved_imports)
     }
 
     /// Enrich a semantic chunk with LSP data
