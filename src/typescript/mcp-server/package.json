@@ -17,7 +17,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "npm run clean && tsc",
+    "build": "npm run clean && tsc && npm run copy:proto",
+    "copy:proto": "mkdir -p dist/proto && cp src/proto/*.proto dist/proto/",
     "build:watch": "tsc --watch",
     "clean": "rm -rf dist",
     "dev": "tsx watch src/index.ts",
