@@ -118,8 +118,16 @@ export class StoreTool {
       // Projects collection - use projectId or auto-detect from current project
       let effectiveProjectId = projectId?.trim();
       if (!effectiveProjectId) {
-        // Auto-detect current project
+        // Try to get project ID from database first
         effectiveProjectId = await this.projectDetector.getCurrentProjectId() ?? undefined;
+
+        // Fallback: use project root path as tenant_id (daemon will reconcile)
+        if (!effectiveProjectId) {
+          const projectRoot = this.projectDetector.findProjectRoot(process.cwd());
+          if (projectRoot) {
+            effectiveProjectId = projectRoot;
+          }
+        }
       }
       if (!effectiveProjectId) {
         return {
