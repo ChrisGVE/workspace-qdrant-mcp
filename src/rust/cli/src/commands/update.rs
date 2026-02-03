@@ -34,13 +34,21 @@ pub struct UpdateArgs {
     /// Install a specific version
     #[arg(short = 'V', long)]
     version: Option<String>,
+
+    /// Update channel (stable, beta, rc, alpha)
+    #[arg(short, long, default_value = "stable")]
+    channel: String,
 }
 
 /// Update subcommands
 #[derive(Subcommand)]
 enum UpdateCommand {
     /// Check for updates without installing
-    Check,
+    Check {
+        /// Update channel (stable, beta, rc, alpha)
+        #[arg(short, long, default_value = "stable")]
+        channel: String,
+    },
 
     /// Install the latest version (or specified version)
     Install {
@@ -51,6 +59,10 @@ enum UpdateCommand {
         /// Install a specific version
         #[arg(short = 'V', long)]
         version: Option<String>,
+
+        /// Update channel (stable, beta, rc, alpha)
+        #[arg(short, long, default_value = "stable")]
+        channel: String,
     },
 }
 
@@ -115,31 +127,32 @@ fn get_checksum_filename() -> String {
 /// Execute update command
 pub async fn execute(args: UpdateArgs) -> Result<()> {
     match args.command {
-        Some(UpdateCommand::Check) => check().await,
-        Some(UpdateCommand::Install { force, version }) => {
-            install(force, version).await
+        Some(UpdateCommand::Check { channel }) => check(&channel).await,
+        Some(UpdateCommand::Install { force, version, channel }) => {
+            install(force, version, &channel).await
         }
         None => {
             // Default: check and install if update available
             if args.version.is_some() || args.force {
-                install(args.force, args.version).await
+                install(args.force, args.version, &args.channel).await
             } else {
-                check_and_install().await
+                check_and_install(&args.channel).await
             }
         }
     }
 }
 
 /// Check for updates
-async fn check() -> Result<()> {
+async fn check(channel: &str) -> Result<()> {
     output::section("Update Check");
 
     output::kv("Current version", CURRENT_VERSION);
     output::kv("Platform", get_target_triple());
+    output::kv("Channel", channel);
     output::separator();
 
     let client = create_http_client()?;
-    let release = fetch_latest_release(&client).await?;
+    let release = fetch_latest_release_for_channel(&client, channel).await?;
 
     let latest_version = parse_version(&release.tag_name)?;
     let current_version = Version::parse(CURRENT_VERSION)
@@ -170,15 +183,16 @@ async fn check() -> Result<()> {
 }
 
 /// Check and install if update available
-async fn check_and_install() -> Result<()> {
+async fn check_and_install(channel: &str) -> Result<()> {
     output::section("Update");
 
     output::kv("Current version", CURRENT_VERSION);
     output::kv("Platform", get_target_triple());
+    output::kv("Channel", channel);
     output::separator();
 
     let client = create_http_client()?;
-    let release = fetch_latest_release(&client).await?;
+    let release = fetch_latest_release_for_channel(&client, channel).await?;
 
     let latest_version = parse_version(&release.tag_name)?;
     let current_version = Version::parse(CURRENT_VERSION)
@@ -198,11 +212,12 @@ async fn check_and_install() -> Result<()> {
 }
 
 /// Install update (with optional force and version)
-async fn install(force: bool, version: Option<String>) -> Result<()> {
+async fn install(force: bool, version: Option<String>, channel: &str) -> Result<()> {
     output::section("Install Update");
 
     output::kv("Current version", CURRENT_VERSION);
     output::kv("Platform", get_target_triple());
+    output::kv("Channel", channel);
 
     let client = create_http_client()?;
 
@@ -211,7 +226,7 @@ async fn install(force: bool, version: Option<String>) -> Result<()> {
         fetch_specific_release(&client, &ver).await?
     } else {
         output::info("Fetching latest release...");
-        fetch_latest_release(&client).await?
+        fetch_latest_release_for_channel(&client, channel).await?
     };
 
     output::separator();
@@ -342,6 +357,52 @@ async fn fetch_latest_release(client: &Client) -> Result<GitHubRelease> {
     response.json()
         .await
         .context("Failed to parse GitHub response")
+}
+
+/// Check if a release matches the requested channel
+fn matches_channel(release: &GitHubRelease, channel: &str) -> bool {
+    match channel.to_lowercase().as_str() {
+        "stable" => !release.prerelease && !release.draft,
+        "beta" => release.tag_name.contains("-beta"),
+        "rc" => release.tag_name.contains("-rc"),
+        "alpha" => release.tag_name.contains("-alpha"),
+        _ => !release.prerelease && !release.draft,  // Default to stable
+    }
+}
+
+/// Fetch the latest release for a specific channel
+async fn fetch_latest_release_for_channel(client: &Client, channel: &str) -> Result<GitHubRelease> {
+    // For stable channel, use the /latest endpoint (faster)
+    if channel.to_lowercase() == "stable" {
+        return fetch_latest_release(client).await;
+    }
+
+    // For other channels, fetch all releases and filter
+    let url = format!(
+        "https://api.github.com/repos/{}/releases?per_page=50",
+        GITHUB_REPO
+    );
+
+    let response = client.get(&url)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .await
+        .context("Failed to connect to GitHub")?;
+
+    if !response.status().is_success() {
+        bail!("GitHub API error: {}", response.status());
+    }
+
+    let releases: Vec<GitHubRelease> = response.json()
+        .await
+        .context("Failed to parse GitHub response")?;
+
+    // Find the first release matching the channel
+    releases
+        .into_iter()
+        .filter(|r| !r.draft && matches_channel(r, channel))
+        .next()
+        .context(format!("No releases found for channel: {}", channel))
 }
 
 /// Fetch a specific release from GitHub

@@ -1,0 +1,27 @@
+# Systemd user service file for memexd daemon
+#
+# This is the template used by 'wqm service install' for user services.
+# Install location: ~/.config/systemd/user/memexd.service
+#
+# Usage:
+#   systemctl --user enable memexd
+#   systemctl --user start memexd
+#   systemctl --user status memexd
+
+[Unit]
+Description=Workspace Qdrant MCP Daemon
+Documentation=https://github.com/ChrisGVE/workspace-qdrant-mcp
+After=default.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/memexd
+Restart=always
+RestartSec=5s
+
+# Environment
+Environment=RUST_LOG=info
+Environment=QDRANT_URL=http://localhost:6333
+
+[Install]
+WantedBy=default.target

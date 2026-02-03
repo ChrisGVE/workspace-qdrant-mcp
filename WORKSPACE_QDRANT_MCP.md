@@ -2396,7 +2396,28 @@ docker run -e QDRANT_URL -e QDRANT_API_KEY workspace-qdrant-mcp/daemon
 | `WQM_LOG_LEVEL` | `INFO` | Log level (DEBUG, INFO, WARN, ERROR) |
 | `WQM_GRPC_PORT` | `50051` | gRPC server port |
 
-> **[PLACEHOLDER]** Docker images are not yet published to a container registry.
+#### Docker Images
+
+Docker images are published to GitHub Container Registry on each release:
+
+```bash
+# Pull latest version
+docker pull ghcr.io/chrisgve/workspace-qdrant-mcp:latest
+
+# Pull specific version
+docker pull ghcr.io/chrisgve/workspace-qdrant-mcp:0.4.0
+docker pull ghcr.io/chrisgve/workspace-qdrant-mcp:0.4
+docker pull ghcr.io/chrisgve/workspace-qdrant-mcp:0
+
+# Run the daemon
+docker run -d \
+  -p 50051:50051 \
+  -e QDRANT_URL=http://host.docker.internal:6333 \
+  -v ~/.workspace-qdrant:/data \
+  ghcr.io/chrisgve/workspace-qdrant-mcp:latest
+```
+
+Available platforms: `linux/amd64`, `linux/arm64`
 
 ### Initial Configuration
 
@@ -2545,12 +2566,34 @@ journalctl --user -u memexd -f
 
 #### Windows
 
-> **[PLACEHOLDER]** Windows service support is planned but not yet implemented.
+Windows service support is available via `wqm service` commands:
 
-For now, run the daemon manually:
 ```powershell
+# Install as Windows service (requires Administrator)
+wqm service install
+
+# Start/stop/status
+wqm service start
+wqm service stop
+wqm service status
+
+# View logs
+wqm service logs --lines 50
+
+# Uninstall service
+wqm service uninstall
+```
+
+**Manual startup (without service):**
+```powershell
+# Run in foreground
+memexd.exe --foreground
+
+# Run as background process
 Start-Process -NoNewWindow memexd.exe
 ```
+
+> **Note:** Windows service management requires Administrator privileges. The service runs as LocalSystem by default.
 
 #### Health Checks
 
@@ -2694,14 +2737,40 @@ wqm service start
 
 #### Self-Update Command
 
-> **[PLACEHOLDER]** Self-update command is planned but not yet implemented.
+The `wqm update` command provides in-place binary updates:
 
 ```bash
-# Planned
-wqm update                        # Update to latest stable
-wqm update --channel beta         # Update to beta channel
-wqm update --version v0.5.0       # Update to specific version
+# Check for updates
+wqm update check
+
+# Update to latest stable version
+wqm update
+
+# Update to latest version in specific channel
+wqm update --channel stable       # Default: stable releases only
+wqm update --channel beta         # Include beta releases
+wqm update --channel rc           # Include release candidates
+wqm update --channel alpha        # Include alpha releases
+
+# Update to specific version
+wqm update --version v0.5.0
+
+# Force reinstall current version
+wqm update --force
+
+# Install specific version with force
+wqm update install --version v0.4.0 --force
 ```
+
+**Update process:**
+1. Fetches release info from GitHub API
+2. Downloads platform-specific binary
+3. Verifies SHA256 checksum
+4. Stops running daemon
+5. Replaces binary (with backup)
+6. Restarts daemon
+
+> **Note:** Updates require write permission to the installation directory. The daemon is automatically restarted after update.
 
 ### Troubleshooting
 

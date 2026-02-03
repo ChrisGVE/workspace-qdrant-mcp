@@ -130,6 +130,7 @@ async fn install() -> Result<()> {
     match get_service_manager() {
         ServiceManager::Launchctl => install_launchctl().await,
         ServiceManager::Systemd => install_systemd().await,
+        ServiceManager::WindowsService => install_windows_service().await,
         _ => {
             output::error("Service installation not supported on this platform");
             Ok(())
@@ -263,6 +264,86 @@ WantedBy=default.target
     Ok(())
 }
 
+#[cfg(windows)]
+async fn install_windows_service() -> Result<()> {
+    // Find daemon binary
+    let daemon_path = which::which(DAEMON_BINARY)
+        .unwrap_or_else(|_| {
+            // Try common Windows installation paths
+            let local_app_data = std::env::var("LOCALAPPDATA")
+                .unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
+            std::path::PathBuf::from(format!("{}\\wqm\\bin\\memexd.exe", local_app_data))
+        });
+
+    if !daemon_path.exists() {
+        output::error(format!("Daemon binary not found at: {}", daemon_path.display()));
+        output::info("Install the daemon first or ensure it's in PATH");
+        return Ok(());
+    }
+
+    output::info(format!("Using daemon binary: {}", daemon_path.display()));
+
+    // Check if service already exists
+    let check_status = Command::new("sc.exe")
+        .args(["query", "memexd"])
+        .output()?;
+
+    if check_status.status.success() {
+        output::warning("Service 'memexd' already exists");
+        output::info("To reinstall, first run: wqm service uninstall");
+        return Ok(());
+    }
+
+    // Create the service using sc.exe
+    let status = Command::new("sc.exe")
+        .args([
+            "create",
+            "memexd",
+            &format!("binPath={}", daemon_path.display()),
+            "DisplayName=Workspace Qdrant MCP Daemon",
+            "start=auto",
+            "obj=LocalSystem",
+        ])
+        .status()?;
+
+    if status.success() {
+        output::success("Windows service 'memexd' created");
+
+        // Set service description
+        let _ = Command::new("sc.exe")
+            .args([
+                "description",
+                "memexd",
+                "Workspace Qdrant MCP Daemon - Document processing and embedding generation service",
+            ])
+            .status();
+
+        // Configure recovery options (restart on failure)
+        let _ = Command::new("sc.exe")
+            .args([
+                "failure",
+                "memexd",
+                "reset=86400",
+                "actions=restart/5000/restart/10000/restart/30000",
+            ])
+            .status();
+
+        output::success("Service configured with auto-restart on failure");
+        output::info("Start with: wqm service start");
+    } else {
+        output::error("Failed to create Windows service");
+        output::info("Make sure you're running as Administrator");
+    }
+
+    Ok(())
+}
+
+#[cfg(not(windows))]
+async fn install_windows_service() -> Result<()> {
+    output::error("Windows service installation only available on Windows");
+    Ok(())
+}
+
 async fn uninstall() -> Result<()> {
     output::info("Uninstalling daemon service...");
 
@@ -302,6 +383,34 @@ async fn uninstall() -> Result<()> {
                 output::success("Daemon service uninstalled");
             } else {
                 output::info("Service not installed");
+            }
+        }
+        ServiceManager::WindowsService => {
+            #[cfg(windows)]
+            {
+                // Stop the service first
+                let _ = Command::new("sc.exe")
+                    .args(["stop", "memexd"])
+                    .status();
+
+                // Wait for service to stop
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+
+                // Delete the service
+                let status = Command::new("sc.exe")
+                    .args(["delete", "memexd"])
+                    .status()?;
+
+                if status.success() {
+                    output::success("Windows service 'memexd' uninstalled");
+                } else {
+                    output::error("Failed to uninstall Windows service");
+                    output::info("Make sure you're running as Administrator");
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                output::error("Windows service uninstallation only available on Windows");
             }
         }
         _ => {
@@ -364,6 +473,31 @@ async fn start() -> Result<()> {
                 output::error("Failed to start daemon");
             }
         }
+        ServiceManager::WindowsService => {
+            #[cfg(windows)]
+            {
+                let status = Command::new("sc.exe")
+                    .args(["start", "memexd"])
+                    .status()?;
+
+                if status.success() {
+                    tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                    if is_daemon_running().await {
+                        output::success("Daemon started");
+                    } else {
+                        output::warning("Service started but daemon not responding yet");
+                        output::info("Try: wqm service status");
+                    }
+                } else {
+                    output::error("Failed to start daemon");
+                    output::info("Check if service is installed: wqm service status");
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                output::error("Windows service start only available on Windows");
+            }
+        }
         _ => {
             output::error("Service management not supported on this platform");
         }
@@ -411,9 +545,43 @@ async fn stop() -> Result<()> {
                 output::warning("Failed to stop daemon via systemd");
             }
         }
+        ServiceManager::WindowsService => {
+            #[cfg(windows)]
+            {
+                let status = Command::new("sc.exe")
+                    .args(["stop", "memexd"])
+                    .status()?;
+
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                if !is_daemon_running().await {
+                    output::success("Daemon stopped");
+                } else {
+                    // Try force kill as fallback
+                    let _ = Command::new("taskkill")
+                        .args(["/F", "/IM", "memexd.exe"])
+                        .status();
+
+                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+
+                    if !is_daemon_running().await {
+                        output::success("Daemon stopped (force kill)");
+                    } else {
+                        output::warning("Daemon may still be running");
+                    }
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                output::error("Windows service stop only available on Windows");
+            }
+        }
         _ => {
             // Fallback: try to kill by process name
+            #[cfg(unix)]
             let _ = Command::new("pkill").args(["-f", DAEMON_BINARY]).status();
+            #[cfg(windows)]
+            let _ = Command::new("taskkill").args(["/F", "/IM", "memexd.exe"]).status();
             output::info("Attempted to stop daemon");
         }
     }
