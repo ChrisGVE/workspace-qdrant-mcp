@@ -1558,15 +1558,21 @@ Semantic search with optional direct retrieval mode.
 ```python
 search(
     query: str,                      # Required: search query
-    collection: str,                 # Required: projects|libraries|memory
+    collection: str = "projects",    # projects|libraries|memory
     mode: str = "hybrid",            # hybrid|semantic|keyword|retrieve
     limit: int = 10,                 # Max results
     score_threshold: float = 0.3,    # Minimum similarity score (ignored in retrieve mode)
     # Collection-specific scope filters (see below)
-    scope: str = None,               # Scope within collection
+    scope: str = "project",          # Scope within collection
     branch: str = None,              # For projects: branch filter
     project_id: str = None,          # For projects: specific project
-    library_name: str = None         # For libraries: specific library
+    library_name: str = None,        # For libraries: specific library
+    # Content type filters
+    file_type: str = None,           # Filter by document type (see below)
+    tag: str = None,                 # Tag filter (dot-separated hierarchy)
+    # Cross-collection options
+    include_libraries: bool = False, # Also search libraries collection
+    include_deleted: bool = False    # Include deleted documents (libraries only)
 )
 ```
 
@@ -1576,6 +1582,21 @@ search(
 - `semantic`: Pure vector similarity
 - `keyword`: Keyword/exact matching
 - `retrieve`: Direct document access by ID or metadata (no ranking)
+
+**file_type values:**
+
+| Value    | Description                                |
+| -------- | ------------------------------------------ |
+| `code`   | Source code files (.rs, .py, .ts, etc.)    |
+| `doc`    | Documentation files (.md, .txt, .rst)      |
+| `test`   | Test files (test_*, *_test.*, etc.)        |
+| `config` | Configuration files (.yaml, .json, .toml)  |
+| `note`   | User notes and scratch content             |
+| `artifact`| Build outputs, generated files            |
+
+**include_libraries:**
+
+When `include_libraries=True`, search queries the `libraries` collection in addition to the primary collection. This enables cross-collection search for finding related documentation alongside project code. Results from both collections are fused using Reciprocal Rank Fusion.
 
 **Collection-specific scope:**
 
