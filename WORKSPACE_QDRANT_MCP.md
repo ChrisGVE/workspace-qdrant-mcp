@@ -1,7 +1,7 @@
 # workspace-qdrant-mcp Specification
 
-**Version:** 1.6.6
-**Date:** 2026-02-02
+**Version:** 1.6.7
+**Date:** 2026-02-03
 **Status:** Authoritative Specification
 **Supersedes:** CONSOLIDATED_PRD_V2.md, PRDv3.txt, PRDv3-snapshot1.txt
 
@@ -2082,6 +2082,654 @@ The daemon checks this table on startup and runs migrations if needed. Other com
 
 ---
 
+## Deployment and Installation
+
+This section documents the deployment architecture, platform support, installation methods, and operational procedures for workspace-qdrant-mcp.
+
+### Deployment Architecture Overview
+
+The system consists of three primary components that work together:
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      Claude Desktop / Claude Code               │
+│                         (MCP Client)                            │
+└─────────────────────┬───────────────────────────────────────────┘
+                      │ MCP Protocol (stdio)
+                      ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     MCP Server (TypeScript)                     │
+│                  src/typescript/mcp-server/                     │
+│         Exposes: search, retrieve, memory, store tools          │
+└──────────┬──────────────────────────────────────────┬───────────┘
+           │ gRPC (localhost:50051)                   │ HTTP REST
+           ▼                                          ▼
+┌─────────────────────────┐              ┌────────────────────────┐
+│    Daemon (memexd)      │              │   Qdrant Vector DB     │
+│    Rust binary          │◄────────────►│   (localhost:6333)     │
+│                         │  Qdrant API  │                        │
+│  - File watching        │              │  Collections:          │
+│  - Queue processing     │              │  - projects (unified)  │
+│  - Code intelligence    │              │  - libraries (unified) │
+│  - Embedding generation │              │  - memory              │
+└──────────┬──────────────┘              └────────────────────────┘
+           │
+           ▼
+┌─────────────────────────┐
+│    SQLite Database      │
+│  ~/.workspace-qdrant/   │
+│      state.db           │
+│                         │
+│  - unified_queue        │
+│  - watch_folders        │
+│  - schema_version       │
+└─────────────────────────┘
+```
+
+**Deployment Modes:**
+
+| Mode | Qdrant Location | Use Case |
+|------|-----------------|----------|
+| All-in-One | Bundled in Docker | Development, testing |
+| Qdrant-External | Separate Docker container | Production self-hosted |
+| Qdrant-Local | Host-installed Qdrant | Development with persistence |
+| Qdrant-Cloud | Qdrant Cloud service | Production managed |
+
+### Platform Support Matrix
+
+The system supports 6 platform/architecture combinations:
+
+| Platform | Architecture | Target Triple | Notes |
+|----------|--------------|---------------|-------|
+| Linux | x86_64 | `x86_64-unknown-linux-gnu` | Primary CI/CD target |
+| Linux | ARM64 | `aarch64-unknown-linux-gnu` | AWS Graviton, Raspberry Pi |
+| macOS | Apple Silicon | `aarch64-apple-darwin` | M1/M2/M3 Macs |
+| macOS | Intel | `x86_64-apple-darwin` | Pre-2020 Macs |
+| Windows | x86_64 | `x86_64-pc-windows-msvc` | Windows 10/11 |
+| Windows | ARM64 | `aarch64-pc-windows-msvc` | Surface Pro X, ARM laptops |
+
+**Platform-Specific Notes:**
+
+- **Linux**: Uses `inotify` for file watching. Systemd user service for daemon management.
+- **macOS**: Uses `FSEvents` for file watching. Launchd plist for daemon management.
+- **Windows**: Uses `ReadDirectoryChangesW` for file watching. Service support planned.
+
+**ONNX Runtime Bundling:**
+
+The Rust daemon bundles ONNX Runtime for embedding generation:
+- Linux: Dynamic linking with bundled `.so` files
+- macOS: Framework bundle for both architectures
+- Windows: Bundled `.dll` files
+
+**Tree-sitter Grammar Compatibility:**
+
+Pre-compiled grammar libraries are included for each platform. Custom grammars can be loaded from `~/.workspace-qdrant/grammars/`.
+
+### Installation Methods
+
+#### Binary Releases (Recommended)
+
+Download pre-built binaries from GitHub Releases:
+
+```bash
+# Linux/macOS
+curl -fsSL https://github.com/[org]/workspace-qdrant-mcp/releases/latest/download/wqm-$(uname -s)-$(uname -m).tar.gz | tar xz
+sudo mv wqm /usr/local/bin/
+sudo mv memexd /usr/local/bin/
+
+# Windows (PowerShell)
+Invoke-WebRequest -Uri "https://github.com/[org]/workspace-qdrant-mcp/releases/latest/download/wqm-windows-x86_64.zip" -OutFile wqm.zip
+Expand-Archive wqm.zip -DestinationPath "$env:LOCALAPPDATA\Programs\wqm"
+# Add to PATH manually
+```
+
+**Release Assets:**
+
+Each release includes:
+- `wqm` - CLI binary
+- `memexd` - Daemon binary
+- `grammars/` - Pre-compiled tree-sitter grammars
+- `assets/` - Default configuration files
+
+#### Source Build
+
+For development or custom builds:
+
+```bash
+# Prerequisites
+# - Rust 1.75+ (rustup recommended)
+# - Node.js 18+ with npm
+# - Protocol Buffers compiler (protoc)
+
+# Clone and build
+git clone https://github.com/[org]/workspace-qdrant-mcp.git
+cd workspace-qdrant-mcp
+
+# Use the install script
+./install.sh                    # Interactive mode
+./install.sh --release          # Release build
+./install.sh --prefix=/usr/local # Custom install location
+./install.sh --no-daemon        # CLI only, no daemon
+
+# Or build manually
+cd src/rust/daemon && cargo build --release
+cd src/rust/cli && cargo build --release
+cd src/typescript/mcp-server && npm install && npm run build
+```
+
+**Install Script Options:**
+
+| Option | Description |
+|--------|-------------|
+| `--release` | Build with optimizations |
+| `--debug` | Build with debug symbols |
+| `--prefix=PATH` | Installation directory (default: `~/.local`) |
+| `--no-daemon` | Skip daemon build |
+| `--no-cli` | Skip CLI build |
+| `--no-mcp` | Skip MCP server build |
+
+#### npm Global Install (MCP Server Only)
+
+For MCP server without daemon:
+
+```bash
+npm install -g workspace-qdrant-mcp
+
+# Verify installation
+npx workspace-qdrant-mcp --version
+```
+
+> **Note:** The npm package only includes the MCP server. For full functionality, install the Rust daemon separately.
+
+#### Package Managers
+
+> **[PLACEHOLDER]** Package manager installations are planned but not yet available.
+
+**Homebrew (macOS/Linux):**
+```bash
+# Planned
+brew install workspace-qdrant-mcp
+```
+
+**apt (Debian/Ubuntu):**
+```bash
+# Planned
+sudo add-apt-repository ppa:workspace-qdrant-mcp/stable
+sudo apt update
+sudo apt install workspace-qdrant-mcp
+```
+
+**winget (Windows):**
+```powershell
+# Planned
+winget install workspace-qdrant-mcp
+```
+
+### Docker Deployment Options
+
+Four Docker deployment modes are supported:
+
+#### Mode 1: All-in-One (Development)
+
+Bundled Qdrant for quick setup:
+
+```yaml
+# docker-compose.dev.yml
+services:
+  memexd:
+    image: workspace-qdrant-mcp/daemon:latest
+    volumes:
+      - ~/.workspace-qdrant:/data
+      - ~/projects:/projects:ro
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+    depends_on:
+      - qdrant
+
+  qdrant:
+    image: qdrant/qdrant:v1.7.3
+    volumes:
+      - qdrant_data:/qdrant/storage
+```
+
+```bash
+docker-compose -f docker/docker-compose.dev.yml up -d
+```
+
+#### Mode 2: Qdrant-External (Production)
+
+Separate Qdrant container for isolation:
+
+```yaml
+# docker-compose.prod.yml
+services:
+  memexd:
+    image: workspace-qdrant-mcp/daemon:latest
+    environment:
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+```
+
+#### Mode 3: Qdrant-Local
+
+Use host-installed Qdrant:
+
+```bash
+# Install Qdrant on host
+docker run -p 6333:6333 qdrant/qdrant:v1.7.3
+
+# Run daemon pointing to host
+docker run -e QDRANT_URL=http://host.docker.internal:6333 workspace-qdrant-mcp/daemon
+```
+
+#### Mode 4: Qdrant-Cloud
+
+Connect to managed Qdrant Cloud:
+
+```bash
+# Set environment variables
+export QDRANT_URL=https://your-cluster.qdrant.io:6333
+export QDRANT_API_KEY=your-api-key
+
+# Run daemon
+docker run -e QDRANT_URL -e QDRANT_API_KEY workspace-qdrant-mcp/daemon
+```
+
+**Docker Environment Variables:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `QDRANT_URL` | `http://localhost:6333` | Qdrant server URL |
+| `QDRANT_API_KEY` | (none) | Qdrant API key |
+| `WQM_DATABASE_PATH` | `~/.workspace-qdrant/state.db` | SQLite database path |
+| `WQM_LOG_LEVEL` | `INFO` | Log level (DEBUG, INFO, WARN, ERROR) |
+| `WQM_GRPC_PORT` | `50051` | gRPC server port |
+
+> **[PLACEHOLDER]** Docker images are not yet published to a container registry.
+
+### Initial Configuration
+
+#### First-Run Setup
+
+On first run, the system initializes automatically:
+
+1. **Config file generation:**
+   ```bash
+   wqm config init                 # Generate default config
+   wqm config show                 # Display current config
+   wqm config edit                 # Open config in editor
+   ```
+
+2. **Config file locations (search order):**
+   - `~/.workspace-qdrant/config.yaml`
+   - `~/.config/workspace-qdrant/config.yaml`
+   - `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS)
+   - `%APPDATA%\workspace-qdrant\config.yaml` (Windows)
+
+3. **Qdrant connection validation:**
+   ```bash
+   wqm admin health               # Check Qdrant connectivity
+   wqm admin collections          # List collections
+   ```
+
+4. **SQLite database initialization:**
+   The daemon automatically creates `~/.workspace-qdrant/state.db` on first run with all required tables.
+
+#### MCP Client Configuration
+
+**Claude Desktop (`~/.config/claude/config.json`):**
+
+```json
+{
+  "mcpServers": {
+    "workspace-qdrant": {
+      "command": "npx",
+      "args": ["workspace-qdrant-mcp"],
+      "env": {
+        "QDRANT_URL": "http://localhost:6333"
+      }
+    }
+  }
+}
+```
+
+**Claude Code (`.mcp.json` in project root):**
+
+```json
+{
+  "mcpServers": {
+    "workspace-qdrant": {
+      "command": "npx",
+      "args": ["workspace-qdrant-mcp"],
+      "env": {
+        "QDRANT_URL": "http://localhost:6333"
+      }
+    }
+  }
+}
+```
+
+### Service Management
+
+The daemon (`memexd`) runs as a background service for continuous file watching and processing.
+
+#### CLI Commands
+
+```bash
+wqm service install              # Install service (platform-specific)
+wqm service start                # Start daemon
+wqm service stop                 # Stop daemon
+wqm service restart              # Restart daemon
+wqm service status               # Check daemon status
+wqm service logs                 # View daemon logs
+wqm service logs --follow        # Follow logs in real-time
+```
+
+#### macOS (launchd)
+
+The daemon installs as a launchd user agent:
+
+**Plist location:** `~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.workspace-qdrant.memexd</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/memexd</string>
+    </array>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>~/.workspace-qdrant/logs/memexd.log</string>
+    <key>StandardErrorPath</key>
+    <string>~/.workspace-qdrant/logs/memexd.err</string>
+</dict>
+</plist>
+```
+
+**Manual control:**
+```bash
+launchctl load ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
+launchctl unload ~/Library/LaunchAgents/com.workspace-qdrant.memexd.plist
+launchctl list | grep memexd
+```
+
+#### Linux (systemd)
+
+The daemon installs as a systemd user service:
+
+**Service file:** `~/.config/systemd/user/memexd.service`
+
+```ini
+[Unit]
+Description=Workspace Qdrant Daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/memexd
+Restart=on-failure
+RestartSec=5
+Environment=QDRANT_URL=http://localhost:6333
+
+[Install]
+WantedBy=default.target
+```
+
+**Manual control:**
+```bash
+systemctl --user daemon-reload
+systemctl --user enable memexd
+systemctl --user start memexd
+systemctl --user status memexd
+journalctl --user -u memexd -f
+```
+
+#### Windows
+
+> **[PLACEHOLDER]** Windows service support is planned but not yet implemented.
+
+For now, run the daemon manually:
+```powershell
+Start-Process -NoNewWindow memexd.exe
+```
+
+#### Health Checks
+
+```bash
+# Quick health check
+wqm admin health
+
+# Detailed diagnostics
+wqm admin health --verbose
+
+# Check specific components
+wqm admin health --component qdrant
+wqm admin health --component daemon
+wqm admin health --component database
+```
+
+**Health check output:**
+```
+Component       Status    Latency   Details
+─────────────────────────────────────────────
+Qdrant          healthy   12ms      v1.7.3, 3 collections
+Daemon          healthy   2ms       pid=12345, uptime=2h15m
+Database        healthy   1ms       23 watch folders, 156 queue items
+```
+
+### CI/CD and Release Process
+
+#### Version Tagging
+
+Semantic versioning with optional pre-release tags:
+
+| Pattern | Example | Description |
+|---------|---------|-------------|
+| `vX.Y.Z` | `v0.4.1` | Stable release |
+| `vX.Y.Z-rc.N` | `v0.5.0-rc.1` | Release candidate |
+| `vX.Y.Z-beta.N` | `v0.5.0-beta.1` | Beta release |
+| `vX.Y.Z-alpha.N` | `v0.5.0-alpha.1` | Alpha release |
+
+#### Release Workflow
+
+```
+Tag Push (vX.Y.Z)
+       │
+       ▼
+┌──────────────────┐
+│  Build Matrix    │  6 platform builds in parallel
+│  (GitHub Actions)│
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  Test Suite      │  Unit tests, integration tests
+│                  │  per platform
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  Create Release  │  Draft release with
+│                  │  changelog generation
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  Upload Assets   │  Binaries, checksums,
+│                  │  documentation
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  Publish Release │  Make release public
+└──────────────────┘
+```
+
+**GitHub Workflows:**
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `ci.yml` | Push, PR | Build and test |
+| `release.yml` | Tag push | Create release |
+| `update-grammars.yml` | Schedule | Update tree-sitter grammars |
+| `update-onnx.yml` | Schedule | Update ONNX Runtime |
+
+#### Automated Dependency Updates
+
+- **Tree-sitter grammars:** Weekly check for grammar updates
+- **ONNX Runtime:** Monthly check for new versions
+- **Rust dependencies:** Dependabot PRs for security updates
+
+### Upgrade and Migration
+
+#### Standard Upgrade
+
+```bash
+# Stop the daemon
+wqm service stop
+
+# Download new version
+curl -fsSL https://github.com/[org]/workspace-qdrant-mcp/releases/latest/download/wqm-$(uname -s)-$(uname -m).tar.gz | tar xz
+sudo mv wqm /usr/local/bin/
+sudo mv memexd /usr/local/bin/
+
+# Start the daemon (auto-migrates database)
+wqm service start
+
+# Verify
+wqm --version
+wqm admin health
+```
+
+#### Database Migration
+
+The daemon automatically applies database migrations on startup:
+
+1. Reads `schema_version` table to determine current version
+2. Applies pending migrations in order
+3. Updates `schema_version` table
+
+**Manual migration check:**
+```bash
+wqm admin db-version              # Show current schema version
+wqm admin db-migrate --dry-run    # Preview pending migrations
+```
+
+#### Rollback Procedure
+
+If an upgrade causes issues:
+
+```bash
+# Stop the daemon
+wqm service stop
+
+# Restore previous binaries (keep backups!)
+sudo mv /usr/local/bin/wqm.backup /usr/local/bin/wqm
+sudo mv /usr/local/bin/memexd.backup /usr/local/bin/memexd
+
+# Start the daemon
+wqm service start
+```
+
+> **Warning:** Database schema rollbacks are not supported. Create SQLite backups before upgrading.
+
+#### Self-Update Command
+
+> **[PLACEHOLDER]** Self-update command is planned but not yet implemented.
+
+```bash
+# Planned
+wqm update                        # Update to latest stable
+wqm update --channel beta         # Update to beta channel
+wqm update --version v0.5.0       # Update to specific version
+```
+
+### Troubleshooting
+
+#### Common Issues
+
+**Issue: Daemon won't start**
+
+```bash
+# Check if already running
+pgrep memexd
+
+# Check port availability
+lsof -i :50051
+
+# Check logs
+wqm service logs --lines 50
+
+# Run in foreground for debugging
+memexd --foreground --log-level debug
+```
+
+**Issue: Qdrant connection failed**
+
+```bash
+# Test Qdrant connectivity
+curl http://localhost:6333/health
+
+# Check environment
+echo $QDRANT_URL
+
+# Verify config
+wqm config show | grep qdrant
+```
+
+**Issue: File changes not detected**
+
+```bash
+# Check watch folders
+wqm watch list
+
+# Verify file system events
+wqm admin debug --watch-events /path/to/project
+
+# Check inotify limits (Linux)
+cat /proc/sys/fs/inotify/max_user_watches
+# Increase if needed:
+echo 524288 | sudo tee /proc/sys/fs/inotify/max_user_watches
+```
+
+**Issue: High memory usage**
+
+```bash
+# Check queue size
+wqm queue stats
+
+# Clear old queue items
+wqm queue clean --days 7
+
+# Reduce batch size in config
+wqm config set daemon.queue_batch_size 5
+```
+
+#### Diagnostic Commands
+
+```bash
+# Full system diagnostic
+wqm admin diagnose
+
+# Export diagnostic report
+wqm admin diagnose --output report.json
+
+# Check specific subsystems
+wqm admin diagnose --component file-watching
+wqm admin diagnose --component embedding
+wqm admin diagnose --component grpc
+```
+
+---
+
 ## Related Documents
 
 | Document                                                           | Purpose                          |
@@ -2096,10 +2744,11 @@ The daemon checks this table on startup and runs migrations if needed. Other com
 
 ---
 
-**Version:** 1.6.5
-**Last Updated:** 2026-02-02
+**Version:** 1.6.7
+**Last Updated:** 2026-02-03
 **Changes:**
 
+- v1.6.7: Added comprehensive Deployment and Installation section documenting deployment architecture, platform support matrix (6 platforms), installation methods (binary, source, npm), Docker deployment modes, service management (macOS/Linux), CI/CD process, upgrade/migration procedures, and troubleshooting; renamed memory tool ruleId to label with LLM generation guidelines (max 15 chars, word-word-word format); added memory_limits config section; updated Docker compose files to reflect TypeScript/Rust architecture
 - v1.6.6: Corrected session lifecycle documentation - clarified that Claude Code's SessionStart/SessionEnd are external hooks (shell commands configured in settings.json), not SDK callbacks; removed incorrect @anthropic-ai/claude-agent-sdk dependency (not needed); documented actual MCP SDK callbacks (server.onclose, onsessioninitialized for HTTP transport); clarified memory injection is via memory tool, not automatic session hooks
 - v1.6.5: Updated all references from legacy `registered_projects` table to consolidated `watch_folders` table (priority calculation, activity tracking, batch processing); Python codebase removed in preparation for TypeScript MCP server
 - v1.6.4: Updated unified_queue schema to match robust implementation - added status column for lifecycle tracking, lease_until/worker_id for crash recovery, idempotency_key for deduplication (supports content items without file paths), priority column for item type prioritization; documented idempotency key calculation and crash recovery procedure
