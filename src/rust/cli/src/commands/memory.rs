@@ -1,17 +1,15 @@
 //! Memory command - LLM rules management
 //!
-//! Phase 2 MEDIUM priority command for LLM memory rules.
-//! Subcommands: list, add, remove, search
-//!
-//! Memory rules are stored in the `memory` collection and guide LLM behavior.
+//! Manages LLM memory rules stored in the `memory` collection.
+//! Subcommands: list, add, remove, search, scope
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use crate::grpc::client::DaemonClient;
-use crate::grpc::proto::{IngestTextRequest, DeleteDocumentRequest};
-use crate::output;
-use crate::queue::{UnifiedQueueClient, ContentPayload as QueueContentPayload};
+use crate::grpc::proto::{DeleteDocumentRequest, IngestTextRequest};
+use crate::output::{self, ServiceStatus};
+use crate::queue::{ContentPayload as QueueContentPayload, UnifiedQueueClient};
 
 /// Memory command arguments
 #[derive(Args)]
@@ -101,6 +99,21 @@ enum MemoryCommand {
         #[arg(short = 'n', long, default_value = "10")]
         limit: usize,
     },
+
+    /// Manage rule scopes (list available scopes, show scope hierarchy)
+    Scope {
+        /// List all available scopes
+        #[arg(long)]
+        list: bool,
+
+        /// Show rules for a specific scope
+        #[arg(long)]
+        show: Option<String>,
+
+        /// Show verbose scope information
+        #[arg(short, long)]
+        verbose: bool,
+    },
 }
 
 /// Execute memory command
@@ -126,14 +139,28 @@ pub async fn execute(args: MemoryArgs) -> Result<()> {
             let scope = resolve_scope(global, project);
             add_rule(&label, &content, &rule_type, &scope, priority).await
         }
-        MemoryCommand::Remove { label, global, project } => {
+        MemoryCommand::Remove {
+            label,
+            global,
+            project,
+        } => {
             let scope = resolve_scope(global, project);
             remove_rule(&label, &scope).await
         }
-        MemoryCommand::Search { query, global, project, limit } => {
+        MemoryCommand::Search {
+            query,
+            global,
+            project,
+            limit,
+        } => {
             let scope = resolve_scope(global, project);
             search_rules(&query, scope, limit).await
         }
+        MemoryCommand::Scope {
+            list,
+            show,
+            verbose,
+        } => manage_scopes(list, show, verbose).await,
     }
 }
 
@@ -354,17 +381,100 @@ async fn search_rules(query: &str, scope: Option<String>, limit: usize) -> Resul
 
     output::info("Memory search via MCP:");
     output::info("  mcp__workspace_qdrant__memory(");
-    output::info(&format!("    action=\"search\","));
+    output::info("    action=\"search\",");
     output::info(&format!("    query=\"{}\",", query));
     if let Some(s) = &scope {
         if s == "global" {
             output::info("    scope=\"global\",");
         } else if s.starts_with("project:") {
-            output::info(&format!("    project=\"{}\",", s.strip_prefix("project:").unwrap_or("")));
+            output::info(&format!(
+                "    project=\"{}\",",
+                s.strip_prefix("project:").unwrap_or("")
+            ));
         }
     }
     output::info(&format!("    limit={}", limit));
     output::info("  )");
+
+    Ok(())
+}
+
+async fn manage_scopes(list: bool, show: Option<String>, verbose: bool) -> Result<()> {
+    output::section("Memory Rule Scopes");
+
+    if list || show.is_none() {
+        // List available scopes
+        output::info("Available scope types:");
+        output::separator();
+
+        output::kv("global", "Rules apply to all projects");
+        output::kv("project:<id>", "Rules apply to a specific project");
+        output::kv("branch:<name>", "Rules apply to a specific branch");
+        output::separator();
+
+        output::info("Scope hierarchy (highest to lowest priority):");
+        output::info("  1. branch:* - Branch-specific rules");
+        output::info("  2. project:* - Project-specific rules");
+        output::info("  3. global - Global rules");
+        output::separator();
+
+        // Try to get projects from daemon to show active scopes
+        match DaemonClient::connect_default().await {
+            Ok(mut client) => {
+                output::status_line("Daemon", ServiceStatus::Healthy);
+                output::separator();
+
+                output::info("Active project scopes:");
+                match client.system().get_status(()).await {
+                    Ok(response) => {
+                        let status = response.into_inner();
+                        if status.active_projects.is_empty() {
+                            output::info("  (no active projects)");
+                        } else {
+                            for project_id in &status.active_projects {
+                                output::kv("  project", project_id);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        output::warning(format!("Could not get projects: {}", e));
+                    }
+                }
+                let _ = verbose; // Verbose flag reserved for future detailed output
+            }
+            Err(_) => {
+                output::status_line("Daemon", ServiceStatus::Unhealthy);
+                output::warning("Cannot list active scopes without daemon");
+            }
+        }
+    }
+
+    if let Some(scope_name) = show {
+        output::separator();
+        output::kv("Showing scope", &scope_name);
+        output::separator();
+
+        // Show rules for the specified scope
+        output::info("Rules in this scope:");
+        output::info("  (Query daemon for scope-specific rules)");
+        output::separator();
+
+        output::info("MCP command to list rules for this scope:");
+        if scope_name == "global" {
+            output::info("  mcp__workspace_qdrant__memory(action=\"list\", scope=\"global\")");
+        } else if scope_name.starts_with("project:") {
+            let project = scope_name.strip_prefix("project:").unwrap_or(&scope_name);
+            output::info(&format!(
+                "  mcp__workspace_qdrant__memory(action=\"list\", project=\"{}\")",
+                project
+            ));
+        } else {
+            output::info(&format!(
+                "  mcp__workspace_qdrant__memory(action=\"list\", scope=\"{}\")",
+                scope_name
+            ));
+        }
+    }
 
     Ok(())
 }
