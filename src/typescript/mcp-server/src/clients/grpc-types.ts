@@ -46,6 +46,9 @@ export interface HealthCheckResponse {
   timestamp?: { seconds: number; nanos: number };
 }
 
+// Alias to match daemon's proto naming
+export type HealthResponse = HealthCheckResponse;
+
 export interface SystemMetrics {
   cpu_usage_percent: number;
   memory_usage_bytes: number;
@@ -249,7 +252,7 @@ export interface HeartbeatResponse {
 // ============================================================================
 
 export interface SystemServiceClient {
-  healthCheck(
+  health(
     request: Record<string, never>,
     callback: (error: Error | null, response: HealthCheckResponse) => void
   ): void;

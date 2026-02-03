@@ -205,7 +205,7 @@ export class DaemonClient {
               reject(err);
               return;
             }
-            this.systemClient!.healthCheck({}, (error, response) => {
+            this.systemClient!.health({}, (error, response) => {
               if (error) reject(error);
               else resolve(response);
             });
