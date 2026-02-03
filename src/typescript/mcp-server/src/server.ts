@@ -125,11 +125,12 @@ export class WorkspaceQdrantMcpServer {
       this.projectDetector
     );
 
-    // NOTE: StoreTool only writes to libraries collection per ADR-002
-    // It does not need DaemonClient (queue-only) or ProjectDetector (no project context)
+    // StoreTool supports both projects and libraries collections
+    // ProjectDetector passed for async project ID auto-detection
     this.storeTool = new StoreTool(
       {},
-      this.stateManager
+      this.stateManager,
+      this.projectDetector
     );
 
     // Create MCP server
@@ -322,7 +323,7 @@ export class WorkspaceQdrantMcpServer {
       },
       {
         name: 'store',
-        description: 'Store reference documentation to libraries collection (projects populated by file watcher)',
+        description: 'Store content to projects or libraries collection. Default: projects (uses current project). For libraries, specify libraryName.',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -330,9 +331,18 @@ export class WorkspaceQdrantMcpServer {
               type: 'string',
               description: 'Content to store',
             },
+            collection: {
+              type: 'string',
+              enum: ['projects', 'libraries'],
+              description: 'Target collection (default: projects)',
+            },
+            projectId: {
+              type: 'string',
+              description: 'Project ID for projects collection (uses current project if not specified)',
+            },
             libraryName: {
               type: 'string',
-              description: 'Target library name (e.g., "react", "lodash")',
+              description: 'Library name for libraries collection (required if collection=libraries)',
             },
             title: {
               type: 'string',
@@ -357,7 +367,7 @@ export class WorkspaceQdrantMcpServer {
               description: 'Additional metadata',
             },
           },
-          required: ['content', 'libraryName'],
+          required: ['content'],
         },
       },
     ];
@@ -595,12 +605,14 @@ export class WorkspaceQdrantMcpServer {
   /**
    * Build store options from tool arguments
    *
-   * Per ADR-002: Store only to libraries collection
-   * Per spec: libraryName is required
+   * Supports both projects and libraries collections.
+   * Default: projects collection with current project ID.
    */
   private buildStoreOptions(args: Record<string, unknown> | undefined): {
     content: string;
-    libraryName: string;
+    collection?: 'projects' | 'libraries';
+    projectId?: string;
+    libraryName?: string;
     title?: string;
     url?: string;
     filePath?: string;
@@ -612,20 +624,28 @@ export class WorkspaceQdrantMcpServer {
       throw new Error('Content is required for store operation');
     }
 
-    const libraryName = args?.['libraryName'] as string;
-    if (!libraryName) {
-      throw new Error('libraryName is required for store operation');
-    }
-
     const options: {
       content: string;
-      libraryName: string;
+      collection?: 'projects' | 'libraries';
+      projectId?: string;
+      libraryName?: string;
       title?: string;
       url?: string;
       filePath?: string;
       sourceType?: 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
       metadata?: Record<string, string>;
-    } = { content, libraryName };
+    } = { content };
+
+    const collection = args?.['collection'] as string | undefined;
+    if (collection === 'projects' || collection === 'libraries') {
+      options.collection = collection;
+    }
+
+    const projectId = args?.['projectId'] as string | undefined;
+    if (projectId) options.projectId = projectId;
+
+    const libraryName = args?.['libraryName'] as string | undefined;
+    if (libraryName) options.libraryName = libraryName;
 
     const title = args?.['title'] as string | undefined;
     if (title) options.title = title;
