@@ -17,7 +17,6 @@ import type {
   SystemServiceClient,
   ProjectServiceClient,
   DocumentServiceClient,
-  EmbeddingServiceClient,
   HealthCheckResponse,
   SystemStatusResponse,
   MetricsResponse,
@@ -31,10 +30,6 @@ import type {
   IngestTextResponse,
   ServerState,
   ServerStatusNotification,
-  EmbedTextRequest,
-  EmbedTextResponse,
-  SparseVectorRequest,
-  SparseVectorResponse,
 } from './grpc-types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -70,7 +65,6 @@ interface ProtoGrpcType {
     SystemService: GrpcServiceDefinition;
     ProjectService: GrpcServiceDefinition;
     DocumentService: GrpcServiceDefinition;
-    EmbeddingService: GrpcServiceDefinition;
   };
 }
 
@@ -99,7 +93,6 @@ export class DaemonClient {
   private systemClient?: SystemServiceClient;
   private projectClient?: ProjectServiceClient;
   private documentClient?: DocumentServiceClient;
-  private embeddingClient?: EmbeddingServiceClient;
 
   private connectionState: ConnectionState = { connected: false };
 
@@ -145,7 +138,6 @@ export class DaemonClient {
     const SystemService = proto.workspace_daemon.SystemService;
     const ProjectService = proto.workspace_daemon.ProjectService;
     const DocumentService = proto.workspace_daemon.DocumentService;
-    const EmbeddingService = proto.workspace_daemon.EmbeddingService;
 
     this.systemClient = new SystemService(
       address,
@@ -159,10 +151,6 @@ export class DaemonClient {
       address,
       credentials
     ) as unknown as DocumentServiceClient;
-    this.embeddingClient = new EmbeddingService(
-      address,
-      credentials
-    ) as unknown as EmbeddingServiceClient;
 
     // Test connection with health check
     try {
@@ -192,9 +180,6 @@ export class DaemonClient {
     }
     if (this.documentClient) {
       grpc.closeClient(this.documentClient as unknown as grpc.Client);
-    }
-    if (this.embeddingClient) {
-      grpc.closeClient(this.embeddingClient as unknown as grpc.Client);
     }
     this.connectionState = { connected: false };
   }
@@ -391,47 +376,36 @@ export class DaemonClient {
   }
 
   // ============================================================================
-  // EmbeddingService Methods
+  // EmbeddingService Methods (Stubs - Not implemented in daemon proto)
   // ============================================================================
+  // These methods are stubs that throw errors. The search tool has fallback
+  // logic that catches these errors and uses alternative search methods.
 
   /**
    * Generate dense embedding for text
-   * Uses FastEmbed all-MiniLM-L6-v2 model (384 dimensions)
+   * @throws Error - EmbeddingService not implemented in daemon
    */
-  async embedText(request: EmbedTextRequest): Promise<EmbedTextResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<EmbedTextResponse>((resolve, reject) => {
-          if (!this.embeddingClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.embeddingClient.embedText(request, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+  async embedText(_request: { text: string }): Promise<{
+    success: boolean;
+    embedding: number[];
+    dimensions: number;
+    model_name: string;
+    error_message?: string;
+  }> {
+    throw new Error('EmbeddingService not implemented in daemon - use fallback search');
   }
 
   /**
    * Generate sparse vector using BM25
-   * Returns index-value pairs for keyword-based search
+   * @throws Error - EmbeddingService not implemented in daemon
    */
-  async generateSparseVector(request: SparseVectorRequest): Promise<SparseVectorResponse> {
-    return this.callWithRetry(
-      () =>
-        new Promise<SparseVectorResponse>((resolve, reject) => {
-          if (!this.embeddingClient) {
-            reject(new Error('Client not connected'));
-            return;
-          }
-          this.embeddingClient.generateSparseVector(request, (error, response) => {
-            if (error) reject(error);
-            else resolve(response);
-          });
-        })
-    );
+  async generateSparseVector(_request: { text: string }): Promise<{
+    success: boolean;
+    indices_values: Record<number, number>;
+    vocab_size: number;
+    error_message?: string;
+  }> {
+    throw new Error('EmbeddingService not implemented in daemon - use fallback search');
   }
 
   // ============================================================================
@@ -526,8 +500,4 @@ export type {
   HeartbeatResponse,
   IngestTextRequest,
   IngestTextResponse,
-  EmbedTextRequest,
-  EmbedTextResponse,
-  SparseVectorRequest,
-  SparseVectorResponse,
 } from './grpc-types.js';
