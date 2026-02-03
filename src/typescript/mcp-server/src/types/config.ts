@@ -27,6 +27,17 @@ export interface CollectionsConfig {
   memoryCollectionName: string;
 }
 
+export interface MemoryLimitsConfig {
+  maxLabelLength: number;
+  maxTitleLength: number;
+  maxTagLength: number;
+  maxTagsPerRule: number;
+}
+
+export interface MemoryConfig {
+  limits: MemoryLimitsConfig;
+}
+
 export interface EnvironmentConfig {
   userPath?: string;
 }
@@ -38,6 +49,7 @@ export interface ServerConfig {
   watching: WatchingConfig;
   collections: CollectionsConfig;
   environment: EnvironmentConfig;
+  memory?: MemoryConfig;
 }
 
 export const DEFAULT_CONFIG: ServerConfig = {
@@ -68,4 +80,12 @@ export const DEFAULT_CONFIG: ServerConfig = {
     memoryCollectionName: 'memory',
   },
   environment: {},
+  memory: {
+    limits: {
+      maxLabelLength: 15,
+      maxTitleLength: 50,
+      maxTagLength: 20,
+      maxTagsPerRule: 5,
+    },
+  },
 };

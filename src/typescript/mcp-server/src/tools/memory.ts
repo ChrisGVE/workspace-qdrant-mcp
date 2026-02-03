@@ -27,6 +27,7 @@ export type MemoryScope = 'global' | 'project';
 
 export interface MemoryRule {
   id: string;
+  label?: string;
   content: string;
   scope: MemoryScope;
   projectId?: string;
@@ -40,7 +41,7 @@ export interface MemoryRule {
 export interface MemoryOptions {
   action: MemoryAction;
   content?: string;
-  ruleId?: string;
+  label?: string;
   scope?: MemoryScope;
   projectId?: string;
   title?: string;
@@ -52,7 +53,7 @@ export interface MemoryOptions {
 export interface MemoryResponse {
   success: boolean;
   action: MemoryAction;
-  ruleId?: string;
+  label?: string;
   rules?: MemoryRule[];
   message?: string;
   fallback_mode?: 'unified_queue';
@@ -146,10 +147,12 @@ export class MemoryTool {
       resolvedProjectId = projectInfo?.projectId;
     }
 
-    const ruleId = randomUUID();
+    // Use provided label or generate a UUID-based one (LLM should provide meaningful labels)
+    const label = options.label ?? randomUUID();
     const metadata: Record<string, string> = {
       scope,
       rule_type: 'behavioral',
+      label,
     };
 
     if (resolvedProjectId) {
@@ -171,7 +174,7 @@ export class MemoryTool {
         content,
         collection_basename: MEMORY_BASENAME,
         tenant_id: resolvedProjectId ?? 'global',
-        document_id: ruleId,
+        document_id: label,
         metadata,
       });
 
@@ -179,7 +182,7 @@ export class MemoryTool {
         return {
           success: true,
           action: 'add',
-          ruleId: response.document_id,
+          label: response.document_id,
           message: 'Rule added successfully',
         };
       }
@@ -190,7 +193,7 @@ export class MemoryTool {
     // Fallback: queue the operation
     const queueOperation: {
       action: MemoryAction;
-      ruleId: string;
+      label: string;
       content: string;
       scope: MemoryScope;
       projectId?: string;
@@ -199,7 +202,7 @@ export class MemoryTool {
       priority?: number;
     } = {
       action: 'add',
-      ruleId,
+      label,
       content,
       scope,
     };
@@ -213,7 +216,7 @@ export class MemoryTool {
     return {
       success: true,
       action: 'add',
-      ruleId,
+      label,
       message: 'Rule queued for processing',
       fallback_mode: 'unified_queue',
       queue_id: queueResult.queueId,
@@ -224,13 +227,13 @@ export class MemoryTool {
    * Update an existing rule
    */
   private async updateRule(options: MemoryOptions): Promise<MemoryResponse> {
-    const { ruleId, content, title, tags, priority } = options;
+    const { label, content, title, tags, priority } = options;
 
-    if (!ruleId) {
+    if (!label) {
       return {
         success: false,
         action: 'update',
-        message: 'Rule ID is required for updating',
+        message: 'Label is required for updating',
       };
     }
 
@@ -242,7 +245,9 @@ export class MemoryTool {
       };
     }
 
-    const metadata: Record<string, string> = {};
+    const metadata: Record<string, string> = {
+      label,
+    };
     if (title) {
       metadata['title'] = title;
     }
@@ -259,7 +264,7 @@ export class MemoryTool {
         content,
         collection_basename: MEMORY_BASENAME,
         tenant_id: 'global', // Will be overwritten by existing document's tenant
-        document_id: ruleId,
+        document_id: label,
         metadata,
       });
 
@@ -267,7 +272,7 @@ export class MemoryTool {
         return {
           success: true,
           action: 'update',
-          ruleId,
+          label,
           message: 'Rule updated successfully',
         };
       }
@@ -278,14 +283,14 @@ export class MemoryTool {
     // Fallback: queue the operation
     const updateOperation: {
       action: MemoryAction;
-      ruleId: string;
+      label: string;
       content: string;
       title?: string;
       tags?: string[];
       priority?: number;
     } = {
       action: 'update',
-      ruleId,
+      label,
       content,
     };
     if (title) updateOperation.title = title;
@@ -297,7 +302,7 @@ export class MemoryTool {
     return {
       success: true,
       action: 'update',
-      ruleId,
+      label,
       message: 'Rule update queued for processing',
       fallback_mode: 'unified_queue',
       queue_id: queueResult.queueId,
@@ -308,26 +313,26 @@ export class MemoryTool {
    * Remove a rule
    */
   private async removeRule(options: MemoryOptions): Promise<MemoryResponse> {
-    const { ruleId } = options;
+    const { label } = options;
 
-    if (!ruleId) {
+    if (!label) {
       return {
         success: false,
         action: 'remove',
-        message: 'Rule ID is required for removal',
+        message: 'Label is required for removal',
       };
     }
 
     // Always queue remove operations (daemon doesn't expose delete via gRPC)
-    const queueResult = await this.queueMemoryOperation({
+    const queueResult = this.queueMemoryOperation({
       action: 'remove',
-      ruleId,
+      label,
     });
 
     return {
       success: true,
       action: 'remove',
-      ruleId,
+      label,
       message: 'Rule removal queued for processing',
       fallback_mode: 'unified_queue',
       queue_id: queueResult.queueId,
@@ -452,7 +457,7 @@ export class MemoryTool {
    */
   private queueMemoryOperation(operation: {
     action: MemoryAction;
-    ruleId?: string;
+    label?: string;
     content?: string;
     scope?: MemoryScope;
     projectId?: string;
@@ -461,7 +466,7 @@ export class MemoryTool {
     priority?: number;
   }): { queueId: string } {
     const payload: Record<string, unknown> = {
-      rule_id: operation.ruleId,
+      label: operation.label,
       action: operation.action,
       // source_type is required by Rust ContentPayload parser
       source_type: 'memory_rule',

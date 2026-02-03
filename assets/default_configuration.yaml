@@ -534,6 +534,28 @@ workspace:
   # Format: String collection name
   memory_collection_name: "memory"
 
+  # memory_limits: Constraints for memory rule metadata fields
+  # Purpose: Defines maximum lengths for LLM-generated memory rule metadata
+  # LLM guidance: These limits guide the LLM when generating rule labels, titles, and tags
+  # Validation: Enforced by the memory tool when creating/updating rules
+  memory_limits:
+    # max_label_length: Maximum characters for rule label
+    # Format: word-word-word (lowercase, hyphen-separated)
+    # Examples: "prefer-uv", "use-pytest", "strict-types"
+    max_label_length: 15
+
+    # max_title_length: Maximum characters for rule title
+    # Purpose: Human-readable summary of the rule
+    max_title_length: 50
+
+    # max_tag_length: Maximum characters per tag
+    # Purpose: Categorical labels for rule organization
+    max_tag_length: 20
+
+    # max_tags_per_rule: Maximum number of tags per rule
+    # Purpose: Prevents excessive categorization
+    max_tags_per_rule: 5
+
   # custom_include_patterns: Additional file pattern recognition
   # Purpose: Extends built-in file type detection with custom patterns
   # Pattern format: Supports glob patterns for flexible file matching

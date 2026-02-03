@@ -287,9 +287,9 @@ export class WorkspaceQdrantMcpServer {
               type: 'string',
               description: 'Rule content (required for add/update)',
             },
-            ruleId: {
+            label: {
               type: 'string',
-              description: 'Rule ID (required for update/remove)',
+              description: 'Rule label (max 15 chars, format: word-word-word, e.g., "prefer-uv", "use-pytest"). Required for update/remove.',
             },
             scope: {
               type: 'string',
@@ -302,12 +302,12 @@ export class WorkspaceQdrantMcpServer {
             },
             title: {
               type: 'string',
-              description: 'Rule title',
+              description: 'Rule title (max 50 chars)',
             },
             tags: {
               type: 'array',
               items: { type: 'string' },
-              description: 'Tags for categorization',
+              description: 'Tags for categorization (max 5 tags, max 20 chars each)',
             },
             priority: {
               type: 'number',
@@ -548,7 +548,7 @@ export class WorkspaceQdrantMcpServer {
   private buildMemoryOptions(args: Record<string, unknown> | undefined): {
     action: 'add' | 'update' | 'remove' | 'list';
     content?: string;
-    ruleId?: string;
+    label?: string;
     scope?: 'global' | 'project';
     projectId?: string;
     title?: string;
@@ -564,7 +564,7 @@ export class WorkspaceQdrantMcpServer {
     const options: {
       action: 'add' | 'update' | 'remove' | 'list';
       content?: string;
-      ruleId?: string;
+      label?: string;
       scope?: 'global' | 'project';
       projectId?: string;
       title?: string;
@@ -576,8 +576,8 @@ export class WorkspaceQdrantMcpServer {
     const content = args?.['content'] as string | undefined;
     if (content) options.content = content;
 
-    const ruleId = args?.['ruleId'] as string | undefined;
-    if (ruleId) options.ruleId = ruleId;
+    const label = args?.['label'] as string | undefined;
+    if (label) options.label = label;
 
     const scope = args?.['scope'] as string | undefined;
     if (scope === 'global' || scope === 'project') {

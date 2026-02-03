@@ -1644,6 +1644,41 @@ memory(
 
 **Uniqueness:** `label` + `scope` must be unique. A global rule and a project rule can have the same label.
 
+**LLM Generation Guidelines:**
+
+When creating memory rules, the LLM should generate metadata fields following these constraints:
+
+| Field | Constraints | Examples |
+|-------|-------------|----------|
+| `label` | Max 15 chars, format: `word-word-word` (lowercase, hyphen-separated) | `prefer-uv`, `use-pytest`, `strict-types`, `no-mock-fs` |
+| `title` | Max 50 chars, human-readable summary | "Use uv instead of pip for Python packages" |
+| `tags` | Max 5 tags, max 20 chars each | `["python", "tooling"]`, `["testing", "best-practice"]` |
+
+**Conversational Flow Examples:**
+
+```
+User: "For future reference, always use uv instead of pip"
+→ LLM calls: memory(action="add", label="prefer-uv", title="Use uv for Python packages",
+                    content="Always use uv instead of pip for Python package management...",
+                    tags=["python", "tooling"])
+
+User: "Remember to run tests before committing"
+→ LLM calls: memory(action="add", label="pre-commit-tests", title="Run tests before commits",
+                    content="Always run the test suite before committing changes...",
+                    tags=["git", "testing"])
+
+User: "Actually, let me update that rule about testing"
+→ LLM calls: memory(action="update", label="pre-commit-tests", title="Run tests before commits",
+                    content="Run the full test suite AND linting before committing...")
+```
+
+**Label Generation Strategy:**
+
+1. Extract key concepts from user's instruction
+2. Form 2-3 word hyphenated identifier
+3. Keep descriptive but concise
+4. Use action verbs when appropriate: `use-`, `prefer-`, `avoid-`, `no-`
+
 #### store
 
 Store content to libraries collection only.
