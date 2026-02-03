@@ -1985,9 +1985,13 @@ updates:
 
 **Configuration file search order (first found wins):**
 
-1. `~/.workspace-qdrant/config.yaml` (or `.yml`)
-2. `~/.config/workspace-qdrant/config.yaml`
-3. `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS)
+1. `WQM_CONFIG_PATH` environment variable (explicit override)
+2. `.wq_config.yaml` or `.workspace-qdrant.yaml` (project-local, daemon/MCP only)
+3. `~/.workspace-qdrant/config.yaml` (or `.yml`)
+4. `~/.config/workspace-qdrant/config.yaml`
+5. `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS)
+
+**Note:** The CLI does not search project-local configs since it operates system-wide.
 
 **Built-in defaults:** The configuration template (`assets/default_configuration.yaml`) defines all default values. User configuration only needs to specify overrides.
 
@@ -1995,13 +1999,17 @@ updates:
 
 Environment variables override configuration file values:
 
-| Variable          | Description       | Default                 |
-| ----------------- | ----------------- | ----------------------- |
-| `QDRANT_URL`      | Qdrant server URL | `http://localhost:6333` |
-| `QDRANT_API_KEY`  | Qdrant API key    | None                    |
-| `FASTEMBED_MODEL` | Embedding model   | `all-MiniLM-L6-v2`      |
-| `WQM_STDIO_MODE`  | Force stdio mode  | `false`                 |
-| `WQM_CLI_MODE`    | Force CLI mode    | `false`                 |
+| Variable            | Description                        | Default                            |
+| ------------------- | ---------------------------------- | ---------------------------------- |
+| `WQM_CONFIG_PATH`   | Explicit config file path          | None (uses search order)           |
+| `WQM_DATABASE_PATH` | Override database location         | `~/.workspace-qdrant/state.db`     |
+| `QDRANT_URL`        | Qdrant server URL                  | `http://localhost:6333`            |
+| `QDRANT_API_KEY`    | Qdrant API key                     | None                               |
+| `FASTEMBED_MODEL`   | Embedding model                    | `all-MiniLM-L6-v2`                 |
+| `WQM_DAEMON_PORT`   | Daemon gRPC port                   | `50051`                            |
+| `WQM_STDIO_MODE`    | Force stdio mode                   | `false`                            |
+| `WQM_CLI_MODE`      | Force CLI mode                     | `false`                            |
+| `WQM_LOG_LEVEL`     | Log level (DEBUG, INFO, WARN, ERROR) | `INFO`                           |
 
 ### Configuration Structure
 
