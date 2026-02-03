@@ -678,12 +678,13 @@ export class WorkspaceQdrantMcpServer {
         this.log(`State manager degraded: ${initResult.reason}`);
       }
 
-      // Start health monitoring
+      // Perform session initialization (project detection, daemon registration)
+      // Must happen before health monitoring so daemon connection is established
+      await this.initializeSession();
+
+      // Start health monitoring after daemon connection attempt
       this.healthMonitor.start();
       this.log('Health monitoring started');
-
-      // Perform session initialization (project detection, daemon registration)
-      await this.initializeSession();
 
       // Start the transport
       if (this.isStdioMode) {
