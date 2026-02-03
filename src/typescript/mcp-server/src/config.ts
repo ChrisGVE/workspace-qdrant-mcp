@@ -9,12 +9,47 @@ import { join } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { type ServerConfig, DEFAULT_CONFIG } from './types/config.js';
 
-const CONFIG_SEARCH_PATHS = [
-  join(homedir(), '.workspace-qdrant', 'config.yaml'),
-  join(homedir(), '.workspace-qdrant', 'config.yml'),
-  join(homedir(), '.config', 'workspace-qdrant', 'config.yaml'),
-  join(homedir(), 'Library', 'Application Support', 'workspace-qdrant', 'config.yaml'),
-];
+/**
+ * Unified configuration search paths (in priority order)
+ *
+ * Search order:
+ * 1. WQM_CONFIG_PATH environment variable (if set) - handled separately
+ * 2. Project-local: .wq_config.yaml, .workspace-qdrant.yaml (CWD)
+ * 3. User home: ~/.workspace-qdrant/config.yaml
+ * 4. XDG config: ~/.config/workspace-qdrant/config.yaml
+ * 5. macOS: ~/Library/Application Support/workspace-qdrant/config.yaml
+ */
+function getConfigSearchPaths(): string[] {
+  const paths: string[] = [];
+
+  // 1. Explicit path via environment variable (highest priority)
+  const explicitPath = process.env['WQM_CONFIG_PATH'];
+  if (explicitPath) {
+    paths.push(explicitPath);
+  }
+
+  // 2. Project-local configs (current working directory)
+  const cwd = process.cwd();
+  paths.push(join(cwd, '.wq_config.yaml'));
+  paths.push(join(cwd, '.wq_config.yml'));
+  paths.push(join(cwd, '.workspace-qdrant.yaml'));
+  paths.push(join(cwd, '.workspace-qdrant.yml'));
+
+  // 3. User home: ~/.workspace-qdrant/config.yaml
+  paths.push(join(homedir(), '.workspace-qdrant', 'config.yaml'));
+  paths.push(join(homedir(), '.workspace-qdrant', 'config.yml'));
+
+  // 4. XDG config: ~/.config/workspace-qdrant/config.yaml
+  paths.push(join(homedir(), '.config', 'workspace-qdrant', 'config.yaml'));
+  paths.push(join(homedir(), '.config', 'workspace-qdrant', 'config.yml'));
+
+  // 5. macOS Application Support
+  if (process.platform === 'darwin') {
+    paths.push(join(homedir(), 'Library', 'Application Support', 'workspace-qdrant', 'config.yaml'));
+  }
+
+  return paths;
+}
 
 function expandPath(path: string): string {
   if (path.startsWith('~')) {
@@ -24,7 +59,7 @@ function expandPath(path: string): string {
 }
 
 function findConfigFile(): string | null {
-  for (const path of CONFIG_SEARCH_PATHS) {
+  for (const path of getConfigSearchPaths()) {
     if (existsSync(path)) {
       return path;
     }

@@ -23,6 +23,7 @@ fn test_config(temp_dir: &TempDir, auto_download: bool) -> GrammarConfig {
         download_base_url: "https://example.com/{language}/v{version}/{platform}.{ext}".to_string(),
         verify_checksums: false,
         lazy_loading: true,
+        check_interval_hours: 168, // Weekly
     }
 }
 
@@ -252,6 +253,7 @@ async fn test_concurrent_grammar_manager_access() {
                 download_base_url: "https://example.com".to_string(),
                 verify_checksums: false,
                 lazy_loading: true,
+                check_interval_hours: 168, // Weekly
             };
 
             let manager = GrammarManager::new(config);

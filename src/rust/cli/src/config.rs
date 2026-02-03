@@ -96,6 +96,56 @@ pub fn get_config_file_path() -> Result<PathBuf, DatabasePathError> {
     get_config_dir().map(|dir| dir.join("config.yaml"))
 }
 
+/// Get unified config search paths (in priority order)
+///
+/// Returns all potential config file paths that should be checked:
+/// 1. WQM_CONFIG_PATH environment variable (if set)
+/// 2. User home: ~/.workspace-qdrant/config.yaml
+/// 3. XDG: ~/.config/workspace-qdrant/config.yaml
+/// 4. macOS: ~/Library/Application Support/workspace-qdrant/config.yaml
+///
+/// Note: Unlike the daemon, CLI does not search project-local configs
+/// since CLI commands operate system-wide.
+pub fn get_unified_config_search_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
+    // 1. Explicit path via environment variable (highest priority)
+    if let Ok(explicit_path) = env::var("WQM_CONFIG_PATH") {
+        paths.push(PathBuf::from(explicit_path));
+    }
+
+    // 2. User home config: ~/.workspace-qdrant/config.yaml
+    if let Ok(home) = env::var("HOME") {
+        paths.push(PathBuf::from(format!("{}/.workspace-qdrant/config.yaml", home)));
+        paths.push(PathBuf::from(format!("{}/.workspace-qdrant/config.yml", home)));
+    } else if let Some(home_dir) = dirs::home_dir() {
+        paths.push(home_dir.join(".workspace-qdrant").join("config.yaml"));
+        paths.push(home_dir.join(".workspace-qdrant").join("config.yml"));
+    }
+
+    // 3. XDG config: ~/.config/workspace-qdrant/config.yaml
+    if let Some(config_dir) = dirs::config_dir() {
+        paths.push(config_dir.join("workspace-qdrant").join("config.yaml"));
+        paths.push(config_dir.join("workspace-qdrant").join("config.yml"));
+    }
+
+    // 4. macOS Application Support (only on macOS)
+    #[cfg(target_os = "macos")]
+    if let Some(home_dir) = dirs::home_dir() {
+        paths.push(home_dir.join("Library").join("Application Support")
+            .join("workspace-qdrant").join("config.yaml"));
+    }
+
+    paths
+}
+
+/// Find the first existing config file from unified search paths
+pub fn find_config_file() -> Option<PathBuf> {
+    get_unified_config_search_paths()
+        .into_iter()
+        .find(|path| path.exists())
+}
+
 /// Read user PATH from config file
 ///
 /// Returns None if the config file doesn't exist or doesn't have user_path set.

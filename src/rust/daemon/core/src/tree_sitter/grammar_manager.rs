@@ -663,6 +663,7 @@ mod tests {
                 .to_string(),
             verify_checksums: false,
             lazy_loading: true,
+            check_interval_hours: 168, // Weekly
         }
     }
 

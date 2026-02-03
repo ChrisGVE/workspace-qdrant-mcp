@@ -1171,6 +1171,7 @@ mod tests {
             download_base_url: "https://example.com".to_string(),
             verify_checksums: true,
             lazy_loading: true,
+            check_interval_hours: 168, // Weekly
         };
 
         // Serialize to JSON

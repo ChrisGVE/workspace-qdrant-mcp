@@ -85,11 +85,19 @@ pub struct UnifiedConfigManager {
 
 impl UnifiedConfigManager {
     /// Create new unified configuration manager
+    ///
+    /// Search paths (in priority order):
+    /// 1. Explicit config via WQM_CONFIG_PATH environment variable
+    /// 2. Project-local: .wq_config.yaml, .workspace-qdrant.yaml (in config_dir)
+    /// 3. User config: ~/.workspace-qdrant/config.yaml
+    /// 4. XDG config: ~/.config/workspace-qdrant/config.yaml
+    /// 5. macOS: ~/Library/Application Support/workspace-qdrant/config.yaml
     pub fn new<P: Into<PathBuf>>(config_dir: Option<P>) -> Self {
         let config_dir = config_dir.map(|p| p.into()).unwrap_or_else(|| {
             std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
         });
 
+        // Project-local config file patterns (searched in config_dir)
         let config_file_patterns = vec![
             // Preferred: short unique name with dot prefix
             ".wq_config.yaml".to_string(),
@@ -108,22 +116,78 @@ impl UnifiedConfigManager {
         }
     }
 
-    /// Discover available configuration files
+    /// Get unified config search paths (in priority order)
+    ///
+    /// Returns all potential config file paths that should be checked:
+    /// 1. WQM_CONFIG_PATH environment variable (if set)
+    /// 2. Project-local configs in config_dir
+    /// 3. User home: ~/.workspace-qdrant/config.yaml
+    /// 4. XDG: ~/.config/workspace-qdrant/config.yaml
+    /// 5. macOS: ~/Library/Application Support/workspace-qdrant/config.yaml
+    pub fn get_unified_search_paths(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+
+        // 1. Explicit path via environment variable (highest priority)
+        if let Ok(explicit_path) = std::env::var("WQM_CONFIG_PATH") {
+            paths.push(PathBuf::from(explicit_path));
+        }
+
+        // 2. Project-local configs
+        for pattern in &self.config_file_patterns {
+            paths.push(self.config_dir.join(pattern));
+        }
+
+        // 3. User home config: ~/.workspace-qdrant/config.yaml
+        if let Some(home) = dirs::home_dir() {
+            paths.push(home.join(".workspace-qdrant").join("config.yaml"));
+            paths.push(home.join(".workspace-qdrant").join("config.yml"));
+        }
+
+        // 4. XDG config: ~/.config/workspace-qdrant/config.yaml
+        if let Some(config_dir) = dirs::config_dir() {
+            paths.push(config_dir.join("workspace-qdrant").join("config.yaml"));
+            paths.push(config_dir.join("workspace-qdrant").join("config.yml"));
+        }
+
+        // 5. macOS Application Support (only on macOS)
+        #[cfg(target_os = "macos")]
+        if let Some(home) = dirs::home_dir() {
+            paths.push(home.join("Library").join("Application Support")
+                .join("workspace-qdrant").join("config.yaml"));
+        }
+
+        paths
+    }
+
+    /// Discover available configuration files from all unified search paths
+    ///
+    /// Returns tuples of (path, format, exists) for all potential config locations.
+    /// The order reflects priority - first existing file wins.
     pub fn discover_config_sources(&self) -> Vec<(PathBuf, ConfigFormat, bool)> {
+        let paths = self.get_unified_search_paths();
         let mut sources = Vec::new();
 
-        for pattern in &self.config_file_patterns {
-            let config_file = self.config_dir.join(pattern);
+        for config_file in paths {
             let format = ConfigFormat::from_path(&config_file);
             let exists = config_file.exists();
             sources.push((config_file, format, exists));
         }
 
-        debug!("Discovered {} configuration sources", sources.len());
+        debug!("Discovered {} configuration sources ({} exist)",
+               sources.len(),
+               sources.iter().filter(|(_, _, e)| *e).count());
         sources
     }
 
-    /// Get preferred configuration source
+    /// Get preferred configuration source from unified search paths
+    ///
+    /// Returns the first existing config file from the priority-ordered search paths.
+    /// Priority order:
+    /// 1. WQM_CONFIG_PATH environment variable
+    /// 2. Project-local configs
+    /// 3. ~/.workspace-qdrant/config.yaml
+    /// 4. ~/.config/workspace-qdrant/config.yaml
+    /// 5. ~/Library/Application Support/workspace-qdrant/config.yaml (macOS)
     pub fn get_preferred_config_source(&self, prefer_format: Option<ConfigFormat>) -> Option<(PathBuf, ConfigFormat)> {
         let sources = self.discover_config_sources();
         let existing_sources: Vec<_> = sources.into_iter()
@@ -143,7 +207,7 @@ impl UnifiedConfigManager {
             }
         }
 
-        // Return first existing source (follows discovery order)
+        // Return first existing source (follows discovery order = priority order)
         existing_sources.first()
             .map(|(path, format, _)| (path.clone(), *format))
     }
