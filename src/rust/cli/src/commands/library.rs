@@ -120,6 +120,32 @@ enum LibraryCommand {
 
     /// Show watch status for all libraries
     Status,
+
+    /// Configure library settings
+    Config {
+        /// Library tag to configure
+        tag: String,
+
+        /// Set sync mode: 'sync' or 'incremental'
+        #[arg(long)]
+        mode: Option<LibraryMode>,
+
+        /// Set file patterns (comma-separated, e.g., "*.pdf,*.md")
+        #[arg(long)]
+        patterns: Option<String>,
+
+        /// Enable watching
+        #[arg(long, conflicts_with = "disable")]
+        enable: bool,
+
+        /// Disable watching
+        #[arg(long, conflicts_with = "enable")]
+        disable: bool,
+
+        /// Show current configuration
+        #[arg(long)]
+        show: bool,
+    },
 }
 
 /// Execute library command
@@ -138,6 +164,14 @@ pub async fn execute(args: LibraryArgs) -> Result<()> {
         LibraryCommand::Rescan { tag, force } => rescan(&tag, force).await,
         LibraryCommand::Info { tag } => info(tag.as_deref()).await,
         LibraryCommand::Status => status().await,
+        LibraryCommand::Config {
+            tag,
+            mode,
+            patterns,
+            enable,
+            disable,
+            show,
+        } => config(&tag, mode, patterns, enable, disable, show).await,
     }
 }
 
@@ -628,6 +662,141 @@ async fn status() -> Result<()> {
         "  sqlite3 {} \"SELECT watch_id, path, library_mode FROM watch_folders WHERE watch_id LIKE 'lib-%' AND enabled = 1\"",
         db_path.display()
     ));
+
+    Ok(())
+}
+
+async fn config(
+    tag: &str,
+    mode: Option<LibraryMode>,
+    patterns: Option<String>,
+    enable: bool,
+    disable: bool,
+    show: bool,
+) -> Result<()> {
+    output::section(format!("Library Configuration: {}", tag));
+
+    let watch_id = format!("lib-{}", tag);
+    let db_path = get_db_path()?;
+
+    // Check if database exists
+    if !db_path.exists() {
+        output::error("Database not found. Run daemon first to initialize.");
+        return Ok(());
+    }
+
+    let conn = Connection::open(&db_path).context("Failed to open state database")?;
+
+    // Check if library exists
+    let exists: bool = conn
+        .query_row(
+            "SELECT 1 FROM watch_folders WHERE watch_id = ?",
+            [&watch_id],
+            |_| Ok(true),
+        )
+        .unwrap_or(false);
+
+    if !exists {
+        output::error(format!(
+            "Library '{}' not found (watch_id: {})",
+            tag, watch_id
+        ));
+        output::info("Add it first with: wqm library watch <tag> <path>");
+        return Ok(());
+    }
+
+    // Show current configuration
+    if show || (mode.is_none() && patterns.is_none() && !enable && !disable) {
+        output::info("Current configuration:");
+        output::separator();
+
+        let result: Result<(String, String, String, i32), _> = conn.query_row(
+            "SELECT path, library_mode, patterns, enabled FROM watch_folders WHERE watch_id = ?",
+            [&watch_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+
+        match result {
+            Ok((path, lib_mode, pats, enabled)) => {
+                output::kv("Tag", tag);
+                output::kv("Watch ID", &watch_id);
+                output::kv("Path", &path);
+                output::kv("Mode", &lib_mode);
+                output::kv("Patterns", &pats);
+                output::kv("Enabled", if enabled == 1 { "yes" } else { "no" });
+            }
+            Err(e) => {
+                output::error(format!("Failed to read configuration: {}", e));
+            }
+        }
+
+        if mode.is_some() || patterns.is_some() || enable || disable {
+            output::separator();
+        }
+    }
+
+    // Apply configuration changes
+    let mut changes_made = false;
+
+    if let Some(new_mode) = mode {
+        output::info(format!("Setting mode to: {}", new_mode));
+        conn.execute(
+            "UPDATE watch_folders SET library_mode = ? WHERE watch_id = ?",
+            [&new_mode.to_string(), &watch_id],
+        )
+        .context("Failed to update mode")?;
+        changes_made = true;
+    }
+
+    if let Some(new_patterns) = patterns {
+        let pattern_list: Vec<&str> = new_patterns.split(',').map(|s| s.trim()).collect();
+        let patterns_json = serde_json::to_string(&pattern_list).unwrap_or_default();
+        output::info(format!("Setting patterns to: {}", patterns_json));
+        conn.execute(
+            "UPDATE watch_folders SET patterns = ? WHERE watch_id = ?",
+            [&patterns_json, &watch_id],
+        )
+        .context("Failed to update patterns")?;
+        changes_made = true;
+    }
+
+    if enable {
+        output::info("Enabling watch...");
+        conn.execute(
+            "UPDATE watch_folders SET enabled = 1 WHERE watch_id = ?",
+            [&watch_id],
+        )
+        .context("Failed to enable")?;
+        changes_made = true;
+    }
+
+    if disable {
+        output::info("Disabling watch...");
+        conn.execute(
+            "UPDATE watch_folders SET enabled = 0 WHERE watch_id = ?",
+            [&watch_id],
+        )
+        .context("Failed to disable")?;
+        changes_made = true;
+    }
+
+    if changes_made {
+        output::success("Configuration updated");
+
+        // Signal daemon to reload
+        if let Ok(mut client) = DaemonClient::connect_default().await {
+            let request = RefreshSignalRequest {
+                queue_type: QueueType::WatchedFolders as i32,
+                lsp_languages: vec![],
+                grammar_languages: vec![],
+            };
+            if client.system().send_refresh_signal(request).await.is_ok() {
+                output::success("Daemon notified of configuration change");
+            }
+        } else {
+            output::info("Daemon not running - changes will apply when daemon starts");
+        }
+    }
 
     Ok(())
 }
