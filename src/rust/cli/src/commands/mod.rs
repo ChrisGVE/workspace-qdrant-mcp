@@ -22,7 +22,6 @@ pub mod search;
 pub mod language;
 
 // System Administration
-pub mod admin;
 pub mod backup;
 pub mod ingest;
 pub mod update;
@@ -30,4 +29,3 @@ pub mod watch;
 
 // Diagnostics & Setup
 pub mod init;
-pub mod wizard;

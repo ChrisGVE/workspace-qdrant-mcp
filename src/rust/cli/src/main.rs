@@ -78,9 +78,6 @@ enum Commands {
     // =========================================================================
     // System Administration
     // =========================================================================
-    /// System administration (status, collections, health, projects)
-    Admin(commands::admin::AdminArgs),
-
     /// Update system from GitHub releases
     Update(commands::update::UpdateArgs),
 
@@ -101,9 +98,6 @@ enum Commands {
 
     /// Shell completion setup (bash, zsh, fish)
     Init(commands::init::InitArgs),
-
-    /// Setup wizards for guided configuration
-    Wizard(commands::wizard::WizardArgs),
 }
 
 /// Main entry point with minimal tokio runtime for fast startup
@@ -148,7 +142,6 @@ async fn main() -> Result<()> {
         Commands::Language(args) => commands::language::execute(args).await,
 
         // System Administration
-        Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Update(args) => commands::update::execute(args).await,
         Commands::Backup(args) => commands::backup::execute(args).await,
         Commands::Ingest(args) => commands::ingest::execute(args).await,
@@ -157,7 +150,6 @@ async fn main() -> Result<()> {
         // Diagnostics & Setup
         Commands::Debug(args) => commands::debug::execute(args).await,
         Commands::Init(args) => commands::init::execute(args).await,
-        Commands::Wizard(args) => commands::wizard::execute(args).await,
     };
 
     // Handle result
