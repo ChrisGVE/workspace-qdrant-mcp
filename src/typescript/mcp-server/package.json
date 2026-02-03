@@ -17,8 +17,9 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "npm run clean && tsc && npm run copy:proto",
+    "build": "npm run clean && tsc && npm run copy:proto && npm run chmod:bin",
     "copy:proto": "mkdir -p dist/proto && cp src/proto/*.proto dist/proto/",
+    "chmod:bin": "chmod +x dist/index.js dist/agent.js",
     "build:watch": "tsc --watch",
     "clean": "rm -rf dist",
     "dev": "tsx watch src/index.ts",
