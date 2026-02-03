@@ -12,13 +12,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &["../daemon/proto"],
         )?;
 
-    // Also compile ingestion proto if needed
-    tonic_build::configure()
-        .build_server(false)
-        .compile_protos(
-            &["../daemon/proto/ingestion.proto"],
-            &["../daemon/proto"],
-        )?;
+    // Note: Legacy ingestion.proto was removed. All gRPC operations now use
+    // workspace_daemon.proto with services: SystemService, CollectionService,
+    // DocumentService, EmbeddingService, ProjectService.
 
     Ok(())
 }

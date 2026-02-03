@@ -1,23 +1,16 @@
 use std::io::Result;
 
 fn main() -> Result<()> {
-    // Generate gRPC code from proto files
-    tonic_build::configure()
-        .build_server(true)
-        .build_client(true)
-        .out_dir("src/grpc/generated")
-        .compile(
-            &["../proto/ingestion.proto"],
-            &["../proto/"],
-        )?;
+    // Note: Legacy ingestion.proto was removed. All gRPC operations now use
+    // workspace_daemon.proto with services: SystemService, CollectionService,
+    // DocumentService, EmbeddingService, ProjectService.
+    //
+    // Proto compilation is handled by the grpc crate's build.rs, not here.
 
-    // Tell Cargo to rerun this build script if the proto file changes
-    println!("cargo:rerun-if-changed=../proto/ingestion.proto");
-    
     // Set build metadata
     println!("cargo:rustc-env=BUILD_TIMESTAMP={}", chrono::Utc::now().timestamp());
     println!("cargo:rustc-env=GIT_HASH={}", get_git_hash().unwrap_or_else(|| "unknown".to_string()));
-    
+
     Ok(())
 }
 
