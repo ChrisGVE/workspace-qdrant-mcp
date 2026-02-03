@@ -19,16 +19,35 @@ Project-scoped vector database for AI assistants, providing hybrid semantic + ke
 
 ### Prerequisites
 
-- **Python 3.10+** with [uv](https://github.com/astral-sh/uv)
 - **Qdrant server** - `docker run -p 6333:6333 qdrant/qdrant`
 
-For full installation (CLI + daemon):
-- **Rust toolchain** - [rustup.rs](https://rustup.rs)
+For MCP server only:
+- **Python 3.10+** with [uv](https://github.com/astral-sh/uv)
+
+For CLI + daemon (from source):
+- **Rust 1.75+** - [rustup.rs](https://rustup.rs)
 - **ONNX Runtime** (for daemon) - `brew install onnxruntime` or [download](https://github.com/microsoft/onnxruntime/releases)
 
 ### Install
 
-**Option 1: MCP Server Only (simplest)**
+**Option 1: Pre-built Binaries (Recommended for CLI + Daemon)**
+
+```bash
+# Linux/macOS - one-liner
+curl -fsSL https://raw.githubusercontent.com/ChrisGVE/workspace-qdrant-mcp/main/scripts/download-install.sh | bash
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/ChrisGVE/workspace-qdrant-mcp/main/scripts/download-install.ps1 | iex
+```
+
+This downloads pre-built `wqm` and `memexd` binaries to `~/.local/bin` (or `%LOCALAPPDATA%\wqm\bin` on Windows).
+
+Options (run script locally):
+- `--prefix /path` - Custom installation directory
+- `--version v0.4.0` - Specific version (default: latest)
+- `--cli-only` - Skip daemon
+
+**Option 2: MCP Server Only (Python)**
 
 ```bash
 git clone https://github.com/ChrisGVE/workspace-qdrant-mcp.git
@@ -38,7 +57,7 @@ uv tool install .
 
 This installs the `workspace-qdrant-mcp` command globally. No Rust toolchain required.
 
-**Option 2: Full Installation (MCP + CLI + Daemon)**
+**Option 3: Build from Source**
 
 ```bash
 git clone https://github.com/ChrisGVE/workspace-qdrant-mcp.git

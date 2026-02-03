@@ -2179,14 +2179,28 @@ Pre-compiled grammar libraries are included for each platform. Custom grammars c
 
 Download pre-built binaries from GitHub Releases:
 
+**Quick Install (Recommended):**
+
+```bash
+# Linux/macOS - one-liner
+curl -fsSL https://raw.githubusercontent.com/ChrisGVE/workspace-qdrant-mcp/main/scripts/download-install.sh | bash
+
+# Windows (PowerShell) - one-liner
+irm https://raw.githubusercontent.com/ChrisGVE/workspace-qdrant-mcp/main/scripts/download-install.ps1 | iex
+```
+
+**Manual Download:**
+
 ```bash
 # Linux/macOS
-curl -fsSL https://github.com/[org]/workspace-qdrant-mcp/releases/latest/download/wqm-$(uname -s)-$(uname -m).tar.gz | tar xz
-sudo mv wqm /usr/local/bin/
-sudo mv memexd /usr/local/bin/
+VERSION="v0.4.0"  # Or use 'latest'
+PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/x64/' | sed 's/aarch64/arm64/')"
+curl -fsSL "https://github.com/ChrisGVE/workspace-qdrant-mcp/releases/download/${VERSION}/workspace-qdrant-mcp-${PLATFORM}.tar.gz" | tar xz
+sudo mv wqm memexd /usr/local/bin/
 
 # Windows (PowerShell)
-Invoke-WebRequest -Uri "https://github.com/[org]/workspace-qdrant-mcp/releases/latest/download/wqm-windows-x86_64.zip" -OutFile wqm.zip
+$Version = "v0.4.0"
+Invoke-WebRequest -Uri "https://github.com/ChrisGVE/workspace-qdrant-mcp/releases/download/$Version/workspace-qdrant-mcp-windows-x64.zip" -OutFile wqm.zip
 Expand-Archive wqm.zip -DestinationPath "$env:LOCALAPPDATA\Programs\wqm"
 # Add to PATH manually
 ```
@@ -2210,7 +2224,7 @@ For development or custom builds:
 # - Protocol Buffers compiler (protoc)
 
 # Clone and build
-git clone https://github.com/[org]/workspace-qdrant-mcp.git
+git clone https://github.com/ChrisGVE/workspace-qdrant-mcp.git
 cd workspace-qdrant-mcp
 
 # Use the install script
@@ -2229,12 +2243,11 @@ cd src/typescript/mcp-server && npm install && npm run build
 
 | Option | Description |
 |--------|-------------|
-| `--release` | Build with optimizations |
-| `--debug` | Build with debug symbols |
-| `--prefix=PATH` | Installation directory (default: `~/.local`) |
-| `--no-daemon` | Skip daemon build |
-| `--no-cli` | Skip CLI build |
-| `--no-mcp` | Skip MCP server build |
+| `--prefix PATH` | Installation directory (default: `~/.local`) |
+| `--force` | Clean rebuild from scratch (cargo clean) |
+| `--cli-only` | Build only CLI, skip daemon |
+| `--no-service` | Skip daemon service setup instructions |
+| `--no-verify` | Skip verification steps |
 
 #### npm Global Install (MCP Server Only)
 
@@ -2251,26 +2264,35 @@ npx workspace-qdrant-mcp --version
 
 #### Package Managers
 
-> **[PLACEHOLDER]** Package manager installations are planned but not yet available.
-
 **Homebrew (macOS/Linux):**
+
+A Homebrew formula is available in the repository:
+
 ```bash
-# Planned
+# Install from local formula (when building from source)
+brew install --build-from-source ./Formula/workspace-qdrant-mcp.rb
+
+# Or install from tap (when tap is configured)
+brew tap ChrisGVE/workspace-qdrant-mcp
 brew install workspace-qdrant-mcp
 ```
 
+The formula downloads pre-built binaries and configures the daemon as a Homebrew service.
+
+> **Note:** Homebrew tap publication is planned for a future release.
+
 **apt (Debian/Ubuntu):**
 ```bash
-# Planned
-sudo add-apt-repository ppa:workspace-qdrant-mcp/stable
-sudo apt update
-sudo apt install workspace-qdrant-mcp
+# Planned for future release
+# sudo add-apt-repository ppa:workspace-qdrant-mcp/stable
+# sudo apt update
+# sudo apt install workspace-qdrant-mcp
 ```
 
 **winget (Windows):**
 ```powershell
-# Planned
-winget install workspace-qdrant-mcp
+# Planned for future release
+# winget install workspace-qdrant-mcp
 ```
 
 ### Docker Deployment Options
