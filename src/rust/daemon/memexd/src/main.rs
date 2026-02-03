@@ -27,6 +27,8 @@ use workspace_qdrant_core::{
     queue_config::QueueConnectionConfig,
     // LSP lifecycle management (Task 1.1)
     LanguageServerManager, ProjectLspConfig,
+    // Schema management (ADR-003: daemon owns database)
+    SchemaManager,
 };
 
 // gRPC server for Python MCP server and CLI communication (Task 421)
@@ -470,7 +472,15 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     let queue_pool = queue_config.create_pool().await
         .map_err(|e| format!("Failed to create queue database pool: {}", e))?;
 
-    info!("Queue database initialized at: {}", db_path.display());
+    info!("Queue database pool created at: {}", db_path.display());
+
+    // Run schema migrations (ADR-003: daemon owns database and schema)
+    // This creates watch_folders, unified_queue tables with correct schema
+    info!("Running database schema migrations...");
+    let schema_manager = SchemaManager::new(queue_pool.clone());
+    schema_manager.run_migrations().await
+        .map_err(|e| format!("Failed to run schema migrations: {}", e))?;
+    info!("Schema migrations complete");
 
     // Clone pool for gRPC server (ProjectService needs it)
     let grpc_db_pool = queue_pool.clone();
@@ -572,6 +582,26 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     // Use daemon_mode() for gRPC port 6334 and skip compatibility check
     let storage_config = StorageConfig::daemon_mode();
     let storage_client = Arc::new(StorageClient::with_config(storage_config));
+
+    // Initialize multi-tenant Qdrant collections (projects, libraries, memory)
+    // This is idempotent - existing collections are skipped
+    info!("Initializing Qdrant collections...");
+    match storage_client.initialize_multi_tenant_collections(None).await {
+        Ok(result) => {
+            info!(
+                "Qdrant collections initialized: projects={}, libraries={}, memory={}",
+                result.projects_created, result.libraries_created, result.memory_created
+            );
+            if result.is_complete() {
+                info!("All multi-tenant collections ready with dense+sparse vector support");
+            }
+        }
+        Err(e) => {
+            // Log warning but continue - Qdrant might not be available yet
+            // Collections will be created on first use
+            warn!("Failed to initialize Qdrant collections (will retry on use): {}", e);
+        }
+    }
 
     // Create and start queue processor (legacy ingestion_queue)
     let mut queue_processor = QueueProcessor::with_components(

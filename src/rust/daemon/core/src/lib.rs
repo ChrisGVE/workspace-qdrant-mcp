@@ -97,6 +97,9 @@ pub use crate::tracing_otel::{
 pub use crate::daemon_state::{
     DaemonStateManager
 };
+pub use crate::schema_version::{
+    SchemaManager, SchemaError, CURRENT_SCHEMA_VERSION
+};
 pub use crate::service_discovery::{
     DiscoveryManager, ServiceRegistry, ServiceInfo, ServiceStatus,
     NetworkDiscovery, DiscoveryMessage, DiscoveryMessageType,

@@ -15,6 +15,8 @@ use qdrant_client::qdrant::Datatype;
 use qdrant_client::qdrant::{
     Condition, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
     DeletePointsBuilder, FieldType, Filter, HnswConfigDiffBuilder, VectorParamsBuilder,
+    DenseVector, SparseVector, VectorParamsMap, SparseVectorConfig, SparseVectorParams,
+    vectors_config,
 };
 use serde::{Serialize, Deserialize};
 use tokio::time::sleep;
@@ -703,6 +705,10 @@ impl StorageClient {
     ///
     /// This uses the builder pattern from qdrant-client for better ergonomics
     /// and supports the new multi-tenant architecture requirements.
+    ///
+    /// Collections are created with named vectors:
+    /// - "dense": Dense semantic vectors (384 dimensions for all-MiniLM-L6-v2)
+    /// - "sparse": Sparse BM25-style keyword vectors for hybrid search
     pub async fn create_multi_tenant_collection(
         &self,
         collection_name: &str,
@@ -719,19 +725,42 @@ impl StorageClient {
             return Ok(());
         }
 
-        // Build HNSW configuration
+        // Build HNSW configuration for dense vectors
         let hnsw_config = HnswConfigDiffBuilder::default()
             .m(config.hnsw_m)
             .ef_construct(config.hnsw_ef_construct);
 
-        // Build vector parameters with HNSW config
-        let vector_params = VectorParamsBuilder::new(config.vector_size, Distance::Cosine)
+        // Build dense vector parameters with HNSW config
+        let dense_vector_params: VectorParams = VectorParamsBuilder::new(config.vector_size, Distance::Cosine)
             .hnsw_config(hnsw_config)
-            .on_disk(false); // Keep vectors in memory for performance
+            .on_disk(false) // Keep vectors in memory for performance
+            .build();
 
-        // Create collection with builder
+        // Build named vectors config with "dense" vector using VectorParamsMap
+        let mut dense_vectors_map = HashMap::new();
+        dense_vectors_map.insert("dense".to_string(), dense_vector_params);
+
+        let named_vectors_config = VectorsConfig {
+            config: Some(vectors_config::Config::ParamsMap(VectorParamsMap {
+                map: dense_vectors_map,
+            })),
+        };
+
+        // Build sparse vectors config with "sparse" vector for BM25-style keyword search
+        let mut sparse_vectors_map = HashMap::new();
+        sparse_vectors_map.insert("sparse".to_string(), SparseVectorParams {
+            index: None, // Use default sparse index configuration
+            modifier: None,
+        });
+
+        let sparse_config = SparseVectorConfig {
+            map: sparse_vectors_map,
+        };
+
+        // Create collection with both dense and sparse vectors
         let create_request = CreateCollectionBuilder::new(collection_name)
-            .vectors_config(vector_params)
+            .vectors_config(named_vectors_config)
+            .sparse_vectors_config(sparse_config)
             .on_disk_payload(config.on_disk_payload)
             .shard_number(1)
             .replication_factor(1)
@@ -745,7 +774,7 @@ impl StorageClient {
         })
         .await?;
 
-        info!("Successfully created multi-tenant collection: {}", collection_name);
+        info!("Successfully created multi-tenant collection with dense+sparse vectors: {}", collection_name);
         Ok(())
     }
 
@@ -1016,22 +1045,67 @@ impl StorageClient {
     // Private helper methods
     
     /// Convert DocumentPoint to Qdrant PointStruct
+    ///
+    /// Converts a DocumentPoint with dense and optional sparse vectors to a Qdrant PointStruct.
+    /// Uses named vectors: "dense" for semantic vectors, "sparse" for BM25-style keyword vectors.
     fn convert_to_qdrant_point(&self, point: DocumentPoint) -> Result<PointStruct, StorageError> {
         let payload = point.payload.into_iter()
             .map(|(k, v)| (k, Self::convert_json_to_qdrant_value(v)))
             .collect();
-        
+
+        // Build named vectors with "dense" and optionally "sparse"
+        let mut named_vectors = std::collections::HashMap::new();
+
+        // Add dense vector using the new Vector format with DenseVector
+        named_vectors.insert(
+            "dense".to_string(),
+            qdrant_client::qdrant::Vector {
+                data: vec![], // Deprecated, use vector field instead
+                indices: None,
+                vectors_count: None,
+                vector: Some(qdrant_client::qdrant::vector::Vector::Dense(DenseVector {
+                    data: point.dense_vector,
+                })),
+            }
+        );
+
+        // Add sparse vector if present
+        if let Some(sparse_map) = point.sparse_vector {
+            // Convert HashMap<u32, f32> to (indices, values) for SparseVector
+            let mut indices: Vec<u32> = Vec::with_capacity(sparse_map.len());
+            let mut values: Vec<f32> = Vec::with_capacity(sparse_map.len());
+
+            // Sort by index for consistent ordering
+            let mut entries: Vec<_> = sparse_map.into_iter().collect();
+            entries.sort_by_key(|(idx, _)| *idx);
+
+            for (idx, val) in entries {
+                indices.push(idx);
+                values.push(val);
+            }
+
+            named_vectors.insert(
+                "sparse".to_string(),
+                qdrant_client::qdrant::Vector {
+                    data: vec![], // Deprecated for sparse vectors
+                    indices: None, // Deprecated, use vector field instead
+                    vectors_count: None,
+                    vector: Some(qdrant_client::qdrant::vector::Vector::Sparse(SparseVector {
+                        indices,
+                        values,
+                    })),
+                }
+            );
+        }
+
         Ok(PointStruct {
             id: Some(qdrant_client::qdrant::PointId {
                 point_id_options: Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(point.id)),
             }),
             vectors: Some(qdrant_client::qdrant::Vectors {
-                vectors_options: Some(qdrant_client::qdrant::vectors::VectorsOptions::Vector(
-                    qdrant_client::qdrant::Vector {
-                        data: point.dense_vector,
-                        indices: None,
-                        vectors_count: None,
-                        vector: None,
+                vectors_options: Some(qdrant_client::qdrant::vectors::VectorsOptions::Vectors(
+                    qdrant_client::qdrant::NamedVectors {
+                        vectors: named_vectors,
                     }
                 )),
             }),

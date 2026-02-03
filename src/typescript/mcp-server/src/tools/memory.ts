@@ -463,6 +463,8 @@ export class MemoryTool {
     const payload: Record<string, unknown> = {
       rule_id: operation.ruleId,
       action: operation.action,
+      // source_type is required by Rust ContentPayload parser
+      source_type: 'memory_rule',
     };
 
     if (operation.content) {
