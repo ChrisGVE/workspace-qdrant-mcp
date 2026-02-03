@@ -1,11 +1,9 @@
 //! Queue command - unified queue inspector for debugging
 //!
-//! Phase 1 HIGH priority command for queue inspection and management.
-//! Subcommands: list, show, stats, clean
+//! Read-only queue inspector for debugging and monitoring.
+//! Subcommands: list, show, stats
 //!
-//! Task 42: Read-only queue inspector with debugging capabilities.
-
-use std::io::{self, Write};
+//! Note: Queue cleanup is automatic (daemon handles this).
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -94,25 +92,6 @@ enum QueueCommand {
         /// Show breakdown by collection
         #[arg(short = 'c', long)]
         by_collection: bool,
-    },
-
-    /// Clean old completed/failed items from queue
-    Clean {
-        /// Delete items older than N days
-        #[arg(short, long, default_value = "7")]
-        days: i64,
-
-        /// Only clean items with status (done, failed, or both)
-        #[arg(short, long, default_value = "both")]
-        status: String,
-
-        /// Skip confirmation prompt
-        #[arg(short = 'y', long)]
-        yes: bool,
-
-        /// Dry run - show what would be deleted
-        #[arg(long)]
-        dry_run: bool,
     },
 }
 
@@ -224,9 +203,6 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
         QueueCommand::Stats { json, by_type, by_op, by_collection } => {
             stats(json, by_type, by_op, by_collection).await
         }
-        QueueCommand::Clean { days, status, yes, dry_run } => {
-            clean(days, &status, yes, dry_run).await
-        }
     }
 }
 
@@ -240,21 +216,6 @@ fn connect_readonly() -> Result<Connection> {
         rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
     )
     .context(format!("Failed to open state database at {:?}", db_path))?;
-
-    Ok(conn)
-}
-
-/// Connect to the state database (read-write for clean command)
-fn connect_readwrite() -> Result<Connection> {
-    let db_path = get_database_path_checked()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    let conn = Connection::open(&db_path)
-        .context(format!("Failed to open state database at {:?}", db_path))?;
-
-    // Enable WAL mode for better concurrency
-    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
-        .context("Failed to set SQLite pragmas")?;
 
     Ok(conn)
 }
@@ -737,115 +698,6 @@ fn print_breakdown(conn: &Connection, column: &str, title: &str) -> Result<()> {
             stats.failed
         );
     }
-
-    Ok(())
-}
-
-async fn clean(days: i64, status_filter: &str, yes: bool, dry_run: bool) -> Result<()> {
-    let conn = connect_readwrite()?;
-
-    // Build status condition
-    let status_condition = match status_filter {
-        "done" => "status = 'done'",
-        "failed" => "status = 'failed'",
-        "both" | _ => "status IN ('done', 'failed')",
-    };
-
-    // Count items to delete
-    let count_query = format!(
-        r#"
-        SELECT COUNT(*) FROM unified_queue
-        WHERE {}
-        AND datetime(created_at) < datetime('now', '-{} days')
-        "#,
-        status_condition, days
-    );
-
-    let count: i64 = conn.query_row(&count_query, [], |row| row.get(0))?;
-
-    if count == 0 {
-        output::info(format!("No items older than {} days to clean", days));
-        return Ok(());
-    }
-
-    output::info(format!(
-        "Found {} {} items older than {} days",
-        count,
-        status_filter,
-        days
-    ));
-
-    if dry_run {
-        output::info("Dry run - no items deleted");
-
-        // Show sample of items that would be deleted
-        let sample_query = format!(
-            r#"
-            SELECT queue_id, item_type, status, created_at
-            FROM unified_queue
-            WHERE {}
-            AND datetime(created_at) < datetime('now', '-{} days')
-            LIMIT 10
-            "#,
-            status_condition, days
-        );
-
-        let mut stmt = conn.prepare(&sample_query)?;
-        let rows = stmt.query_map([], |row| {
-            Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-            ))
-        })?;
-
-        output::separator();
-        println!("{}", "Sample items that would be deleted:".bold());
-        for row in rows {
-            let (id, item_type, status, created_at) = row?;
-            println!(
-                "  {} ({}) - {} - {}",
-                truncate(&id, 12),
-                item_type,
-                format_status(&status),
-                format_relative_time(&created_at)
-            );
-        }
-
-        if count > 10 {
-            output::info(format!("... and {} more", count - 10));
-        }
-
-        return Ok(());
-    }
-
-    // Confirm deletion
-    if !yes {
-        print!("Delete {} items? [y/N] ", count);
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-
-        if !input.trim().eq_ignore_ascii_case("y") {
-            output::info("Cancelled");
-            return Ok(());
-        }
-    }
-
-    // Delete items
-    let delete_query = format!(
-        r#"
-        DELETE FROM unified_queue
-        WHERE {}
-        AND datetime(created_at) < datetime('now', '-{} days')
-        "#,
-        status_condition, days
-    );
-
-    let deleted = conn.execute(&delete_query, [])?;
-    output::success(format!("Deleted {} items", deleted));
 
     Ok(())
 }
