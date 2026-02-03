@@ -75,12 +75,6 @@ enum Commands {
     /// Language tools - LSP and Tree-sitter (list, ts-install, ts-remove, lsp-install, lsp-remove, status)
     Language(commands::language::LanguageArgs),
 
-    /// LSP server management (list, status, restart, install, check)
-    Lsp(commands::lsp::LspArgs),
-
-    /// Tree-sitter grammar management (list, install, remove, verify, reload)
-    Grammar(commands::grammar::GrammarArgs),
-
     // =========================================================================
     // System Administration
     // =========================================================================
@@ -152,8 +146,6 @@ async fn main() -> Result<()> {
 
         // Language Support
         Commands::Language(args) => commands::language::execute(args).await,
-        Commands::Lsp(args) => commands::lsp::execute(args).await,
-        Commands::Grammar(args) => commands::grammar::execute(args).await,
 
         // System Administration
         Commands::Admin(args) => commands::admin::execute(args).await,

@@ -19,9 +19,7 @@ pub mod queue;
 pub mod search;
 
 // Language Support
-pub mod grammar;
 pub mod language;
-pub mod lsp;
 
 // System Administration
 pub mod admin;
