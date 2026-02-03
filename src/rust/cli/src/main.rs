@@ -102,6 +102,9 @@ enum Commands {
     // =========================================================================
     // Diagnostics & Setup
     // =========================================================================
+    /// Diagnostic tools (logs, errors, queue-errors, language)
+    Debug(commands::debug::DebugArgs),
+
     /// Shell completion setup (bash, zsh, fish)
     Init(commands::init::InitArgs),
 
@@ -160,6 +163,7 @@ async fn main() -> Result<()> {
         Commands::Watch(args) => commands::watch::execute(args).await,
 
         // Diagnostics & Setup
+        Commands::Debug(args) => commands::debug::execute(args).await,
         Commands::Init(args) => commands::init::execute(args).await,
         Commands::Wizard(args) => commands::wizard::execute(args).await,
     };

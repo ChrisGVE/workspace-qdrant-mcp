@@ -6,6 +6,9 @@
 pub mod service;
 pub mod status;
 
+// Diagnostics
+pub mod debug;
+
 // Content Management
 pub mod library;
 pub mod memory;
