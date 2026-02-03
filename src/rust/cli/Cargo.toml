@@ -12,11 +12,6 @@ keywords = ["cli", "qdrant", "mcp", "vector-database"]
 name = "wqm"
 path = "src/main.rs"
 
-[features]
-default = []
-phase2 = []
-phase3 = ["phase2"]
-
 [dependencies]
 # Core library (for grammar management)
 workspace-qdrant-core = { path = "../daemon/core" }

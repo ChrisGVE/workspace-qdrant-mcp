@@ -18,6 +18,7 @@ mod queue;
 #[command(name = "wqm")]
 #[command(author, version, about = "Workspace Qdrant MCP CLI", long_about = None)]
 #[command(propagate_version = true)]
+#[command(arg_required_else_help = true)]
 struct Cli {
     /// Output format (table, json, plain)
     #[arg(long, global = true, default_value = "table")]
@@ -35,26 +36,44 @@ struct Cli {
     command: Commands,
 }
 
-/// CLI commands organized by priority phase
+/// CLI commands
 #[derive(Subcommand)]
 enum Commands {
     // =========================================================================
-    // Phase 1 - HIGH priority (always available)
+    // Service & Status
     // =========================================================================
-    /// Daemon service management (install, start, stop, status, logs)
+    /// Daemon service management (start, stop, restart, status)
     Service(commands::service::ServiceArgs),
 
-    /// System administration (status, collections, health, projects)
-    Admin(commands::admin::AdminArgs),
-
-    /// Consolidated status monitoring (queue, watch, performance, messages)
+    /// Consolidated status monitoring (queue, watch, performance, health)
     Status(commands::status::StatusArgs),
 
-    /// Library management with tags (list, add, watch, unwatch)
+    // =========================================================================
+    // Content Management
+    // =========================================================================
+    /// Library management with tags (list, add, ingest, watch, unwatch, remove, config)
     Library(commands::library::LibraryArgs),
 
-    /// Unified queue inspector for debugging (list, show, stats, clean)
+    /// Project lifecycle (list, info, remove)
+    Project(commands::project::ProjectArgs),
+
+    /// Memory rules management (list, add, remove, update, search, scope)
+    Memory(commands::memory::MemoryArgs),
+
+    // =========================================================================
+    // Search & Queue
+    // =========================================================================
+    /// Search collections (project, library, memory, global)
+    Search(commands::search::SearchArgs),
+
+    /// Unified queue inspector (list, show, stats)
     Queue(commands::queue::QueueArgs),
+
+    // =========================================================================
+    // Language Support
+    // =========================================================================
+    /// Language tools - LSP and Tree-sitter (list, ts-install, ts-remove, lsp-install, lsp-remove, status)
+    Language(commands::language::LanguageArgs),
 
     /// LSP server management (list, status, restart, install, check)
     Lsp(commands::lsp::LspArgs),
@@ -62,52 +81,31 @@ enum Commands {
     /// Tree-sitter grammar management (list, install, remove, verify, reload)
     Grammar(commands::grammar::GrammarArgs),
 
-    /// Update daemon from GitHub releases
+    // =========================================================================
+    // System Administration
+    // =========================================================================
+    /// System administration (status, collections, health, projects)
+    Admin(commands::admin::AdminArgs),
+
+    /// Update system from GitHub releases
     Update(commands::update::UpdateArgs),
+
+    /// Backup Qdrant collections (create snapshots)
+    Backup(commands::backup::BackupArgs),
+
+    /// Ingest documents (file, folder, web)
+    Ingest(commands::ingest::IngestArgs),
 
     /// Watch folder management (list, enable, disable, show)
     Watch(commands::watch::WatchArgs),
 
     // =========================================================================
-    // Phase 2 - MEDIUM priority (behind feature flag)
-    // =========================================================================
-    /// Search collections (project, collection, global, memory)
-    #[cfg(feature = "phase2")]
-    Search(commands::search::SearchArgs),
-
-    /// Ingest documents (file, folder, web)
-    #[cfg(feature = "phase2")]
-    Ingest(commands::ingest::IngestArgs),
-
-    /// Backup management - Qdrant snapshot wrapper
-    #[cfg(feature = "phase2")]
-    Backup(commands::backup::BackupArgs),
-
-    /// Memory rules management (list, add, edit, remove)
-    #[cfg(feature = "phase2")]
-    Memory(commands::memory::MemoryArgs),
-
-    /// Language tools - LSP and grammar (merged)
-    #[cfg(feature = "phase2")]
-    Language(commands::language::LanguageArgs),
-
-    /// Project management - watch and branch (merged)
-    #[cfg(feature = "phase2")]
-    Project(commands::project::ProjectArgs),
-
-    // =========================================================================
-    // Phase 3 - LOW priority (behind feature flag)
+    // Diagnostics & Setup
     // =========================================================================
     /// Shell completion setup (bash, zsh, fish)
-    #[cfg(feature = "phase3")]
     Init(commands::init::InitArgs),
 
-    /// Extended help system
-    #[cfg(feature = "phase3")]
-    Help(commands::help::HelpArgs),
-
     /// Setup wizards for guided configuration
-    #[cfg(feature = "phase3")]
     Wizard(commands::wizard::WizardArgs),
 }
 
@@ -136,37 +134,33 @@ async fn main() -> Result<()> {
 
     // Execute the command
     let result = match cli.command {
-        // Phase 1 commands
+        // Service & Status
         Commands::Service(args) => commands::service::execute(args).await,
-        Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Status(args) => commands::status::execute(args).await,
+
+        // Content Management
         Commands::Library(args) => commands::library::execute(args).await,
+        Commands::Project(args) => commands::project::execute(args).await,
+        Commands::Memory(args) => commands::memory::execute(args).await,
+
+        // Search & Queue
+        Commands::Search(args) => commands::search::execute(args).await,
         Commands::Queue(args) => commands::queue::execute(args).await,
+
+        // Language Support
+        Commands::Language(args) => commands::language::execute(args).await,
         Commands::Lsp(args) => commands::lsp::execute(args).await,
         Commands::Grammar(args) => commands::grammar::execute(args).await,
+
+        // System Administration
+        Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Update(args) => commands::update::execute(args).await,
+        Commands::Backup(args) => commands::backup::execute(args).await,
+        Commands::Ingest(args) => commands::ingest::execute(args).await,
         Commands::Watch(args) => commands::watch::execute(args).await,
 
-        // Phase 2 commands
-        #[cfg(feature = "phase2")]
-        Commands::Search(args) => commands::search::execute(args).await,
-        #[cfg(feature = "phase2")]
-        Commands::Ingest(args) => commands::ingest::execute(args).await,
-        #[cfg(feature = "phase2")]
-        Commands::Backup(args) => commands::backup::execute(args).await,
-        #[cfg(feature = "phase2")]
-        Commands::Memory(args) => commands::memory::execute(args).await,
-        #[cfg(feature = "phase2")]
-        Commands::Language(args) => commands::language::execute(args).await,
-        #[cfg(feature = "phase2")]
-        Commands::Project(args) => commands::project::execute(args).await,
-
-        // Phase 3 commands
-        #[cfg(feature = "phase3")]
+        // Diagnostics & Setup
         Commands::Init(args) => commands::init::execute(args).await,
-        #[cfg(feature = "phase3")]
-        Commands::Help(args) => commands::help::execute(args).await,
-        #[cfg(feature = "phase3")]
         Commands::Wizard(args) => commands::wizard::execute(args).await,
     };
 
