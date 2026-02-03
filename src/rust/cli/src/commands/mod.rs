@@ -24,6 +24,7 @@ pub mod language;
 // System Administration
 pub mod backup;
 pub mod ingest;
+pub mod restore;
 pub mod update;
 pub mod watch;
 

@@ -84,6 +84,9 @@ enum Commands {
     /// Backup Qdrant collections (create snapshots)
     Backup(commands::backup::BackupArgs),
 
+    /// Restore Qdrant collections from snapshots
+    Restore(commands::restore::RestoreArgs),
+
     /// Ingest documents (file, folder, web)
     Ingest(commands::ingest::IngestArgs),
 
@@ -144,6 +147,7 @@ async fn main() -> Result<()> {
         // System Administration
         Commands::Update(args) => commands::update::execute(args).await,
         Commands::Backup(args) => commands::backup::execute(args).await,
+        Commands::Restore(args) => commands::restore::execute(args).await,
         Commands::Ingest(args) => commands::ingest::execute(args).await,
         Commands::Watch(args) => commands::watch::execute(args).await,
 

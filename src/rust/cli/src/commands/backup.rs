@@ -1,8 +1,9 @@
 //! Backup command - Qdrant snapshot management
 //!
-//! Phase 2 MEDIUM priority command for backup management.
-//! Wraps Qdrant native snapshot API.
-//! Subcommands: create, list, restore, delete
+//! Creates and manages Qdrant snapshots for data backup.
+//! Subcommands: create, list, delete
+//!
+//! For restoration, use the separate 'restore' command.
 
 use std::path::PathBuf;
 
@@ -30,22 +31,20 @@ enum BackupCommand {
         /// Output directory for snapshot
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Add description/label to the snapshot
+        #[arg(short, long)]
+        description: Option<String>,
     },
 
     /// List existing snapshots
     List {
         /// Collection name (optional, shows all if omitted)
         collection: Option<String>,
-    },
 
-    /// Restore from snapshot
-    Restore {
-        /// Snapshot name or path
-        snapshot: String,
-
-        /// Collection to restore to
+        /// Show detailed information
         #[arg(short, long)]
-        collection: Option<String>,
+        verbose: bool,
     },
 
     /// Delete a snapshot
@@ -56,37 +55,51 @@ enum BackupCommand {
         /// Collection the snapshot belongs to
         #[arg(short, long)]
         collection: String,
+
+        /// Force deletion without confirmation
+        #[arg(short, long)]
+        force: bool,
     },
 }
 
 /// Execute backup command
 pub async fn execute(args: BackupArgs) -> Result<()> {
     match args.command {
-        BackupCommand::Create { collection, output } => create_backup(&collection, output).await,
-        BackupCommand::List { collection } => list_backups(collection).await,
-        BackupCommand::Restore {
-            snapshot,
+        BackupCommand::Create {
             collection,
-        } => restore_backup(&snapshot, collection).await,
+            output,
+            description,
+        } => create_backup(&collection, output, description).await,
+        BackupCommand::List { collection, verbose } => list_backups(collection, verbose).await,
         BackupCommand::Delete {
             snapshot,
             collection,
-        } => delete_backup(&snapshot, &collection).await,
+            force,
+        } => delete_backup(&snapshot, &collection, force).await,
     }
 }
 
-async fn create_backup(collection: &str, output: Option<PathBuf>) -> Result<()> {
+async fn create_backup(
+    collection: &str,
+    output: Option<PathBuf>,
+    description: Option<String>,
+) -> Result<()> {
     output::section("Create Backup");
 
     output::kv("Collection", collection);
     if let Some(out) = &output {
         output::kv("Output", &out.display().to_string());
     }
+    if let Some(desc) = &description {
+        output::kv("Description", desc);
+    }
     output::separator();
 
     if collection == "all" {
         output::info("Creating full Qdrant snapshot...");
         output::info("  curl -X POST 'http://localhost:6333/snapshots'");
+        output::separator();
+        output::info("This creates a snapshot of all collections.");
     } else {
         output::info(&format!(
             "Creating snapshot for collection '{}'...",
@@ -99,76 +112,92 @@ async fn create_backup(collection: &str, output: Option<PathBuf>) -> Result<()> 
     }
 
     output::separator();
-    output::info("Snapshot will be stored in Qdrant's snapshot directory.");
-    output::info("Default location: ~/.qdrant/storage/snapshots/");
+    output::info("Snapshot storage:");
+    output::info("  Default: ~/.qdrant/storage/snapshots/");
+    if collection != "all" {
+        output::info(&format!(
+            "  Collection: ~/.qdrant/storage/snapshots/{}/",
+            collection
+        ));
+    }
+
+    output::separator();
+    output::info("To restore, use: wqm restore snapshot <name> --collection <collection>");
 
     Ok(())
 }
 
-async fn list_backups(collection: Option<String>) -> Result<()> {
+async fn list_backups(collection: Option<String>, verbose: bool) -> Result<()> {
     output::section("List Backups");
 
     match &collection {
         Some(coll) => {
-            output::info(&format!("Snapshots for collection '{}':", coll));
+            output::kv("Collection", coll);
+            output::separator();
+
+            output::info("Snapshots for collection:");
             output::info(&format!(
-                "  curl 'http://localhost:6333/collections/{}/snapshots'",
+                "  curl 'http://localhost:6333/collections/{}/snapshots' | jq",
                 coll
             ));
+
+            if verbose {
+                output::separator();
+                output::info("Snapshot fields:");
+                output::info("  - name: Snapshot identifier");
+                output::info("  - creation_time: When created");
+                output::info("  - size: Size in bytes");
+            }
         }
         None => {
-            output::info("All snapshots:");
-            output::info("  curl 'http://localhost:6333/snapshots'");
+            output::info("All snapshots (full Qdrant backups):");
+            output::info("  curl 'http://localhost:6333/snapshots' | jq");
             output::separator();
-            output::info("For collection-specific snapshots:");
-            output::info("  curl 'http://localhost:6333/collections/{collection}/snapshots'");
+
+            output::info("Per-collection snapshots:");
+            output::info("  List collections:");
+            output::info("    curl 'http://localhost:6333/collections' | jq '.result.collections[].name'");
+            output::info("  Then for each:");
+            output::info("    curl 'http://localhost:6333/collections/<name>/snapshots' | jq");
+
+            if verbose {
+                output::separator();
+                output::info("Canonical collections for this project:");
+                output::info("  - projects (multi-tenant project data)");
+                output::info("  - libraries (multi-tenant library data)");
+                output::info("  - memory (behavioral rules)");
+            }
         }
     }
 
     Ok(())
 }
 
-async fn restore_backup(snapshot: &str, collection: Option<String>) -> Result<()> {
-    output::section("Restore Backup");
-
-    output::kv("Snapshot", snapshot);
-    if let Some(coll) = &collection {
-        output::kv("Target Collection", coll);
-    }
-    output::separator();
-
-    output::warning("Restore is a destructive operation!");
-    output::info("To restore a snapshot:");
-
-    if let Some(coll) = &collection {
-        output::info(&format!(
-            "  curl -X PUT 'http://localhost:6333/collections/{}/snapshots/recover' \\",
-            coll
-        ));
-        output::info(&format!(
-            "    -H 'Content-Type: application/json' \\
-    -d '{{\"location\": \"{}\"}}'",
-            snapshot
-        ));
-    } else {
-        output::info("  Specify target collection with --collection");
-    }
-
-    Ok(())
-}
-
-async fn delete_backup(snapshot: &str, collection: &str) -> Result<()> {
+async fn delete_backup(snapshot: &str, collection: &str, force: bool) -> Result<()> {
     output::section("Delete Backup");
 
     output::kv("Snapshot", snapshot);
     output::kv("Collection", collection);
+    output::kv("Force", if force { "yes" } else { "no" });
     output::separator();
 
-    output::warning("This will permanently delete the snapshot!");
+    if !force {
+        output::warning("This will permanently delete the snapshot!");
+        output::warning("Use --force to skip this warning.");
+        output::separator();
+    }
+
     output::info("To delete:");
     output::info(&format!(
         "  curl -X DELETE 'http://localhost:6333/collections/{}/snapshots/{}'",
         collection, snapshot
+    ));
+
+    output::separator();
+    output::info("Verify deletion:");
+    output::info(&format!(
+        "  curl 'http://localhost:6333/collections/{}/snapshots' | jq",
+        collection
     ));
 
     Ok(())
