@@ -761,8 +761,8 @@ impl DaemonStateManager {
         "#;
 
         let query = match (collection_filter, enabled_only) {
-            (Some(collection), true) => format!("{} WHERE collection = ?1 AND enabled = 1 ORDER BY created_at", base_query),
-            (Some(collection), false) => format!("{} WHERE collection = ?1 ORDER BY created_at", base_query),
+            (Some(_), true) => format!("{} WHERE collection = ?1 AND enabled = 1 ORDER BY created_at", base_query),
+            (Some(_), false) => format!("{} WHERE collection = ?1 ORDER BY created_at", base_query),
             (None, true) => format!("{} WHERE enabled = 1 ORDER BY created_at", base_query),
             (None, false) => format!("{} ORDER BY created_at", base_query),
         };
@@ -1180,8 +1180,6 @@ impl DaemonStateManager {
 
     /// Helper to convert a database row to WatchFolderRecord
     fn row_to_watch_folder(&self, row: &sqlx::sqlite::SqliteRow) -> DaemonStateResult<WatchFolderRecord> {
-        use chrono::TimeZone;
-
         let parse_datetime = |s: &str| -> DateTime<Utc> {
             DateTime::parse_from_rfc3339(s)
                 .map(|dt| dt.with_timezone(&Utc))

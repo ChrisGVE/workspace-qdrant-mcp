@@ -1079,23 +1079,6 @@ impl LanguageServerManager {
         }
     }
 
-    /// Find a running server instance for a file based on its language
-    async fn find_server_for_file(
-        &self,
-        project_id: &str,
-        file: &Path,
-    ) -> Option<Arc<tokio::sync::Mutex<ServerInstance>>> {
-        // Determine language from file extension
-        let language = file.extension()
-            .and_then(|ext| ext.to_str())
-            .map(Language::from_extension)?;
-
-        // Look for a running instance for this project and language
-        let key = ProjectLanguageKey::new(project_id, language);
-        let instances = self.instances.read().await;
-        instances.get(&key).cloned()
-    }
-
     /// Handle a potential server crash after an RPC error
     ///
     /// Checks if the server process is still alive. If not, marks the server

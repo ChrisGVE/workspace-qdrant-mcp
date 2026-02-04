@@ -9,11 +9,11 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::{Row, SqlitePool, sqlite::SqlitePoolOptions};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 use uuid::Uuid;
 
 use crate::lsp::{
-    Language, LspError, LspResult, ServerStatus,
+    Language, LspResult, ServerStatus,
 };
 use crate::lsp::lifecycle::{ServerMetadata, HealthMetrics};
 

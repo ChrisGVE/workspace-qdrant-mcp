@@ -179,27 +179,6 @@ impl FairnessScheduler {
         Ok(items)
     }
 
-    /// Dequeue items by type with current priority direction
-    async fn dequeue_by_type(
-        &self,
-        max_items: i32,
-        item_type: ItemType,
-        priority_descending: bool,
-    ) -> FairnessResult<Vec<UnifiedQueueItem>> {
-        let items = self.queue_manager
-            .dequeue_unified(
-                max_items,
-                &self.config.worker_id,
-                Some(self.config.lease_duration_secs),
-                None,
-                Some(item_type),
-                Some(priority_descending),
-            )
-            .await?;
-
-        Ok(items)
-    }
-
     /// Main scheduling method: dequeue the next batch of items
     ///
     /// Algorithm (Task 21 - Anti-starvation alternation):

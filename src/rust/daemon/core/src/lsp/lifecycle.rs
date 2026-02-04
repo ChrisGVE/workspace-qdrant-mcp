@@ -11,11 +11,11 @@ use serde::{Deserialize, Serialize};
 use tokio::process::{Child, Command};
 use tokio::sync::{Mutex, RwLock, oneshot};
 use tokio::time::timeout;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info};
 use uuid::Uuid;
 
 use crate::lsp::{
-    Language, LspError, LspResult, LspPriority,
+    Language, LspError, LspResult,
     DetectedServer, LspConfig, JsonRpcClient,
 };
 
