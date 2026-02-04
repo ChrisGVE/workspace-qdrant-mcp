@@ -2183,12 +2183,31 @@ The system supports 6 platform/architecture combinations:
 - **macOS**: Uses `FSEvents` for file watching. Launchd plist for daemon management.
 - **Windows**: Uses `ReadDirectoryChangesW` for file watching. Service support planned.
 
-**ONNX Runtime Bundling:**
+**ONNX Runtime Static Linking:**
 
-The Rust daemon bundles ONNX Runtime for embedding generation:
-- Linux: Dynamic linking with bundled `.so` files
-- macOS: Framework bundle for both architectures
-- Windows: Bundled `.dll` files
+The Rust daemon statically links ONNX Runtime for embedding generation. This ensures self-contained binaries that work without external dependencies:
+
+| Platform | Build Approach |
+|----------|----------------|
+| Linux x86_64 | Static linking via `ort` crate prebuilt binaries |
+| Linux ARM64 | Static linking via `ort` crate prebuilt binaries |
+| macOS ARM64 | Static linking via `ort` crate prebuilt binaries |
+| macOS Intel | **Special case**: ONNX Runtime compiled standalone first, then statically linked (no prebuilt binaries available from `ort` crate) |
+| Windows x86_64 | Static linking via `ort` crate prebuilt binaries |
+| Windows ARM64 | Static linking via `ort` crate prebuilt binaries |
+
+**Critical Requirements:**
+- Release binaries MUST be self-contained (no external ONNX Runtime dependency)
+- Source builds MUST also produce self-contained binaries
+- Users should NEVER need to install ONNX Runtime separately (e.g., via Homebrew)
+- The `ort-load-dynamic` feature MUST NOT be used in production builds
+
+**Intel Mac Build Pipeline:**
+Since the `ort` crate doesn't provide prebuilt static libraries for `x86_64-apple-darwin`:
+1. CI downloads ONNX Runtime source or prebuilt static library
+2. Compiles/extracts static library for Intel Mac target
+3. Links statically with the daemon during cargo build
+4. Produces self-contained `memexd` binary
 
 **Tree-sitter Grammar Compatibility:**
 
