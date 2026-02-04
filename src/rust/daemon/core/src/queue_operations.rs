@@ -279,9 +279,14 @@ pub struct QueueThrottlingSummary {
 
 /// Active project state for fairness scheduler (Task 36 - code audit round 2)
 ///
+/// **DEPRECATED (Task 26)**: This type references the legacy `active_projects` table.
+/// Use `watch_folders` table with `is_active` field instead.
+/// See `DaemonStateManager.list_active_projects()` for the replacement.
+///
 /// Tracks currently active projects for queue priority scheduling.
 /// Projects with recent activity get higher priority in the processing queue.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[deprecated(since = "0.4.0", note = "Use watch_folders table with is_active field instead")]
 pub struct ActiveProject {
     /// Unique project identifier (typically tenant_id or normalized path)
     pub project_id: String,
@@ -306,7 +311,11 @@ pub struct ActiveProject {
 }
 
 /// Statistics about active projects (from v_active_projects_stats view)
+///
+/// **DEPRECATED (Task 26)**: This type references the legacy `active_projects` table.
+/// Use `watch_folders` queries for project statistics instead.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[deprecated(since = "0.4.0", note = "Use watch_folders queries for project statistics")]
 pub struct ActiveProjectStats {
     pub total_projects: i64,
     pub watched_projects: i64,
@@ -437,6 +446,7 @@ impl QueueManager {
     /// **DEPRECATED (Task 21)**: This method uses the legacy `ingestion_queue` table.
     /// Use `enqueue_unified()` instead for new code.
     #[deprecated(since = "0.4.0", note = "Use enqueue_unified() instead")]
+    #[allow(deprecated)]
     pub async fn enqueue_file(
         &self,
         file_path: &str,
@@ -1036,8 +1046,12 @@ impl QueueManager {
         Ok(items)
     }
 
-    /// Retry missing metadata item by moving back to ingestion_queue
+    /// Retry missing metadata item by enqueueing to unified_queue
+    ///
+    /// Note: Updated per Task 26 to use unified_queue instead of legacy ingestion_queue.
     pub async fn retry_missing_metadata_item(&self, queue_id: &str) -> QueueResult<bool> {
+        use crate::unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload};
+
         // Start transaction
         let mut tx = self.pool.begin().await?;
 
@@ -1061,50 +1075,67 @@ impl QueueManager {
             let tenant_id: String = row.try_get("tenant_id")?;
             let branch: String = row.try_get("branch")?;
             let operation_str: String = row.try_get("operation")?;
-            let operation = QueueOperation::from_str(&operation_str)?;
             let priority: i32 = row.try_get("priority")?;
             let retry_count: i32 = row.try_get("retry_count")?;
 
-            // Insert back into ingestion_queue (with incremented retry_count)
-            let insert_query = r#"
-                INSERT OR REPLACE INTO ingestion_queue (
-                    file_absolute_path, collection_name, tenant_id, branch,
-                    operation, priority, retry_count
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
-            "#;
+            // Map legacy operation to unified operation
+            let unified_op = match operation_str.as_str() {
+                "ingest" => UnifiedOp::Ingest,
+                "update" => UnifiedOp::Update,
+                "delete" => UnifiedOp::Delete,
+                _ => UnifiedOp::Ingest, // Default to ingest
+            };
 
-            sqlx::query(insert_query)
-                .bind(&file_path)
-                .bind(&collection)
-                .bind(&tenant_id)
-                .bind(&branch)
-                .bind(operation.as_str())
-                .bind(priority)
-                .bind(retry_count + 1)
-                .execute(&mut *tx)
-                .await?;
+            // Create file payload
+            let payload = FilePayload {
+                file_path: file_path.clone(),
+                file_type: None,
+                file_hash: None,
+                size_bytes: None,
+            };
+            let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
 
-            // Update last_check_timestamp in missing_metadata_queue
-            let update_query = r#"
-                UPDATE missing_metadata_queue
-                SET last_check_timestamp = ?1, retry_count = retry_count + 1
-                WHERE queue_id = ?2
-            "#;
-
-            sqlx::query(update_query)
-                .bind(Utc::now().to_rfc3339())
-                .bind(queue_id)
-                .execute(&mut *tx)
-                .await?;
-
-            // Don't delete from missing_metadata_queue yet - let processing decide if successful
+            // Commit transaction before enqueueing (enqueue_unified uses its own transaction)
             tx.commit().await?;
 
-            info!("Retrying item from missing_metadata_queue: {}", file_path);
-            Ok(true)
+            // Enqueue to unified_queue
+            match self.enqueue_unified(
+                ItemType::File,
+                unified_op,
+                &tenant_id,
+                &collection,
+                &payload_json,
+                priority,
+                Some(&branch),
+                None, // No custom idempotency key - let it generate
+            ).await {
+                Ok((new_queue_id, _is_new)) => {
+                    // Update last_check_timestamp in missing_metadata_queue
+                    let update_query = r#"
+                        UPDATE missing_metadata_queue
+                        SET last_check_timestamp = ?1, retry_count = retry_count + 1
+                        WHERE queue_id = ?2
+                    "#;
+
+                    sqlx::query(update_query)
+                        .bind(Utc::now().to_rfc3339())
+                        .bind(queue_id)
+                        .execute(&self.pool)
+                        .await?;
+
+                    info!(
+                        "Retrying item from missing_metadata_queue: {} -> unified_queue {}",
+                        file_path, new_queue_id
+                    );
+                    Ok(true)
+                }
+                Err(e) => {
+                    error!("Failed to enqueue retry item to unified_queue: {}", e);
+                    Err(e)
+                }
+            }
         } else {
             warn!("Queue item not found in missing_metadata_queue: {}", queue_id);
-            tx.commit().await?;
             Ok(false)
         }
     }
@@ -1286,6 +1317,10 @@ impl QueueManager {
     }
 
     /// Clear items from the queue
+    ///
+    /// **DEPRECATED (Task 21)**: This method uses the legacy `ingestion_queue` table.
+    #[deprecated(since = "0.4.0", note = "Legacy ingestion_queue method")]
+    #[allow(deprecated)]
     pub async fn clear_queue(
         &self,
         collection: Option<&str>,
@@ -1335,6 +1370,11 @@ impl QueueManager {
     }
 
     /// Enqueue multiple files as a batch with priority calculation
+    ///
+    /// **DEPRECATED (Task 21)**: This method uses the legacy `ingestion_queue` table.
+    /// Use `enqueue_unified()` in a loop for batch operations.
+    #[deprecated(since = "0.4.0", note = "Use enqueue_unified() instead")]
+    #[allow(deprecated)]
     pub async fn enqueue_batch(
         &self,
         items: Vec<QueueItem>,
@@ -2385,15 +2425,22 @@ impl QueueManager {
 
     // =========================================================================
     // Active Projects (Task 36 - code audit round 2)
+    // **DEPRECATED (Task 26)**: All methods in this section use the legacy
+    // `active_projects` table. Use `watch_folders` table with `is_active`
+    // and `last_activity_at` fields instead. See DaemonStateManager for
+    // spec-compliant project tracking via watch_folders.
     // =========================================================================
 
     /// Register or update an active project for fairness scheduling
+    ///
+    /// **DEPRECATED (Task 26)**: Use watch_folders table instead.
     ///
     /// Creates a new active project entry or updates an existing one.
     /// Called when:
     /// - Watch folder scanner detects activity in a project
     /// - File is ingested for a project
     /// - Query is executed for a project
+    #[deprecated(since = "0.4.0", note = "Use watch_folders table for project tracking")]
     pub async fn register_active_project(
         &self,
         project_id: &str,
@@ -2467,6 +2514,10 @@ impl QueueManager {
     }
 
     /// Get active project state by project_id
+    ///
+    /// **DEPRECATED (Task 26)**: Use DaemonStateManager.get_watch_folder() instead.
+    #[deprecated(since = "0.4.0", note = "Use DaemonStateManager.get_watch_folder() instead")]
+    #[allow(deprecated)]
     pub async fn get_active_project(&self, project_id: &str) -> QueueResult<Option<ActiveProject>> {
         let query = r#"
             SELECT project_id, tenant_id, last_activity_at, items_processed_count,
@@ -2512,6 +2563,10 @@ impl QueueManager {
     }
 
     /// List active projects with optional filtering
+    ///
+    /// **DEPRECATED (Task 26)**: Use DaemonStateManager.list_active_projects() instead.
+    #[deprecated(since = "0.4.0", note = "Use DaemonStateManager.list_active_projects() instead")]
+    #[allow(deprecated)]
     pub async fn list_active_projects(
         &self,
         tenant_id: Option<&str>,
@@ -2588,6 +2643,9 @@ impl QueueManager {
     ///
     /// Called by the unified queue processor after successfully processing
     /// queue items for a project.
+    ///
+    /// **DEPRECATED (Task 26)**: Use DaemonStateManager.update_activity() instead.
+    #[deprecated(since = "0.4.0", note = "Use DaemonStateManager.update_activity() instead")]
     pub async fn update_active_project_activity(
         &self,
         project_id: &str,
@@ -2621,6 +2679,9 @@ impl QueueManager {
     /// Update the items_in_queue count for a project
     ///
     /// Called when items are added to queue (positive delta) or removed (negative delta).
+    ///
+    /// **DEPRECATED (Task 26)**: Queue counts should be derived from unified_queue queries.
+    #[deprecated(since = "0.4.0", note = "Use unified_queue queries for queue counts")]
     pub async fn update_active_project_queue_count(
         &self,
         project_id: &str,
@@ -2654,6 +2715,9 @@ impl QueueManager {
     /// Remove projects that have been inactive for too long
     ///
     /// Projects with no activity for more than max_inactive_hours are removed.
+    ///
+    /// **DEPRECATED (Task 26)**: Use DaemonStateManager for project lifecycle management.
+    #[deprecated(since = "0.4.0", note = "Use DaemonStateManager for project lifecycle")]
     pub async fn garbage_collect_stale_projects(
         &self,
         max_inactive_hours: Option<i64>,
@@ -2704,6 +2768,10 @@ impl QueueManager {
     /// Get statistics about active projects
     ///
     /// Uses the v_active_projects_stats view created by migration 004.
+    ///
+    /// **DEPRECATED (Task 26)**: Query watch_folders table for project statistics.
+    #[deprecated(since = "0.4.0", note = "Query watch_folders table for statistics")]
+    #[allow(deprecated)]
     pub async fn get_active_projects_stats(&self) -> QueueResult<ActiveProjectStats> {
         let query = "SELECT * FROM v_active_projects_stats";
 
@@ -2725,6 +2793,9 @@ impl QueueManager {
     }
 
     /// Remove an active project from tracking
+    ///
+    /// **DEPRECATED (Task 26)**: Use DaemonStateManager.remove_watch_folder() instead.
+    #[deprecated(since = "0.4.0", note = "Use DaemonStateManager.remove_watch_folder()")]
     pub async fn remove_active_project(&self, project_id: &str) -> QueueResult<bool> {
         let result = sqlx::query("DELETE FROM active_projects WHERE project_id = ?")
             .bind(project_id)
