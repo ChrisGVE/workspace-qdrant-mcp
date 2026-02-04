@@ -489,25 +489,29 @@ describe('Server Integration Tests', () => {
       await server.start();
     });
 
-    it('should store content to projects collection via daemon', async () => {
+    it('should reject store to projects collection (not supported per spec)', async () => {
       const mcpServer = server.getMcpServer();
       const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
+      // Per spec: store tool only supports libraries collection
+      // Projects collection content is handled by daemon file watching
       const result = await callHandler({
         method: 'tools/call',
         params: {
           name: 'store',
           arguments: {
             content: 'Test content to store',
-            collection: 'projects',
             title: 'Test Document',
             sourceType: 'user_input',
+            // Missing libraryName - required parameter
           },
         },
       });
 
+      // Should error because libraryName is required
       expect(result.content).toBeDefined();
-      expect(result.isError).toBeUndefined();
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('libraryName is required');
     });
 
     it('should store content to libraries collection', async () => {
@@ -537,19 +541,18 @@ describe('Server Integration Tests', () => {
       const mcpServer = server.getMcpServer();
       const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
+      // Per spec: store tool only supports libraries collection
       const result = await callHandler({
         method: 'tools/call',
         params: {
           name: 'store',
           arguments: {
             content: 'Full metadata test content',
-            collection: 'projects',
-            title: 'Test File',
-            filePath: '/src/test.ts',
+            libraryName: 'test-library',
+            title: 'Test Document',
+            filePath: '/docs/test.md',
             sourceType: 'file',
-            projectId: 'proj-123',
-            branch: 'main',
-            fileType: 'typescript',
+            url: 'https://example.com/docs',
             metadata: { author: 'test', version: '1.0' },
           },
         },
@@ -563,12 +566,13 @@ describe('Server Integration Tests', () => {
       const mcpServer = server.getMcpServer();
       const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
+      // Per spec: libraryName is required but missing content should error
       const result = await callHandler({
         method: 'tools/call',
         params: {
           name: 'store',
           arguments: {
-            collection: 'projects',
+            libraryName: 'test-library',
           },
         },
       });
@@ -859,13 +863,14 @@ describe('Queue Fallback Integration', () => {
     const mcpServer = server.getMcpServer();
     const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
+    // Per spec: store tool only supports libraries collection
     const result = await callHandler({
       method: 'tools/call',
       params: {
         name: 'store',
         arguments: {
           content: 'Content to queue',
-          collection: 'projects',
+          libraryName: 'test-library',
         },
       },
     });
@@ -884,13 +889,14 @@ describe('Queue Fallback Integration', () => {
     const mcpServer = server.getMcpServer();
     const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
+    // Per spec: store tool only supports libraries collection
     const result = await callHandler({
       method: 'tools/call',
       params: {
         name: 'store',
         arguments: {
           content: 'Another queued content',
-          collection: 'projects',
+          libraryName: 'test-library',
         },
       },
     });

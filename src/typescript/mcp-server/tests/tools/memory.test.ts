@@ -118,7 +118,7 @@ describe('MemoryTool', () => {
 
       expect(result.success).toBe(true);
       expect(result.action).toBe('add');
-      expect(result.ruleId).toBe('new-rule-id');
+      expect(result.label).toBe('new-rule-id');
       expect(result.fallback_mode).toBeUndefined();
       expect(mockDaemonClient.ingestText).toHaveBeenCalled();
     });
@@ -211,7 +211,7 @@ describe('MemoryTool', () => {
     it('should update an existing rule via daemon', async () => {
       const options: MemoryOptions = {
         action: 'update',
-        ruleId: 'existing-rule-id',
+        label: 'existing-rule-id',
         content: 'Updated rule content',
       };
 
@@ -219,7 +219,7 @@ describe('MemoryTool', () => {
 
       expect(result.success).toBe(true);
       expect(result.action).toBe('update');
-      expect(result.ruleId).toBe('existing-rule-id');
+      expect(result.label).toBe('existing-rule-id');
     });
 
     it('should fallback to queue when daemon fails', async () => {
@@ -229,7 +229,7 @@ describe('MemoryTool', () => {
 
       const options: MemoryOptions = {
         action: 'update',
-        ruleId: 'existing-rule-id',
+        label: 'existing-rule-id',
         content: 'Updated content',
       };
 
@@ -239,7 +239,7 @@ describe('MemoryTool', () => {
       expect(result.fallback_mode).toBe('unified_queue');
     });
 
-    it('should reject missing rule ID', async () => {
+    it('should reject missing label', async () => {
       const options: MemoryOptions = {
         action: 'update',
         content: 'Updated content',
@@ -248,20 +248,20 @@ describe('MemoryTool', () => {
       const result = await memoryTool.execute(options);
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('Rule ID is required');
+      expect(result.message).toContain('Label is required');
     });
 
     it('should reject empty content', async () => {
       const options: MemoryOptions = {
         action: 'update',
-        ruleId: 'existing-rule-id',
+        label: 'existing-rule-id',
         content: '',
       };
 
       const result = await memoryTool.execute(options);
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('Content is required');
+      expect(result.message).toContain('Content is required for updating');
     });
   });
 
@@ -269,7 +269,7 @@ describe('MemoryTool', () => {
     it('should queue removal (always uses queue)', async () => {
       const options: MemoryOptions = {
         action: 'remove',
-        ruleId: 'rule-to-remove',
+        label: 'rule-to-remove',
       };
 
       const result = await memoryTool.execute(options);
@@ -283,7 +283,7 @@ describe('MemoryTool', () => {
         'global',
         'memory',
         expect.objectContaining({
-          rule_id: 'rule-to-remove',
+          label: 'rule-to-remove',
           action: 'remove',
         }),
         8,
@@ -292,7 +292,7 @@ describe('MemoryTool', () => {
       );
     });
 
-    it('should reject missing rule ID', async () => {
+    it('should reject missing label', async () => {
       const options: MemoryOptions = {
         action: 'remove',
       };
@@ -300,7 +300,7 @@ describe('MemoryTool', () => {
       const result = await memoryTool.execute(options);
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('Rule ID is required');
+      expect(result.message).toContain('Label is required');
     });
   });
 

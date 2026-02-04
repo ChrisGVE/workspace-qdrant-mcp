@@ -834,12 +834,10 @@ pub trait BranchEventHandler: Send + Sync {
 
 /// SQL schemas for branch lifecycle tracking
 pub mod branch_schema {
-    /// Add default_branch column to watch_folders (legacy migration)
+    /// Add default_branch column to watch_folders
     ///
-    /// NOTE: This migration targets the legacy `registered_projects` table which has
-    /// been consolidated into `watch_folders` per WORKSPACE_QDRANT_MCP.md v1.6.2+.
-    /// If default_branch tracking is needed, update to use `watch_folders` instead.
-    #[deprecated(note = "registered_projects table has been removed; use watch_folders")]
+    /// NOTE: This schema already targets `watch_folders` table per spec.
+    /// Run as an optional migration if default_branch tracking is needed.
     pub const ALTER_ADD_DEFAULT_BRANCH: &str = r#"
         ALTER TABLE watch_folders ADD COLUMN default_branch TEXT
     "#;

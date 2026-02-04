@@ -6,9 +6,8 @@
  */
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { StoreTool, type StoreOptions, type StoreResponse } from '../../src/tools/store.js';
+import { StoreTool, type StoreOptions } from '../../src/tools/store.js';
 import type { SqliteStateManager } from '../../src/clients/sqlite-state-manager.js';
-import type { ProjectDetector } from '../../src/utils/project-detector.js';
 
 function createMockStateManager(): SqliteStateManager {
   return {
@@ -25,31 +24,17 @@ function createMockStateManager(): SqliteStateManager {
   } as unknown as SqliteStateManager;
 }
 
-function createMockProjectDetector(): ProjectDetector {
-  return {
-    findProjectRoot: vi.fn().mockReturnValue('/test/project'),
-    getProjectInfo: vi.fn().mockResolvedValue({
-      projectId: 'test-project-123',
-      projectPath: '/test/project',
-      name: 'test-project',
-    }),
-  } as unknown as ProjectDetector;
-}
-
 describe('StoreTool', () => {
   let storeTool: StoreTool;
   let mockStateManager: SqliteStateManager;
-  let mockProjectDetector: ProjectDetector;
 
   beforeEach(() => {
     vi.clearAllMocks();
     mockStateManager = createMockStateManager();
-    mockProjectDetector = createMockProjectDetector();
 
     storeTool = new StoreTool(
       {},
-      mockStateManager,
-      mockProjectDetector
+      mockStateManager
     );
   });
 
@@ -81,7 +66,7 @@ describe('StoreTool', () => {
       await storeTool.store(options);
 
       expect(mockStateManager.enqueueUnified).toHaveBeenCalledWith(
-        'content',
+        'library',  // item_type per spec line 1147
         'ingest',
         'react', // tenant_id = libraryName
         'libraries',
@@ -109,7 +94,7 @@ describe('StoreTool', () => {
       const call = vi.mocked(mockStateManager.enqueueUnified).mock.calls[0];
 
       // Check basic args
-      expect(call[0]).toBe('content');
+      expect(call[0]).toBe('library');  // item_type per spec line 1147
       expect(call[1]).toBe('ingest');
       expect(call[2]).toBe('lodash');
       expect(call[3]).toBe('libraries');
@@ -140,7 +125,7 @@ describe('StoreTool', () => {
       const result = await storeTool.store(options);
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('Library name is required');
+      expect(result.message).toContain('libraryName is required');
       expect(mockStateManager.enqueueUnified).not.toHaveBeenCalled();
     });
 
@@ -153,7 +138,7 @@ describe('StoreTool', () => {
       const result = await storeTool.store(options);
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('Library name is required');
+      expect(result.message).toContain('libraryName is required');
     });
 
     it('should trim libraryName', async () => {
@@ -167,7 +152,7 @@ describe('StoreTool', () => {
       // Check first two args (item_type, op)
       expect(mockStateManager.enqueueUnified).toHaveBeenCalled();
       const call = vi.mocked(mockStateManager.enqueueUnified).mock.calls[0];
-      expect(call[0]).toBe('content');
+      expect(call[0]).toBe('library');  // item_type per spec line 1147
       expect(call[1]).toBe('ingest');
       expect(call[2]).toBe('react'); // Trimmed tenant_id
       expect(call[3]).toBe('libraries');
@@ -222,7 +207,7 @@ describe('StoreTool', () => {
       await storeTool.store(options);
 
       expect(mockStateManager.enqueueUnified).toHaveBeenCalledWith(
-        'content', // item_type
+        'library',  // item_type per spec line 1147
         'ingest', // operation
         expect.any(String),
         'libraries',
@@ -250,12 +235,12 @@ describe('StoreTool', () => {
       expect(result.message).toContain('Database connection failed');
     });
 
-    it('should handle queue returning error status', async () => {
+    it('should handle queue returning degraded status with no data', async () => {
       vi.mocked(mockStateManager.enqueueUnified).mockResolvedValue({
-        status: 'error',
+        status: 'degraded',
         message: 'Queue full',
-        data: null,
-      });
+        data: null,  // Simulate missing data
+      } as { status: 'ok' | 'degraded'; message: string; data: null });
 
       const options: StoreOptions = {
         content: 'Test content',
@@ -265,7 +250,7 @@ describe('StoreTool', () => {
       const result = await storeTool.store(options);
 
       expect(result.success).toBe(false);
-      expect(result.message).toContain('Failed to queue content');
+      expect(result.message).toContain('Failed to queue');
     });
   });
 
