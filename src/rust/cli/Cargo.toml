@@ -1,6 +1,6 @@
 [package]
 name = "wqm-cli"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 description = "High-performance CLI for workspace-qdrant-mcp"
 authors = ["Chris Van Eerden"]
