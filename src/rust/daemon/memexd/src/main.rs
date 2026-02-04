@@ -19,8 +19,9 @@ use workspace_qdrant_core::{
     ipc::IpcServer,
     MetricsServer, METRICS,
     // Queue processor imports (Task 21)
-    QueueProcessor, ProcessorConfig,
-    // Unified queue processor imports (Task 37.26)
+    // Note: Legacy QueueProcessor removed - all processing via unified_queue
+    // ProcessorConfig still used for configuration extraction
+    ProcessorConfig,
     UnifiedQueueProcessor, UnifiedProcessorConfig,
     DocumentProcessor, EmbeddingGenerator, EmbeddingConfig,
     StorageClient, StorageConfig,
@@ -603,26 +604,8 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         }
     }
 
-    // Create and start queue processor (legacy ingestion_queue)
-    let mut queue_processor = QueueProcessor::with_components(
-        queue_pool.clone(),
-        processor_config.clone(),
-        document_processor.clone(),
-        embedding_generator.clone(),
-        storage_client.clone(),
-    );
-
-    queue_processor.start()
-        .map_err(|e| format!("Failed to start queue processor: {}", e))?;
-
-    info!(
-        "Queue processor started (workers={}, batch_size={}, poll_interval={}ms)",
-        processor_config.worker_count,
-        processor_config.batch_size,
-        processor_config.poll_interval_ms
-    );
-
     // Initialize unified queue processor (Task 37.26)
+    // Note: Legacy QueueProcessor removed per Task 21 - all processing via unified_queue
     info!("Initializing unified queue processor...");
     let unified_config = UnifiedProcessorConfig {
         batch_size: processor_config.batch_size,
@@ -669,19 +652,13 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         error!("Error in signal handling: {}", e);
     }
 
-    // Cleanup - stop queue processors first for graceful shutdown
+    // Cleanup - stop unified queue processor first for graceful shutdown
+    // Note: Legacy QueueProcessor removed per Task 21 - all processing via unified_queue
     info!("Stopping unified queue processor...");
     if let Err(e) = unified_queue_processor.stop().await {
         error!("Error stopping unified queue processor: {}", e);
     } else {
         info!("Unified queue processor stopped");
-    }
-
-    info!("Stopping queue processor...");
-    if let Err(e) = queue_processor.stop().await {
-        error!("Error stopping queue processor: {}", e);
-    } else {
-        info!("Queue processor stopped");
     }
 
     // Shutdown LSP manager - stop all language servers (Task 1.1)

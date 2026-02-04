@@ -99,8 +99,12 @@ fn classify_collection_type(collection_name: &str) -> Option<String> {
 }
 
 /// Queue operation type
+///
+/// **DEPRECATED (Task 21)**: This type is for the legacy `ingestion_queue` table.
+/// Use `unified_queue_schema::QueueOperation` instead for new code.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[deprecated(since = "0.4.0", note = "Use unified_queue_schema::QueueOperation instead")]
 pub enum QueueOperation {
     Ingest,
     Update,
@@ -127,7 +131,11 @@ impl QueueOperation {
 }
 
 /// Queue item representation
+///
+/// **DEPRECATED (Task 21)**: This type is for the legacy `ingestion_queue` table.
+/// Use `unified_queue_schema::UnifiedQueueItem` instead for new code.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[deprecated(since = "0.4.0", note = "Use unified_queue_schema::UnifiedQueueItem instead")]
 pub struct QueueItem {
     pub file_absolute_path: String,
     pub collection_name: String,
@@ -425,6 +433,10 @@ impl QueueManager {
     }
 
     /// Enqueue a file for processing
+    ///
+    /// **DEPRECATED (Task 21)**: This method uses the legacy `ingestion_queue` table.
+    /// Use `enqueue_unified()` instead for new code.
+    #[deprecated(since = "0.4.0", note = "Use enqueue_unified() instead")]
     pub async fn enqueue_file(
         &self,
         file_path: &str,
@@ -494,12 +506,16 @@ impl QueueManager {
 
     /// Dequeue a batch of items for processing
     ///
+    /// **DEPRECATED (Task 21)**: This method uses the legacy `ingestion_queue` table.
+    /// Use `dequeue_unified_batch()` instead for new code.
+    ///
     /// Filters out items with future retry_from timestamps to implement exponential backoff.
     /// Priority is calculated at query time using a two-level system:
     /// - memory: high priority (1)
     /// - libraries: low priority (0)
     /// - active projects: high priority (1)
     /// - inactive projects: low priority (0)
+    #[deprecated(since = "0.4.0", note = "Use dequeue_unified_batch() instead")]
     pub async fn dequeue_batch(
         &self,
         batch_size: i32,
@@ -1447,6 +1463,10 @@ impl QueueManager {
     }
 
     /// Get current queue depth (item count)
+    ///
+    /// **DEPRECATED (Task 21)**: This method uses the legacy `ingestion_queue` table.
+    /// Use `get_unified_queue_depth()` instead for new code.
+    #[deprecated(since = "0.4.0", note = "Use get_unified_queue_depth() instead")]
     pub async fn get_queue_depth(
         &self,
         tenant_id: Option<&str>,
@@ -1485,6 +1505,9 @@ impl QueueManager {
 
     /// Get queue depth for a specific collection.
     ///
+    /// **DEPRECATED (Task 21)**: This method uses the legacy `ingestion_queue` table.
+    /// Use `get_unified_queue_depth()` with collection filter instead for new code.
+    ///
     /// Used for coordination between file watchers and queue processor
     /// to implement adaptive throttling when queue is overloaded.
     ///
@@ -1493,6 +1516,7 @@ impl QueueManager {
     ///
     /// # Returns
     /// Number of items in queue for the specified collection
+    #[deprecated(since = "0.4.0", note = "Use get_unified_queue_depth() instead")]
     pub async fn get_queue_depth_by_collection(&self, collection: &str) -> QueueResult<i64> {
         let count: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM ingestion_queue WHERE collection_name = ?",
@@ -1506,10 +1530,14 @@ impl QueueManager {
 
     /// Get queue depth grouped by collection.
     ///
+    /// **DEPRECATED (Task 21)**: This method uses the legacy `ingestion_queue` table.
+    /// Use `get_unified_queue_depth_all_collections()` instead for new code.
+    ///
     /// Useful for monitoring and load balancing across collections.
     ///
     /// # Returns
     /// HashMap mapping collection names to their queue depths
+    #[deprecated(since = "0.4.0", note = "Use get_unified_queue_depth_all_collections() instead")]
     pub async fn get_queue_depth_all_collections(&self) -> QueueResult<HashMap<String, i64>> {
         let rows: Vec<(String, i64)> = sqlx::query_as(
             "SELECT collection_name, COUNT(*) as depth FROM ingestion_queue GROUP BY collection_name",
@@ -2257,6 +2285,20 @@ impl QueueManager {
         Ok(count)
     }
 
+    /// Get the depth of the unified queue per collection (pending items only)
+    ///
+    /// Returns a HashMap mapping collection names to their pending item counts.
+    /// Used for queue depth monitoring and throttling decisions.
+    pub async fn get_unified_queue_depth_all_collections(&self) -> QueueResult<HashMap<String, i64>> {
+        let rows: Vec<(String, i64)> = sqlx::query_as(
+            "SELECT collection, COUNT(*) as depth FROM unified_queue WHERE status = 'pending' GROUP BY collection",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        Ok(rows.into_iter().collect())
+    }
+
     /// Get the oldest pending item in the unified queue
     ///
     /// Used by the fairness scheduler to check for stale items that need
@@ -2753,277 +2795,15 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_enqueue_dequeue() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test_queue.db");
-
-        let config = QueueConnectionConfig::with_database_path(&db_path);
-        let pool = config.create_pool().await.unwrap();
-
-        // Initialize schemas (watch_folders required for JOIN in dequeue_batch)
-        apply_sql_script(
-            &pool,
-            include_str!("schema/legacy/queue_schema.sql"),
-        )
-        .await
-        .unwrap();
-        apply_sql_script(
-            &pool,
-            include_str!("schema/watch_folders_schema.sql"),
-        )
-        .await
-        .unwrap();
-
-        let manager = QueueManager::new(pool);
-
-        // Enqueue a file
-        manager
-            .enqueue_file(
-                "/test/file.txt",
-                "test-collection",
-                "default",
-                "main",
-                QueueOperation::Ingest,
-                5,
-                None,
-            )
-            .await
-            .unwrap();
-
-        // Dequeue
-        let items = manager.dequeue_batch(10, None, None).await.unwrap();
-
-        assert_eq!(items.len(), 1);
-        assert_eq!(items[0].file_absolute_path, "/test/file.txt");
-        assert_eq!(items[0].priority, 5);
-    }
-
-    #[tokio::test]
-    async fn test_priority_validation() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test_priority.db");
-
-        let config = QueueConnectionConfig::with_database_path(&db_path);
-        let pool = config.create_pool().await.unwrap();
-
-        let manager = QueueManager::new(pool);
-
-        // Invalid priority should fail
-        let result = manager
-            .enqueue_file(
-                "/test/file.txt",
-                "test-collection",
-                "default",
-                "main",
-                QueueOperation::Ingest,
-                11, // Invalid: > 10
-                None,
-            )
-            .await;
-
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_update_retry_from() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test_retry_from.db");
-
-        let config = QueueConnectionConfig::with_database_path(&db_path);
-        let pool = config.create_pool().await.unwrap();
-
-        // Initialize schemas (watch_folders required for JOIN in dequeue_batch)
-        apply_sql_script(
-            &pool,
-            include_str!("schema/legacy/queue_schema.sql"),
-        )
-        .await
-        .unwrap();
-        apply_sql_script(
-            &pool,
-            include_str!("schema/watch_folders_schema.sql"),
-        )
-        .await
-        .unwrap();
-        apply_sql_script(
-            &pool,
-            include_str!("schema/legacy/queue_retry_timestamp_migration.sql"),
-        )
-        .await
-        .unwrap();
-
-        let manager = QueueManager::new(pool);
-
-        // Enqueue a file
-        manager
-            .enqueue_file(
-                "/test/file.txt",
-                "test-collection",
-                "default",
-                "main",
-                QueueOperation::Ingest,
-                5,
-                None,
-            )
-            .await
-            .unwrap();
-
-        // Update retry_from to future timestamp
-        let future_time = Utc::now() + chrono::Duration::hours(1);
-        let updated = manager
-            .update_retry_from("/test/file.txt", future_time, 1)
-            .await
-            .unwrap();
-        assert!(updated);
-
-        // Dequeue should skip the item (retry_from is in the future)
-        let items = manager.dequeue_batch(10, None, None).await.unwrap();
-        assert_eq!(items.len(), 0);
-
-        // Update retry_from to past timestamp
-        let past_time = Utc::now() - chrono::Duration::hours(1);
-        manager
-            .update_retry_from("/test/file.txt", past_time, 1)
-            .await
-            .unwrap();
-
-        // Dequeue should return the item now
-        let items = manager.dequeue_batch(10, None, None).await.unwrap();
-        assert_eq!(items.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn test_mark_failed() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test_mark_failed.db");
-
-        let config = QueueConnectionConfig::with_database_path(&db_path);
-        let pool = config.create_pool().await.unwrap();
-
-        // Initialize schemas (watch_folders required for JOIN in dequeue_batch)
-        apply_sql_script(
-            &pool,
-            include_str!("schema/legacy/queue_schema.sql"),
-        )
-        .await
-        .unwrap();
-        apply_sql_script(
-            &pool,
-            include_str!("schema/watch_folders_schema.sql"),
-        )
-        .await
-        .unwrap();
-
-        let manager = QueueManager::new(pool);
-
-        // Enqueue a file
-        manager
-            .enqueue_file(
-                "/test/file.txt",
-                "test-collection",
-                "default",
-                "main",
-                QueueOperation::Ingest,
-                5,
-                None,
-            )
-            .await
-            .unwrap();
-
-        // Mark as failed
-        let removed = manager
-            .mark_failed("/test/file.txt", "Max retries exceeded")
-            .await
-            .unwrap();
-        assert!(removed);
-
-        // Verify removed from queue
-        let items = manager.dequeue_batch(10, None, None).await.unwrap();
-        assert_eq!(items.len(), 0);
-    }
-
-    #[tokio::test]
-    async fn test_missing_metadata_queue() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test_missing_metadata.db");
-
-        let config = QueueConnectionConfig::with_database_path(&db_path);
-        let pool = config.create_pool().await.unwrap();
-
-        // Initialize schemas (watch_folders required for JOIN in dequeue_batch)
-        apply_sql_script(
-            &pool,
-            include_str!("schema/legacy/queue_schema.sql"),
-        )
-        .await
-        .unwrap();
-        apply_sql_script(
-            &pool,
-            include_str!("schema/watch_folders_schema.sql"),
-        )
-        .await
-        .unwrap();
-
-        let manager = QueueManager::new(pool);
-        manager.init_missing_metadata_queue().await.unwrap();
-
-        // Create a queue item
-        manager
-            .enqueue_file(
-                "/test/file.rs",
-                "test-collection",
-                "default",
-                "main",
-                QueueOperation::Ingest,
-                5,
-                None,
-            )
-            .await
-            .unwrap();
-
-        // Dequeue it
-        let items = manager.dequeue_batch(10, None, None).await.unwrap();
-        assert_eq!(items.len(), 1);
-        let item = &items[0];
-
-        // Create missing tools
-        let missing_tools = vec![MissingTool::LspServer {
-            language: "rust".to_string(),
-        }];
-
-        // Move to missing_metadata_queue
-        let queue_id = manager
-            .move_to_missing_metadata_queue(item, &missing_tools)
-            .await
-            .unwrap();
-
-        assert!(!queue_id.is_empty());
-
-        // Verify item removed from main queue
-        let main_items = manager.dequeue_batch(10, None, None).await.unwrap();
-        assert_eq!(main_items.len(), 0);
-
-        // Verify item in missing_metadata_queue
-        let missing_items = manager.get_missing_metadata_items(10).await.unwrap();
-        assert_eq!(missing_items.len(), 1);
-        assert_eq!(missing_items[0].file_absolute_path, "/test/file.rs");
-        assert_eq!(missing_items[0].missing_tools.len(), 1);
-
-        // Test queue depth
-        let depth = manager.get_missing_metadata_queue_depth().await.unwrap();
-        assert_eq!(depth, 1);
-
-        // Test removal
-        let removed = manager
-            .remove_from_missing_metadata_queue(&queue_id)
-            .await
-            .unwrap();
-        assert!(removed);
-
-        let depth_after = manager.get_missing_metadata_queue_depth().await.unwrap();
-        assert_eq!(depth_after, 0);
-    }
+    // NOTE: Legacy queue tests removed per Task 21
+    // The following tests for ingestion_queue have been removed:
+    // - test_enqueue_dequeue
+    // - test_priority_validation
+    // - test_update_retry_from
+    // - test_mark_failed
+    // - test_missing_metadata_queue
+    //
+    // See unified queue tests below for spec-compliant queue testing.
 
     // ========================================================================
     // Unified Queue Tests (Task 37.21-37.29)

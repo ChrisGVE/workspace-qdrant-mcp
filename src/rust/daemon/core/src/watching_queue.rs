@@ -1,8 +1,7 @@
 //! File Watching with SQLite Queue Integration
 //!
 //! This module provides Rust-based file watching that writes directly to the
-//! ingestion_queue SQLite table, replacing Python file watching while maintaining
-//! compatibility with Python queue processors.
+//! unified_queue SQLite table per WORKSPACE_QDRANT_MCP.md specification.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -18,7 +17,8 @@ use tracing::{debug, error, info, warn};
 use thiserror::Error;
 use glob::Pattern;
 
-use crate::queue_operations::{QueueManager, QueueOperation, QueueError};
+use crate::queue_operations::{QueueManager, QueueError};
+use crate::unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload};
 use crate::file_classification::classify_file_type;
 use crate::project_disambiguation::ProjectIdCalculator;
 use serde::{Deserialize, Serialize};
@@ -784,17 +784,9 @@ impl FileWatcherQueue {
             *count += 1;
         }
 
-        // Update active project activity for fairness scheduler (Task 36)
-        // This updates last_activity_at even for filtered/debounced events
-        {
-            let config_lock = config.read().await;
-            let watch_id = config_lock.id.clone();
-            drop(config_lock);
-
-            if let Err(e) = queue_manager.update_active_project_activity(&watch_id, 0).await {
-                debug!("Failed to update active project activity for {}: {}", watch_id, e);
-            }
-        }
+        // NOTE: Legacy active_projects activity update removed per Task 21
+        // Activity tracking now handled via watch_folders.last_activity_at in priority_manager
+        // See PriorityManager::heartbeat() for spec-compliant activity tracking
 
         // Check patterns
         {
@@ -866,29 +858,30 @@ impl FileWatcherQueue {
     }
 
     /// Determine operation type based on event and file state
-    fn determine_operation_type(event_kind: EventKind, file_path: &Path) -> QueueOperation {
+    fn determine_operation_type(event_kind: EventKind, file_path: &Path) -> UnifiedOp {
         match event_kind {
-            EventKind::Create(_) => QueueOperation::Ingest,
-            EventKind::Remove(_) => QueueOperation::Delete,
+            EventKind::Create(_) => UnifiedOp::Ingest,
+            EventKind::Remove(_) => UnifiedOp::Delete,
             EventKind::Modify(_) => {
                 // Check if file still exists
                 if file_path.exists() {
-                    QueueOperation::Update
+                    UnifiedOp::Update
                 } else {
                     // Race condition: file deleted during debounce
-                    QueueOperation::Delete
+                    UnifiedOp::Delete
                 }
             },
-            _ => QueueOperation::Update,  // Default to update for other events
+            _ => UnifiedOp::Update,  // Default to update for other events
         }
     }
 
     /// Calculate priority based on operation type
-    fn calculate_priority(operation: QueueOperation) -> i32 {
+    fn calculate_priority(operation: UnifiedOp) -> i32 {
         match operation {
-            QueueOperation::Delete => 8,  // High priority for deletions
-            QueueOperation::Update => 5,  // Normal priority for updates
-            QueueOperation::Ingest => 5,  // Normal priority for ingestion
+            UnifiedOp::Delete => 8,  // High priority for deletions
+            UnifiedOp::Update => 5,  // Normal priority for updates
+            UnifiedOp::Ingest => 5,  // Normal priority for ingestion
+            UnifiedOp::Scan => 3,    // Lower priority for scans
         }
     }
 
@@ -1029,19 +1022,29 @@ impl FileWatcherQueue {
             file_absolute_path, collection, tenant_id, file_type.as_str(), branch
         );
 
+        // Create FilePayload for unified queue per spec
+        let file_payload = FilePayload {
+            file_path: file_absolute_path.clone(),
+            file_type: Some(file_type.as_str().to_string()),
+            file_hash: None,  // Hash computed during processing if needed
+            size_bytes: event.path.metadata().ok().map(|m| m.len()),
+        };
+        let payload_json = serde_json::to_string(&file_payload).unwrap_or_else(|_| "{}".to_string());
+
         // Retry logic with exponential backoff
         const MAX_RETRIES: u32 = 3;
         const RETRY_DELAYS_MS: [u64; 3] = [500, 1000, 2000];
 
         for attempt in 0..MAX_RETRIES {
-            match queue_manager.enqueue_file(
-                &file_absolute_path,
-                &collection,
-                &tenant_id,
-                &branch,
+            match queue_manager.enqueue_unified(
+                ItemType::File,
                 operation,
+                &tenant_id,
+                &collection,
+                &payload_json,
                 priority,
-                None,
+                Some(&branch),
+                None,  // metadata
             ).await {
                 Ok(_) => {
                     let mut count = events_processed.lock().await;
@@ -1051,7 +1054,7 @@ impl FileWatcherQueue {
                     error_tracker.record_success(&watch_id).await;
 
                     debug!(
-                        "Enqueued file: {} (operation={:?}, priority={}, collection={}, tenant={}, branch={}, file_type={})",
+                        "Enqueued file to unified_queue: {} (operation={:?}, priority={}, collection={}, tenant={}, branch={}, file_type={})",
                         file_absolute_path, operation, priority, collection, tenant_id, branch, file_type.as_str()
                     );
                     return;
@@ -2245,9 +2248,9 @@ impl QueueThrottleState {
         }
     }
 
-    /// Update queue depth from queue manager
+    /// Update queue depth from queue manager (using unified_queue)
     pub async fn update_from_queue(&self, queue_manager: &QueueManager) {
-        match queue_manager.get_queue_depth(None, None).await {
+        match queue_manager.get_unified_queue_depth(None, None).await {
             Ok(depth) => {
                 let mut current = self.current_depth.write().await;
                 *current = depth;
@@ -2279,8 +2282,8 @@ impl QueueThrottleState {
             }
         }
 
-        // Also update per-collection depths
-        match queue_manager.get_queue_depth_all_collections().await {
+        // Also update per-collection depths (using unified_queue)
+        match queue_manager.get_unified_queue_depth_all_collections().await {
             Ok(depths) => {
                 let mut collection_depths = self.collection_depths.write().await;
                 *collection_depths = depths;
@@ -2790,17 +2793,9 @@ impl WatchManager {
 
     /// Start a single watcher with the given configuration
     async fn start_watcher(&self, id: String, config: WatchConfig, queue_manager: Arc<QueueManager>) {
-        // Register active project for fairness scheduler (Task 36)
-        // Use watch_id as project_id and tenant_id
-        let watch_folder_id = if id.starts_with("lib_") { None } else { Some(id.clone()) };
-        if let Err(e) = queue_manager.register_active_project(
-            &id,  // project_id
-            &id,  // tenant_id (use watch_id as tenant)
-            watch_folder_id.as_deref(),
-            None, // metadata
-        ).await {
-            debug!("Failed to register active project for {}: {}", id, e);
-        }
+        // NOTE: Legacy register_active_project removed per Task 21
+        // Project registration now handled via watch_folders table in daemon_state
+        // See DaemonStateManager::upsert_watch_folder() for spec-compliant registration
 
         match FileWatcherQueue::new(config, queue_manager) {
             Ok(watcher) => {

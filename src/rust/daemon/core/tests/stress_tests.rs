@@ -6,7 +6,10 @@
 //!
 //! Tests are marked with #[ignore] to prevent running in normal CI runs.
 //! Run with: cargo test --test stress_tests -- --ignored --test-threads=1
+//!
+//! Updated per Task 21 to use unified_queue instead of legacy ingestion_queue.
 
+use serde_json;
 use shared_test_utils::{
     config::*, fixtures::*, test_helpers::*, TestResult,
 };
@@ -21,11 +24,11 @@ use tokio::sync::{Semaphore, RwLock};
 use tokio::time::{sleep, timeout};
 use workspace_qdrant_core::{
     queue_config::QueueConnectionConfig,
-    queue_operations::{QueueManager, QueueOperation},
-    queue_processor::QueueProcessor,
+    queue_operations::QueueManager,
     queue_types::ProcessorConfig,
     DocumentProcessor, EmbeddingGenerator, EmbeddingConfig,
     storage::{StorageClient, StorageConfig},
+    unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload},
 };
 
 /// Stress test metrics collector
@@ -149,7 +152,7 @@ impl StressTestReport {
     }
 }
 
-/// Helper to create test database
+/// Helper to create test database with unified_queue schema
 async fn setup_test_db() -> (sqlx::SqlitePool, TempDir) {
     let temp_dir = tempdir().expect("Failed to create temp dir");
     let db_path = temp_dir.path().join("stress_test.db");
@@ -157,11 +160,69 @@ async fn setup_test_db() -> (sqlx::SqlitePool, TempDir) {
     let config = QueueConnectionConfig::with_database_path(&db_path);
     let pool = config.create_pool().await.expect("Failed to create pool");
 
-    let queue_manager = QueueManager::new(pool.clone());
-    queue_manager
-        .init_missing_metadata_queue()
-        .await
-        .expect("Failed to init queue");
+    // Create unified_queue table (spec-compliant)
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS unified_queue (
+            queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
+            item_type TEXT NOT NULL CHECK (item_type IN (
+                'content', 'file', 'folder', 'project', 'library',
+                'delete_tenant', 'delete_document', 'rename'
+            )),
+            op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
+            tenant_id TEXT NOT NULL,
+            collection TEXT NOT NULL,
+            priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+                'pending', 'in_progress', 'done', 'failed'
+            )),
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            lease_until TEXT,
+            worker_id TEXT,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            max_retries INTEGER NOT NULL DEFAULT 3,
+            error_message TEXT,
+            last_error_at TEXT,
+            branch TEXT DEFAULT 'main',
+            metadata TEXT DEFAULT '{}',
+            file_path TEXT UNIQUE
+        )
+        "#
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create unified_queue table");
+
+    // Create watch_folders table for priority calculation JOIN
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS watch_folders (
+            watch_id TEXT PRIMARY KEY,
+            path TEXT NOT NULL UNIQUE,
+            collection TEXT NOT NULL CHECK (collection IN ('projects', 'libraries')),
+            tenant_id TEXT NOT NULL,
+            parent_watch_id TEXT,
+            is_active INTEGER DEFAULT 0 CHECK (is_active IN (0, 1)),
+            patterns TEXT NOT NULL,
+            ignore_patterns TEXT NOT NULL,
+            auto_ingest BOOLEAN NOT NULL DEFAULT 1,
+            recursive BOOLEAN NOT NULL DEFAULT 1,
+            recursive_depth INTEGER NOT NULL DEFAULT 10,
+            debounce_seconds REAL NOT NULL DEFAULT 2.0,
+            enabled BOOLEAN NOT NULL DEFAULT 1,
+            created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_activity_at TEXT,
+            FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
+        )
+        "#
+    )
+    .execute(&pool)
+    .await
+    .expect("Failed to create watch_folders table");
 
     (pool, temp_dir)
 }
@@ -250,18 +311,28 @@ async fn stress_test_high_volume_ingestion() -> TestResult {
         file_paths.push(file_path);
     }
 
-    // Enqueue all files
+    // Enqueue all files using unified queue
     println!("📤 Enqueueing files...");
     for (i, file_path) in file_paths.iter().enumerate() {
         let file_path_str = file_path.to_string_lossy().to_string();
+        let file_size = tokio::fs::metadata(&file_path).await.ok().map(|m| m.len());
+        let payload = FilePayload {
+            file_path: file_path_str.clone(),
+            file_type: Some("text".to_string()),
+            file_hash: None,
+            size_bytes: file_size,
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+
         queue_manager
-            .enqueue_file(
-                &file_path_str,
-                "stress_test_collection",
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
                 "stress_tenant",
-                "main",
-                QueueOperation::Ingest,
+                "stress_test_collection",
+                &payload_json,
                 5,
+                Some("main"),
                 None,
             )
             .await?;
@@ -717,27 +788,38 @@ async fn stress_test_queue_depth() -> TestResult {
 
     println!("\n🚀 Starting queue depth stress test: {} items", QUEUE_SIZE);
 
-    // Create a single test file
+    // Create a single test file for reference
     let test_file = create_test_file_with_size(
         temp_dir.path(),
         "queue_test.txt",
         5,
     )
     .await?;
-    let file_path = test_file.to_string_lossy().to_string();
+    let base_path = test_file.to_string_lossy().to_string();
 
     println!("📤 Enqueueing {} items...", QUEUE_SIZE);
     let start = Instant::now();
 
+    // Each item gets a unique file path in payload to ensure unique idempotency keys
     for i in 0..QUEUE_SIZE {
+        let unique_path = format!("{}.{}", base_path, i);
+        let payload = FilePayload {
+            file_path: unique_path,
+            file_type: Some("text".to_string()),
+            file_hash: None,
+            size_bytes: Some(5 * 1024),
+        };
+        let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
+
         queue_manager
-            .enqueue_file(
-                &file_path,
-                "queue_depth_test",
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
                 "tenant",
-                "main",
-                QueueOperation::Ingest,
+                "queue_depth_test",
+                &payload_json,
                 5,
+                Some("main"),
                 None,
             )
             .await?;
@@ -750,8 +832,8 @@ async fn stress_test_queue_depth() -> TestResult {
     let enqueue_time = start.elapsed();
     println!("✓ Enqueued {} items in {:.2}s", QUEUE_SIZE, enqueue_time.as_secs_f64());
 
-    // Verify queue depth
-    let depth = queue_manager.get_queue_depth(None, None).await?;
+    // Verify queue depth using unified queue method
+    let depth = queue_manager.get_unified_queue_depth(None, None).await?;
     assert_eq!(depth, QUEUE_SIZE as i64, "Queue depth should match enqueued items");
 
     println!("✓ Queue depth verified: {}", depth);

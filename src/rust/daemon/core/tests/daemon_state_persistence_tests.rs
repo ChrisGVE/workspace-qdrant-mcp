@@ -546,11 +546,11 @@ async fn test_data_integrity_after_multiple_crashes() -> anyhow::Result<()> {
 }
 
 // ============================================================================
-// Task 320.4: Ingestion Queue Persistence and Recovery
+// Task 320.4: Processing Log Persistence and Recovery
 // ============================================================================
 
 #[tokio::test]
-async fn test_ingestion_queue_persists_across_restarts() -> anyhow::Result<()> {
+async fn test_processing_logs_persist_across_restarts() -> anyhow::Result<()> {
     let fixture = StateTestFixture::new()?;
     let daemon_id = Uuid::new_v4();
     let test_state = create_test_daemon_state(daemon_id);

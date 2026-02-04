@@ -1,8 +1,11 @@
 //! Integration tests for file watching with SQLite queue
+//!
+//! Updated per Task 21 to use unified_queue instead of legacy ingestion_queue.
 
 use workspace_qdrant_core::{
     FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats,
     QueueManager, WatchType,
+    unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload},
 };
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -16,30 +19,41 @@ async fn create_test_database() -> SqlitePool {
         .await
         .expect("Failed to create in-memory database");
 
-    // Create ingestion_queue table
+    // Create unified_queue table (spec-compliant)
     sqlx::query(
         r#"
-        CREATE TABLE ingestion_queue (
-            queue_id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
-            file_absolute_path TEXT NOT NULL UNIQUE,
-            collection_name TEXT NOT NULL,
+        CREATE TABLE unified_queue (
+            queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
+            item_type TEXT NOT NULL CHECK (item_type IN (
+                'content', 'file', 'folder', 'project', 'library',
+                'delete_tenant', 'delete_document', 'rename'
+            )),
+            op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
             tenant_id TEXT NOT NULL,
-            branch TEXT NOT NULL,
-            operation TEXT NOT NULL CHECK(operation IN ('ingest', 'update', 'delete')),
-            priority INTEGER NOT NULL CHECK(priority >= 0 AND priority <= 10),
-            queued_timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            scheduled_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            collection TEXT NOT NULL,
+            priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
+                'pending', 'in_progress', 'done', 'failed'
+            )),
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+            lease_until TEXT,
+            worker_id TEXT,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            payload_json TEXT NOT NULL DEFAULT '{}',
             retry_count INTEGER NOT NULL DEFAULT 0,
-            retry_from TEXT,
-            error_message_id INTEGER,
-            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
-            metadata TEXT DEFAULT '{}'
+            max_retries INTEGER NOT NULL DEFAULT 3,
+            error_message TEXT,
+            last_error_at TEXT,
+            branch TEXT DEFAULT 'main',
+            metadata TEXT DEFAULT '{}',
+            file_path TEXT UNIQUE
         )
         "#
     )
     .execute(&pool)
     .await
-    .expect("Failed to create ingestion_queue table");
+    .expect("Failed to create unified_queue table");
 
     // Create watch_folders table (includes tenant_id and is_active for priority calculation JOIN)
     sqlx::query(
@@ -60,6 +74,7 @@ async fn create_test_database() -> SqlitePool {
             enabled BOOLEAN NOT NULL DEFAULT 1,
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            last_activity_at TEXT,
             FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
         )
         "#
@@ -123,14 +138,15 @@ async fn test_watch_manager_with_configuration() {
     sqlx::query(
         r#"
         INSERT INTO watch_folders (
-            watch_id, path, collection, patterns, ignore_patterns,
+            watch_id, path, collection, tenant_id, patterns, ignore_patterns,
             recursive, debounce_seconds, enabled
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
         "#
     )
     .bind("test-watch-1")
     .bind(&watch_path)
-    .bind("test-collection")
+    .bind("projects")
+    .bind("test-tenant")
     .bind(r#"["*.txt", "*.md"]"#)
     .bind(r#"["*.tmp", ".git/**"]"#)
     .bind(true)
@@ -160,27 +176,38 @@ async fn test_watch_manager_with_configuration() {
 }
 
 #[tokio::test]
-async fn test_file_enqueue_operation() {
+async fn test_unified_queue_enqueue_operation() {
     let pool = create_test_database().await;
     let queue_manager = Arc::new(QueueManager::new(pool.clone()));
 
-    // Test direct queue operations
-    use workspace_qdrant_core::QueueOperation;
+    // Create file payload
+    let payload = FilePayload {
+        file_path: "/tmp/test.txt".to_string(),
+        file_type: Some("text".to_string()),
+        file_hash: None,
+        size_bytes: Some(100),
+    };
+    let payload_json = serde_json::to_string(&payload).unwrap();
 
-    let result = queue_manager.enqueue_file(
-        "/tmp/test.txt",
-        "test-collection",
+    // Test unified queue operations
+    let result = queue_manager.enqueue_unified(
+        ItemType::File,
+        UnifiedOp::Ingest,
         "test-tenant",
-        "main",
-        QueueOperation::Ingest,
+        "projects",
+        &payload_json,
         5,
+        Some("main"),
         None,
     ).await;
 
     assert!(result.is_ok(), "Failed to enqueue file: {:?}", result.err());
+    let (queue_id, is_new) = result.unwrap();
+    assert!(is_new, "Expected new item to be created");
+    assert!(!queue_id.is_empty(), "Queue ID should not be empty");
 
     // Verify the file was enqueued
-    let row = sqlx::query("SELECT COUNT(*) as count FROM ingestion_queue")
+    let row = sqlx::query("SELECT COUNT(*) as count FROM unified_queue")
         .fetch_one(&pool)
         .await
         .expect("Failed to query queue");
@@ -189,63 +216,84 @@ async fn test_file_enqueue_operation() {
     assert_eq!(count, 1);
 
     // Verify the queue item details
-    let row = sqlx::query("SELECT * FROM ingestion_queue")
+    let row = sqlx::query("SELECT * FROM unified_queue")
         .fetch_one(&pool)
         .await
         .expect("Failed to fetch queue item");
 
-    let file_path: String = row.try_get("file_absolute_path").expect("Failed to get file path");
-    let operation: String = row.try_get("operation").expect("Failed to get operation");
+    let item_type: String = row.try_get("item_type").expect("Failed to get item_type");
+    let op: String = row.try_get("op").expect("Failed to get op");
     let priority: i32 = row.try_get("priority").expect("Failed to get priority");
+    let tenant_id: String = row.try_get("tenant_id").expect("Failed to get tenant_id");
 
-    assert_eq!(file_path, "/tmp/test.txt");
-    assert_eq!(operation, "ingest");
+    assert_eq!(item_type, "file");
+    assert_eq!(op, "ingest");
     assert_eq!(priority, 5);
+    assert_eq!(tenant_id, "test-tenant");
 }
 
 #[tokio::test]
-async fn test_operation_priority_calculation() {
+async fn test_unified_queue_priority_calculation() {
     // This test verifies that priorities are calculated correctly for different operations
-    use workspace_qdrant_core::QueueOperation;
-
     let pool = create_test_database().await;
     let queue_manager = Arc::new(QueueManager::new(pool.clone()));
 
     // Ingest operation - priority 5
-    queue_manager.enqueue_file(
-        "/tmp/ingest.txt",
-        "test",
+    let payload1 = FilePayload {
+        file_path: "/tmp/ingest.txt".to_string(),
+        file_type: Some("text".to_string()),
+        file_hash: None,
+        size_bytes: None,
+    };
+    queue_manager.enqueue_unified(
+        ItemType::File,
+        UnifiedOp::Ingest,
         "tenant",
-        "main",
-        QueueOperation::Ingest,
+        "projects",
+        &serde_json::to_string(&payload1).unwrap(),
         5,
+        Some("main"),
         None,
     ).await.expect("Failed to enqueue ingest");
 
     // Update operation - priority 5
-    queue_manager.enqueue_file(
-        "/tmp/update.txt",
-        "test",
+    let payload2 = FilePayload {
+        file_path: "/tmp/update.txt".to_string(),
+        file_type: Some("text".to_string()),
+        file_hash: None,
+        size_bytes: None,
+    };
+    queue_manager.enqueue_unified(
+        ItemType::File,
+        UnifiedOp::Update,
         "tenant",
-        "main",
-        QueueOperation::Update,
+        "projects",
+        &serde_json::to_string(&payload2).unwrap(),
         5,
+        Some("main"),
         None,
     ).await.expect("Failed to enqueue update");
 
     // Delete operation - priority 8 (higher)
-    queue_manager.enqueue_file(
-        "/tmp/delete.txt",
-        "test",
+    let payload3 = FilePayload {
+        file_path: "/tmp/delete.txt".to_string(),
+        file_type: Some("text".to_string()),
+        file_hash: None,
+        size_bytes: None,
+    };
+    queue_manager.enqueue_unified(
+        ItemType::File,
+        UnifiedOp::Delete,
         "tenant",
-        "main",
-        QueueOperation::Delete,
+        "projects",
+        &serde_json::to_string(&payload3).unwrap(),
         8,
+        Some("main"),
         None,
     ).await.expect("Failed to enqueue delete");
 
     // Verify priorities in database
-    let rows = sqlx::query("SELECT file_absolute_path, priority FROM ingestion_queue ORDER BY file_absolute_path")
+    let rows = sqlx::query("SELECT file_path, priority FROM unified_queue ORDER BY file_path")
         .fetch_all(&pool)
         .await
         .expect("Failed to fetch queue items");
@@ -254,10 +302,63 @@ async fn test_operation_priority_calculation() {
 
     // Check delete has highest priority
     let delete_row = rows.iter().find(|r| {
-        let path: String = r.try_get("file_absolute_path").unwrap();
+        let path: String = r.try_get("file_path").unwrap();
         path.contains("delete")
     }).expect("Delete row not found");
 
     let delete_priority: i32 = delete_row.try_get("priority").unwrap();
     assert_eq!(delete_priority, 8);
+}
+
+#[tokio::test]
+async fn test_unified_queue_idempotency() {
+    // Test that duplicate enqueues are handled via idempotency
+    let pool = create_test_database().await;
+    let queue_manager = Arc::new(QueueManager::new(pool.clone()));
+
+    let payload = FilePayload {
+        file_path: "/tmp/idempotent.txt".to_string(),
+        file_type: Some("text".to_string()),
+        file_hash: None,
+        size_bytes: None,
+    };
+    let payload_json = serde_json::to_string(&payload).unwrap();
+
+    // First enqueue
+    let (queue_id1, is_new1) = queue_manager.enqueue_unified(
+        ItemType::File,
+        UnifiedOp::Ingest,
+        "tenant",
+        "projects",
+        &payload_json,
+        5,
+        Some("main"),
+        None,
+    ).await.expect("Failed to enqueue first time");
+
+    assert!(is_new1, "First enqueue should be new");
+
+    // Second enqueue with same payload (should be idempotent)
+    let (queue_id2, is_new2) = queue_manager.enqueue_unified(
+        ItemType::File,
+        UnifiedOp::Ingest,
+        "tenant",
+        "projects",
+        &payload_json,
+        5,
+        Some("main"),
+        None,
+    ).await.expect("Failed to enqueue second time");
+
+    assert!(!is_new2, "Second enqueue should not be new (idempotent)");
+    assert_eq!(queue_id1, queue_id2, "Queue IDs should match for idempotent enqueue");
+
+    // Verify only one item in queue
+    let row = sqlx::query("SELECT COUNT(*) as count FROM unified_queue")
+        .fetch_one(&pool)
+        .await
+        .expect("Failed to query queue");
+
+    let count: i64 = row.try_get("count").expect("Failed to get count");
+    assert_eq!(count, 1, "Should only have one item due to idempotency");
 }

@@ -29,7 +29,7 @@ pub mod processing;
 pub mod queue_config;
 pub mod queue_operations;
 pub mod queue_types;
-pub mod queue_processor;
+// Note: queue_processor module removed per Task 21 - use unified_queue_processor
 pub mod queue_error_handler;
 pub mod service_discovery;
 pub mod storage;
@@ -126,9 +126,7 @@ pub use crate::queue_operations::{
 pub use crate::queue_types::{
     MissingTool, ProcessorConfig
 };
-pub use crate::queue_processor::{
-    QueueProcessor, ProcessorError, ProcessorResult, ProcessingMetrics
-};
+// Note: QueueProcessor removed per Task 21 - use UnifiedQueueProcessor
 pub use crate::unified_queue_processor::{
     UnifiedQueueProcessor, UnifiedProcessorError, UnifiedProcessorResult,
     UnifiedProcessingMetrics, UnifiedProcessorConfig
