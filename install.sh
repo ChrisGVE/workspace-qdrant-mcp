@@ -2,7 +2,7 @@
 #
 # workspace-qdrant-mcp installer
 #
-# Builds and installs the CLI (wqm), daemon (memexd), and Python MCP server.
+# Builds and installs the CLI (wqm), daemon (memexd), and TypeScript MCP server.
 # All binaries are self-contained with ONNX Runtime statically linked.
 #
 # Usage:
@@ -190,11 +190,16 @@ check_prerequisites() {
         error "cargo not found. Please install Rust toolchain: https://rustup.rs"
     fi
 
-    if ! command -v uv &> /dev/null; then
-        error "uv not found. Please install uv: https://github.com/astral-sh/uv"
+    local prereq_info="cargo: $(cargo --version | cut -d' ' -f2)"
+
+    if command -v npm &> /dev/null; then
+        prereq_info="$prereq_info, npm: $(npm --version)"
+    else
+        warn "npm not found - MCP server installation will be skipped"
+        warn "Install Node.js 18+ from https://nodejs.org to enable MCP server"
     fi
 
-    success "Prerequisites OK (cargo: $(cargo --version | cut -d' ' -f2), uv: $(uv --version | cut -d' ' -f2))"
+    success "Prerequisites: $prereq_info"
 }
 
 # Create directories
@@ -266,11 +271,31 @@ install_binaries() {
     fi
 }
 
-# Install Python components
-install_python() {
-    info "Installing Python MCP server..."
-    uv sync
-    success "Python dependencies installed"
+# Install TypeScript MCP server
+install_typescript_mcp() {
+    info "Installing TypeScript MCP server..."
+
+    # Check for npm
+    if ! command -v npm &> /dev/null; then
+        warn "npm not found - skipping TypeScript MCP server installation"
+        warn "Install Node.js 18+ to enable MCP server"
+        return 1
+    fi
+
+    cd src/typescript/mcp-server
+
+    if [ "$FORCE" = true ] || [ ! -d "node_modules" ]; then
+        info "Installing npm dependencies..."
+        npm install
+    else
+        info "Node modules exist, skipping npm install (use --force to reinstall)"
+    fi
+
+    info "Building TypeScript MCP server..."
+    npm run build
+
+    cd ../../..
+    success "TypeScript MCP server built"
 }
 
 # Verify installation
@@ -302,11 +327,11 @@ verify_installation() {
         success "memexd version: $MEMEXD_VERSION"
     fi
 
-    # Test Python server
-    if uv run workspace-qdrant-mcp --help &>/dev/null; then
-        success "MCP server ready"
+    # Test TypeScript MCP server
+    if [ -f "src/typescript/mcp-server/dist/index.js" ]; then
+        success "MCP server built at src/typescript/mcp-server/dist/"
     else
-        warn "MCP server not responding (may need Qdrant running)"
+        warn "MCP server not built - run 'npm run build' in src/typescript/mcp-server/"
     fi
 }
 
@@ -341,7 +366,7 @@ print_summary() {
         echo "  - memexd (daemon): $BIN_DIR/memexd"
         echo "    (self-contained binary with ONNX Runtime statically linked)"
     fi
-    echo "  - MCP server: uv run workspace-qdrant-mcp"
+    echo "  - MCP server: node src/typescript/mcp-server/dist/index.js"
     echo ""
 
     if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
@@ -353,7 +378,7 @@ print_summary() {
     echo "Quick start:"
     echo "  1. Start Qdrant: docker run -p 6333:6333 qdrant/qdrant"
     echo "  2. Start daemon: $BIN_DIR/memexd &"
-    echo "  3. Run MCP server: uv run workspace-qdrant-mcp"
+    echo "  3. Run MCP server: node src/typescript/mcp-server/dist/index.js"
     echo "  4. Use CLI: wqm --help"
     echo ""
 }
@@ -374,7 +399,7 @@ main() {
     create_directories
     build_rust
     install_binaries
-    install_python
+    install_typescript_mcp
     verify_installation
     setup_service
     print_summary
