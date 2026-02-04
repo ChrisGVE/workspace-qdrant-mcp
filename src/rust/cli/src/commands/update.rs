@@ -68,6 +68,7 @@ enum UpdateCommand {
 
 /// GitHub release API response
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]  // Fields needed for serde JSON deserialization from GitHub API
 struct GitHubRelease {
     tag_name: String,
     name: String,
