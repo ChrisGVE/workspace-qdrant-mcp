@@ -1,34 +1,31 @@
 /**
- * Store tool implementation for content storage to projects or libraries collection
+ * Store tool implementation for content storage to libraries collection
+ *
+ * Per WORKSPACE_QDRANT_MCP.md spec line 1718:
+ * "store is for adding reference documentation to the libraries collection"
+ *
+ * Per spec v1.3 changelog:
+ * "clarified MCP does NOT store to projects collection (daemon handles via file watching)"
  *
  * Per ADR-002, this tool ONLY uses unified_queue for writes.
  * The daemon processes the queue and writes to Qdrant.
  * MCP tools MUST NOT write to Qdrant directly.
  *
- * Supports both collections:
- * - projects collection: code and documents from projects (uses projectId)
- * - libraries collection: reference documentation (uses libraryName)
- * - memory collection: via the memory tool (not this tool)
+ * IMPORTANT: This tool is for LIBRARIES collection ONLY.
+ * Project content is handled by daemon file watching, not this tool.
  */
 
 import { createHash } from 'node:crypto';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
-import type { ProjectDetector } from '../utils/project-detector.js';
 
-// Canonical collection names per ADR-001
-const PROJECTS_COLLECTION = 'projects';
+// Canonical collection name per ADR-001
 const LIBRARIES_COLLECTION = 'libraries';
 
 export type SourceType = 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
 
-// MCP store tool can write to projects or libraries
-export type CollectionType = 'projects' | 'libraries';
-
 export interface StoreOptions {
   content: string;
-  collection?: CollectionType;  // Target collection (default: projects)
-  projectId?: string;           // Required for projects collection
-  libraryName?: string;         // Required for libraries collection
+  libraryName: string;          // Required - library to store to
   title?: string;
   url?: string;
   filePath?: string;
@@ -46,40 +43,41 @@ export interface StoreResponse {
 }
 
 export interface StoreToolConfig {
-  // No configuration needed - project ID detected via projectDetector
+  // No configuration needed
 }
 
 /**
- * Store tool for content storage to projects or libraries collection
+ * Store tool for content storage to libraries collection
+ *
+ * Per spec: "store is for adding reference documentation to the libraries collection"
+ * Libraries are collections of reference information (books, documentation, papers, websites)
+ * - NOT programming libraries (use context7 MCP for those)
+ * - NOT project content (handled by daemon file watching)
  *
  * Per ADR-002: All writes go through unified_queue, never direct to daemon.
  */
 export class StoreTool {
   private readonly stateManager: SqliteStateManager;
-  private readonly projectDetector: ProjectDetector;
 
   constructor(
     _config: StoreToolConfig,
     stateManager: SqliteStateManager,
-    projectDetector: ProjectDetector
+    // ProjectDetector no longer needed - we only write to libraries
   ) {
     // NOTE: DaemonClient intentionally NOT accepted per ADR-002
     // All writes must go through unified_queue only
     this.stateManager = stateManager;
-    this.projectDetector = projectDetector;
   }
 
   /**
-   * Store content to projects or libraries collection
+   * Store content to libraries collection
    *
-   * @param options Store options with projectId or libraryName
+   * @param options Store options with libraryName (required)
    * @returns StoreResponse with queue_id (content is queued, not stored immediately)
    */
   async store(options: StoreOptions): Promise<StoreResponse> {
     const {
       content,
-      collection = 'projects',  // Default to projects collection
-      projectId,
       libraryName,
       title,
       url,
@@ -92,54 +90,23 @@ export class StoreTool {
     if (!content?.trim()) {
       return {
         success: false,
-        collection,
+        collection: LIBRARIES_COLLECTION,
         message: 'Content is required for storing',
         fallback_mode: 'unified_queue',
       };
     }
 
-    // Determine target collection and tenant ID
-    let targetCollection: string;
-    let tenantId: string;
-
-    if (collection === 'libraries') {
-      // Libraries collection requires libraryName
-      if (!libraryName?.trim()) {
-        return {
-          success: false,
-          collection: LIBRARIES_COLLECTION,
-          message: 'libraryName is required when storing to libraries collection',
-          fallback_mode: 'unified_queue',
-        };
-      }
-      targetCollection = LIBRARIES_COLLECTION;
-      tenantId = libraryName.trim();
-    } else {
-      // Projects collection - use projectId or auto-detect from current project
-      let effectiveProjectId = projectId?.trim();
-      if (!effectiveProjectId) {
-        // Try to get project ID from database first
-        effectiveProjectId = await this.projectDetector.getCurrentProjectId() ?? undefined;
-
-        // Fallback: use project root path as tenant_id (daemon will reconcile)
-        if (!effectiveProjectId) {
-          const projectRoot = this.projectDetector.findProjectRoot(process.cwd());
-          if (projectRoot) {
-            effectiveProjectId = projectRoot;
-          }
-        }
-      }
-      if (!effectiveProjectId) {
-        return {
-          success: false,
-          collection: PROJECTS_COLLECTION,
-          message: 'projectId is required when storing to projects collection (no project detected in current directory)',
-          fallback_mode: 'unified_queue',
-        };
-      }
-      targetCollection = PROJECTS_COLLECTION;
-      tenantId = effectiveProjectId;
+    // Validate libraryName (required for libraries collection)
+    if (!libraryName?.trim()) {
+      return {
+        success: false,
+        collection: LIBRARIES_COLLECTION,
+        message: 'libraryName is required - this tool stores to the libraries collection only. For project content, use file watching (daemon handles this automatically).',
+        fallback_mode: 'unified_queue',
+      };
     }
+
+    const tenantId = libraryName.trim();
 
     // Generate document ID using content hash for idempotency
     const documentId = this.generateDocumentId(content, tenantId);
@@ -159,7 +126,6 @@ export class StoreTool {
       const queueResult = await this.queueStoreOperation({
         content,
         tenantId,
-        collection: targetCollection,
         documentId,
         metadata: fullMetadata,
         sourceType,
@@ -168,8 +134,8 @@ export class StoreTool {
       return {
         success: true,
         documentId,
-        collection: targetCollection,
-        message: `Content queued for processing by daemon (${targetCollection})`,
+        collection: LIBRARIES_COLLECTION,
+        message: `Content queued for processing by daemon (libraries/${tenantId})`,
         fallback_mode: 'unified_queue',
         queue_id: queueResult.queueId,
       };
@@ -177,7 +143,7 @@ export class StoreTool {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       return {
         success: false,
-        collection: targetCollection,
+        collection: LIBRARIES_COLLECTION,
         message: `Failed to queue content: ${errorMessage}`,
         fallback_mode: 'unified_queue',
       };
@@ -203,7 +169,6 @@ export class StoreTool {
   private async queueStoreOperation(params: {
     content: string;
     tenantId: string;
-    collection: string;
     documentId: string;
     metadata: Record<string, string>;
     sourceType: SourceType;
@@ -215,15 +180,15 @@ export class StoreTool {
       metadata: params.metadata,
     };
 
-    // Use state manager to enqueue
+    // Use state manager to enqueue to libraries collection
     const result = await this.stateManager.enqueueUnified(
-      'content',
+      'library',  // item_type per spec line 1147
       'ingest',
       params.tenantId,
-      params.collection,
+      LIBRARIES_COLLECTION,
       payload,
       8, // Priority 8 for MCP content (same as other MCP operations)
-      undefined, // No branch for content
+      undefined, // No branch for library content
       { source: 'mcp_store_tool' }
     );
 

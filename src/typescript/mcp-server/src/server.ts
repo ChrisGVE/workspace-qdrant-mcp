@@ -125,12 +125,11 @@ export class WorkspaceQdrantMcpServer {
       this.projectDetector
     );
 
-    // StoreTool supports both projects and libraries collections
-    // ProjectDetector passed for async project ID auto-detection
+    // StoreTool is for libraries collection ONLY per spec
+    // Project content is handled by daemon file watching, not this tool
     this.storeTool = new StoreTool(
       {},
-      this.stateManager,
-      this.projectDetector
+      this.stateManager
     );
 
     // Create MCP server
@@ -323,7 +322,7 @@ export class WorkspaceQdrantMcpServer {
       },
       {
         name: 'store',
-        description: 'Store content to projects or libraries collection. Default: projects (uses current project). For libraries, specify libraryName.',
+        description: 'Store reference documentation to the libraries collection. For project content, use file watching (daemon handles this automatically).',
         inputSchema: {
           type: 'object' as const,
           properties: {
@@ -331,18 +330,9 @@ export class WorkspaceQdrantMcpServer {
               type: 'string',
               description: 'Content to store',
             },
-            collection: {
-              type: 'string',
-              enum: ['projects', 'libraries'],
-              description: 'Target collection (default: projects)',
-            },
-            projectId: {
-              type: 'string',
-              description: 'Project ID for projects collection (uses current project if not specified)',
-            },
             libraryName: {
               type: 'string',
-              description: 'Library name for libraries collection (required if collection=libraries)',
+              description: 'Library name (required) - identifies which library to store to',
             },
             title: {
               type: 'string',
@@ -367,7 +357,7 @@ export class WorkspaceQdrantMcpServer {
               description: 'Additional metadata',
             },
           },
-          required: ['content'],
+          required: ['content', 'libraryName'],
         },
       },
     ];
@@ -606,13 +596,11 @@ export class WorkspaceQdrantMcpServer {
    * Build store options from tool arguments
    *
    * Supports both projects and libraries collections.
-   * Default: projects collection with current project ID.
+   * Store tool is for libraries collection ONLY per spec.
    */
   private buildStoreOptions(args: Record<string, unknown> | undefined): {
     content: string;
-    collection?: 'projects' | 'libraries';
-    projectId?: string;
-    libraryName?: string;
+    libraryName: string;
     title?: string;
     url?: string;
     filePath?: string;
@@ -624,28 +612,20 @@ export class WorkspaceQdrantMcpServer {
       throw new Error('Content is required for store operation');
     }
 
+    const libraryName = args?.['libraryName'] as string;
+    if (!libraryName) {
+      throw new Error('libraryName is required - store tool is for libraries collection only');
+    }
+
     const options: {
       content: string;
-      collection?: 'projects' | 'libraries';
-      projectId?: string;
-      libraryName?: string;
+      libraryName: string;
       title?: string;
       url?: string;
       filePath?: string;
       sourceType?: 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
       metadata?: Record<string, string>;
-    } = { content };
-
-    const collection = args?.['collection'] as string | undefined;
-    if (collection === 'projects' || collection === 'libraries') {
-      options.collection = collection;
-    }
-
-    const projectId = args?.['projectId'] as string | undefined;
-    if (projectId) options.projectId = projectId;
-
-    const libraryName = args?.['libraryName'] as string | undefined;
-    if (libraryName) options.libraryName = libraryName;
+    } = { content, libraryName };
 
     const title = args?.['title'] as string | undefined;
     if (title) options.title = title;
