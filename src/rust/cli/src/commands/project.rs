@@ -112,7 +112,7 @@ async fn list_projects(active_only: bool, priority: Option<String>) -> Result<()
                     }
 
                     for proj in &list.projects {
-                        let status = if proj.active_sessions > 0 {
+                        let status = if proj.is_active {
                             ServiceStatus::Healthy
                         } else {
                             ServiceStatus::Unknown
@@ -121,7 +121,7 @@ async fn list_projects(active_only: bool, priority: Option<String>) -> Result<()
                         output::kv("  ID", &proj.project_id);
                         output::kv("  Path", &proj.project_root);
                         output::kv("  Priority", &proj.priority);
-                        output::kv("  Sessions", &proj.active_sessions.to_string());
+                        output::kv("  Active", if proj.is_active { "Yes" } else { "No" });
                     }
 
                     output::separator();
@@ -172,7 +172,7 @@ async fn project_status(path: Option<PathBuf>) -> Result<()> {
                         output::status_line("Registered", ServiceStatus::Healthy);
                         output::kv("Name", &status.project_name);
                         output::kv("Priority", &status.priority);
-                        output::kv("Active Sessions", &status.active_sessions.to_string());
+                        output::kv("Active", if status.is_active { "Yes" } else { "No" });
                         if let Some(remote) = status.git_remote {
                             output::kv("Git Remote", &remote);
                         }
@@ -265,7 +265,7 @@ async fn register_project(path: Option<PathBuf>, name: Option<String>) -> Result
                         output::info("Project already registered");
                     }
                     output::kv("Priority", &result.priority);
-                    output::kv("Active Sessions", &result.active_sessions.to_string());
+                    output::kv("Active", if result.is_active { "Yes" } else { "No" });
                 }
                 Err(e) => {
                     output::error(format!("Failed to register project: {}", e));
@@ -298,7 +298,7 @@ async fn project_info(project: &str) -> Result<()> {
                         output::kv("Name", &status.project_name);
                         output::kv("Path", &status.project_root);
                         output::kv("Priority", &status.priority);
-                        output::kv("Active Sessions", &status.active_sessions.to_string());
+                        output::kv("Active", if status.is_active { "Yes" } else { "No" });
                         if let Some(remote) = status.git_remote {
                             output::kv("Git Remote", &remote);
                         }
