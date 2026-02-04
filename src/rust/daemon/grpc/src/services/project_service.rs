@@ -1000,18 +1000,9 @@ mod tests {
         let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
         let pool = SqlitePool::connect(&db_url).await.unwrap();
 
-        // Initialize queue schema (legacy tables for test compatibility)
-        sqlx::query(include_str!("../../../core/src/schema/legacy/queue_schema.sql"))
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        sqlx::query(include_str!("../../../core/src/schema/legacy/missing_metadata_queue_schema.sql"))
-            .execute(&pool)
-            .await
-            .unwrap();
-
         // Add projects table schema
+        // NOTE: The projects table is used by this service for session tracking.
+        // A future refactor (Task 25) will migrate to watch_folders.is_active model.
         sqlx::query(r#"
             CREATE TABLE IF NOT EXISTS projects (
                 project_id TEXT PRIMARY KEY,
