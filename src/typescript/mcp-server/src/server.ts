@@ -747,7 +747,7 @@ export class WorkspaceQdrantMcpServer {
 
       this.log(
         `Project registered: ${response.created ? 'new' : 'existing'}, ` +
-          `priority=${response.priority}, sessions=${response.active_sessions}`
+          `priority=${response.priority}, active=${response.is_active}`
       );
     } catch (error) {
       this.logError('Failed to register project:', error);
@@ -828,7 +828,7 @@ export class WorkspaceQdrantMcpServer {
           project_id: this.sessionState.projectId,
         });
         this.log(
-          `Project deprioritized: remaining_sessions=${response.remaining_sessions}, ` +
+          `Project deprioritized: is_active=${response.is_active}, ` +
             `new_priority=${response.new_priority}`
         );
       } catch (error) {

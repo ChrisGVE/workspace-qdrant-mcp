@@ -394,7 +394,7 @@ message RegisterProjectResponse {
     bool created = 1;                             // True if new, false if existing
     string project_id = 2;                        // Confirmed project ID
     string priority = 3;                          // Current priority: "high", "normal", "low"
-    int32 active_sessions = 4;                    // Number of active sessions
+    bool is_active = 4;                           // Activity flag (spec-compliant boolean)
 }
 
 // DeprioritizeProject Request/Response
@@ -404,7 +404,7 @@ message DeprioritizeProjectRequest {
 
 message DeprioritizeProjectResponse {
     bool success = 1;
-    int32 remaining_sessions = 2;                 // Sessions after decrement
+    bool is_active = 2;                           // Activity flag after deactivation (spec-compliant boolean)
     string new_priority = 3;                      // Priority after demotion
 }
 
@@ -419,7 +419,7 @@ message GetProjectStatusResponse {
     string project_name = 3;
     string project_root = 4;
     string priority = 5;                          // "high", "normal", "low"
-    int32 active_sessions = 6;
+    bool is_active = 6;                           // Activity flag (spec-compliant boolean)
     google.protobuf.Timestamp last_active = 7;    // Last heartbeat/activity
     google.protobuf.Timestamp registered_at = 8;
     optional string git_remote = 9;
@@ -428,7 +428,7 @@ message GetProjectStatusResponse {
 // ListProjects Request/Response
 message ListProjectsRequest {
     optional string priority_filter = 1;          // Filter by priority: "high", "normal", "low", "all"
-    bool active_only = 2;                         // Only return projects with active_sessions > 0
+    bool active_only = 2;                         // Only return projects with is_active = true
 }
 
 message ListProjectsResponse {
@@ -441,7 +441,7 @@ message ProjectInfo {
     string project_name = 2;
     string project_root = 3;
     string priority = 4;
-    int32 active_sessions = 5;
+    bool is_active = 5;                           // Activity flag (spec-compliant boolean)
     google.protobuf.Timestamp last_active = 6;
 }
 

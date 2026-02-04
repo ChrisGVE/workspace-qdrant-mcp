@@ -24,11 +24,11 @@ const mockDaemonClient = {
     created: true,
     project_id: 'test-project-id',
     priority: 'high',
-    active_sessions: 1,
+    is_active: true,
   }),
   deprioritizeProject: vi.fn().mockResolvedValue({
     success: true,
-    remaining_sessions: 0,
+    is_active: false,
     new_priority: 'normal',
   }),
   heartbeat: vi.fn().mockResolvedValue({ acknowledged: true }),

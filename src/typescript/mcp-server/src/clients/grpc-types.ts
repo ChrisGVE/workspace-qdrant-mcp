@@ -190,7 +190,7 @@ export interface RegisterProjectResponse {
   created: boolean;
   project_id: string;
   priority: string;
-  active_sessions: number;
+  is_active: boolean;
 }
 
 export interface DeprioritizeProjectRequest {
@@ -199,7 +199,7 @@ export interface DeprioritizeProjectRequest {
 
 export interface DeprioritizeProjectResponse {
   success: boolean;
-  remaining_sessions: number;
+  is_active: boolean;
   new_priority: string;
 }
 
@@ -213,7 +213,7 @@ export interface GetProjectStatusResponse {
   project_name: string;
   project_root: string;
   priority: string;
-  active_sessions: number;
+  is_active: boolean;
   last_active?: { seconds: number; nanos: number };
   registered_at?: { seconds: number; nanos: number };
   git_remote?: string;
@@ -229,7 +229,7 @@ export interface ProjectInfo {
   project_name: string;
   project_root: string;
   priority: string;
-  active_sessions: number;
+  is_active: boolean;
   last_active?: { seconds: number; nanos: number };
 }
 

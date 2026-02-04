@@ -21,11 +21,11 @@ vi.mock('../src/clients/daemon-client.js', () => ({
       created: true,
       project_id: 'mock_project_id',
       priority: 'high',
-      active_sessions: 1,
+      is_active: true,
     }),
     deprioritizeProject: vi.fn().mockResolvedValue({
       success: true,
-      remaining_sessions: 0,
+      is_active: false,
       new_priority: 'normal',
     }),
     heartbeat: vi.fn().mockResolvedValue({
@@ -317,11 +317,11 @@ describe('Session lifecycle with connected daemon', () => {
         created: true,
         project_id: 'abc123456789',
         priority: 'high',
-        active_sessions: 1,
+        is_active: true,
       }),
       deprioritizeProject: vi.fn().mockResolvedValue({
         success: true,
-        remaining_sessions: 0,
+        is_active: false,
         new_priority: 'normal',
       }),
       heartbeat: vi.fn().mockResolvedValue({
