@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 2;
+pub const CURRENT_SCHEMA_VERSION: i32 = 1;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -151,7 +151,6 @@ impl SchemaManager {
     async fn run_migration(&self, version: i32) -> Result<(), SchemaError> {
         match version {
             1 => self.migrate_v1().await,
-            2 => self.migrate_v2().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -195,40 +194,6 @@ impl SchemaManager {
         }
 
         info!("Migration v1 complete");
-        Ok(())
-    }
-
-    /// Migration v2: Add projects table for session tracking
-    async fn migrate_v2(&self) -> Result<(), SchemaError> {
-        info!("Migration v2: Creating projects table for session tracking");
-
-        sqlx::query(r#"
-            CREATE TABLE IF NOT EXISTS projects (
-                project_id TEXT PRIMARY KEY,
-                project_name TEXT,
-                project_root TEXT NOT NULL UNIQUE,
-                priority TEXT DEFAULT 'normal' CHECK (priority IN ('high', 'normal', 'low')),
-                active_sessions INTEGER DEFAULT 0,
-                git_remote TEXT,
-                registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_active TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        "#)
-            .execute(&self.pool)
-            .await?;
-
-        // Create index for faster lookups
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_projects_root ON projects(project_root)")
-            .execute(&self.pool)
-            .await?;
-
-        sqlx::query("CREATE INDEX IF NOT EXISTS idx_projects_priority ON projects(priority)")
-            .execute(&self.pool)
-            .await?;
-
-        info!("Migration v2 complete");
         Ok(())
     }
 }
