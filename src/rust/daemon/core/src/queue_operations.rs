@@ -3474,7 +3474,8 @@ mod tests {
         let manager = Arc::new(QueueManager::new(pool));
         manager.init_unified_queue().await.unwrap();
 
-        // Enqueue the same file with different operations (each should be unique)
+        // Enqueue the same content with different operations (each should be unique)
+        // Note: Uses ItemType::Content (not File) to avoid per-file UNIQUE constraint (Task 22)
         let ops = vec![
             (UnifiedOp::Ingest, "ingest"),
             (UnifiedOp::Update, "update"),
@@ -3487,11 +3488,11 @@ mod tests {
                 let mgr = Arc::clone(&manager);
                 tokio::spawn(async move {
                     mgr.enqueue_unified(
-                        ItemType::File,
+                        ItemType::Content,
                         op,
                         "test-tenant",
                         "test-collection",
-                        r#"{"file_path":"/test/same_file.rs"}"#,
+                        r#"{"content":"test content","source_type":"test"}"#,
                         5,
                         Some("main"),
                         None,

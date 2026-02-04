@@ -133,14 +133,17 @@ mod single_folder_watch_tests {
         // Modify the file
         fs::write(&test_file, "Modified content")?;
 
-        // Wait for event processing
-        tokio::time::sleep(Duration::from_millis(500)).await;
-
-        let final_stats = watcher.stats().await;
-        assert!(
-            final_stats.events_received > initial_stats.events_received,
-            "Expected modification event to be detected"
-        );
+        // Wait for event with retry loop (handles macOS FSEvents latency under load)
+        let mut detected = false;
+        for _ in 0..10 {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let final_stats = watcher.stats().await;
+            if final_stats.events_received > initial_stats.events_received {
+                detected = true;
+                break;
+            }
+        }
+        assert!(detected, "Expected modification event to be detected within 3 seconds");
 
         watcher.stop_watching().await?;
         Ok(())
