@@ -219,8 +219,8 @@ async fn queue(verbose: bool) -> Result<()> {
                     if verbose {
                         output::separator();
                         output::info("Queue Details:");
-                        output::info("  (Queue items stored in SQLite ingestion_queue table)");
-                        output::info("  Use: sqlite3 ~/.local/share/workspace-qdrant/state.db 'SELECT * FROM ingestion_queue'");
+                        output::info("  (Queue items stored in SQLite unified_queue table)");
+                        output::info("  Use: sqlite3 ~/.workspace-qdrant/state.db 'SELECT * FROM unified_queue'");
                     }
                 }
                 Err(e) => {

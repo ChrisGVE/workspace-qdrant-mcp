@@ -419,12 +419,12 @@ async fn ingest_status(verbose: bool) -> Result<()> {
 
                     if verbose {
                         output::separator();
-                        output::info("Queue details stored in SQLite ingestion_queue table:");
+                        output::info("Queue details stored in SQLite unified_queue table:");
                         let db_path = dirs::data_local_dir()
                             .map(|p| p.join("workspace-qdrant/state.db"))
                             .unwrap_or_default();
                         output::info(&format!(
-                            "  sqlite3 {} 'SELECT * FROM ingestion_queue LIMIT 20'",
+                            "  sqlite3 {} 'SELECT * FROM unified_queue LIMIT 20'",
                             db_path.display()
                         ));
                     }
