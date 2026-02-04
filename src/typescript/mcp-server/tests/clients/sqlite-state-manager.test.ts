@@ -16,7 +16,7 @@ import {
   buildLibraryPayload,
 } from '../../src/clients/sqlite-state-manager.js';
 
-// Create test schema (minimal version matching daemon)
+// Create test schema (minimal version matching daemon's watch_folders table)
 const TEST_SCHEMA = `
 CREATE TABLE IF NOT EXISTS unified_queue (
     queue_id TEXT PRIMARY KEY,
@@ -39,17 +39,25 @@ CREATE TABLE IF NOT EXISTS unified_queue (
     lease_expires_at TEXT
 );
 
-CREATE TABLE IF NOT EXISTS registered_projects (
-    project_id TEXT PRIMARY KEY,
-    project_path TEXT NOT NULL UNIQUE,
+CREATE TABLE IF NOT EXISTS watch_folders (
+    watch_id TEXT PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,
+    collection TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    parent_watch_id TEXT,
+    submodule_path TEXT,
     git_remote_url TEXT,
     remote_hash TEXT,
     disambiguation_path TEXT,
-    container_folder TEXT NOT NULL,
     is_active INTEGER DEFAULT 0,
+    last_activity_at TEXT,
+    library_mode TEXT,
+    follow_symlinks INTEGER DEFAULT 0,
+    enabled INTEGER DEFAULT 1,
+    cleanup_on_disable INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
-    last_seen_at TEXT,
-    last_activity_at TEXT
+    updated_at TEXT NOT NULL,
+    last_scan TEXT
 );
 `;
 
@@ -355,13 +363,13 @@ describe('SqliteStateManager', () => {
     let db: Database.Database;
 
     beforeEach(() => {
-      // Insert test project
+      // Insert test project into watch_folders
       db = new Database(dbPath);
       db.prepare(
         `
-        INSERT INTO registered_projects
-        (project_id, project_path, container_folder, is_active, created_at)
-        VALUES ('abc123456789', '/test/project', 'project', 1, datetime('now'))
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-1', '/test/project', 'projects', 'abc123456789', 1, datetime('now'), datetime('now'))
       `
       ).run();
       db.close();
@@ -425,10 +433,10 @@ describe('SqliteStateManager', () => {
       manager.close();
     });
 
-    it('should return degraded for missing registered_projects table', () => {
-      // Create database without registered_projects table
+    it('should return degraded for missing watch_folders table', () => {
+      // Create database without watch_folders table
       const noDB = new Database(dbPath);
-      noDB.exec('DROP TABLE registered_projects');
+      noDB.exec('DROP TABLE watch_folders');
       noDB.close();
 
       const manager = new SqliteStateManager({ dbPath });

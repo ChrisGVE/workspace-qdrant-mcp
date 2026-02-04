@@ -137,7 +137,7 @@ export class ProjectDetector {
   /**
    * Get project info for a project path
    *
-   * Fetches project_id from daemon's registered_projects table.
+   * Fetches project_id from daemon's watch_folders table (collection='projects').
    * Uses caching to avoid repeated database queries.
    * Retries with exponential backoff if project not found (daemon may still be registering).
    *

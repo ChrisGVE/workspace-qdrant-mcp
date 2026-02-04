@@ -49,19 +49,27 @@ vi.mock('@modelcontextprotocol/sdk/server/stdio.js', () => ({
   StdioServerTransport: vi.fn().mockImplementation(() => ({})),
 }));
 
-// Create test schema (minimal version matching daemon)
+// Create test schema (minimal version matching daemon's watch_folders table)
 const TEST_SCHEMA = `
-CREATE TABLE IF NOT EXISTS registered_projects (
-    project_id TEXT PRIMARY KEY,
-    project_path TEXT NOT NULL UNIQUE,
+CREATE TABLE IF NOT EXISTS watch_folders (
+    watch_id TEXT PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,
+    collection TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    parent_watch_id TEXT,
+    submodule_path TEXT,
     git_remote_url TEXT,
     remote_hash TEXT,
     disambiguation_path TEXT,
-    container_folder TEXT NOT NULL,
     is_active INTEGER DEFAULT 0,
+    last_activity_at TEXT,
+    library_mode TEXT,
+    follow_symlinks INTEGER DEFAULT 0,
+    enabled INTEGER DEFAULT 1,
+    cleanup_on_disable INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
-    last_seen_at TEXT,
-    last_activity_at TEXT
+    updated_at TEXT NOT NULL,
+    last_scan TEXT
 );
 `;
 
@@ -341,9 +349,9 @@ describe('Session lifecycle with connected daemon', () => {
     const dbPath = join(tempDir, 'state.db');
     const db = new Database(dbPath);
     db.prepare(`
-      INSERT INTO registered_projects
-      (project_id, project_path, container_folder, is_active, created_at)
-      VALUES ('abc123456789', ?, 'test-project', 1, datetime('now'))
+      INSERT INTO watch_folders
+      (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+      VALUES ('watch-1', ?, 'projects', 'abc123456789', 1, datetime('now'), datetime('now'))
     `).run(realProjectPath);
     db.close();
 

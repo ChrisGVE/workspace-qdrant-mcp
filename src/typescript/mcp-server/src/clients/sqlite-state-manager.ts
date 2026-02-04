@@ -1,11 +1,14 @@
 /**
  * SQLite state manager for TypeScript MCP server
  *
- * Provides access to the unified_queue and registered_projects tables.
+ * Provides access to the unified_queue and watch_folders tables.
  * Implements graceful handling when daemon hasn't initialized the database.
  *
  * IMPORTANT: Per ADR-003, the Rust daemon owns the SQLite database and schema.
  * This client may read/write to tables but must NOT create tables or run migrations.
+ *
+ * NOTE: Project lookups query watch_folders WHERE collection = 'projects'.
+ * The old registered_projects table has been consolidated into watch_folders.
  */
 
 import Database, { type Database as DatabaseType } from 'better-sqlite3';
@@ -460,8 +463,10 @@ export class SqliteStateManager {
   /**
    * Get project by path
    *
-   * Fetches project_id from registered_projects table.
+   * Fetches project_id from watch_folders table (collection = 'projects').
    * Used by MCP server to get project_id for the current working directory.
+   *
+   * NOTE: Queries watch_folders instead of the deprecated registered_projects table.
    */
   getProjectByPath(projectPath: string): DegradedQueryResult<RegisteredProject | null> {
     if (!this.db) {
@@ -477,24 +482,23 @@ export class SqliteStateManager {
       const project = this.db
         .prepare(
           `
-        SELECT project_id, project_path, git_remote_url, remote_hash,
-               disambiguation_path, container_folder, is_active,
-               created_at, last_seen_at, last_activity_at
-        FROM registered_projects
-        WHERE project_path = ?
+        SELECT tenant_id, path, git_remote_url, remote_hash,
+               disambiguation_path, is_active,
+               created_at, updated_at, last_activity_at
+        FROM watch_folders
+        WHERE path = ? AND collection = 'projects'
       `
         )
         .get(projectPath) as
         | {
-            project_id: string;
-            project_path: string;
+            tenant_id: string;
+            path: string;
             git_remote_url: string | null;
             remote_hash: string | null;
             disambiguation_path: string | null;
-            container_folder: string;
             is_active: number;
             created_at: string;
-            last_seen_at: string | null;
+            updated_at: string | null;
             last_activity_at: string | null;
           }
         | undefined;
@@ -503,17 +507,20 @@ export class SqliteStateManager {
         return { data: null, status: 'ok' };
       }
 
+      // Derive container_folder from path (basename)
+      const containerFolder = project.path.split('/').filter(Boolean).at(-1) ?? project.path;
+
       return {
         data: {
-          project_id: project.project_id,
-          project_path: project.project_path,
+          project_id: project.tenant_id,
+          project_path: project.path,
           git_remote_url: project.git_remote_url ?? undefined,
           remote_hash: project.remote_hash ?? undefined,
           disambiguation_path: project.disambiguation_path ?? undefined,
-          container_folder: project.container_folder,
+          container_folder: containerFolder,
           is_active: project.is_active === 1,
           created_at: project.created_at,
-          last_seen_at: project.last_seen_at ?? undefined,
+          last_seen_at: project.updated_at ?? undefined,
           last_activity_at: project.last_activity_at ?? undefined,
         },
         status: 'ok',
@@ -525,7 +532,7 @@ export class SqliteStateManager {
           data: null,
           status: 'degraded',
           reason: 'table_not_found',
-          message: 'Table registered_projects not found.',
+          message: 'Table watch_folders not found. Daemon has not initialized database.',
         };
       }
       throw error;
@@ -534,6 +541,8 @@ export class SqliteStateManager {
 
   /**
    * Get project by ID
+   *
+   * NOTE: Queries watch_folders instead of the deprecated registered_projects table.
    */
   getProjectById(projectId: string): DegradedQueryResult<RegisteredProject | null> {
     if (!this.db) {
@@ -549,24 +558,23 @@ export class SqliteStateManager {
       const project = this.db
         .prepare(
           `
-        SELECT project_id, project_path, git_remote_url, remote_hash,
-               disambiguation_path, container_folder, is_active,
-               created_at, last_seen_at, last_activity_at
-        FROM registered_projects
-        WHERE project_id = ?
+        SELECT tenant_id, path, git_remote_url, remote_hash,
+               disambiguation_path, is_active,
+               created_at, updated_at, last_activity_at
+        FROM watch_folders
+        WHERE tenant_id = ? AND collection = 'projects'
       `
         )
         .get(projectId) as
         | {
-            project_id: string;
-            project_path: string;
+            tenant_id: string;
+            path: string;
             git_remote_url: string | null;
             remote_hash: string | null;
             disambiguation_path: string | null;
-            container_folder: string;
             is_active: number;
             created_at: string;
-            last_seen_at: string | null;
+            updated_at: string | null;
             last_activity_at: string | null;
           }
         | undefined;
@@ -575,17 +583,20 @@ export class SqliteStateManager {
         return { data: null, status: 'ok' };
       }
 
+      // Derive container_folder from path (basename)
+      const containerFolder = project.path.split('/').filter(Boolean).at(-1) ?? project.path;
+
       return {
         data: {
-          project_id: project.project_id,
-          project_path: project.project_path,
+          project_id: project.tenant_id,
+          project_path: project.path,
           git_remote_url: project.git_remote_url ?? undefined,
           remote_hash: project.remote_hash ?? undefined,
           disambiguation_path: project.disambiguation_path ?? undefined,
-          container_folder: project.container_folder,
+          container_folder: containerFolder,
           is_active: project.is_active === 1,
           created_at: project.created_at,
-          last_seen_at: project.last_seen_at ?? undefined,
+          last_seen_at: project.updated_at ?? undefined,
           last_activity_at: project.last_activity_at ?? undefined,
         },
         status: 'ok',
@@ -597,7 +608,7 @@ export class SqliteStateManager {
           data: null,
           status: 'degraded',
           reason: 'table_not_found',
-          message: 'Table registered_projects not found.',
+          message: 'Table watch_folders not found. Daemon has not initialized database.',
         };
       }
       throw error;
@@ -606,6 +617,8 @@ export class SqliteStateManager {
 
   /**
    * List all active projects
+   *
+   * NOTE: Queries watch_folders instead of the deprecated registered_projects table.
    */
   listActiveProjects(): DegradedQueryResult<RegisteredProject[]> {
     if (!this.db) {
@@ -621,40 +634,45 @@ export class SqliteStateManager {
       const projects = this.db
         .prepare(
           `
-        SELECT project_id, project_path, git_remote_url, remote_hash,
-               disambiguation_path, container_folder, is_active,
-               created_at, last_seen_at, last_activity_at
-        FROM registered_projects
-        WHERE is_active = 1
+        SELECT tenant_id, path, git_remote_url, remote_hash,
+               disambiguation_path, is_active,
+               created_at, updated_at, last_activity_at
+        FROM watch_folders
+        WHERE is_active = 1 AND collection = 'projects'
         ORDER BY last_activity_at DESC
       `
         )
         .all() as Array<{
-        project_id: string;
-        project_path: string;
+        tenant_id: string;
+        path: string;
         git_remote_url: string | null;
         remote_hash: string | null;
         disambiguation_path: string | null;
-        container_folder: string;
         is_active: number;
         created_at: string;
-        last_seen_at: string | null;
+        updated_at: string | null;
         last_activity_at: string | null;
       }>;
 
       return {
-        data: projects.map((p) => ({
-          project_id: p.project_id,
-          project_path: p.project_path,
-          git_remote_url: p.git_remote_url ?? undefined,
-          remote_hash: p.remote_hash ?? undefined,
-          disambiguation_path: p.disambiguation_path ?? undefined,
-          container_folder: p.container_folder,
-          is_active: p.is_active === 1,
-          created_at: p.created_at,
-          last_seen_at: p.last_seen_at ?? undefined,
-          last_activity_at: p.last_activity_at ?? undefined,
-        })),
+        data: projects.map((p) => {
+          // Derive container_folder from path (basename)
+          const parts = p.path.split('/').filter(Boolean);
+          const containerFolder: string = parts.length > 0 ? parts[parts.length - 1]! : p.path;
+
+          return {
+            project_id: p.tenant_id,
+            project_path: p.path,
+            git_remote_url: p.git_remote_url ?? undefined,
+            remote_hash: p.remote_hash ?? undefined,
+            disambiguation_path: p.disambiguation_path ?? undefined,
+            container_folder: containerFolder,
+            is_active: p.is_active === 1,
+            created_at: p.created_at,
+            last_seen_at: p.updated_at ?? undefined,
+            last_activity_at: p.last_activity_at ?? undefined,
+          };
+        }),
         status: 'ok',
       };
     } catch (error) {
@@ -664,7 +682,7 @@ export class SqliteStateManager {
           data: [],
           status: 'degraded',
           reason: 'table_not_found',
-          message: 'Table registered_projects not found.',
+          message: 'Table watch_folders not found. Daemon has not initialized database.',
         };
       }
       throw error;

@@ -11,19 +11,27 @@ import { join } from 'node:path';
 import { ProjectDetector, isGitRepository, getGitRemoteUrl } from '../../src/utils/project-detector.js';
 import { SqliteStateManager } from '../../src/clients/sqlite-state-manager.js';
 
-// Create test schema
+// Create test schema (watch_folders table from daemon)
 const TEST_SCHEMA = `
-CREATE TABLE IF NOT EXISTS registered_projects (
-    project_id TEXT PRIMARY KEY,
-    project_path TEXT NOT NULL UNIQUE,
+CREATE TABLE IF NOT EXISTS watch_folders (
+    watch_id TEXT PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,
+    collection TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    parent_watch_id TEXT,
+    submodule_path TEXT,
     git_remote_url TEXT,
     remote_hash TEXT,
     disambiguation_path TEXT,
-    container_folder TEXT NOT NULL,
     is_active INTEGER DEFAULT 0,
+    last_activity_at TEXT,
+    library_mode TEXT,
+    follow_symlinks INTEGER DEFAULT 0,
+    enabled INTEGER DEFAULT 1,
+    cleanup_on_disable INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
-    last_seen_at TEXT,
-    last_activity_at TEXT
+    updated_at TEXT NOT NULL,
+    last_scan TEXT
 );
 `;
 
@@ -131,9 +139,9 @@ describe('ProjectDetector', () => {
       const db = new Database(dbPath);
       db.prepare(
         `
-        INSERT INTO registered_projects
-        (project_id, project_path, container_folder, is_active, created_at)
-        VALUES ('abc123456789', ?, 'registered-project', 1, datetime('now'))
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-1', ?, 'projects', 'abc123456789', 1, datetime('now'), datetime('now'))
       `
       ).run(projectPath);
       db.close();
@@ -170,9 +178,9 @@ describe('ProjectDetector', () => {
       const db = new Database(dbPath);
       db.prepare(
         `
-        INSERT INTO registered_projects
-        (project_id, project_path, container_folder, is_active, created_at)
-        VALUES ('cached123456', ?, 'cached-project', 1, datetime('now'))
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-2', ?, 'projects', 'cached123456', 1, datetime('now'), datetime('now'))
       `
       ).run(projectPath);
       db.close();
@@ -197,7 +205,7 @@ describe('ProjectDetector', () => {
       // Update database
       const db2 = new Database(dbPath);
       db2.prepare(
-        `UPDATE registered_projects SET project_id = 'modified1234' WHERE project_path = ?`
+        `UPDATE watch_folders SET tenant_id = 'modified1234' WHERE path = ?`
       ).run(projectPath);
       db2.close();
 
@@ -220,9 +228,9 @@ describe('ProjectDetector', () => {
       const db = new Database(dbPath);
       db.prepare(
         `
-        INSERT INTO registered_projects
-        (project_id, project_path, container_folder, is_active, created_at)
-        VALUES ('current12345', ?, 'current-project', 1, datetime('now'))
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-3', ?, 'projects', 'current12345', 1, datetime('now'), datetime('now'))
       `
       ).run(projectPath);
       db.close();
@@ -259,9 +267,9 @@ describe('ProjectDetector', () => {
       const db = new Database(dbPath);
       db.prepare(
         `
-        INSERT INTO registered_projects
-        (project_id, project_path, container_folder, is_active, created_at)
-        VALUES ('justid123456', ?, 'id-project', 1, datetime('now'))
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-4', ?, 'projects', 'justid123456', 1, datetime('now'), datetime('now'))
       `
       ).run(projectPath);
       db.close();

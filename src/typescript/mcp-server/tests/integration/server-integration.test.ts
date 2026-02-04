@@ -98,19 +98,27 @@ vi.mock('@qdrant/js-client-rest', () => ({
   QdrantClient: vi.fn().mockImplementation(() => mockQdrantClient),
 }));
 
-// Test database schema (minimal version matching daemon)
+// Test database schema (matching daemon's watch_folders + unified_queue tables)
 const TEST_SCHEMA = `
-CREATE TABLE IF NOT EXISTS registered_projects (
-    project_id TEXT PRIMARY KEY,
-    project_path TEXT NOT NULL UNIQUE,
+CREATE TABLE IF NOT EXISTS watch_folders (
+    watch_id TEXT PRIMARY KEY,
+    path TEXT NOT NULL UNIQUE,
+    collection TEXT NOT NULL,
+    tenant_id TEXT NOT NULL,
+    parent_watch_id TEXT,
+    submodule_path TEXT,
     git_remote_url TEXT,
     remote_hash TEXT,
     disambiguation_path TEXT,
-    container_folder TEXT NOT NULL,
     is_active INTEGER DEFAULT 0,
+    last_activity_at TEXT,
+    library_mode TEXT,
+    follow_symlinks INTEGER DEFAULT 0,
+    enabled INTEGER DEFAULT 1,
+    cleanup_on_disable INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
-    last_seen_at TEXT,
-    last_activity_at TEXT
+    updated_at TEXT NOT NULL,
+    last_scan TEXT
 );
 
 CREATE TABLE IF NOT EXISTS unified_queue (
@@ -652,9 +660,9 @@ describe('Server Integration Tests', () => {
       // Add project to database
       const db = new Database(join(tempDir, 'state.db'));
       db.prepare(`
-        INSERT INTO registered_projects
-        (project_id, project_path, container_folder, is_active, created_at)
-        VALUES ('test-proj-id', ?, 'test-project', 1, datetime('now'))
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-test', ?, 'projects', 'test-proj-id', 1, datetime('now'), datetime('now'))
       `).run(realProjectPath);
       db.close();
 
@@ -683,9 +691,9 @@ describe('Server Integration Tests', () => {
 
       const db = new Database(join(tempDir, 'state.db'));
       db.prepare(`
-        INSERT INTO registered_projects
-        (project_id, project_path, container_folder, is_active, created_at)
-        VALUES ('hb-proj-id', ?, 'test-project-hb', 1, datetime('now'))
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-hb', ?, 'projects', 'hb-proj-id', 1, datetime('now'), datetime('now'))
       `).run(realProjectPath);
       db.close();
 
@@ -711,9 +719,9 @@ describe('Server Integration Tests', () => {
 
       const db = new Database(join(tempDir, 'state.db'));
       db.prepare(`
-        INSERT INTO registered_projects
-        (project_id, project_path, container_folder, is_active, created_at)
-        VALUES ('stop-proj-id', ?, 'test-project-stop', 1, datetime('now'))
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-stop', ?, 'projects', 'stop-proj-id', 1, datetime('now'), datetime('now'))
       `).run(realProjectPath);
       db.close();
 
@@ -742,9 +750,9 @@ describe('Server Integration Tests', () => {
 
       const db = new Database(join(tempDir, 'state.db'));
       db.prepare(`
-        INSERT INTO registered_projects
-        (project_id, project_path, container_folder, is_active, created_at)
-        VALUES ('clear-proj-id', ?, 'test-project-clear', 1, datetime('now'))
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-clear', ?, 'projects', 'clear-proj-id', 1, datetime('now'), datetime('now'))
       `).run(realProjectPath);
       db.close();
 
