@@ -6,7 +6,7 @@
 //!
 //! LSP Integration:
 //! - On RegisterProject: detects project languages and starts LSP servers
-//! - On DeprioritizeProject (remaining_sessions=0): checks queue, then stops LSP servers
+//! - On DeprioritizeProject (is_active=false): checks queue, then stops LSP servers
 //!   - If queue has pending items, defers shutdown until queue drains
 //!   - Respects deactivation_delay_secs config before stopping
 
@@ -41,7 +41,7 @@ const HEARTBEAT_TIMEOUT_SECS: u64 = 60;
 
 /// ProjectService implementation
 ///
-/// Manages project registration, session tracking, and priority management
+/// Manages project registration, activity tracking, and priority management
 /// for the multi-tenant ingestion queue.
 ///
 /// LSP Lifecycle:
@@ -418,7 +418,7 @@ impl ProjectServiceImpl {
 
     /// Schedule deferred LSP shutdown for a project
     ///
-    /// Called when remaining_sessions reaches 0 but:
+    /// Called when is_active becomes false but:
     /// - deactivation_delay_secs > 0, OR
     /// - queue has pending items
     ///
@@ -512,7 +512,7 @@ impl ProjectService for ProjectServiceImpl {
     /// Register a project for high-priority processing
     ///
     /// Called when MCP server starts for a project. Creates the project if new,
-    /// increments session count, and bumps priority to HIGH.
+    /// sets is_active to true, and bumps priority to HIGH.
     async fn register_project(
         &self,
         request: Request<RegisterProjectRequest>,
@@ -539,9 +539,9 @@ impl ProjectService for ProjectServiceImpl {
             req.project_id, req.path, req.name
         );
 
-        // Check if project exists
+        // Check if project exists in watch_folders
         let existing: Option<(i32,)> = sqlx::query_as(
-            "SELECT active_sessions FROM projects WHERE project_id = ?1"
+            "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 AND collection = 'projects' LIMIT 1"
         )
             .bind(&req.project_id)
             .fetch_optional(&self.db_pool)
@@ -551,30 +551,31 @@ impl ProjectService for ProjectServiceImpl {
                 Status::internal(format!("Database error: {}", e))
             })?;
 
-        let (created, active_sessions) = if existing.is_some() {
-            // Existing project - register session
+        let (created, is_active) = if existing.is_some() {
+            // Existing project - register session (activates project)
             match self.priority_manager.register_session(&req.project_id, "main").await {
-                Ok(sessions) => (false, sessions),
+                Ok(_) => (false, true),
                 Err(e) => {
                     error!("Failed to register session: {}", e);
                     return Err(Status::internal(format!("Failed to register session: {}", e)));
                 }
             }
         } else {
-            // New project - insert first
+            // New project - create watch_folder entry and activate
             let now = Utc::now().to_rfc3339();
+            let watch_id = uuid::Uuid::new_v4().to_string();
             let result = sqlx::query(
                 r#"
-                INSERT INTO projects (
-                    project_id, project_name, project_root, priority,
-                    active_sessions, git_remote, registered_at, last_active,
-                    created_at, updated_at
-                ) VALUES (?1, ?2, ?3, 'high', 1, ?4, ?5, ?5, ?5, ?5)
+                INSERT INTO watch_folders (
+                    watch_id, path, collection, tenant_id, is_active,
+                    git_remote_url, last_activity_at, follow_symlinks, enabled,
+                    cleanup_on_disable, created_at, updated_at
+                ) VALUES (?1, ?2, 'projects', ?3, 1, ?4, ?5, 0, 1, 0, ?5, ?5)
                 "#,
             )
-            .bind(&req.project_id)
-            .bind(&req.name)
+            .bind(&watch_id)
             .bind(&req.path)
+            .bind(&req.project_id)
             .bind(&req.git_remote)
             .bind(&now)
             .execute(&self.db_pool)
@@ -582,8 +583,8 @@ impl ProjectService for ProjectServiceImpl {
 
             match result {
                 Ok(_) => {
-                    info!("Created new project: {}", req.project_id);
-                    (true, 1)
+                    info!("Created new project watch folder: {}", req.project_id);
+                    (true, true)
                 }
                 Err(e) => {
                     error!("Failed to create project: {}", e);
@@ -642,16 +643,16 @@ impl ProjectService for ProjectServiceImpl {
             created,
             project_id: req.project_id,
             priority: "high".to_string(),
-            active_sessions,
+            is_active,
         };
 
         Ok(Response::new(response))
     }
 
-    /// Deprioritize a project (decrement session count)
+    /// Deprioritize a project (set is_active to false)
     ///
-    /// Called when MCP server stops. Decrements session count and demotes
-    /// priority to NORMAL when no active sessions remain.
+    /// Called when MCP server stops. Sets is_active to false and demotes
+    /// priority to NORMAL.
     ///
     /// LSP Shutdown Logic:
     /// - Checks unified_queue for pending items for this project
@@ -671,11 +672,13 @@ impl ProjectService for ProjectServiceImpl {
         info!("Deprioritizing project: {}", req.project_id);
 
         match self.priority_manager.unregister_session(&req.project_id, "main").await {
-            Ok(remaining_sessions) => {
-                let new_priority = if remaining_sessions > 0 { "high" } else { "normal" };
+            Ok(active_flag) => {
+                // active_flag: 0 = inactive, 1 = active (boolean as i32 for API compat)
+                let is_active = active_flag > 0;
+                let new_priority = if is_active { "high" } else { "normal" };
 
-                // Handle LSP shutdown when no active sessions remain
-                if remaining_sessions == 0 {
+                // Handle LSP shutdown when project becomes inactive
+                if !is_active {
                     // Activity inheritance: Set is_active=false for project and all submodules
                     // This updates watch_folders table per Task 19 specification
                     match self.state_manager.deactivate_project_by_tenant_id(&req.project_id).await {
@@ -734,7 +737,7 @@ impl ProjectService for ProjectServiceImpl {
 
                 let response = DeprioritizeProjectResponse {
                     success: true,
-                    remaining_sessions,
+                    is_active,
                     new_priority: new_priority.to_string(),
                 };
 
@@ -765,11 +768,12 @@ impl ProjectService for ProjectServiceImpl {
 
         debug!("Getting project status: {}", req.project_id);
 
+        // Query watch_folders table (spec-compliant schema)
         let query = r#"
-            SELECT project_id, project_name, project_root, priority,
-                   active_sessions, last_active, registered_at, git_remote
-            FROM projects
-            WHERE project_id = ?1
+            SELECT tenant_id, path, is_active, last_activity_at, created_at, git_remote_url
+            FROM watch_folders
+            WHERE tenant_id = ?1 AND collection = 'projects'
+            LIMIT 1
         "#;
 
         let row = sqlx::query(query)
@@ -784,35 +788,45 @@ impl ProjectService for ProjectServiceImpl {
         if let Some(row) = row {
             use sqlx::Row;
 
-            let last_active_str: Option<String> = row.try_get("last_active")
-                .map_err(|e| Status::internal(format!("Failed to get last_active: {}", e)))?;
+            let last_active_str: Option<String> = row.try_get("last_activity_at")
+                .map_err(|e| Status::internal(format!("Failed to get last_activity_at: {}", e)))?;
             let last_active = last_active_str
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                 .map(|dt| Self::to_timestamp(dt.with_timezone(&Utc)));
 
-            let registered_at_str: Option<String> = row.try_get("registered_at")
-                .map_err(|e| Status::internal(format!("Failed to get registered_at: {}", e)))?;
+            let registered_at_str: Option<String> = row.try_get("created_at")
+                .map_err(|e| Status::internal(format!("Failed to get created_at: {}", e)))?;
             let registered_at = registered_at_str
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                 .map(|dt| Self::to_timestamp(dt.with_timezone(&Utc)));
 
+            let is_active_int: i32 = row.try_get("is_active")
+                .map_err(|e| Status::internal(format!("Failed to get is_active: {}", e)))?;
+
+            // Derive priority from is_active (active = high, inactive = normal)
+            let priority = if is_active_int == 1 { "high" } else { "normal" };
+
+            // Extract project name from path (last component)
+            let path: String = row.try_get("path")
+                .map_err(|e| Status::internal(format!("Failed to get path: {}", e)))?;
+            let project_name = std::path::Path::new(&path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+
             let response = GetProjectStatusResponse {
                 found: true,
-                project_id: row.try_get("project_id")
-                    .map_err(|e| Status::internal(format!("Failed to get project_id: {}", e)))?,
-                project_name: row.try_get::<Option<String>, _>("project_name")
-                    .map_err(|e| Status::internal(format!("Failed to get project_name: {}", e)))?
-                    .unwrap_or_default(),
-                project_root: row.try_get("project_root")
-                    .map_err(|e| Status::internal(format!("Failed to get project_root: {}", e)))?,
-                priority: row.try_get("priority")
-                    .map_err(|e| Status::internal(format!("Failed to get priority: {}", e)))?,
-                active_sessions: row.try_get("active_sessions")
-                    .map_err(|e| Status::internal(format!("Failed to get active_sessions: {}", e)))?,
+                project_id: row.try_get("tenant_id")
+                    .map_err(|e| Status::internal(format!("Failed to get tenant_id: {}", e)))?,
+                project_name,
+                project_root: path,
+                priority: priority.to_string(),
+                is_active: is_active_int == 1,
                 last_active,
                 registered_at,
-                git_remote: row.try_get("git_remote")
-                    .map_err(|e| Status::internal(format!("Failed to get git_remote: {}", e)))?,
+                git_remote: row.try_get("git_remote_url")
+                    .map_err(|e| Status::internal(format!("Failed to get git_remote_url: {}", e)))?,
             };
 
             Ok(Response::new(response))
@@ -823,7 +837,7 @@ impl ProjectService for ProjectServiceImpl {
                 project_name: String::new(),
                 project_root: String::new(),
                 priority: String::new(),
-                active_sessions: 0,
+                is_active: false,
                 last_active: None,
                 registered_at: None,
                 git_remote: None,
@@ -845,74 +859,74 @@ impl ProjectService for ProjectServiceImpl {
             req.priority_filter, req.active_only
         );
 
-        // Build query based on filters
+        // Build query using watch_folders table (spec-compliant schema)
         let mut query = String::from(
             r#"
-            SELECT project_id, project_name, project_root, priority,
-                   active_sessions, last_active
-            FROM projects
-            WHERE 1=1
+            SELECT tenant_id, path, is_active, last_activity_at
+            FROM watch_folders
+            WHERE collection = 'projects'
             "#
         );
 
-        // Add priority filter if specified
+        // Add priority filter if specified (priority derived from is_active)
         let priority_filter = req.priority_filter.as_deref();
         if let Some(priority) = priority_filter {
-            if priority != "all" && !priority.is_empty() {
-                query.push_str(" AND priority = ?");
+            if priority == "high" {
+                query.push_str(" AND is_active = 1");
+            } else if priority == "normal" || priority == "low" {
+                query.push_str(" AND is_active = 0");
             }
+            // "all" or empty means no filter
         }
 
         // Add active_only filter if specified
         if req.active_only {
-            query.push_str(" AND active_sessions > 0");
+            query.push_str(" AND is_active = 1");
         }
 
-        query.push_str(" ORDER BY priority ASC, last_active DESC");
+        query.push_str(" ORDER BY is_active DESC, last_activity_at DESC");
 
-        // Execute query
-        let rows = if let Some(priority) = priority_filter {
-            if priority != "all" && !priority.is_empty() {
-                sqlx::query(&query)
-                    .bind(priority)
-                    .fetch_all(&self.db_pool)
-                    .await
-            } else {
-                sqlx::query(&query)
-                    .fetch_all(&self.db_pool)
-                    .await
-            }
-        } else {
-            sqlx::query(&query)
-                .fetch_all(&self.db_pool)
-                .await
-        }.map_err(|e| {
-            error!("Database error listing projects: {}", e);
-            Status::internal(format!("Database error: {}", e))
-        })?;
+        // Execute query (no bind parameters needed for this version)
+        let rows = sqlx::query(&query)
+            .fetch_all(&self.db_pool)
+            .await
+            .map_err(|e| {
+                error!("Database error listing projects: {}", e);
+                Status::internal(format!("Database error: {}", e))
+            })?;
 
         let mut projects = Vec::with_capacity(rows.len());
         for row in rows {
             use sqlx::Row;
 
-            let last_active_str: Option<String> = row.try_get("last_active")
-                .map_err(|e| Status::internal(format!("Failed to get last_active: {}", e)))?;
+            let last_active_str: Option<String> = row.try_get("last_activity_at")
+                .map_err(|e| Status::internal(format!("Failed to get last_activity_at: {}", e)))?;
             let last_active = last_active_str
                 .and_then(|s| chrono::DateTime::parse_from_rfc3339(&s).ok())
                 .map(|dt| Self::to_timestamp(dt.with_timezone(&Utc)));
 
+            let is_active_int: i32 = row.try_get("is_active")
+                .map_err(|e| Status::internal(format!("Failed to get is_active: {}", e)))?;
+
+            // Derive priority from is_active
+            let priority = if is_active_int == 1 { "high" } else { "normal" };
+
+            // Extract project name from path (last component)
+            let path: String = row.try_get("path")
+                .map_err(|e| Status::internal(format!("Failed to get path: {}", e)))?;
+            let project_name = std::path::Path::new(&path)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("")
+                .to_string();
+
             projects.push(ProjectInfo {
-                project_id: row.try_get("project_id")
-                    .map_err(|e| Status::internal(format!("Failed to get project_id: {}", e)))?,
-                project_name: row.try_get::<Option<String>, _>("project_name")
-                    .map_err(|e| Status::internal(format!("Failed to get project_name: {}", e)))?
-                    .unwrap_or_default(),
-                project_root: row.try_get("project_root")
-                    .map_err(|e| Status::internal(format!("Failed to get project_root: {}", e)))?,
-                priority: row.try_get("priority")
-                    .map_err(|e| Status::internal(format!("Failed to get priority: {}", e)))?,
-                active_sessions: row.try_get("active_sessions")
-                    .map_err(|e| Status::internal(format!("Failed to get active_sessions: {}", e)))?,
+                project_id: row.try_get("tenant_id")
+                    .map_err(|e| Status::internal(format!("Failed to get tenant_id: {}", e)))?,
+                project_name,
+                project_root: path,
+                priority: priority.to_string(),
+                is_active: is_active_int == 1,
                 last_active,
             });
         }
@@ -1000,27 +1014,7 @@ mod tests {
         let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
         let pool = SqlitePool::connect(&db_url).await.unwrap();
 
-        // Add projects table schema (used by this service for session tracking)
-        // NOTE: A future refactor (Task 25) will migrate to watch_folders.is_active model.
-        sqlx::query(r#"
-            CREATE TABLE IF NOT EXISTS projects (
-                project_id TEXT PRIMARY KEY,
-                project_name TEXT,
-                project_root TEXT NOT NULL UNIQUE,
-                priority TEXT DEFAULT 'normal' CHECK (priority IN ('high', 'normal', 'low')),
-                active_sessions INTEGER DEFAULT 0,
-                git_remote TEXT,
-                registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_active TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        "#)
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        // Add watch_folders table (required by DaemonStateManager for activity inheritance)
+        // Add watch_folders table (spec-compliant schema for all project state)
         sqlx::query(workspace_qdrant_core::watch_folders_schema::CREATE_WATCH_FOLDERS_SQL)
             .execute(&pool)
             .await
@@ -1072,7 +1066,7 @@ mod tests {
         assert!(response.created);
         assert_eq!(response.project_id, "abcd12345678");
         assert_eq!(response.priority, "high");
-        assert_eq!(response.active_sessions, 1);
+        assert!(response.is_active);
     }
 
     #[tokio::test]
@@ -1105,9 +1099,8 @@ mod tests {
         let response = response.into_inner();
 
         assert!(!response.created);
-        // With the spec-compliant boolean is_active model, active_sessions is 1 when active
-        // (no longer a counter - just indicates active state)
-        assert_eq!(response.active_sessions, 1);
+        // With the spec-compliant boolean is_active model
+        assert!(response.is_active);
     }
 
     #[tokio::test]
@@ -1137,7 +1130,7 @@ mod tests {
         let response = response.into_inner();
 
         assert!(response.success);
-        assert_eq!(response.remaining_sessions, 0);
+        assert!(!response.is_active);
         assert_eq!(response.new_priority, "normal");
     }
 
@@ -1165,10 +1158,11 @@ mod tests {
 
         assert!(response.found);
         assert_eq!(response.project_id, "abcd12345678");
-        assert_eq!(response.project_name, "My Project");
+        // Project name is derived from path, so it will be "project" not "My Project"
+        assert_eq!(response.project_name, "project");
         assert_eq!(response.project_root, "/test/project");
         assert_eq!(response.priority, "high");
-        assert_eq!(response.active_sessions, 1);
+        assert!(response.is_active);
         assert_eq!(response.git_remote, Some("https://github.com/user/repo.git".to_string()));
     }
 
@@ -1241,11 +1235,7 @@ mod tests {
         });
         service.deprioritize_project(request).await.unwrap();
 
-        // List active only
-        // NOTE: Currently list_projects queries the projects table which has active_sessions=1
-        // after deprioritization (only watch_folders.is_active is updated to 0).
-        // Full migration to watch_folders for all queries is tracked in Task 25.
-        // For now, the project still appears as "active" in the projects table.
+        // List active only - now using watch_folders table
         let request = Request::new(ListProjectsRequest {
             priority_filter: None,
             active_only: true,
@@ -1254,9 +1244,8 @@ mod tests {
         let response = service.list_projects(request).await.unwrap();
         let response = response.into_inner();
 
-        // With current partial migration, project still shows as active in projects table
-        // TODO: Once list_projects uses watch_folders, this should be 0
-        assert_eq!(response.total_count, 1);
+        // After deprioritization, is_active is false, so should return 0
+        assert_eq!(response.total_count, 0);
     }
 
     #[tokio::test]
