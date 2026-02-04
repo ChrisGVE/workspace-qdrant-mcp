@@ -76,7 +76,7 @@ fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
     let is_daemon = detect_daemon_mode();
 
     let matches = Command::new("memexd")
-        .version("0.3.0")
+        .version(env!("CARGO_PKG_VERSION"))
         .author("Christian C. Berclaz <christian.berclaz@mac.com>")
         .about("Memory eXchange Daemon - Document processing and embedding generation service")
         .disable_help_flag(is_daemon)
@@ -417,7 +417,7 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
 /// Main daemon loop
 async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
     let project_info = args.project_id.as_ref().map(|id| format!(" for project {}", id)).unwrap_or_default();
-    info!("Starting memexd daemon (version 0.2.0){}", project_info);
+    info!("Starting memexd daemon (version {}){}", env!("CARGO_PKG_VERSION"), project_info);
 
     check_existing_instance(&args.pid_file, args.project_id.as_ref())?;
     create_pid_file(&args.pid_file, args.project_id.as_ref())?;
