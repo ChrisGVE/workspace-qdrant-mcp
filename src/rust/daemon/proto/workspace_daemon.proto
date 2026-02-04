@@ -469,8 +469,8 @@ enum ServiceStatus {
 
 enum QueueType {
     QUEUE_TYPE_UNSPECIFIED = 0;
-    INGEST_QUEUE = 1;           // New items in ingestion_queue table
-    WATCHED_PROJECTS = 2;        // New project in projects table
+    INGEST_QUEUE = 1;           // New items in unified_queue table
+    WATCHED_PROJECTS = 2;        // Project activation in watch_folders table
     WATCHED_FOLDERS = 3;         // New watch in watch_folders table
     TOOLS_AVAILABLE = 4;         // LSP/tree-sitter became available
 }
