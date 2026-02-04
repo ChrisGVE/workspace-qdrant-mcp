@@ -409,12 +409,13 @@ impl UnifiedQueueProcessor {
                             Ok(()) => {
                                 let processing_time = start_time.elapsed().as_millis() as u64;
 
-                                // Mark item as done
+                                // Delete item from queue per spec line 813:
+                                // "On success: DELETE items from queue"
                                 if let Err(e) = queue_manager
-                                    .mark_unified_done(&item.queue_id)
+                                    .delete_unified_item(&item.queue_id)
                                     .await
                                 {
-                                    error!("Failed to mark item {} as done: {}", item.queue_id, e);
+                                    error!("Failed to delete item {} from queue: {}", item.queue_id, e);
                                 }
 
                                 Self::update_metrics_success(

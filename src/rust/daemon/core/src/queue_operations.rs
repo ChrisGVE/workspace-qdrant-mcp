@@ -1981,9 +1981,37 @@ impl QueueManager {
         Ok(items)
     }
 
+    /// Delete a unified queue item after successful processing
+    ///
+    /// Per WORKSPACE_QDRANT_MCP.md spec line 813:
+    /// "On success: DELETE items from queue"
+    ///
+    /// This is the correct method for handling successfully processed items.
+    /// Use this instead of mark_unified_done.
+    pub async fn delete_unified_item(&self, queue_id: &str) -> QueueResult<bool> {
+        let result = sqlx::query("DELETE FROM unified_queue WHERE queue_id = ?1")
+            .bind(queue_id)
+            .execute(&self.pool)
+            .await?;
+
+        let deleted = result.rows_affected() > 0;
+
+        if deleted {
+            debug!("Deleted unified item after successful processing: {}", queue_id);
+            METRICS.queue_item_processed("unified", "deleted", 0.0);
+        } else {
+            warn!("Failed to delete unified item: {} (not found)", queue_id);
+        }
+
+        Ok(deleted)
+    }
+
     /// Mark a unified queue item as successfully completed
     ///
-    /// Sets status to 'done' and clears the lease.
+    /// DEPRECATED: Use delete_unified_item instead.
+    /// Per spec, items should be DELETED on success, not marked as done.
+    /// This function is kept for backward compatibility during migration.
+    #[deprecated(note = "Use delete_unified_item per spec: items should be DELETED on success")]
     pub async fn mark_unified_done(&self, queue_id: &str) -> QueueResult<bool> {
         let query = r#"
             UPDATE unified_queue
@@ -3073,7 +3101,60 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_unified_queue_mark_done() {
+    async fn test_unified_queue_delete_item() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_unified_delete.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue and dequeue
+        let (queue_id, _) = manager
+            .enqueue_unified(
+                ItemType::Content,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"content":"test"}"#,
+                5,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        let items = manager
+            .dequeue_unified(10, "worker-1", None, None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(items.len(), 1);
+
+        // Delete item after successful processing (per spec)
+        let deleted = manager.delete_unified_item(&queue_id).await.unwrap();
+        assert!(deleted);
+
+        // Verify item is completely gone
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+        assert_eq!(stats.done_items, 0);
+        assert_eq!(stats.in_progress_items, 0);
+        assert_eq!(stats.pending_items, 0);
+        assert_eq!(stats.failed_items, 0);
+    }
+
+    #[tokio::test]
+    #[allow(deprecated)]
+    async fn test_unified_queue_mark_done_deprecated() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test_unified_done.db");
 
@@ -3112,7 +3193,7 @@ mod tests {
             .unwrap();
         assert_eq!(items.len(), 1);
 
-        // Mark as done
+        // Mark as done (deprecated - kept for backward compatibility testing)
         let marked = manager.mark_unified_done(&queue_id).await.unwrap();
         assert!(marked);
 
@@ -3315,6 +3396,7 @@ mod tests {
     }
 
     #[tokio::test]
+    #[allow(deprecated)]
     async fn test_unified_queue_cleanup() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test_unified_cleanup.db");
@@ -3352,6 +3434,7 @@ mod tests {
             .dequeue_unified(10, "worker-1", None, None, None, None)
             .await
             .unwrap();
+        // Uses deprecated mark_unified_done to test cleanup of status='done' items
         manager.mark_unified_done(&queue_id).await.unwrap();
 
         // With 0 hours retention, it should be cleaned up immediately
