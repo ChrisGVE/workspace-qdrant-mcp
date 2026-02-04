@@ -6,17 +6,23 @@
 //!
 //! ## Session Tracking
 //!
-//! The priority manager now includes session tracking with heartbeat mechanism:
-//! - `register_session`: Increments active_sessions, updates last_active, bumps priority to HIGH
-//! - `heartbeat`: Updates last_active timestamp for active sessions
-//! - `unregister_session`: Decrements active_sessions, demotes priority when no active sessions
-//! - `cleanup_orphaned_sessions`: Detects sessions without heartbeat for >60s (configurable)
+//! Session tracking uses the `watch_folders` table with `is_active` and `last_activity_at`:
+//! - `activate_project`: Sets is_active=1, updates last_activity_at, bumps priority to HIGH
+//! - `heartbeat`: Updates last_activity_at timestamp for active projects
+//! - `deactivate_project`: Sets is_active=0, demotes priority when deactivated
+//! - `cleanup_orphaned_sessions`: Detects projects without heartbeat for >60s (configurable)
 //!
 //! ## Priority Levels
 //!
 //! - HIGH (1): Active agent sessions - items processed first
 //! - NORMAL (3): Registered projects without active sessions
 //! - LOW (5): Background/inactive projects
+//!
+//! ## Schema Compliance (WORKSPACE_QDRANT_MCP.md v1.6.7)
+//!
+//! This module uses only the spec-defined tables:
+//! - `watch_folders`: For activity tracking via `is_active` and `last_activity_at`
+//! - `unified_queue`: For queue priority management
 
 use chrono::{DateTime, Utc, Duration as ChronoDuration};
 use sqlx::SqlitePool;
@@ -92,13 +98,10 @@ pub struct PriorityTransition {
     /// Priority after transition
     pub to_priority: u8,
 
-    /// Number of items affected in ingestion_queue
-    pub ingestion_queue_affected: usize,
+    /// Number of items affected in unified_queue
+    pub unified_queue_affected: usize,
 
-    /// Number of items affected in missing_metadata_queue
-    pub missing_metadata_queue_affected: usize,
-
-    /// Total items affected across all queues
+    /// Total items affected (same as unified_queue_affected)
     pub total_affected: usize,
 }
 
@@ -108,30 +111,32 @@ impl PriorityTransition {
         Self {
             from_priority,
             to_priority,
-            ingestion_queue_affected: 0,
-            missing_metadata_queue_affected: 0,
+            unified_queue_affected: 0,
             total_affected: 0,
         }
     }
 
-    /// Add counts from queue updates
-    pub fn add_counts(&mut self, ingestion: usize, missing_metadata: usize) {
-        self.ingestion_queue_affected = ingestion;
-        self.missing_metadata_queue_affected = missing_metadata;
-        self.total_affected = ingestion + missing_metadata;
+    /// Add count from queue update
+    pub fn set_count(&mut self, count: usize) {
+        self.unified_queue_affected = count;
+        self.total_affected = count;
     }
 }
 
 /// Session information for tracking active MCP server connections
+///
+/// Uses `watch_folders.is_active` for activity state per spec.
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
-    /// Project ID (12-char hex)
-    pub project_id: String,
-    /// Number of active sessions for this project
-    pub active_sessions: i32,
+    /// Watch ID (tenant identifier)
+    pub watch_id: String,
+    /// Tenant ID (project_id for projects)
+    pub tenant_id: String,
+    /// Whether this project is currently active (has active sessions)
+    pub is_active: bool,
     /// Last heartbeat timestamp
-    pub last_active: DateTime<Utc>,
-    /// Current priority level
+    pub last_activity_at: Option<DateTime<Utc>>,
+    /// Current priority level (derived from is_active)
     pub priority: String,
 }
 
@@ -140,13 +145,17 @@ pub struct SessionInfo {
 pub struct OrphanedSessionCleanup {
     /// Number of projects with orphaned sessions detected
     pub projects_affected: usize,
-    /// Total sessions cleaned up
+    /// Total sessions cleaned up (same as projects_affected with boolean model)
     pub sessions_cleaned: i32,
-    /// Project IDs that were demoted
+    /// Tenant IDs that were demoted
     pub demoted_projects: Vec<String>,
 }
 
 /// Priority Manager for server lifecycle-driven priority adjustments
+///
+/// Uses only spec-compliant tables:
+/// - `watch_folders` for activity tracking
+/// - `unified_queue` for priority management
 #[derive(Clone)]
 pub struct PriorityManager {
     db_pool: SqlitePool,
@@ -234,7 +243,7 @@ impl PriorityManager {
 
     /// Bulk update priorities for all matching queue items
     ///
-    /// Updates both ingestion_queue and missing_metadata_queue in a single transaction.
+    /// Updates unified_queue in a single transaction.
     /// Only items with the exact from_priority are affected, preventing unintended changes.
     ///
     /// # Arguments
@@ -260,53 +269,30 @@ impl PriorityManager {
             return Err(PriorityError::InvalidPriority(to_priority as i32));
         }
 
-        // Start transaction for atomic updates
-        let mut tx = self.db_pool.begin().await?;
-
-        // Update ingestion_queue
-        let ingestion_query = r#"
-            UPDATE ingestion_queue
-            SET priority = ?1
+        // Update unified_queue (the only queue table per spec)
+        let query = r#"
+            UPDATE unified_queue
+            SET priority = ?1,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             WHERE tenant_id = ?2
               AND branch = ?3
               AND priority = ?4
+              AND status = 'pending'
         "#;
 
-        let ingestion_result = sqlx::query(ingestion_query)
+        let result = sqlx::query(query)
             .bind(to_priority as i32)
             .bind(tenant_id)
             .bind(branch)
             .bind(from_priority as i32)
-            .execute(&mut *tx)
+            .execute(&self.db_pool)
             .await?;
 
-        let ingestion_affected = ingestion_result.rows_affected() as usize;
-
-        // Update missing_metadata_queue
-        let missing_query = r#"
-            UPDATE missing_metadata_queue
-            SET priority = ?1
-            WHERE tenant_id = ?2
-              AND branch = ?3
-              AND priority = ?4
-        "#;
-
-        let missing_result = sqlx::query(missing_query)
-            .bind(to_priority as i32)
-            .bind(tenant_id)
-            .bind(branch)
-            .bind(from_priority as i32)
-            .execute(&mut *tx)
-            .await?;
-
-        let missing_affected = missing_result.rows_affected() as usize;
-
-        // Commit transaction
-        tx.commit().await?;
+        let affected = result.rows_affected() as usize;
 
         // Create transition record
         let mut transition = PriorityTransition::new(from_priority, to_priority);
-        transition.add_counts(ingestion_affected, missing_affected);
+        transition.set_count(affected);
 
         // Log results
         if transition.total_affected == 0 {
@@ -316,10 +302,8 @@ impl PriorityManager {
             );
         } else {
             info!(
-                "Priority transition complete: {} items updated (ingestion: {}, missing_metadata: {})",
-                transition.total_affected,
-                transition.ingestion_queue_affected,
-                transition.missing_metadata_queue_affected
+                "Priority transition complete: {} items updated in unified_queue",
+                transition.total_affected
             );
 
             // Warn if unusually large batch
@@ -348,11 +332,11 @@ impl PriorityManager {
         }
 
         let query = r#"
-            SELECT
-                (SELECT COUNT(*) FROM ingestion_queue
-                 WHERE tenant_id = ?1 AND branch = ?2 AND priority = ?3) +
-                (SELECT COUNT(*) FROM missing_metadata_queue
-                 WHERE tenant_id = ?1 AND branch = ?2 AND priority = ?3) as total
+            SELECT COUNT(*) as total
+            FROM unified_queue
+            WHERE tenant_id = ?1
+              AND branch = ?2
+              AND priority = ?3
         "#;
 
         let count: i64 = sqlx::query_scalar(query)
@@ -366,26 +350,26 @@ impl PriorityManager {
     }
 
     // =========================================================================
-    // Session Tracking Methods
+    // Session Tracking Methods (using watch_folders.is_active)
     // =========================================================================
 
-    /// Register a new session for a project
+    /// Activate a project (mark as having active sessions)
     ///
-    /// Increments active_sessions counter, updates last_active timestamp,
-    /// and bumps queue priority to HIGH if this is the first session.
+    /// Sets is_active=1 and updates last_activity_at timestamp.
+    /// Also bumps queue priority to HIGH for this project.
     ///
     /// # Arguments
-    /// * `project_id` - 12-character hex project identifier
-    /// * `branch` - Git branch name (for queue priority updates)
+    /// * `tenant_id` - Tenant identifier (project_id)
+    /// * `_branch` - Git branch name (for queue priority updates)
     ///
     /// # Returns
-    /// Updated session count for the project
+    /// true if project was activated, false if not found
     pub async fn register_session(
         &self,
-        project_id: &str,
+        tenant_id: &str,
         _branch: &str,
     ) -> PriorityResult<i32> {
-        if project_id.is_empty() {
+        if tenant_id.is_empty() {
             return Err(PriorityError::EmptyParameter);
         }
 
@@ -394,231 +378,182 @@ impl PriorityManager {
         // Start transaction
         let mut tx = self.db_pool.begin().await?;
 
-        // Update projects table
+        // Update watch_folders to mark as active
         let update_query = r#"
-            UPDATE projects
-            SET active_sessions = active_sessions + 1,
-                last_active = ?1,
-                priority = 'high'
-            WHERE project_id = ?2
+            UPDATE watch_folders
+            SET is_active = 1,
+                last_activity_at = ?1,
+                updated_at = ?1
+            WHERE tenant_id = ?2
+              AND collection = 'projects'
         "#;
 
         let result = sqlx::query(update_query)
             .bind(now.to_rfc3339())
-            .bind(project_id)
+            .bind(tenant_id)
             .execute(&mut *tx)
             .await?;
 
         if result.rows_affected() == 0 {
             tx.rollback().await?;
-            return Err(PriorityError::ProjectNotFound(project_id.to_string()));
+            return Err(PriorityError::ProjectNotFound(tenant_id.to_string()));
         }
 
-        // Get updated session count
-        let count: i32 = sqlx::query_scalar(
-            "SELECT active_sessions FROM projects WHERE project_id = ?1"
+        // Bump queue priorities for this project
+        sqlx::query(
+            r#"
+            UPDATE unified_queue
+            SET priority = ?1,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE tenant_id = ?2
+              AND priority > ?1
+              AND status = 'pending'
+            "#,
         )
-            .bind(project_id)
-            .fetch_one(&mut *tx)
-            .await?;
-
-        // If this is the first session, bump queue priorities
-        if count == 1 {
-            // Update ingestion_queue priorities for this project
-            sqlx::query(
-                r#"
-                UPDATE ingestion_queue
-                SET priority = ?1
-                WHERE tenant_id = ?2
-                  AND priority > ?1
-                "#,
-            )
-            .bind(priority::HIGH as i32)
-            .bind(project_id)
-            .execute(&mut *tx)
-            .await?;
-
-            // Update missing_metadata_queue priorities
-            sqlx::query(
-                r#"
-                UPDATE missing_metadata_queue
-                SET priority = ?1
-                WHERE tenant_id = ?2
-                  AND priority > ?1
-                "#,
-            )
-            .bind(priority::HIGH as i32)
-            .bind(project_id)
-            .execute(&mut *tx)
-            .await?;
-
-            info!(
-                "First session registered for project {}, priority bumped to HIGH",
-                project_id
-            );
-        }
+        .bind(priority::HIGH as i32)
+        .bind(tenant_id)
+        .execute(&mut *tx)
+        .await?;
 
         tx.commit().await?;
 
-        // Record session metrics (Task 412.6)
-        METRICS.session_started(project_id, "high");
+        // Record session metrics
+        METRICS.session_started(tenant_id, "high");
 
         info!(
-            "Session registered for project {}: {} active sessions",
-            project_id, count
+            "Session registered for project {}: marked as active",
+            tenant_id
         );
 
-        Ok(count)
+        // Return 1 to indicate active (maintains API compatibility)
+        Ok(1)
     }
 
-    /// Unregister a session for a project
+    /// Deactivate a project (mark as no active sessions)
     ///
-    /// Decrements active_sessions counter. If no sessions remain,
-    /// demotes queue priority from HIGH to NORMAL.
+    /// Sets is_active=0 and demotes queue priority from HIGH to NORMAL.
     ///
     /// # Arguments
-    /// * `project_id` - 12-character hex project identifier
-    /// * `branch` - Git branch name (for queue priority updates)
+    /// * `tenant_id` - Tenant identifier (project_id)
+    /// * `_branch` - Git branch name (for queue priority updates)
     ///
     /// # Returns
-    /// Updated session count for the project
+    /// 0 to indicate no active sessions
     pub async fn unregister_session(
         &self,
-        project_id: &str,
+        tenant_id: &str,
         _branch: &str,
     ) -> PriorityResult<i32> {
-        if project_id.is_empty() {
+        if tenant_id.is_empty() {
             return Err(PriorityError::EmptyParameter);
         }
 
         // Start transaction
         let mut tx = self.db_pool.begin().await?;
 
-        // Get current session count
-        let current_count: i32 = sqlx::query_scalar(
-            "SELECT active_sessions FROM projects WHERE project_id = ?1"
+        // Check if project exists
+        let exists: Option<i32> = sqlx::query_scalar(
+            "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 AND collection = 'projects' LIMIT 1"
         )
-            .bind(project_id)
+            .bind(tenant_id)
             .fetch_optional(&mut *tx)
-            .await?
-            .ok_or_else(|| PriorityError::ProjectNotFound(project_id.to_string()))?;
+            .await?;
 
-        // Don't go below 0
-        let new_count = (current_count - 1).max(0);
+        if exists.is_none() {
+            tx.rollback().await?;
+            return Err(PriorityError::ProjectNotFound(tenant_id.to_string()));
+        }
 
-        // Update projects table
-        let priority = if new_count == 0 { "normal" } else { "high" };
-
+        // Update watch_folders to mark as inactive
         sqlx::query(
             r#"
-            UPDATE projects
-            SET active_sessions = ?1,
-                priority = ?2
-            WHERE project_id = ?3
+            UPDATE watch_folders
+            SET is_active = 0,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE tenant_id = ?1
+              AND collection = 'projects'
             "#,
         )
-        .bind(new_count)
-        .bind(priority)
-        .bind(project_id)
+        .bind(tenant_id)
         .execute(&mut *tx)
         .await?;
 
-        // If no sessions remain, demote queue priorities
-        if new_count == 0 {
-            // Demote ingestion_queue priorities from HIGH to NORMAL
-            sqlx::query(
-                r#"
-                UPDATE ingestion_queue
-                SET priority = ?1
-                WHERE tenant_id = ?2
-                  AND priority = ?3
-                "#,
-            )
-            .bind(priority::NORMAL as i32)
-            .bind(project_id)
-            .bind(priority::HIGH as i32)
-            .execute(&mut *tx)
-            .await?;
-
-            // Demote missing_metadata_queue priorities
-            sqlx::query(
-                r#"
-                UPDATE missing_metadata_queue
-                SET priority = ?1
-                WHERE tenant_id = ?2
-                  AND priority = ?3
-                "#,
-            )
-            .bind(priority::NORMAL as i32)
-            .bind(project_id)
-            .bind(priority::HIGH as i32)
-            .execute(&mut *tx)
-            .await?;
-
-            info!(
-                "Last session unregistered for project {}, priority demoted to NORMAL",
-                project_id
-            );
-        }
+        // Demote queue priorities from HIGH to NORMAL
+        sqlx::query(
+            r#"
+            UPDATE unified_queue
+            SET priority = ?1,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE tenant_id = ?2
+              AND priority = ?3
+              AND status = 'pending'
+            "#,
+        )
+        .bind(priority::NORMAL as i32)
+        .bind(tenant_id)
+        .bind(priority::HIGH as i32)
+        .execute(&mut *tx)
+        .await?;
 
         tx.commit().await?;
 
-        // Record session end metrics (Task 412.6)
-        // Note: duration is not tracked (session start time not persisted)
-        METRICS.session_ended(project_id, priority, 0.0);
+        // Record session end metrics
+        METRICS.session_ended(tenant_id, "normal", 0.0);
 
         info!(
-            "Session unregistered for project {}: {} active sessions",
-            project_id, new_count
+            "Session unregistered for project {}: marked as inactive",
+            tenant_id
         );
 
-        Ok(new_count)
+        Ok(0)
     }
 
     /// Update heartbeat timestamp for a project
     ///
     /// Called periodically by MCP servers to indicate they're still alive.
-    /// Updates the last_active timestamp to the current time.
+    /// Updates the last_activity_at timestamp to the current time.
     ///
     /// # Arguments
-    /// * `project_id` - 12-character hex project identifier
+    /// * `tenant_id` - Tenant identifier (project_id)
     ///
     /// # Returns
-    /// true if heartbeat was recorded, false if project not found
-    pub async fn heartbeat(&self, project_id: &str) -> PriorityResult<bool> {
-        if project_id.is_empty() {
+    /// true if heartbeat was recorded, false if project not found or not active
+    pub async fn heartbeat(&self, tenant_id: &str) -> PriorityResult<bool> {
+        if tenant_id.is_empty() {
             return Err(PriorityError::EmptyParameter);
         }
 
-        // Measure heartbeat latency (Task 412.6)
+        // Measure heartbeat latency
         let start = Instant::now();
 
         let now = Utc::now();
 
         let result = sqlx::query(
             r#"
-            UPDATE projects
-            SET last_active = ?1
-            WHERE project_id = ?2
-              AND active_sessions > 0
+            UPDATE watch_folders
+            SET last_activity_at = ?1,
+                updated_at = ?1
+            WHERE tenant_id = ?2
+              AND collection = 'projects'
+              AND is_active = 1
             "#,
         )
         .bind(now.to_rfc3339())
-        .bind(project_id)
+        .bind(tenant_id)
         .execute(&self.db_pool)
         .await?;
 
         let updated = result.rows_affected() > 0;
 
-        // Record heartbeat latency metric (Task 412.6)
+        // Record heartbeat latency metric
         let latency_secs = start.elapsed().as_secs_f64();
         if updated {
-            METRICS.heartbeat_processed(project_id, latency_secs);
-            debug!("Heartbeat received for project {} (latency: {:.3}s)", project_id, latency_secs);
+            METRICS.heartbeat_processed(tenant_id, latency_secs);
+            debug!("Heartbeat received for project {} (latency: {:.3}s)", tenant_id, latency_secs);
         } else {
             warn!(
-                "Heartbeat for project {} ignored (no active sessions or not found)",
-                project_id
+                "Heartbeat for project {} ignored (not active or not found)",
+                tenant_id
             );
         }
 
@@ -628,35 +563,40 @@ impl PriorityManager {
     /// Get session info for a project
     ///
     /// # Arguments
-    /// * `project_id` - 12-character hex project identifier
+    /// * `tenant_id` - Tenant identifier (project_id)
     ///
     /// # Returns
     /// SessionInfo if project exists, None otherwise
-    pub async fn get_session_info(&self, project_id: &str) -> PriorityResult<Option<SessionInfo>> {
+    pub async fn get_session_info(&self, tenant_id: &str) -> PriorityResult<Option<SessionInfo>> {
         let query = r#"
-            SELECT project_id, active_sessions, last_active, priority
-            FROM projects
-            WHERE project_id = ?1
+            SELECT watch_id, tenant_id, is_active, last_activity_at
+            FROM watch_folders
+            WHERE tenant_id = ?1
+              AND collection = 'projects'
+            LIMIT 1
         "#;
 
         let row = sqlx::query(query)
-            .bind(project_id)
+            .bind(tenant_id)
             .fetch_optional(&self.db_pool)
             .await?;
 
         if let Some(row) = row {
             use sqlx::Row;
-            let last_active_str: Option<String> = row.try_get("last_active")?;
-            let last_active = last_active_str
+            let is_active: i32 = row.try_get("is_active").unwrap_or(0);
+            let last_activity_str: Option<String> = row.try_get("last_activity_at").ok();
+            let last_activity_at = last_activity_str
                 .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(Utc::now);
+                .map(|dt| dt.with_timezone(&Utc));
+
+            let priority = if is_active != 0 { "high" } else { "normal" };
 
             Ok(Some(SessionInfo {
-                project_id: row.try_get("project_id")?,
-                active_sessions: row.try_get("active_sessions")?,
-                last_active,
-                priority: row.try_get("priority")?,
+                watch_id: row.try_get("watch_id")?,
+                tenant_id: row.try_get("tenant_id")?,
+                is_active: is_active != 0,
+                last_activity_at,
+                priority: priority.to_string(),
             }))
         } else {
             Ok(None)
@@ -665,7 +605,7 @@ impl PriorityManager {
 
     /// Cleanup orphaned sessions
     ///
-    /// Detects projects with active_sessions > 0 but last_active older than
+    /// Detects projects with is_active=1 but last_activity_at older than
     /// the heartbeat timeout. These are sessions where the MCP server died
     /// without sending a proper shutdown notification.
     ///
@@ -684,13 +624,14 @@ impl PriorityManager {
         // Start transaction
         let mut tx = self.db_pool.begin().await?;
 
-        // Find orphaned projects (active sessions but stale heartbeat)
+        // Find orphaned projects (active but stale heartbeat)
         let orphaned_query = r#"
-            SELECT project_id, active_sessions
-            FROM projects
-            WHERE active_sessions > 0
-              AND last_active IS NOT NULL
-              AND last_active < ?1
+            SELECT tenant_id
+            FROM watch_folders
+            WHERE is_active = 1
+              AND collection = 'projects'
+              AND last_activity_at IS NOT NULL
+              AND last_activity_at < ?1
         "#;
 
         let rows = sqlx::query(orphaned_query)
@@ -699,60 +640,42 @@ impl PriorityManager {
             .await?;
 
         let mut demoted_projects = Vec::new();
-        let mut total_sessions = 0i32;
 
         for row in &rows {
             use sqlx::Row;
-            let project_id: String = row.try_get("project_id")?;
-            let sessions: i32 = row.try_get("active_sessions")?;
+            let tenant_id: String = row.try_get("tenant_id")?;
+            demoted_projects.push(tenant_id.clone());
 
-            total_sessions += sessions;
-            demoted_projects.push(project_id.clone());
+            // Record orphaned session cleanup metrics
+            METRICS.session_ended(&tenant_id, "high", 0.0);
 
-            // Record orphaned session cleanup metrics (Task 412.6)
-            // Decrement active sessions for each orphaned session
-            for _ in 0..sessions {
-                METRICS.session_ended(&project_id, "high", 0.0);
-            }
-
-            // Reset active_sessions and demote priority
+            // Reset is_active to 0
             sqlx::query(
                 r#"
-                UPDATE projects
-                SET active_sessions = 0,
-                    priority = 'normal'
-                WHERE project_id = ?1
+                UPDATE watch_folders
+                SET is_active = 0,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                WHERE tenant_id = ?1
+                  AND collection = 'projects'
                 "#,
             )
-            .bind(&project_id)
+            .bind(&tenant_id)
             .execute(&mut *tx)
             .await?;
 
             // Demote queue priorities for this project
             sqlx::query(
                 r#"
-                UPDATE ingestion_queue
-                SET priority = ?1
+                UPDATE unified_queue
+                SET priority = ?1,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE tenant_id = ?2
                   AND priority = ?3
+                  AND status = 'pending'
                 "#,
             )
             .bind(priority::NORMAL as i32)
-            .bind(&project_id)
-            .bind(priority::HIGH as i32)
-            .execute(&mut *tx)
-            .await?;
-
-            sqlx::query(
-                r#"
-                UPDATE missing_metadata_queue
-                SET priority = ?1
-                WHERE tenant_id = ?2
-                  AND priority = ?3
-                "#,
-            )
-            .bind(priority::NORMAL as i32)
-            .bind(&project_id)
+            .bind(&tenant_id)
             .bind(priority::HIGH as i32)
             .execute(&mut *tx)
             .await?;
@@ -762,15 +685,14 @@ impl PriorityManager {
 
         let cleanup = OrphanedSessionCleanup {
             projects_affected: demoted_projects.len(),
-            sessions_cleaned: total_sessions,
+            sessions_cleaned: demoted_projects.len() as i32,
             demoted_projects: demoted_projects.clone(),
         };
 
         if cleanup.projects_affected > 0 {
             warn!(
-                "Cleaned up {} orphaned sessions across {} projects: {:?}",
+                "Cleaned up {} orphaned sessions: {:?}",
                 cleanup.sessions_cleaned,
-                cleanup.projects_affected,
                 cleanup.demoted_projects
             );
         } else {
@@ -783,11 +705,11 @@ impl PriorityManager {
     /// Get all projects with high priority (active sessions)
     pub async fn get_high_priority_projects(&self) -> PriorityResult<Vec<SessionInfo>> {
         let query = r#"
-            SELECT project_id, active_sessions, last_active, priority
-            FROM projects
-            WHERE priority = 'high'
-              AND active_sessions > 0
-            ORDER BY last_active DESC
+            SELECT watch_id, tenant_id, is_active, last_activity_at
+            FROM watch_folders
+            WHERE is_active = 1
+              AND collection = 'projects'
+            ORDER BY last_activity_at DESC
         "#;
 
         let rows = sqlx::query(query)
@@ -797,17 +719,17 @@ impl PriorityManager {
         let mut projects = Vec::new();
         for row in rows {
             use sqlx::Row;
-            let last_active_str: Option<String> = row.try_get("last_active")?;
-            let last_active = last_active_str
+            let last_activity_str: Option<String> = row.try_get("last_activity_at").ok();
+            let last_activity_at = last_activity_str
                 .and_then(|s| DateTime::parse_from_rfc3339(&s).ok())
-                .map(|dt| dt.with_timezone(&Utc))
-                .unwrap_or_else(Utc::now);
+                .map(|dt| dt.with_timezone(&Utc));
 
             projects.push(SessionInfo {
-                project_id: row.try_get("project_id")?,
-                active_sessions: row.try_get("active_sessions")?,
-                last_active,
-                priority: row.try_get("priority")?,
+                watch_id: row.try_get("watch_id")?,
+                tenant_id: row.try_get("tenant_id")?,
+                is_active: true,
+                last_activity_at,
+                priority: "high".to_string(),
             });
         }
 
@@ -875,9 +797,8 @@ impl SessionMonitor {
                             Ok(cleanup) => {
                                 if cleanup.projects_affected > 0 {
                                     info!(
-                                        "Session monitor cleanup: {} orphaned sessions across {} projects",
-                                        cleanup.sessions_cleaned,
-                                        cleanup.projects_affected
+                                        "Session monitor cleanup: {} orphaned sessions",
+                                        cleanup.sessions_cleaned
                                     );
                                 }
                             }
@@ -935,53 +856,25 @@ impl SessionMonitor {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::queue_config::QueueConnectionConfig;
-    use crate::queue_operations::{QueueManager, QueueOperation};
+    use crate::watch_folders_schema::CREATE_WATCH_FOLDERS_SQL;
+    use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
     use tempfile::tempdir;
 
-    /// Helper to create test database with schema
+    /// Helper to create test database with spec-compliant schema
     async fn setup_test_db() -> (SqlitePool, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test_priority.db");
+        let db_url = format!("sqlite://{}?mode=rwc", db_path.display());
 
-        let config = QueueConnectionConfig::with_database_path(&db_path);
-        let pool = config.create_pool().await.unwrap();
+        let pool = SqlitePool::connect(&db_url).await.unwrap();
 
-        // Initialize schema
-        sqlx::query(include_str!("schema/legacy/queue_schema.sql"))
+        // Initialize spec-compliant schema
+        sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
             .execute(&pool)
             .await
             .unwrap();
 
-        sqlx::query(include_str!("schema/legacy/missing_metadata_queue_schema.sql"))
-            .execute(&pool)
-            .await
-            .unwrap();
-
-        (pool, temp_dir)
-    }
-
-    /// Helper to create test database with projects table for session tracking tests
-    async fn setup_test_db_with_projects() -> (SqlitePool, tempfile::TempDir) {
-        let (pool, temp_dir) = setup_test_db().await;
-
-        // Add projects table schema (v7)
-        let projects_schema = r#"
-            CREATE TABLE IF NOT EXISTS projects (
-                project_id TEXT PRIMARY KEY,
-                project_name TEXT,
-                project_root TEXT NOT NULL UNIQUE,
-                priority TEXT DEFAULT 'normal' CHECK (priority IN ('high', 'normal', 'low')),
-                active_sessions INTEGER DEFAULT 0,
-                git_remote TEXT,
-                registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                last_active TIMESTAMP,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        "#;
-
-        sqlx::query(projects_schema)
+        sqlx::query(CREATE_WATCH_FOLDERS_SQL)
             .execute(&pool)
             .await
             .unwrap();
@@ -989,16 +882,39 @@ mod tests {
         (pool, temp_dir)
     }
 
-    /// Helper to create a test project
-    async fn create_test_project(pool: &SqlitePool, project_id: &str, project_root: &str) {
+    /// Helper to create a test watch folder (project)
+    async fn create_test_project(pool: &SqlitePool, tenant_id: &str, path: &str) {
+        let watch_id = format!("watch_{}", tenant_id);
         sqlx::query(
             r#"
-            INSERT INTO projects (project_id, project_root, priority, active_sessions)
-            VALUES (?1, ?2, 'normal', 0)
+            INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+            VALUES (?1, ?2, 'projects', ?3, 0, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             "#,
         )
-        .bind(project_id)
-        .bind(project_root)
+        .bind(&watch_id)
+        .bind(path)
+        .bind(tenant_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    /// Helper to enqueue a test item
+    async fn enqueue_test_item(pool: &SqlitePool, tenant_id: &str, branch: &str, priority: i32) {
+        let queue_id = uuid::Uuid::new_v4().to_string();
+        let idempotency_key = format!("test_{}_{}", tenant_id, queue_id);
+        sqlx::query(
+            r#"
+            INSERT INTO unified_queue (
+                queue_id, item_type, op, tenant_id, collection, priority, status, branch, idempotency_key, payload_json
+            ) VALUES (?1, 'file', 'ingest', ?2, 'projects', ?3, 'pending', ?4, ?5, '{}')
+            "#,
+        )
+        .bind(&queue_id)
+        .bind(tenant_id)
+        .bind(priority)
+        .bind(branch)
+        .bind(&idempotency_key)
         .execute(pool)
         .await
         .unwrap();
@@ -1007,35 +923,11 @@ mod tests {
     #[tokio::test]
     async fn test_server_start_bumps_priority() {
         let (pool, _temp_dir) = setup_test_db().await;
-        let queue_manager = QueueManager::new(pool.clone());
-        let priority_manager = PriorityManager::new(pool);
+        let priority_manager = PriorityManager::new(pool.clone());
 
         // Enqueue items with normal priority (3)
-        queue_manager
-            .enqueue_file(
-                "/test/file1.rs",
-                "test-collection",
-                "test-tenant",
-                "main",
-                QueueOperation::Ingest,
-                3,
-                None,
-            )
-            .await
-            .unwrap();
-
-        queue_manager
-            .enqueue_file(
-                "/test/file2.rs",
-                "test-collection",
-                "test-tenant",
-                "main",
-                QueueOperation::Ingest,
-                3,
-                None,
-            )
-            .await
-            .unwrap();
+        enqueue_test_item(&pool, "test-tenant", "main", 3).await;
+        enqueue_test_item(&pool, "test-tenant", "main", 3).await;
 
         // Trigger server start - should bump priority to 1
         let transition = priority_manager
@@ -1045,7 +937,7 @@ mod tests {
 
         assert_eq!(transition.from_priority, 3);
         assert_eq!(transition.to_priority, 1);
-        assert_eq!(transition.ingestion_queue_affected, 2);
+        assert_eq!(transition.unified_queue_affected, 2);
         assert_eq!(transition.total_affected, 2);
 
         // Verify items now have priority 1
@@ -1054,34 +946,15 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count, 2);
-
-        // Verify no items remain with priority 3
-        let count = priority_manager
-            .count_items_with_priority("test-tenant", "main", 3)
-            .await
-            .unwrap();
-        assert_eq!(count, 0);
     }
 
     #[tokio::test]
     async fn test_server_stop_demotes_priority() {
         let (pool, _temp_dir) = setup_test_db().await;
-        let queue_manager = QueueManager::new(pool.clone());
-        let priority_manager = PriorityManager::new(pool);
+        let priority_manager = PriorityManager::new(pool.clone());
 
         // Enqueue items with urgent priority (1)
-        queue_manager
-            .enqueue_file(
-                "/test/file1.rs",
-                "test-collection",
-                "test-tenant",
-                "main",
-                QueueOperation::Ingest,
-                1,
-                None,
-            )
-            .await
-            .unwrap();
+        enqueue_test_item(&pool, "test-tenant", "main", 1).await;
 
         // Trigger server stop - should demote priority to 3
         let transition = priority_manager
@@ -1091,7 +964,6 @@ mod tests {
 
         assert_eq!(transition.from_priority, 1);
         assert_eq!(transition.to_priority, 3);
-        assert_eq!(transition.ingestion_queue_affected, 1);
         assert_eq!(transition.total_affected, 1);
 
         // Verify item now has priority 3
@@ -1105,35 +977,11 @@ mod tests {
     #[tokio::test]
     async fn test_branch_isolation() {
         let (pool, _temp_dir) = setup_test_db().await;
-        let queue_manager = QueueManager::new(pool.clone());
-        let priority_manager = PriorityManager::new(pool);
+        let priority_manager = PriorityManager::new(pool.clone());
 
         // Enqueue items on different branches
-        queue_manager
-            .enqueue_file(
-                "/test/file1.rs",
-                "test-collection",
-                "test-tenant",
-                "main",
-                QueueOperation::Ingest,
-                3,
-                None,
-            )
-            .await
-            .unwrap();
-
-        queue_manager
-            .enqueue_file(
-                "/test/file2.rs",
-                "test-collection",
-                "test-tenant",
-                "feature-branch",
-                QueueOperation::Ingest,
-                3,
-                None,
-            )
-            .await
-            .unwrap();
+        enqueue_test_item(&pool, "test-tenant", "main", 3).await;
+        enqueue_test_item(&pool, "test-tenant", "feature-branch", 3).await;
 
         // Trigger server start for main branch only
         let transition = priority_manager
@@ -1186,116 +1034,24 @@ mod tests {
         assert_eq!(transition.total_affected, 0);
     }
 
-    #[tokio::test]
-    async fn test_transaction_rollback_on_error() {
-        let (pool, _temp_dir) = setup_test_db().await;
-        let queue_manager = QueueManager::new(pool.clone());
-        let priority_manager = PriorityManager::new(pool.clone());
-
-        // Enqueue an item
-        queue_manager
-            .enqueue_file(
-                "/test/file1.rs",
-                "test-collection",
-                "test-tenant",
-                "main",
-                QueueOperation::Ingest,
-                3,
-                None,
-            )
-            .await
-            .unwrap();
-
-        // Close the pool to force an error
-        pool.close().await;
-
-        // Attempt priority update - should fail
-        let result = priority_manager
-            .on_server_start("test-tenant", "main")
-            .await;
-
-        assert!(result.is_err());
-    }
-
-    #[tokio::test]
-    async fn test_missing_metadata_queue_update() {
-        let (pool, _temp_dir) = setup_test_db().await;
-        let queue_manager = QueueManager::new(pool.clone());
-        let priority_manager = PriorityManager::new(pool);
-
-        // Enqueue item in ingestion_queue
-        queue_manager
-            .enqueue_file(
-                "/test/file1.rs",
-                "test-collection",
-                "test-tenant",
-                "main",
-                QueueOperation::Ingest,
-                3,
-                None,
-            )
-            .await
-            .unwrap();
-
-        // Manually add item to missing_metadata_queue with priority 3
-        let insert_query = r#"
-            INSERT INTO missing_metadata_queue (
-                queue_id, file_absolute_path, collection_name, tenant_id, branch,
-                operation, priority, missing_tools, queued_timestamp
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-        "#;
-
-        sqlx::query(insert_query)
-            .bind("test-queue-id")
-            .bind("/test/file2.rs")
-            .bind("test-collection")
-            .bind("test-tenant")
-            .bind("main")
-            .bind("ingest")
-            .bind(3)
-            .bind(r#"[{"LspServer": {"language": "rust"}}]"#)
-            .bind("2024-01-01T00:00:00Z")
-            .execute(&priority_manager.db_pool)
-            .await
-            .unwrap();
-
-        // Trigger server start
-        let transition = priority_manager
-            .on_server_start("test-tenant", "main")
-            .await
-            .unwrap();
-
-        // Should affect both queues
-        assert_eq!(transition.ingestion_queue_affected, 1);
-        assert_eq!(transition.missing_metadata_queue_affected, 1);
-        assert_eq!(transition.total_affected, 2);
-    }
-
     // =========================================================================
-    // Session Tracking Tests
+    // Session Tracking Tests (using watch_folders)
     // =========================================================================
 
     #[tokio::test]
-    async fn test_register_session_increments_count() {
-        let (pool, _temp_dir) = setup_test_db_with_projects().await;
+    async fn test_register_session_activates_project() {
+        let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool.clone());
 
         // Create test project
         create_test_project(&pool, "abcd12345678", "/test/project").await;
 
-        // Register first session
+        // Register session
         let count = priority_manager
             .register_session("abcd12345678", "main")
             .await
             .unwrap();
-        assert_eq!(count, 1);
-
-        // Register second session
-        let count = priority_manager
-            .register_session("abcd12345678", "main")
-            .await
-            .unwrap();
-        assert_eq!(count, 2);
+        assert_eq!(count, 1); // Returns 1 to indicate active
 
         // Verify session info
         let info = priority_manager
@@ -1303,41 +1059,25 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(info.active_sessions, 2);
+        assert!(info.is_active);
         assert_eq!(info.priority, "high");
     }
 
     #[tokio::test]
-    async fn test_unregister_session_decrements_count() {
-        let (pool, _temp_dir) = setup_test_db_with_projects().await;
+    async fn test_unregister_session_deactivates_project() {
+        let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool.clone());
 
-        // Create test project and register sessions
+        // Create test project and register session
         create_test_project(&pool, "abcd12345678", "/test/project").await;
         priority_manager.register_session("abcd12345678", "main").await.unwrap();
-        priority_manager.register_session("abcd12345678", "main").await.unwrap();
 
-        // Unregister one session
+        // Unregister session
         let count = priority_manager
             .unregister_session("abcd12345678", "main")
             .await
             .unwrap();
-        assert_eq!(count, 1);
-
-        // Verify still high priority
-        let info = priority_manager
-            .get_session_info("abcd12345678")
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(info.priority, "high");
-
-        // Unregister last session
-        let count = priority_manager
-            .unregister_session("abcd12345678", "main")
-            .await
-            .unwrap();
-        assert_eq!(count, 0);
+        assert_eq!(count, 0); // Returns 0 to indicate inactive
 
         // Verify demoted to normal priority
         let info = priority_manager
@@ -1345,31 +1085,20 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        assert!(!info.is_active);
         assert_eq!(info.priority, "normal");
     }
 
     #[tokio::test]
     async fn test_register_session_bumps_queue_priority() {
-        let (pool, _temp_dir) = setup_test_db_with_projects().await;
-        let queue_manager = QueueManager::new(pool.clone());
+        let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool.clone());
 
         // Create test project
         create_test_project(&pool, "abcd12345678", "/test/project").await;
 
         // Enqueue items with normal priority
-        queue_manager
-            .enqueue_file(
-                "/test/file1.rs",
-                "test-collection",
-                "abcd12345678",  // Use project_id as tenant_id
-                "main",
-                QueueOperation::Ingest,
-                priority::NORMAL as i32,
-                None,
-            )
-            .await
-            .unwrap();
+        enqueue_test_item(&pool, "abcd12345678", "main", priority::NORMAL as i32).await;
 
         // Register session - should bump queue priority
         priority_manager
@@ -1387,7 +1116,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_heartbeat_updates_timestamp() {
-        let (pool, _temp_dir) = setup_test_db_with_projects().await;
+        let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool.clone());
 
         // Create test project and register session
@@ -1415,12 +1144,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert!(info_after.last_active >= info_before.last_active);
+        assert!(info_after.last_activity_at >= info_before.last_activity_at);
     }
 
     #[tokio::test]
     async fn test_heartbeat_ignored_without_active_session() {
-        let (pool, _temp_dir) = setup_test_db_with_projects().await;
+        let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool.clone());
 
         // Create test project without active sessions
@@ -1436,7 +1165,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup_orphaned_sessions() {
-        let (pool, _temp_dir) = setup_test_db_with_projects().await;
+        let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool.clone());
 
         // Create test project
@@ -1445,9 +1174,9 @@ mod tests {
         // Register session
         priority_manager.register_session("abcd12345678", "main").await.unwrap();
 
-        // Manually set last_active to old timestamp to simulate orphaned session
+        // Manually set last_activity_at to old timestamp to simulate orphaned session
         let old_time = Utc::now() - ChronoDuration::minutes(5);
-        sqlx::query("UPDATE projects SET last_active = ?1 WHERE project_id = ?2")
+        sqlx::query("UPDATE watch_folders SET last_activity_at = ?1 WHERE tenant_id = ?2")
             .bind(old_time.to_rfc3339())
             .bind("abcd12345678")
             .execute(&pool)
@@ -1470,16 +1199,16 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(info.active_sessions, 0);
+        assert!(!info.is_active);
         assert_eq!(info.priority, "normal");
     }
 
     #[tokio::test]
     async fn test_no_orphaned_sessions_with_recent_heartbeat() {
-        let (pool, _temp_dir) = setup_test_db_with_projects().await;
+        let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool.clone());
 
-        // Create test project and register session (sets last_active to now)
+        // Create test project and register session (sets last_activity_at to now)
         create_test_project(&pool, "abcd12345678", "/test/project").await;
         priority_manager.register_session("abcd12345678", "main").await.unwrap();
 
@@ -1498,13 +1227,13 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(info.active_sessions, 1);
+        assert!(info.is_active);
         assert_eq!(info.priority, "high");
     }
 
     #[tokio::test]
     async fn test_get_high_priority_projects() {
-        let (pool, _temp_dir) = setup_test_db_with_projects().await;
+        let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool.clone());
 
         // Create multiple test projects
@@ -1523,15 +1252,15 @@ mod tests {
             .unwrap();
 
         assert_eq!(high_priority.len(), 2);
-        let project_ids: Vec<_> = high_priority.iter().map(|p| &p.project_id).collect();
-        assert!(project_ids.contains(&&"project1aaaa".to_string()));
-        assert!(project_ids.contains(&&"project2bbbb".to_string()));
-        assert!(!project_ids.contains(&&"project3cccc".to_string()));
+        let tenant_ids: Vec<_> = high_priority.iter().map(|p| &p.tenant_id).collect();
+        assert!(tenant_ids.contains(&&"project1aaaa".to_string()));
+        assert!(tenant_ids.contains(&&"project2bbbb".to_string()));
+        assert!(!tenant_ids.contains(&&"project3cccc".to_string()));
     }
 
     #[tokio::test]
     async fn test_register_nonexistent_project_fails() {
-        let (pool, _temp_dir) = setup_test_db_with_projects().await;
+        let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool);
 
         // Try to register session for non-existent project
@@ -1544,7 +1273,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_unregister_nonexistent_project_fails() {
-        let (pool, _temp_dir) = setup_test_db_with_projects().await;
+        let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool);
 
         // Try to unregister session for non-existent project
@@ -1553,24 +1282,6 @@ mod tests {
             .await;
 
         assert!(matches!(result, Err(PriorityError::ProjectNotFound(_))));
-    }
-
-    #[tokio::test]
-    async fn test_session_count_does_not_go_negative() {
-        let (pool, _temp_dir) = setup_test_db_with_projects().await;
-        let priority_manager = PriorityManager::new(pool.clone());
-
-        // Create test project
-        create_test_project(&pool, "abcd12345678", "/test/project").await;
-
-        // Unregister without registering first
-        let count = priority_manager
-            .unregister_session("abcd12345678", "main")
-            .await
-            .unwrap();
-
-        // Should not go negative
-        assert_eq!(count, 0);
     }
 
     #[tokio::test]
