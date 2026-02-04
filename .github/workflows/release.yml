@@ -1,9 +1,17 @@
 # Cross-platform release build workflow for workspace-qdrant-mcp
 # Builds memexd daemon and wqm CLI for 6 target platforms
 #
+# ONNX Runtime Static Linking:
+# - Most platforms: ort crate automatically downloads prebuilt static binaries
+# - Intel Mac (x86_64-apple-darwin): ort crate dropped support in v2.0.0-rc.11,
+#   so we download Microsoft's ONNX Runtime and set ORT_LIB_LOCATION
+#
+# All binaries are self-contained with ONNX Runtime statically linked.
+# See: WORKSPACE_QDRANT_MCP.md section "ONNX Runtime Static Linking"
+#
 # Targets:
 # - ARM Mac (aarch64-apple-darwin)
-# - Intel Mac (x86_64-apple-darwin)
+# - Intel Mac (x86_64-apple-darwin) - requires manual ONNX Runtime
 # - ARM Windows (aarch64-pc-windows-msvc)
 # - Intel Windows (x86_64-pc-windows-msvc)
 # - Linux x86_64 (x86_64-unknown-linux-gnu)
@@ -25,6 +33,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # ONNX Runtime version for Intel Mac (only platform that needs manual download)
+  ORT_VERSION: "1.23.2"
 
 jobs:
   build:
@@ -34,41 +44,47 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # macOS ARM (Apple Silicon)
+          # macOS ARM (Apple Silicon) - ort has prebuilt binaries
           - target: aarch64-apple-darwin
             os: macos-latest
             cross: false
             artifact_name: darwin-arm64
+            needs_ort_download: false
 
-          # macOS Intel
+          # macOS Intel - ort dropped support, needs manual ONNX Runtime
           - target: x86_64-apple-darwin
             os: macos-13  # Intel runner
             cross: false
             artifact_name: darwin-x64
+            needs_ort_download: true
 
-          # Windows x64
+          # Windows x64 - ort has prebuilt binaries
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             cross: false
             artifact_name: windows-x64
+            needs_ort_download: false
 
-          # Windows ARM64
+          # Windows ARM64 - ort has prebuilt binaries
           - target: aarch64-pc-windows-msvc
             os: windows-latest
             cross: false  # Native ARM support on Windows runner
             artifact_name: windows-arm64
+            needs_ort_download: false
 
-          # Linux x64
+          # Linux x64 - ort has prebuilt binaries
           - target: x86_64-unknown-linux-gnu
             os: ubuntu-latest
             cross: false
             artifact_name: linux-x64
+            needs_ort_download: false
 
-          # Linux ARM64
+          # Linux ARM64 - ort has prebuilt binaries
           - target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
             cross: true  # Use cross for ARM compilation
             artifact_name: linux-arm64
+            needs_ort_download: false
 
     steps:
       - name: Checkout repository
@@ -114,59 +130,35 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-
 
-      # Download/cache ONNX Runtime for the target platform
-      - name: Cache ONNX Runtime
+      # Download ONNX Runtime for Intel Mac only (ort crate handles other platforms)
+      - name: Cache ONNX Runtime (Intel Mac)
+        if: matrix.needs_ort_download
         uses: actions/cache@v4
         id: onnx-cache
         with:
           path: ~/.onnxruntime
-          key: onnxruntime-1.22.0-${{ matrix.target }}
+          key: onnxruntime-${{ env.ORT_VERSION }}-${{ matrix.target }}
 
-      - name: Download ONNX Runtime
-        if: steps.onnx-cache.outputs.cache-hit != 'true'
+      - name: Download ONNX Runtime (Intel Mac)
+        if: matrix.needs_ort_download && steps.onnx-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           mkdir -p ~/.onnxruntime
-          case "${{ matrix.target }}" in
-            aarch64-apple-darwin)
-              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-arm64-1.22.0.tgz | tar xz -C ~/.onnxruntime --strip-components=1
-              ;;
-            x86_64-apple-darwin)
-              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-osx-x86_64-1.22.0.tgz | tar xz -C ~/.onnxruntime --strip-components=1
-              ;;
-            x86_64-pc-windows-msvc)
-              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-x64-1.22.0.zip -o ort.zip
-              unzip ort.zip -d ~/.onnxruntime
-              mv ~/.onnxruntime/onnxruntime-win-x64-1.22.0/* ~/.onnxruntime/
-              ;;
-            aarch64-pc-windows-msvc)
-              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-win-arm64-1.22.0.zip -o ort.zip
-              unzip ort.zip -d ~/.onnxruntime
-              mv ~/.onnxruntime/onnxruntime-win-arm64-1.22.0/* ~/.onnxruntime/
-              ;;
-            x86_64-unknown-linux-gnu)
-              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-x64-1.22.0.tgz | tar xz -C ~/.onnxruntime --strip-components=1
-              ;;
-            aarch64-unknown-linux-gnu)
-              curl -L https://github.com/microsoft/onnxruntime/releases/download/v1.22.0/onnxruntime-linux-aarch64-1.22.0.tgz | tar xz -C ~/.onnxruntime --strip-components=1
-              ;;
-          esac
+          echo "Downloading ONNX Runtime ${{ env.ORT_VERSION }} for Intel Mac..."
+          curl -L "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-osx-x86_64-${{ env.ORT_VERSION }}.tgz" | tar xz -C ~/.onnxruntime --strip-components=1
+          echo "ONNX Runtime downloaded to ~/.onnxruntime"
+          ls -la ~/.onnxruntime/lib/
 
-      # Set ONNX Runtime library path
-      - name: Set ORT_DYLIB_PATH
+      # Set ORT environment for Intel Mac dynamic linking with bundled library
+      - name: Set ORT environment (Intel Mac)
+        if: matrix.needs_ort_download
         shell: bash
         run: |
-          case "${{ runner.os }}" in
-            macOS)
-              echo "ORT_DYLIB_PATH=$HOME/.onnxruntime/lib/libonnxruntime.dylib" >> $GITHUB_ENV
-              ;;
-            Linux)
-              echo "ORT_DYLIB_PATH=$HOME/.onnxruntime/lib/libonnxruntime.so" >> $GITHUB_ENV
-              ;;
-            Windows)
-              echo "ORT_DYLIB_PATH=$HOME/.onnxruntime/lib/onnxruntime.dll" >> $GITHUB_ENV
-              ;;
-          esac
+          # Intel Mac: Use dynamic linking since ort dropped static support for x86_64-apple-darwin
+          # The library will be bundled with the binary and path redirected using install_name_tool
+          echo "ORT_LIB_LOCATION=$HOME/.onnxruntime" >> $GITHUB_ENV
+          echo "ORT_PREFER_DYNAMIC_LINK=1" >> $GITHUB_ENV
+          echo "Set ORT_LIB_LOCATION=$HOME/.onnxruntime with dynamic linking"
 
       # Build binaries
       - name: Build (native)
@@ -179,7 +171,7 @@ jobs:
         working-directory: src/rust
         run: cross build --release --target ${{ matrix.target }}
 
-      # Prepare artifacts
+      # Prepare artifacts - bundle ONNX Runtime for Intel Mac, others are self-contained
       - name: Prepare artifacts (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -188,15 +180,34 @@ jobs:
           cp src/rust/target/${{ matrix.target }}/release/memexd artifacts/
           cp src/rust/target/${{ matrix.target }}/release/wqm artifacts/
 
-          # Copy ONNX Runtime library
-          case "${{ runner.os }}" in
-            macOS)
-              cp ~/.onnxruntime/lib/libonnxruntime*.dylib artifacts/
-              ;;
-            Linux)
-              cp ~/.onnxruntime/lib/libonnxruntime.so* artifacts/
-              ;;
-          esac
+          # Intel Mac: Bundle ONNX Runtime library and redirect paths
+          if [[ "${{ matrix.needs_ort_download }}" == "true" ]]; then
+            echo "Intel Mac: Bundling ONNX Runtime library..."
+            mkdir -p artifacts/lib
+            cp ~/.onnxruntime/lib/libonnxruntime*.dylib artifacts/lib/
+
+            # Get the library filename
+            ORT_DYLIB=$(ls artifacts/lib/ | grep "libonnxruntime\." | head -1)
+
+            # Find and replace the library path reference
+            OLD_PATH=$(otool -L artifacts/memexd | grep libonnxruntime | awk '{print $1}')
+            if [[ -n "$OLD_PATH" ]]; then
+              install_name_tool -change "$OLD_PATH" "@executable_path/lib/$ORT_DYLIB" artifacts/memexd
+              echo "Updated binary to use bundled library at @executable_path/lib/$ORT_DYLIB"
+            fi
+
+            # Verify the change
+            echo "Binary dependencies after bundling:"
+            otool -L artifacts/memexd | grep -i onnx || echo "No ONNX reference (unexpected)"
+          else
+            # Verify binary is self-contained (no ONNX Runtime dependency)
+            echo "Checking binary dependencies..."
+            if [[ "${{ runner.os }}" == "macOS" ]]; then
+              otool -L artifacts/memexd | grep -i onnx && echo "WARNING: Binary has ONNX Runtime dependency" || echo "OK: No external ONNX Runtime dependency"
+            elif [[ "${{ runner.os }}" == "Linux" ]]; then
+              ldd artifacts/memexd | grep -i onnx && echo "WARNING: Binary has ONNX Runtime dependency" || echo "OK: No external ONNX Runtime dependency"
+            fi
+          fi
 
           # Create archive
           cd artifacts
@@ -209,7 +220,6 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts
           Copy-Item src/rust/target/${{ matrix.target }}/release/memexd.exe artifacts/
           Copy-Item src/rust/target/${{ matrix.target }}/release/wqm.exe artifacts/
-          Copy-Item $HOME/.onnxruntime/lib/onnxruntime.dll artifacts/
 
           Compress-Archive -Path artifacts/* -DestinationPath workspace-qdrant-mcp-${{ matrix.artifact_name }}.zip
 
@@ -303,5 +313,27 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
           generate_release_notes: true
+          body: |
+            ## Self-Contained Binaries
+
+            All binaries include ONNX Runtime statically linked - no external dependencies required.
+
+            ### Quick Install
+            ```bash
+            # Linux/macOS
+            curl -fsSL https://raw.githubusercontent.com/ChrisGVE/workspace-qdrant-mcp/main/scripts/download-install.sh | bash
+
+            # Windows (PowerShell)
+            irm https://raw.githubusercontent.com/ChrisGVE/workspace-qdrant-mcp/main/scripts/download-install.ps1 | iex
+            ```
+
+            ### Manual Download
+            Choose the appropriate archive for your platform:
+            - `darwin-arm64` - macOS Apple Silicon (M1/M2/M3)
+            - `darwin-x64` - macOS Intel
+            - `linux-x64` - Linux x86_64
+            - `linux-arm64` - Linux ARM64
+            - `windows-x64` - Windows x86_64
+            - `windows-arm64` - Windows ARM64
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

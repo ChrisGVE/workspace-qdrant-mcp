@@ -3,6 +3,7 @@
 # workspace-qdrant-mcp installer
 #
 # Builds and installs the CLI (wqm), daemon (memexd), and Python MCP server.
+# All binaries are self-contained with ONNX Runtime statically linked.
 #
 # Usage:
 #   ./install.sh [OPTIONS]
@@ -18,6 +19,7 @@
 # Environment variables:
 #   INSTALL_PREFIX     Same as --prefix
 #   BIN_DIR            Override binary installation directory
+#   ORT_LIB_LOCATION   Override ONNX Runtime location (Intel Mac only)
 #
 # Examples:
 #   ./install.sh                          # Install to ~/.local/bin
@@ -42,6 +44,10 @@ NO_SERVICE=false
 NO_VERIFY=false
 CLI_ONLY=false
 FORCE=false
+
+# ONNX Runtime version for Intel Mac
+ORT_VERSION="1.23.2"
+ORT_CACHE_DIR="$HOME/.onnxruntime"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -98,6 +104,78 @@ error() {
     exit 1
 }
 
+# Detect platform
+detect_platform() {
+    OS="$(uname -s)"
+    ARCH="$(uname -m)"
+
+    case "$OS" in
+        Darwin)
+            if [[ "$ARCH" == "x86_64" ]]; then
+                PLATFORM="intel-mac"
+            else
+                PLATFORM="arm-mac"
+            fi
+            ;;
+        Linux)
+            PLATFORM="linux"
+            ;;
+        *)
+            PLATFORM="other"
+            ;;
+    esac
+
+    info "Detected platform: $OS $ARCH ($PLATFORM)"
+}
+
+# Download ONNX Runtime for Intel Mac (required since ort crate dropped x86_64-apple-darwin support)
+setup_onnx_runtime() {
+    if [[ "$PLATFORM" != "intel-mac" ]]; then
+        return 0
+    fi
+
+    # Check if ORT_LIB_LOCATION is already set
+    if [[ -n "$ORT_LIB_LOCATION" ]]; then
+        info "Using existing ORT_LIB_LOCATION: $ORT_LIB_LOCATION"
+        return 0
+    fi
+
+    info "Intel Mac detected: ONNX Runtime download required"
+    info "The ort crate dropped x86_64-apple-darwin support in v2.0.0-rc.11"
+
+    # Check if already downloaded
+    if [[ -f "$ORT_CACHE_DIR/lib/libonnxruntime.dylib" ]]; then
+        info "Found cached ONNX Runtime at $ORT_CACHE_DIR"
+        export ORT_LIB_LOCATION="$ORT_CACHE_DIR"
+        return 0
+    fi
+
+    info "Downloading ONNX Runtime $ORT_VERSION for Intel Mac..."
+    mkdir -p "$ORT_CACHE_DIR"
+
+    ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-x86_64-${ORT_VERSION}.tgz"
+    ORT_TMP="$ORT_CACHE_DIR/onnxruntime.tgz"
+
+    if command -v curl &> /dev/null; then
+        curl -L -o "$ORT_TMP" "$ORT_URL"
+    elif command -v wget &> /dev/null; then
+        wget -q -O "$ORT_TMP" "$ORT_URL"
+    else
+        error "Neither curl nor wget found. Please install one of them."
+    fi
+
+    # Extract with strip-components to remove top-level directory
+    tar xzf "$ORT_TMP" -C "$ORT_CACHE_DIR" --strip-components=1
+    rm -f "$ORT_TMP"
+
+    if [[ -f "$ORT_CACHE_DIR/lib/libonnxruntime.dylib" ]]; then
+        success "ONNX Runtime downloaded to $ORT_CACHE_DIR"
+        export ORT_LIB_LOCATION="$ORT_CACHE_DIR"
+    else
+        error "Failed to download ONNX Runtime"
+    fi
+}
+
 # Check prerequisites
 check_prerequisites() {
     info "Checking prerequisites..."
@@ -131,21 +209,25 @@ build_rust() {
         cargo clean
     fi
 
+    # Configure ONNX Runtime linking for Intel Mac
+    if [[ "$PLATFORM" == "intel-mac" ]] && [[ -n "$ORT_LIB_LOCATION" ]]; then
+        info "ORT_LIB_LOCATION set to: $ORT_LIB_LOCATION"
+        info "Intel Mac: Using dynamic linking with bundled library"
+        export ORT_PREFER_DYNAMIC_LINK=1
+    fi
+
     if [ "$CLI_ONLY" = true ]; then
         info "Building CLI only (--cli-only specified)..."
         cargo build --release -p wqm-cli
     else
-        # Try to build both, but CLI might succeed while daemon fails (ort issue on Intel Mac)
         info "Building CLI..."
         cargo build --release -p wqm-cli
 
-        info "Attempting to build daemon..."
-        if cargo build --release -p memexd 2>/dev/null; then
+        info "Building daemon..."
+        if cargo build --release -p memexd; then
             success "Daemon built successfully"
         else
-            warn "Daemon build failed (common on Intel Mac due to ONNX Runtime)"
-            warn "CLI will still be installed. For daemon, see docs/TROUBLESHOOTING.md"
-            CLI_ONLY=true
+            error "Daemon build failed. Check error messages above."
         fi
     fi
 
@@ -167,6 +249,41 @@ install_binaries() {
         cp src/rust/target/release/memexd "$BIN_DIR/"
         chmod 755 "$BIN_DIR/memexd"
         success "Installed memexd"
+
+        # Intel Mac: Bundle ONNX Runtime library and fix path
+        if [[ "$PLATFORM" == "intel-mac" ]] && [[ -n "$ORT_LIB_LOCATION" ]]; then
+            info "Bundling ONNX Runtime library for Intel Mac..."
+            mkdir -p "$BIN_DIR/lib"
+            cp "$ORT_LIB_LOCATION/lib/libonnxruntime"*.dylib "$BIN_DIR/lib/" 2>/dev/null || \
+                cp "$ORT_LIB_LOCATION/libonnxruntime"*.dylib "$BIN_DIR/lib/"
+
+            # Get the actual library filename
+            ORT_DYLIB=$(ls "$BIN_DIR/lib/" | grep "libonnxruntime\." | head -1)
+
+            # Find the current library reference in the binary
+            OLD_PATH=$(otool -L "$BIN_DIR/memexd" | grep libonnxruntime | awk '{print $1}')
+
+            if [[ -n "$OLD_PATH" ]]; then
+                # Redirect to bundled library using @executable_path
+                install_name_tool -change "$OLD_PATH" "@executable_path/lib/$ORT_DYLIB" "$BIN_DIR/memexd"
+                success "Bundled ONNX Runtime library and updated binary paths"
+            fi
+        fi
+
+        # Verify binary configuration
+        if [[ "$PLATFORM" == "arm-mac" ]]; then
+            if otool -L "$BIN_DIR/memexd" | grep -qi "libonnxruntime"; then
+                warn "Binary appears to have external ONNX Runtime dependency"
+            else
+                success "Binary is self-contained (no external ONNX Runtime dependency)"
+            fi
+        elif [[ "$PLATFORM" == "intel-mac" ]]; then
+            if otool -L "$BIN_DIR/memexd" | grep -q "@executable_path"; then
+                success "Binary uses bundled ONNX Runtime library (self-contained distribution)"
+            else
+                warn "Binary may have external dependencies - verify lib/ folder is distributed with binary"
+            fi
+        fi
     fi
 }
 
@@ -243,6 +360,7 @@ print_summary() {
     echo "  - wqm (CLI): $BIN_DIR/wqm"
     if [ -f "$BIN_DIR/memexd" ]; then
         echo "  - memexd (daemon): $BIN_DIR/memexd"
+        echo "    (self-contained binary with ONNX Runtime statically linked)"
     fi
     echo "  - MCP server: uv run workspace-qdrant-mcp"
     echo ""
@@ -253,18 +371,11 @@ print_summary() {
         echo ""
     fi
 
-    if [ -f "$BIN_DIR/memexd" ]; then
-        echo "ONNX Runtime requirement:"
-        echo "  The daemon requires ONNX Runtime for embeddings."
-        echo "  Install via: brew install onnxruntime"
-        echo "  Or set ORT_DYLIB_PATH to your ONNX Runtime library."
-        echo ""
-    fi
-
     echo "Quick start:"
     echo "  1. Start Qdrant: docker run -p 6333:6333 qdrant/qdrant"
-    echo "  2. Run MCP server: uv run workspace-qdrant-mcp"
-    echo "  3. Use CLI: wqm --help"
+    echo "  2. Start daemon: $BIN_DIR/memexd &"
+    echo "  3. Run MCP server: uv run workspace-qdrant-mcp"
+    echo "  4. Use CLI: wqm --help"
     echo ""
 }
 
@@ -278,7 +389,9 @@ main() {
     echo "Binary directory: $BIN_DIR"
     echo ""
 
+    detect_platform
     check_prerequisites
+    setup_onnx_runtime
     create_directories
     build_rust
     install_binaries

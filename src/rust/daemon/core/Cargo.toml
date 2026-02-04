@@ -77,10 +77,12 @@ shellexpand = "3.1"
 dirs = "5.0"
 
 # Embedding generation
-# Use ort-load-dynamic because ort doesn't provide prebuilt binaries for Intel Mac (x86_64-apple-darwin)
-# Static bundling (default features) works on ARM Mac and Linux but not Intel Mac
+# Uses ort-download-binaries (default) for static linking on supported platforms.
+# For Intel Mac (x86_64-apple-darwin): ort crate dropped prebuilt binaries in v2.0.0-rc.11,
+# so we must provide ORT_LIB_LOCATION pointing to Microsoft's ONNX Runtime static library.
 # See: https://ort.pyke.io/setup/linking
-fastembed = { version = "5", default-features = false, features = ["ort-load-dynamic", "hf-hub"] }
+# See: WORKSPACE_QDRANT_MCP.md section "ONNX Runtime Static Linking"
+fastembed = { version = "5", features = ["hf-hub"] }
 
 # Code parsing (semantic chunking)
 tree-sitter = "0.24"
