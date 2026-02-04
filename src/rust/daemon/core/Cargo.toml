@@ -78,8 +78,15 @@ dirs = "5.0"
 
 # Embedding generation
 # Uses ort-download-binaries (default) for static linking on supported platforms.
-# For Intel Mac (x86_64-apple-darwin): ort crate dropped prebuilt binaries in v2.0.0-rc.11,
-# so we must provide ORT_LIB_LOCATION pointing to Microsoft's ONNX Runtime static library.
+#
+# INTEL MAC (x86_64-apple-darwin) BUILD REQUIREMENTS:
+# The ort crate does not provide prebuilt binaries for Intel Mac.
+# You MUST build ONNX Runtime from source:
+#   1. git clone --recursive https://github.com/microsoft/onnxruntime
+#   2. cd onnxruntime && ./build.sh --config Release --build_shared_lib --parallel
+#   3. export ORT_LIB_LOCATION=/path/to/onnxruntime/build/Linux/Release
+#   4. cargo build --release
+#
 # See: https://ort.pyke.io/setup/linking
 # See: WORKSPACE_QDRANT_MCP.md section "ONNX Runtime Static Linking"
 fastembed = { version = "5", features = ["hf-hub"] }
