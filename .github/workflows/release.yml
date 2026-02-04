@@ -130,35 +130,38 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-${{ matrix.target }}-cargo-
 
-      # Download ONNX Runtime for Intel Mac only (ort crate handles other platforms)
+      # Download ONNX Runtime static library for Intel Mac (ort crate handles other platforms)
+      # Uses supertone-inc/onnxruntime-build which provides static libraries (.a)
       - name: Cache ONNX Runtime (Intel Mac)
         if: matrix.needs_ort_download
         uses: actions/cache@v4
         id: onnx-cache
         with:
-          path: ~/.onnxruntime
-          key: onnxruntime-${{ env.ORT_VERSION }}-${{ matrix.target }}
+          path: ~/.onnxruntime-static
+          key: onnxruntime-static-${{ env.ORT_VERSION }}-${{ matrix.target }}
 
-      - name: Download ONNX Runtime (Intel Mac)
+      - name: Download ONNX Runtime static library (Intel Mac)
         if: matrix.needs_ort_download && steps.onnx-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
-          mkdir -p ~/.onnxruntime
-          echo "Downloading ONNX Runtime ${{ env.ORT_VERSION }} for Intel Mac..."
-          curl -L "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-osx-x86_64-${{ env.ORT_VERSION }}.tgz" | tar xz -C ~/.onnxruntime --strip-components=1
-          echo "ONNX Runtime downloaded to ~/.onnxruntime"
-          ls -la ~/.onnxruntime/lib/
+          mkdir -p ~/.onnxruntime-static
+          echo "Downloading ONNX Runtime ${{ env.ORT_VERSION }} static library for Intel Mac..."
+          # Download from supertone-inc/onnxruntime-build (provides static libraries)
+          curl -L "https://github.com/supertone-inc/onnxruntime-build/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-osx-universal2-static_lib-${{ env.ORT_VERSION }}.tgz" -o ~/.onnxruntime-static/ort.tgz
+          tar xzf ~/.onnxruntime-static/ort.tgz -C ~/.onnxruntime-static
+          rm ~/.onnxruntime-static/ort.tgz
+          echo "ONNX Runtime static library downloaded to ~/.onnxruntime-static"
+          ls -la ~/.onnxruntime-static/lib/
 
-      # Set ORT environment for Intel Mac dynamic linking with bundled library
+      # Set ORT environment for Intel Mac static linking
       - name: Set ORT environment (Intel Mac)
         if: matrix.needs_ort_download
         shell: bash
         run: |
-          # Intel Mac: Use dynamic linking since ort dropped static support for x86_64-apple-darwin
-          # The library will be bundled with the binary and path redirected using install_name_tool
-          echo "ORT_LIB_LOCATION=$HOME/.onnxruntime" >> $GITHUB_ENV
-          echo "ORT_PREFER_DYNAMIC_LINK=1" >> $GITHUB_ENV
-          echo "Set ORT_LIB_LOCATION=$HOME/.onnxruntime with dynamic linking"
+          # Intel Mac: Use static library for truly self-contained binary
+          # Point to lib subdirectory where libonnxruntime.a is located
+          echo "ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib" >> $GITHUB_ENV
+          echo "Set ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib for static linking"
 
       # Build binaries
       - name: Build (native)
@@ -171,7 +174,7 @@ jobs:
         working-directory: src/rust
         run: cross build --release --target ${{ matrix.target }}
 
-      # Prepare artifacts - bundle ONNX Runtime for Intel Mac, others are self-contained
+      # Prepare artifacts - all binaries are self-contained with ONNX Runtime statically linked
       - name: Prepare artifacts (Unix)
         if: runner.os != 'Windows'
         shell: bash
@@ -180,33 +183,12 @@ jobs:
           cp src/rust/target/${{ matrix.target }}/release/memexd artifacts/
           cp src/rust/target/${{ matrix.target }}/release/wqm artifacts/
 
-          # Intel Mac: Bundle ONNX Runtime library and redirect paths
-          if [[ "${{ matrix.needs_ort_download }}" == "true" ]]; then
-            echo "Intel Mac: Bundling ONNX Runtime library..."
-            mkdir -p artifacts/lib
-            cp ~/.onnxruntime/lib/libonnxruntime*.dylib artifacts/lib/
-
-            # Get the library filename
-            ORT_DYLIB=$(ls artifacts/lib/ | grep "libonnxruntime\." | head -1)
-
-            # Find and replace the library path reference
-            OLD_PATH=$(otool -L artifacts/memexd | grep libonnxruntime | awk '{print $1}')
-            if [[ -n "$OLD_PATH" ]]; then
-              install_name_tool -change "$OLD_PATH" "@executable_path/lib/$ORT_DYLIB" artifacts/memexd
-              echo "Updated binary to use bundled library at @executable_path/lib/$ORT_DYLIB"
-            fi
-
-            # Verify the change
-            echo "Binary dependencies after bundling:"
-            otool -L artifacts/memexd | grep -i onnx || echo "No ONNX reference (unexpected)"
-          else
-            # Verify binary is self-contained (no ONNX Runtime dependency)
-            echo "Checking binary dependencies..."
-            if [[ "${{ runner.os }}" == "macOS" ]]; then
-              otool -L artifacts/memexd | grep -i onnx && echo "WARNING: Binary has ONNX Runtime dependency" || echo "OK: No external ONNX Runtime dependency"
-            elif [[ "${{ runner.os }}" == "Linux" ]]; then
-              ldd artifacts/memexd | grep -i onnx && echo "WARNING: Binary has ONNX Runtime dependency" || echo "OK: No external ONNX Runtime dependency"
-            fi
+          # Verify binary is self-contained (no external ONNX Runtime dependency)
+          echo "Checking binary dependencies..."
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            otool -L artifacts/memexd | grep -i onnx && echo "WARNING: Binary has ONNX Runtime dependency" || echo "OK: No external ONNX Runtime dependency (statically linked)"
+          elif [[ "${{ runner.os }}" == "Linux" ]]; then
+            ldd artifacts/memexd | grep -i onnx && echo "WARNING: Binary has ONNX Runtime dependency" || echo "OK: No external ONNX Runtime dependency (statically linked)"
           fi
 
           # Create archive

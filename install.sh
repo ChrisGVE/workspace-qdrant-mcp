@@ -45,9 +45,9 @@ NO_VERIFY=false
 CLI_ONLY=false
 FORCE=false
 
-# ONNX Runtime version for Intel Mac
+# ONNX Runtime version for Intel Mac (static library from supertone-inc/onnxruntime-build)
 ORT_VERSION="1.23.2"
-ORT_CACHE_DIR="$HOME/.onnxruntime"
+ORT_CACHE_DIR="$HOME/.onnxruntime-static"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -128,7 +128,9 @@ detect_platform() {
     info "Detected platform: $OS $ARCH ($PLATFORM)"
 }
 
-# Download ONNX Runtime for Intel Mac (required since ort crate dropped x86_64-apple-darwin support)
+# Download ONNX Runtime static library for Intel Mac
+# Uses supertone-inc/onnxruntime-build which provides static libraries (.a)
+# The official Microsoft releases only include dynamic libraries (.dylib)
 setup_onnx_runtime() {
     if [[ "$PLATFORM" != "intel-mac" ]]; then
         return 0
@@ -140,22 +142,25 @@ setup_onnx_runtime() {
         return 0
     fi
 
-    info "Intel Mac detected: ONNX Runtime download required"
+    info "Intel Mac detected: ONNX Runtime static library download required"
     info "The ort crate dropped x86_64-apple-darwin support in v2.0.0-rc.11"
 
-    # Check if already downloaded
-    if [[ -f "$ORT_CACHE_DIR/lib/libonnxruntime.dylib" ]]; then
-        info "Found cached ONNX Runtime at $ORT_CACHE_DIR"
-        export ORT_LIB_LOCATION="$ORT_CACHE_DIR"
+    # Check if already downloaded (look for static library)
+    if [[ -f "$ORT_CACHE_DIR/lib/libonnxruntime.a" ]]; then
+        info "Found cached ONNX Runtime static library at $ORT_CACHE_DIR"
+        export ORT_LIB_LOCATION="$ORT_CACHE_DIR/lib"
         return 0
     fi
 
-    info "Downloading ONNX Runtime $ORT_VERSION for Intel Mac..."
+    info "Downloading ONNX Runtime $ORT_VERSION static library for Intel Mac..."
     mkdir -p "$ORT_CACHE_DIR"
 
-    ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-osx-x86_64-${ORT_VERSION}.tgz"
-    ORT_TMP="$ORT_CACHE_DIR/onnxruntime.tgz"
+    # Download from supertone-inc/onnxruntime-build (provides static libraries)
+    # Universal2 includes both x86_64 and ARM64 architectures
+    ORT_URL="https://github.com/supertone-inc/onnxruntime-build/releases/download/v${ORT_VERSION}/onnxruntime-osx-universal2-static_lib-${ORT_VERSION}.tgz"
+    ORT_TMP="$ORT_CACHE_DIR/onnxruntime-static.tgz"
 
+    info "Downloading from supertone-inc/onnxruntime-build..."
     if command -v curl &> /dev/null; then
         curl -L -o "$ORT_TMP" "$ORT_URL"
     elif command -v wget &> /dev/null; then
@@ -164,15 +169,16 @@ setup_onnx_runtime() {
         error "Neither curl nor wget found. Please install one of them."
     fi
 
-    # Extract with strip-components to remove top-level directory
-    tar xzf "$ORT_TMP" -C "$ORT_CACHE_DIR" --strip-components=1
+    # Extract (archive structure: ./lib/libonnxruntime.a, ./include/...)
+    tar xzf "$ORT_TMP" -C "$ORT_CACHE_DIR"
     rm -f "$ORT_TMP"
 
-    if [[ -f "$ORT_CACHE_DIR/lib/libonnxruntime.dylib" ]]; then
-        success "ONNX Runtime downloaded to $ORT_CACHE_DIR"
-        export ORT_LIB_LOCATION="$ORT_CACHE_DIR"
+    if [[ -f "$ORT_CACHE_DIR/lib/libonnxruntime.a" ]]; then
+        success "ONNX Runtime static library downloaded to $ORT_CACHE_DIR"
+        # Point to lib subdirectory where libonnxruntime.a is located
+        export ORT_LIB_LOCATION="$ORT_CACHE_DIR/lib"
     else
-        error "Failed to download ONNX Runtime"
+        error "Failed to download ONNX Runtime static library"
     fi
 }
 
@@ -212,8 +218,7 @@ build_rust() {
     # Configure ONNX Runtime linking for Intel Mac
     if [[ "$PLATFORM" == "intel-mac" ]] && [[ -n "$ORT_LIB_LOCATION" ]]; then
         info "ORT_LIB_LOCATION set to: $ORT_LIB_LOCATION"
-        info "Intel Mac: Using dynamic linking with bundled library"
-        export ORT_PREFER_DYNAMIC_LINK=1
+        info "Intel Mac: Using static library for self-contained binary"
     fi
 
     if [ "$CLI_ONLY" = true ]; then
@@ -250,38 +255,12 @@ install_binaries() {
         chmod 755 "$BIN_DIR/memexd"
         success "Installed memexd"
 
-        # Intel Mac: Bundle ONNX Runtime library and fix path
-        if [[ "$PLATFORM" == "intel-mac" ]] && [[ -n "$ORT_LIB_LOCATION" ]]; then
-            info "Bundling ONNX Runtime library for Intel Mac..."
-            mkdir -p "$BIN_DIR/lib"
-            cp "$ORT_LIB_LOCATION/lib/libonnxruntime"*.dylib "$BIN_DIR/lib/" 2>/dev/null || \
-                cp "$ORT_LIB_LOCATION/libonnxruntime"*.dylib "$BIN_DIR/lib/"
-
-            # Get the actual library filename
-            ORT_DYLIB=$(ls "$BIN_DIR/lib/" | grep "libonnxruntime\." | head -1)
-
-            # Find the current library reference in the binary
-            OLD_PATH=$(otool -L "$BIN_DIR/memexd" | grep libonnxruntime | awk '{print $1}')
-
-            if [[ -n "$OLD_PATH" ]]; then
-                # Redirect to bundled library using @executable_path
-                install_name_tool -change "$OLD_PATH" "@executable_path/lib/$ORT_DYLIB" "$BIN_DIR/memexd"
-                success "Bundled ONNX Runtime library and updated binary paths"
-            fi
-        fi
-
-        # Verify binary configuration
-        if [[ "$PLATFORM" == "arm-mac" ]]; then
+        # Verify self-contained binary (macOS - all platforms use static linking now)
+        if [[ "$PLATFORM" == "intel-mac" ]] || [[ "$PLATFORM" == "arm-mac" ]]; then
             if otool -L "$BIN_DIR/memexd" | grep -qi "libonnxruntime"; then
                 warn "Binary appears to have external ONNX Runtime dependency"
             else
-                success "Binary is self-contained (no external ONNX Runtime dependency)"
-            fi
-        elif [[ "$PLATFORM" == "intel-mac" ]]; then
-            if otool -L "$BIN_DIR/memexd" | grep -q "@executable_path"; then
-                success "Binary uses bundled ONNX Runtime library (self-contained distribution)"
-            else
-                warn "Binary may have external dependencies - verify lib/ folder is distributed with binary"
+                success "Binary is self-contained (ONNX Runtime statically linked)"
             fi
         fi
     fi
