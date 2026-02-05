@@ -35,6 +35,8 @@ use workspace_qdrant_core::{
     ProjectLanguageDetector,
     DaemonStateManager,
     project_disambiguation::ProjectIdCalculator,
+    QueueManager,
+    ItemType, UnifiedQueueOp, ProjectPayload,
 };
 
 /// Default heartbeat timeout in seconds
@@ -610,6 +612,53 @@ impl ProjectService for ProjectServiceImpl {
                 project_id = %project_id,
                 "Cancelled pending deferred shutdown on project reactivation"
             );
+        }
+
+        // Queue project scan for automatic ingestion (only for newly created projects)
+        if created {
+            let queue_manager = QueueManager::new(self.db_pool.clone());
+            let payload = ProjectPayload {
+                project_root: req.path.clone(),
+                git_remote: req.git_remote.clone(),
+                project_type: None,
+            };
+            let payload_json = serde_json::to_string(&payload)
+                .unwrap_or_else(|_| format!(r#"{{"project_root":"{}"}}"#, req.path));
+
+            match queue_manager.enqueue_unified(
+                ItemType::Project,
+                UnifiedQueueOp::Scan,
+                &project_id,
+                "projects",
+                &payload_json,
+                8,  // High priority for active project scans
+                None,
+                None,
+            ).await {
+                Ok((queue_id, is_new)) => {
+                    if is_new {
+                        info!(
+                            project_id = %project_id,
+                            queue_id = %queue_id,
+                            "Queued project scan for automatic ingestion"
+                        );
+                    } else {
+                        debug!(
+                            project_id = %project_id,
+                            queue_id = %queue_id,
+                            "Project scan already queued (idempotent)"
+                        );
+                    }
+                }
+                Err(e) => {
+                    // Non-critical: ingestion can be triggered manually if needed
+                    warn!(
+                        project_id = %project_id,
+                        error = %e,
+                        "Failed to queue project scan (non-critical)"
+                    );
+                }
+            }
         }
 
         // Start LSP servers for the project (non-blocking, best-effort)
