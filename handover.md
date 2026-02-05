@@ -86,21 +86,23 @@ MCP Server                    Daemon
 ## Known Issues
 
 ### Exclusion Patterns Too Permissive
-The current exclusion filters are not strict enough. Files from directories like `.mypy_cache/` are being queued for ingestion when they should be excluded.
+The current exclusion filters are not strict enough. Hidden files and directories (starting with `.`) are being queued for ingestion when they should generally be excluded.
 
-**Directories that should be added to exclusion patterns:**
-- `.mypy_cache/` - Python type checker cache
-- `__pycache__/` - Python bytecode cache (verify if already excluded)
-- `.pytest_cache/` - Pytest cache
-- `.ruff_cache/` - Ruff linter cache
-- `.tox/` - Tox test environments
-- `.nox/` - Nox test environments
-- `.coverage/` - Coverage reports
-- `.hypothesis/` - Hypothesis test cache
+**Principle:** Hidden files/directories in projects should NOT be indexed by default. They typically contain:
+- Tool caches (`.mypy_cache/`, `.pytest_cache/`, `.ruff_cache/`)
+- IDE/editor configs (`.vscode/`, `.idea/`)
+- Version control (`.git/` - already excluded)
+- Environment configs (`.env` files)
+- Build artifacts and caches
+
+**Exceptions** (hidden files that MAY be useful to index):
+- `.github/` - GitHub Actions workflows (useful for understanding CI/CD)
+- `.gitignore` - Project structure info
+- Configuration files at root level (`.eslintrc`, `.prettierrc`, etc.) - debatable
 
 **File to modify:** `src/rust/daemon/core/src/patterns/exclusion.rs`
 
-**Action required:** Review and expand the exclusion patterns in `should_exclude_file` function to include common cache/build directories.
+**Action required:** Add a rule to exclude all hidden files/directories (paths containing `/.[^/]+/` or starting with `.`) with explicit exceptions for useful configs like `.github/`.
 
 ## Next Steps
 
