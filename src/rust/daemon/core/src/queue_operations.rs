@@ -433,14 +433,6 @@ impl QueueManager {
         Ok(())
     }
 
-    /// Initialize the missing_metadata_queue table
-    pub async fn init_missing_metadata_queue(&self) -> QueueResult<()> {
-        let schema = include_str!("schema/legacy/missing_metadata_queue_schema.sql");
-        sqlx::query(schema).execute(&self.pool).await?;
-        debug!("Missing metadata queue table initialized");
-        Ok(())
-    }
-
     /// Enqueue a file for processing
     ///
     /// **DEPRECATED (Task 21)**: This method uses the legacy `ingestion_queue` table.

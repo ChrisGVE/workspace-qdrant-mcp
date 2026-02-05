@@ -833,6 +833,10 @@ pub trait BranchEventHandler: Send + Sync {
 }
 
 /// SQL schemas for branch lifecycle tracking
+///
+/// NOTE: Per 3-table SQLite compliance, only schema_version, unified_queue,
+/// and watch_folders tables are allowed. Branch events should be logged via
+/// structured logging (tracing) rather than stored in SQLite.
 pub mod branch_schema {
     /// Add default_branch column to watch_folders
     ///
@@ -840,25 +844,6 @@ pub mod branch_schema {
     /// Run as an optional migration if default_branch tracking is needed.
     pub const ALTER_ADD_DEFAULT_BRANCH: &str = r#"
         ALTER TABLE watch_folders ADD COLUMN default_branch TEXT
-    "#;
-
-    /// Create branch_events table for auditing
-    pub const CREATE_BRANCH_EVENTS_TABLE: &str = r#"
-        CREATE TABLE IF NOT EXISTS branch_events (
-            event_id TEXT PRIMARY KEY,
-            project_id TEXT NOT NULL,
-            event_type TEXT NOT NULL,
-            branch_name TEXT NOT NULL,
-            old_branch_name TEXT,
-            commit_hash TEXT,
-            created_at TEXT NOT NULL,
-            processed INTEGER DEFAULT 0
-        )
-    "#;
-
-    /// Create index on branch_events
-    pub const CREATE_BRANCH_EVENTS_INDEX: &str = r#"
-        CREATE INDEX IF NOT EXISTS idx_branch_events_project ON branch_events(project_id)
     "#;
 }
 
@@ -1228,12 +1213,10 @@ mod tests {
     }
 
     #[test]
-    #[allow(deprecated)]
     fn test_branch_schema_sql() {
-        // Verify SQL statements are valid syntax
-        assert!(branch_schema::CREATE_BRANCH_EVENTS_TABLE.contains("CREATE TABLE"));
-        assert!(branch_schema::CREATE_BRANCH_EVENTS_INDEX.contains("CREATE INDEX"));
-        // NOTE: ALTER_ADD_DEFAULT_BRANCH is deprecated but kept for backward compatibility
+        // Verify SQL statement is valid syntax
+        // NOTE: Per 3-table SQLite compliance, only watch_folders modifications allowed
         assert!(branch_schema::ALTER_ADD_DEFAULT_BRANCH.contains("ALTER TABLE"));
+        assert!(branch_schema::ALTER_ADD_DEFAULT_BRANCH.contains("watch_folders"));
     }
 }

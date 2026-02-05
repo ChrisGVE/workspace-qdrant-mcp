@@ -1,35 +1,30 @@
 //! Tool Availability Monitoring Module
 //!
-//! Implements Task 353: Monitors tool availability (tree-sitter parsers, LSP servers)
-//! and automatically requeues files from missing_metadata_queue when tools become available.
+//! **DEPRECATED**: This module is deprecated because it violates the 3-table SQLite
+//! compliance requirement. The tool_availability table and missing_metadata_queue
+//! table are not part of the allowed schema (only schema_version, unified_queue,
+//! and watch_folders are permitted).
 //!
-//! ## Architecture
+//! ## Future Direction
 //!
-//! The tool monitor runs as a background task that:
+//! Tool availability tracking should be refactored to use:
+//! 1. In-memory state for runtime tool availability
+//! 2. unified_queue for file requeuing (instead of missing_metadata_queue)
+//! 3. Structured logging (tracing) for tool check events
+//!
+//! ## Original Design (Deprecated)
+//!
+//! The tool monitor was designed to run as a background task that:
 //! 1. Periodically checks for tool availability (tree-sitter parsers, LSP servers)
 //! 2. Queries missing_metadata_queue for files waiting on tools
 //! 3. Requeues files when their required tools become available
 //! 4. Tracks tool availability state in tool_availability table
 //!
-//! ## Configuration
+//! ## Tool Detection (Still Useful)
 //!
-//! Monitoring behavior is controlled via MonitoringConfig:
-//! - `check_interval_hours`: How often to check (default: 24h)
-//! - `check_on_startup`: Run check when daemon starts (default: true)
-//! - `enable_monitoring`: Master enable switch (default: true)
-//!
-//! ## Tool Detection
-//!
-//! Tool detection is implemented in pure Rust with no external dependencies:
+//! Tool detection logic is implemented in pure Rust with no external dependencies:
 //! - Tree-sitter: Checks for `lib<language>.so/dylib/dll` in standard locations
 //! - LSP servers: Scans PATH for `*-language-server` executables
-//!
-//! ## Requeuing Strategy
-//!
-//! Files are requeued with priority adjustment:
-//! - Active project files: priority + 2 (capped at 10)
-//! - Inactive project files: maintain original priority
-//! - Batch requeuing to avoid overwhelming queue processor
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -137,28 +132,14 @@ impl ToolMonitor {
     }
 
     /// Initialize database schema for tool availability tracking
+    ///
+    /// **DEPRECATED**: This method creates the tool_availability table which
+    /// violates 3-table SQLite compliance. Do not call this method.
+    /// Tool availability should be tracked in-memory instead.
+    #[deprecated(since = "0.4.0", note = "Violates 3-table SQLite compliance. Use in-memory state instead.")]
     pub async fn initialize_schema(&self) -> MonitoringResult<()> {
-        let schema = r#"
-            CREATE TABLE IF NOT EXISTS tool_availability (
-                tool_type TEXT NOT NULL,
-                language TEXT NOT NULL,
-                tool_path TEXT,
-                last_checked_at INTEGER,
-                is_available BOOLEAN,
-                PRIMARY KEY (tool_type, language)
-            );
-
-            CREATE INDEX IF NOT EXISTS idx_tool_availability_checked
-                ON tool_availability(last_checked_at);
-
-            CREATE INDEX IF NOT EXISTS idx_tool_availability_available
-                ON tool_availability(is_available)
-                WHERE is_available = 1;
-        "#;
-
-        sqlx::query(schema).execute(&self.db_pool).await?;
-
-        debug!("Tool availability schema initialized");
+        warn!("initialize_schema() is deprecated - tool_availability table violates 3-table compliance");
+        // Return Ok without creating the table to avoid schema violations
         Ok(())
     }
 
@@ -393,8 +374,6 @@ impl ToolMonitor {
         tool_type: &str,
         language: &str,
     ) -> MonitoringResult<Option<String>> {
-        let now = Utc::now().timestamp();
-
         // Check tool availability based on type
         let tool_path = match tool_type {
             "tree-sitter" => Self::find_tree_sitter_parser(language),
@@ -407,21 +386,10 @@ impl ToolMonitor {
 
         let is_available = tool_path.is_some();
 
-        // Update tool_availability table
-        let query = r#"
-            INSERT OR REPLACE INTO tool_availability (
-                tool_type, language, tool_path, last_checked_at, is_available
-            ) VALUES (?1, ?2, ?3, ?4, ?5)
-        "#;
-
-        sqlx::query(query)
-            .bind(tool_type)
-            .bind(language)
-            .bind(&tool_path)
-            .bind(now)
-            .bind(is_available)
-            .execute(db_pool)
-            .await?;
+        // NOTE: Previously this wrote to tool_availability table, but that table
+        // violates 3-table SQLite compliance. Tool availability is now checked
+        // without persistence - state should be tracked in-memory if needed.
+        let _ = db_pool; // Suppress unused warning
 
         debug!(
             "Tool check: {} for {} - {}",
