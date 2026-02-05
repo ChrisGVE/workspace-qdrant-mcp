@@ -733,8 +733,8 @@ export class WorkspaceQdrantMcpServer {
       this.sessionState.daemonConnected = true;
       logDaemonStatus(true);
 
-      // Register project with daemon
-      if (this.sessionState.projectPath && this.sessionState.projectId) {
+      // Register/activate project with daemon (even for new projects without projectId)
+      if (this.sessionState.projectPath) {
         await this.registerProject();
       }
 
@@ -748,22 +748,29 @@ export class WorkspaceQdrantMcpServer {
   }
 
   /**
-   * Register the current project with the daemon
+   * Register/activate the current project with the daemon
+   * For new projects, the daemon will generate the project ID
    */
   private async registerProject(): Promise<void> {
-    if (!this.sessionState.projectPath || !this.sessionState.projectId) {
+    if (!this.sessionState.projectPath) {
       return;
     }
 
     try {
       const response = await this.daemonClient.registerProject({
         path: this.sessionState.projectPath,
-        project_id: this.sessionState.projectId,
+        project_id: this.sessionState.projectId ?? '', // Empty for new projects
         name: this.sessionState.projectPath.split('/').pop() ?? 'unknown',
       });
 
+      // Store the project ID from daemon response (important for new projects)
+      if (response.project_id && !this.sessionState.projectId) {
+        this.sessionState.projectId = response.project_id;
+        logDebug('Project ID assigned by daemon', { project_id: response.project_id });
+      }
+
       logSessionEvent('register', {
-        project_id: this.sessionState.projectId,
+        project_id: response.project_id,
         project_path: this.sessionState.projectPath,
         created: response.created,
         priority: response.priority,
@@ -771,7 +778,7 @@ export class WorkspaceQdrantMcpServer {
       });
     } catch (error) {
       logError('Failed to register project', error, {
-        project_id: this.sessionState.projectId,
+        project_path: this.sessionState.projectPath,
       });
     }
   }

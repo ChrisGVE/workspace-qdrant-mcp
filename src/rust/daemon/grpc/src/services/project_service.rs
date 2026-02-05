@@ -34,6 +34,7 @@ use workspace_qdrant_core::{
     LanguageServerManager, Language,
     ProjectLanguageDetector,
     DaemonStateManager,
+    project_disambiguation::ProjectIdCalculator,
 };
 
 /// Default heartbeat timeout in seconds
@@ -519,31 +520,41 @@ impl ProjectService for ProjectServiceImpl {
     ) -> Result<Response<RegisterProjectResponse>, Status> {
         let req = request.into_inner();
 
-        // Validate required fields
-        if req.project_id.is_empty() {
-            return Err(Status::invalid_argument("project_id cannot be empty"));
-        }
+        // Validate path is required
         if req.path.is_empty() {
             return Err(Status::invalid_argument("path cannot be empty"));
         }
 
-        // Validate project_id format (12-char hex)
-        if req.project_id.len() != 12 || !req.project_id.chars().all(|c| c.is_ascii_hexdigit()) {
-            return Err(Status::invalid_argument(
-                "project_id must be a 12-character hexadecimal string"
-            ));
-        }
+        // Generate project_id if not provided (MCP server may not know it for new projects)
+        let project_id = if req.project_id.is_empty() {
+            let calculator = ProjectIdCalculator::new();
+            let path = std::path::Path::new(&req.path);
+            let git_remote = req.git_remote.as_deref();
+            let generated = calculator.calculate(path, git_remote, None);
+            info!("Generated project_id for {}: {}", req.path, generated);
+            generated
+        } else {
+            // Validate provided project_id format (12-char hex or local_ prefix)
+            let is_local = req.project_id.starts_with("local_");
+            let is_hex = req.project_id.len() == 12 && req.project_id.chars().all(|c| c.is_ascii_hexdigit());
+            if !is_local && !is_hex {
+                return Err(Status::invalid_argument(
+                    "project_id must be a 12-character hexadecimal string or start with 'local_'"
+                ));
+            }
+            req.project_id.clone()
+        };
 
         info!(
             "Registering project: id={}, path={}, name={:?}",
-            req.project_id, req.path, req.name
+            project_id, req.path, req.name
         );
 
         // Check if project exists in watch_folders
         let existing: Option<(i32,)> = sqlx::query_as(
             "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 AND collection = 'projects' LIMIT 1"
         )
-            .bind(&req.project_id)
+            .bind(&project_id)
             .fetch_optional(&self.db_pool)
             .await
             .map_err(|e| {
@@ -553,7 +564,7 @@ impl ProjectService for ProjectServiceImpl {
 
         let (created, is_active) = if existing.is_some() {
             // Existing project - register session (activates project)
-            match self.priority_manager.register_session(&req.project_id, "main").await {
+            match self.priority_manager.register_session(&project_id, "main").await {
                 Ok(_) => (false, true),
                 Err(e) => {
                     error!("Failed to register session: {}", e);
@@ -575,7 +586,7 @@ impl ProjectService for ProjectServiceImpl {
             )
             .bind(&watch_id)
             .bind(&req.path)
-            .bind(&req.project_id)
+            .bind(&project_id)
             .bind(&req.git_remote)
             .bind(&now)
             .execute(&self.db_pool)
@@ -583,7 +594,7 @@ impl ProjectService for ProjectServiceImpl {
 
             match result {
                 Ok(_) => {
-                    info!("Created new project watch folder: {}", req.project_id);
+                    info!("Created new project watch folder: {}", project_id);
                     (true, true)
                 }
                 Err(e) => {
@@ -594,18 +605,18 @@ impl ProjectService for ProjectServiceImpl {
         };
 
         // Cancel any pending deferred shutdown for this project
-        if self.cancel_deferred_shutdown(&req.project_id).await {
+        if self.cancel_deferred_shutdown(&project_id).await {
             debug!(
-                project_id = %req.project_id,
+                project_id = %project_id,
                 "Cancelled pending deferred shutdown on project reactivation"
             );
         }
 
         // Start LSP servers for the project (non-blocking, best-effort)
         let project_root = PathBuf::from(&req.path);
-        if let Err(e) = self.start_project_lsp_servers(&req.project_id, &project_root).await {
+        if let Err(e) = self.start_project_lsp_servers(&project_id, &project_root).await {
             warn!(
-                project_id = %req.project_id,
+                project_id = %project_id,
                 error = %e,
                 "Failed to start LSP servers (non-critical)"
             );
@@ -613,18 +624,18 @@ impl ProjectService for ProjectServiceImpl {
 
         // Activity inheritance: Set is_active=true for project and all submodules
         // This updates watch_folders table per Task 19 specification
-        match self.state_manager.activate_project_by_tenant_id(&req.project_id).await {
+        match self.state_manager.activate_project_by_tenant_id(&project_id).await {
             Ok((affected, watch_id)) => {
                 if affected > 0 {
                     info!(
-                        project_id = %req.project_id,
+                        project_id = %project_id,
                         watch_id = ?watch_id,
                         affected_folders = affected,
                         "Activated project watch folders (activity inheritance)"
                     );
                 } else {
                     debug!(
-                        project_id = %req.project_id,
+                        project_id = %project_id,
                         "No watch folders found for activity inheritance (project may not be watched yet)"
                     );
                 }
@@ -632,7 +643,7 @@ impl ProjectService for ProjectServiceImpl {
             Err(e) => {
                 // Activity inheritance is best-effort, don't fail registration
                 warn!(
-                    project_id = %req.project_id,
+                    project_id = %project_id,
                     error = %e,
                     "Failed to activate project watch folders (non-critical)"
                 );
@@ -641,7 +652,7 @@ impl ProjectService for ProjectServiceImpl {
 
         let response = RegisterProjectResponse {
             created,
-            project_id: req.project_id,
+            project_id,  // Return the (possibly generated) project_id
             priority: "high".to_string(),
             is_active,
         };
