@@ -10,7 +10,6 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 pub mod config;
-pub mod deletion_strategy;
 pub mod document_processor;
 pub mod embedding;
 pub mod error;
@@ -47,11 +46,6 @@ pub mod lsp;
 pub mod project_disambiguation;
 
 use crate::config::Config;
-pub use crate::deletion_strategy::{
-    DeletionMode, DeletionCollectionType, DeletionStrategy, DeletionStrategyFactory,
-    DynamicDeletionStrategy, CumulativeDeletionStrategy, BatchCleanupManager,
-    DeletionError, DeletionResult, CleanupStats
-};
 pub use crate::document_processor::{
     DocumentProcessor, DocumentProcessorError, DocumentProcessorResult
 };
@@ -117,9 +111,7 @@ pub use crate::priority_manager::{
     priority
 };
 pub use crate::queue_operations::{
-    QueueManager, QueueOperation, QueueItem, QueueError,
-    // Active projects (Task 36)
-    ActiveProject, ActiveProjectStats,
+    QueueManager, QueueError,
     // Queue depth monitoring types (Task 461.8)
     QueueLoadLevel as QueueOpsLoadLevel, QueueThrottlingSummary
 };
