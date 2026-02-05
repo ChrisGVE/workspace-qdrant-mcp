@@ -2,6 +2,26 @@
 //!
 //! This module handles SQLite-based persistence for daemon state including LSP server metadata,
 //! health metrics, communication logs, configuration, and operational state.
+//!
+//! ## 3-Table SQLite Compliance Note
+//!
+//! **WARNING**: This module creates the following non-compliant SQLite tables:
+//! - `lsp_servers` - Server metadata
+//! - `lsp_health_metrics` - Health metrics history
+//! - `lsp_communication_logs` - Communication audit logs
+//! - `lsp_configurations` - Server configurations
+//! - `lsp_project_server_states` - Per-project server state
+//!
+//! Per the 3-table SQLite compliance requirement, only `schema_version`, `unified_queue`,
+//! and `watch_folders` tables are allowed. This module requires refactoring to:
+//!
+//! 1. **Server preferences**: Move to daemon config under `daemon.lsp.languages`
+//! 2. **Project language state**: Store in `watch_folders.metadata` JSON column
+//! 3. **Health metrics & logs**: Use structured logging (tracing) instead
+//! 4. **Runtime state**: Keep in-memory instead of persisting
+//!
+//! Until this refactoring is complete, the LSP subsystem will create non-compliant tables.
+//! This is tracked for future work.
 
 use std::collections::HashMap;
 use std::path::Path;
