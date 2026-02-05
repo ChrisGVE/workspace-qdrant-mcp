@@ -83,12 +83,32 @@ MCP Server                    Daemon
 | `project_service.rs` | ~60 | Scan queuing on new project registration |
 | `patterns/exclusion.rs` | 409 | `should_exclude_file` function |
 
+## Known Issues
+
+### Exclusion Patterns Too Permissive
+The current exclusion filters are not strict enough. Files from directories like `.mypy_cache/` are being queued for ingestion when they should be excluded.
+
+**Directories that should be added to exclusion patterns:**
+- `.mypy_cache/` - Python type checker cache
+- `__pycache__/` - Python bytecode cache (verify if already excluded)
+- `.pytest_cache/` - Pytest cache
+- `.ruff_cache/` - Ruff linter cache
+- `.tox/` - Tox test environments
+- `.nox/` - Nox test environments
+- `.coverage/` - Coverage reports
+- `.hypothesis/` - Hypothesis test cache
+
+**File to modify:** `src/rust/daemon/core/src/patterns/exclusion.rs`
+
+**Action required:** Review and expand the exclusion patterns in `should_exclude_file` function to include common cache/build directories.
+
 ## Next Steps
 
-1. **Monitor queue drain:** ~9,000 files remaining - will complete over time
-2. **File watcher integration:** Connect notify file watcher for real-time updates
-3. **Performance optimization:** Consider batch processing, parallel embedding
-4. **Memory rules:** Integrate memory collection for behavioral rules
+1. **Fix exclusion patterns:** Add missing cache directories to exclusion list
+2. **Monitor queue drain:** ~9,000 files remaining - will complete over time
+3. **File watcher integration:** Connect notify file watcher for real-time updates
+4. **Performance optimization:** Consider batch processing, parallel embedding
+5. **Memory rules:** Integrate memory collection for behavioral rules
 
 ## Commands for Monitoring
 
