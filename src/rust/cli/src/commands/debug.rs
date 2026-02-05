@@ -4,7 +4,11 @@
 //! Subcommands: logs, errors, queue-errors, language
 
 use anyhow::Result;
-use clap::{Args, Subcommand};
+use clap::{Args, Subcommand, ValueEnum};
+use std::env;
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::PathBuf;
 use std::process::Command;
 
 use crate::grpc::client::DaemonClient;
@@ -17,10 +21,22 @@ pub struct DebugArgs {
     command: DebugCommand,
 }
 
+/// Log component filter
+#[derive(Debug, Clone, Copy, Default, ValueEnum)]
+pub enum LogComponent {
+    /// Show logs from all components (merged and sorted by timestamp)
+    #[default]
+    All,
+    /// Show daemon logs only
+    Daemon,
+    /// Show MCP server logs only
+    McpServer,
+}
+
 /// Debug subcommands
 #[derive(Subcommand)]
 enum DebugCommand {
-    /// View daemon logs
+    /// View daemon and MCP server logs (merged from canonical paths)
     Logs {
         /// Number of lines to show (default: 50)
         #[arg(short = 'n', long, default_value = "50")]
@@ -30,9 +46,17 @@ enum DebugCommand {
         #[arg(short, long)]
         follow: bool,
 
-        /// Show only error log
+        /// Filter by component
+        #[arg(short, long, value_enum, default_value = "all")]
+        component: LogComponent,
+
+        /// Filter by MCP session ID
         #[arg(short, long)]
-        errors_only: bool,
+        session: Option<String>,
+
+        /// Output in JSON format (raw log entries)
+        #[arg(long)]
+        json: bool,
     },
 
     /// Show recent errors from all sources
@@ -74,114 +98,315 @@ pub async fn execute(args: DebugArgs) -> Result<()> {
         DebugCommand::Logs {
             lines,
             follow,
-            errors_only,
-        } => logs(lines, follow, errors_only).await,
+            component,
+            session,
+            json,
+        } => logs(lines, follow, component, session, json).await,
         DebugCommand::Errors { count, component } => errors(count, component).await,
         DebugCommand::QueueErrors { count, operation } => queue_errors(count, operation).await,
         DebugCommand::Language { language, verbose } => diagnose_language(&language, verbose).await,
     }
 }
 
-async fn logs(lines: usize, follow: bool, errors_only: bool) -> Result<()> {
-    output::section("Daemon Logs");
+/// Returns the canonical OS-specific log directory for workspace-qdrant logs.
+fn get_canonical_log_dir() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        env::var("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| env::temp_dir())
+                    .join(".local")
+                    .join("state")
+            })
+            .join("workspace-qdrant")
+            .join("logs")
+    }
 
-    // Determine log file location based on platform
-    let log_paths = if errors_only {
-        vec!["/tmp/memexd.err.log", "/var/log/memexd.err.log"]
-    } else {
-        vec![
-            "/tmp/memexd.out.log",
-            "/tmp/memexd.err.log",
-            "/var/log/memexd.log",
-        ]
-    };
+    #[cfg(target_os = "macos")]
+    {
+        dirs::home_dir()
+            .unwrap_or_else(|| env::temp_dir())
+            .join("Library")
+            .join("Logs")
+            .join("workspace-qdrant")
+    }
 
-    let mut found_log = false;
+    #[cfg(target_os = "windows")]
+    {
+        dirs::data_local_dir()
+            .unwrap_or_else(|| env::temp_dir())
+            .join("workspace-qdrant")
+            .join("logs")
+    }
 
-    for log_path in &log_paths {
-        let path = std::path::Path::new(log_path);
-        if path.exists() {
-            found_log = true;
-            output::info(format!("Reading from {}", log_path));
-            output::separator();
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        dirs::home_dir()
+            .unwrap_or_else(|| env::temp_dir())
+            .join(".workspace-qdrant")
+            .join("logs")
+    }
+}
 
-            if follow {
-                // Use tail -f for following
-                let mut cmd = Command::new("tail");
-                cmd.args(["-f", "-n", &lines.to_string(), log_path]);
+/// Represents a parsed log entry with timestamp and component info
+#[derive(Debug)]
+struct LogEntry {
+    timestamp: String,
+    component: String,
+    session_id: Option<String>,
+    raw_line: String,
+}
 
-                output::info("Press Ctrl+C to stop following...");
-                let _ = cmd.status();
-            } else {
-                // Read last N lines
-                let output_result = Command::new("tail")
-                    .args(["-n", &lines.to_string(), log_path])
-                    .output()?;
+impl LogEntry {
+    /// Try to parse a JSON log line
+    fn from_json_line(line: &str, component: &str) -> Option<Self> {
+        // Parse JSON to extract timestamp and session_id
+        if let Ok(json) = serde_json::from_str::<serde_json::Value>(line) {
+            let timestamp = json
+                .get("timestamp")
+                .or_else(|| json.get("time"))
+                .or_else(|| json.get("ts"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
 
-                if output_result.status.success() {
-                    let content = String::from_utf8_lossy(&output_result.stdout);
-                    println!("{}", content);
-                }
+            let session_id = json
+                .get("session_id")
+                .and_then(|v| v.as_str())
+                .map(String::from);
+
+            Some(LogEntry {
+                timestamp,
+                component: component.to_string(),
+                session_id,
+                raw_line: line.to_string(),
+            })
+        } else {
+            // Non-JSON line - use current time as fallback
+            Some(LogEntry {
+                timestamp: String::new(),
+                component: component.to_string(),
+                session_id: None,
+                raw_line: line.to_string(),
+            })
+        }
+    }
+}
+
+/// Read log entries from a file (last N lines)
+fn read_log_file(path: &PathBuf, component: &str, max_lines: usize) -> Vec<LogEntry> {
+    let mut entries = Vec::new();
+
+    if let Ok(file) = File::open(path) {
+        let reader = BufReader::new(file);
+        let lines: Vec<String> = reader.lines().filter_map(Result::ok).collect();
+
+        // Take last N lines
+        let start = lines.len().saturating_sub(max_lines);
+        for line in &lines[start..] {
+            if let Some(entry) = LogEntry::from_json_line(line, component) {
+                entries.push(entry);
             }
-            break;
         }
     }
 
-    if !found_log {
-        // Try journalctl on Linux
-        #[cfg(target_os = "linux")]
-        {
-            output::info("Checking journalctl...");
-            let mut cmd = Command::new("journalctl");
-            cmd.args(["--user", "-u", "memexd", "-n", &lines.to_string()]);
+    entries
+}
 
-            if follow {
-                cmd.arg("-f");
-            }
+async fn logs(
+    lines: usize,
+    follow: bool,
+    component: LogComponent,
+    session: Option<String>,
+    json_output: bool,
+) -> Result<()> {
+    let log_dir = get_canonical_log_dir();
+    let daemon_log = log_dir.join("daemon.jsonl");
+    let mcp_log = log_dir.join("mcp-server.jsonl");
 
-            let _ = cmd.status();
-            return Ok(());
+    if !json_output {
+        output::section("Logs");
+        output::kv("Log directory", &log_dir.display().to_string());
+        output::kv(
+            "Component",
+            match component {
+                LogComponent::All => "all (merged)",
+                LogComponent::Daemon => "daemon",
+                LogComponent::McpServer => "mcp-server",
+            },
+        );
+        if let Some(ref sid) = session {
+            output::kv("Session filter", sid);
         }
+        output::separator();
+    }
 
-        // Try macOS unified logging
-        #[cfg(target_os = "macos")]
-        {
-            output::info("Checking unified log...");
-            let output_result = Command::new("log")
-                .args([
-                    "show",
-                    "--predicate",
-                    "process == \"memexd\"",
-                    "--last",
-                    "1h",
-                    "--style",
-                    "compact",
-                ])
-                .output();
+    // Handle follow mode
+    if follow {
+        return follow_logs(component, &daemon_log, &mcp_log, session).await;
+    }
 
-            if let Ok(result) = output_result {
-                if result.status.success() && !result.stdout.is_empty() {
-                    let content = String::from_utf8_lossy(&result.stdout);
-                    // Show last N lines
-                    let lines_vec: Vec<&str> = content.lines().collect();
-                    let start = lines_vec.len().saturating_sub(lines);
-                    for line in &lines_vec[start..] {
-                        println!("{}", line);
-                    }
-                    return Ok(());
-                }
+    // Collect log entries based on component filter
+    let mut all_entries: Vec<LogEntry> = Vec::new();
+
+    match component {
+        LogComponent::All => {
+            if daemon_log.exists() {
+                all_entries.extend(read_log_file(&daemon_log, "daemon", lines));
+            }
+            if mcp_log.exists() {
+                all_entries.extend(read_log_file(&mcp_log, "mcp-server", lines));
             }
         }
+        LogComponent::Daemon => {
+            if daemon_log.exists() {
+                all_entries.extend(read_log_file(&daemon_log, "daemon", lines));
+            }
+        }
+        LogComponent::McpServer => {
+            if mcp_log.exists() {
+                all_entries.extend(read_log_file(&mcp_log, "mcp-server", lines));
+            }
+        }
+    }
 
-        output::warning("No log files found");
-        output::info("Expected locations:");
-        output::info("  - /tmp/memexd.out.log");
-        output::info("  - /tmp/memexd.err.log");
-        output::info("  - journalctl --user -u memexd (Linux)");
-        output::info("  - log show --predicate 'process == \"memexd\"' (macOS)");
+    // Filter by session if specified
+    if let Some(ref session_filter) = session {
+        all_entries.retain(|e| {
+            e.session_id
+                .as_ref()
+                .map(|s| s.contains(session_filter))
+                .unwrap_or(false)
+        });
+    }
+
+    // Sort by timestamp if merging
+    if matches!(component, LogComponent::All) {
+        all_entries.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    }
+
+    // Take last N entries
+    let start = all_entries.len().saturating_sub(lines);
+    let display_entries = &all_entries[start..];
+
+    if display_entries.is_empty() {
+        if !json_output {
+            output::warning("No log entries found");
+            show_log_locations(&daemon_log, &mcp_log);
+        }
+        return Ok(());
+    }
+
+    // Output entries
+    for entry in display_entries {
+        if json_output {
+            println!("{}", entry.raw_line);
+        } else {
+            // Format nicely for terminal: [component] line
+            if matches!(component, LogComponent::All) {
+                println!("[{}] {}", entry.component, entry.raw_line);
+            } else {
+                println!("{}", entry.raw_line);
+            }
+        }
+    }
+
+    if !json_output {
+        output::separator();
+        output::info(format!("Showing {} entries", display_entries.len()));
     }
 
     Ok(())
+}
+
+/// Follow logs in real-time
+async fn follow_logs(
+    component: LogComponent,
+    daemon_log: &PathBuf,
+    mcp_log: &PathBuf,
+    session: Option<String>,
+) -> Result<()> {
+    output::info("Following logs... Press Ctrl+C to stop");
+    output::separator();
+
+    // Build tail command based on component
+    let mut files_to_follow: Vec<&PathBuf> = Vec::new();
+
+    match component {
+        LogComponent::All => {
+            if daemon_log.exists() {
+                files_to_follow.push(daemon_log);
+            }
+            if mcp_log.exists() {
+                files_to_follow.push(mcp_log);
+            }
+        }
+        LogComponent::Daemon => {
+            if daemon_log.exists() {
+                files_to_follow.push(daemon_log);
+            }
+        }
+        LogComponent::McpServer => {
+            if mcp_log.exists() {
+                files_to_follow.push(mcp_log);
+            }
+        }
+    }
+
+    if files_to_follow.is_empty() {
+        output::warning("No log files found to follow");
+        show_log_locations(daemon_log, mcp_log);
+        return Ok(());
+    }
+
+    // Use tail -f with multiple files
+    let mut cmd = Command::new("tail");
+    cmd.arg("-f");
+    cmd.arg("-n");
+    cmd.arg("10"); // Show last 10 lines initially
+
+    for path in &files_to_follow {
+        cmd.arg(path);
+    }
+
+    // If session filter specified, pipe through grep
+    if let Some(sid) = session {
+        // Use shell to pipe tail through grep
+        let file_args: Vec<String> = files_to_follow
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
+        let tail_cmd = format!(
+            "tail -f -n 10 {} | grep --line-buffered '{}'",
+            file_args.join(" "),
+            sid
+        );
+
+        let _ = Command::new("sh").arg("-c").arg(&tail_cmd).status();
+    } else {
+        let _ = cmd.status();
+    }
+
+    Ok(())
+}
+
+/// Show expected log file locations
+fn show_log_locations(daemon_log: &PathBuf, mcp_log: &PathBuf) {
+    output::info("Expected log locations:");
+    output::info(format!("  Daemon: {}", daemon_log.display()));
+    output::info(format!("  MCP Server: {}", mcp_log.display()));
+
+    #[cfg(target_os = "linux")]
+    {
+        output::info("  Also check: journalctl --user -u memexd");
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        output::info("  Also check: log show --predicate 'process == \"memexd\"' --last 1h");
+    }
 }
 
 async fn errors(count: usize, component: Option<String>) -> Result<()> {
