@@ -3,3 +3,5 @@
  */
 
 export * from './project-detector.js';
+export * from './paths.js';
+export * from './logger.js';

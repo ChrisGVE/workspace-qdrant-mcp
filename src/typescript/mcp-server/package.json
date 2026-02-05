@@ -55,6 +55,7 @@
     "better-sqlite3": "^11.7.0",
     "@grpc/grpc-js": "^1.12.0",
     "@grpc/proto-loader": "^0.7.13",
+    "pino": "^9.6.0",
     "yaml": "^2.6.1",
     "zod": "^4.0.0"
   },

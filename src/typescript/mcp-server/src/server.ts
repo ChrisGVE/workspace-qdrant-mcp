@@ -21,6 +21,15 @@ import { DaemonClient } from './clients/daemon-client.js';
 import { SqliteStateManager } from './clients/sqlite-state-manager.js';
 import { ProjectDetector } from './utils/project-detector.js';
 import { HealthMonitor } from './utils/health-monitor.js';
+import {
+  setSessionId,
+  logInfo,
+  logError,
+  logDebug,
+  logToolCall,
+  logSessionEvent,
+  logDaemonStatus,
+} from './utils/logger.js';
 import { SearchTool } from './tools/search.js';
 import { RetrieveTool } from './tools/retrieve.js';
 import { MemoryTool } from './tools/memory.js';
@@ -164,12 +173,12 @@ export class WorkspaceQdrantMcpServer {
 
     // Handle server errors
     this.server.onerror = (error): void => {
-      this.logError('MCP server error:', error);
+      logError('MCP server error', error);
     };
 
     // Handle server close
     this.server.onclose = (): void => {
-      this.log('MCP server closed');
+      logInfo('MCP server closed');
       this.cleanup();
     };
   }
@@ -370,6 +379,8 @@ export class WorkspaceQdrantMcpServer {
     toolName: string,
     args: Record<string, unknown> | undefined
   ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
+    const startTime = Date.now();
+
     try {
       let result: unknown;
 
@@ -402,17 +413,21 @@ export class WorkspaceQdrantMcpServer {
         }
 
         default:
+          logToolCall(toolName, Date.now() - startTime, false, { error: 'Unknown tool' });
           return {
             content: [{ type: 'text', text: `Unknown tool: ${toolName}` }],
             isError: true,
           };
       }
 
+      logToolCall(toolName, Date.now() - startTime, true);
+
       return {
         content: [{ type: 'text', text: JSON.stringify(result, null, 2) }],
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      logToolCall(toolName, Date.now() - startTime, false, { error: errorMessage });
       return {
         content: [{ type: 'text', text: `Error: ${errorMessage}` }],
         isError: true,
@@ -655,7 +670,7 @@ export class WorkspaceQdrantMcpServer {
       // Initialize SQLite state manager
       const initResult = this.stateManager.initialize();
       if (initResult.status === 'degraded') {
-        this.log(`State manager degraded: ${initResult.reason}`);
+        logInfo('State manager degraded', { reason: initResult.reason });
       }
 
       // Perform session initialization (project detection, daemon registration)
@@ -664,22 +679,22 @@ export class WorkspaceQdrantMcpServer {
 
       // Start health monitoring after daemon connection attempt
       this.healthMonitor.start();
-      this.log('Health monitoring started');
+      logDebug('Health monitoring started');
 
       // Start the transport
       if (this.isStdioMode) {
         const transport = new StdioServerTransport();
         await this.server.connect(transport);
-        this.log('MCP server started (stdio mode)');
+        logInfo('MCP server started', { mode: 'stdio' });
       } else {
         // Non-stdio mode: don't connect transport (for testing)
         // In production, HTTP transport would be set up here
-        this.log('MCP server started (no transport - test mode)');
+        logInfo('MCP server started', { mode: 'test' });
       }
 
       this.isInitialized = true;
     } catch (error) {
-      this.logError('Failed to start MCP server:', error);
+      logError('Failed to start MCP server', error);
       throw error;
     }
   }
@@ -688,9 +703,11 @@ export class WorkspaceQdrantMcpServer {
    * Initialize session: detect project, register with daemon, start heartbeat
    */
   private async initializeSession(): Promise<void> {
-    // Generate session ID
+    // Generate session ID and set for logging correlation
     this.sessionState.sessionId = randomUUID();
-    this.log(`Session initialized: ${this.sessionState.sessionId}`);
+    setSessionId(this.sessionState.sessionId);
+
+    logSessionEvent('start', { session_id: this.sessionState.sessionId });
 
     // Detect current project
     const cwd = process.cwd();
@@ -698,23 +715,23 @@ export class WorkspaceQdrantMcpServer {
 
     if (projectRoot) {
       this.sessionState.projectPath = projectRoot;
-      this.log(`Project detected: ${projectRoot}`);
+      logDebug('Project detected', { project_path: projectRoot });
 
       // Try to get project info from daemon's database
       const projectInfo = await this.projectDetector.getProjectInfo(projectRoot, true);
       if (projectInfo) {
         this.sessionState.projectId = projectInfo.projectId;
-        this.log(`Project ID: ${projectInfo.projectId}`);
+        logDebug('Project ID resolved', { project_id: projectInfo.projectId });
       }
     } else {
-      this.log('No project detected from cwd');
+      logDebug('No project detected from cwd', { cwd });
     }
 
     // Try to connect to daemon
     try {
       await this.daemonClient.connect();
       this.sessionState.daemonConnected = true;
-      this.log('Connected to daemon');
+      logDaemonStatus(true);
 
       // Register project with daemon
       if (this.sessionState.projectPath && this.sessionState.projectId) {
@@ -725,8 +742,8 @@ export class WorkspaceQdrantMcpServer {
       this.startHeartbeat();
     } catch (error) {
       this.sessionState.daemonConnected = false;
-      this.log('Daemon not available, running in degraded mode');
-      this.logError('Daemon connection error:', error);
+      logDaemonStatus(false, { reason: 'connection_failed' });
+      logError('Daemon connection error', error);
     }
   }
 
@@ -745,12 +762,17 @@ export class WorkspaceQdrantMcpServer {
         name: this.sessionState.projectPath.split('/').pop() ?? 'unknown',
       });
 
-      this.log(
-        `Project registered: ${response.created ? 'new' : 'existing'}, ` +
-          `priority=${response.priority}, active=${response.is_active}`
-      );
+      logSessionEvent('register', {
+        project_id: this.sessionState.projectId,
+        project_path: this.sessionState.projectPath,
+        created: response.created,
+        priority: response.priority,
+        is_active: response.is_active,
+      });
     } catch (error) {
-      this.logError('Failed to register project:', error);
+      logError('Failed to register project', error, {
+        project_id: this.sessionState.projectId,
+      });
     }
   }
 
@@ -770,7 +792,7 @@ export class WorkspaceQdrantMcpServer {
       this.sendHeartbeat();
     }, HEARTBEAT_INTERVAL_MS);
 
-    this.log(`Heartbeat started (interval: ${HEARTBEAT_INTERVAL_MS / 1000 / 60} minutes)`);
+    logDebug('Heartbeat started', { interval_minutes: HEARTBEAT_INTERVAL_MS / 1000 / 60 });
   }
 
   /**
@@ -787,12 +809,16 @@ export class WorkspaceQdrantMcpServer {
       });
 
       if (response.acknowledged) {
-        this.log('Heartbeat acknowledged');
+        logSessionEvent('heartbeat', {
+          project_id: this.sessionState.projectId,
+          acknowledged: true,
+        });
       }
     } catch (error) {
-      this.logError('Heartbeat failed:', error);
+      logError('Heartbeat failed', error, { project_id: this.sessionState.projectId });
       // Mark daemon as disconnected on heartbeat failure
       this.sessionState.daemonConnected = false;
+      logDaemonStatus(false, { reason: 'heartbeat_failed' });
     }
   }
 
@@ -800,10 +826,10 @@ export class WorkspaceQdrantMcpServer {
    * Stop the MCP server gracefully
    */
   async stop(): Promise<void> {
-    this.log('Stopping MCP server...');
+    logInfo('Stopping MCP server');
     await this.cleanup();
     await this.server.close();
-    this.log('MCP server stopped');
+    logInfo('MCP server stopped');
   }
 
   /**
@@ -812,13 +838,13 @@ export class WorkspaceQdrantMcpServer {
   private async cleanup(): Promise<void> {
     // Stop health monitoring
     this.healthMonitor.stop();
-    this.log('Health monitoring stopped');
+    logDebug('Health monitoring stopped');
 
     // Stop heartbeat
     if (this.sessionState.heartbeatInterval) {
       clearInterval(this.sessionState.heartbeatInterval);
       this.sessionState.heartbeatInterval = null;
-      this.log('Heartbeat stopped');
+      logDebug('Heartbeat stopped');
     }
 
     // Deprioritize project with daemon
@@ -827,12 +853,15 @@ export class WorkspaceQdrantMcpServer {
         const response = await this.daemonClient.deprioritizeProject({
           project_id: this.sessionState.projectId,
         });
-        this.log(
-          `Project deprioritized: is_active=${response.is_active}, ` +
-            `new_priority=${response.new_priority}`
-        );
+        logSessionEvent('deprioritize', {
+          project_id: this.sessionState.projectId,
+          is_active: response.is_active,
+          new_priority: response.new_priority,
+        });
       } catch (error) {
-        this.logError('Failed to deprioritize project:', error);
+        logError('Failed to deprioritize project', error, {
+          project_id: this.sessionState.projectId,
+        });
       }
     }
 
@@ -842,7 +871,7 @@ export class WorkspaceQdrantMcpServer {
     // Close state manager
     this.stateManager.close();
 
-    this.log(`Session ended: ${this.sessionState.sessionId}`);
+    logSessionEvent('end', { session_id: this.sessionState.sessionId });
   }
 
   /**
@@ -899,25 +928,6 @@ export class WorkspaceQdrantMcpServer {
    */
   getHealthMonitor(): HealthMonitor {
     return this.healthMonitor;
-  }
-
-  /**
-   * Log a message (stderr in stdio mode to avoid protocol contamination)
-   */
-  private log(message: string): void {
-    if (!this.isStdioMode) {
-      console.log(`[${SERVER_NAME}] ${message}`);
-    } else {
-      console.error(`[${SERVER_NAME}] ${message}`);
-    }
-  }
-
-  /**
-   * Log an error (always to stderr)
-   */
-  private logError(message: string, error: unknown): void {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error(`[${SERVER_NAME}] ${message} ${errorMessage}`);
   }
 }
 
