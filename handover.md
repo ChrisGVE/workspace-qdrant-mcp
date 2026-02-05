@@ -102,7 +102,12 @@ The current exclusion filters are not strict enough. Hidden files and directorie
 
 **File to modify:** `src/rust/daemon/core/src/patterns/exclusion.rs`
 
-**Action required:** Add a rule to exclude all hidden files/directories (paths containing `/.[^/]+/` or starting with `.`) with explicit exceptions for useful configs like `.github/`.
+**Action required:** Add a rule to exclude all hidden files/directories at ANY depth in the project tree:
+- `/project/.hidden/` - excluded
+- `/project/src/.cache/` - excluded
+- `/project/deep/path/.mypy_cache/` - excluded
+
+The rule should match any path component starting with `.` (e.g., regex: `/\.[^/]+` in path), with explicit exceptions for useful dirs like `.github/` that apply at all levels.
 
 ## Next Steps
 
