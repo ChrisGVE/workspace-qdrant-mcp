@@ -10,10 +10,11 @@ mod tests {
     use tokio::time::Duration;
 
     use crate::lsp::{
-        LspConfig, LspManager, Language, LspServerDetector,
-        StateManager, ServerStatus,
+        LspConfig, Language, LspServerDetector,
+        ServerStatus,
         JsonRpcClient, JsonRpcMessage,
     };
+    // NOTE: LspManager and StateManager removed as part of 3-table SQLite compliance
     use crate::lsp::lifecycle::{ServerMetadata, RestartPolicy, HealthMetrics};
 
     #[test]
@@ -167,156 +168,8 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn test_state_manager() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("state_test.db");
-
-        let manager = StateManager::new(&db_path).await.unwrap();
-        manager.initialize().await.unwrap();
-
-        // Test basic stats
-        let stats = manager.get_stats().await.unwrap();
-        assert!(stats.contains_key("servers_by_status"));
-        assert!(stats.contains_key("total_health_records"));
-
-        // Test configuration storage
-        let test_value = serde_json::json!({"timeout": 30, "enabled": true});
-        manager.set_configuration(None, "test_setting", test_value.clone(), "test").await.unwrap();
-
-        let retrieved = manager.get_configuration(None, "test_setting").await.unwrap();
-        assert_eq!(retrieved, Some(test_value));
-
-        // Test non-existent configuration
-        let missing = manager.get_configuration(None, "missing_key").await.unwrap();
-        assert_eq!(missing, None);
-
-        // Close the manager
-        manager.close().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_server_metadata_storage() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("state_metadata_test.db");
-
-        let manager = StateManager::new(&db_path).await.unwrap();
-        manager.initialize().await.unwrap();
-
-        // Create test server metadata
-        let server_id = uuid::Uuid::new_v4();
-        let metadata = ServerMetadata {
-            id: server_id,
-            name: "test-server".to_string(),
-            executable_path: PathBuf::from("/usr/bin/test-lsp"),
-            languages: vec![Language::Python, Language::JavaScript],
-            version: Some("1.0.0".to_string()),
-            started_at: chrono::Utc::now(),
-            process_id: Some(12345),
-            working_directory: PathBuf::from("/tmp"),
-            environment: std::collections::HashMap::new(),
-            arguments: vec!["--stdio".to_string()],
-        };
-
-        // Store metadata
-        manager.store_server_metadata(&metadata).await.unwrap();
-
-        // Retrieve metadata
-        let retrieved = manager.get_server_metadata(&server_id).await.unwrap();
-        assert!(retrieved.is_some());
-        
-        let record = retrieved.unwrap();
-        assert_eq!(record.name, "test-server");
-        assert_eq!(record.languages.len(), 2);
-        assert!(record.languages.contains(&Language::Python));
-        assert!(record.languages.contains(&Language::JavaScript));
-
-        // Test health metrics
-        let health_metrics = HealthMetrics {
-            status: ServerStatus::Running,
-            last_healthy: chrono::Utc::now(),
-            response_time_ms: 150,
-            consecutive_failures: 0,
-            requests_processed: 42,
-            avg_response_time_ms: 125.5,
-            memory_usage_bytes: Some(1024 * 1024),
-            cpu_usage_percent: Some(5.2),
-        };
-
-        manager.update_health_metrics(&server_id, &health_metrics).await.unwrap();
-
-        // Get health history
-        let history = manager.get_health_metrics_history(&server_id, 10).await.unwrap();
-        assert_eq!(history.len(), 1);
-        assert_eq!(history[0].status, ServerStatus::Running);
-        assert_eq!(history[0].response_time_ms, 150);
-
-        manager.close().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_communication_logging() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("state_comm_test.db");
-
-        let manager = StateManager::new(&db_path).await.unwrap();
-        manager.initialize().await.unwrap();
-
-        // Create test server
-        let server_id = uuid::Uuid::new_v4();
-        let metadata = ServerMetadata {
-            id: server_id,
-            name: "test-lsp".to_string(),
-            executable_path: PathBuf::from("/usr/bin/test-lsp"),
-            languages: vec![Language::Python],
-            version: Some("1.0.0".to_string()),
-            started_at: chrono::Utc::now(),
-            process_id: Some(12345),
-            working_directory: PathBuf::from("/tmp"),
-            environment: std::collections::HashMap::new(),
-            arguments: vec![],
-        };
-
-        manager.store_server_metadata(&metadata).await.unwrap();
-
-        // Log communication events
-        manager.log_communication(
-            &server_id,
-            "outgoing",
-            "initialize",
-            r#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}"#,
-            Some(200),
-            true,
-            None,
-        ).await.unwrap();
-
-        manager.log_communication(
-            &server_id,
-            "incoming",
-            "initialize",
-            r#"{"jsonrpc":"2.0","id":1,"result":{"capabilities":{}}}"#,
-            None,
-            true,
-            None,
-        ).await.unwrap();
-
-        manager.log_communication(
-            &server_id,
-            "outgoing",
-            "shutdown",
-            r#"{"jsonrpc":"2.0","id":2,"method":"shutdown"}"#,
-            Some(100),
-            false,
-            Some("Server not responding"),
-        ).await.unwrap();
-
-        // Verify communication was logged
-        let stats = manager.get_stats().await.unwrap();
-        let comm_count = stats.get("total_communication_records").unwrap().as_u64().unwrap();
-        assert_eq!(comm_count, 3);
-
-        manager.close().await.unwrap();
-    }
+    // NOTE: test_state_manager, test_server_metadata_storage, and test_communication_logging
+    // removed - all used StateManager (3-table SQLite compliance)
 
     #[test]
     fn test_json_rpc_message_parsing() {
@@ -394,26 +247,7 @@ mod tests {
         assert!(!client.is_connected().await);
     }
 
-    #[tokio::test]
-    async fn test_lsp_manager_lifecycle() {
-        let temp_dir = tempdir().unwrap();
-        let config = LspConfig {
-            database_path: temp_dir.path().join("state_manager_test.db"),
-            startup_timeout: Duration::from_secs(10),
-            request_timeout: Duration::from_secs(5),
-            health_check_interval: Duration::from_secs(30),
-            ..Default::default()
-        };
-
-        // Test manager creation
-        let manager = LspManager::new(config.clone()).await.unwrap();
-        assert!(manager.get_all_servers().await.is_empty());
-
-        // Test statistics
-        let stats = manager.get_stats().await;
-        assert!(stats.contains_key("active_servers"));
-        assert_eq!(stats.get("active_servers").unwrap().as_u64(), Some(0));
-    }
+    // NOTE: test_lsp_manager_lifecycle removed - used LspManager (3-table SQLite compliance)
 
     #[test]
     fn test_restart_policy() {
@@ -427,74 +261,8 @@ mod tests {
         assert_eq!(policy.backoff_multiplier, 2.0);
     }
 
-    #[tokio::test]
-    async fn test_cleanup_old_records() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("state_cleanup_test.db");
-
-        let manager = StateManager::new(&db_path).await.unwrap();
-        manager.initialize().await.unwrap();
-
-        // Create some test data
-        let server_id = uuid::Uuid::new_v4();
-        let metadata = ServerMetadata {
-            id: server_id,
-            name: "cleanup-test".to_string(),
-            executable_path: PathBuf::from("/usr/bin/test"),
-            languages: vec![Language::Python],
-            version: Some("1.0.0".to_string()),
-            started_at: chrono::Utc::now(),
-            process_id: Some(12345),
-            working_directory: PathBuf::from("/tmp"),
-            environment: std::collections::HashMap::new(),
-            arguments: vec![],
-        };
-
-        manager.store_server_metadata(&metadata).await.unwrap();
-
-        // Add some communication logs
-        manager.log_communication(
-            &server_id,
-            "outgoing",
-            "test",
-            "test content",
-            Some(100),
-            true,
-            None,
-        ).await.unwrap();
-
-        // Cleanup (should not remove anything since data is recent)
-        let deleted = manager.cleanup_old_records(1).await.unwrap();
-        // Should be 0 since we just created the records
-        assert_eq!(deleted, 0);
-
-        manager.close().await.unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_integration_basic_workflow() {
-        let temp_dir = tempdir().unwrap();
-        let config = LspConfig {
-            database_path: temp_dir.path().join("integration_test.db"),
-            startup_timeout: Duration::from_secs(5),
-            request_timeout: Duration::from_secs(3),
-            health_check_interval: Duration::from_secs(60), // Long interval for test
-            ..Default::default()
-        };
-
-        // Create LSP manager
-        let manager = LspManager::new(config).await.unwrap();
-
-        // Test getting server for a language (will be None since no servers are running)
-        let python_server = manager.get_server(&Language::Python).await;
-        assert!(python_server.is_none());
-
-        // Test getting stats
-        let stats = manager.get_stats().await;
-        assert_eq!(stats.get("active_servers").unwrap().as_u64(), Some(0));
-        
-        println!("Integration test completed successfully");
-    }
+    // NOTE: test_cleanup_old_records removed - used StateManager (3-table SQLite compliance)
+    // NOTE: test_integration_basic_workflow removed - used LspManager (3-table SQLite compliance)
 
     // ============================================================================
     // Task 1.19: Comprehensive LSP Integration Tests
@@ -671,55 +439,8 @@ mod tests {
         assert_eq!(reset_metrics.total_enrichment_queries, 0);
     }
 
-    #[tokio::test]
-    async fn test_state_persistence_with_manager() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("persistence_test.db");
-
-        // Create state manager
-        let state_manager = StateManager::new(&db_path).await.unwrap();
-        state_manager.initialize().await.unwrap();
-        let state_manager = Arc::new(state_manager);
-
-        // Create LanguageServerManager with state persistence
-        let config = create_test_project_config();
-        let mut manager = LanguageServerManager::with_state_manager(
-            config,
-            Arc::clone(&state_manager),
-        ).await.unwrap();
-
-        // Initialize manager
-        manager.initialize().await.unwrap();
-
-        // Mark a project as active
-        manager.mark_project_active("persistent-project").await;
-        assert!(manager.is_project_active("persistent-project").await);
-
-        // Verify state manager has the table
-        let count = state_manager.get_project_server_state_count().await.unwrap();
-        // No servers started yet, so count should be 0
-        assert_eq!(count, 0);
-    }
-
-    #[tokio::test]
-    async fn test_server_state_restoration_empty() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("restore_test.db");
-
-        let state_manager = StateManager::new(&db_path).await.unwrap();
-        state_manager.initialize().await.unwrap();
-        let state_manager = Arc::new(state_manager);
-
-        let config = create_test_project_config();
-        let manager = LanguageServerManager::with_state_manager(
-            config,
-            Arc::clone(&state_manager),
-        ).await.unwrap();
-
-        // Restore should return empty list when no states are stored
-        let restored = manager.restore_project_servers("test-project").await.unwrap();
-        assert!(restored.is_empty());
-    }
+    // NOTE: test_state_persistence_with_manager and test_server_state_restoration_empty
+    // removed - tests used StateManager/with_state_manager (3-table SQLite compliance)
 
     #[tokio::test]
     async fn test_multi_project_tracking() {
@@ -858,91 +579,8 @@ mod tests {
         assert_eq!(set.len(), 3); // Only 3 unique keys
     }
 
-    /// Integration test: Complete lifecycle with conditional server availability
-    ///
-    /// This test checks if rust-analyzer is available and tests the full lifecycle.
-    /// If rust-analyzer is not available, the test passes with a warning.
-    #[tokio::test]
-    async fn test_complete_lifecycle_conditional() {
-        let temp_dir = tempdir().unwrap();
-        let project_root = temp_dir.path();
-
-        // Create a mock Rust project structure
-        std::fs::create_dir_all(project_root.join("src")).unwrap();
-        std::fs::write(
-            project_root.join("Cargo.toml"),
-            r#"[package]
-name = "test-project"
-version = "0.1.0"
-edition = "2021"
-"#,
-        ).unwrap();
-        std::fs::write(
-            project_root.join("src/main.rs"),
-            r#"fn main() {
-    println!("Hello, world!");
-}
-
-fn helper() -> i32 {
-    42
-}
-"#,
-        ).unwrap();
-
-        // Create manager with state persistence
-        let db_path = temp_dir.path().join("state.db");
-        let state_manager = StateManager::new(&db_path).await.unwrap();
-        state_manager.initialize().await.unwrap();
-        let state_manager = Arc::new(state_manager);
-
-        let config = create_test_project_config();
-        let mut manager = LanguageServerManager::with_state_manager(
-            config,
-            Arc::clone(&state_manager),
-        ).await.unwrap();
-
-        manager.initialize().await.unwrap();
-
-        let project_id = "lifecycle-test-project";
-        manager.mark_project_active(project_id).await;
-
-        // Check if rust-analyzer is available
-        let available = manager.available_languages().await;
-        if !available.contains(&Language::Rust) {
-            println!("SKIP: rust-analyzer not available on this system");
-            return;
-        }
-
-        // Try to start server
-        match manager.start_server(project_id, Language::Rust, project_root).await {
-            Ok(_instance) => {
-                println!("Server started successfully");
-
-                // Verify server is running
-                assert!(manager.is_server_running(project_id, Language::Rust).await);
-                assert!(manager.has_active_servers(project_id).await);
-
-                // Check state was persisted
-                let count = state_manager.get_project_server_state_count().await.unwrap();
-                assert_eq!(count, 1);
-
-                // Stop the server
-                manager.stop_server(project_id, Language::Rust).await.unwrap();
-
-                // Verify server stopped
-                assert!(!manager.is_server_running(project_id, Language::Rust).await);
-
-                // Check state was removed
-                let count = state_manager.get_project_server_state_count().await.unwrap();
-                assert_eq!(count, 0);
-
-                println!("Complete lifecycle test passed!");
-            }
-            Err(e) => {
-                println!("SKIP: Could not start rust-analyzer: {}", e);
-            }
-        }
-    }
+    // NOTE: test_complete_lifecycle_conditional removed
+    // Test used StateManager/with_state_manager (3-table SQLite compliance)
 
     /// Test server detection reports available servers
     #[tokio::test]
@@ -968,50 +606,6 @@ fn helper() -> i32 {
         }
     }
 
-    /// Test that state persistence survives manager recreation
-    #[tokio::test]
-    async fn test_state_persistence_survives_restart() {
-        use crate::lsp::state::ProjectServerState as PersistentState;
-
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("restart_test.db");
-
-        // First manager session - store state directly
-        {
-            let state_manager = StateManager::new(&db_path).await.unwrap();
-            state_manager.initialize().await.unwrap();
-
-            // Store a persistent state directly
-            let state = PersistentState {
-                project_id: "restart-project".to_string(),
-                language: Language::Python,
-                project_root: temp_dir.path().to_string_lossy().to_string(),
-                restart_count: 3,
-                last_started_at: chrono::Utc::now(),
-                executable_path: Some("/usr/bin/pyright".to_string()),
-                metadata: std::collections::HashMap::new(),
-            };
-            state_manager.store_project_server_state(&state).await.unwrap();
-
-            let count = state_manager.get_project_server_state_count().await.unwrap();
-            assert_eq!(count, 1);
-        }
-
-        // Second session - verify state was persisted
-        {
-            let state_manager = StateManager::new(&db_path).await.unwrap();
-            // Note: We don't call initialize() again as tables already exist
-
-            let states = state_manager.restore_project_server_states().await.unwrap();
-            assert_eq!(states.len(), 1);
-
-            let key = crate::lsp::state::ProjectLanguageKey {
-                project_id: "restart-project".to_string(),
-                language: Language::Python,
-            };
-            let state = states.get(&key).unwrap();
-            assert_eq!(state.restart_count, 3);
-            assert_eq!(state.executable_path, Some("/usr/bin/pyright".to_string()));
-        }
-    }
+    // NOTE: test_state_persistence_survives_restart removed
+    // StateManager no longer exists (3-table SQLite compliance)
 }

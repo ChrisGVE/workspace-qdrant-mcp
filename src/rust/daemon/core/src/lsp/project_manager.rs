@@ -31,10 +31,10 @@ use super::{
     Language, LspConfig, LspError,
     LspServerDetector, ServerInstance, ServerStatus,
 };
-use super::state::{
-    StateManager, ProjectServerState as PersistentServerState,
-};
 use crate::config::LspSettings;
+
+// NOTE: StateManager and persistence removed as part of 3-table SQLite compliance.
+// The LanguageServerManager now operates entirely in-memory without SQLite persistence.
 
 /// Errors specific to project-level LSP management
 #[derive(Error, Debug)]
@@ -389,9 +389,6 @@ pub struct LanguageServerManager {
     /// Usage metrics (Task 1.17)
     metrics: Arc<RwLock<LspMetrics>>,
 
-    /// Optional state manager for persistence (Task 1.18)
-    state_manager: Option<Arc<StateManager>>,
-
     /// Set of currently active project IDs (for restore filtering)
     active_projects: Arc<RwLock<std::collections::HashSet<String>>>,
 }
@@ -410,24 +407,8 @@ impl LanguageServerManager {
             available_servers: Arc::new(RwLock::new(HashMap::new())),
             running: Arc::new(RwLock::new(false)),
             metrics: Arc::new(RwLock::new(LspMetrics::new())),
-            state_manager: None,
             active_projects: Arc::new(RwLock::new(std::collections::HashSet::new())),
         })
-    }
-
-    /// Create a new project LSP manager with state persistence (Task 1.18)
-    pub async fn with_state_manager(
-        config: ProjectLspConfig,
-        state_manager: Arc<StateManager>,
-    ) -> ProjectLspResult<Self> {
-        let mut manager = Self::new(config).await?;
-        manager.state_manager = Some(state_manager);
-        Ok(manager)
-    }
-
-    /// Set the state manager for persistence (Task 1.18)
-    pub fn set_state_manager(&mut self, state_manager: Arc<StateManager>) {
-        self.state_manager = Some(state_manager);
     }
 
     /// Get a snapshot of current LSP metrics
@@ -455,28 +436,6 @@ impl LanguageServerManager {
 
         // Detect available servers
         self.detect_available_servers().await?;
-
-        // Restore persisted server states if state manager is available (Task 1.18)
-        if let Some(ref state_manager) = self.state_manager {
-            // Clean up stale states first (older than 24 hours)
-            if let Err(e) = state_manager.cleanup_stale_project_states(24).await {
-                tracing::warn!(error = %e, "Failed to cleanup stale project server states");
-            }
-
-            // Restore server states
-            match state_manager.restore_project_server_states().await {
-                Ok(states) => {
-                    tracing::info!(count = states.len(), "Restored project server states from SQLite");
-                    // Note: We don't auto-restart servers here. They will be restarted
-                    // when the project is marked as active via mark_project_active().
-                    // This is intentional - we only want to track the state for recovery,
-                    // not blindly restart all servers.
-                }
-                Err(e) => {
-                    tracing::warn!(error = %e, "Failed to restore project server states");
-                }
-            }
-        }
 
         // Start health check background task
         if self.config.enable_auto_restart {
@@ -511,72 +470,14 @@ impl LanguageServerManager {
         active.contains(project_id)
     }
 
-    /// Restore servers for a project that was previously active (Task 1.18)
+    /// Restore servers for a project that was previously active
     ///
-    /// Called when a project is re-activated to restore previously running servers.
-    pub async fn restore_project_servers(&self, project_id: &str) -> ProjectLspResult<Vec<Language>> {
-        let Some(ref state_manager) = self.state_manager else {
-            return Ok(vec![]);
-        };
-
-        let states = state_manager.restore_project_server_states().await
-            .map_err(|e| ProjectLspError::QueryFailed { message: e.to_string() })?;
-
-        let mut restored = vec![];
-
-        for (key, state) in states {
-            if key.project_id != project_id {
-                continue;
-            }
-
-            // Check if server is already running
-            if self.is_server_running(project_id, key.language.clone()).await {
-                tracing::debug!(
-                    project_id = project_id,
-                    language = ?key.language,
-                    "Server already running, skipping restore"
-                );
-                continue;
-            }
-
-            // Try to restart the server
-            let project_root = PathBuf::from(&state.project_root);
-            if project_root.exists() {
-                tracing::info!(
-                    project_id = project_id,
-                    language = ?key.language,
-                    restart_count = state.restart_count,
-                    "Restoring server from persisted state"
-                );
-
-                match self.start_server(project_id, key.language.clone(), &project_root).await {
-                    Ok(_) => {
-                        restored.push(key.language);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            project_id = project_id,
-                            language = ?key.language,
-                            error = %e,
-                            "Failed to restore server"
-                        );
-                    }
-                }
-            } else {
-                tracing::warn!(
-                    project_id = project_id,
-                    language = ?key.language,
-                    path = %project_root.display(),
-                    "Project root no longer exists, removing persisted state"
-                );
-                // Clean up stale state
-                if let Err(e) = state_manager.remove_project_server_state(project_id, &key.language).await {
-                    tracing::warn!(error = %e, "Failed to remove stale project server state");
-                }
-            }
-        }
-
-        Ok(restored)
+    /// Note: Server state persistence has been removed as part of 3-table SQLite compliance.
+    /// This method now returns an empty list as there is no persisted state to restore.
+    /// Servers will be started fresh when `start_server` is called.
+    pub async fn restore_project_servers(&self, _project_id: &str) -> ProjectLspResult<Vec<Language>> {
+        // No persistence - always return empty
+        Ok(vec![])
     }
 
     /// Start the background health check task
@@ -913,34 +814,6 @@ impl LanguageServerManager {
             metrics.total_server_starts += 1;
         }
 
-        // Persist state to SQLite if state manager is available (Task 1.18)
-        if let Some(ref state_manager) = self.state_manager {
-            let persistent_state = PersistentServerState {
-                project_id: project_id.to_string(),
-                language: language.clone(),
-                project_root: project_root.to_string_lossy().to_string(),
-                restart_count: 0,
-                last_started_at: Utc::now(),
-                executable_path: Some(server_path_str.clone()),
-                metadata: std::collections::HashMap::new(),
-            };
-
-            if let Err(e) = state_manager.store_project_server_state(&persistent_state).await {
-                tracing::warn!(
-                    project_id = project_id,
-                    language = ?language,
-                    error = %e,
-                    "Failed to persist project server state"
-                );
-            } else {
-                tracing::debug!(
-                    project_id = project_id,
-                    language = ?language,
-                    "Persisted project server state to SQLite"
-                );
-            }
-        }
-
         Ok(Arc::new(instance))
     }
 
@@ -1001,24 +874,6 @@ impl LanguageServerManager {
         {
             let mut metrics = self.metrics.write().await;
             metrics.total_server_stops += 1;
-        }
-
-        // Remove persisted state from SQLite if state manager is available (Task 1.18)
-        if let Some(ref state_manager) = self.state_manager {
-            if let Err(e) = state_manager.remove_project_server_state(project_id, &language).await {
-                tracing::warn!(
-                    project_id = project_id,
-                    language = ?language,
-                    error = %e,
-                    "Failed to remove persisted project server state"
-                );
-            } else {
-                tracing::debug!(
-                    project_id = project_id,
-                    language = ?language,
-                    "Removed persisted project server state from SQLite"
-                );
-            }
         }
 
         Ok(())
@@ -2798,61 +2653,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_restore_project_servers_no_state_manager() {
+    async fn test_restore_project_servers_returns_empty() {
         let config = ProjectLspConfig::default();
         let manager = LanguageServerManager::new(config).await.unwrap();
 
-        // Without state manager, should return empty vec
+        // State persistence was removed - restore always returns empty vec
         let restored = manager.restore_project_servers("test-project").await.unwrap();
         assert!(restored.is_empty());
     }
 
-    #[tokio::test]
-    async fn test_with_state_manager_constructor() {
-        use tempfile::tempdir;
-
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-
-        // Create state manager
-        let state_manager = StateManager::new(&db_path).await.unwrap();
-        state_manager.initialize().await.unwrap();
-        let state_manager = Arc::new(state_manager);
-
-        // Create manager with state persistence
-        let config = ProjectLspConfig::default();
-        let manager = LanguageServerManager::with_state_manager(
-            config,
-            Arc::clone(&state_manager),
-        ).await.unwrap();
-
-        // Mark project active
-        manager.mark_project_active("test-project").await;
-        assert!(manager.is_project_active("test-project").await);
-    }
-
-    #[tokio::test]
-    async fn test_set_state_manager() {
-        use tempfile::tempdir;
-
-        let config = ProjectLspConfig::default();
-        let mut manager = LanguageServerManager::new(config).await.unwrap();
-
-        // Initially no state manager
-        let restored = manager.restore_project_servers("test-project").await.unwrap();
-        assert!(restored.is_empty());
-
-        // Set state manager
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let state_manager = StateManager::new(&db_path).await.unwrap();
-        state_manager.initialize().await.unwrap();
-        manager.set_state_manager(Arc::new(state_manager));
-
-        // Now restore_project_servers should work (though empty)
-        let restored = manager.restore_project_servers("test-project").await.unwrap();
-        assert!(restored.is_empty());
-    }
+    // NOTE: test_with_state_manager_constructor and test_set_state_manager removed
+    // as part of 3-table SQLite compliance - StateManager no longer exists
 
     // Task 1.14: Tests for crash handling during enrichment queries
 

@@ -10,7 +10,6 @@
 //! - **Server Detection**: Automatic discovery of LSP servers via PATH scanning
 //! - **Lifecycle Management**: Server startup, health monitoring, restart, and shutdown
 //! - **Communication**: JSON-RPC protocol abstraction over stdio/TCP
-//! - **State Management**: SQLite-based persistence for server metadata
 //! - **Configuration**: Per-language server configuration and parameters
 //! - **Error Handling**: Circuit breaker pattern and resilient operation
 //!
@@ -29,33 +28,31 @@
 //! # Usage Example
 //!
 //! ```rust,no_run
-//! use workspace_qdrant_core::lsp::{LspManager, LspConfig};
+//! use workspace_qdrant_core::lsp::{LanguageServerManager, ProjectLspConfig};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
-//!     let config = LspConfig::default();
-//!     let mut manager = LspManager::new(config).await?;
-//!     
-//!     // Start LSP manager
-//!     manager.start().await?;
-//!     
-//!     // The manager will automatically detect and manage LSP servers
-//!     
+//!     let config = ProjectLspConfig::default();
+//!     let manager = LanguageServerManager::new(config).await?;
+//!
+//!     // The manager handles per-project LSP server lifecycle
+//!
 //!     Ok(())
 //! }
 //! ```
 
-use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
-use tokio::sync::{RwLock, Mutex};
 
 pub mod detection;
 pub mod lifecycle;
 pub mod communication;
-pub mod state;
 pub mod config;
 pub mod project_manager;
+
+// NOTE: The `state` module (StateManager) was removed as part of 3-table SQLite compliance.
+// The LspManager struct that used StateManager was never instantiated in production.
+// The daemon uses LanguageServerManager directly, which works without SQLite persistence.
 
 #[cfg(test)]
 mod tests;
@@ -66,7 +63,6 @@ pub use detection::{
 };
 pub use lifecycle::{LspServerManager, ServerInstance, ServerStatus};
 pub use communication::{JsonRpcClient, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse};
-pub use state::{StateManager};
 pub use config::{LspConfig, LanguageConfig, ServerConfig};
 pub use project_manager::{
     LanguageServerManager, ProjectLspConfig, ProjectLspError, ProjectLspResult,
@@ -234,201 +230,8 @@ pub enum LspPriority {
     Low = 3,
 }
 
-/// Central LSP management system
-pub struct LspManager {
-    config: LspConfig,
-    detector: LspServerDetector,
-    manager: LspServerManager,
-    state: StateManager,
-    servers: RwLock<HashMap<Language, ServerInstance>>,
-    shutdown_signal: Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
-}
-
-impl LspManager {
-    /// Create a new LSP manager with the given configuration
-    pub async fn new(config: LspConfig) -> LspResult<Self> {
-        tracing::info!("Initializing LSP Manager with configuration");
-        
-        let detector = LspServerDetector::new();
-        let manager = LspServerManager::new(config.clone()).await?;
-        let state = StateManager::new(&config.database_path).await?;
-        
-        Ok(Self {
-            config,
-            detector,
-            manager,
-            state,
-            servers: RwLock::new(HashMap::new()),
-            shutdown_signal: Mutex::new(None),
-        })
-    }
-
-    /// Start the LSP manager
-    pub async fn start(&mut self) -> LspResult<()> {
-        tracing::info!("Starting LSP Manager");
-
-        // Create shutdown channel
-        let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel();
-        *self.shutdown_signal.lock().await = Some(shutdown_tx);
-
-        // Initialize state database
-        self.state.initialize().await?;
-
-        // Detect available LSP servers
-        let detected_servers = self.detector.detect_servers().await?;
-        tracing::info!("Detected {} LSP servers", detected_servers.len());
-
-        // Initialize detected servers
-        for server in detected_servers {
-            if let Err(e) = self.initialize_server(server).await {
-                tracing::warn!("Failed to initialize server: {}", e);
-            }
-        }
-
-        // Start background tasks
-        self.start_background_tasks(shutdown_rx).await?;
-
-        tracing::info!("LSP Manager started successfully");
-        Ok(())
-    }
-
-    /// Initialize a detected LSP server
-    async fn initialize_server(&mut self, detected: DetectedServer) -> LspResult<()> {
-        tracing::info!("Initializing LSP server: {} for {:?}", 
-                      detected.name, detected.languages);
-
-        // Create server instance
-        let instance = self.manager.create_instance(detected).await?;
-        
-        // Store metadata in state database
-        self.state.store_server_metadata(&instance.metadata()).await?;
-
-        // Add to active servers for primary language
-        if let Some(primary_lang) = instance.primary_language() {
-            self.servers.write().await.insert(primary_lang, instance);
-        }
-
-        Ok(())
-    }
-
-    /// Start background maintenance tasks
-    async fn start_background_tasks(
-        &self,
-        mut shutdown_rx: tokio::sync::oneshot::Receiver<()>,
-    ) -> LspResult<()> {
-        let health_check_interval = self.config.health_check_interval;
-        let state = self.state.clone();
-        let manager = self.manager.clone();
-
-        // Health check task
-        let health_check_task = async move {
-            let mut interval = tokio::time::interval(health_check_interval);
-            loop {
-                tokio::select! {
-                    _ = &mut shutdown_rx => {
-                        tracing::info!("Shutting down LSP health check task");
-                        break;
-                    }
-                    _ = interval.tick() => {
-                        if let Err(e) = Self::perform_health_checks(&state, &manager).await {
-                            tracing::warn!("Health check failed: {}", e);
-                        }
-                    }
-                }
-            }
-        };
-
-        // Spawn health check task
-        tokio::spawn(health_check_task);
-
-        Ok(())
-    }
-
-    /// Perform health checks on all active servers
-    async fn perform_health_checks(
-        state: &StateManager,
-        manager: &LspServerManager,
-    ) -> LspResult<()> {
-        let servers = manager.get_all_instances().await;
-        
-        for instance in servers {
-            match instance.health_check().await {
-                Ok(metrics) => {
-                    state.update_health_metrics(&instance.id(), &metrics).await?;
-                }
-                Err(e) => {
-                    tracing::warn!("Health check failed for server {}: {}", 
-                                 instance.id(), e);
-                    
-                    // Note: Restart would be handled by a separate task with mutable access
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    /// Get LSP server for a specific language
-    pub async fn get_server(&self, language: &Language) -> Option<ServerInstance> {
-        self.servers.read().await.get(language).cloned()
-    }
-
-    /// Get all active servers
-    pub async fn get_all_servers(&self) -> HashMap<Language, ServerInstance> {
-        self.servers.read().await.clone()
-    }
-
-    /// Get manager statistics
-    pub async fn get_stats(&self) -> HashMap<String, serde_json::Value> {
-        let mut stats = HashMap::new();
-        
-        let servers = self.servers.read().await;
-        stats.insert("active_servers".to_string(), 
-                    serde_json::Value::Number(servers.len().into()));
-        
-        let mut language_stats = HashMap::new();
-        for (lang, instance) in servers.iter() {
-            language_stats.insert(
-                lang.identifier().to_string(),
-                serde_json::json!({
-                    "status": instance.status().await,
-                    "uptime_seconds": instance.uptime().await.as_secs(),
-                })
-            );
-        }
-        stats.insert("languages".to_string(), serde_json::Value::Object(
-            language_stats.into_iter().map(|(k, v)| (k, v)).collect()
-        ));
-        
-        stats
-    }
-
-    /// Graceful shutdown
-    pub async fn shutdown(&mut self) -> LspResult<()> {
-        tracing::info!("Shutting down LSP Manager");
-
-        // Signal shutdown to background tasks
-        if let Some(shutdown_tx) = self.shutdown_signal.lock().await.take() {
-            let _ = shutdown_tx.send(());
-        }
-
-        // Shutdown all server instances
-        let mut servers = self.servers.write().await;
-        let servers_to_shutdown: Vec<_> = servers.drain().collect();
-        drop(servers); // Release the write lock
-        
-        for (language, mut instance) in servers_to_shutdown {
-            tracing::debug!("Shutting down LSP server for {:?}", language);
-            if let Err(e) = instance.shutdown().await {
-                tracing::warn!("Error shutting down server for {:?}: {}", language, e);
-            }
-        }
-
-        // Close state database
-        self.state.close().await?;
-
-        tracing::info!("LSP Manager shutdown complete");
-        Ok(())
-    }
-}
+// NOTE: LspManager struct was removed as part of 3-table SQLite compliance.
+// It used StateManager which created 5 non-compliant SQLite tables.
+// The daemon uses LanguageServerManager directly (from project_manager module)
+// which provides per-project LSP lifecycle management without SQLite persistence.
 
