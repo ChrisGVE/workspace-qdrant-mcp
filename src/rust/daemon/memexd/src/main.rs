@@ -220,7 +220,8 @@ fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::er
     } else {
         let mut prod_config = LoggingConfig::production();
         prod_config.console_output = false;
-        prod_config.file_logging = false;
+        // Keep file_logging enabled for canonical log path output
+        // This allows `wqm debug logs` to show daemon logs
         prod_config.force_disable_ansi = Some(true);
         prod_config
     };
@@ -235,8 +236,10 @@ fn init_logging(log_level: &str, foreground: bool) -> Result<(), Box<dyn std::er
         _ => Level::INFO,
     };
 
-    if !foreground {
-        config.level = Level::ERROR;
+    // In daemon mode, use INFO level unless explicitly configured otherwise
+    // This ensures meaningful logs are captured to the canonical log file
+    if !foreground && config.level > Level::INFO {
+        config.level = Level::INFO;
     }
 
     initialize_logging(config).map_err(|e| Box::new(e) as Box<dyn std::error::Error>)

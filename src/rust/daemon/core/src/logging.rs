@@ -313,8 +313,8 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     // Detect daemon mode early for complete suppression
     let daemon_mode = is_daemon_mode();
 
-    // In daemon mode, configure for complete silence
-    if daemon_mode && !config.console_output {
+    // Only create a fully silent subscriber if BOTH console and file logging are disabled
+    if !config.console_output && !config.file_logging {
         // Create a completely silent subscriber that discards all output
         let null_writer = || std::io::sink();
         let subscriber = tracing_subscriber::fmt::Subscriber::builder()
@@ -326,14 +326,10 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
         subscriber.init();
         return Ok(());
     }
-    // Create environment filter
-    let env_filter = if daemon_mode {
-        // In daemon mode, use OFF level to suppress all tracing output
-        EnvFilter::new("off")
-    } else {
-        EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new(config.level.to_string()))
-    };
+
+    // Create environment filter using configured level (not "off" in daemon mode)
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(config.level.to_string()));
 
     // Determine if we should disable ANSI colors
     // Note: TTY detection performed silently to prevent log pollution
@@ -371,15 +367,8 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     // Build the subscriber with conditional layers
     let registry = Registry::default();
 
-    // In daemon mode with console output disabled, use sink writer
-    if daemon_mode && !config.console_output {
-        let null_writer = || std::io::sink();
-        let null_layer = fmt::layer()
-            .with_writer(null_writer)
-            .with_ansi(false);
-        registry.with(env_filter).with(null_layer).init();
-        return Ok(());
-    }
+    // Note: The fully silent case (no console AND no file) is handled at the start of this function.
+    // Below we handle combinations where at least one output is enabled.
 
     // Add layers based on configuration
     if config.console_output && config.file_logging {
