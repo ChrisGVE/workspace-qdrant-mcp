@@ -127,7 +127,14 @@ The rule should match any path component starting with `.` (e.g., regex: `/\.[^/
 - `lsp_enrichment_status` - Shows LSP status (`Skipped`, `Enriched`, `Failed`)
 - `lsp_enrichment_error` - Error reason if skipped/failed
 
-**Current state:** LSP enrichment shows `Skipped` with error `Project not active`. This is because the project wasn't marked active during ingestion. Files need to be re-processed when project is active for LSP enrichment.
+**Current state:** LSP enrichment shows `Skipped` with error `Project not active`.
+
+**BUG:** This is incorrect behavior. Project activity should ONLY affect queue priority, NOT feature availability. LSP enrichment should run regardless of whether the project is active or not.
+
+**Action required:** Fix the LSP enrichment logic to not check project activity state. The activity flag is for prioritization only:
+- Active project = higher queue priority
+- Inactive project = lower queue priority
+- Both should get full LSP/tree-sitter enrichment
 
 **Check via:**
 ```bash
