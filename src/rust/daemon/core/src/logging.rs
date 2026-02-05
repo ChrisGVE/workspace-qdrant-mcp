@@ -61,6 +61,56 @@ impl Default for LoggingConfig {
     }
 }
 
+/// Returns the canonical OS-specific log directory for workspace-qdrant logs.
+///
+/// Platform-specific paths:
+/// - Linux: `$XDG_STATE_HOME/workspace-qdrant/logs/` (default: `~/.local/state/workspace-qdrant/logs/`)
+/// - macOS: `~/Library/Logs/workspace-qdrant/`
+/// - Windows: `%LOCALAPPDATA%\workspace-qdrant\logs\`
+///
+/// Falls back to a temp directory if home cannot be determined.
+pub fn get_canonical_log_dir() -> PathBuf {
+    #[cfg(target_os = "linux")]
+    {
+        env::var("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| env::temp_dir())
+                    .join(".local")
+                    .join("state")
+            })
+            .join("workspace-qdrant")
+            .join("logs")
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        dirs::home_dir()
+            .unwrap_or_else(|| env::temp_dir())
+            .join("Library")
+            .join("Logs")
+            .join("workspace-qdrant")
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        dirs::data_local_dir()
+            .unwrap_or_else(|| env::temp_dir())
+            .join("workspace-qdrant")
+            .join("logs")
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        // Fallback for other platforms
+        dirs::home_dir()
+            .unwrap_or_else(|| env::temp_dir())
+            .join(".workspace-qdrant")
+            .join("logs")
+    }
+}
+
 impl LoggingConfig {
     /// Create logging configuration from environment variables
     pub fn from_environment() -> Self {
@@ -116,29 +166,15 @@ impl LoggingConfig {
         config
     }
 
-    /// Create production logging configuration with user-writable fallback path
+    /// Create production logging configuration with canonical OS log paths
     pub fn production() -> Self {
-        // Determine log file path with proper fallback
+        // Determine log file path using canonical OS-specific locations
         let log_file_path = if let Ok(custom_path) = env::var("WQM_LOG_FILE_PATH") {
-            // Use custom path from environment variable
+            // Use custom path from environment variable (allows override)
             Some(PathBuf::from(custom_path))
-        } else if let Ok(home) = env::var("HOME") {
-            // Use user-writable location in ~/.local/share/workspace-qdrant-mcp/logs
-            Some(
-                PathBuf::from(home)
-                    .join(".local")
-                    .join("share")
-                    .join("workspace-qdrant-mcp")
-                    .join("logs")
-                    .join("daemon.log")
-            )
         } else {
-            // Last resort: use temp directory
-            Some(
-                env::temp_dir()
-                    .join("workspace-qdrant-mcp")
-                    .join("daemon.log")
-            )
+            // Use canonical OS-specific log directory
+            Some(get_canonical_log_dir().join("daemon.jsonl"))
         };
 
         Self {
