@@ -109,9 +109,37 @@ The current exclusion filters are not strict enough. Hidden files and directorie
 
 The rule should match any path component starting with `.` (e.g., regex: `/\.[^/]+` in path), with explicit exceptions for useful dirs like `.github/` that apply at all levels.
 
+### Exclusion Cleanup Not Implemented
+**Question:** If we add new exclusions, will the daemon remove already-ingested files that now match?
+
+**Answer:** NO - this doesn't exist. The scan only queues new files; it doesn't retroactively clean up.
+
+**Action required:** Implement cleanup mechanism that:
+1. On startup or exclusion pattern change, scan Qdrant for points matching new exclusions
+2. Queue `(File, Delete)` items for files that should no longer be indexed
+3. Alternatively, provide a CLI command: `wqm admin cleanup-excluded`
+
+### Tree-sitter/LSP Enrichment Status
+**Question:** How do we know if tree-sitter/LSP info is being ingested?
+
+**Answer:** Check the payload fields in Qdrant:
+- `document_type` - Shows file classification (e.g., `Code("shell")`, `Code("rust")`)
+- `lsp_enrichment_status` - Shows LSP status (`Skipped`, `Enriched`, `Failed`)
+- `lsp_enrichment_error` - Error reason if skipped/failed
+
+**Current state:** LSP enrichment shows `Skipped` with error `Project not active`. This is because the project wasn't marked active during ingestion. Files need to be re-processed when project is active for LSP enrichment.
+
+**Check via:**
+```bash
+curl -s -X POST "http://localhost:6333/collections/projects/points/scroll" \
+  -H "Content-Type: application/json" \
+  --data '{"limit": 5, "with_payload": true}' | \
+  jq '.result.points[].payload | {file_path, document_type, lsp_enrichment_status}'
+```
+
 ## Next Steps
 
-1. **Fix exclusion patterns:** Add missing cache directories to exclusion list
+1. **Fix exclusion patterns:** Add hidden file/folder exclusion at all depths
 2. **Monitor queue drain:** ~9,000 files remaining - will complete over time
 3. **File watcher integration:** Connect notify file watcher for real-time updates
 4. **Performance optimization:** Consider batch processing, parallel embedding
