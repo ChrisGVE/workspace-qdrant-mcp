@@ -14,6 +14,7 @@ use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
+use walkdir::WalkDir;
 
 use crate::fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig};
 use crate::lsp::{
@@ -26,6 +27,8 @@ use crate::unified_queue_schema::{
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
+use crate::patterns::exclusion::should_exclude_file;
+use crate::file_classification::classify_file_type;
 
 /// Unified queue processor errors
 #[derive(Error, Debug)]
@@ -466,7 +469,7 @@ impl UnifiedQueueProcessor {
     /// Process a single unified queue item based on its type
     #[allow(clippy::too_many_arguments)]
     async fn process_item(
-        _queue_manager: &QueueManager,
+        queue_manager: &QueueManager,
         item: &UnifiedQueueItem,
         _config: &UnifiedProcessorConfig,
         document_processor: &Arc<DocumentProcessor>,
@@ -491,7 +494,7 @@ impl UnifiedQueueProcessor {
                 Self::process_folder_item(item).await
             }
             ItemType::Project => {
-                Self::process_project_item(item, storage_client).await
+                Self::process_project_item(item, queue_manager, storage_client).await
             }
             ItemType::Library => {
                 Self::process_library_item(item, storage_client).await
@@ -848,6 +851,7 @@ impl UnifiedQueueProcessor {
     /// Process project item (Task 37.29) - create/manage project collections
     async fn process_project_item(
         item: &UnifiedQueueItem,
+        queue_manager: &QueueManager,
         storage_client: &Arc<StorageClient>,
     ) -> UnifiedProcessorResult<()> {
         info!(
@@ -875,6 +879,10 @@ impl UnifiedQueueProcessor {
                     info!("Project collection {} already exists", item.collection);
                 }
             }
+            QueueOperation::Scan => {
+                // Scan project directory and queue file ingestion items
+                Self::scan_project_directory(item, &payload, queue_manager, storage_client).await?;
+            }
             QueueOperation::Delete => {
                 // Delete project collection
                 if storage_client
@@ -900,6 +908,160 @@ impl UnifiedQueueProcessor {
         info!(
             "Successfully processed project item {} (project_root={})",
             item.queue_id, payload.project_root
+        );
+
+        Ok(())
+    }
+
+    /// Scan a project directory and queue file ingestion items
+    ///
+    /// Walks the project directory recursively, filters files using exclusion rules,
+    /// and queues (File, Ingest) items for each eligible file.
+    async fn scan_project_directory(
+        item: &UnifiedQueueItem,
+        payload: &ProjectPayload,
+        queue_manager: &QueueManager,
+        storage_client: &Arc<StorageClient>,
+    ) -> UnifiedProcessorResult<()> {
+        let project_root = Path::new(&payload.project_root);
+
+        if !project_root.exists() {
+            return Err(UnifiedProcessorError::FileNotFound(format!(
+                "Project root does not exist: {}",
+                payload.project_root
+            )));
+        }
+
+        if !project_root.is_dir() {
+            return Err(UnifiedProcessorError::InvalidPayload(format!(
+                "Project root is not a directory: {}",
+                payload.project_root
+            )));
+        }
+
+        // Ensure collection exists before scanning
+        if !storage_client
+            .collection_exists(&item.collection)
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
+        {
+            info!("Creating project collection for scan: {}", item.collection);
+            storage_client
+                .create_collection(&item.collection, None, None)
+                .await
+                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+        }
+
+        info!(
+            "Scanning project directory: {} (tenant_id={})",
+            payload.project_root, item.tenant_id
+        );
+
+        let mut files_queued = 0u64;
+        let mut files_excluded = 0u64;
+        let mut errors = 0u64;
+        let start_time = std::time::Instant::now();
+
+        // Walk directory recursively
+        for entry in WalkDir::new(project_root)
+            .follow_links(false)  // Don't follow symlinks to avoid cycles
+            .into_iter()
+            .filter_map(|e| e.ok())  // Skip entries with errors
+        {
+            let path = entry.path();
+
+            // Skip directories - we only process files
+            if !path.is_file() {
+                continue;
+            }
+
+            // Get relative path for pattern matching
+            let rel_path = path
+                .strip_prefix(project_root)
+                .unwrap_or(path)
+                .to_string_lossy();
+
+            // Check exclusion rules using the relative path
+            if should_exclude_file(&rel_path) {
+                files_excluded += 1;
+                continue;
+            }
+
+            // Also check absolute path for completeness
+            let abs_path = path.to_string_lossy();
+            if should_exclude_file(&abs_path) {
+                files_excluded += 1;
+                continue;
+            }
+
+            // Get file metadata for the payload
+            let metadata = match path.metadata() {
+                Ok(m) => m,
+                Err(e) => {
+                    warn!("Failed to get metadata for {}: {}", abs_path, e);
+                    errors += 1;
+                    continue;
+                }
+            };
+
+            // Skip files that are too large (100MB limit)
+            const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+            if metadata.len() > MAX_FILE_SIZE {
+                debug!("Skipping large file: {} ({} bytes)", abs_path, metadata.len());
+                files_excluded += 1;
+                continue;
+            }
+
+            // Classify file type
+            let file_type = classify_file_type(path);
+
+            // Create file payload
+            let file_payload = FilePayload {
+                file_path: abs_path.to_string(),
+                file_type: Some(file_type.as_str().to_string()),
+                file_hash: None,  // Hash will be computed during processing
+                size_bytes: Some(metadata.len()),
+            };
+
+            let payload_json = serde_json::to_string(&file_payload)
+                .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("Failed to serialize FilePayload: {}", e)))?;
+
+            // Queue the file for ingestion
+            // Priority 5 is default/normal - not urgent but not low
+            match queue_manager.enqueue_unified(
+                ItemType::File,
+                QueueOperation::Ingest,
+                &item.tenant_id,
+                &item.collection,
+                &payload_json,
+                5,  // Normal priority for bulk scan items
+                Some(&item.branch),
+                None,
+            ).await {
+                Ok((queue_id, is_new)) => {
+                    if is_new {
+                        files_queued += 1;
+                        debug!("Queued file for ingestion: {} (queue_id={})", abs_path, queue_id);
+                    } else {
+                        debug!("File already in queue (deduplicated): {}", abs_path);
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to queue file {}: {}", abs_path, e);
+                    errors += 1;
+                }
+            }
+
+            // Yield periodically to avoid blocking the async runtime
+            if files_queued % 100 == 0 && files_queued > 0 {
+                tokio::task::yield_now().await;
+            }
+        }
+
+        let elapsed = start_time.elapsed();
+        info!(
+            "Project scan complete: {} files queued, {} excluded, {} errors in {:?} (project={})",
+            files_queued, files_excluded, errors, elapsed, payload.project_root
         );
 
         Ok(())
