@@ -2686,12 +2686,14 @@ Log files follow platform-specific conventions:
 
 **Log files:**
 
-| File | Purpose | Format |
-|------|---------|--------|
-| `daemon.jsonl` | Structured daemon logs | JSON Lines (one JSON object per line) |
-| `daemon.log` | Human-readable logs (optional) | Plain text with timestamps |
+| File | Component | Format | Description |
+|------|-----------|--------|-------------|
+| `daemon.jsonl` | Rust daemon | JSON Lines | Primary daemon structured logs |
+| `mcp-server.jsonl` | MCP Server | JSON Lines | TypeScript MCP server logs |
 
-**Note:** The `~/.workspace-qdrant/` directory is reserved for **configuration only**, not logs. On Linux, if `$XDG_CONFIG_HOME` is set, configuration moves to `$XDG_CONFIG_HOME/workspace-qdrant/`.
+**Note:** Daemon and MCP Server logs are kept in **separate files** to prevent corruption if one component crashes while writing. The CLI merges them for unified viewing.
+
+**Important:** The `~/.workspace-qdrant/` directory is reserved for **configuration only**, not logs. On Linux, if `$XDG_CONFIG_HOME` is set, configuration moves to `$XDG_CONFIG_HOME/workspace-qdrant/`.
 
 #### Service Manager Integration
 
@@ -2745,24 +2747,84 @@ Each log entry is a single JSON object:
 | `fields` | object | Structured context (varies by log type) |
 | `span` | object | Active tracing span (if any) |
 
+#### MCP Server Logging
+
+The MCP Server uses `pino` for structured JSON logging directly to file. **No stderr output** is used to avoid potential future MCP protocol conflicts.
+
+**Why file-only (no stderr):**
+
+- MCP stdio transport uses stdout for protocol messages
+- stderr could be used by future MCP protocol extensions
+- File logging is reliable and doesn't interfere with any transport
+
+**MCP Server log format:**
+
+```json
+{"level":30,"time":1707134445123,"pid":12345,"hostname":"workstation","name":"mcp-server","msg":"Tool called","session_id":"abc123","tool":"search","duration_ms":45}
+```
+
+**MCP Server log fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `level` | number | pino level (10=trace, 20=debug, 30=info, 40=warn, 50=error) |
+| `time` | number | Unix timestamp (milliseconds) |
+| `name` | string | Always `"mcp-server"` |
+| `msg` | string | Log message |
+| `session_id` | string | MCP session identifier (for correlation) |
+
+**TypeScript implementation:**
+
+```typescript
+import pino from 'pino';
+import { getLogDirectory } from './utils/paths';
+
+const logger = pino({
+  name: 'mcp-server',
+  level: process.env.WQM_LOG_LEVEL || 'info',
+  transport: {
+    target: 'pino/file',
+    options: { destination: `${getLogDirectory()}/mcp-server.jsonl` }
+  }
+});
+
+// Usage
+logger.info({ session_id, tool: 'search', duration_ms: 45 }, 'Tool called');
+```
+
+**Log rotation:** MCP Server logs follow the same rotation settings as daemon logs.
+
 #### CLI Log Access
 
-The CLI provides unified log access across all platforms:
+The CLI provides unified log access across all platforms, merging daemon and MCP server logs:
 
 ```bash
-wqm debug logs                    # Show recent logs (auto-detects source)
-wqm debug logs -n 100             # Last 100 entries
-wqm debug logs --follow           # Follow in real-time
-wqm debug logs --errors-only      # Filter to WARN and ERROR
-wqm debug logs --json             # Output raw JSON (for piping to jq)
-wqm debug logs --component queue  # Filter by component
+wqm debug logs                       # Show recent logs from all components
+wqm debug logs -n 100                # Last 100 entries
+wqm debug logs --follow              # Follow in real-time (both files)
+wqm debug logs --errors-only         # Filter to WARN and ERROR
+wqm debug logs --json                # Output raw JSON (for piping to jq)
 wqm debug logs --since "1 hour ago"
+
+# Component filtering
+wqm debug logs --component daemon      # Daemon logs only
+wqm debug logs --component mcp-server  # MCP Server logs only
+wqm debug logs --component all         # Both (default)
+
+# Correlation
+wqm debug logs --session <session_id>  # Filter by MCP session
 ```
+
+**Log merging behavior:**
+
+- CLI reads both `daemon.jsonl` and `mcp-server.jsonl`
+- Entries are merged and sorted by timestamp
+- Component origin is indicated in output (unless `--json`)
 
 **Log source priority:**
 
-1. Canonical log file (if exists and recent)
-2. Service manager logs (journalctl on Linux, file on macOS)
+1. Canonical log files (daemon.jsonl, mcp-server.jsonl)
+2. Service manager logs (journalctl on Linux) - daemon only
 3. Fallback locations (for backwards compatibility)
 
 #### Log Rotation
@@ -2795,13 +2857,28 @@ export OTEL_TRACES_SAMPLER_ARG=0.1  # 10% sampling
 
 #### Environment Variables
 
+**Shared (Daemon and MCP Server):**
+
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WQM_LOG_DIR` | (OS-canonical) | Override log directory |
+| `WQM_LOG_DIR` | (OS-canonical) | Override log directory for both components |
 | `WQM_LOG_LEVEL` | `info` | Minimum log level (trace, debug, info, warn, error) |
-| `WQM_LOG_JSON` | `true` | Enable JSON output |
-| `WQM_LOG_CONSOLE` | `false` (service) / `true` (foreground) | Console output |
+
+**Daemon-specific:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WQM_LOG_JSON` | `true` | Enable JSON output (daemon) |
+| `WQM_LOG_CONSOLE` | `false` (service) / `true` (foreground) | Console output (daemon) |
 | `RUST_LOG` | - | Fine-grained module filtering (e.g., `memexd=debug,hyper=warn`) |
+
+**MCP Server-specific:**
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WQM_MCP_LOG_LEVEL` | `WQM_LOG_LEVEL` | Override log level for MCP Server only |
+
+**Note:** MCP Server does not support console output to avoid protocol interference.
 
 ---
 
