@@ -2016,6 +2016,25 @@ updates:
 
 **Built-in defaults:** The configuration template (`assets/default_configuration.yaml`) defines all default values. User configuration only needs to specify overrides.
 
+#### Directory Organization
+
+The `~/.workspace-qdrant/` directory is for **configuration and state only**, not logs:
+
+| Directory | Purpose | XDG Equivalent |
+|-----------|---------|----------------|
+| `~/.workspace-qdrant/config.yaml` | Configuration file | `$XDG_CONFIG_HOME/workspace-qdrant/` |
+| `~/.workspace-qdrant/state.db` | SQLite database | `$XDG_DATA_HOME/workspace-qdrant/` |
+
+**Logs use OS-canonical paths** (see [Logging and Observability](#logging-and-observability)):
+
+| OS | Log Directory |
+|----|---------------|
+| Linux | `$XDG_STATE_HOME/workspace-qdrant/logs/` (default: `~/.local/state/workspace-qdrant/logs/`) |
+| macOS | `~/Library/Logs/workspace-qdrant/` |
+| Windows | `%LOCALAPPDATA%\workspace-qdrant\logs\` |
+
+**XDG Base Directory compliance (Linux):** If `$XDG_CONFIG_HOME` is set, configuration searches `$XDG_CONFIG_HOME/workspace-qdrant/` before `~/.workspace-qdrant/`.
+
 ### Environment Variables
 
 Environment variables override configuration file values:
@@ -2538,9 +2557,9 @@ The daemon installs as a launchd user agent:
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>~/.workspace-qdrant/logs/memexd.log</string>
+    <string>~/Library/Logs/workspace-qdrant/daemon.log</string>
     <key>StandardErrorPath</key>
-    <string>~/.workspace-qdrant/logs/memexd.err</string>
+    <string>~/Library/Logs/workspace-qdrant/daemon.err</string>
 </dict>
 </plist>
 ```
@@ -2570,6 +2589,14 @@ Restart=on-failure
 RestartSec=5
 Environment=QDRANT_URL=http://localhost:6333
 
+# Logging: stdout/stderr go to journald
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=memexd
+
+# State directory for file-based logs
+StateDirectory=workspace-qdrant
+
 [Install]
 WantedBy=default.target
 ```
@@ -2580,7 +2607,12 @@ systemctl --user daemon-reload
 systemctl --user enable memexd
 systemctl --user start memexd
 systemctl --user status memexd
+
+# View logs via journalctl
 journalctl --user -u memexd -f
+
+# Or via file (daemon writes to both)
+tail -f ~/.local/state/workspace-qdrant/logs/daemon.jsonl
 ```
 
 #### Windows
@@ -2637,6 +2669,141 @@ Qdrant          healthy   12ms      v1.7.3, 3 collections
 Daemon          healthy   2ms       pid=12345, uptime=2h15m
 Database        healthy   1ms       23 watch folders, 156 queue items
 ```
+
+### Logging and Observability
+
+The daemon produces structured logs using the `tracing` crate with JSON output for machine parsing. Logs follow OS-canonical paths and integrate with platform service managers.
+
+#### Canonical Log Paths
+
+Log files follow platform-specific conventions:
+
+| OS | Log Directory | Environment Override |
+|----|---------------|---------------------|
+| **Linux** | `$XDG_STATE_HOME/workspace-qdrant/logs/` (default: `~/.local/state/workspace-qdrant/logs/`) | `WQM_LOG_DIR` |
+| **macOS** | `~/Library/Logs/workspace-qdrant/` | `WQM_LOG_DIR` |
+| **Windows** | `%LOCALAPPDATA%\workspace-qdrant\logs\` | `WQM_LOG_DIR` |
+
+**Log files:**
+
+| File | Purpose | Format |
+|------|---------|--------|
+| `daemon.jsonl` | Structured daemon logs | JSON Lines (one JSON object per line) |
+| `daemon.log` | Human-readable logs (optional) | Plain text with timestamps |
+
+**Note:** The `~/.workspace-qdrant/` directory is reserved for **configuration only**, not logs. On Linux, if `$XDG_CONFIG_HOME` is set, configuration moves to `$XDG_CONFIG_HOME/workspace-qdrant/`.
+
+#### Service Manager Integration
+
+When running as a managed service, logs are captured by the platform service manager in addition to file output:
+
+**Linux (systemd):**
+```bash
+# Primary access via journalctl
+journalctl --user -u memexd -f              # Follow logs
+journalctl --user -u memexd -n 100          # Last 100 entries
+journalctl --user -u memexd --since "1 hour ago" --output=json
+
+# File-based logs also available
+cat ~/.local/state/workspace-qdrant/logs/daemon.jsonl | jq .
+```
+
+**macOS (launchctl):**
+```bash
+# LaunchAgent captures stdout/stderr to plist-specified paths
+tail -f ~/Library/Logs/workspace-qdrant/daemon.log
+
+# macOS unified log (limited - mainly for crashes)
+log show --predicate 'process == "memexd"' --last 1h
+```
+
+**Windows:**
+```powershell
+# File-based logs
+Get-Content "$env:LOCALAPPDATA\workspace-qdrant\logs\daemon.jsonl" -Tail 100
+
+# Windows Event Log (for service events)
+Get-EventLog -LogName Application -Source memexd -Newest 50
+```
+
+#### Log Format (JSON Lines)
+
+Each log entry is a single JSON object:
+
+```json
+{"timestamp":"2026-02-05T10:30:45.123Z","level":"INFO","target":"memexd::processing","message":"Document processed","fields":{"document_id":"abc123","duration_ms":45.2,"collection":"projects","tenant_id":"proj_xyz"}}
+```
+
+**Standard fields:**
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `timestamp` | ISO 8601 | UTC timestamp |
+| `level` | string | TRACE, DEBUG, INFO, WARN, ERROR |
+| `target` | string | Rust module path |
+| `message` | string | Human-readable message |
+| `fields` | object | Structured context (varies by log type) |
+| `span` | object | Active tracing span (if any) |
+
+#### CLI Log Access
+
+The CLI provides unified log access across all platforms:
+
+```bash
+wqm debug logs                    # Show recent logs (auto-detects source)
+wqm debug logs -n 100             # Last 100 entries
+wqm debug logs --follow           # Follow in real-time
+wqm debug logs --errors-only      # Filter to WARN and ERROR
+wqm debug logs --json             # Output raw JSON (for piping to jq)
+wqm debug logs --component queue  # Filter by component
+wqm debug logs --since "1 hour ago"
+```
+
+**Log source priority:**
+
+1. Canonical log file (if exists and recent)
+2. Service manager logs (journalctl on Linux, file on macOS)
+3. Fallback locations (for backwards compatibility)
+
+#### Log Rotation
+
+Log rotation is handled by the daemon:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `max_log_size` | 50 MB | Rotate when file exceeds this size |
+| `max_log_files` | 5 | Number of rotated files to keep |
+| `compress_rotated` | true | Gzip rotated files |
+
+**Rotated file naming:** `daemon.jsonl.1`, `daemon.jsonl.2.gz`, etc.
+
+#### OpenTelemetry Integration (Optional)
+
+For production deployments with distributed tracing infrastructure:
+
+```bash
+# Enable OTLP export
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+export OTEL_SERVICE_NAME=memexd
+export OTEL_TRACES_SAMPLER_ARG=0.1  # 10% sampling
+
+# Traces are exported to the configured backend
+# View in Jaeger, Zipkin, Grafana Tempo, etc.
+```
+
+**Note:** OpenTelemetry is for distributed tracing correlation, not log viewing. It requires external infrastructure and is optional.
+
+#### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WQM_LOG_DIR` | (OS-canonical) | Override log directory |
+| `WQM_LOG_LEVEL` | `info` | Minimum log level (trace, debug, info, warn, error) |
+| `WQM_LOG_JSON` | `true` | Enable JSON output |
+| `WQM_LOG_CONSOLE` | `false` (service) / `true` (foreground) | Console output |
+| `RUST_LOG` | - | Fine-grained module filtering (e.g., `memexd=debug,hyper=warn`) |
+
+---
 
 ### CI/CD and Release Process
 
