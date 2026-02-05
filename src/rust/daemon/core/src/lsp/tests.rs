@@ -325,22 +325,27 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_enrichment_for_inactive_project() {
+    async fn test_enrichment_runs_regardless_of_activity_state() {
+        // Activity state no longer affects enrichment - it only affects queue priority.
+        // Both active and inactive projects receive full LSP enrichment.
         let config = create_test_project_config();
         let manager = LanguageServerManager::new(config).await.unwrap();
 
-        // Enrich with inactive project should return skipped status
+        // Enrich with inactive project - enrichment still runs
         let enrichment = manager.enrich_chunk(
             "inactive-project",
             std::path::Path::new("/test/file.rs"),
             "test_function",
             10,
             20,
-            false, // is_active = false
+            false, // is_active = false, but enrichment runs anyway
         ).await;
 
-        assert_eq!(enrichment.enrichment_status, EnrichmentStatus::Skipped);
-        assert!(enrichment.error_message.is_some());
+        // Without any servers, queries succeed but return no data → Partial status
+        assert!(matches!(
+            enrichment.enrichment_status,
+            EnrichmentStatus::Failed | EnrichmentStatus::Partial
+        ));
     }
 
     #[tokio::test]
@@ -411,13 +416,14 @@ mod tests {
         assert_eq!(initial_metrics.cache_misses, 0);
 
         // Perform some operations
+        // Note: Activity state no longer affects enrichment - it only affects queue priority
         let _ = manager.enrich_chunk(
             "metrics-test",
             std::path::Path::new("/test/file.rs"),
             "fn1",
             1,
             10,
-            false,
+            false, // Activity state doesn't skip enrichment anymore
         ).await;
 
         let _ = manager.enrich_chunk(
@@ -426,12 +432,12 @@ mod tests {
             "fn2",
             11,
             20,
-            false,
+            false, // Activity state doesn't skip enrichment anymore
         ).await;
 
         let metrics = manager.get_metrics().await;
         assert_eq!(metrics.total_enrichment_queries, 2);
-        assert_eq!(metrics.skipped_enrichments, 2); // Both were for inactive project
+        assert_eq!(metrics.skipped_enrichments, 0); // No longer skipped - activity doesn't affect enrichment
 
         // Reset metrics
         manager.reset_metrics().await;

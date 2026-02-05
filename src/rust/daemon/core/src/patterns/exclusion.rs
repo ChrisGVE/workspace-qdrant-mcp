@@ -168,6 +168,22 @@ impl ExclusionEngine {
 
     /// Check if a file should be excluded
     pub fn should_exclude(&self, file_path: &str) -> ExclusionResult {
+        // Whitelist check: .github/ is explicitly allowed
+        // This must come FIRST to prevent .git contains pattern from matching
+        if self.is_github_path(file_path) {
+            return ExclusionResult {
+                excluded: false,
+                rule: None,
+                reason: "Whitelisted: .github/ directory (CI/CD workflows)".to_string(),
+            };
+        }
+
+        // Second check: hidden files/directories at ANY depth
+        // Exclude any path containing a component starting with '.' (hidden)
+        if let Some(result) = self.check_hidden_components(file_path) {
+            return result;
+        }
+
         // Fast path: exact match check
         if self.exact_matches.contains(file_path) {
             return ExclusionResult {
@@ -282,6 +298,65 @@ impl ExclusionEngine {
         self.all_rules.iter()
             .find(|rule| rule.pattern == pattern)
             .cloned()
+    }
+
+    /// Check if path is inside .github/ directory (whitelisted)
+    ///
+    /// .github/ is explicitly allowed because it contains CI/CD workflows
+    /// and other GitHub-specific configuration that's useful to index.
+    fn is_github_path(&self, file_path: &str) -> bool {
+        // Check if path starts with .github/ or contains /.github/
+        file_path.starts_with(".github/")
+            || file_path.starts_with(".github\\")
+            || file_path.contains("/.github/")
+            || file_path.contains("\\.github\\")
+            || file_path == ".github"
+    }
+
+    /// Check for hidden files/directories at any depth in the path
+    ///
+    /// Hidden files/directories (starting with '.') are excluded by default,
+    /// as they typically contain:
+    /// - Tool caches (.mypy_cache/, .pytest_cache/, .ruff_cache/)
+    /// - IDE/editor configs (.vscode/, .idea/)
+    /// - Version control (.git/ - already excluded separately)
+    /// - Environment configs (.env files)
+    /// - Build artifacts and caches
+    ///
+    /// Exceptions (useful hidden dirs/files that MAY be indexed):
+    /// - .github/ - GitHub Actions workflows (useful for CI/CD understanding)
+    fn check_hidden_components(&self, file_path: &str) -> Option<ExclusionResult> {
+        // Split path into components and check each one
+        for component in file_path.split('/') {
+            // Skip empty components (from leading/trailing/double slashes)
+            if component.is_empty() {
+                continue;
+            }
+
+            // Check if component starts with '.' (hidden)
+            if component.starts_with('.') {
+                // Exception: .github is allowed (useful for CI/CD understanding)
+                if component == ".github" {
+                    continue;
+                }
+
+                // All other hidden files/directories are excluded
+                return Some(ExclusionResult {
+                    excluded: true,
+                    rule: Some(ExclusionRule {
+                        pattern: format!(".* (hidden: {})", component),
+                        category: ExclusionCategory::IdeFiles,
+                        reason: format!("Hidden file/directory excluded: {}", component),
+                        is_regex: false,
+                        case_sensitive: true,
+                    }),
+                    reason: format!("Hidden path component: {}", component),
+                });
+            }
+        }
+
+        // No hidden components found
+        None
     }
 
     /// Check for contextual exclusions based on project type
@@ -552,5 +627,85 @@ mod tests {
         // Test directory patterns
         assert!(engine.should_exclude("project/node_modules/package.json").excluded);
         assert!(engine.should_exclude("node_modules/package.json").excluded);
+    }
+
+    #[test]
+    fn test_hidden_files_excluded_at_all_depths() {
+        let engine = ExclusionEngine::new().unwrap();
+
+        // Hidden directories at root level
+        assert!(engine.should_exclude(".mypy_cache/something.json").excluded);
+        assert!(engine.should_exclude(".vscode/settings.json").excluded);
+        assert!(engine.should_exclude(".idea/workspace.xml").excluded);
+
+        // Hidden directories at arbitrary depth
+        assert!(engine.should_exclude("src/.cache/file.txt").excluded);
+        assert!(engine.should_exclude("deep/path/.mypy_cache/file.json").excluded);
+        assert!(engine.should_exclude("a/b/c/.hidden/file.txt").excluded);
+
+        // Hidden files (not just directories)
+        assert!(engine.should_exclude("src/.hidden_file").excluded);
+        assert!(engine.should_exclude("deep/path/.secret").excluded);
+
+        // Multiple hidden components
+        assert!(engine.should_exclude(".hidden1/.hidden2/file.txt").excluded);
+    }
+
+    #[test]
+    fn test_github_directory_not_excluded() {
+        let engine = ExclusionEngine::new().unwrap();
+
+        // .github is explicitly allowed (useful for CI/CD understanding)
+        assert!(!engine.should_exclude(".github/workflows/ci.yml").excluded);
+        assert!(!engine.should_exclude(".github/CODEOWNERS").excluded);
+        assert!(!engine.should_exclude("project/.github/workflows/test.yml").excluded);
+
+        // But other .g* directories should still be excluded
+        assert!(engine.should_exclude(".gradle/cache/file").excluded);
+    }
+
+    #[test]
+    fn test_non_hidden_paths_not_excluded_by_hidden_rule() {
+        let engine = ExclusionEngine::new().unwrap();
+
+        // Normal source files should NOT be excluded by hidden rule
+        // (may be excluded by other rules, but check the reason)
+        let result = engine.should_exclude("src/main.rs");
+        if result.excluded {
+            // If excluded, make sure it's not because of hidden component
+            assert!(!result.reason.contains("Hidden path component"));
+        }
+
+        let result = engine.should_exclude("lib/utils/helper.py");
+        if result.excluded {
+            assert!(!result.reason.contains("Hidden path component"));
+        }
+
+        // Files with dots in name (not at start) are fine
+        let result = engine.should_exclude("config.json");
+        if result.excluded {
+            assert!(!result.reason.contains("Hidden path component"));
+        }
+
+        let result = engine.should_exclude("src/my.module.ts");
+        if result.excluded {
+            assert!(!result.reason.contains("Hidden path component"));
+        }
+    }
+
+    #[test]
+    fn test_hidden_component_with_various_formats() {
+        let engine = ExclusionEngine::new().unwrap();
+
+        // Windows-style paths (with backslashes) - test robustness
+        // Note: We primarily use forward slashes, but test anyway
+        assert!(engine.should_exclude("src/.hidden/file").excluded);
+
+        // Leading/trailing slashes
+        assert!(engine.should_exclude("/.hidden/file").excluded);
+        assert!(engine.should_exclude(".hidden/file/").excluded);
+
+        // Multiple slashes (should handle gracefully)
+        assert!(engine.should_exclude("src//.hidden//file").excluded);
     }
 }

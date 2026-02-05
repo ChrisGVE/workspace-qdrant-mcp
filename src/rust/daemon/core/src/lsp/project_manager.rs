@@ -1610,10 +1610,14 @@ impl LanguageServerManager {
     /// Returns enrichment data or gracefully degrades if LSP unavailable.
     ///
     /// Status determination:
-    /// - Skipped: project not active
     /// - Success: at least one query returned data
     /// - Partial: some queries failed but at least one succeeded
     /// - Failed: all queries failed
+    ///
+    /// Note: The `is_project_active` parameter is kept for API stability but
+    /// NO LONGER affects enrichment. Activity state should only affect queue
+    /// priority, not feature availability. Both active and inactive projects
+    /// receive full LSP enrichment.
     pub async fn enrich_chunk(
         &self,
         project_id: &str,
@@ -1621,7 +1625,7 @@ impl LanguageServerManager {
         _symbol_name: &str,
         start_line: u32,
         _end_line: u32,
-        is_project_active: bool,
+        _is_project_active: bool, // Kept for API stability, no longer used
     ) -> LspEnrichment {
         // Track total enrichment queries
         {
@@ -1629,22 +1633,8 @@ impl LanguageServerManager {
             metrics.total_enrichment_queries += 1;
         }
 
-        // Skip enrichment if project is not active
-        if !is_project_active {
-            // Track skipped enrichment
-            {
-                let mut metrics = self.metrics.write().await;
-                metrics.skipped_enrichments += 1;
-            }
-            return LspEnrichment {
-                references: Vec::new(),
-                type_info: None,
-                resolved_imports: Vec::new(),
-                definition: None,
-                enrichment_status: EnrichmentStatus::Skipped,
-                error_message: Some("Project not active".to_string()),
-            };
-        }
+        // Note: Activity check removed - enrichment runs for all projects.
+        // Activity state only affects queue priority, not feature availability.
 
         // Track successes and failures for each query
         let mut errors: Vec<String> = Vec::new();
@@ -2321,20 +2311,20 @@ mod tests {
         let config = ProjectLspConfig::default();
         let manager = LanguageServerManager::new(config).await.unwrap();
 
-        // Enrich with inactive project
+        // Enrich runs regardless of activity state
         let _enrichment = manager.enrich_chunk(
             "test-project",
             Path::new("/test/file.rs"),
             "test_function",
             10,
             20,
-            false,  // inactive
+            false,  // inactive - but enrichment still runs
         ).await;
 
-        // Should have 1 total, 1 skipped
+        // Should have 1 total, 0 skipped (activity state no longer skips enrichment)
         let metrics = manager.get_metrics().await;
         assert_eq!(metrics.total_enrichment_queries, 1);
-        assert_eq!(metrics.skipped_enrichments, 1);
+        assert_eq!(metrics.skipped_enrichments, 0);
     }
 
     #[tokio::test]
@@ -2509,7 +2499,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_enrich_chunk_skipped_inactive_project() {
+    async fn test_enrich_chunk_runs_regardless_of_activity_state() {
+        // Activity state no longer affects enrichment - it only affects queue priority.
+        // Both active and inactive projects receive full LSP enrichment.
         let config = ProjectLspConfig::default();
         let manager = LanguageServerManager::new(config).await.unwrap();
 
@@ -2519,12 +2511,14 @@ mod tests {
             "test_symbol",
             10,
             20,
-            false, // project not active
+            false, // project not active - but enrichment still runs
         ).await;
 
-        assert_eq!(result.enrichment_status, EnrichmentStatus::Skipped);
-        assert!(result.error_message.is_some());
-        assert!(result.error_message.unwrap().contains("not active"));
+        // Without any servers, queries succeed but return no data → Partial status
+        // Activity state is ignored - enrichment runs regardless
+        assert_eq!(result.enrichment_status, EnrichmentStatus::Partial);
+        // No error_message since queries succeed (just no data)
+        assert!(result.error_message.is_none());
         assert!(result.references.is_empty());
         assert!(result.type_info.is_none());
         assert!(result.resolved_imports.is_empty());
@@ -2740,25 +2734,31 @@ mod tests {
     #[tokio::test]
     async fn test_enrichment_continues_after_query_error() {
         // Test that enrich_chunk continues to collect data even when one query fails
+        // Activity state no longer affects enrichment - both active and inactive run
         let config = ProjectLspConfig::default();
         let manager = LanguageServerManager::new(config).await.unwrap();
 
-        // Enrich a chunk for an inactive project (will be skipped)
+        // Enrich a chunk with inactive flag - enrichment runs anyway
         let enrichment = manager.enrich_chunk(
             "test-project",
             std::path::Path::new("/test/file.rs"),
             "test_function",
             1,
             10,
-            false, // inactive project
+            false, // inactive project - but enrichment runs anyway
         ).await;
 
-        // Should be skipped for inactive project
-        assert_eq!(enrichment.enrichment_status, EnrichmentStatus::Skipped);
-        assert!(enrichment.error_message.is_some());
-        assert!(enrichment.error_message.as_ref().unwrap().contains("not active"));
+        // Should be Partial or Success (no servers, but queries attempt to run)
+        assert!(
+            matches!(
+                enrichment.enrichment_status,
+                EnrichmentStatus::Success | EnrichmentStatus::Partial
+            ),
+            "Expected Success or Partial for inactive project (activity doesn't skip), got {:?}",
+            enrichment.enrichment_status
+        );
 
-        // Now test with active project but no servers (graceful degradation)
+        // Also test with active flag - should behave identically
         let enrichment = manager.enrich_chunk(
             "test-project",
             std::path::Path::new("/test/file.rs"),
@@ -2769,7 +2769,6 @@ mod tests {
         ).await;
 
         // Should be Partial or Success (no data found but queries succeeded)
-        // The actual status depends on whether empty results count as success
         assert!(
             matches!(
                 enrichment.enrichment_status,
