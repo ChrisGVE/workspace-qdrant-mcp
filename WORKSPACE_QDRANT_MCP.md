@@ -497,8 +497,17 @@ HNSW:
   "symbols": ["MyClass", "my_function"],
   "chunk_index": 0,
   "total_chunks": 5,
-  "created_at": "2026-01-28T12:00:00Z"
+  "created_at": "2026-01-28T12:00:00Z",
+  "file_mtime": "2026-01-28T11:45:00Z", // File modification time at ingestion
+  "file_hash": "a1b2c3..." // SHA256 of file content at ingestion (truncated)
 }
+```
+
+**File metadata rationale:** `file_mtime` and `file_hash` are stored at ingestion time
+to enable daemon startup recovery. On restart, the daemon can compare stored metadata
+against filesystem state to detect files that changed, were added, or were deleted while
+the daemon was not running. Without these fields, recovery would require re-reading and
+re-hashing every file in every watched project.
 ```
 
 **Libraries Collection:**
@@ -1053,13 +1062,22 @@ When a new project or library folder is registered:
 
 Once initial scan complete, daemon watches for changes:
 
-| Event          | Action                                                      |
-| -------------- | ----------------------------------------------------------- |
-| File created   | Queue `file/ingest` (uniqueness prevents duplicates)        |
-| File modified  | Queue `file/ingest` (uniqueness: if already queued, ignore) |
-| File deleted   | Queue `file/delete`                                         |
-| Folder created | Queue `folder/scan`                                         |
-| Folder deleted | Remove all files in collection with path prefix             |
+| Event          | Action                                                                 |
+| -------------- | ---------------------------------------------------------------------- |
+| File created   | Queue `file/ingest` (uniqueness prevents duplicates)                   |
+| File modified  | Queue `file/update` (atomic: delete existing points + reingest)        |
+| File deleted   | Queue `file/delete`                                                    |
+| Folder created | Queue `folder/scan`                                                    |
+| Folder deleted | Remove all files in collection with path prefix                        |
+
+**Update atomicity:** A `file/update` is processed as a single atomic operation:
+delete all existing points for the file path, then reingest current file content.
+This ensures no window of inconsistency where a file has partial data.
+
+**Queue deduplication:** The `file_path UNIQUE` constraint ensures only one operation
+per file can be queued at a time. If a file already has a pending `ingest` and gets
+modified, the `update` is silently dropped — the pending ingest will read the file's
+current content at processing time, achieving the same result.
 
 **Debouncing:**
 
@@ -1085,6 +1103,33 @@ DELETE FROM qdrant WHERE tenant_id LIKE '<library_prefix>%'
 ```
 
 Blunt force removal of all content. No queue entries needed - direct Qdrant operation.
+
+#### Phase 4: Daemon Startup Recovery
+
+On daemon start (or restart), the daemon must reconcile Qdrant state with the
+filesystem for all watched projects. This handles changes that occurred while
+the daemon was not running.
+
+```
+1. For each watch_folder WHERE enabled = 1:
+   a. Scroll all indexed file_paths + file_mtime + file_hash from Qdrant for tenant
+   b. Walk filesystem to get current eligible files with mtime + hash
+   c. Compare:
+      - File in Qdrant but not on disk → queue file/delete
+      - File on disk but not in Qdrant → queue file/ingest
+      - File in both but mtime or hash changed → queue file/update
+      - File in both and unchanged → skip (no action)
+   d. Check exclusion rules: file in Qdrant but now excluded → queue file/delete
+2. Resume normal queue processing and file watching
+```
+
+**Prerequisites:** Points must store `file_mtime` and `file_hash` in their payload
+(see Payload Schemas). Without these, recovery falls back to re-ingesting all files
+(expensive for large projects).
+
+**Scan distinction:** Initial scan (Phase 1) is for newly registered projects only.
+Recovery (Phase 4) runs on every daemon startup for all existing watched projects.
+The file watcher (Phase 2) handles all changes during normal daemon operation.
 
 ### Daemon Watch Management
 
@@ -2071,6 +2116,24 @@ daemon:
   grpc_port: 50051
   queue_poll_interval_ms: 1000
   queue_batch_size: 10
+
+  # Resource limits (prevent daemon from consuming excessive CPU/memory)
+  resource_limits:
+    # Maximum concurrent embedding operations (embedding is CPU-intensive via ONNX)
+    # Lower values reduce CPU spikes; higher values increase throughput
+    max_concurrent_embeddings: 2  # default: 2 (range: 1-8)
+
+    # Delay in milliseconds between processing individual items within a batch
+    # Prevents sustained CPU saturation by introducing breathing room
+    inter_item_delay_ms: 50       # default: 50 (0 = no delay, max: 5000)
+
+    # OS-level process priority (Unix nice value)
+    # Range: -20 (highest) to 19 (lowest). Default 10 = low priority background work
+    nice_level: 10                # default: 10
+
+    # Maximum percentage of available system memory before pausing processing
+    # When exceeded, daemon pauses queue processing until memory drops below threshold
+    max_memory_percent: 70        # default: 70 (range: 20-95)
 
 # File watching patterns (inline, not separate files)
 watching:
