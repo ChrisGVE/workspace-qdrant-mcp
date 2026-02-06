@@ -1,64 +1,54 @@
-# Handover: Post-Scan Exclusion Cleanup
+# Handover: Daemon Crash Fix and Queue Processing
 
 **Date:** 2026-02-06
-**Status:** Feature implemented, needs rebuild and deployment
+**Status:** All issues resolved, daemon running, queue processed
 
 ## Completed Work
 
-### Previous Session
+### Previous Sessions
 1. Hidden file/directory exclusion at all depths (commit `9fa47c4b`)
 2. LSP enrichment no longer gated by project activity (commit `9fa47c4b`)
+3. Auto-removal of excluded files from Qdrant after scan (commit `33eb8101`)
 
 ### This Session
-3. **Auto-removal of excluded files from Qdrant after scan** (commit `33eb8101`)
-   - Task Master: task 503 (development tag) - marked done
-   - Added `scroll_file_paths_by_tenant()` to StorageClient (`storage.rs`)
-   - Added `cleanup_excluded_files()` to UnifiedQueueProcessor (`unified_queue_processor.rs`)
-   - Called automatically after `scan_project_directory()` completes
-   - Queues (File, Delete) items at priority 7 for any indexed file matching exclusion rules
-   - 3 unit tests added and passing (6 total in module)
-   - All 626 daemon lib tests pass (1 pre-existing flaky file watcher test)
+4. **Fixed daemon SIGABRT crash** (commit `38e068f5`)
+   - Root cause: `document_processor.rs` line 631 — string slicing at byte offset that fell inside multi-byte UTF-8 character (`─`, 3-byte box-drawing char)
+   - The `panic = "abort"` release profile converted the panic to SIGABRT (exit code 134)
+   - Both `chunk_by_paragraphs` and `chunk_by_characters` had the same bug
+   - Added `floor_char_boundary()` helper to find nearest valid UTF-8 boundary
+   - Fixed overlap slicing in `chunk_by_paragraphs`
+   - Fixed chunk boundary calculation in `chunk_by_characters` + infinite loop guard
+   - 3 new unit tests: `test_floor_char_boundary`, `test_chunk_by_paragraphs_with_multibyte_overlap`, `test_chunk_by_characters_with_multibyte`
+   - All 13 document_processor tests pass
 
-## What Was Built
+5. **Resolved 167 stuck queue items**
+   - 167 items stuck as `in_progress` from 17 crash-loop worker instances
+   - Reset to `pending`, rebuilt binary with static ONNX Runtime, redeployed
+   - Removed `ORT_DYLIB_PATH` from launchd plist (was pointing to non-existent file)
+   - Manually cleaned 19 `.fastembed_cache` and `.mypy_cache` files from queue (shouldn't have been queued)
+   - All 167 items now processed, queue is empty
 
-**StorageClient.scroll_file_paths_by_tenant()** (`storage.rs:692-778`):
-- Paginates through Qdrant using scroll API with tenant_id filter
-- Extracts `file_path` from each point's payload
-- Handles offset-based pagination in batches of 100
-- Uses existing retry_operation for resilience
+6. **Pushed 13 commits to origin/main**
 
-**UnifiedQueueProcessor.cleanup_excluded_files()** (`unified_queue_processor.rs:1068-1172`):
-- Checks if collection exists before scrolling
-- Scrolls all file paths for the tenant from Qdrant
-- Strips project root to get relative path, checks `should_exclude_file()`
-- Queues File/Delete items at priority 7 (higher than scan's priority 5)
-- Graceful degradation: errors logged but don't fail the scan
+## Known Issues / Follow-up Tasks
 
-## Rebuild & Deploy
+### Priority 5 in queue
+- User noted queue items should have priorities 0 and 1 only, but `calculate_priority()` in `watching_queue.rs` uses 3, 5, and 8
+- Needs clarification on intended priority scheme
 
-The daemon binary needs to be rebuilt with these changes:
+### File watcher missing exclusion check
+- `watching_queue.rs` uses only basic glob patterns from watch_folders config (`.git/*`, `__pycache__/*`)
+- Does NOT use the comprehensive `should_exclude_file()` exclusion engine
+- This is how `.fastembed_cache` files got into the queue
+- **Recommended fix**: Add `should_exclude_file()` check in `enqueue_file_operation()` before queueing
 
-```bash
-# Build with ONNX Runtime (Intel Mac)
-ORT_LIB_LOCATION=~/.onnxruntime-static/lib cargo build --release \
-  --manifest-path /Users/chris/dev/projects/mcp/workspace-qdrant-mcp/src/rust/Cargo.toml \
-  --package memexd
+### Pre-existing Issues
+- 1 flaky test: `watching::tests::single_folder_watch_tests::test_detect_file_modification`
+- 2 missing test modules: `lsp_daemon_integration_tests`, `daemon_state_persistence_tests`
+- 64+ deprecation warnings in `queue_operations.rs` (legacy API)
 
-# Restart daemon with new binary
-launchctl stop com.workspace-qdrant.memexd
-cp /Users/chris/dev/projects/mcp/workspace-qdrant-mcp/src/rust/target/release/memexd ~/.local/bin/
-launchctl start com.workspace-qdrant.memexd
-```
-
-## Pre-existing Issues
-
-- 1 flaky test: `watching::tests::single_folder_watch_tests::test_detect_file_modification` (timing-sensitive, intermittent)
-- 2 missing test modules: `lsp_daemon_integration_tests`, `daemon_state_persistence_tests` (test "mod" compilation fails)
-- 64+ pre-existing deprecation warnings in `queue_operations.rs` (legacy API)
-
-## Next Steps
-
-No further tasks in the development tag are pending. Potential follow-up work:
-1. Rebuild and deploy the daemon binary
-2. Push commits to remote (currently 11 ahead of origin/main)
-3. Verify cleanup works with a real Qdrant instance by triggering a project scan
+## Daemon Status
+- Running via launchd: `com.workspace-qdrant.memexd`
+- Binary: `/Users/chris/.local/bin/memexd` (statically linked ONNX Runtime)
+- Queue: empty (all items processed)
+- Build command: `ORT_LIB_LOCATION=~/.onnxruntime-static/lib cargo build --release --manifest-path src/rust/Cargo.toml --package memexd`
