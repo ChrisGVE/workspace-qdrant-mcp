@@ -1,110 +1,104 @@
-# Handover: Bug Fixes Complete - Ready for Testing
+# Handover: Exclusion Cleanup for Active Projects
 
-**Date:** 2026-02-05
-**Status:** Ready for verification testing
+**Date:** 2026-02-06
+**Status:** Ready for implementation
 
-## Completed Fixes
+## Context
 
-### 1. Hidden File/Directory Exclusion at All Depths
+Bug fixes completed in previous session:
+1. Hidden file/directory exclusion at all depths (commit `9fa47c4b`)
+2. LSP enrichment no longer gated by project activity (commit `9fa47c4b`)
 
-**Problem:** Hidden files and directories (starting with `.`) were being indexed when they should be excluded by default. This included tool caches, IDE configs, etc.
+All 627 daemon tests pass. Fixes are committed but daemon needs rebuild.
 
-**Solution:** Added `check_hidden_components()` method in `src/rust/daemon/core/src/patterns/exclusion.rs`:
-- Checks ALL path components for hidden names (starting with `.`)
-- Excludes any file/directory at any depth: `/project/.hidden/`, `/project/src/.cache/`, etc.
-- Whitelist exception: `.github/` is allowed (useful for CI/CD understanding)
+## Next Task: Auto-Removal of Excluded Files from Qdrant
 
-**Code locations:**
-- `exclusion.rs:is_github_path()` - Line ~293-306: Whitelist check for .github
-- `exclusion.rs:check_hidden_components()` - Line ~310-343: Hidden component detection
-- `exclusion.rs:should_exclude()` - Line ~178-190: Integration of both checks
+**Goal:** When a project is active, automatically remove any already-indexed files that now match exclusion rules.
 
-**Test coverage:** 4 new tests added:
-- `test_hidden_files_excluded_at_all_depths`
-- `test_github_directory_not_excluded`
-- `test_non_hidden_paths_not_excluded_by_hidden_rule`
-- `test_hidden_component_with_various_formats`
+### Design
 
-### 2. LSP Enrichment Bug - Activity Check Removed
+**Trigger points:**
+1. On project activation (MCP server sends `RegisterProject` with existing project)
+2. After scan completes for an active project
+3. Optionally: on daemon startup for all active projects
 
-**Problem:** LSP enrichment was skipped entirely when `is_project_active = false`, with error message "Project not active". This was incorrect - project activity should ONLY affect queue priority, not feature availability.
+**Implementation approach:**
 
-**Solution:** Removed the activity check gate in `enrich_chunk()` method in `src/rust/daemon/core/src/lsp/project_manager.rs`:
-- The `is_project_active` parameter is now ignored (kept for API stability)
-- All projects receive full LSP enrichment regardless of activity state
-- Activity state only affects queue priority (handled elsewhere)
+1. After `scan_project_directory` completes, add a cleanup phase:
+   ```rust
+   async fn cleanup_excluded_files(
+       tenant_id: &str,
+       collection: &str,
+       project_root: &Path,
+       storage_client: &Arc<StorageClient>,
+       queue_manager: &QueueManager,
+   ) -> Result<u64> {
+       // 1. Query Qdrant for all file_path values in this tenant
+       // 2. For each file_path, check should_exclude_file(relative_path)
+       // 3. If excluded, queue (File, Delete) item
+       // 4. Return count of files queued for deletion
+   }
+   ```
 
-**Code locations:**
-- `project_manager.rs:enrich_chunk()` - Line ~1617-1633: Activity check removed
-- Tests updated to reflect new behavior
+2. Call this after scan in `process_project_item` for `QueueOperation::Scan`
 
-**Test changes:**
-- `test_enrich_chunk_skipped_inactive_project` → renamed to `test_enrich_chunk_runs_regardless_of_activity_state`
-- `test_enrich_chunk_increments_metrics` - Updated expectations
-- `test_enrichment_continues_after_query_error` - Updated expectations
-- `tests.rs:test_enrichment_for_inactive_project` → renamed to `test_enrichment_runs_regardless_of_activity_state`
-- `tests.rs:test_metrics_tracking` - Updated expectations
+3. Only run for active projects to avoid unnecessary work on dormant projects
 
-## Verification Commands
+**Key files to modify:**
+- `src/rust/daemon/core/src/unified_queue_processor.rs` - Add cleanup after scan
+- `src/rust/daemon/core/src/patterns/exclusion.rs` - Ensure `should_exclude_file` is accessible
 
-### Test the exclusion fix:
-```bash
-# Check that hidden files are now excluded
-sqlite3 ~/.workspace-qdrant/state.db "SELECT COUNT(*) FROM unified_queue WHERE item_type='file' AND payload_json LIKE '%/.%'"
-# Should return 0 or very few (only .github files)
-
-# Check .github files are still indexed
-sqlite3 ~/.workspace-qdrant/state.db "SELECT COUNT(*) FROM unified_queue WHERE item_type='file' AND payload_json LIKE '%.github%'"
-# Should return > 0 (GitHub Actions workflows)
+**Qdrant query pattern:**
+```rust
+// Scroll through all points for this tenant
+let filter = Filter::must([
+    Condition::matches("tenant_id", tenant_id),
+    Condition::matches("item_type", "file"),
+]);
+// Extract file_path from each point's payload
+// Check exclusion rules
+// Queue deletions
 ```
 
-### Test the LSP enrichment fix:
-```bash
-# Query Qdrant for LSP enrichment status
-curl -s -X POST "http://localhost:6333/collections/projects/points/scroll" \
-  -H "Content-Type: application/json" \
-  --data '{"limit": 5, "with_payload": true}' | \
-  jq '.result.points[].payload | {file_path, lsp_enrichment_status}'
-# Should no longer show "Skipped" with "Project not active" error
-```
+### Testing approach
 
-### Run all daemon tests:
-```bash
-cd src/rust/daemon
-ORT_LIB_LOCATION=~/.onnxruntime-static/lib cargo test --package workspace-qdrant-core --lib
-# Should show: test result: ok. 627 passed
-```
+1. Index a project with hidden files (before fix was applied)
+2. Run cleanup on that project
+3. Verify hidden files are queued for deletion
+4. Verify non-hidden files are untouched
 
-## Not Addressed (Parking Lot)
+### Scope limitation
 
-### Exclusion Cleanup Mechanism
-The scan only queues new files; it doesn't retroactively remove already-ingested files that now match new exclusion rules. A cleanup mechanism would need to:
-1. Scan Qdrant for points matching new exclusions
-2. Queue `(File, Delete)` items for those files
-3. OR provide CLI command: `wqm admin cleanup-excluded`
+- Only clean up active projects (not all projects)
+- Only run after scan completes (not continuously)
+- Queue deletions rather than direct delete (respect queue processing)
 
-This is deferred as it's not critical for the current work.
-
-## Next Steps
-
-1. Wait for current ingestion to complete
-2. Rebuild and restart daemon to apply fixes
-3. Run verification commands above
-4. Consider re-scanning projects to apply new exclusion rules to fresh data
-
-## Rebuild Commands
+## Rebuild Commands (Before Starting)
 
 ```bash
-# Force rebuild
-touch src/rust/daemon/core/src/patterns/exclusion.rs
-touch src/rust/daemon/core/src/lsp/project_manager.rs
-
 # Build with ONNX Runtime (Intel Mac)
+cd /Users/chris/dev/projects/mcp/workspace-qdrant-mcp
 ORT_LIB_LOCATION=~/.onnxruntime-static/lib cargo build --release \
   --manifest-path src/rust/Cargo.toml --package memexd
 
-# Reinstall and restart
+# Restart daemon with new binary
 launchctl stop com.workspace-qdrant.memexd
 cp src/rust/target/release/memexd ~/.local/bin/
 launchctl start com.workspace-qdrant.memexd
+```
+
+## Files Reference
+
+| File | Purpose |
+|------|---------|
+| `unified_queue_processor.rs:920` | `scan_project_directory` - add cleanup call here |
+| `unified_queue_processor.rs:882` | `QueueOperation::Scan` case - alternative location |
+| `patterns/exclusion.rs:409` | `should_exclude_file` function |
+| `storage_client.rs` | Qdrant scroll/query operations |
+
+## Task Master
+
+This work should be tracked. Consider adding via:
+```bash
+task-master add-task --prompt="Implement auto-removal of excluded files from Qdrant for active projects after scan completes"
 ```
