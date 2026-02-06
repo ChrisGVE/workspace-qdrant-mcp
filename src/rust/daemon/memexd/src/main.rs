@@ -664,6 +664,32 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         warn!("Failed to recover stale unified queue leases: {}", e);
     }
 
+    // Startup recovery: reconcile tracked_files with filesystem (Task 507)
+    // Detects files added, deleted, or modified while daemon was not running
+    {
+        let recovery_pool = unified_queue_processor.pool().clone();
+        let recovery_qm = unified_queue_processor.queue_manager().clone();
+        match workspace_qdrant_core::startup_recovery::run_startup_recovery(
+            &recovery_pool,
+            &recovery_qm,
+        ).await {
+            Ok(stats) => {
+                let total = stats.total_queued();
+                if total > 0 {
+                    info!(
+                        "Startup recovery complete: {} folders processed, {} items queued",
+                        stats.folders_processed, total
+                    );
+                } else {
+                    info!("Startup recovery complete: no changes detected");
+                }
+            }
+            Err(e) => {
+                warn!("Startup recovery failed (non-fatal): {}", e);
+            }
+        }
+    }
+
     unified_queue_processor.start()
         .map_err(|e| format!("Failed to start unified queue processor: {}", e))?;
 

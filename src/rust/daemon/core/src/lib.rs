@@ -45,6 +45,7 @@ pub mod watching;
 pub mod watching_queue;
 pub mod lsp;
 pub mod project_disambiguation;
+pub mod startup_recovery;
 
 use crate::config::Config;
 pub use crate::document_processor::{
@@ -202,6 +203,9 @@ pub use crate::lsp::{
     Language, LspError, LspResult,
     // Project language detection (Task 1.3)
     ProjectLanguageDetector, ProjectLanguageResult, LanguageMarker,
+};
+pub use crate::startup_recovery::{
+    run_startup_recovery, RecoveryStats, FullRecoveryStats,
 };
 
 /// Core processing errors

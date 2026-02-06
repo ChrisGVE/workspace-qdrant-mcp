@@ -262,6 +262,16 @@ impl UnifiedQueueProcessor {
         self
     }
 
+    /// Get a reference to the underlying SQLite pool
+    pub fn pool(&self) -> &SqlitePool {
+        self.queue_manager.pool()
+    }
+
+    /// Get a reference to the queue manager
+    pub fn queue_manager(&self) -> &QueueManager {
+        &self.queue_manager
+    }
+
     /// Recover stale leases at startup (Task 37.19)
     pub async fn recover_stale_leases(&self) -> UnifiedProcessorResult<u64> {
         info!("Recovering stale unified queue leases...");
