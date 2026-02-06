@@ -1058,13 +1058,148 @@ impl UnifiedQueueProcessor {
             }
         }
 
+        // After scanning, clean up any excluded files that were previously indexed
+        let files_cleaned = Self::cleanup_excluded_files(
+            item,
+            project_root,
+            queue_manager,
+            storage_client,
+        ).await?;
+
         let elapsed = start_time.elapsed();
         info!(
-            "Project scan complete: {} files queued, {} excluded, {} errors in {:?} (project={})",
-            files_queued, files_excluded, errors, elapsed, payload.project_root
+            "Project scan complete: {} files queued, {} excluded, {} queued for deletion, {} errors in {:?} (project={})",
+            files_queued, files_excluded, files_cleaned, errors, elapsed, payload.project_root
         );
 
         Ok(())
+    }
+
+    /// Clean up excluded files from Qdrant after a scan completes
+    ///
+    /// Scrolls through all indexed file paths for the tenant, checks each against
+    /// current exclusion rules, and queues deletion for any files that now match
+    /// exclusion patterns. This handles retroactive cleanup when exclusion rules
+    /// are updated (e.g., hidden files that were indexed before the exclusion fix).
+    async fn cleanup_excluded_files(
+        item: &UnifiedQueueItem,
+        project_root: &Path,
+        queue_manager: &QueueManager,
+        storage_client: &Arc<StorageClient>,
+    ) -> UnifiedProcessorResult<u64> {
+        // Check if collection exists before attempting scroll
+        if !storage_client
+            .collection_exists(&item.collection)
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
+        {
+            debug!(
+                "Collection '{}' does not exist, skipping exclusion cleanup",
+                item.collection
+            );
+            return Ok(0);
+        }
+
+        let qdrant_file_paths = storage_client
+            .scroll_file_paths_by_tenant(&item.collection, &item.tenant_id)
+            .await
+            .map_err(|e| {
+                // Log but don't propagate - cleanup failure shouldn't fail the scan
+                error!("Failed to scroll Qdrant for exclusion cleanup: {}", e);
+                UnifiedProcessorError::Storage(e.to_string())
+            });
+
+        let qdrant_file_paths = match qdrant_file_paths {
+            Ok(paths) => paths,
+            Err(_) => return Ok(0), // Already logged above
+        };
+
+        if qdrant_file_paths.is_empty() {
+            debug!(
+                "No indexed files found for tenant_id='{}', skipping exclusion cleanup",
+                item.tenant_id
+            );
+            return Ok(0);
+        }
+
+        info!(
+            "Checking {} indexed files against exclusion rules (tenant_id={})",
+            qdrant_file_paths.len(),
+            item.tenant_id
+        );
+
+        let mut files_cleaned = 0u64;
+
+        for qdrant_file in &qdrant_file_paths {
+            // Get relative path for exclusion check
+            let rel_path = match Path::new(qdrant_file).strip_prefix(project_root) {
+                Ok(stripped) => stripped.to_string_lossy().to_string(),
+                Err(_) => qdrant_file.clone(),
+            };
+
+            // Check if this file should now be excluded
+            if !should_exclude_file(&rel_path) {
+                continue;
+            }
+
+            let file_payload = FilePayload {
+                file_path: qdrant_file.clone(),
+                file_type: None,
+                file_hash: None,
+                size_bytes: None,
+            };
+
+            let payload_json = serde_json::to_string(&file_payload).map_err(|e| {
+                UnifiedProcessorError::ProcessingFailed(format!(
+                    "Failed to serialize FilePayload for deletion: {}",
+                    e
+                ))
+            })?;
+
+            match queue_manager
+                .enqueue_unified(
+                    ItemType::File,
+                    QueueOperation::Delete,
+                    &item.tenant_id,
+                    &item.collection,
+                    &payload_json,
+                    7, // Higher priority than scan items (5)
+                    Some(&item.branch),
+                    None,
+                )
+                .await
+            {
+                Ok((_queue_id, is_new)) => {
+                    if is_new {
+                        files_cleaned += 1;
+                        debug!(
+                            "Queued excluded file for deletion: {} (rel={})",
+                            qdrant_file, rel_path
+                        );
+                    } else {
+                        debug!(
+                            "Excluded file deletion already in queue (deduplicated): {}",
+                            qdrant_file
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to queue excluded file for deletion {}: {}",
+                        qdrant_file, e
+                    );
+                }
+            }
+        }
+
+        if files_cleaned > 0 {
+            info!(
+                "Queued {} excluded files for deletion (tenant_id={})",
+                files_cleaned, item.tenant_id
+            );
+        }
+
+        Ok(files_cleaned)
     }
 
     /// Process library item - create/manage library collections
@@ -1351,5 +1486,128 @@ mod tests {
 
         let err = UnifiedProcessorError::Storage("connection refused".to_string());
         assert_eq!(err.to_string(), "Storage error: connection refused");
+    }
+
+    /// Test that the exclusion check logic correctly identifies files that should be cleaned up
+    /// This tests the core decision logic used by cleanup_excluded_files without needing
+    /// Qdrant or SQLite connections.
+    #[test]
+    fn test_cleanup_exclusion_logic_identifies_hidden_files() {
+        let project_root = Path::new("/home/user/project");
+
+        // Simulate file paths as they would be stored in Qdrant (absolute paths)
+        let qdrant_paths = vec![
+            "/home/user/project/src/main.rs",
+            "/home/user/project/.hidden_file",
+            "/home/user/project/src/.secret",
+            "/home/user/project/.git/config",
+            "/home/user/project/src/lib.rs",
+            "/home/user/project/node_modules/package/index.js",
+            "/home/user/project/.env",
+            "/home/user/project/README.md",
+            "/home/user/project/src/.cache/data",
+            "/home/user/project/.github/workflows/ci.yml",
+        ];
+
+        let mut should_delete = Vec::new();
+        let mut should_keep = Vec::new();
+
+        for qdrant_file in &qdrant_paths {
+            let rel_path = match Path::new(qdrant_file).strip_prefix(project_root) {
+                Ok(stripped) => stripped.to_string_lossy().to_string(),
+                Err(_) => qdrant_file.to_string(),
+            };
+
+            if should_exclude_file(&rel_path) {
+                should_delete.push(qdrant_file.to_string());
+            } else {
+                should_keep.push(qdrant_file.to_string());
+            }
+        }
+
+        // Hidden files should be marked for deletion
+        assert!(
+            should_delete.contains(&"/home/user/project/.hidden_file".to_string()),
+            "Expected .hidden_file to be excluded"
+        );
+        assert!(
+            should_delete.contains(&"/home/user/project/src/.secret".to_string()),
+            "Expected src/.secret to be excluded"
+        );
+        assert!(
+            should_delete.contains(&"/home/user/project/.git/config".to_string()),
+            "Expected .git/config to be excluded"
+        );
+        assert!(
+            should_delete.contains(&"/home/user/project/.env".to_string()),
+            "Expected .env to be excluded"
+        );
+        assert!(
+            should_delete.contains(&"/home/user/project/src/.cache/data".to_string()),
+            "Expected src/.cache/data to be excluded"
+        );
+        assert!(
+            should_delete.contains(&"/home/user/project/node_modules/package/index.js".to_string()),
+            "Expected node_modules content to be excluded"
+        );
+
+        // Normal files should NOT be deleted
+        assert!(
+            should_keep.contains(&"/home/user/project/src/main.rs".to_string()),
+            "Expected src/main.rs to be kept"
+        );
+        assert!(
+            should_keep.contains(&"/home/user/project/src/lib.rs".to_string()),
+            "Expected src/lib.rs to be kept"
+        );
+        assert!(
+            should_keep.contains(&"/home/user/project/README.md".to_string()),
+            "Expected README.md to be kept"
+        );
+
+        // .github/ should be whitelisted (not excluded)
+        assert!(
+            should_keep.contains(&"/home/user/project/.github/workflows/ci.yml".to_string()),
+            "Expected .github/workflows/ci.yml to be kept (whitelisted)"
+        );
+    }
+
+    #[test]
+    fn test_cleanup_exclusion_logic_with_non_strippable_paths() {
+        // Test when Qdrant paths don't share the project root prefix
+        let project_root = Path::new("/home/user/project");
+        let qdrant_file = "/different/root/src/.hidden";
+
+        let rel_path = match Path::new(qdrant_file).strip_prefix(project_root) {
+            Ok(stripped) => stripped.to_string_lossy().to_string(),
+            Err(_) => qdrant_file.to_string(),
+        };
+
+        // Should still detect hidden component even with full path fallback
+        assert!(
+            should_exclude_file(&rel_path),
+            "Expected .hidden to be excluded even when path can't be stripped"
+        );
+    }
+
+    #[test]
+    fn test_cleanup_exclusion_logic_empty_paths() {
+        // Verify no panic with edge cases
+        let project_root = Path::new("/home/user/project");
+        let qdrant_paths: Vec<String> = vec![];
+
+        let mut count = 0u64;
+        for qdrant_file in &qdrant_paths {
+            let rel_path = match Path::new(qdrant_file).strip_prefix(project_root) {
+                Ok(stripped) => stripped.to_string_lossy().to_string(),
+                Err(_) => qdrant_file.clone(),
+            };
+
+            if should_exclude_file(&rel_path) {
+                count += 1;
+            }
+        }
+
+        assert_eq!(count, 0, "Empty path list should produce zero deletions");
     }
 }

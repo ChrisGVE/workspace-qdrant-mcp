@@ -689,6 +689,88 @@ impl StorageClient {
         Ok(0)
     }
 
+    /// Scroll through all points in a collection for a tenant, returning file paths
+    ///
+    /// Paginates through Qdrant using the scroll API with a tenant_id filter,
+    /// extracting the `file_path` payload field from each point. Used for
+    /// post-scan cleanup of excluded files.
+    ///
+    /// # Arguments
+    /// * `collection_name` - The collection to scroll through
+    /// * `tenant_id` - The tenant/project ID to filter by
+    ///
+    /// # Returns
+    /// * `Ok(Vec<String>)` - All file paths found for this tenant
+    /// * `Err(StorageError)` - If scroll operation fails
+    pub async fn scroll_file_paths_by_tenant(
+        &self,
+        collection_name: &str,
+        tenant_id: &str,
+    ) -> Result<Vec<String>, StorageError> {
+        use qdrant_client::qdrant::ScrollPointsBuilder;
+
+        debug!(
+            "Scrolling file paths for tenant_id='{}' in collection '{}'",
+            tenant_id, collection_name
+        );
+
+        let mut file_paths = Vec::new();
+        let mut offset: Option<qdrant_client::qdrant::PointId> = None;
+        let batch_size = 100u32;
+
+        let filter = Filter::must([Condition::matches("tenant_id", tenant_id.to_string())]);
+
+        loop {
+            let filter_clone = filter.clone();
+            let current_offset = offset.clone();
+
+            let response = self
+                .retry_operation(|| {
+                    let f = filter_clone.clone();
+                    let o = current_offset.clone();
+                    async move {
+                        let mut builder = ScrollPointsBuilder::new(collection_name)
+                            .filter(f)
+                            .limit(batch_size)
+                            .with_payload(true)
+                            .with_vectors(false);
+
+                        if let Some(offset_id) = o {
+                            builder = builder.offset(offset_id);
+                        }
+
+                        self.client
+                            .scroll(builder)
+                            .await
+                            .map_err(|e| StorageError::Search(format!("Scroll failed: {}", e)))
+                    }
+                })
+                .await?;
+
+            for point in &response.result {
+                if let Some(value) = point.payload.get("file_path") {
+                    if let Some(qdrant_client::qdrant::value::Kind::StringValue(path)) = &value.kind {
+                        file_paths.push(path.clone());
+                    }
+                }
+            }
+
+            match response.next_page_offset {
+                Some(next_offset) => {
+                    offset = Some(next_offset);
+                }
+                None => break,
+            }
+        }
+
+        debug!(
+            "Scrolled {} file paths for tenant_id='{}' in '{}'",
+            file_paths.len(), tenant_id, collection_name
+        );
+
+        Ok(file_paths)
+    }
+
     /// Check if a collection exists
     pub async fn collection_exists(&self, collection_name: &str) -> Result<bool, StorageError> {
         debug!("Checking if collection exists: {}", collection_name);
