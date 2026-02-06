@@ -463,6 +463,99 @@ This ensures:
 - MCP server sends `DeprioritizeProject`
 - `last_activity_at` exceeds timeout (default 12h, configurable)
 
+#### Tracked Files Table
+
+The `tracked_files` table is the authoritative file inventory. It replaces Qdrant scrolling for file listings, recovery, and cleanup operations.
+
+```sql
+CREATE TABLE tracked_files (
+    file_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    watch_folder_id TEXT NOT NULL,          -- FK to watch_folders.watch_id
+    file_path TEXT NOT NULL,                -- RELATIVE path within project/library root
+    branch TEXT,                            -- Git branch at ingestion (NULL for libraries)
+
+    -- File metadata (from filesystem at ingestion time)
+    file_type TEXT,                         -- code|doc|test|config|note|artifact
+    language TEXT,                          -- python, rust, javascript, etc.
+    file_mtime TEXT NOT NULL,               -- Filesystem mtime at last ingestion
+    file_hash TEXT NOT NULL,                -- SHA256 of file content at last ingestion
+
+    -- Processing metadata
+    chunk_count INTEGER DEFAULT 0,          -- Number of Qdrant points for this file
+    chunking_method TEXT,                   -- "tree_sitter" | "overlap" | "plain"
+    lsp_status TEXT DEFAULT 'none',         -- "none" | "partial" | "complete" | "failed"
+    treesitter_status TEXT DEFAULT 'none',  -- "none" | "parsed" | "fallback" | "failed"
+    last_error TEXT,                        -- Last processing error (NULL if success)
+
+    -- Timestamps
+    created_at TEXT NOT NULL,               -- First ingestion time
+    updated_at TEXT NOT NULL,               -- Last successful processing time
+
+    FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),
+    UNIQUE(watch_folder_id, file_path, branch)
+);
+
+-- Index for recovery: walk all files for a project
+CREATE INDEX idx_tracked_files_watch ON tracked_files(watch_folder_id);
+-- Index for finding files by path (e.g., file watcher events)
+CREATE INDEX idx_tracked_files_path ON tracked_files(file_path);
+-- Index for branch operations
+CREATE INDEX idx_tracked_files_branch ON tracked_files(watch_folder_id, branch);
+```
+
+**Key columns:**
+
+- `file_path`: **Relative** to `watch_folders.path`. When a project moves, only the watch_folder root path changes; tracked_files entries remain valid.
+- `file_hash`: SHA256 of file content at ingestion. Used for recovery (detect changes during daemon downtime, including git checkout/rsync which change content without changing mtime) and update optimization (skip re-embedding when content hasn't changed).
+- `file_mtime`: Filesystem modification time at ingestion. Used for fast change detection during recovery.
+- `lsp_status` / `treesitter_status`: Track processing pipeline state per file. Enables re-processing files that had partial or failed enrichment.
+- `chunk_count`: Cached count of Qdrant points for this file (also available via `qdrant_chunks` table).
+
+#### Qdrant Chunks Table
+
+The `qdrant_chunks` table tracks individual Qdrant points per file. It is a child of `tracked_files` with CASCADE delete.
+
+```sql
+CREATE TABLE qdrant_chunks (
+    chunk_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_id INTEGER NOT NULL,               -- FK to tracked_files.file_id
+    point_id TEXT NOT NULL,                 -- Qdrant point UUID
+    chunk_index INTEGER NOT NULL,           -- Position within file (0-based)
+    content_hash TEXT NOT NULL,             -- SHA256 of chunk content
+
+    -- Chunk metadata
+    chunk_type TEXT,                        -- "function" | "class" | "method" | "module" | "fragment" | "plain"
+    symbol_name TEXT,                       -- For tree-sitter chunks (e.g., "validate_token")
+    start_line INTEGER,                     -- Source line range
+    end_line INTEGER,
+
+    -- Timestamps
+    created_at TEXT NOT NULL,
+
+    FOREIGN KEY (file_id) REFERENCES tracked_files(file_id) ON DELETE CASCADE,
+    UNIQUE(file_id, chunk_index)
+);
+
+-- Index for looking up chunks by Qdrant point ID
+CREATE INDEX idx_qdrant_chunks_point ON qdrant_chunks(point_id);
+-- Index for file's chunks
+CREATE INDEX idx_qdrant_chunks_file ON qdrant_chunks(file_id);
+```
+
+**Key columns:**
+
+- `point_id`: Qdrant point UUID. Enables precise deletion without Qdrant scrolling.
+- `content_hash`: SHA256 of chunk content. Enables future surgical updates: compare old vs new chunk hashes to only upsert changed chunks and delete removed ones.
+- `chunk_type` / `symbol_name`: Metadata from tree-sitter parsing. Useful for debugging and statistics.
+- `start_line` / `end_line`: Source line range for this chunk.
+
+**Benefits:**
+
+1. **Precise deletion**: Read point_ids from SQLite, delete from Qdrant by ID — no scrolling
+2. **Future surgical updates**: Compare content_hashes to only modify changed chunks
+3. **Debugging**: See exactly what's in Qdrant per file without querying Qdrant
+4. **Statistics**: Chunks per file/language/project — instant from SQLite
+
 ### Vector Configuration
 
 All collections use identical vector configuration:
@@ -497,18 +590,14 @@ HNSW:
   "symbols": ["MyClass", "my_function"],
   "chunk_index": 0,
   "total_chunks": 5,
-  "created_at": "2026-01-28T12:00:00Z",
-  "file_mtime": "2026-01-28T11:45:00Z", // File modification time at ingestion
-  "file_hash": "a1b2c3..." // SHA256 of file content at ingestion (truncated)
+  "created_at": "2026-01-28T12:00:00Z"
 }
 ```
 
-**File metadata rationale:** `file_mtime` and `file_hash` are stored at ingestion time
-to enable daemon startup recovery. On restart, the daemon can compare stored metadata
-against filesystem state to detect files that changed, were added, or were deleted while
-the daemon was not running. Without these fields, recovery would require re-reading and
-re-hashing every file in every watched project.
-```
+**Note:** File metadata (`file_mtime`, `file_hash`, chunk details) is tracked in the
+SQLite `tracked_files` and `qdrant_chunks` tables, not in Qdrant payloads. This keeps
+Qdrant payloads lean (content-related fields only) and enables fast recovery queries
+via SQLite instead of slow Qdrant scrolling. See [Tracked Files Table](#tracked-files-table).
 
 **Libraries Collection:**
 
@@ -784,13 +873,33 @@ Single daemon process - no need for complex status states.
 **On processing failure:**
 
 1. Increment `retry_count`
-2. Append error message to `errors` (JSON array)
-3. If `retry_count >= max_retries`: set `failed = 1`
+2. Append timestamped error to `error_message` (accumulated log)
+3. Update `last_error_at` with current timestamp
+4. If `retry_count >= max_retries`: set `status = 'failed'`
+
+**Error message format:** `error_message` accumulates across retries as a newline-separated log:
+
+```
+2026-02-06T12:00:00Z Qdrant connection refused: timeout after 30s
+2026-02-06T12:05:00Z Qdrant connection refused: server unavailable
+2026-02-06T12:15:00Z Qdrant upsert failed: collection not found
+```
+
+Update SQL:
+```sql
+UPDATE unified_queue SET
+  retry_count = retry_count + 1,
+  error_message = COALESCE(error_message || char(10), '') || strftime('%Y-%m-%dT%H:%M:%fZ', 'now') || ' ' || :error_text,
+  last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+  status = CASE WHEN retry_count + 1 >= max_retries THEN 'failed' ELSE status END,
+  updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE queue_id = :queue_id;
+```
 
 **Failed items:**
 
-- Stay in queue with `failed = 1`
-- Skipped by normal processing (query: `WHERE failed = 0`)
+- Stay in queue with `status = 'failed'`
+- Skipped by normal processing (query: `WHERE status = 'pending'`)
 - CLI displays failed items with full error history
 
 **CLI commands for failed items:**
@@ -835,6 +944,97 @@ This prevents starvation of low-priority items.
 **Qdrant atomicity:** Each batch request to Qdrant is atomic. Grouping by (op, collection) leverages this for efficiency.
 
 **Idempotency:** All operations are idempotent - retries are safe (delete non-existent = no-op, upsert = replace).
+
+#### File Operation Transactions
+
+All file operations follow a consistent transaction pattern. The SQL transaction opens
+**before** the Qdrant operation. On success, the same transaction records the file
+tracking state and marks the queue item done. On failure, the transaction only records
+the retry information with accumulated error log.
+
+##### File Ingest (new file)
+
+```
+BEGIN TRANSACTION;
+  1. Read file from filesystem
+  2. Compute file_hash (SHA256), read file_mtime
+  3. Check exclusion rules (skip if excluded → mark done, COMMIT)
+  4. Chunk file (tree-sitter or fallback overlap)
+  5. Generate embeddings for all chunks
+  6. Upsert all points to Qdrant (batch)
+  7. If Qdrant succeeds:
+       INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_type,
+         language, file_mtime, file_hash, chunk_count, chunking_method,
+         lsp_status, treesitter_status, created_at, updated_at) VALUES (...);
+       INSERT INTO qdrant_chunks (file_id, point_id, chunk_index, content_hash,
+         chunk_type, symbol_name, start_line, end_line, created_at) VALUES (...);
+         -- repeated for each chunk
+       UPDATE unified_queue SET status = 'done', updated_at = ... WHERE queue_id = ?;
+  8. If Qdrant fails:
+       UPDATE unified_queue SET retry_count++, error_message append, last_error_at...;
+       -- If retry_count >= max_retries: also SET status = 'failed'
+COMMIT;
+```
+
+##### File Delete
+
+```
+BEGIN TRANSACTION;
+  1. Look up file in tracked_files by (watch_folder_id, file_path, branch)
+  2. Read all point_ids from qdrant_chunks for that file_id
+  3. Delete points from Qdrant by point_ids (batch)
+  4. If Qdrant succeeds:
+       DELETE FROM qdrant_chunks WHERE file_id = ?;  -- CASCADE handles this too
+       DELETE FROM tracked_files WHERE file_id = ?;
+       UPDATE unified_queue SET status = 'done', updated_at = ... WHERE queue_id = ?;
+  5. If Qdrant fails:
+       Update queue with retry info + accumulated error.
+  6. If file not found in tracked_files:
+       Attempt Qdrant delete by filter (file_path + tenant_id) as fallback.
+       Mark queue item done.
+COMMIT;
+```
+
+##### File Update (delete + reingest)
+
+```
+BEGIN TRANSACTION;
+  1. Look up existing file in tracked_files
+  2. Read file from filesystem, compute new file_hash and file_mtime
+  3. If file_hash unchanged → mark queue item done, COMMIT (skip processing)
+  4. Read old point_ids from qdrant_chunks
+  5. Chunk new file content, generate embeddings
+  6. Delete old points from Qdrant (batch by point_ids)
+  7. Upsert new points to Qdrant (batch)
+  8. If both Qdrant operations succeed:
+       DELETE FROM qdrant_chunks WHERE file_id = ?;
+       UPDATE tracked_files SET file_mtime = ?, file_hash = ?, chunk_count = ?,
+         chunking_method = ?, lsp_status = ?, treesitter_status = ?,
+         last_error = NULL, updated_at = ... WHERE file_id = ?;
+       INSERT INTO qdrant_chunks (...) VALUES (...);  -- for each new chunk
+       UPDATE unified_queue SET status = 'done', updated_at = ... WHERE queue_id = ?;
+  9. If Qdrant fails:
+       Update queue with retry info + accumulated error.
+COMMIT;
+```
+
+##### File Update — Surgical (future development)
+
+An optimization enabled by `qdrant_chunks.content_hash`. Instead of full delete + reingest:
+
+```
+1. Read old qdrant_chunks with content_hashes for the file
+2. Chunk new file content, compute content_hash for each chunk
+3. Compare old vs new by content_hash:
+   - Unchanged (same hash, same index): skip entirely
+   - Modified (same index, different hash): upsert to Qdrant, update qdrant_chunks
+   - New (index > old count): upsert to Qdrant, insert qdrant_chunks
+   - Removed (old index > new count): delete from Qdrant, delete qdrant_chunks
+4. Update tracked_files metadata, mark queue done
+```
+
+This reduces Qdrant operations when only part of a file changes (e.g., one function
+edited in a large file).
 
 #### Item Types
 
@@ -1046,8 +1246,9 @@ When a new project or library folder is registered:
    - List eligible files → queue each as `file/ingest`
    - List subfolders → queue each as `folder/scan`
    - Transaction: all additions + pop scan entry
-3. Daemon processes files:
+3. Daemon processes files (per File Ingest transaction):
    - Ingest with LSP/tree-sitter metadata
+   - Record in tracked_files + qdrant_chunks (within same transaction)
    - Pop queue entry on success
    - If file no longer exists: just pop (no error)
    - If file modified before ingestion: ingested state is final
@@ -1106,26 +1307,29 @@ Blunt force removal of all content. No queue entries needed - direct Qdrant oper
 
 #### Phase 4: Daemon Startup Recovery
 
-On daemon start (or restart), the daemon must reconcile Qdrant state with the
-filesystem for all watched projects. This handles changes that occurred while
-the daemon was not running.
+On daemon start (or restart), the daemon must reconcile the `tracked_files` table
+(authoritative file inventory) with the filesystem for all watched projects.
+This handles changes that occurred while the daemon was not running.
 
 ```
 1. For each watch_folder WHERE enabled = 1:
-   a. Scroll all indexed file_paths + file_mtime + file_hash from Qdrant for tenant
+   a. Query tracked_files for all files with this watch_folder_id
    b. Walk filesystem to get current eligible files with mtime + hash
-   c. Compare:
-      - File in Qdrant but not on disk → queue file/delete
-      - File on disk but not in Qdrant → queue file/ingest
-      - File in both but mtime or hash changed → queue file/update
-      - File in both and unchanged → skip (no action)
-   d. Check exclusion rules: file in Qdrant but now excluded → queue file/delete
+   c. Compare (file_path is relative to watch_folder.path):
+      - In tracked_files but not on disk → queue file/delete
+      - On disk but not in tracked_files → queue file/ingest
+      - In both but file_mtime or file_hash changed → queue file/update
+      - In both and unchanged → skip (no action)
+   d. Check exclusion rules: in tracked_files but now excluded → queue file/delete
 2. Resume normal queue processing and file watching
 ```
 
-**Prerequisites:** Points must store `file_mtime` and `file_hash` in their payload
-(see Payload Schemas). Without these, recovery falls back to re-ingesting all files
-(expensive for large projects).
+**Prerequisites:** The `tracked_files` table must be populated (happens naturally during
+normal operation as files are ingested). For first startup with empty tracked_files,
+the initial scan (Phase 1) handles population.
+
+**Performance:** Recovery queries SQLite (milliseconds) instead of scrolling Qdrant
+(which took ~8 minutes for 28k+ points in 100-item batches).
 
 **Scan distinction:** Initial scan (Phase 1) is for newly registered projects only.
 Recovery (Phase 4) runs on every daemon startup for all existing watched projects.
@@ -2098,7 +2302,7 @@ Environment variables override configuration file values:
 
 ### Configuration Structure
 
-The unified configuration file contains all settings:
+The unified configuration file contains all settings. The following shows every section parsed by `DaemonConfig` with defaults:
 
 ```yaml
 # Database configuration
@@ -2109,31 +2313,132 @@ database:
 qdrant:
   url: http://localhost:6333
   api_key: null
-  timeout: 30s
+  timeout_ms: 30000
+  max_retries: 3
+  retry_delay_ms: 1000
+  transport: grpc                       # grpc | http
+  pool_size: 10
+  tls: false
+  dense_vector_size: 1536
+  check_compatibility: true
 
-# Daemon settings
+# Daemon top-level settings
 daemon:
+  log_file: null                        # Override log file path
+  log_level: info                       # DEBUG, INFO, WARN, ERROR
+  max_concurrent_tasks: 4               # Max parallel processing tasks
+  default_timeout_ms: 30000             # Task timeout
+  enable_preemption: true               # Allow task preemption
+  chunk_size: 1000                      # Default document chunk size (characters)
   grpc_port: 50051
-  queue_poll_interval_ms: 1000
-  queue_batch_size: 10
 
   # Resource limits (prevent daemon from consuming excessive CPU/memory)
   resource_limits:
-    # Maximum concurrent embedding operations (embedding is CPU-intensive via ONNX)
-    # Lower values reduce CPU spikes; higher values increase throughput
-    max_concurrent_embeddings: 2  # default: 2 (range: 1-8)
+    nice_level: 10                      # OS-level priority (-20 highest to 19 lowest)
+    inter_item_delay_ms: 50             # Breathing room between queue items (0-5000)
+    max_concurrent_embeddings: 2        # Concurrent ONNX embedding ops (1-8)
+    max_memory_percent: 70              # Pause processing above this % (20-95)
 
-    # Delay in milliseconds between processing individual items within a batch
-    # Prevents sustained CPU saturation by introducing breathing room
-    inter_item_delay_ms: 50       # default: 50 (0 = no delay, max: 5000)
+# Auto-ingestion settings
+auto_ingestion:
+  enabled: true
+  auto_create_watches: true
+  include_common_files: true
+  include_source_files: true
+  target_collection_suffix: scratchbook
+  max_files_per_batch: 5
+  batch_delay_seconds: 2.0
+  max_file_size_mb: 50
+  recursive_depth: 5
+  debounce_seconds: 10
 
-    # OS-level process priority (Unix nice value)
-    # Range: -20 (highest) to 19 (lowest). Default 10 = low priority background work
-    nice_level: 10                # default: 10
+# Queue processor configuration
+queue_processor:
+  batch_size: 10                        # Items per dequeue batch
+  poll_interval_ms: 500                 # Poll interval between batches
+  max_retries: 5                        # Max retry attempts before marking failed
+  retry_delays_seconds: [60, 300, 900, 3600]  # Backoff schedule
+  target_throughput: 1000               # Target docs/min for monitoring
+  enable_metrics: true                  # Enable performance metrics
+  # Env overrides: WQM_QUEUE_BATCH_SIZE, WQM_QUEUE_POLL_INTERVAL_MS,
+  #   WQM_QUEUE_MAX_RETRIES, WQM_QUEUE_TARGET_THROUGHPUT, WQM_QUEUE_ENABLE_METRICS
 
-    # Maximum percentage of available system memory before pausing processing
-    # When exceeded, daemon pauses queue processing until memory drops below threshold
-    max_memory_percent: 70        # default: 70 (range: 20-95)
+# Logging configuration
+logging:
+  info_includes_connection_events: true
+  info_includes_transport_details: true
+  info_includes_retry_attempts: true
+  info_includes_fallback_behavior: true
+  error_includes_stack_trace: true
+  error_includes_connection_state: true
+
+# Tool monitoring
+monitoring:
+  enable_monitoring: true
+  check_on_startup: true
+  check_interval_hours: 24
+  # Env overrides: WQM_MONITOR_CHECK_INTERVAL_HOURS, WQM_MONITOR_CHECK_ON_STARTUP,
+  #   WQM_MONITOR_ENABLE
+
+# Observability (metrics and telemetry)
+observability:
+  collection_interval: 60              # Seconds between metric snapshots
+  metrics:
+    enabled: false
+  telemetry:
+    enabled: false
+    history_retention: 120
+    cpu_usage: true
+    memory_usage: true
+    latency: true
+    queue_depth: true
+    throughput: true
+
+# Git integration
+git:
+  enable_branch_detection: true
+  cache_ttl_seconds: 60                # Branch info cache TTL
+  # Env overrides: WQM_GIT_ENABLE_BRANCH_DETECTION, WQM_GIT_CACHE_TTL_SECONDS
+
+# Embedding generation
+embedding:
+  cache_max_entries: 1000              # Max cached embedding results
+  model_cache_dir: null                # Override model download dir (~/.cache/fastembed/)
+  # Env overrides: WQM_EMBEDDING_CACHE_MAX_ENTRIES, WQM_EMBEDDING_MODEL_CACHE_DIR
+
+# LSP (Language Server Protocol) integration
+lsp:
+  user_path: null                      # User PATH for finding language servers
+  max_servers_per_project: 3
+  auto_start_on_activation: true
+  deactivation_delay_secs: 60         # Delay before stopping servers on deactivation
+  enable_enrichment_cache: true
+  cache_ttl_secs: 300
+  startup_timeout_secs: 30
+  request_timeout_secs: 10
+  health_check_interval_secs: 60
+  max_restart_attempts: 3
+  restart_backoff_multiplier: 2.0
+  enable_auto_restart: true
+  stability_reset_secs: 3600          # Reset restart count after this period
+
+# Tree-sitter grammar configuration
+grammars:
+  cache_dir: ~/.workspace-qdrant/grammars
+  required: [rust, python, javascript, typescript, go, java, c, cpp]
+  auto_download: true
+  tree_sitter_version: "0.24"
+  download_base_url: "https://github.com/tree-sitter/tree-sitter-{language}/releases/download"
+  verify_checksums: true
+  lazy_loading: true
+  check_interval_hours: 168            # Weekly grammar update check
+
+# Daemon self-update
+updates:
+  auto_check: true
+  channel: stable                      # stable | beta | dev
+  notify_only: true                    # Announce but don't auto-install
+  check_interval_hours: 24
 
 # File watching patterns (inline, not separate files)
 watching:
@@ -2168,15 +2473,19 @@ environment:
 
 **Owner:** Rust daemon (memexd) - see [ADR-003](./docs/adr/ADR-003-daemon-owns-sqlite.md)
 
-**Core Tables:**
+**Core Tables (5):**
 
 | Table            | Purpose                                                           | Used By          |
 | ---------------- | ----------------------------------------------------------------- | ---------------- |
 | `schema_version` | Schema version tracking                                           | Daemon           |
 | `unified_queue`  | Write queue for daemon processing                                 | MCP, CLI, Daemon |
 | `watch_folders`  | Unified table for projects, libraries, and submodules (see below) | MCP, CLI, Daemon |
+| `tracked_files`  | Authoritative file inventory with metadata                        | Daemon (write), CLI (read) |
+| `qdrant_chunks`  | Qdrant point tracking per file chunk (child of tracked_files)     | Daemon only      |
 
 **Note:** The `watch_folders` table consolidates what were previously separate `registered_projects`, `project_submodules`, and `watch_folders` tables. See [Watch Folders Table (Unified)](#watch-folders-table-unified) for the complete schema.
+
+**Note:** `tracked_files` + `qdrant_chunks` together form the authoritative file inventory, replacing the need to scroll Qdrant for file listings. See [Tracked Files Table](#tracked-files-table) and [Qdrant Chunks Table](#qdrant-chunks-table) for schemas.
 
 #### Schema Version Table
 
@@ -2233,6 +2542,8 @@ The system consists of three primary components that work together:
 │                         │
 │  - unified_queue        │
 │  - watch_folders        │
+│  - tracked_files        │
+│  -   qdrant_chunks      │
 │  - schema_version       │
 └─────────────────────────┘
 ```
