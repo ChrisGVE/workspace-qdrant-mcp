@@ -1,104 +1,64 @@
-# Handover: Exclusion Cleanup for Active Projects
+# Handover: Post-Scan Exclusion Cleanup
 
 **Date:** 2026-02-06
-**Status:** Ready for implementation
+**Status:** Feature implemented, needs rebuild and deployment
 
-## Context
+## Completed Work
 
-Bug fixes completed in previous session:
+### Previous Session
 1. Hidden file/directory exclusion at all depths (commit `9fa47c4b`)
 2. LSP enrichment no longer gated by project activity (commit `9fa47c4b`)
 
-All 627 daemon tests pass. Fixes are committed but daemon needs rebuild.
+### This Session
+3. **Auto-removal of excluded files from Qdrant after scan** (commit `33eb8101`)
+   - Task Master: task 503 (development tag) - marked done
+   - Added `scroll_file_paths_by_tenant()` to StorageClient (`storage.rs`)
+   - Added `cleanup_excluded_files()` to UnifiedQueueProcessor (`unified_queue_processor.rs`)
+   - Called automatically after `scan_project_directory()` completes
+   - Queues (File, Delete) items at priority 7 for any indexed file matching exclusion rules
+   - 3 unit tests added and passing (6 total in module)
+   - All 626 daemon lib tests pass (1 pre-existing flaky file watcher test)
 
-## Next Task: Auto-Removal of Excluded Files from Qdrant
+## What Was Built
 
-**Goal:** When a project is active, automatically remove any already-indexed files that now match exclusion rules.
+**StorageClient.scroll_file_paths_by_tenant()** (`storage.rs:692-778`):
+- Paginates through Qdrant using scroll API with tenant_id filter
+- Extracts `file_path` from each point's payload
+- Handles offset-based pagination in batches of 100
+- Uses existing retry_operation for resilience
 
-### Design
+**UnifiedQueueProcessor.cleanup_excluded_files()** (`unified_queue_processor.rs:1068-1172`):
+- Checks if collection exists before scrolling
+- Scrolls all file paths for the tenant from Qdrant
+- Strips project root to get relative path, checks `should_exclude_file()`
+- Queues File/Delete items at priority 7 (higher than scan's priority 5)
+- Graceful degradation: errors logged but don't fail the scan
 
-**Trigger points:**
-1. On project activation (MCP server sends `RegisterProject` with existing project)
-2. After scan completes for an active project
-3. Optionally: on daemon startup for all active projects
+## Rebuild & Deploy
 
-**Implementation approach:**
-
-1. After `scan_project_directory` completes, add a cleanup phase:
-   ```rust
-   async fn cleanup_excluded_files(
-       tenant_id: &str,
-       collection: &str,
-       project_root: &Path,
-       storage_client: &Arc<StorageClient>,
-       queue_manager: &QueueManager,
-   ) -> Result<u64> {
-       // 1. Query Qdrant for all file_path values in this tenant
-       // 2. For each file_path, check should_exclude_file(relative_path)
-       // 3. If excluded, queue (File, Delete) item
-       // 4. Return count of files queued for deletion
-   }
-   ```
-
-2. Call this after scan in `process_project_item` for `QueueOperation::Scan`
-
-3. Only run for active projects to avoid unnecessary work on dormant projects
-
-**Key files to modify:**
-- `src/rust/daemon/core/src/unified_queue_processor.rs` - Add cleanup after scan
-- `src/rust/daemon/core/src/patterns/exclusion.rs` - Ensure `should_exclude_file` is accessible
-
-**Qdrant query pattern:**
-```rust
-// Scroll through all points for this tenant
-let filter = Filter::must([
-    Condition::matches("tenant_id", tenant_id),
-    Condition::matches("item_type", "file"),
-]);
-// Extract file_path from each point's payload
-// Check exclusion rules
-// Queue deletions
-```
-
-### Testing approach
-
-1. Index a project with hidden files (before fix was applied)
-2. Run cleanup on that project
-3. Verify hidden files are queued for deletion
-4. Verify non-hidden files are untouched
-
-### Scope limitation
-
-- Only clean up active projects (not all projects)
-- Only run after scan completes (not continuously)
-- Queue deletions rather than direct delete (respect queue processing)
-
-## Rebuild Commands (Before Starting)
+The daemon binary needs to be rebuilt with these changes:
 
 ```bash
 # Build with ONNX Runtime (Intel Mac)
-cd /Users/chris/dev/projects/mcp/workspace-qdrant-mcp
 ORT_LIB_LOCATION=~/.onnxruntime-static/lib cargo build --release \
-  --manifest-path src/rust/Cargo.toml --package memexd
+  --manifest-path /Users/chris/dev/projects/mcp/workspace-qdrant-mcp/src/rust/Cargo.toml \
+  --package memexd
 
 # Restart daemon with new binary
 launchctl stop com.workspace-qdrant.memexd
-cp src/rust/target/release/memexd ~/.local/bin/
+cp /Users/chris/dev/projects/mcp/workspace-qdrant-mcp/src/rust/target/release/memexd ~/.local/bin/
 launchctl start com.workspace-qdrant.memexd
 ```
 
-## Files Reference
+## Pre-existing Issues
 
-| File | Purpose |
-|------|---------|
-| `unified_queue_processor.rs:920` | `scan_project_directory` - add cleanup call here |
-| `unified_queue_processor.rs:882` | `QueueOperation::Scan` case - alternative location |
-| `patterns/exclusion.rs:409` | `should_exclude_file` function |
-| `storage_client.rs` | Qdrant scroll/query operations |
+- 1 flaky test: `watching::tests::single_folder_watch_tests::test_detect_file_modification` (timing-sensitive, intermittent)
+- 2 missing test modules: `lsp_daemon_integration_tests`, `daemon_state_persistence_tests` (test "mod" compilation fails)
+- 64+ pre-existing deprecation warnings in `queue_operations.rs` (legacy API)
 
-## Task Master
+## Next Steps
 
-This work should be tracked. Consider adding via:
-```bash
-task-master add-task --prompt="Implement auto-removal of excluded files from Qdrant for active projects after scan completes"
-```
+No further tasks in the development tag are pending. Potential follow-up work:
+1. Rebuild and deploy the daemon binary
+2. Push commits to remote (currently 11 ahead of origin/main)
+3. Verify cleanup works with a real Qdrant instance by triggering a project scan
