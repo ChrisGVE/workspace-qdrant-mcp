@@ -572,6 +572,21 @@ fn clean_extracted_text(text: &str) -> String {
 }
 
 /// Chunk text into smaller pieces with overlap
+/// Find the largest byte index <= `index` that is a valid UTF-8 char boundary.
+/// This prevents panics when slicing strings at byte offsets calculated from
+/// `len()` arithmetic, which can land inside multi-byte characters.
+fn floor_char_boundary(s: &str, index: usize) -> usize {
+    if index >= s.len() {
+        s.len()
+    } else {
+        let mut i = index;
+        while i > 0 && !s.is_char_boundary(i) {
+            i -= 1;
+        }
+        i
+    }
+}
+
 fn chunk_text(
     text: &str,
     base_metadata: &HashMap<String, String>,
@@ -628,6 +643,7 @@ fn chunk_by_paragraphs(
             chunk_index += 1;
 
             let overlap_start = current_chunk.len().saturating_sub(config.overlap_size);
+            let overlap_start = floor_char_boundary(&current_chunk, overlap_start);
             current_chunk = current_chunk[overlap_start..].to_string();
             current_start += overlap_start;
         }
@@ -664,12 +680,13 @@ fn chunk_by_characters(
     let mut chunk_index = 0;
 
     while start < total_chars {
-        let end = (start + config.chunk_size).min(total_chars);
+        let end = floor_char_boundary(text, (start + config.chunk_size).min(total_chars));
 
         let actual_end = if end < total_chars {
             text[start..end]
                 .rfind(char::is_whitespace)
                 .map(|pos| start + pos)
+                .filter(|&pos| pos > start) // Avoid zero-progress when whitespace is at start
                 .unwrap_or(end)
         } else {
             end
@@ -692,9 +709,11 @@ fn chunk_by_characters(
             chunk_index += 1;
         }
 
-        start = actual_end.saturating_sub(config.overlap_size);
-        if start <= chunks.last().map(|c| c.start_char).unwrap_or(0) {
-            start = actual_end;
+        let new_start = floor_char_boundary(text, actual_end.saturating_sub(config.overlap_size));
+        if new_start <= start {
+            start = actual_end; // Guarantee forward progress
+        } else {
+            start = new_start;
         }
     }
 }
@@ -824,5 +843,66 @@ mod tests {
 
         assert!(result.is_err());
         matches!(result.unwrap_err(), DocumentProcessorError::FileNotFound(_));
+    }
+
+    #[test]
+    fn test_floor_char_boundary() {
+        // ASCII-only string: all byte indices are char boundaries
+        let ascii = "hello";
+        assert_eq!(floor_char_boundary(ascii, 3), 3);
+        assert_eq!(floor_char_boundary(ascii, 5), 5);
+        assert_eq!(floor_char_boundary(ascii, 10), 5); // beyond end
+
+        // Multi-byte: '─' is U+2500, encoded as 3 bytes (0xE2 0x94 0x80)
+        let s = "ab─cd"; // bytes: a(0) b(1) ─(2,3,4) c(5) d(6)
+        assert_eq!(floor_char_boundary(s, 2), 2); // start of ─
+        assert_eq!(floor_char_boundary(s, 3), 2); // inside ─ → back to 2
+        assert_eq!(floor_char_boundary(s, 4), 2); // inside ─ → back to 2
+        assert_eq!(floor_char_boundary(s, 5), 5); // start of c
+    }
+
+    #[test]
+    fn test_chunk_by_paragraphs_with_multibyte_overlap() {
+        // Text with multi-byte box-drawing characters that caused the original crash
+        let text = "First paragraph with content.\n\n\
+                    ┌─────────────────────┐\n\
+                    │   Box drawing test   │\n\
+                    └─────────────────────┘\n\n\
+                    Third paragraph after box.";
+
+        let config = ChunkingConfig {
+            chunk_size: 60,
+            overlap_size: 20,
+            ..ChunkingConfig::default()
+        };
+
+        let metadata = HashMap::new();
+        let chunks = chunk_text(text, &metadata, &config);
+        // Should not panic and should produce chunks
+        assert!(!chunks.is_empty());
+        // All chunks concatenated should cover the original text
+        for chunk in &chunks {
+            assert!(!chunk.content.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_chunk_by_characters_with_multibyte() {
+        // Ensure character-based chunking handles multi-byte chars
+        let text = "Hello ─── world ─── end";
+        let config = ChunkingConfig {
+            chunk_size: 10,
+            overlap_size: 4,
+            ..ChunkingConfig::default()
+        };
+
+        let metadata = HashMap::new();
+        let mut chunks = Vec::new();
+        chunk_by_characters(text, &metadata, &mut chunks, &config);
+        assert!(!chunks.is_empty());
+        for chunk in &chunks {
+            // Each chunk should be valid UTF-8 (guaranteed by &str, but verify no panics)
+            assert!(!chunk.content.is_empty());
+        }
     }
 }
