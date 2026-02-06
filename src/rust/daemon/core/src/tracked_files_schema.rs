@@ -244,6 +244,277 @@ pub const CREATE_QDRANT_CHUNKS_INDEXES_SQL: &[&str] = &[
 ];
 
 // ---------------------------------------------------------------------------
+// Database operations
+// ---------------------------------------------------------------------------
+
+use sha2::{Sha256, Digest};
+use sqlx::{SqlitePool, Row};
+use std::path::Path;
+
+/// Compute SHA256 hash of file content
+pub fn compute_file_hash(path: &Path) -> std::io::Result<String> {
+    use std::io::Read;
+    let mut file = std::fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0u8; 8192];
+    loop {
+        let bytes_read = file.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+    Ok(format!("{:x}", hasher.finalize()))
+}
+
+/// Compute SHA256 hash of a byte slice (for chunk content)
+pub fn compute_content_hash(content: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content.as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
+/// Get file modification time as ISO 8601 string
+pub fn get_file_mtime(path: &Path) -> std::io::Result<String> {
+    let metadata = std::fs::metadata(path)?;
+    let mtime = metadata.modified()?;
+    let datetime: chrono::DateTime<chrono::Utc> = mtime.into();
+    Ok(datetime.to_rfc3339())
+}
+
+/// Look up a watch_folder by tenant_id and collection, return (watch_id, path)
+pub async fn lookup_watch_folder(
+    pool: &SqlitePool,
+    tenant_id: &str,
+    collection: &str,
+) -> Result<Option<(String, String)>, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT watch_id, path FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 AND enabled = 1 LIMIT 1"
+    )
+    .bind(tenant_id)
+    .bind(collection)
+    .fetch_optional(pool)
+    .await?;
+
+    Ok(row.map(|r| (r.get("watch_id"), r.get("path"))))
+}
+
+/// Look up a tracked file by (watch_folder_id, relative_path, branch)
+pub async fn lookup_tracked_file(
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    file_path: &str,
+    branch: Option<&str>,
+) -> Result<Option<TrackedFile>, sqlx::Error> {
+    let row = match branch {
+        Some(b) => {
+            sqlx::query(
+                "SELECT file_id, watch_folder_id, file_path, branch, file_type, language,
+                        file_mtime, file_hash, chunk_count, chunking_method,
+                        lsp_status, treesitter_status, last_error, created_at, updated_at
+                 FROM tracked_files
+                 WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch = ?3"
+            )
+            .bind(watch_folder_id)
+            .bind(file_path)
+            .bind(b)
+            .fetch_optional(pool)
+            .await?
+        }
+        None => {
+            sqlx::query(
+                "SELECT file_id, watch_folder_id, file_path, branch, file_type, language,
+                        file_mtime, file_hash, chunk_count, chunking_method,
+                        lsp_status, treesitter_status, last_error, created_at, updated_at
+                 FROM tracked_files
+                 WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch IS NULL"
+            )
+            .bind(watch_folder_id)
+            .bind(file_path)
+            .fetch_optional(pool)
+            .await?
+        }
+    };
+
+    Ok(row.map(|r| TrackedFile {
+        file_id: r.get("file_id"),
+        watch_folder_id: r.get("watch_folder_id"),
+        file_path: r.get("file_path"),
+        branch: r.get("branch"),
+        file_type: r.get("file_type"),
+        language: r.get("language"),
+        file_mtime: r.get("file_mtime"),
+        file_hash: r.get("file_hash"),
+        chunk_count: r.get("chunk_count"),
+        chunking_method: r.get("chunking_method"),
+        lsp_status: ProcessingStatus::from_str(
+            r.get::<Option<String>, _>("lsp_status").as_deref().unwrap_or("none")
+        ).unwrap_or(ProcessingStatus::None),
+        treesitter_status: ProcessingStatus::from_str(
+            r.get::<Option<String>, _>("treesitter_status").as_deref().unwrap_or("none")
+        ).unwrap_or(ProcessingStatus::None),
+        last_error: r.get("last_error"),
+        created_at: r.get("created_at"),
+        updated_at: r.get("updated_at"),
+    }))
+}
+
+/// Insert a new tracked file record, returning the file_id
+pub async fn insert_tracked_file(
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    file_path: &str,
+    branch: Option<&str>,
+    file_type: Option<&str>,
+    language: Option<&str>,
+    file_mtime: &str,
+    file_hash: &str,
+    chunk_count: i32,
+    chunking_method: Option<&str>,
+    lsp_status: ProcessingStatus,
+    treesitter_status: ProcessingStatus,
+) -> Result<i64, sqlx::Error> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let result = sqlx::query(
+        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_type, language,
+         file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,
+         created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+    )
+    .bind(watch_folder_id)
+    .bind(file_path)
+    .bind(branch)
+    .bind(file_type)
+    .bind(language)
+    .bind(file_mtime)
+    .bind(file_hash)
+    .bind(chunk_count)
+    .bind(chunking_method)
+    .bind(lsp_status.to_string())
+    .bind(treesitter_status.to_string())
+    .bind(&now)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Update an existing tracked file record
+pub async fn update_tracked_file(
+    pool: &SqlitePool,
+    file_id: i64,
+    file_mtime: &str,
+    file_hash: &str,
+    chunk_count: i32,
+    chunking_method: Option<&str>,
+    lsp_status: ProcessingStatus,
+    treesitter_status: ProcessingStatus,
+) -> Result<(), sqlx::Error> {
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE tracked_files SET file_mtime = ?1, file_hash = ?2, chunk_count = ?3,
+         chunking_method = ?4, lsp_status = ?5, treesitter_status = ?6,
+         last_error = NULL, updated_at = ?7
+         WHERE file_id = ?8"
+    )
+    .bind(file_mtime)
+    .bind(file_hash)
+    .bind(chunk_count)
+    .bind(chunking_method)
+    .bind(lsp_status.to_string())
+    .bind(treesitter_status.to_string())
+    .bind(&now)
+    .bind(file_id)
+    .execute(pool)
+    .await?;
+
+    Ok(())
+}
+
+/// Delete a tracked file by file_id (CASCADE deletes qdrant_chunks)
+pub async fn delete_tracked_file(pool: &SqlitePool, file_id: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM tracked_files WHERE file_id = ?1")
+        .bind(file_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Insert qdrant_chunks for a file (batch)
+pub async fn insert_qdrant_chunks(
+    pool: &SqlitePool,
+    file_id: i64,
+    chunks: &[(String, i32, String, Option<ChunkType>, Option<String>, Option<i32>, Option<i32>)],
+    // Each tuple: (point_id, chunk_index, content_hash, chunk_type, symbol_name, start_line, end_line)
+) -> Result<(), sqlx::Error> {
+    let now = chrono::Utc::now().to_rfc3339();
+    for (point_id, chunk_index, content_hash, chunk_type, symbol_name, start_line, end_line) in chunks {
+        sqlx::query(
+            "INSERT INTO qdrant_chunks (file_id, point_id, chunk_index, content_hash,
+             chunk_type, symbol_name, start_line, end_line, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+        )
+        .bind(file_id)
+        .bind(point_id)
+        .bind(chunk_index)
+        .bind(content_hash)
+        .bind(chunk_type.as_ref().map(|ct| ct.to_string()))
+        .bind(symbol_name.as_deref())
+        .bind(start_line)
+        .bind(end_line)
+        .bind(&now)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Delete all qdrant_chunks for a file_id
+pub async fn delete_qdrant_chunks(pool: &SqlitePool, file_id: i64) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM qdrant_chunks WHERE file_id = ?1")
+        .bind(file_id)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+/// Get all point_ids for a tracked file's chunks
+pub async fn get_chunk_point_ids(pool: &SqlitePool, file_id: i64) -> Result<Vec<String>, sqlx::Error> {
+    let rows = sqlx::query("SELECT point_id FROM qdrant_chunks WHERE file_id = ?1")
+        .bind(file_id)
+        .fetch_all(pool)
+        .await?;
+
+    Ok(rows.iter().map(|r| r.get("point_id")).collect())
+}
+
+/// Get all tracked file paths for a watch_folder (for cleanup/recovery)
+pub async fn get_tracked_file_paths(
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+) -> Result<Vec<(i64, String, Option<String>)>, sqlx::Error> {
+    // Returns (file_id, file_path, branch)
+    let rows = sqlx::query(
+        "SELECT file_id, file_path, branch FROM tracked_files WHERE watch_folder_id = ?1"
+    )
+    .bind(watch_folder_id)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.iter().map(|r| (r.get("file_id"), r.get("file_path"), r.get("branch"))).collect())
+}
+
+/// Compute relative path from absolute file path and watch folder base path
+pub fn compute_relative_path(abs_path: &str, base_path: &str) -> Option<String> {
+    let abs = Path::new(abs_path);
+    let base = Path::new(base_path);
+    abs.strip_prefix(base)
+        .ok()
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -443,5 +714,280 @@ mod tests {
         let json = serde_json::to_string(&chunk).expect("Failed to serialize");
         assert!(json.contains("\"chunk_type\":null"));
         assert!(json.contains("\"symbol_name\":null"));
+    }
+
+    #[test]
+    fn test_compute_content_hash() {
+        let hash1 = compute_content_hash("hello world");
+        let hash2 = compute_content_hash("hello world");
+        let hash3 = compute_content_hash("different content");
+
+        assert_eq!(hash1, hash2, "Same content should produce same hash");
+        assert_ne!(hash1, hash3, "Different content should produce different hash");
+        assert_eq!(hash1.len(), 64, "SHA256 hex string should be 64 chars");
+    }
+
+    #[test]
+    fn test_compute_relative_path() {
+        assert_eq!(
+            compute_relative_path("/home/user/project/src/main.rs", "/home/user/project"),
+            Some("src/main.rs".to_string())
+        );
+        assert_eq!(
+            compute_relative_path("/different/path/file.rs", "/home/user/project"),
+            None
+        );
+        assert_eq!(
+            compute_relative_path("/home/user/project/file.rs", "/home/user/project"),
+            Some("file.rs".to_string())
+        );
+    }
+
+    // --- Async database tests ---
+
+    use sqlx::sqlite::SqlitePoolOptions;
+    use std::time::Duration;
+
+    async fn create_test_pool() -> SqlitePool {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool")
+    }
+
+    async fn setup_tables(pool: &SqlitePool) {
+        // Enable foreign keys
+        sqlx::query("PRAGMA foreign_keys = ON").execute(pool).await.unwrap();
+
+        // Create watch_folders (needed for FK)
+        sqlx::query(crate::watch_folders_schema::CREATE_WATCH_FOLDERS_SQL)
+            .execute(pool).await.unwrap();
+
+        // Create tracked_files
+        sqlx::query(CREATE_TRACKED_FILES_SQL).execute(pool).await.unwrap();
+        for idx in CREATE_TRACKED_FILES_INDEXES_SQL {
+            sqlx::query(idx).execute(pool).await.unwrap();
+        }
+
+        // Create qdrant_chunks
+        sqlx::query(CREATE_QDRANT_CHUNKS_SQL).execute(pool).await.unwrap();
+        for idx in CREATE_QDRANT_CHUNKS_INDEXES_SQL {
+            sqlx::query(idx).execute(pool).await.unwrap();
+        }
+
+        // Insert a test watch_folder
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
+             VALUES ('w1', '/home/user/project', 'projects', 't1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        ).execute(pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_insert_and_lookup_tracked_file() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let file_id = insert_tracked_file(
+            &pool, "w1", "src/main.rs", Some("main"),
+            Some("code"), Some("rust"),
+            "2025-01-01T00:00:00Z", "abc123hash",
+            3, Some("tree_sitter"),
+            ProcessingStatus::Done, ProcessingStatus::Done,
+        ).await.expect("Insert failed");
+
+        assert!(file_id > 0);
+
+        let found = lookup_tracked_file(&pool, "w1", "src/main.rs", Some("main"))
+            .await.expect("Lookup failed");
+
+        assert!(found.is_some());
+        let f = found.unwrap();
+        assert_eq!(f.file_id, file_id);
+        assert_eq!(f.file_path, "src/main.rs");
+        assert_eq!(f.file_hash, "abc123hash");
+        assert_eq!(f.chunk_count, 3);
+        assert_eq!(f.lsp_status, ProcessingStatus::Done);
+    }
+
+    #[tokio::test]
+    async fn test_lookup_tracked_file_null_branch() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let file_id = insert_tracked_file(
+            &pool, "w1", "doc.pdf", None,
+            None, None,
+            "2025-01-01T00:00:00Z", "hash1",
+            0, None,
+            ProcessingStatus::None, ProcessingStatus::Skipped,
+        ).await.expect("Insert failed");
+
+        // Lookup with None branch
+        let found = lookup_tracked_file(&pool, "w1", "doc.pdf", None)
+            .await.expect("Lookup failed");
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().file_id, file_id);
+
+        // Lookup with "main" branch should NOT find it
+        let not_found = lookup_tracked_file(&pool, "w1", "doc.pdf", Some("main"))
+            .await.expect("Lookup failed");
+        assert!(not_found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_update_tracked_file() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let file_id = insert_tracked_file(
+            &pool, "w1", "src/main.rs", Some("main"),
+            Some("code"), Some("rust"),
+            "2025-01-01T00:00:00Z", "hash1",
+            3, Some("text"),
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.expect("Insert failed");
+
+        update_tracked_file(
+            &pool, file_id,
+            "2025-01-02T00:00:00Z", "hash2",
+            5, Some("tree_sitter"),
+            ProcessingStatus::Done, ProcessingStatus::Done,
+        ).await.expect("Update failed");
+
+        let found = lookup_tracked_file(&pool, "w1", "src/main.rs", Some("main"))
+            .await.expect("Lookup failed").unwrap();
+
+        assert_eq!(found.file_hash, "hash2");
+        assert_eq!(found.chunk_count, 5);
+        assert_eq!(found.chunking_method, Some("tree_sitter".to_string()));
+        assert_eq!(found.lsp_status, ProcessingStatus::Done);
+        assert!(found.last_error.is_none(), "Update should clear last_error");
+    }
+
+    #[tokio::test]
+    async fn test_insert_and_get_qdrant_chunks() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let file_id = insert_tracked_file(
+            &pool, "w1", "src/lib.rs", Some("main"),
+            Some("code"), Some("rust"),
+            "2025-01-01T00:00:00Z", "hash1",
+            2, Some("tree_sitter"),
+            ProcessingStatus::Done, ProcessingStatus::Done,
+        ).await.unwrap();
+
+        let chunks = vec![
+            ("point-1".to_string(), 0, "chash1".to_string(), Some(ChunkType::Function), Some("main".to_string()), Some(1), Some(20)),
+            ("point-2".to_string(), 1, "chash2".to_string(), Some(ChunkType::Struct), Some("Config".to_string()), Some(22), Some(40)),
+        ];
+
+        insert_qdrant_chunks(&pool, file_id, &chunks).await.expect("Insert chunks failed");
+
+        let point_ids = get_chunk_point_ids(&pool, file_id).await.expect("Get points failed");
+        assert_eq!(point_ids.len(), 2);
+        assert!(point_ids.contains(&"point-1".to_string()));
+        assert!(point_ids.contains(&"point-2".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_delete_tracked_file_cascades_chunks() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let file_id = insert_tracked_file(
+            &pool, "w1", "src/main.rs", Some("main"),
+            Some("code"), Some("rust"),
+            "2025-01-01T00:00:00Z", "hash1",
+            1, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        let chunks = vec![
+            ("point-1".to_string(), 0, "chash1".to_string(), None, None, None, None),
+        ];
+        insert_qdrant_chunks(&pool, file_id, &chunks).await.unwrap();
+
+        // Verify chunk exists
+        let points_before = get_chunk_point_ids(&pool, file_id).await.unwrap();
+        assert_eq!(points_before.len(), 1);
+
+        // Delete the tracked file
+        delete_tracked_file(&pool, file_id).await.expect("Delete failed");
+
+        // Verify chunk is also gone (CASCADE)
+        let points_after = get_chunk_point_ids(&pool, file_id).await.unwrap();
+        assert_eq!(points_after.len(), 0, "Chunks should be deleted via CASCADE");
+    }
+
+    #[tokio::test]
+    async fn test_get_tracked_file_paths() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        insert_tracked_file(
+            &pool, "w1", "src/main.rs", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h1", 0, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        insert_tracked_file(
+            &pool, "w1", "src/lib.rs", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h2", 0, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        let paths = get_tracked_file_paths(&pool, "w1").await.expect("Query failed");
+        assert_eq!(paths.len(), 2);
+
+        let file_names: Vec<&str> = paths.iter().map(|(_, p, _)| p.as_str()).collect();
+        assert!(file_names.contains(&"src/main.rs"));
+        assert!(file_names.contains(&"src/lib.rs"));
+    }
+
+    #[tokio::test]
+    async fn test_lookup_watch_folder() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let result = lookup_watch_folder(&pool, "t1", "projects").await.expect("Lookup failed");
+        assert!(result.is_some());
+        let (wid, path) = result.unwrap();
+        assert_eq!(wid, "w1");
+        assert_eq!(path, "/home/user/project");
+
+        // Non-existent tenant
+        let missing = lookup_watch_folder(&pool, "nonexistent", "projects").await.expect("Lookup failed");
+        assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_qdrant_chunks_explicit() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let file_id = insert_tracked_file(
+            &pool, "w1", "file.rs", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h1", 2, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        let chunks = vec![
+            ("p1".to_string(), 0, "c1".to_string(), None, None, None, None),
+            ("p2".to_string(), 1, "c2".to_string(), None, None, None, None),
+        ];
+        insert_qdrant_chunks(&pool, file_id, &chunks).await.unwrap();
+
+        // Explicit delete (not CASCADE)
+        delete_qdrant_chunks(&pool, file_id).await.expect("Delete chunks failed");
+
+        let points = get_chunk_point_ids(&pool, file_id).await.unwrap();
+        assert_eq!(points.len(), 0);
+
+        // But the tracked_file record should still exist
+        let file = lookup_tracked_file(&pool, "w1", "file.rs", Some("main")).await.unwrap();
+        assert!(file.is_some());
     }
 }

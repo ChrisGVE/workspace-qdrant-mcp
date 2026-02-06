@@ -29,6 +29,9 @@ use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
 use crate::patterns::exclusion::should_exclude_file;
 use crate::file_classification::classify_file_type;
+use crate::tracked_files_schema::{
+    self, ProcessingStatus, ChunkType as TrackedChunkType,
+};
 
 /// Unified queue processor errors
 #[derive(Error, Debug)]
@@ -541,7 +544,7 @@ impl UnifiedQueueProcessor {
                 Self::process_content_item(item, embedding_generator, storage_client, embedding_semaphore).await
             }
             ItemType::File => {
-                Self::process_file_item(item, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore).await
+                Self::process_file_item(item, queue_manager, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore).await
             }
             ItemType::Folder => {
                 // Folder operations typically trigger file enqueues
@@ -641,9 +644,10 @@ impl UnifiedQueueProcessor {
         Ok(())
     }
 
-    /// Process file item (Task 37.28) - file-based ingestion
+    /// Process file item (Task 37.28 + Task 506) - file-based ingestion with tracked_files
     async fn process_file_item(
         item: &UnifiedQueueItem,
+        queue_manager: &QueueManager,
         document_processor: &Arc<DocumentProcessor>,
         embedding_generator: &Arc<EmbeddingGenerator>,
         storage_client: &Arc<StorageClient>,
@@ -651,8 +655,8 @@ impl UnifiedQueueProcessor {
         embedding_semaphore: &Arc<tokio::sync::Semaphore>,
     ) -> UnifiedProcessorResult<()> {
         info!(
-            "Processing file item: {} → collection: {}",
-            item.queue_id, item.collection
+            "Processing file item: {} → collection: {} (op={:?})",
+            item.queue_id, item.collection, item.op
         );
 
         // Parse the file payload
@@ -660,11 +664,29 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse FilePayload: {}", e)))?;
 
         let file_path = Path::new(&payload.file_path);
+        let pool = queue_manager.pool();
 
-        // Check if file exists
-        if !file_path.exists() {
-            return Err(UnifiedProcessorError::FileNotFound(payload.file_path.clone()));
-        }
+        // Look up watch_folder for tracked_files context
+        let watch_info = tracked_files_schema::lookup_watch_folder(
+            pool, &item.tenant_id, &item.collection,
+        )
+        .await
+        .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Failed to lookup watch_folder: {}", e)))?;
+
+        let (watch_folder_id, base_path) = match &watch_info {
+            Some((wid, bp)) => (wid.as_str(), bp.as_str()),
+            None => {
+                debug!("No watch_folder found for tenant_id={}, collection={} — skipping tracked_files", item.tenant_id, item.collection);
+                ("", "")
+            }
+        };
+
+        let relative_path = if !base_path.is_empty() {
+            tracked_files_schema::compute_relative_path(&payload.file_path, base_path)
+                .unwrap_or_else(|| payload.file_path.clone())
+        } else {
+            payload.file_path.clone()
+        };
 
         // Ensure collection exists
         if !storage_client
@@ -679,26 +701,62 @@ impl UnifiedQueueProcessor {
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
 
-        // For delete operations, just delete existing points
+        // === DELETE OPERATION ===
         if item.op == QueueOperation::Delete {
-            storage_client
-                .delete_points_by_filter(&item.collection, &payload.file_path)
-                .await
-                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-
-            info!("Deleted points for file: {}", payload.file_path);
-            return Ok(());
+            return Self::process_file_delete(
+                item, pool, storage_client, watch_folder_id, &relative_path, &payload.file_path,
+            ).await;
         }
 
-        // For update operations, delete existing first
-        if item.op == QueueOperation::Update {
-            storage_client
-                .delete_points_by_filter(&item.collection, &payload.file_path)
-                .await
-                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+        // For ingest/update: check if file exists on disk
+        if !file_path.exists() {
+            // File gone — if tracked, clean up; otherwise just report not found
+            if !watch_folder_id.is_empty() {
+                if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
+                    pool, watch_folder_id, &relative_path, Some(item.branch.as_str()),
+                ).await {
+                    debug!("File no longer exists, cleaning up tracked record: {}", relative_path);
+                    let _ = tracked_files_schema::delete_tracked_file(pool, existing.file_id).await;
+                }
+            }
+            return Err(UnifiedProcessorError::FileNotFound(payload.file_path.clone()));
         }
 
-        // Process file content
+        // === UPDATE OPERATION: hash comparison to skip unchanged files ===
+        if item.op == QueueOperation::Update && !watch_folder_id.is_empty() {
+            let new_hash = tracked_files_schema::compute_file_hash(file_path)
+                .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("Failed to hash file: {}", e)))?;
+
+            if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
+                pool, watch_folder_id, &relative_path, Some(item.branch.as_str()),
+            ).await {
+                if existing.file_hash == new_hash {
+                    info!("File unchanged (hash match), skipping update: {}", relative_path);
+                    return Ok(());
+                }
+                // File changed — delete old Qdrant points via tracked qdrant_chunks
+                let old_point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
+                    .await
+                    .unwrap_or_default();
+                if !old_point_ids.is_empty() {
+                    // Delete old points by filter (file_path) as we lack batch-by-id API
+                    storage_client
+                        .delete_points_by_filter(&item.collection, &payload.file_path)
+                        .await
+                        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                }
+                // Clean up old chunk records (new ones will be inserted below)
+                let _ = tracked_files_schema::delete_qdrant_chunks(pool, existing.file_id).await;
+            } else {
+                // Not tracked yet — delete by filter as fallback for update
+                storage_client
+                    .delete_points_by_filter(&item.collection, &payload.file_path)
+                    .await
+                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+            }
+        }
+
+        // === INGEST / UPDATE: process file content ===
         let document_content = document_processor
             .process_file_content(file_path, &item.collection)
             .await
@@ -720,15 +778,19 @@ impl UnifiedQueueProcessor {
                     item.tenant_id, payload.file_path
                 );
             }
-            // We need to drop the read lock before processing chunks
-            // to avoid holding it for too long
             (is_active, Some(lsp_mgr.clone()))
         } else {
             (false, None)
         };
 
-        // Process each chunk
+        // Determine LSP/treesitter status for tracked_files
+        let mut lsp_status = ProcessingStatus::None;
+        let mut treesitter_status = ProcessingStatus::None;
+
+        // Process each chunk and build points + chunk metadata
         let mut points = Vec::new();
+        let mut chunk_records: Vec<(String, i32, String, Option<TrackedChunkType>, Option<String>, Option<i32>, Option<i32>)> = Vec::new();
+
         for (chunk_idx, chunk) in document_content.chunks.iter().enumerate() {
             // Semaphore-gated embedding generation (Task 504)
             let _permit = embedding_semaphore.acquire().await
@@ -751,12 +813,22 @@ impl UnifiedQueueProcessor {
             );
             point_payload.insert("item_type".to_string(), serde_json::json!("file"));
 
-            // Add file metadata
             if let Some(file_type) = &payload.file_type {
                 point_payload.insert("file_type".to_string(), serde_json::json!(file_type));
             }
 
-            // Add chunk metadata
+            // Extract chunk metadata for tracked record
+            let symbol_name = chunk.metadata.get("symbol_name").cloned();
+            let start_line = chunk.metadata.get("start_line").and_then(|s| s.parse::<i32>().ok());
+            let end_line = chunk.metadata.get("end_line").and_then(|s| s.parse::<i32>().ok());
+            let chunk_type_str = chunk.metadata.get("chunk_type");
+            let chunk_type = chunk_type_str.and_then(|s| TrackedChunkType::from_str(s));
+
+            // Detect tree-sitter status from chunk metadata
+            if chunk.metadata.contains_key("chunk_type") {
+                treesitter_status = ProcessingStatus::Done;
+            }
+
             for (key, value) in &chunk.metadata {
                 point_payload.insert(format!("chunk_{}", key), serde_json::json!(value));
             }
@@ -765,44 +837,54 @@ impl UnifiedQueueProcessor {
             if let Some(lsp_mgr) = &lsp_mgr_guard {
                 let mgr = lsp_mgr.read().await;
 
-                // Extract symbol name from metadata if available
-                let symbol_name = chunk.metadata.get("symbol_name")
+                let sym_name = chunk.metadata.get("symbol_name")
                     .map(|s| s.as_str())
                     .unwrap_or("unknown");
 
-                // Get start line from metadata or estimate from chunk index
-                let start_line = chunk.metadata.get("start_line")
+                let sl = chunk.metadata.get("start_line")
                     .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(chunk_idx as u32 * 20); // Rough estimate
+                    .unwrap_or(chunk_idx as u32 * 20);
 
-                let end_line = chunk.metadata.get("end_line")
+                let el = chunk.metadata.get("end_line")
                     .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(start_line + 20);
+                    .unwrap_or(sl + 20);
 
                 let enrichment = mgr.enrich_chunk(
                     &item.tenant_id,
                     file_path,
-                    symbol_name,
-                    start_line,
-                    end_line,
+                    sym_name,
+                    sl,
+                    el,
                     is_project_active,
                 ).await;
 
-                // Add enrichment data to payload
                 Self::add_lsp_enrichment_to_payload(&mut point_payload, &enrichment);
+                lsp_status = ProcessingStatus::Done;
             }
 
+            let point_id = uuid::Uuid::new_v4().to_string();
+            let content_hash = tracked_files_schema::compute_content_hash(&chunk.content);
+
             let point = DocumentPoint {
-                id: uuid::Uuid::new_v4().to_string(),
+                id: point_id.clone(),
                 dense_vector: embedding_result.dense.vector,
                 sparse_vector: None,
                 payload: point_payload,
             };
 
             points.push(point);
+            chunk_records.push((
+                point_id,
+                chunk_idx as i32,
+                content_hash,
+                chunk_type,
+                symbol_name,
+                start_line,
+                end_line,
+            ));
         }
 
-        // Insert points in batch
+        // Upsert points to Qdrant
         if !points.is_empty() {
             info!("Inserting {} points into {}", points.len(), item.collection);
             storage_client
@@ -811,11 +893,134 @@ impl UnifiedQueueProcessor {
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
 
+        // After Qdrant success: record in tracked_files + qdrant_chunks (Task 506)
+        if !watch_folder_id.is_empty() {
+            let file_hash = tracked_files_schema::compute_file_hash(file_path)
+                .unwrap_or_else(|_| "unknown".to_string());
+            let file_mtime = tracked_files_schema::get_file_mtime(file_path)
+                .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339());
+            let language = chunk_records.first()
+                .and_then(|_| document_content.metadata.get("language"))
+                .cloned();
+            let chunking_method = if treesitter_status == ProcessingStatus::Done {
+                Some("tree_sitter")
+            } else {
+                Some("text")
+            };
+
+            // Check if file is already tracked (update vs insert)
+            let existing = tracked_files_schema::lookup_tracked_file(
+                pool, watch_folder_id, &relative_path, Some(item.branch.as_str()),
+            )
+            .await
+            .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files lookup failed: {}", e)))?;
+
+            let file_id = match existing {
+                Some(existing_file) => {
+                    // Update existing record
+                    tracked_files_schema::update_tracked_file(
+                        pool,
+                        existing_file.file_id,
+                        &file_mtime,
+                        &file_hash,
+                        chunk_records.len() as i32,
+                        chunking_method,
+                        lsp_status,
+                        treesitter_status,
+                    )
+                    .await
+                    .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files update failed: {}", e)))?;
+                    // Delete old chunks before inserting new
+                    let _ = tracked_files_schema::delete_qdrant_chunks(pool, existing_file.file_id).await;
+                    existing_file.file_id
+                }
+                None => {
+                    // Insert new record
+                    tracked_files_schema::insert_tracked_file(
+                        pool,
+                        watch_folder_id,
+                        &relative_path,
+                        Some(item.branch.as_str()),
+                        payload.file_type.as_deref(),
+                        language.as_deref(),
+                        &file_mtime,
+                        &file_hash,
+                        chunk_records.len() as i32,
+                        chunking_method,
+                        lsp_status,
+                        treesitter_status,
+                    )
+                    .await
+                    .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files insert failed: {}", e)))?
+                }
+            };
+
+            // Insert qdrant_chunks
+            if !chunk_records.is_empty() {
+                tracked_files_schema::insert_qdrant_chunks(pool, file_id, &chunk_records)
+                    .await
+                    .map_err(|e| UnifiedProcessorError::QueueOperation(format!("qdrant_chunks insert failed: {}", e)))?;
+            }
+
+            debug!(
+                "Recorded {} chunks in tracked_files for file_id={} ({})",
+                chunk_records.len(), file_id, relative_path
+            );
+        }
+
         info!(
             "Successfully processed file item {} ({})",
             item.queue_id, payload.file_path
         );
 
+        Ok(())
+    }
+
+    /// Process file delete operation with tracked_files awareness (Task 506)
+    async fn process_file_delete(
+        item: &UnifiedQueueItem,
+        pool: &SqlitePool,
+        storage_client: &Arc<StorageClient>,
+        watch_folder_id: &str,
+        relative_path: &str,
+        abs_file_path: &str,
+    ) -> UnifiedProcessorResult<()> {
+        // Try tracked_files lookup first for precise deletion
+        if !watch_folder_id.is_empty() {
+            if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
+                pool, watch_folder_id, relative_path, Some(item.branch.as_str()),
+            ).await {
+                // Get point_ids from qdrant_chunks for targeted deletion
+                let point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
+                    .await
+                    .unwrap_or_default();
+
+                if !point_ids.is_empty() {
+                    // Delete from Qdrant by filter (we lack batch-by-id API)
+                    storage_client
+                        .delete_points_by_filter(&item.collection, abs_file_path)
+                        .await
+                        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                }
+
+                // Clean up SQLite records (CASCADE handles qdrant_chunks)
+                tracked_files_schema::delete_tracked_file(pool, existing.file_id)
+                    .await
+                    .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files delete failed: {}", e)))?;
+
+                info!("Deleted tracked file and {} Qdrant points for: {}", point_ids.len(), relative_path);
+                return Ok(());
+            }
+        }
+
+        // Fallback: file not in tracked_files, attempt Qdrant filter delete
+        warn!("File not in tracked_files, falling back to Qdrant filter delete: {}", abs_file_path);
+        storage_client
+            .delete_points_by_filter(&item.collection, abs_file_path)
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+        info!("Deleted points for file (fallback): {}", abs_file_path);
         Ok(())
     }
 
@@ -1159,69 +1364,168 @@ impl UnifiedQueueProcessor {
         Ok(())
     }
 
-    /// Clean up excluded files from Qdrant after a scan completes
+    /// Clean up excluded files after a scan completes (Task 506)
     ///
-    /// Scrolls through all indexed file paths for the tenant, checks each against
-    /// current exclusion rules, and queues deletion for any files that now match
-    /// exclusion patterns. This handles retroactive cleanup when exclusion rules
-    /// are updated (e.g., hidden files that were indexed before the exclusion fix).
+    /// Queries tracked_files (fast SQLite) instead of scrolling Qdrant.
+    /// Checks each tracked file against current exclusion rules and queues
+    /// deletion for files that now match exclusion patterns.
     async fn cleanup_excluded_files(
         item: &UnifiedQueueItem,
         project_root: &Path,
         queue_manager: &QueueManager,
         storage_client: &Arc<StorageClient>,
     ) -> UnifiedProcessorResult<u64> {
-        // Check if collection exists before attempting scroll
-        if !storage_client
-            .collection_exists(&item.collection)
-            .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
-        {
-            debug!(
-                "Collection '{}' does not exist, skipping exclusion cleanup",
-                item.collection
-            );
-            return Ok(0);
-        }
+        let pool = queue_manager.pool();
 
-        let qdrant_file_paths = storage_client
-            .scroll_file_paths_by_tenant(&item.collection, &item.tenant_id)
-            .await
-            .map_err(|e| {
-                // Log but don't propagate - cleanup failure shouldn't fail the scan
-                error!("Failed to scroll Qdrant for exclusion cleanup: {}", e);
-                UnifiedProcessorError::Storage(e.to_string())
-            });
+        // Look up watch_folder for this project
+        let watch_info = tracked_files_schema::lookup_watch_folder(
+            pool, &item.tenant_id, &item.collection,
+        )
+        .await
+        .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Failed to lookup watch_folder: {}", e)))?;
 
-        let qdrant_file_paths = match qdrant_file_paths {
-            Ok(paths) => paths,
-            Err(_) => return Ok(0), // Already logged above
+        let (watch_folder_id, base_path) = match &watch_info {
+            Some((wid, bp)) => (wid.as_str(), bp.as_str()),
+            None => {
+                // No watch_folder — fall back to Qdrant scroll for backward compatibility
+                debug!("No watch_folder for tenant_id={}, falling back to Qdrant scroll for cleanup", item.tenant_id);
+                return Self::cleanup_excluded_files_qdrant_fallback(
+                    item, project_root, queue_manager, storage_client,
+                ).await;
+            }
         };
 
-        if qdrant_file_paths.is_empty() {
+        // Query tracked_files for all files in this project (fast SQLite query)
+        let tracked_files = tracked_files_schema::get_tracked_file_paths(pool, watch_folder_id)
+            .await
+            .map_err(|e| {
+                error!("Failed to query tracked_files for exclusion cleanup: {}", e);
+                UnifiedProcessorError::QueueOperation(e.to_string())
+            })?;
+
+        if tracked_files.is_empty() {
             debug!(
-                "No indexed files found for tenant_id='{}', skipping exclusion cleanup",
-                item.tenant_id
+                "No tracked files for watch_folder_id='{}', skipping exclusion cleanup",
+                watch_folder_id
             );
             return Ok(0);
         }
 
         info!(
-            "Checking {} indexed files against exclusion rules (tenant_id={})",
-            qdrant_file_paths.len(),
-            item.tenant_id
+            "Checking {} tracked files against exclusion rules (watch_folder_id={})",
+            tracked_files.len(), watch_folder_id
         );
 
         let mut files_cleaned = 0u64;
 
+        for (_file_id, rel_path, _branch) in &tracked_files {
+            // Check if this file should now be excluded
+            if !should_exclude_file(rel_path) {
+                continue;
+            }
+
+            // Reconstruct absolute path for the queue payload
+            let abs_path = Path::new(base_path).join(rel_path);
+            let abs_path_str = abs_path.to_string_lossy().to_string();
+
+            let file_payload = FilePayload {
+                file_path: abs_path_str.clone(),
+                file_type: None,
+                file_hash: None,
+                size_bytes: None,
+            };
+
+            let payload_json = serde_json::to_string(&file_payload).map_err(|e| {
+                UnifiedProcessorError::ProcessingFailed(format!(
+                    "Failed to serialize FilePayload for deletion: {}",
+                    e
+                ))
+            })?;
+
+            match queue_manager
+                .enqueue_unified(
+                    ItemType::File,
+                    QueueOperation::Delete,
+                    &item.tenant_id,
+                    &item.collection,
+                    &payload_json,
+                    0,
+                    Some(&item.branch),
+                    None,
+                )
+                .await
+            {
+                Ok((_queue_id, is_new)) => {
+                    if is_new {
+                        files_cleaned += 1;
+                        debug!(
+                            "Queued excluded file for deletion: {} (rel={})",
+                            abs_path_str, rel_path
+                        );
+                    } else {
+                        debug!(
+                            "Excluded file deletion already in queue (deduplicated): {}",
+                            abs_path_str
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        "Failed to queue excluded file for deletion {}: {}",
+                        abs_path_str, e
+                    );
+                }
+            }
+        }
+
+        if files_cleaned > 0 {
+            info!(
+                "Queued {} excluded files for deletion (watch_folder_id={})",
+                files_cleaned, watch_folder_id
+            );
+        }
+
+        Ok(files_cleaned)
+    }
+
+    /// Fallback cleanup using Qdrant scroll (for when tracked_files is not available)
+    async fn cleanup_excluded_files_qdrant_fallback(
+        item: &UnifiedQueueItem,
+        project_root: &Path,
+        queue_manager: &QueueManager,
+        storage_client: &Arc<StorageClient>,
+    ) -> UnifiedProcessorResult<u64> {
+        if !storage_client
+            .collection_exists(&item.collection)
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
+        {
+            return Ok(0);
+        }
+
+        let qdrant_file_paths = match storage_client
+            .scroll_file_paths_by_tenant(&item.collection, &item.tenant_id)
+            .await
+        {
+            Ok(paths) => paths,
+            Err(e) => {
+                error!("Failed to scroll Qdrant for exclusion cleanup: {}", e);
+                return Ok(0);
+            }
+        };
+
+        if qdrant_file_paths.is_empty() {
+            return Ok(0);
+        }
+
+        let mut files_cleaned = 0u64;
+
         for qdrant_file in &qdrant_file_paths {
-            // Get relative path for exclusion check
             let rel_path = match Path::new(qdrant_file).strip_prefix(project_root) {
                 Ok(stripped) => stripped.to_string_lossy().to_string(),
                 Err(_) => qdrant_file.clone(),
             };
 
-            // Check if this file should now be excluded
             if !should_exclude_file(&rel_path) {
                 continue;
             }
@@ -1247,7 +1551,7 @@ impl UnifiedQueueProcessor {
                     &item.tenant_id,
                     &item.collection,
                     &payload_json,
-                    0, // Priority is dynamic (computed at dequeue time)
+                    0,
                     Some(&item.branch),
                     None,
                 )
@@ -1256,29 +1560,17 @@ impl UnifiedQueueProcessor {
                 Ok((_queue_id, is_new)) => {
                     if is_new {
                         files_cleaned += 1;
-                        debug!(
-                            "Queued excluded file for deletion: {} (rel={})",
-                            qdrant_file, rel_path
-                        );
-                    } else {
-                        debug!(
-                            "Excluded file deletion already in queue (deduplicated): {}",
-                            qdrant_file
-                        );
                     }
                 }
                 Err(e) => {
-                    warn!(
-                        "Failed to queue excluded file for deletion {}: {}",
-                        qdrant_file, e
-                    );
+                    warn!("Failed to queue excluded file for deletion {}: {}", qdrant_file, e);
                 }
             }
         }
 
         if files_cleaned > 0 {
             info!(
-                "Queued {} excluded files for deletion (tenant_id={})",
+                "Queued {} excluded files for deletion via Qdrant fallback (tenant_id={})",
                 files_cleaned, item.tenant_id
             );
         }
