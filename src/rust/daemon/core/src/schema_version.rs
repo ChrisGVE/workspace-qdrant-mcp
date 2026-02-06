@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 1;
+pub const CURRENT_SCHEMA_VERSION: i32 = 2;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -151,6 +151,7 @@ impl SchemaManager {
     async fn run_migration(&self, version: i32) -> Result<(), SchemaError> {
         match version {
             1 => self.migrate_v1().await,
+            2 => self.migrate_v2().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -194,6 +195,52 @@ impl SchemaManager {
         }
 
         info!("Migration v1 complete");
+        Ok(())
+    }
+
+    /// Migration v2: Create tracked_files and qdrant_chunks tables
+    async fn migrate_v2(&self) -> Result<(), SchemaError> {
+        info!("Migration v2: Creating tracked_files and qdrant_chunks tables");
+
+        use super::tracked_files_schema::{
+            CREATE_TRACKED_FILES_SQL, CREATE_TRACKED_FILES_INDEXES_SQL,
+            CREATE_QDRANT_CHUNKS_SQL, CREATE_QDRANT_CHUNKS_INDEXES_SQL,
+        };
+
+        // Enable foreign keys (required for CASCADE)
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&self.pool)
+            .await?;
+
+        // Create tracked_files table
+        debug!("Creating tracked_files table");
+        sqlx::query(CREATE_TRACKED_FILES_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        // Create tracked_files indexes
+        for index_sql in CREATE_TRACKED_FILES_INDEXES_SQL {
+            debug!("Creating tracked_files index");
+            sqlx::query(index_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        // Create qdrant_chunks table
+        debug!("Creating qdrant_chunks table");
+        sqlx::query(CREATE_QDRANT_CHUNKS_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        // Create qdrant_chunks indexes
+        for index_sql in CREATE_QDRANT_CHUNKS_INDEXES_SQL {
+            debug!("Creating qdrant_chunks index");
+            sqlx::query(index_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        info!("Migration v2 complete");
         Ok(())
     }
 }
@@ -341,7 +388,7 @@ mod tests {
         let version = manager.get_current_version().await.expect("Failed to get version");
         assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
 
-        // Verify tables were created by checking for watch_folders
+        // Verify v1 tables were created
         let watch_folders_exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='watch_folders')"
         )
@@ -350,7 +397,6 @@ mod tests {
         .unwrap();
         assert!(watch_folders_exists, "watch_folders table should exist after migration");
 
-        // Verify unified_queue was created
         let unified_queue_exists: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='unified_queue')"
         )
@@ -358,6 +404,23 @@ mod tests {
         .await
         .unwrap();
         assert!(unified_queue_exists, "unified_queue table should exist after migration");
+
+        // Verify v2 tables were created
+        let tracked_files_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracked_files')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(tracked_files_exists, "tracked_files table should exist after migration v2");
+
+        let qdrant_chunks_exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='qdrant_chunks')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(qdrant_chunks_exists, "qdrant_chunks table should exist after migration v2");
     }
 
     #[tokio::test]
@@ -368,6 +431,155 @@ mod tests {
         // Run migrations twice - should not fail
         manager.run_migrations().await.expect("First migration failed");
         manager.run_migrations().await.expect("Second migration should be idempotent");
+    }
+
+    #[tokio::test]
+    async fn test_incremental_migration_v1_to_v2() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+
+        // Simulate starting at v1 by running v1 migration manually
+        manager.initialize().await.expect("Failed to initialize");
+        manager.run_migration(1).await.expect("Failed to run v1");
+        manager.record_migration(1).await.expect("Failed to record v1");
+
+        // Verify only v1 tables exist
+        let tracked_exists_before: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracked_files')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!tracked_exists_before, "tracked_files should NOT exist before v2 migration");
+
+        // Run remaining migrations (v2)
+        manager.run_migrations().await.expect("Failed to run migrations from v1");
+
+        // Verify v2 tables now exist
+        let tracked_exists_after: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='tracked_files')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(tracked_exists_after, "tracked_files should exist after v2 migration");
+
+        let version = manager.get_current_version().await.expect("Failed to get version");
+        assert_eq!(version, Some(2));
+    }
+
+    #[tokio::test]
+    async fn test_qdrant_chunks_cascade_delete() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+
+        // Run all migrations
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Enable foreign keys for this connection
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Insert a watch_folder first (required FK)
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
+             VALUES ('w1', '/tmp/test', 'projects', 't1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert a tracked_file
+        sqlx::query(
+            "INSERT INTO tracked_files (watch_folder_id, file_path, file_mtime, file_hash, chunk_count, created_at, updated_at)
+             VALUES ('w1', 'src/main.rs', '2025-01-01T00:00:00Z', 'abc123', 2, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Get the file_id
+        let file_id: i64 = sqlx::query_scalar("SELECT file_id FROM tracked_files WHERE file_path = 'src/main.rs'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+
+        // Insert two qdrant_chunks
+        sqlx::query(
+            "INSERT INTO qdrant_chunks (file_id, point_id, chunk_index, content_hash, created_at)
+             VALUES (?1, 'point-1', 0, 'hash1', '2025-01-01T00:00:00Z')"
+        )
+        .bind(file_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO qdrant_chunks (file_id, point_id, chunk_index, content_hash, created_at)
+             VALUES (?1, 'point-2', 1, 'hash2', '2025-01-01T00:00:00Z')"
+        )
+        .bind(file_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Verify 2 chunks exist
+        let chunk_count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM qdrant_chunks")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(chunk_count, 2);
+
+        // Delete the tracked_file - should CASCADE to qdrant_chunks
+        sqlx::query("DELETE FROM tracked_files WHERE file_id = ?1")
+            .bind(file_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // Verify chunks are also deleted
+        let chunk_count_after: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM qdrant_chunks")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(chunk_count_after, 0, "qdrant_chunks should be deleted via CASCADE");
+    }
+
+    #[tokio::test]
+    async fn test_tracked_files_unique_constraint() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Insert a watch_folder
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
+             VALUES ('w1', '/tmp/test', 'projects', 't1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Insert a tracked_file
+        sqlx::query(
+            "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_mtime, file_hash, created_at, updated_at)
+             VALUES ('w1', 'src/main.rs', 'main', '2025-01-01T00:00:00Z', 'hash1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Duplicate insert should fail (same watch_folder_id, file_path, branch)
+        let result = sqlx::query(
+            "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_mtime, file_hash, created_at, updated_at)
+             VALUES ('w1', 'src/main.rs', 'main', '2025-01-02T00:00:00Z', 'hash2', '2025-01-02T00:00:00Z', '2025-01-02T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await;
+
+        assert!(result.is_err(), "Duplicate (watch_folder_id, file_path, branch) should violate UNIQUE constraint");
     }
 
     #[tokio::test]

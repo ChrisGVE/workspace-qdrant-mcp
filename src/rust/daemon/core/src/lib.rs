@@ -38,6 +38,7 @@ pub mod unified_config;
 pub mod unified_queue_processor;
 pub mod unified_queue_schema;
 pub mod watch_folders_schema;
+pub mod tracked_files_schema;
 pub mod schema_version;
 pub mod tree_sitter;
 pub mod watching;
@@ -90,6 +91,11 @@ pub use crate::tracing_otel::{
 };
 pub use crate::daemon_state::{
     DaemonStateManager
+};
+pub use crate::tracked_files_schema::{
+    TrackedFile, QdrantChunk, ProcessingStatus, ChunkType as TrackedChunkType,
+    CREATE_TRACKED_FILES_SQL, CREATE_TRACKED_FILES_INDEXES_SQL,
+    CREATE_QDRANT_CHUNKS_SQL, CREATE_QDRANT_CHUNKS_INDEXES_SQL,
 };
 pub use crate::schema_version::{
     SchemaManager, SchemaError, CURRENT_SCHEMA_VERSION
