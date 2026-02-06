@@ -552,9 +552,9 @@ impl ProjectService for ProjectServiceImpl {
             project_id, req.path, req.name
         );
 
-        // Check if project exists in watch_folders
-        let existing: Option<(i32,)> = sqlx::query_as(
-            "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 AND collection = 'projects' LIMIT 1"
+        // Check if project exists in watch_folders (also fetch last_scan for re-scan logic)
+        let existing: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT path, last_scan FROM watch_folders WHERE tenant_id = ?1 AND collection = 'projects' LIMIT 1"
         )
             .bind(&project_id)
             .fetch_optional(&self.db_pool)
@@ -563,6 +563,8 @@ impl ProjectService for ProjectServiceImpl {
                 error!("Database error checking project: {}", e);
                 Status::internal(format!("Database error: {}", e))
             })?;
+
+        let needs_scan = existing.as_ref().map_or(false, |(_, last_scan)| last_scan.is_none());
 
         let (created, is_active) = if existing.is_some() {
             // Existing project - register session (activates project)
@@ -614,8 +616,10 @@ impl ProjectService for ProjectServiceImpl {
             );
         }
 
-        // Queue project scan for automatic ingestion (only for newly created projects)
-        if created {
+        // Queue project scan for automatic ingestion
+        // Triggers for: newly created projects OR existing projects never scanned
+        if created || needs_scan {
+            let scan_reason = if created { "new project" } else { "never scanned" };
             let queue_manager = QueueManager::new(self.db_pool.clone());
             let payload = ProjectPayload {
                 project_root: req.path.clone(),
@@ -640,6 +644,7 @@ impl ProjectService for ProjectServiceImpl {
                         info!(
                             project_id = %project_id,
                             queue_id = %queue_id,
+                            reason = scan_reason,
                             "Queued project scan for automatic ingestion"
                         );
                     } else {

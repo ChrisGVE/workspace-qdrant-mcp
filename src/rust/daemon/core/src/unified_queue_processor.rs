@@ -882,6 +882,27 @@ impl UnifiedQueueProcessor {
             QueueOperation::Scan => {
                 // Scan project directory and queue file ingestion items
                 Self::scan_project_directory(item, &payload, queue_manager, storage_client).await?;
+
+                // Update last_scan timestamp for this project's watch_folder
+                let update_result = sqlx::query(
+                    "UPDATE watch_folders SET last_scan = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE tenant_id = ?1 AND collection = 'projects'"
+                )
+                    .bind(&item.tenant_id)
+                    .execute(queue_manager.pool())
+                    .await;
+
+                match update_result {
+                    Ok(result) => {
+                        if result.rows_affected() > 0 {
+                            info!("Updated last_scan for project tenant_id={}", item.tenant_id);
+                        } else {
+                            debug!("No watch_folder found for tenant_id={} (may not be watched)", item.tenant_id);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to update last_scan for tenant_id={}: {} (non-critical)", item.tenant_id, e);
+                    }
+                }
             }
             QueueOperation::Delete => {
                 // Delete project collection
