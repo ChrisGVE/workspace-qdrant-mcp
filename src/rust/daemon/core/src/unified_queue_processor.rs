@@ -102,6 +102,14 @@ pub struct UnifiedProcessorConfig {
     /// Number of items between priority direction flips (default: 10)
     /// Every N items, alternates between priority DESC and ASC to prevent starvation
     pub items_per_flip: u64,
+
+    // Resource limits (Task 504)
+    /// Delay in milliseconds between processing items
+    pub inter_item_delay_ms: u64,
+    /// Maximum concurrent embedding operations
+    pub max_concurrent_embeddings: usize,
+    /// Pause processing when memory usage exceeds this percentage
+    pub max_memory_percent: u8,
 }
 
 impl Default for UnifiedProcessorConfig {
@@ -121,6 +129,10 @@ impl Default for UnifiedProcessorConfig {
             // Fairness scheduler defaults (Task 21 - Anti-starvation)
             fairness_enabled: true,
             items_per_flip: 10, // Spec: every 10 items, flip priority direction
+            // Resource limits defaults (Task 504)
+            inter_item_delay_ms: 50,
+            max_concurrent_embeddings: 2,
+            max_memory_percent: 70,
         }
     }
 }
@@ -156,6 +168,9 @@ pub struct UnifiedQueueProcessor {
 
     /// LSP manager for code intelligence enrichment (optional)
     lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
+
+    /// Semaphore limiting concurrent embedding operations (Task 504)
+    embedding_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 impl UnifiedQueueProcessor {
@@ -183,6 +198,8 @@ impl UnifiedQueueProcessor {
             fairness_config,
         ));
 
+        let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_concurrent_embeddings));
+
         Self {
             queue_manager,
             config,
@@ -194,6 +211,7 @@ impl UnifiedQueueProcessor {
             embedding_generator,
             storage_client,
             lsp_manager: None,
+            embedding_semaphore,
         }
     }
 
@@ -218,6 +236,8 @@ impl UnifiedQueueProcessor {
             fairness_config,
         ));
 
+        let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_concurrent_embeddings));
+
         Self {
             queue_manager,
             config,
@@ -229,6 +249,7 @@ impl UnifiedQueueProcessor {
             embedding_generator,
             storage_client,
             lsp_manager: None,
+            embedding_semaphore,
         }
     }
 
@@ -273,6 +294,7 @@ impl UnifiedQueueProcessor {
         let embedding_generator = self.embedding_generator.clone();
         let storage_client = self.storage_client.clone();
         let lsp_manager = self.lsp_manager.clone();
+        let embedding_semaphore = self.embedding_semaphore.clone();
 
         let task_handle = tokio::spawn(async move {
             if let Err(e) = Self::processing_loop(
@@ -285,6 +307,7 @@ impl UnifiedQueueProcessor {
                 embedding_generator,
                 storage_client,
                 lsp_manager,
+                embedding_semaphore,
             )
             .await
             {
@@ -327,6 +350,20 @@ impl UnifiedQueueProcessor {
         self.metrics.read().await.clone()
     }
 
+    /// Check if system memory usage exceeds the configured threshold (Task 504)
+    async fn check_memory_pressure(max_memory_percent: u8) -> bool {
+        use sysinfo::System;
+        let mut sys = System::new();
+        sys.refresh_memory();
+        let total = sys.total_memory();
+        if total == 0 {
+            return false;
+        }
+        let used = sys.used_memory();
+        let usage_percent = (used as f64 / total as f64 * 100.0) as u8;
+        usage_percent > max_memory_percent
+    }
+
     /// Main processing loop (runs in background task)
     #[allow(clippy::too_many_arguments)]
     async fn processing_loop(
@@ -339,14 +376,17 @@ impl UnifiedQueueProcessor {
         embedding_generator: Arc<EmbeddingGenerator>,
         storage_client: Arc<StorageClient>,
         lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
+        embedding_semaphore: Arc<tokio::sync::Semaphore>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
+        let inter_item_delay = Duration::from_millis(config.inter_item_delay_ms);
         let mut last_metrics_log = Utc::now();
         let metrics_log_interval = ChronoDuration::minutes(1);
 
         info!(
-            "Unified processing loop started (batch_size={}, worker_id={}, fairness={})",
-            config.batch_size, config.worker_id, config.fairness_enabled
+            "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, inter_item_delay={}ms, max_embeddings={}, max_memory={}%)",
+            config.batch_size, config.worker_id, config.fairness_enabled,
+            config.inter_item_delay_ms, config.max_concurrent_embeddings, config.max_memory_percent
         );
 
         loop {
@@ -354,6 +394,13 @@ impl UnifiedQueueProcessor {
             if cancellation_token.is_cancelled() {
                 info!("Unified queue shutdown signal received");
                 break;
+            }
+
+            // Check memory pressure before dequeuing (Task 504)
+            if Self::check_memory_pressure(config.max_memory_percent).await {
+                info!("Memory pressure detected (>{}%), pausing processing for 5s", config.max_memory_percent);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                continue;
             }
 
             // Update queue depth in metrics
@@ -401,6 +448,7 @@ impl UnifiedQueueProcessor {
                             &embedding_generator,
                             &storage_client,
                             &lsp_manager,
+                            &embedding_semaphore,
                         )
                         .await
                         {
@@ -444,6 +492,11 @@ impl UnifiedQueueProcessor {
                                 Self::update_metrics_failure(&metrics, &e).await;
                             }
                         }
+
+                        // Inter-item delay for resource breathing room (Task 504)
+                        if inter_item_delay > Duration::ZERO {
+                            tokio::time::sleep(inter_item_delay).await;
+                        }
                     }
                 }
                 Err(e) => {
@@ -476,6 +529,7 @@ impl UnifiedQueueProcessor {
         embedding_generator: &Arc<EmbeddingGenerator>,
         storage_client: &Arc<StorageClient>,
         lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
+        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
     ) -> UnifiedProcessorResult<()> {
         debug!(
             "Processing unified item: {} (type={:?}, op={:?}, collection={})",
@@ -484,10 +538,10 @@ impl UnifiedQueueProcessor {
 
         match item.item_type {
             ItemType::Content => {
-                Self::process_content_item(item, embedding_generator, storage_client).await
+                Self::process_content_item(item, embedding_generator, storage_client, embedding_semaphore).await
             }
             ItemType::File => {
-                Self::process_file_item(item, document_processor, embedding_generator, storage_client, lsp_manager).await
+                Self::process_file_item(item, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore).await
             }
             ItemType::Folder => {
                 // Folder operations typically trigger file enqueues
@@ -516,6 +570,7 @@ impl UnifiedQueueProcessor {
         item: &UnifiedQueueItem,
         embedding_generator: &Arc<EmbeddingGenerator>,
         storage_client: &Arc<StorageClient>,
+        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
     ) -> UnifiedProcessorResult<()> {
         info!(
             "Processing content item: {} → collection: {}",
@@ -539,11 +594,14 @@ impl UnifiedQueueProcessor {
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
 
-        // Generate embedding for the content
+        // Generate embedding for the content (semaphore-gated, Task 504)
+        let _permit = embedding_semaphore.acquire().await
+            .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
         let embedding_result = embedding_generator
             .generate_embedding(&payload.content, "bge-small-en-v1.5")
             .await
             .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
+        drop(_permit);
 
         // Build payload with metadata
         let mut point_payload = std::collections::HashMap::new();
@@ -590,6 +648,7 @@ impl UnifiedQueueProcessor {
         embedding_generator: &Arc<EmbeddingGenerator>,
         storage_client: &Arc<StorageClient>,
         lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
+        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
     ) -> UnifiedProcessorResult<()> {
         info!(
             "Processing file item: {} → collection: {}",
@@ -671,10 +730,14 @@ impl UnifiedQueueProcessor {
         // Process each chunk
         let mut points = Vec::new();
         for (chunk_idx, chunk) in document_content.chunks.iter().enumerate() {
+            // Semaphore-gated embedding generation (Task 504)
+            let _permit = embedding_semaphore.acquire().await
+                .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
             let embedding_result = embedding_generator
                 .generate_embedding(&chunk.content, "bge-small-en-v1.5")
                 .await
                 .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
+            drop(_permit);
 
             let mut point_payload = std::collections::HashMap::new();
             point_payload.insert("content".to_string(), serde_json::json!(chunk.content));
@@ -1487,6 +1550,10 @@ mod tests {
         // Fairness scheduler settings (Task 21 - Anti-starvation)
         assert!(config.fairness_enabled);
         assert_eq!(config.items_per_flip, 10); // Spec: every 10 items
+        // Resource limits (Task 504)
+        assert_eq!(config.inter_item_delay_ms, 50);
+        assert_eq!(config.max_concurrent_embeddings, 2);
+        assert_eq!(config.max_memory_percent, 70);
     }
 
     #[test]

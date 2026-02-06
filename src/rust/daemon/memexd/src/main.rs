@@ -417,6 +417,26 @@ async fn setup_signal_handlers() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Set process nice level for resource management (Task 504)
+fn set_process_nice_level(nice_level: i32) {
+    #[cfg(unix)]
+    {
+        let result = unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, nice_level) };
+        if result == 0 {
+            info!("Set process nice level to {}", nice_level);
+        } else {
+            let err = std::io::Error::last_os_error();
+            warn!("Failed to set nice level to {}: {} (continuing with default)", nice_level, err);
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = nice_level;
+        info!("Nice level not supported on this platform, skipping");
+    }
+}
+
 /// Main daemon loop
 async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
     let project_info = args.project_id.as_ref().map(|id| format!(" for project {}", id)).unwrap_or_default();
@@ -427,6 +447,9 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     // Convert DaemonConfig to Config for queue processor settings
     let config = Config::from(daemon_config.clone());
+
+    // Apply OS-level resource limits (Task 504)
+    set_process_nice_level(config.resource_limits.nice_level);
 
     let pid_file_cleanup = args.pid_file.clone();
     let _cleanup_guard = scopeguard::guard((), move |_| {
@@ -560,7 +583,6 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         batch_size: config.queue_batch_size.unwrap_or(10) as i32,
         poll_interval_ms: config.queue_poll_interval_ms.unwrap_or(500),
         worker_count: config.queue_worker_count.unwrap_or(4),
-        parallel_processing: config.queue_parallel_processing.unwrap_or(true),
         backpressure_threshold: config.queue_backpressure_threshold.unwrap_or(1000),
         ..ProcessorConfig::default()
     };
@@ -616,6 +638,10 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         worker_id: format!("memexd-{}", std::process::id()),
         lease_duration_secs: 300, // 5 minutes
         max_retries: 3,
+        // Resource limits (Task 504)
+        inter_item_delay_ms: config.resource_limits.inter_item_delay_ms,
+        max_concurrent_embeddings: config.resource_limits.max_concurrent_embeddings,
+        max_memory_percent: config.resource_limits.max_memory_percent,
         ..UnifiedProcessorConfig::default()
     };
 

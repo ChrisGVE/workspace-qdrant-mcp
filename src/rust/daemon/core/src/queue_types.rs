@@ -65,9 +65,6 @@ pub struct ProcessorConfig {
     /// Maximum queue depth before enabling backpressure (Task 21)
     /// When exceeded, enqueue operations may be slowed
     pub backpressure_threshold: i64,
-
-    /// Enable parallel processing within batches (Task 21)
-    pub parallel_processing: bool,
 }
 
 impl Default for ProcessorConfig {
@@ -86,7 +83,6 @@ impl Default for ProcessorConfig {
             enable_metrics: true,
             worker_count: 4,  // Default to 4 parallel workers
             backpressure_threshold: 1000,  // Start backpressure at 1000 items
-            parallel_processing: true,
         }
     }
 }

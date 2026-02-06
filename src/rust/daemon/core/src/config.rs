@@ -193,7 +193,6 @@ impl From<QueueProcessorSettings> for ProcessorConfig {
             // Task 21: Use defaults for new fields
             worker_count: 4,
             backpressure_threshold: 1000,
-            parallel_processing: true,
         }
     }
 }
@@ -680,6 +679,97 @@ impl GrammarConfig {
     }
 }
 
+/// Resource limits configuration section
+///
+/// Controls how the daemon manages system resources to be a good neighbor.
+/// Four levels: OS priority, processing pacing, embedding concurrency, memory pressure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceLimitsConfig {
+    /// Unix nice level for the daemon process (-20 highest priority, 19 lowest)
+    /// Default: 10 (low priority - daemon should yield to interactive processes)
+    #[serde(default = "default_nice_level")]
+    pub nice_level: i32,
+
+    /// Delay in milliseconds between processing items (breathing room)
+    /// Default: 50ms
+    #[serde(default = "default_inter_item_delay_ms")]
+    pub inter_item_delay_ms: u64,
+
+    /// Maximum concurrent embedding operations (semaphore on ONNX ops)
+    /// Default: 2
+    #[serde(default = "default_max_concurrent_embeddings")]
+    pub max_concurrent_embeddings: usize,
+
+    /// Pause processing when system memory usage exceeds this percentage
+    /// Default: 70
+    #[serde(default = "default_max_memory_percent")]
+    pub max_memory_percent: u8,
+}
+
+fn default_nice_level() -> i32 { 10 }
+fn default_inter_item_delay_ms() -> u64 { 50 }
+fn default_max_concurrent_embeddings() -> usize { 2 }
+fn default_max_memory_percent() -> u8 { 70 }
+
+impl Default for ResourceLimitsConfig {
+    fn default() -> Self {
+        Self {
+            nice_level: default_nice_level(),
+            inter_item_delay_ms: default_inter_item_delay_ms(),
+            max_concurrent_embeddings: default_max_concurrent_embeddings(),
+            max_memory_percent: default_max_memory_percent(),
+        }
+    }
+}
+
+impl ResourceLimitsConfig {
+    /// Validate configuration settings
+    pub fn validate(&self) -> Result<(), String> {
+        if self.nice_level < -20 || self.nice_level > 19 {
+            return Err("nice_level must be between -20 and 19".to_string());
+        }
+        if self.inter_item_delay_ms > 5000 {
+            return Err("inter_item_delay_ms should not exceed 5000".to_string());
+        }
+        if self.max_concurrent_embeddings == 0 || self.max_concurrent_embeddings > 8 {
+            return Err("max_concurrent_embeddings must be between 1 and 8".to_string());
+        }
+        if self.max_memory_percent < 20 || self.max_memory_percent > 95 {
+            return Err("max_memory_percent must be between 20 and 95".to_string());
+        }
+        Ok(())
+    }
+
+    /// Apply environment variable overrides
+    pub fn apply_env_overrides(&mut self) {
+        use std::env;
+
+        if let Ok(val) = env::var("WQM_RESOURCE_NICE_LEVEL") {
+            if let Ok(parsed) = val.parse() {
+                self.nice_level = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_INTER_ITEM_DELAY_MS") {
+            if let Ok(parsed) = val.parse() {
+                self.inter_item_delay_ms = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS") {
+            if let Ok(parsed) = val.parse() {
+                self.max_concurrent_embeddings = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_MAX_MEMORY_PERCENT") {
+            if let Ok(parsed) = val.parse() {
+                self.max_memory_percent = parsed;
+            }
+        }
+    }
+}
+
 /// Update channel for daemon self-updates
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -779,6 +869,9 @@ pub struct DaemonConfig {
     /// Daemon self-update configuration
     #[serde(default)]
     pub updates: UpdatesConfig,
+    /// Resource limits configuration
+    #[serde(default)]
+    pub resource_limits: ResourceLimitsConfig,
 }
 
 impl Default for DaemonConfig {
@@ -802,6 +895,7 @@ impl Default for DaemonConfig {
             lsp: LspSettings::default(),
             grammars: GrammarConfig::default(),
             updates: UpdatesConfig::default(),
+            resource_limits: ResourceLimitsConfig::default(),
         }
     }
 }
@@ -841,10 +935,10 @@ pub struct Config {
     pub queue_poll_interval_ms: Option<u64>,
     /// Number of queue processor workers
     pub queue_worker_count: Option<usize>,
-    /// Enable parallel queue processing
-    pub queue_parallel_processing: Option<bool>,
     /// Queue backpressure threshold
     pub queue_backpressure_threshold: Option<i64>,
+    /// Resource limits for daemon processing
+    pub resource_limits: ResourceLimitsConfig,
 }
 
 impl From<DaemonConfig> for Config {
@@ -862,8 +956,8 @@ impl From<DaemonConfig> for Config {
             queue_batch_size: Some(daemon_config.queue_processor.batch_size),
             queue_poll_interval_ms: Some(daemon_config.queue_processor.poll_interval_ms),
             queue_worker_count: Some(4), // Default worker count
-            queue_parallel_processing: Some(true), // Default to parallel processing
             queue_backpressure_threshold: Some(1000), // Default backpressure threshold
+            resource_limits: daemon_config.resource_limits,
         }
     }
 }
@@ -884,8 +978,8 @@ impl Config {
             queue_batch_size: Some(10),
             queue_poll_interval_ms: Some(500),
             queue_worker_count: Some(4),
-            queue_parallel_processing: Some(true),
             queue_backpressure_threshold: Some(1000),
+            resource_limits: ResourceLimitsConfig::default(),
         }
     }
 
@@ -1191,5 +1285,131 @@ mod tests {
         // Verify grammars field exists and has defaults
         assert!(!config.grammars.required.is_empty());
         assert!(config.grammars.auto_download);
+    }
+
+    #[test]
+    fn test_resource_limits_config_defaults() {
+        let config = ResourceLimitsConfig::default();
+        assert_eq!(config.nice_level, 10);
+        assert_eq!(config.inter_item_delay_ms, 50);
+        assert_eq!(config.max_concurrent_embeddings, 2);
+        assert_eq!(config.max_memory_percent, 70);
+    }
+
+    #[test]
+    fn test_resource_limits_config_validation() {
+        let mut config = ResourceLimitsConfig::default();
+
+        // Valid settings
+        assert!(config.validate().is_ok());
+
+        // Invalid nice_level (too low)
+        config.nice_level = -21;
+        assert!(config.validate().is_err());
+        // Invalid nice_level (too high)
+        config.nice_level = 20;
+        assert!(config.validate().is_err());
+        config.nice_level = 10;
+
+        // Invalid inter_item_delay_ms (too high)
+        config.inter_item_delay_ms = 5001;
+        assert!(config.validate().is_err());
+        config.inter_item_delay_ms = 50;
+
+        // Invalid max_concurrent_embeddings (zero)
+        config.max_concurrent_embeddings = 0;
+        assert!(config.validate().is_err());
+        // Invalid max_concurrent_embeddings (too high)
+        config.max_concurrent_embeddings = 9;
+        assert!(config.validate().is_err());
+        config.max_concurrent_embeddings = 2;
+
+        // Invalid max_memory_percent (too low)
+        config.max_memory_percent = 19;
+        assert!(config.validate().is_err());
+        // Invalid max_memory_percent (too high)
+        config.max_memory_percent = 96;
+        assert!(config.validate().is_err());
+        config.max_memory_percent = 70;
+
+        // Valid again
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_resource_limits_config_boundary_values() {
+        // Test boundary values are accepted
+        let mut config = ResourceLimitsConfig::default();
+
+        config.nice_level = -20;
+        assert!(config.validate().is_ok());
+        config.nice_level = 19;
+        assert!(config.validate().is_ok());
+
+        config.inter_item_delay_ms = 0;
+        assert!(config.validate().is_ok());
+        config.inter_item_delay_ms = 5000;
+        assert!(config.validate().is_ok());
+
+        config.max_concurrent_embeddings = 1;
+        assert!(config.validate().is_ok());
+        config.max_concurrent_embeddings = 8;
+        assert!(config.validate().is_ok());
+
+        config.max_memory_percent = 20;
+        assert!(config.validate().is_ok());
+        config.max_memory_percent = 95;
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_resource_limits_env_overrides() {
+        let mut config = ResourceLimitsConfig::default();
+
+        // Set environment variables
+        std::env::set_var("WQM_RESOURCE_NICE_LEVEL", "5");
+        std::env::set_var("WQM_RESOURCE_INTER_ITEM_DELAY_MS", "100");
+        std::env::set_var("WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS", "4");
+        std::env::set_var("WQM_RESOURCE_MAX_MEMORY_PERCENT", "80");
+
+        config.apply_env_overrides();
+
+        assert_eq!(config.nice_level, 5);
+        assert_eq!(config.inter_item_delay_ms, 100);
+        assert_eq!(config.max_concurrent_embeddings, 4);
+        assert_eq!(config.max_memory_percent, 80);
+
+        // Clean up
+        std::env::remove_var("WQM_RESOURCE_NICE_LEVEL");
+        std::env::remove_var("WQM_RESOURCE_INTER_ITEM_DELAY_MS");
+        std::env::remove_var("WQM_RESOURCE_MAX_CONCURRENT_EMBEDDINGS");
+        std::env::remove_var("WQM_RESOURCE_MAX_MEMORY_PERCENT");
+    }
+
+    #[test]
+    fn test_daemon_config_includes_resource_limits() {
+        let config = DaemonConfig::default();
+        assert_eq!(config.resource_limits.nice_level, 10);
+        assert_eq!(config.resource_limits.inter_item_delay_ms, 50);
+        assert_eq!(config.resource_limits.max_concurrent_embeddings, 2);
+        assert_eq!(config.resource_limits.max_memory_percent, 70);
+    }
+
+    #[test]
+    fn test_resource_limits_serialization() {
+        let config = ResourceLimitsConfig {
+            nice_level: 5,
+            inter_item_delay_ms: 100,
+            max_concurrent_embeddings: 4,
+            max_memory_percent: 80,
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("\"nice_level\":5"));
+        assert!(json.contains("\"max_memory_percent\":80"));
+
+        let deserialized: ResourceLimitsConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.nice_level, 5);
+        assert_eq!(deserialized.max_memory_percent, 80);
     }
 }
