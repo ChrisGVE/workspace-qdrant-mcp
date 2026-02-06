@@ -462,7 +462,7 @@ async fn remove(tag: &str, skip_confirm: bool) -> Result<()> {
                 tag,            // tenant_id
                 collection,     // collection
                 &payload_json,  // payload
-                9,              // priority (high for deletions)
+                0,              // priority is dynamic (computed at dequeue time)
                 "",             // branch (not applicable for libraries)
                 None,           // metadata
             ) {

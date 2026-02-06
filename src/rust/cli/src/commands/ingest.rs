@@ -316,7 +316,7 @@ async fn try_queue_fallback_text(
                 &tenant_id,
                 collection,
                 &payload,
-                8, // Default priority for CLI content
+                0, // Priority is dynamic (computed at dequeue time)
                 &branch,
             ) {
                 Ok(result) => {

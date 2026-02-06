@@ -483,12 +483,9 @@ impl QueueManager {
 
         // Update queue depth metric (Task 412.7)
         // Note: We use the priority and collection for metric labels
-        let priority_str = match priority {
-            1 => "high",
-            3 => "normal",
-            5 => "low",
-            _ => "other",
-        };
+        // Priority is computed at dequeue time (two-level: high=1, low=0).
+        // The stored value is always 0 (unused). Label as "dynamic" for metrics.
+        let priority_str = "dynamic";
         // Get actual queue depth after insert
         if let Ok(depth) = self.get_queue_depth(Some(tenant_id), None).await {
             METRICS.set_queue_depth(priority_str, collection, depth);
@@ -1090,14 +1087,14 @@ impl QueueManager {
             // Commit transaction before enqueueing (enqueue_unified uses its own transaction)
             tx.commit().await?;
 
-            // Enqueue to unified_queue
+            // Enqueue to unified_queue (priority is dynamic, always pass 0)
             match self.enqueue_unified(
                 ItemType::File,
                 unified_op,
                 &tenant_id,
                 &collection,
                 &payload_json,
-                priority,
+                0,
                 Some(&branch),
                 None, // No custom idempotency key - let it generate
             ).await {
@@ -1652,7 +1649,7 @@ impl QueueManager {
     /// * `tenant_id` - Project/tenant identifier
     /// * `collection` - Target Qdrant collection
     /// * `payload_json` - JSON payload with operation-specific data
-    /// * `priority` - Processing priority (0-10, higher = more urgent)
+    /// * `priority` - UNUSED: always pass 0. Priority is computed at dequeue time via CASE/JOIN.
     /// * `branch` - Git branch (default: main)
     /// * `metadata` - Optional additional metadata as JSON
     pub async fn enqueue_unified(
@@ -2903,7 +2900,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
-                5,
+                0,
                 Some("main"),
                 None,
             )
@@ -2921,7 +2918,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
-                5,
+                0,
                 Some("main"),
                 None,
             )
@@ -2970,7 +2967,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"content":"test"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3023,7 +3020,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"content":"test"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3073,7 +3070,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3148,7 +3145,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3193,7 +3190,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file1.rs"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3207,7 +3204,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"content":"test content"}"#,
-                8,
+                0,
                 None,
                 None,
             )
@@ -3221,7 +3218,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file2.rs"}"#,
-                3,
+                0,
                 None,
                 None,
             )
@@ -3266,7 +3263,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"content":"test"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3311,7 +3308,7 @@ mod tests {
                     "test-tenant",
                     "test-collection",
                     &format!(r#"{{"file_path":"/test/file{}.rs"}}"#, i),
-                    5,
+                    0,
                     None,
                     None,
                 )
@@ -3362,7 +3359,7 @@ mod tests {
                         "test-tenant",
                         "test-collection",
                         r#"{"file_path":"/test/concurrent_file.rs"}"#,
-                        5,
+                        0,
                         Some("main"),
                         Some(&format!(r#"{{"worker":{}}}"#, i)),
                     )
@@ -3422,7 +3419,7 @@ mod tests {
                         "test-tenant",
                         "test-collection",
                         &format!(r#"{{"file_path":"/test/file_{}.rs"}}"#, i),
-                        5,
+                        0,
                         Some("main"),
                         None,
                     )
@@ -3485,7 +3482,7 @@ mod tests {
                         "test-tenant",
                         "test-collection",
                         r#"{"content":"test content","source_type":"test"}"#,
-                        5,
+                        0,
                         Some("main"),
                         None,
                     )
@@ -3545,7 +3542,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/worker_test.rs"}"#,
-                5,
+                0,
                 Some("main"),
                 None,
             )
@@ -3570,7 +3567,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/worker_test.rs"}"#,
-                5,
+                0,
                 Some("main"),
                 None,
             )
@@ -3611,7 +3608,7 @@ mod tests {
                 "",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3640,7 +3637,7 @@ mod tests {
                 "   ",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3669,7 +3666,7 @@ mod tests {
                 "test-tenant",
                 "",
                 r#"{"file_path":"/test/file.rs"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3698,7 +3695,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 "not valid json",
-                5,
+                0,
                 None,
                 None,
             )
@@ -3727,7 +3724,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"other_field":"value"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3760,7 +3757,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"source_type":"mcp"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3793,7 +3790,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"point_ids":["abc"]}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3826,7 +3823,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"new_path":"/test/new.rs"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3847,7 +3844,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"old_path":"/test/old.rs"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3880,7 +3877,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3895,7 +3892,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"content":"test content","source_type":"mcp"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3910,7 +3907,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"old_path":"/test/old.rs","new_path":"/test/new.rs"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3925,7 +3922,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"document_id":"doc-123"}"#,
-                5,
+                0,
                 None,
                 None,
             )
@@ -3952,7 +3949,7 @@ mod tests {
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":""}"#,
-                5,
+                0,
                 None,
                 None,
             )

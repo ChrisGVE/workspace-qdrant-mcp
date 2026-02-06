@@ -583,7 +583,13 @@ impl fmt::Display for IdempotencyKeyError {
 
 impl std::error::Error for IdempotencyKeyError {}
 
-/// SQL to create the unified queue schema
+/// SQL to create the unified queue schema.
+///
+/// NOTE: The `priority` column is unused — priority is computed dynamically at dequeue time
+/// via a CASE expression that JOINs with `watch_folders.is_active`. Two levels:
+/// - High (1): active projects + memory collection
+/// - Low (0): libraries + inactive projects
+/// All callers should pass 0 when enqueuing. See `dequeue_unified()` in `queue_operations.rs`.
 pub const CREATE_UNIFIED_QUEUE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS unified_queue (
     queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
@@ -594,7 +600,8 @@ CREATE TABLE IF NOT EXISTS unified_queue (
     op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
     tenant_id TEXT NOT NULL,
     collection TEXT NOT NULL,
-    priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
+    -- UNUSED: priority is computed at dequeue time, not stored. Always set to 0.
+    priority INTEGER NOT NULL DEFAULT 0 CHECK (priority >= 0 AND priority <= 10),
     status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN (
         'pending', 'in_progress', 'done', 'failed'
     )),

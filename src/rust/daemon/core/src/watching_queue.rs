@@ -875,16 +875,6 @@ impl FileWatcherQueue {
         }
     }
 
-    /// Calculate priority based on operation type
-    fn calculate_priority(operation: UnifiedOp) -> i32 {
-        match operation {
-            UnifiedOp::Delete => 8,  // High priority for deletions
-            UnifiedOp::Update => 5,  // Normal priority for updates
-            UnifiedOp::Ingest => 5,  // Normal priority for ingestion
-            UnifiedOp::Scan => 3,    // Lower priority for scans
-        }
-    }
-
     /// Find project root by looking for .git directory
     fn find_project_root(file_path: &Path) -> PathBuf {
         let mut current = file_path.parent().unwrap_or(file_path);
@@ -990,9 +980,6 @@ impl FileWatcherQueue {
         // Determine operation type
         let operation = Self::determine_operation_type(event.event_kind, &event.path);
 
-        // Calculate priority
-        let priority = Self::calculate_priority(operation);
-
         // Find project root
         let project_root = Self::find_project_root(&event.path);
 
@@ -1042,7 +1029,7 @@ impl FileWatcherQueue {
                 &tenant_id,
                 &collection,
                 &payload_json,
-                priority,
+                0,  // Priority is computed at dequeue time via CASE/JOIN, not stored
                 Some(&branch),
                 None,  // metadata
             ).await {
@@ -1054,8 +1041,8 @@ impl FileWatcherQueue {
                     error_tracker.record_success(&watch_id).await;
 
                     debug!(
-                        "Enqueued file to unified_queue: {} (operation={:?}, priority={}, collection={}, tenant={}, branch={}, file_type={})",
-                        file_absolute_path, operation, priority, collection, tenant_id, branch, file_type.as_str()
+                        "Enqueued file to unified_queue: {} (operation={:?}, collection={}, tenant={}, branch={}, file_type={})",
+                        file_absolute_path, operation, collection, tenant_id, branch, file_type.as_str()
                     );
                     return;
                 },

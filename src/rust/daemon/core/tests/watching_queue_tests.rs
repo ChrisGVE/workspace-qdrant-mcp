@@ -196,7 +196,7 @@ async fn test_unified_queue_enqueue_operation() {
         "test-tenant",
         "projects",
         &payload_json,
-        5,
+        0,
         Some("main"),
         None,
     ).await;
@@ -228,17 +228,17 @@ async fn test_unified_queue_enqueue_operation() {
 
     assert_eq!(item_type, "file");
     assert_eq!(op, "ingest");
-    assert_eq!(priority, 5);
+    assert_eq!(priority, 0);  // Priority is always 0 (computed dynamically at dequeue time)
     assert_eq!(tenant_id, "test-tenant");
 }
 
 #[tokio::test]
-async fn test_unified_queue_priority_calculation() {
-    // This test verifies that priorities are calculated correctly for different operations
+async fn test_unified_queue_priority_always_zero() {
+    // Priority is computed dynamically at dequeue time via CASE/JOIN, not stored.
+    // All enqueued items should have priority=0 regardless of operation type.
     let pool = create_test_database().await;
     let queue_manager = Arc::new(QueueManager::new(pool.clone()));
 
-    // Ingest operation - priority 5
     let payload1 = FilePayload {
         file_path: "/tmp/ingest.txt".to_string(),
         file_type: Some("text".to_string()),
@@ -251,12 +251,11 @@ async fn test_unified_queue_priority_calculation() {
         "tenant",
         "projects",
         &serde_json::to_string(&payload1).unwrap(),
-        5,
+        0,
         Some("main"),
         None,
     ).await.expect("Failed to enqueue ingest");
 
-    // Update operation - priority 5
     let payload2 = FilePayload {
         file_path: "/tmp/update.txt".to_string(),
         file_type: Some("text".to_string()),
@@ -269,12 +268,11 @@ async fn test_unified_queue_priority_calculation() {
         "tenant",
         "projects",
         &serde_json::to_string(&payload2).unwrap(),
-        5,
+        0,
         Some("main"),
         None,
     ).await.expect("Failed to enqueue update");
 
-    // Delete operation - priority 8 (higher)
     let payload3 = FilePayload {
         file_path: "/tmp/delete.txt".to_string(),
         file_type: Some("text".to_string()),
@@ -287,12 +285,12 @@ async fn test_unified_queue_priority_calculation() {
         "tenant",
         "projects",
         &serde_json::to_string(&payload3).unwrap(),
-        8,
+        0,
         Some("main"),
         None,
     ).await.expect("Failed to enqueue delete");
 
-    // Verify priorities in database
+    // Verify all priorities are 0 in database
     let rows = sqlx::query("SELECT file_path, priority FROM unified_queue ORDER BY file_path")
         .fetch_all(&pool)
         .await
@@ -300,14 +298,10 @@ async fn test_unified_queue_priority_calculation() {
 
     assert_eq!(rows.len(), 3);
 
-    // Check delete has highest priority
-    let delete_row = rows.iter().find(|r| {
-        let path: String = r.try_get("file_path").unwrap();
-        path.contains("delete")
-    }).expect("Delete row not found");
-
-    let delete_priority: i32 = delete_row.try_get("priority").unwrap();
-    assert_eq!(delete_priority, 8);
+    for row in &rows {
+        let priority: i32 = row.try_get("priority").unwrap();
+        assert_eq!(priority, 0, "All stored priorities should be 0 (dynamic at dequeue time)");
+    }
 }
 
 #[tokio::test]
@@ -331,7 +325,7 @@ async fn test_unified_queue_idempotency() {
         "tenant",
         "projects",
         &payload_json,
-        5,
+        0,
         Some("main"),
         None,
     ).await.expect("Failed to enqueue first time");
@@ -345,7 +339,7 @@ async fn test_unified_queue_idempotency() {
         "tenant",
         "projects",
         &payload_json,
-        5,
+        0,
         Some("main"),
         None,
     ).await.expect("Failed to enqueue second time");

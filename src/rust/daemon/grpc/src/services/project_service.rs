@@ -631,7 +631,7 @@ impl ProjectService for ProjectServiceImpl {
                 &project_id,
                 "projects",
                 &payload_json,
-                8,  // High priority for active project scans
+                0,  // Priority is dynamic (computed at dequeue time)
                 None,
                 None,
             ).await {

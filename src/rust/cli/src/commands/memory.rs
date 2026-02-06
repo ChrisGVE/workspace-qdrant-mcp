@@ -300,7 +300,7 @@ fn try_queue_fallback_memory(
                 "_global", // Memory is global
                 "memory",
                 &payload,
-                priority as i32,
+                0, // Queue priority is dynamic (computed at dequeue time)
                 "main", // Memory rules are branch-agnostic
             ) {
                 Ok(result) => {

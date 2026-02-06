@@ -1027,14 +1027,14 @@ impl UnifiedQueueProcessor {
                 .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("Failed to serialize FilePayload: {}", e)))?;
 
             // Queue the file for ingestion
-            // Priority 5 is default/normal - not urgent but not low
+            // Priority is computed at dequeue time via CASE/JOIN, not stored
             match queue_manager.enqueue_unified(
                 ItemType::File,
                 QueueOperation::Ingest,
                 &item.tenant_id,
                 &item.collection,
                 &payload_json,
-                5,  // Normal priority for bulk scan items
+                0,  // Priority is dynamic (computed at dequeue time)
                 Some(&item.branch),
                 None,
             ).await {
@@ -1163,7 +1163,7 @@ impl UnifiedQueueProcessor {
                     &item.tenant_id,
                     &item.collection,
                     &payload_json,
-                    7, // Higher priority than scan items (5)
+                    0, // Priority is dynamic (computed at dequeue time)
                     Some(&item.branch),
                     None,
                 )
