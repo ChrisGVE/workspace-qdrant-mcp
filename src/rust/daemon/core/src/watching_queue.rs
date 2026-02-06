@@ -20,6 +20,7 @@ use glob::Pattern;
 use crate::queue_operations::{QueueManager, QueueError};
 use crate::unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload};
 use crate::file_classification::classify_file_type;
+use crate::patterns::exclusion::should_exclude_file;
 use crate::project_disambiguation::ProjectIdCalculator;
 use serde::{Deserialize, Serialize};
 
@@ -939,6 +940,16 @@ impl FileWatcherQueue {
     ) {
         // Skip if not a file
         if !event.path.is_file() && !matches!(event.event_kind, EventKind::Remove(_)) {
+            return;
+        }
+
+        // Check comprehensive exclusion patterns (e.g. .fastembed_cache, .mypy_cache, node_modules)
+        let file_path_str = event.path.to_string_lossy();
+        if should_exclude_file(&file_path_str) {
+            debug!(
+                "File excluded by exclusion engine, skipping: {}",
+                event.path.display()
+            );
             return;
         }
 
