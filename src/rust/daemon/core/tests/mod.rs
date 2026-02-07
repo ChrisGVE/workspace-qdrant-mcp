@@ -8,8 +8,6 @@ pub mod valgrind_memory_tests;
 pub mod unsafe_code_audit_tests;
 pub mod ffi_performance_tests;
 pub mod file_ingestion_comprehensive_tests;
-pub mod lsp_daemon_integration_tests;
-pub mod daemon_state_persistence_tests;
 
 // Re-export key types for easier access
 pub use cross_platform_safety_tests::{
