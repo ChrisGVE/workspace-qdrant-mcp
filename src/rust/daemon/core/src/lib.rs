@@ -9,6 +9,7 @@ use std::time::Instant;
 use std::collections::HashMap;
 use thiserror::Error;
 
+pub mod allowed_extensions;
 pub mod config;
 pub mod document_processor;
 pub mod embedding;
@@ -48,6 +49,7 @@ pub mod project_disambiguation;
 pub mod startup_recovery;
 
 use crate::config::Config;
+pub use crate::allowed_extensions::AllowedExtensions;
 pub use crate::document_processor::{
     DocumentProcessor, DocumentProcessorError, DocumentProcessorResult
 };
