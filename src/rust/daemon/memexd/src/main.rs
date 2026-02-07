@@ -30,6 +30,8 @@ use workspace_qdrant_core::{
     LanguageServerManager, ProjectLspConfig,
     // Schema management (ADR-003: daemon owns database)
     SchemaManager,
+    // File type allowlist (Task 511)
+    AllowedExtensions,
 };
 
 // gRPC server for Python MCP server and CLI communication (Task 421)
@@ -629,6 +631,11 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         }
     }
 
+    // File type allowlist (Task 511)
+    let allowed_extensions = Arc::new(AllowedExtensions::default());
+    info!("File type allowlist initialized ({} project extensions, library extensions active)",
+        "90+"); // Approximate count for log readability
+
     // Initialize unified queue processor (Task 37.26)
     // Note: Legacy QueueProcessor removed per Task 21 - all processing via unified_queue
     info!("Initializing unified queue processor...");
@@ -659,6 +666,9 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         info!("LSP manager attached to unified queue processor for code enrichment");
     }
 
+    // Attach file type allowlist (Task 511)
+    unified_queue_processor = unified_queue_processor.with_allowed_extensions(Arc::clone(&allowed_extensions));
+
     // Recover stale leases from previous daemon crashes (Task 37.19)
     if let Err(e) = unified_queue_processor.recover_stale_leases().await {
         warn!("Failed to recover stale unified queue leases: {}", e);
@@ -672,6 +682,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         match workspace_qdrant_core::startup_recovery::run_startup_recovery(
             &recovery_pool,
             &recovery_qm,
+            &allowed_extensions,
         ).await {
             Ok(stats) => {
                 let total = stats.total_queued();
