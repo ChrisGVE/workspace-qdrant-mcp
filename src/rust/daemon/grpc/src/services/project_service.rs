@@ -1125,7 +1125,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_register_new_project() {
+    async fn test_register_new_project_with_register_if_new() {
         let (pool, _temp_dir) = setup_test_db().await;
         let service = ProjectServiceImpl::new(pool);
 
@@ -1134,6 +1134,7 @@ mod tests {
             project_id: "abcd12345678".to_string(),
             name: Some("Test Project".to_string()),
             git_remote: None,
+            register_if_new: true,
         });
 
         let response = service.register_project(request).await.unwrap();
@@ -1143,6 +1144,31 @@ mod tests {
         assert_eq!(response.project_id, "abcd12345678");
         assert_eq!(response.priority, "high");
         assert!(response.is_active);
+        assert!(response.newly_registered);
+    }
+
+    #[tokio::test]
+    async fn test_register_new_project_without_register_if_new() {
+        let (pool, _temp_dir) = setup_test_db().await;
+        let service = ProjectServiceImpl::new(pool);
+
+        // Default register_if_new is false - should NOT create the project
+        let request = Request::new(RegisterProjectRequest {
+            path: "/test/project".to_string(),
+            project_id: "abcd12345678".to_string(),
+            name: Some("Test Project".to_string()),
+            git_remote: None,
+            register_if_new: false,
+        });
+
+        let response = service.register_project(request).await.unwrap();
+        let response = response.into_inner();
+
+        assert!(!response.created);
+        assert_eq!(response.project_id, "abcd12345678");
+        assert_eq!(response.priority, "none");
+        assert!(!response.is_active);
+        assert!(!response.newly_registered);
     }
 
     #[tokio::test]
@@ -1154,21 +1180,23 @@ mod tests {
 
         let service = ProjectServiceImpl::new(pool);
 
-        // First registration
+        // First registration - register_if_new=false still works for existing projects
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "abcd12345678".to_string(),
             name: Some("Test Project".to_string()),
             git_remote: None,
+            register_if_new: false,
         });
         service.register_project(request).await.unwrap();
 
-        // Second registration - should increment sessions
+        // Second registration - should work for existing projects regardless of register_if_new
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "abcd12345678".to_string(),
             name: Some("Test Project".to_string()),
             git_remote: None,
+            register_if_new: false,
         });
 
         let response = service.register_project(request).await.unwrap();
@@ -1177,6 +1205,7 @@ mod tests {
         assert!(!response.created);
         // With the spec-compliant boolean is_active model
         assert!(response.is_active);
+        assert!(!response.newly_registered);
     }
 
     #[tokio::test]
@@ -1215,12 +1244,13 @@ mod tests {
         let (pool, _temp_dir) = setup_test_db().await;
         let service = ProjectServiceImpl::new(pool);
 
-        // Register first
+        // Register first (with register_if_new=true since project doesn't exist yet)
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "abcd12345678".to_string(),
             name: Some("My Project".to_string()),
             git_remote: Some("https://github.com/user/repo.git".to_string()),
+            register_if_new: true,
         });
         service.register_project(request).await.unwrap();
 
@@ -1262,7 +1292,7 @@ mod tests {
         let (pool, _temp_dir) = setup_test_db().await;
         let service = ProjectServiceImpl::new(pool);
 
-        // Register multiple projects with valid 12-char hex IDs
+        // Register multiple projects with valid 12-char hex IDs (register_if_new=true)
         let project_ids = ["aaa000000001", "bbb000000002", "ccc000000003"];
         for (i, project_id) in project_ids.iter().enumerate() {
             let request = Request::new(RegisterProjectRequest {
@@ -1270,6 +1300,7 @@ mod tests {
                 project_id: project_id.to_string(),
                 name: Some(format!("Project {}", i)),
                 git_remote: None,
+                register_if_new: true,
             });
             service.register_project(request).await.unwrap();
         }
@@ -1359,12 +1390,13 @@ mod tests {
         let (pool, _temp_dir) = setup_test_db().await;
         let service = ProjectServiceImpl::new(pool);
 
-        // Invalid format - too short
+        // Invalid format - too short (validation happens before register_if_new check)
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "short".to_string(),
             name: None,
             git_remote: None,
+            register_if_new: false,
         });
 
         let result = service.register_project(request).await;
@@ -1373,15 +1405,41 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_empty_project_id() {
+    async fn test_empty_project_id_generates_local_id() {
         let (pool, _temp_dir) = setup_test_db().await;
         let service = ProjectServiceImpl::new(pool);
 
+        // Empty project_id triggers auto-generation of a local_* ID
+        // With register_if_new=false and no existing project, returns safe response
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "".to_string(),
             name: None,
             git_remote: None,
+            register_if_new: false,
+        });
+
+        let response = service.register_project(request).await.unwrap();
+        let response = response.into_inner();
+
+        assert!(!response.created);
+        assert!(response.project_id.starts_with("local_"));
+        assert_eq!(response.priority, "none");
+        assert!(!response.is_active);
+        assert!(!response.newly_registered);
+    }
+
+    #[tokio::test]
+    async fn test_empty_path_returns_error() {
+        let (pool, _temp_dir) = setup_test_db().await;
+        let service = ProjectServiceImpl::new(pool);
+
+        let request = Request::new(RegisterProjectRequest {
+            path: "".to_string(),
+            project_id: "abcd12345678".to_string(),
+            name: None,
+            git_remote: None,
+            register_if_new: false,
         });
 
         let result = service.register_project(request).await;
