@@ -511,6 +511,37 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         .map_err(|e| format!("Failed to run schema migrations: {}", e))?;
     info!("Schema migrations complete");
 
+    // Startup reconciliation: clean stale state and validate watch folders (Task 512)
+    info!("Running startup reconciliation...");
+    match workspace_qdrant_core::startup_reconciliation::clean_stale_state(&queue_pool).await {
+        Ok(stats) => {
+            if stats.has_changes() {
+                info!(
+                    "Stale state cleanup: {} items reset, {} old items cleaned, {} stale tracked files removed, {} orphan chunks removed",
+                    stats.items_reset, stats.items_cleaned, stats.tracked_files_removed, stats.orphan_chunks_removed
+                );
+            } else {
+                info!("Stale state cleanup: no stale state found");
+            }
+        }
+        Err(e) => warn!("Stale state cleanup failed (non-fatal): {}", e),
+    }
+
+    match workspace_qdrant_core::startup_reconciliation::validate_watch_folders(&queue_pool).await {
+        Ok(stats) => {
+            if stats.folders_deactivated > 0 {
+                warn!(
+                    "Watch folder validation: {} of {} folders deactivated (paths no longer exist)",
+                    stats.folders_deactivated, stats.folders_checked
+                );
+            } else {
+                info!("Watch folder validation: all {} folders valid", stats.folders_checked);
+            }
+        }
+        Err(e) => warn!("Watch folder validation failed (non-fatal): {}", e),
+    }
+    info!("Startup reconciliation complete");
+
     // Clone pool for gRPC server (ProjectService needs it)
     let grpc_db_pool = queue_pool.clone();
 
