@@ -20,6 +20,7 @@ use glob::Pattern;
 use crate::queue_operations::{QueueManager, QueueError};
 use crate::unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload};
 use crate::file_classification::classify_file_type;
+use crate::allowed_extensions::AllowedExtensions;
 use crate::patterns::exclusion::should_exclude_file;
 use crate::project_disambiguation::ProjectIdCalculator;
 use serde::{Deserialize, Serialize};
@@ -502,6 +503,7 @@ pub struct FileWatcherQueue {
     config: Arc<RwLock<WatchConfig>>,
     patterns: Arc<RwLock<CompiledPatterns>>,
     queue_manager: Arc<QueueManager>,
+    allowed_extensions: Arc<AllowedExtensions>,
     debouncer: Arc<Mutex<EventDebouncer>>,
     watcher: Arc<Mutex<Option<Box<dyn NotifyWatcher + Send + Sync>>>>,
     event_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<FileEvent>>>>,
@@ -526,6 +528,7 @@ impl FileWatcherQueue {
     pub fn new(
         config: WatchConfig,
         queue_manager: Arc<QueueManager>,
+        allowed_extensions: Arc<AllowedExtensions>,
     ) -> WatchingQueueResult<Self> {
         let patterns = CompiledPatterns::new(&config)?;
         let debouncer = EventDebouncer::new(config.debounce_ms);
@@ -536,6 +539,7 @@ impl FileWatcherQueue {
             config: Arc::new(RwLock::new(config)),
             patterns: Arc::new(RwLock::new(patterns)),
             queue_manager,
+            allowed_extensions,
             debouncer: Arc::new(Mutex::new(debouncer)),
             watcher: Arc::new(Mutex::new(None)),
             event_receiver: Arc::new(Mutex::new(None)),
@@ -663,6 +667,7 @@ impl FileWatcherQueue {
         let patterns = self.patterns.clone();
         let config = self.config.clone();
         let queue_manager = self.queue_manager.clone();
+        let allowed_extensions = self.allowed_extensions.clone();
         let error_tracker = self.error_tracker.clone();
         let throttle_state = self.throttle_state.clone();
         let events_received = self.events_received.clone();
@@ -678,6 +683,7 @@ impl FileWatcherQueue {
                 patterns,
                 config,
                 queue_manager,
+                allowed_extensions,
                 error_tracker,
                 throttle_state,
                 events_received,
@@ -697,12 +703,14 @@ impl FileWatcherQueue {
     }
 
     /// Main event processing loop
+    #[allow(clippy::too_many_arguments)]
     async fn event_processing_loop(
         event_receiver: Arc<Mutex<Option<mpsc::UnboundedReceiver<FileEvent>>>>,
         debouncer: Arc<Mutex<EventDebouncer>>,
         patterns: Arc<RwLock<CompiledPatterns>>,
         config: Arc<RwLock<WatchConfig>>,
         queue_manager: Arc<QueueManager>,
+        allowed_extensions: Arc<AllowedExtensions>,
         error_tracker: Arc<WatchErrorTracker>,
         throttle_state: Arc<QueueThrottleState>,
         events_received: Arc<Mutex<u64>>,
@@ -731,6 +739,7 @@ impl FileWatcherQueue {
                             &patterns,
                             &config,
                             &queue_manager,
+                            &allowed_extensions,
                             &error_tracker,
                             &throttle_state,
                             &events_received,
@@ -751,6 +760,7 @@ impl FileWatcherQueue {
                         &patterns,
                         &config,
                         &queue_manager,
+                        &allowed_extensions,
                         &error_tracker,
                         &throttle_state,
                         &events_processed,
@@ -765,12 +775,14 @@ impl FileWatcherQueue {
     }
 
     /// Process a single file event
+    #[allow(clippy::too_many_arguments)]
     async fn process_file_event(
         event: FileEvent,
         debouncer: &Arc<Mutex<EventDebouncer>>,
         patterns: &Arc<RwLock<CompiledPatterns>>,
         config: &Arc<RwLock<WatchConfig>>,
         queue_manager: &Arc<QueueManager>,
+        allowed_extensions: &Arc<AllowedExtensions>,
         error_tracker: &Arc<WatchErrorTracker>,
         throttle_state: &Arc<QueueThrottleState>,
         events_received: &Arc<Mutex<u64>>,
@@ -788,6 +800,24 @@ impl FileWatcherQueue {
         // NOTE: Legacy active_projects activity update removed per Task 21
         // Activity tracking now handled via watch_folders.last_activity_at in priority_manager
         // See PriorityManager::heartbeat() for spec-compliant activity tracking
+
+        // Check allowlist before pattern matching (Task 511)
+        // Skip allowlist for delete events (must be able to clean up any file)
+        if !matches!(event.event_kind, EventKind::Remove(_)) {
+            let collection_for_check = {
+                let config_lock = config.read().await;
+                match config_lock.watch_type {
+                    WatchType::Library => "libraries",
+                    WatchType::Project => "projects",
+                }.to_string()
+            };
+            let file_path_str = event.path.to_string_lossy();
+            if !allowed_extensions.is_allowed(&file_path_str, &collection_for_check) {
+                let mut count = events_filtered.lock().await;
+                *count += 1;
+                return;
+            }
+        }
 
         // Check patterns
         {
@@ -820,11 +850,13 @@ impl FileWatcherQueue {
     }
 
     /// Process debounced events
+    #[allow(clippy::too_many_arguments)]
     async fn process_debounced_events(
         debouncer: &Arc<Mutex<EventDebouncer>>,
         patterns: &Arc<RwLock<CompiledPatterns>>,
         config: &Arc<RwLock<WatchConfig>>,
         queue_manager: &Arc<QueueManager>,
+        allowed_extensions: &Arc<AllowedExtensions>,
         error_tracker: &Arc<WatchErrorTracker>,
         throttle_state: &Arc<QueueThrottleState>,
         events_processed: &Arc<Mutex<u64>>,
@@ -837,6 +869,21 @@ impl FileWatcherQueue {
         };
 
         for event in ready_events {
+            // Check allowlist (Task 511) - skip for delete events
+            if !matches!(event.event_kind, EventKind::Remove(_)) {
+                let collection_for_check = {
+                    let config_lock = config.read().await;
+                    match config_lock.watch_type {
+                        WatchType::Library => "libraries",
+                        WatchType::Project => "projects",
+                    }.to_string()
+                };
+                let file_path_str = event.path.to_string_lossy();
+                if !allowed_extensions.is_allowed(&file_path_str, &collection_for_check) {
+                    continue;
+                }
+            }
+
             // Double-check patterns
             {
                 let patterns_lock = patterns.read().await;
@@ -2653,14 +2700,16 @@ pub struct CoordinatorSummary {
 pub struct WatchManager {
     pool: SqlitePool,
     watchers: Arc<RwLock<HashMap<String, Arc<FileWatcherQueue>>>>,
+    allowed_extensions: Arc<AllowedExtensions>,
 }
 
 impl WatchManager {
     /// Create a new watch manager
-    pub fn new(pool: SqlitePool) -> Self {
+    pub fn new(pool: SqlitePool, allowed_extensions: Arc<AllowedExtensions>) -> Self {
         Self {
             pool,
             watchers: Arc::new(RwLock::new(HashMap::new())),
+            allowed_extensions,
         }
     }
 
@@ -2795,7 +2844,7 @@ impl WatchManager {
         // Project registration now handled via watch_folders table in daemon_state
         // See DaemonStateManager::upsert_watch_folder() for spec-compliant registration
 
-        match FileWatcherQueue::new(config, queue_manager) {
+        match FileWatcherQueue::new(config, queue_manager, self.allowed_extensions.clone()) {
             Ok(watcher) => {
                 let watcher = Arc::new(watcher);
                 match watcher.start().await {
