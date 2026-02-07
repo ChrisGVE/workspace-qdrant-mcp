@@ -47,6 +47,7 @@ pub mod watching_queue;
 pub mod lsp;
 pub mod project_disambiguation;
 pub mod startup_recovery;
+pub mod startup_reconciliation;
 
 use crate::config::Config;
 pub use crate::allowed_extensions::AllowedExtensions;
@@ -208,6 +209,10 @@ pub use crate::lsp::{
 };
 pub use crate::startup_recovery::{
     run_startup_recovery, RecoveryStats, FullRecoveryStats,
+};
+pub use crate::startup_reconciliation::{
+    clean_stale_state, validate_watch_folders,
+    StaleCleanupStats, WatchValidationStats,
 };
 
 /// Core processing errors
