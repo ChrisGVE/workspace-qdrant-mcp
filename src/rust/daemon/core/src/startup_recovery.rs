@@ -13,6 +13,7 @@ use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
+use crate::allowed_extensions::AllowedExtensions;
 use crate::patterns::exclusion::should_exclude_file;
 use crate::queue_operations::QueueManager;
 use crate::tracked_files_schema;
@@ -60,6 +61,7 @@ impl FullRecoveryStats {
 pub async fn run_startup_recovery(
     pool: &SqlitePool,
     queue_manager: &QueueManager,
+    allowed_extensions: &AllowedExtensions,
 ) -> Result<FullRecoveryStats, String> {
     info!("Starting daemon startup recovery...");
     let start = std::time::Instant::now();
@@ -84,6 +86,7 @@ pub async fn run_startup_recovery(
     for (watch_id, path, collection, tenant_id) in &watch_folders {
         let stats = recover_watch_folder(
             pool, queue_manager, watch_id, path, collection, tenant_id,
+            allowed_extensions,
         ).await;
 
         match stats {
@@ -127,6 +130,7 @@ async fn recover_watch_folder(
     base_path: &str,
     collection: &str,
     tenant_id: &str,
+    allowed_extensions: &AllowedExtensions,
 ) -> Result<RecoveryStats, String> {
     let root = Path::new(base_path);
     if !root.exists() || !root.is_dir() {
@@ -173,6 +177,24 @@ async fn recover_watch_folder(
                     &path.to_string_lossy(), QueueOperation::Delete,
                 ).await {
                     warn!("Failed to queue excluded file for deletion: {}: {}", rel_path, e);
+                    stats.errors += 1;
+                } else {
+                    stats.files_newly_excluded += 1;
+                }
+            }
+            continue;
+        }
+
+        // Check allowlist (Task 511)
+        let abs_path_str = path.to_string_lossy();
+        if !allowed_extensions.is_allowed(&abs_path_str, collection) {
+            // File extension not in allowlist - queue delete if previously tracked
+            if tracked_map.contains_key(&rel_path) {
+                if let Err(e) = enqueue_file_op(
+                    queue_manager, tenant_id, collection,
+                    &abs_path_str, QueueOperation::Delete,
+                ).await {
+                    warn!("Failed to queue non-allowed file for deletion: {}: {}", rel_path, e);
                     stats.errors += 1;
                 } else {
                     stats.files_newly_excluded += 1;
