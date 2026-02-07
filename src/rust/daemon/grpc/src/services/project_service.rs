@@ -564,17 +564,31 @@ impl ProjectService for ProjectServiceImpl {
                 Status::internal(format!("Database error: {}", e))
             })?;
 
-        let (created, is_active) = if existing.is_some() {
+        let (created, is_active, newly_registered) = if existing.is_some() {
             // Existing project - register session (activates project)
             match self.priority_manager.register_session(&project_id, "main").await {
-                Ok(_) => (false, true),
+                Ok(_) => (false, true, false),
                 Err(e) => {
                     error!("Failed to register session: {}", e);
                     return Err(Status::internal(format!("Failed to register session: {}", e)));
                 }
             }
+        } else if !req.register_if_new {
+            // Project not found and caller did not request auto-registration
+            info!(
+                "Project not registered, skipping auto-registration: {}",
+                project_id
+            );
+            let response = RegisterProjectResponse {
+                created: false,
+                project_id,
+                priority: "none".to_string(),
+                is_active: false,
+                newly_registered: false,
+            };
+            return Ok(Response::new(response));
         } else {
-            // New project - create watch_folder entry and activate
+            // New project with register_if_new=true - create watch_folder entry and activate
             let now = Utc::now().to_rfc3339();
             let watch_id = uuid::Uuid::new_v4().to_string();
             let result = sqlx::query(
@@ -597,7 +611,7 @@ impl ProjectService for ProjectServiceImpl {
             match result {
                 Ok(_) => {
                     info!("Created new project watch folder: {}", project_id);
-                    (true, true)
+                    (true, true, true)
                 }
                 Err(e) => {
                     error!("Failed to create project: {}", e);
@@ -705,6 +719,7 @@ impl ProjectService for ProjectServiceImpl {
             project_id,  // Return the (possibly generated) project_id
             priority: "high".to_string(),
             is_active,
+            newly_registered,
         };
 
         Ok(Response::new(response))
