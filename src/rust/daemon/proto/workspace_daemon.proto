@@ -388,6 +388,7 @@ message RegisterProjectRequest {
     string project_id = 2;                        // 12-char hex identifier
     optional string name = 3;                     // Human-readable project name
     optional string git_remote = 4;               // Git remote URL (for normalization)
+    bool register_if_new = 5;                     // If false, only activate existing projects
 }
 
 message RegisterProjectResponse {
@@ -395,6 +396,7 @@ message RegisterProjectResponse {
     string project_id = 2;                        // Confirmed project ID
     string priority = 3;                          // Current priority: "high", "normal", "low"
     bool is_active = 4;                           // Activity flag (spec-compliant boolean)
+    bool newly_registered = 5;                    // True only if register_if_new was true and project was new
 }
 
 // DeprioritizeProject Request/Response
