@@ -1,7 +1,7 @@
 # workspace-qdrant-mcp Specification
 
-**Version:** 1.6.7
-**Date:** 2026-02-03
+**Version:** 1.7.0
+**Date:** 2026-02-07
 **Status:** Authoritative Specification
 **Supersedes:** CONSOLIDATED_PRD_V2.md, PRDv3.txt, PRDv3-snapshot1.txt
 
@@ -381,7 +381,7 @@ When a local project (identified by container folder) gains a git remote:
 | Duplicate detection & disambiguation | On-demand (when `RegisterProject` received from MCP server) |
 | Project move detection               | On-demand (when `RegisterProject` received from MCP server) |
 
-**"Active" definition:** A project becomes active when the MCP server automatically sends `RegisterProject` to the daemon upon detecting the user's working directory. This triggers on-demand operations like duplicate detection.
+**"Active" definition:** A project becomes active when it has been explicitly registered (via CLI `wqm project add` or MCP with `register_if_new=true`) AND the MCP server sends `RegisterProject` to re-activate it. The MCP server does NOT auto-register new projects — it only re-activates existing entries in `watch_folders`. This triggers on-demand operations like duplicate detection.
 
 #### Watch Folders Table (Unified)
 
@@ -958,7 +958,7 @@ the retry information with accumulated error log.
 BEGIN TRANSACTION;
   1. Read file from filesystem
   2. Compute file_hash (SHA256), read file_mtime
-  3. Check exclusion rules (skip if excluded → mark done, COMMIT)
+  3. Check ingestion gates: allowlist → exclusion → size limit (skip if rejected → mark done, COMMIT)
   4. Chunk file (tree-sitter or fallback overlap)
   5. Generate embeddings for all chunks
   6. Upsert all points to Qdrant (batch)
@@ -1305,34 +1305,68 @@ DELETE FROM qdrant WHERE tenant_id LIKE '<library_prefix>%'
 
 Blunt force removal of all content. No queue entries needed - direct Qdrant operation.
 
-#### Phase 4: Daemon Startup Recovery
+#### Phase 4: Daemon Startup Automation
 
-On daemon start (or restart), the daemon must reconcile the `tracked_files` table
-(authoritative file inventory) with the filesystem for all watched projects.
-This handles changes that occurred while the daemon was not running.
+On daemon start (or restart), the daemon runs a 6-step startup sequence before entering
+its normal event loop. This handles schema migrations, configuration changes, state
+reconciliation, and crash recovery.
 
 ```
-1. For each watch_folder WHERE enabled = 1:
-   a. Query tracked_files for all files with this watch_folder_id
-   b. Walk filesystem to get current eligible files with mtime + hash
-   c. Compare (file_path is relative to watch_folder.path):
-      - In tracked_files but not on disk → queue file/delete
-      - On disk but not in tracked_files → queue file/ingest
-      - In both but file_mtime or file_hash changed → queue file/update
-      - In both and unchanged → skip (no action)
-   d. Check exclusion rules: in tracked_files but now excluded → queue file/delete
-2. Resume normal queue processing and file watching
+Step 1: Schema Integrity Check
+   - Verify all 5 tables exist (schema_version, unified_queue, watch_folders,
+     tracked_files, qdrant_chunks)
+   - Run pending migrations if schema_version is behind
+   - ABORT startup if schema check fails (cannot proceed without tables)
+
+Step 2: Configuration Change Reconciliation
+   - Compute config fingerprint = SHA256(sorted(allowed_extensions) + sorted(allowed_filenames)
+     + sorted(exclude_directories) + sorted(exclude_patterns))
+   - Compare fingerprint with stored value in schema_version metadata
+   - If fingerprint differs (config changed since last run):
+     a. For files in tracked_files that are NOW excluded (new exclusion rule):
+        → queue file/delete for each
+     b. For files in tracked_files whose extension is NO LONGER on allowlist:
+        → queue file/delete for each
+     c. Store new fingerprint
+   - NOTE: Newly-allowed files are discovered during Step 5 filesystem walk
+
+Step 3: Qdrant Collection Verification
+   - Ensure 3 canonical collections exist: projects, libraries, memory
+   - Create any missing collections with correct vector configuration
+   - Verify named vector configuration (dense + sparse) matches expectations
+
+Step 4: Watch Folder Path Validation
+   - For each watch_folder entry WHERE enabled = 1:
+     a. Validate path exists on filesystem
+     b. If path invalid: set enabled = 0, deactivate, log warning
+   - This catches projects that were moved or deleted while daemon was stopped
+
+Step 5: Filesystem Recovery (tracked_files reconciliation)
+   - For each watch_folder WHERE enabled = 1:
+     a. Query tracked_files for all files with this watch_folder_id
+     b. Walk filesystem to get current eligible files with mtime + hash
+        (eligible = passes allowlist + exclusion + size gates)
+     c. Compare (file_path is relative to watch_folder.path):
+        - In tracked_files but not on disk → queue file/delete
+        - On disk but not in tracked_files → queue file/ingest
+        - In both but file_mtime or file_hash changed → queue file/update
+        - In both and unchanged → skip (no action)
+   - For first startup with empty tracked_files, the initial scan (Phase 1)
+     handles population
+
+Step 6: Crash Recovery
+   - Reset stale in_progress queue items:
+     WHERE status = 'in_progress' AND lease_expires_at < now()
+     SET status = 'pending', leased_by = NULL, lease_expires_at = NULL,
+         retry_count = retry_count + 1
+   - Items exceeding max_retries are set to status = 'failed'
 ```
 
-**Prerequisites:** The `tracked_files` table must be populated (happens naturally during
-normal operation as files are ingested). For first startup with empty tracked_files,
-the initial scan (Phase 1) handles population.
-
-**Performance:** Recovery queries SQLite (milliseconds) instead of scrolling Qdrant
-(which took ~8 minutes for 28k+ points in 100-item batches).
+**Performance:** Steps 1-4 query SQLite only (milliseconds). Step 5 performs filesystem
+walks but compares against SQLite (fast). Step 6 is a single SQL UPDATE.
 
 **Scan distinction:** Initial scan (Phase 1) is for newly registered projects only.
-Recovery (Phase 4) runs on every daemon startup for all existing watched projects.
+Startup automation (Phase 4) runs on every daemon startup for all existing watched projects.
 The file watcher (Phase 2) handles all changes during normal daemon operation.
 
 ### Daemon Watch Management
@@ -1492,12 +1526,13 @@ User: "For future reference, always use uv instead of pip"
 
 ### Watch Sources
 
-| Source  | Target Collection | Trigger                                                      |
-| ------- | ----------------- | ------------------------------------------------------------ |
-| **MCP** | `projects`        | `activate_project` → daemon auto-creates watch if not exists |
-| **CLI** | `libraries`       | `wqm library add` → explicit library registration            |
+| Source  | Target Collection | Trigger                                                          |
+| ------- | ----------------- | ---------------------------------------------------------------- |
+| **MCP** | `projects`        | `RegisterProject` → re-activates existing watch entry only       |
+| **CLI** | `projects`        | `wqm project add` → explicit new project registration            |
+| **CLI** | `libraries`       | `wqm library add` → explicit library registration                |
 
-**Note:** Projects are watched automatically when activated via MCP. CLI is only used for library registration.
+**Note:** The MCP server does NOT auto-register new projects. It only re-activates projects that were previously registered (via CLI or a prior MCP session with `register_if_new=true`). If the project is not found in `watch_folders`, MCP logs a warning and continues without registration. CLI is the primary path for registering new projects and libraries.
 
 ### Watch Table Schema
 
@@ -1510,29 +1545,425 @@ See [Watch Folders Table (Unified)](#watch-folders-table-unified) in the Collect
 
 **Always recursive:** No depth limit configuration needed.
 
-### Patterns Configuration
+### Ingestion Filtering
 
-Patterns are defined in configuration file, not per-watch:
+Ingestion filtering is defined system-wide in the configuration file (not per-watch). The system uses a multi-layered approach with the **file type allowlist** as the primary gate.
 
-```yaml
-# ~/.workspace-qdrant/config.yaml
-watching:
-  patterns:
-    - "*.py"
-    - "*.rs"
-    - "*.md"
-    - "*.txt"
-    - "*.js"
-    - "*.ts"
-  ignore_patterns:
-    - "*.pyc"
-    - "__pycache__/*"
-    - ".git/*"
-    - "node_modules/*"
-    - "target/*"
-    - ".venv/*"
-    - "*.lock"
+See [File Type Allowlist](#file-type-allowlist) below for the complete specification including:
+- Ingestion gate layering (allowlist → exclusions → size limits)
+- Allowed extensions by category (400+ extensions across 21 categories)
+- Allowed extension-less filenames (30+ exact names)
+- Size-restricted extensions (with configurable stricter limits)
+- Mandatory excluded directories (50+ build/cache directories)
+
+### File Type Allowlist
+
+The allowlist is the **primary ingestion gate** — files not on the allowlist are silently skipped (never queued, never tracked). This prevents the system from ingesting binary files, media, build artifacts, and other non-textual content.
+
+#### Design
+
+- **Single allowlist** for BOTH projects AND libraries
+- Defined in YAML config under `watching.allowed_extensions` and `watching.allowed_filenames`
+- Compile-time embedded defaults in all three components (daemon, CLI, MCP server)
+- User config can override (extend or restrict) the defaults
+
+#### Ingestion Gate Layering
+
+Every file event passes through four gates in order:
+
 ```
+1. ALLOWLIST:        Extension or exact filename must be on the list     → NO  = skip
+2. EXCLUSION:        Must not match directory or pattern exclusions      → YES = skip
+3. SIZE LIMIT:       Must be under max_file_size_mb                     → OVER = skip
+   3a. SIZE-RESTRICTED: If extension is size-restricted, apply stricter limit → OVER = skip
+4. Queue for processing
+```
+
+The allowlist supersedes the old `media_files` exclusion for `.pdf` — PDF is explicitly on the allowlist. The exclusion rules remain as defense-in-depth for directories and patterns.
+
+#### Allowed Extensions by Category
+
+**1. Systems Languages**
+
+| Extension | Language |
+|-----------|----------|
+| `.c`, `.h` | C |
+| `.cpp`, `.cxx`, `.cc`, `.c++`, `.hpp`, `.hxx`, `.hh`, `.h++`, `.ipp`, `.tpp` | C++ |
+| `.rs` | Rust |
+| `.go` | Go |
+| `.zig` | Zig |
+| `.nim`, `.nims`, `.nimble` | Nim |
+| `.d`, `.di` | D |
+| `.v` | V |
+| `.odin` | Odin |
+| `.s`, `.S`, `.asm` | Assembly |
+
+**2. JVM Languages**
+
+| Extension | Language |
+|-----------|----------|
+| `.java` | Java |
+| `.kt`, `.kts` | Kotlin |
+| `.scala`, `.sc`, `.sbt` | Scala |
+| `.clj`, `.cljs`, `.cljc`, `.edn` | Clojure |
+| `.groovy`, `.gvy`, `.gy`, `.gsh` | Groovy |
+
+**3. .NET Languages**
+
+| Extension | Language |
+|-----------|----------|
+| `.cs`, `.csx` | C# |
+| `.fs`, `.fsi`, `.fsx`, `.fsscript` | F# |
+| `.vb` | VB.NET |
+| `.csproj`, `.fsproj`, `.vbproj`, `.sln`, `.props`, `.targets` | Project files |
+| `.xaml` | XAML |
+| `.razor`, `.cshtml` | Razor |
+| `.nuspec` | NuGet spec |
+
+**4. Scripting Languages**
+
+| Extension | Language |
+|-----------|----------|
+| `.py`, `.pyi`, `.pyw`, `.pyx`, `.pxd` | Python |
+| `.rb`, `.rbw`, `.rake`, `.gemspec` | Ruby |
+| `.pl`, `.pm`, `.pod`, `.t`, `.psgi` | Perl |
+| `.lua` | Lua |
+| `.php`, `.phtml`, `.php3`, `.php4`, `.php5`, `.php7`, `.phps` | PHP |
+| `.tcl`, `.tk` | Tcl/Tk |
+| `.r`, `.R`, `.Rmd`, `.Rnw` | R |
+| `.dart` | Dart |
+| `.raku`, `.rakumod`, `.rakutest`, `.p6`, `.pm6` | Raku |
+
+**5. Functional Languages**
+
+| Extension | Language |
+|-----------|----------|
+| `.hs`, `.lhs` | Haskell |
+| `.ml`, `.mli`, `.mll`, `.mly` | OCaml |
+| `.erl`, `.hrl` | Erlang |
+| `.ex`, `.exs` | Elixir |
+| `.lsp`, `.lisp`, `.cl`, `.fasl` | Common Lisp |
+| `.scm`, `.ss` | Scheme |
+| `.rkt` | Racket |
+| `.elm` | Elm |
+| `.purs` | PureScript |
+| `.nix` | Nix |
+| `.lean`, `.olean` | Lean |
+| `.agda` | Agda |
+| `.idr`, `.ipkg` | Idris |
+| `.sml`, `.sig`, `.fun` | Standard ML |
+
+**6. Web Technologies**
+
+| Extension | Language |
+|-----------|----------|
+| `.js`, `.mjs`, `.cjs`, `.jsx` | JavaScript |
+| `.ts`, `.mts`, `.cts`, `.tsx` | TypeScript |
+| `.html`, `.htm`, `.xhtml` | HTML |
+| `.css` | CSS |
+| `.scss`, `.sass` | SCSS/Sass |
+| `.less` | Less |
+| `.styl`, `.stylus` | Stylus |
+| `.vue` | Vue |
+| `.svelte` | Svelte |
+| `.astro` | Astro |
+| `.mdx` | MDX |
+| `.coffee`, `.litcoffee` | CoffeeScript |
+| `.wasm`, `.wat` | WebAssembly |
+
+**7. Shell and Scripting**
+
+| Extension | Language |
+|-----------|----------|
+| `.sh`, `.bash`, `.zsh`, `.fish` | Shell |
+| `.ps1`, `.psm1`, `.psd1` | PowerShell |
+| `.bat`, `.cmd` | Batch |
+| `.mk` | Make |
+| `.awk` | AWK |
+| `.sed` | sed |
+
+**8. Legacy Languages**
+
+| Extension | Language |
+|-----------|----------|
+| `.cob`, `.cbl`, `.cpy` | COBOL |
+| `.f`, `.f90`, `.f95`, `.f03`, `.f08`, `.for`, `.fpp` | Fortran |
+| `.pas`, `.pp`, `.dpr`, `.dpk`, `.dfm`, `.lfm` | Pascal/Delphi |
+| `.adb`, `.ads` | Ada |
+| `.bas`, `.vbs`, `.vba`, `.cls`, `.frm` | BASIC/VBA |
+| `.rpg`, `.rpgle`, `.sqlrpgle` | RPG |
+| `.abap` | ABAP |
+
+**9. Apple Ecosystem**
+
+| Extension | Language |
+|-----------|----------|
+| `.swift` | Swift |
+| `.m`, `.mm` | Objective-C |
+| `.applescript`, `.scpt` | AppleScript |
+| `.plist` | Property list |
+| `.pbxproj` | Xcode project |
+| `.storyboard`, `.xib` | Interface Builder |
+| `.entitlements` | Entitlements |
+| `.xcconfig` | Xcode config |
+| `.xcscheme` | Xcode scheme |
+| `.metal` | Metal shader |
+| `.strings`, `.stringsdict` | Localization |
+| `.xcdatamodeld` | Core Data model |
+
+**10. Data Science and Scientific Computing**
+
+| Extension | Language |
+|-----------|----------|
+| `.jl` | Julia |
+| `.m` | MATLAB |
+| `.wl`, `.wls`, `.nb` | Mathematica/Wolfram |
+| `.mpl`, `.mw` | Maple |
+| `.oct` | Octave |
+| `.ipynb` | Jupyter |
+| `.qmd` | Quarto |
+| `.sas` | SAS |
+| `.do`, `.ado` | Stata |
+| `.stan` | Stan |
+| `.sage`, `.spyx` | SageMath |
+
+**11. DevOps and Configuration**
+
+| Extension | Language |
+|-----------|----------|
+| `.yaml`, `.yml` | YAML |
+| `.toml` | TOML |
+| `.json`, `.jsonc`, `.json5` | JSON |
+| `.xml` | XML |
+| `.ini`, `.cfg` | INI |
+| `.tf`, `.tfvars` | Terraform |
+| `.hcl` | HCL |
+| `.env.example`, `.env.template` | Env templates |
+| `.properties` | Java properties |
+| `.conf` | Config |
+| `.desktop` | Desktop entry |
+| `.service`, `.timer`, `.socket` | systemd |
+
+**12. Build Systems**
+
+| Extension | Language |
+|-----------|----------|
+| `.cmake` | CMake |
+| `.bzl`, `.bazel` | Bazel |
+| `.gradle` | Gradle |
+| `.ninja` | Ninja |
+| `.meson` | Meson |
+| `.gn`, `.gni` | GN |
+| `.spec` | RPM spec |
+
+**13. Documents and Text**
+
+| Extension | Language |
+|-----------|----------|
+| `.md`, `.markdown` | Markdown |
+| `.rst` | reStructuredText |
+| `.adoc`, `.asciidoc` | AsciiDoc |
+| `.org` | Org-mode |
+| `.tex`, `.latex`, `.sty`, `.cls`, `.bib`, `.bst` | LaTeX |
+| `.pdf` | PDF |
+| `.epub` | EPUB |
+| `.docx` | Word |
+| `.odt` | OpenDocument |
+| `.rtf` | Rich Text |
+| `.csv`, `.tsv`, `.tab` | Delimited data |
+| `.svg` | SVG |
+| `.txt`, `.text` | Plain text |
+| `.man`, `.1`, `.2`, `.3`, `.4`, `.5`, `.6`, `.7`, `.8`, `.9` | Man pages |
+| `.diff`, `.patch` | Patches |
+
+**14. Templates**
+
+| Extension | Language |
+|-----------|----------|
+| `.j2`, `.jinja`, `.jinja2` | Jinja2 |
+| `.hbs`, `.handlebars` | Handlebars |
+| `.mustache` | Mustache |
+| `.ejs` | EJS |
+| `.pug`, `.jade` | Pug |
+| `.slim` | Slim |
+| `.haml` | Haml |
+| `.liquid` | Liquid |
+| `.twig` | Twig |
+| `.blade.php` | Blade |
+| `.erb` | ERB |
+| `.njk`, `.nunjucks` | Nunjucks |
+
+**15. Protocol and Schema Definitions**
+
+| Extension | Language |
+|-----------|----------|
+| `.proto` | Protocol Buffers |
+| `.graphql`, `.gql` | GraphQL |
+| `.thrift` | Thrift |
+| `.fbs` | FlatBuffers |
+| `.capnp` | Cap'n Proto |
+| `.xsd`, `.xsl`, `.xslt` | XML Schema/XSLT |
+| `.cue` | CUE |
+| `.avsc`, `.avdl` | Avro |
+
+**16. Database**
+
+| Extension | Language |
+|-----------|----------|
+| `.sql` | SQL |
+| `.plsql`, `.pls`, `.plb` | PL/SQL |
+| `.tsql` | T-SQL |
+| `.pgsql` | PostgreSQL |
+| `.mysql` | MySQL |
+| `.prisma` | Prisma |
+| `.edgeql`, `.esdl` | EdgeDB |
+
+**17. Graph Languages**
+
+| Extension | Language |
+|-----------|----------|
+| `.cypher`, `.cql` | Cypher (Neo4j) |
+| `.rq`, `.sparql` | SPARQL |
+| `.dot`, `.gv` | Graphviz |
+
+**18. Shaders**
+
+| Extension | Language |
+|-----------|----------|
+| `.glsl`, `.vert`, `.frag`, `.geom`, `.tesc`, `.tese`, `.comp` | GLSL |
+| `.hlsl`, `.fx`, `.fxh` | HLSL |
+| `.metal` | Metal |
+| `.wgsl` | WGSL |
+| `.cg`, `.cgfx` | Cg |
+| `.shader`, `.compute` | Unity |
+
+**19. Hardware and Embedded**
+
+| Extension | Language |
+|-----------|----------|
+| `.v`, `.sv`, `.svh`, `.vh` | Verilog/SystemVerilog |
+| `.vhd`, `.vhdl` | VHDL |
+| `.ino` | Arduino |
+| `.dts`, `.dtsi` | Device Tree |
+| `.ld`, `.lds` | Linker scripts |
+
+**20. Blockchain**
+
+| Extension | Language |
+|-----------|----------|
+| `.sol` | Solidity |
+| `.vy` | Vyper |
+| `.cairo` | Cairo |
+| `.move` | Move |
+| `.clar` | Clarity |
+
+**21. Diagram and Visual**
+
+| Extension | Language |
+|-----------|----------|
+| `.dot`, `.gv` | Graphviz |
+| `.mmd` | Mermaid |
+| `.puml`, `.plantuml` | PlantUML |
+| `.d2` | D2 |
+
+#### Allowed Extension-less Filenames
+
+These files are recognized by exact name (case-sensitive):
+
+| Filename | Category |
+|----------|----------|
+| `Makefile`, `GNUmakefile` | Build |
+| `Dockerfile`, `Containerfile` | Container |
+| `Jenkinsfile` | CI/CD |
+| `Vagrantfile` | Virtualization |
+| `Rakefile` | Ruby build |
+| `Gemfile` | Ruby deps |
+| `Podfile` | CocoaPods |
+| `Fastfile`, `Appfile`, `Matchfile`, `Snapfile` | Fastlane |
+| `Brewfile` | Homebrew |
+| `Procfile` | Process |
+| `Justfile`, `justfile` | Just |
+| `BUILD`, `WORKSPACE` | Bazel |
+| `CODEOWNERS` | GitHub |
+| `LICENSE`, `LICENCE`, `COPYING` | Legal |
+| `README`, `CHANGELOG`, `AUTHORS`, `CONTRIBUTORS` | Project docs |
+| `CMakeLists.txt` | CMake |
+| `.gitignore`, `.gitattributes`, `.gitmodules` | Git config |
+| `.dockerignore` | Docker |
+| `.editorconfig` | Editor config |
+| `.clang-format`, `.clang-tidy` | C/C++ tools |
+| `.eslintrc`, `.prettierrc`, `.stylelintrc` | JS/TS tools |
+| `.rubocop.yml` | Ruby tools |
+| `.flake8`, `.pylintrc`, `.mypy.ini` | Python tools |
+| `.rustfmt.toml`, `.clippy.toml` | Rust tools |
+| `.swiftlint.yml` | Swift tools |
+
+#### Size-Restricted Extensions
+
+Some extensions can contain either small config/schema files or massive datasets. These extensions are on the allowlist but subject to a **stricter size limit** (configurable, default 1 MB instead of the general `max_file_size_mb`):
+
+| Extension | Risk | Rationale |
+|-----------|------|-----------|
+| `.csv`, `.tsv`, `.tab` | Dataset dumps | Can be multi-GB data exports |
+| `.json`, `.jsonc`, `.json5` | Data dumps | Can be large API responses, datasets |
+| `.xml`, `.xsd`, `.xsl` | Data dumps | Can be large data exports, SOAP payloads |
+| `.jsonl`, `.ndjson` | Streaming data | Can be unbounded log/event streams |
+| `.log` | Log files | Can grow unbounded |
+| `.sql` | Database dumps | Can contain full database exports |
+
+Config keys: `watching.size_restricted_extensions` with `watching.size_restricted_max_mb` (default: 1 MB).
+Files with these extensions exceeding the restricted size limit are skipped with an INFO log.
+
+#### Mandatory Excluded Directories
+
+These directories are always excluded regardless of configuration. They are checked by path component (any directory segment matching is excluded):
+
+| Directory | Reason |
+|-----------|--------|
+| `node_modules` | NPM packages |
+| `target` | Rust/Maven build output |
+| `build` | General build output |
+| `dist` | Distribution output |
+| `out` | Compiler output |
+| `.git` | Git internals |
+| `__pycache__` | Python bytecode |
+| `.venv`, `venv`, `.env` | Python virtual environments |
+| `.tox` | Python tox |
+| `.mypy_cache` | Mypy cache |
+| `.pytest_cache` | Pytest cache |
+| `.ruff_cache` | Ruff cache |
+| `.gradle` | Gradle cache |
+| `.next` | Next.js build |
+| `.nuxt` | Nuxt.js build |
+| `.svelte-kit` | SvelteKit build |
+| `.astro` | Astro build |
+| `Pods` | CocoaPods |
+| `DerivedData` | Xcode build |
+| `.build` | Swift PM build |
+| `.swiftpm` | Swift PM cache |
+| `.fastembed_cache` | FastEmbed model cache |
+| `.terraform` | Terraform state |
+| `.terragrunt-cache` | Terragrunt cache |
+| `coverage` | Test coverage |
+| `.nyc_output` | NYC coverage |
+| `.cargo` | Cargo cache |
+| `.rustup` | Rustup toolchains |
+| `vendor` | Vendored deps |
+| `.bundle` | Ruby bundle |
+| `.cache` | General cache |
+| `.tmp`, `tmp` | Temporary files |
+| `.DS_Store` | macOS metadata |
+| `.idea`, `.vscode` | IDE settings |
+| `.settings`, `.project`, `.classpath` | Eclipse |
+| `bin`, `obj` | .NET build output |
+| `.zig-cache` | Zig cache |
+| `zig-out` | Zig output |
+| `elm-stuff` | Elm packages |
+| `.stack-work` | Haskell Stack |
+| `_build` | Elixir/Phoenix build |
+| `deps` | Elixir deps |
+| `.dart_tool` | Dart tool cache |
+| `.pub-cache` | Pub cache |
 
 ### Git Submodules
 
@@ -1980,13 +2411,16 @@ Session lifecycle is **automatic**, managed by the MCP server using the MCP SDK'
 
 When the MCP server connects to the transport (stdio or HTTP):
 
-1. **Project detection and activation:**
-   - Server detects project from working directory
-   - Server sends `RegisterProject` to daemon with current `project_id`
-   - Daemon sets `is_active = true` and updates `last_activity_at`
+1. **Project detection and conditional activation:**
+   - Server detects project from working directory and computes `project_id`
+   - Server queries daemon via `GetProjectStatus` to check if project exists in `watch_folders`
+   - **If registered:** Server sends `RegisterProject` (with `register_if_new=false`, the default)
+     - Daemon sets `is_active = true` and updates `last_activity_at`
+   - **If not registered:** Server logs a warning ("Project not registered, use `wqm project add` to register") and continues without activation — search and memory tools still work, but file watching is not started
 
 2. **Start heartbeat:**
    - Periodic heartbeat with daemon to prevent timeout-based deactivation
+   - Only started if project was successfully activated in step 1
 
 #### On Session End (server.onclose)
 
@@ -2138,16 +2572,22 @@ Embedding generation for TypeScript MCP server. Centralizes embedding model in d
 
 Multi-tenant project lifecycle and session management.
 
-| Method                | Used By | Purpose                     | Status                       |
-| --------------------- | ------- | --------------------------- | ---------------------------- |
-| `RegisterProject`     | MCP     | Register project as active  | **Production (direct gRPC)** |
-| `DeprioritizeProject` | MCP     | Decrement session count     | **Production (direct gRPC)** |
-| `GetProjectStatus`    | MCP     | Get project status          | Production                   |
-| `ListProjects`        | CLI     | List all registered projects| Production                   |
-| `Heartbeat`           | MCP     | Keep session alive (60s)    | Production                   |
+| Method                | Used By  | Purpose                          | Status                       |
+| --------------------- | -------- | -------------------------------- | ---------------------------- |
+| `RegisterProject`     | MCP, CLI | Re-activate or register project  | **Production (direct gRPC)** |
+| `DeprioritizeProject` | MCP      | Deactivate project session       | **Production (direct gRPC)** |
+| `GetProjectStatus`    | MCP      | Get project status               | Production                   |
+| `ListProjects`        | CLI      | List all registered projects     | Production                   |
+| `Heartbeat`           | MCP      | Keep session alive (60s)         | Production                   |
+
+**Registration Policy:**
+- `RegisterProject` accepts a `register_if_new` boolean field (default: `false`)
+  - `register_if_new=false` (MCP default): Only re-activates existing `watch_folders` entries. Returns error if project not found.
+  - `register_if_new=true` (CLI-initiated): Creates a new `watch_folders` entry if project doesn't exist, then activates it.
+- MCP servers call `RegisterProject` on startup with `register_if_new=false` — they only re-activate known projects
+- CLI `wqm project add` calls `RegisterProject` with `register_if_new=true` to create new entries
 
 **Session Management:**
-- MCP servers call `RegisterProject` on startup to prioritize their project's ingestion
 - `Heartbeat` must be called periodically (within 60s timeout) to maintain session
 - `DeprioritizeProject` is called when MCP server stops
 
@@ -2256,14 +2696,25 @@ updates:
 **Configuration file search order (first found wins):**
 
 1. `WQM_CONFIG_PATH` environment variable (explicit override)
-2. `.wq_config.yaml` or `.workspace-qdrant.yaml` (project-local, daemon/MCP only)
+2. `.workspace-qdrant.yaml` or `.workspace-qdrant.yml` (project-local, daemon/MCP only)
 3. `~/.workspace-qdrant/config.yaml` (or `.yml`)
-4. `~/.config/workspace-qdrant/config.yaml`
-5. `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS)
+4. `~/.config/workspace-qdrant/config.yaml` (or `.yml`)
+5. `~/Library/Application Support/workspace-qdrant/config.yaml` (or `.yml`, macOS only)
+
+**Dropped:** `.wq_config.yaml` (legacy name removed — use `.workspace-qdrant.yaml` instead).
+
+**Note on project-local config:** Project-local config is for MCP server settings only (Qdrant URL override, etc.). Allowlist and exclusion patterns are system-wide daemon settings and are NOT overridable per-project.
 
 **Note:** The CLI does not search project-local configs since it operates system-wide.
 
 **Built-in defaults:** The configuration template (`assets/default_configuration.yaml`) defines all default values. User configuration only needs to specify overrides.
+
+**Embedded defaults:** All three components embed `assets/default_configuration.yaml` at build time:
+- **Rust daemon:** `include_str!("../../assets/default_configuration.yaml")` (proven pattern in `comprehensive.rs`)
+- **Rust CLI:** same `include_str!()` pattern
+- **TypeScript MCP server:** build step generates `default-config.ts` from YAML, or inline import
+
+This ensures defaults are always in sync with the binary version without requiring a deployed config file.
 
 #### Directory Organization
 
@@ -2440,21 +2891,67 @@ updates:
   notify_only: true                    # Announce but don't auto-install
   check_interval_hours: 24
 
-# File watching patterns (inline, not separate files)
+# File watching and ingestion filtering
 watching:
-  patterns:
-    - "*.py"
-    - "*.rs"
-    - "*.md"
-    - "*.js"
-    - "*.ts"
-  ignore_patterns:
+  # Allowlist: Only files with these extensions are eligible for ingestion.
+  # See "File Type Allowlist" section for the complete categorized list.
+  # User config can extend or restrict this list.
+  allowed_extensions:
+    - ".rs"       # Rust
+    - ".py"       # Python
+    - ".js"       # JavaScript
+    - ".ts"       # TypeScript
+    - ".go"       # Go
+    - ".java"     # Java
+    - ".md"       # Markdown
+    # ... 400+ extensions (see default_configuration.yaml for complete list)
+
+  # Extension-less files recognized by exact name
+  allowed_filenames:
+    - "Makefile"
+    - "Dockerfile"
+    - "Jenkinsfile"
+    - "Gemfile"
+    - "Rakefile"
+    - "CMakeLists.txt"
+    - ".gitignore"
+    - ".editorconfig"
+    # ... 30+ filenames (see default_configuration.yaml for complete list)
+
+  # Directories always excluded (checked by path component)
+  exclude_directories:
+    - "node_modules"
+    - "target"
+    - "build"
+    - "dist"
+    - ".git"
+    - "__pycache__"
+    - ".venv"
+    - "DerivedData"
+    - ".fastembed_cache"
+    # ... 40+ directories (see default_configuration.yaml for complete list)
+
+  # Additional file pattern exclusions
+  exclude_patterns:
     - "*.pyc"
-    - "__pycache__/*"
-    - ".git/*"
-    - "node_modules/*"
-    - "target/*"
-    - ".venv/*"
+    - "*.class"
+    - "*.o"
+    - "*.obj"
+    - "*.lock"
+
+  # Size-restricted extensions: allowed but with stricter size limit
+  size_restricted_extensions:
+    - ".csv"
+    - ".tsv"
+    - ".json"
+    - ".jsonc"
+    - ".json5"
+    - ".xml"
+    - ".jsonl"
+    - ".ndjson"
+    - ".log"
+    - ".sql"
+  size_restricted_max_mb: 1            # Max size for restricted extensions (default 1MB)
 
 # Collections configuration
 collections:
@@ -2465,7 +2962,28 @@ environment:
   user_path: "/usr/local/bin:/opt/homebrew/bin:..." # Set by CLI on first run
 ```
 
-**Note:** Pattern configuration is part of the unified config file, not separate YAML files. The `patterns/` directory files serve as reference documentation for the comprehensive default patterns.
+**Note:** The `watching` section replaces the old `patterns`/`ignore_patterns` approach. The allowlist (`allowed_extensions` + `allowed_filenames`) is the primary ingestion gate. See the [File Type Allowlist](#file-type-allowlist) section for the complete categorized list and ingestion gate layering. The full default list is embedded at build time from `assets/default_configuration.yaml`.
+
+### Qdrant Dashboard Visualization
+
+When using the Qdrant dashboard (web UI) to visualize collections, note that this system uses **named vectors**. The standard vector visualization will not work without specifying the vector name.
+
+**Dashboard configuration:**
+- In the dashboard's "Visualize" tab, use the `using` parameter to specify which named vector to use
+- Select `dense` for semantic (embedding) visualization — this produces meaningful spatial clusters
+- Do NOT select `sparse` — sparse (BM25) vectors are not visualizable in 2D/3D projections
+
+**Available named vectors per collection:**
+
+| Collection | Named Vectors | Visualization |
+|------------|--------------|---------------|
+| `projects` | `dense` (384-dim), `sparse` (BM25) | Use `dense` |
+| `libraries` | `dense` (384-dim), `sparse` (BM25) | Use `dense` |
+| `memory` | `dense` (384-dim) | Use `dense` |
+
+**Distance Matrix API:** For graph visualization of semantically similar documents, use Qdrant's Distance Matrix API to compute pairwise distances between points using the `dense` vector. This can reveal clusters of related code files or documentation.
+
+**Future consideration:** GraphRAG patterns could leverage the distance matrix to build code intelligence graphs (e.g., "files that are semantically related" or "functions that co-occur in similar contexts").
 
 ### SQLite Database
 
@@ -3501,10 +4019,11 @@ wqm admin diagnose --component grpc
 
 ---
 
-**Version:** 1.6.7
-**Last Updated:** 2026-02-03
+**Version:** 1.7.0
+**Last Updated:** 2026-02-07
 **Changes:**
 
+- v1.7.0: Added comprehensive file type allowlist as primary ingestion gate (400+ extensions across 21 categories, 30+ extension-less filenames, size-restricted extensions, mandatory excluded directories); updated MCP registration policy — MCP server no longer auto-registers new projects, only re-activates existing entries (`register_if_new` field added to `RegisterProject` gRPC); expanded daemon startup automation from simple recovery to 6-step sequence (schema check, config reconciliation with fingerprinting, Qdrant collection verification, path validation, filesystem recovery, crash recovery); updated configuration reference — dropped legacy `.wq_config.yaml` name, documented embedded defaults via `include_str!()`, added complete `watching` section with allowlist/exclusion/size-restriction keys; added Qdrant dashboard visualization guide for named vectors; documented Distance Matrix API for graph visualization
 - v1.6.7: Added comprehensive Deployment and Installation section documenting deployment architecture, platform support matrix (6 platforms), installation methods (binary, source, npm), Docker deployment modes, service management (macOS/Linux), CI/CD process, upgrade/migration procedures, and troubleshooting; renamed memory tool ruleId to label with LLM generation guidelines (max 15 chars, word-word-word format); added memory_limits config section; updated Docker compose files to reflect TypeScript/Rust architecture
 - v1.6.6: Corrected session lifecycle documentation - clarified that Claude Code's SessionStart/SessionEnd are external hooks (shell commands configured in settings.json), not SDK callbacks; removed incorrect @anthropic-ai/claude-agent-sdk dependency (not needed); documented actual MCP SDK callbacks (server.onclose, onsessioninitialized for HTTP transport); clarified memory injection is via memory tool, not automatic session hooks
 - v1.6.5: Updated all references from legacy `registered_projects` table to consolidated `watch_folders` table (priority calculation, activity tracking, batch processing); Python codebase removed in preparation for TypeScript MCP server
