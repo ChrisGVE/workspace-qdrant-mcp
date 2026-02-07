@@ -500,8 +500,8 @@ impl UnifiedQueueProcessor {
                                 ).await;
 
                                 info!(
-                                    "Successfully processed unified item {} (type={:?}, op={:?})",
-                                    item.queue_id, item.item_type, item.op
+                                    "Successfully processed unified item {} (type={:?}, op={:?}) in {}ms",
+                                    item.queue_id, item.item_type, item.op, processing_time
                                 );
                             }
                             Err(e) => {
@@ -830,6 +830,7 @@ impl UnifiedQueueProcessor {
         // Process each chunk and build points + chunk metadata
         let mut points = Vec::new();
         let mut chunk_records: Vec<(String, i32, String, Option<TrackedChunkType>, Option<String>, Option<i32>, Option<i32>)> = Vec::new();
+        let embedding_start = std::time::Instant::now();
 
         for (chunk_idx, chunk) in document_content.chunks.iter().enumerate() {
             // Semaphore-gated embedding generation (Task 504)
@@ -924,13 +925,17 @@ impl UnifiedQueueProcessor {
             ));
         }
 
+        info!("Embedding generation completed: {} chunks in {}ms", chunk_records.len(), embedding_start.elapsed().as_millis());
+
         // Upsert points to Qdrant
         if !points.is_empty() {
             info!("Inserting {} points into {}", points.len(), item.collection);
+            let upsert_start = std::time::Instant::now();
             storage_client
                 .insert_points_batch(&item.collection, points, Some(100))
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+            info!("Qdrant upsert completed: {} points in {}ms", chunk_records.len(), upsert_start.elapsed().as_millis());
         }
 
         // After Qdrant success: record in tracked_files + qdrant_chunks (Task 506)
@@ -1025,6 +1030,8 @@ impl UnifiedQueueProcessor {
         relative_path: &str,
         abs_file_path: &str,
     ) -> UnifiedProcessorResult<()> {
+        let delete_start = std::time::Instant::now();
+
         // Try tracked_files lookup first for precise deletion
         if !watch_folder_id.is_empty() {
             if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
@@ -1048,7 +1055,7 @@ impl UnifiedQueueProcessor {
                     .await
                     .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files delete failed: {}", e)))?;
 
-                info!("Deleted tracked file and {} Qdrant points for: {}", point_ids.len(), relative_path);
+                info!("Deleted tracked file and {} Qdrant points for: {} in {}ms", point_ids.len(), relative_path, delete_start.elapsed().as_millis());
                 return Ok(());
             }
         }
@@ -1060,7 +1067,7 @@ impl UnifiedQueueProcessor {
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
-        info!("Deleted points for file (fallback): {}", abs_file_path);
+        info!("Deleted points for file (fallback) in {}ms: {}", delete_start.elapsed().as_millis(), abs_file_path);
         Ok(())
     }
 
