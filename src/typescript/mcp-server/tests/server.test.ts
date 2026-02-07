@@ -22,6 +22,7 @@ vi.mock('../src/clients/daemon-client.js', () => ({
       project_id: 'mock_project_id',
       priority: 'high',
       is_active: true,
+      newly_registered: true,
     }),
     deprioritizeProject: vi.fn().mockResolvedValue({
       success: true,
@@ -326,6 +327,7 @@ describe('Session lifecycle with connected daemon', () => {
         project_id: 'abc123456789',
         priority: 'high',
         is_active: true,
+        newly_registered: true,
       }),
       deprioritizeProject: vi.fn().mockResolvedValue({
         success: true,
@@ -366,11 +368,12 @@ describe('Session lifecycle with connected daemon', () => {
       expect(state.daemonConnected).toBe(true);
       expect(state.projectId).toBe('abc123456789');
 
-      // Verify registerProject was called with realpath
+      // Verify registerProject was called with realpath and register_if_new=false
       expect(mockInstance.registerProject).toHaveBeenCalledWith({
         path: realProjectPath,
         project_id: 'abc123456789',
         name: 'test-project',
+        register_if_new: false,
       });
 
       await server.stop();

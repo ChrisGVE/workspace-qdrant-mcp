@@ -254,6 +254,7 @@ async fn register_project(path: Option<PathBuf>, name: Option<String>) -> Result
                 project_id: project_id.clone(),
                 name: Some(project_name),
                 git_remote,
+                register_if_new: true, // CLI explicitly registers new projects
             };
 
             match client.project().register_project(request).await {

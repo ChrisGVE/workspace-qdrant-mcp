@@ -25,6 +25,7 @@ const mockDaemonClient = {
     project_id: 'test-project-id',
     priority: 'high',
     is_active: true,
+    newly_registered: true,
   }),
   deprioritizeProject: vi.fn().mockResolvedValue({
     success: true,

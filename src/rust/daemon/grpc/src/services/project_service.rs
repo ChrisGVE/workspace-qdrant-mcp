@@ -1217,12 +1217,13 @@ mod tests {
 
         let service = ProjectServiceImpl::new(pool);
 
-        // Register first
+        // Register first (existing project via create_test_watch_folder)
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "abcd12345678".to_string(),
             name: None,
             git_remote: None,
+            register_if_new: false,
         });
         service.register_project(request).await.unwrap();
 
@@ -1327,12 +1328,13 @@ mod tests {
 
         let service = ProjectServiceImpl::new(pool);
 
-        // Register project
+        // Register project (existing via create_test_watch_folder)
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "abcd12345678".to_string(),
             name: None,
             git_remote: None,
+            register_if_new: false,
         });
         service.register_project(request).await.unwrap();
 
@@ -1364,12 +1366,13 @@ mod tests {
 
         let service = ProjectServiceImpl::new(pool);
 
-        // Register first
+        // Register first (existing via create_test_watch_folder)
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "abcd12345678".to_string(),
             name: None,
             git_remote: None,
+            register_if_new: false,
         });
         service.register_project(request).await.unwrap();
 
@@ -1505,12 +1508,13 @@ mod tests {
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
         };
 
-        // Register and deprioritize
+        // Register and deprioritize (existing via create_test_watch_folder)
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "abcd12345678".to_string(),
             name: None,
             git_remote: None,
+            register_if_new: false,
         });
         service.register_project(request).await.unwrap();
 
@@ -1541,12 +1545,13 @@ mod tests {
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
         };
 
-        // Register project
+        // Register project (existing via create_test_watch_folder)
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "abcd12345678".to_string(),
             name: None,
             git_remote: None,
+            register_if_new: false,
         });
         service.register_project(request).await.unwrap();
 
@@ -1559,12 +1564,13 @@ mod tests {
         // Verify shutdown is scheduled
         assert!(service.get_pending_shutdowns().await.contains_key("abcd12345678"));
 
-        // Re-register - should cancel shutdown
+        // Re-register - should cancel shutdown (existing project)
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "abcd12345678".to_string(),
             name: None,
             git_remote: None,
+            register_if_new: false,
         });
         service.register_project(request).await.unwrap();
 
