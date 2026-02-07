@@ -3,6 +3,7 @@
 //! Updated per Task 21 to use unified_queue instead of legacy ingestion_queue.
 
 use workspace_qdrant_core::{
+    AllowedExtensions,
     FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats,
     QueueManager, WatchType,
     unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload},
@@ -104,7 +105,8 @@ async fn test_file_watcher_queue_creation() {
         library_name: None,
     };
 
-    let watcher = FileWatcherQueue::new(config, queue_manager);
+    let allowed_extensions = Arc::new(AllowedExtensions::default());
+    let watcher = FileWatcherQueue::new(config, queue_manager, allowed_extensions);
     assert!(watcher.is_ok());
 
     let watcher = watcher.unwrap();
@@ -119,7 +121,8 @@ async fn test_file_watcher_queue_creation() {
 #[tokio::test]
 async fn test_watch_manager_creation() {
     let pool = create_test_database().await;
-    let manager = WatchManager::new(pool);
+    let allowed_extensions = Arc::new(AllowedExtensions::default());
+    let manager = WatchManager::new(pool, allowed_extensions);
 
     // Test that manager can be created and stats retrieved
     let stats = manager.get_all_stats().await;
@@ -156,7 +159,8 @@ async fn test_watch_manager_with_configuration() {
     .await
     .expect("Failed to insert watch configuration");
 
-    let manager = WatchManager::new(pool.clone());
+    let allowed_extensions = Arc::new(AllowedExtensions::default());
+    let manager = WatchManager::new(pool.clone(), allowed_extensions);
 
     // Start all watches
     let result = manager.start_all_watches().await;
