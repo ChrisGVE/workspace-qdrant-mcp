@@ -801,6 +801,18 @@ impl FileWatcherQueue {
         // Activity tracking now handled via watch_folders.last_activity_at in priority_manager
         // See PriorityManager::heartbeat() for spec-compliant activity tracking
 
+        // Check exclusion patterns FIRST (Task 518) — catches .git/, node_modules/,
+        // .fastembed_cache/, target/, etc. before any other processing.
+        // Skip for delete events (must be able to clean up any file).
+        if !matches!(event.event_kind, EventKind::Remove(_)) {
+            let file_path_str = event.path.to_string_lossy();
+            if should_exclude_file(&file_path_str) {
+                let mut count = events_filtered.lock().await;
+                *count += 1;
+                return;
+            }
+        }
+
         // Check allowlist before pattern matching (Task 511)
         // Skip allowlist for delete events (must be able to clean up any file)
         if !matches!(event.event_kind, EventKind::Remove(_)) {
@@ -869,6 +881,14 @@ impl FileWatcherQueue {
         };
 
         for event in ready_events {
+            // Check exclusion patterns (Task 518) - skip for delete events
+            if !matches!(event.event_kind, EventKind::Remove(_)) {
+                let file_path_str = event.path.to_string_lossy();
+                if should_exclude_file(&file_path_str) {
+                    continue;
+                }
+            }
+
             // Check allowlist (Task 511) - skip for delete events
             if !matches!(event.event_kind, EventKind::Remove(_)) {
                 let collection_for_check = {
