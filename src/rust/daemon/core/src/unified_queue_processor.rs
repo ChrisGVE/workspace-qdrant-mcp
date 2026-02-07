@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use walkdir::WalkDir;
 
+use crate::allowed_extensions::AllowedExtensions;
 use crate::fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig};
 use crate::lsp::{
     LanguageServerManager, LspEnrichment, EnrichmentStatus,
@@ -174,6 +175,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Semaphore limiting concurrent embedding operations (Task 504)
     embedding_semaphore: Arc<tokio::sync::Semaphore>,
+
+    /// File type allowlist for ingestion filtering (Task 511)
+    allowed_extensions: Arc<AllowedExtensions>,
 }
 
 impl UnifiedQueueProcessor {
@@ -215,6 +219,7 @@ impl UnifiedQueueProcessor {
             storage_client,
             lsp_manager: None,
             embedding_semaphore,
+            allowed_extensions: Arc::new(AllowedExtensions::default()),
         }
     }
 
@@ -253,12 +258,19 @@ impl UnifiedQueueProcessor {
             storage_client,
             lsp_manager: None,
             embedding_semaphore,
+            allowed_extensions: Arc::new(AllowedExtensions::default()),
         }
     }
 
     /// Set the LSP manager for code intelligence enrichment
     pub fn with_lsp_manager(mut self, lsp_manager: Arc<RwLock<LanguageServerManager>>) -> Self {
         self.lsp_manager = Some(lsp_manager);
+        self
+    }
+
+    /// Set a custom file type allowlist (Task 511)
+    pub fn with_allowed_extensions(mut self, allowed_extensions: Arc<AllowedExtensions>) -> Self {
+        self.allowed_extensions = allowed_extensions;
         self
     }
 
@@ -308,6 +320,7 @@ impl UnifiedQueueProcessor {
         let storage_client = self.storage_client.clone();
         let lsp_manager = self.lsp_manager.clone();
         let embedding_semaphore = self.embedding_semaphore.clone();
+        let allowed_extensions = self.allowed_extensions.clone();
 
         let task_handle = tokio::spawn(async move {
             if let Err(e) = Self::processing_loop(
@@ -321,6 +334,7 @@ impl UnifiedQueueProcessor {
                 storage_client,
                 lsp_manager,
                 embedding_semaphore,
+                allowed_extensions,
             )
             .await
             {
@@ -390,6 +404,7 @@ impl UnifiedQueueProcessor {
         storage_client: Arc<StorageClient>,
         lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
         embedding_semaphore: Arc<tokio::sync::Semaphore>,
+        allowed_extensions: Arc<AllowedExtensions>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let inter_item_delay = Duration::from_millis(config.inter_item_delay_ms);
@@ -462,6 +477,7 @@ impl UnifiedQueueProcessor {
                             &storage_client,
                             &lsp_manager,
                             &embedding_semaphore,
+                            &allowed_extensions,
                         )
                         .await
                         {
@@ -543,6 +559,7 @@ impl UnifiedQueueProcessor {
         storage_client: &Arc<StorageClient>,
         lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
         embedding_semaphore: &Arc<tokio::sync::Semaphore>,
+        allowed_extensions: &Arc<AllowedExtensions>,
     ) -> UnifiedProcessorResult<()> {
         debug!(
             "Processing unified item: {} (type={:?}, op={:?}, collection={})",
@@ -554,14 +571,14 @@ impl UnifiedQueueProcessor {
                 Self::process_content_item(item, embedding_generator, storage_client, embedding_semaphore).await
             }
             ItemType::File => {
-                Self::process_file_item(item, queue_manager, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore).await
+                Self::process_file_item(item, queue_manager, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore, allowed_extensions).await
             }
             ItemType::Folder => {
                 // Folder operations typically trigger file enqueues
                 Self::process_folder_item(item).await
             }
             ItemType::Project => {
-                Self::process_project_item(item, queue_manager, storage_client).await
+                Self::process_project_item(item, queue_manager, storage_client, allowed_extensions).await
             }
             ItemType::Library => {
                 Self::process_library_item(item, storage_client).await
@@ -586,7 +603,7 @@ impl UnifiedQueueProcessor {
         embedding_semaphore: &Arc<tokio::sync::Semaphore>,
     ) -> UnifiedProcessorResult<()> {
         info!(
-            "Processing content item: {} → collection: {}",
+            "Processing content item: {} -> collection: {}",
             item.queue_id, item.collection
         );
 
@@ -647,7 +664,7 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         info!(
-            "Successfully processed content item {} → {}",
+            "Successfully processed content item {} -> {}",
             item.queue_id, item.collection
         );
 
@@ -655,6 +672,7 @@ impl UnifiedQueueProcessor {
     }
 
     /// Process file item (Task 37.28 + Task 506) - file-based ingestion with tracked_files
+    #[allow(clippy::too_many_arguments)]
     async fn process_file_item(
         item: &UnifiedQueueItem,
         queue_manager: &QueueManager,
@@ -663,15 +681,27 @@ impl UnifiedQueueProcessor {
         storage_client: &Arc<StorageClient>,
         lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
         embedding_semaphore: &Arc<tokio::sync::Semaphore>,
+        allowed_extensions: &Arc<AllowedExtensions>,
     ) -> UnifiedProcessorResult<()> {
         info!(
-            "Processing file item: {} → collection: {} (op={:?})",
+            "Processing file item: {} -> collection: {} (op={:?})",
             item.queue_id, item.collection, item.op
         );
 
         // Parse the file payload
         let payload: FilePayload = serde_json::from_str(&item.payload_json)
             .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse FilePayload: {}", e)))?;
+
+        // File type allowlist check (Task 511) - skip for delete operations
+        if item.op != QueueOperation::Delete {
+            if !allowed_extensions.is_allowed(&payload.file_path, &item.collection) {
+                debug!(
+                    "File type not in allowlist, skipping: {} (collection={})",
+                    payload.file_path, item.collection
+                );
+                return Ok(());
+            }
+        }
 
         let file_path = Path::new(&payload.file_path);
         let pool = queue_manager.pool();
@@ -686,7 +716,7 @@ impl UnifiedQueueProcessor {
         let (watch_folder_id, base_path) = match &watch_info {
             Some((wid, bp)) => (wid.as_str(), bp.as_str()),
             None => {
-                debug!("No watch_folder found for tenant_id={}, collection={} — skipping tracked_files", item.tenant_id, item.collection);
+                debug!("No watch_folder found for tenant_id={}, collection={} -- skipping tracked_files", item.tenant_id, item.collection);
                 ("", "")
             }
         };
@@ -720,7 +750,7 @@ impl UnifiedQueueProcessor {
 
         // For ingest/update: check if file exists on disk
         if !file_path.exists() {
-            // File gone — if tracked, clean up; otherwise just report not found
+            // File gone -- if tracked, clean up; otherwise just report not found
             if !watch_folder_id.is_empty() {
                 if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
                     pool, watch_folder_id, &relative_path, Some(item.branch.as_str()),
@@ -744,7 +774,7 @@ impl UnifiedQueueProcessor {
                     info!("File unchanged (hash match), skipping update: {}", relative_path);
                     return Ok(());
                 }
-                // File changed — delete old Qdrant points via tracked qdrant_chunks
+                // File changed -- delete old Qdrant points via tracked qdrant_chunks
                 let old_point_ids = tracked_files_schema::get_chunk_point_ids(pool, existing.file_id)
                     .await
                     .unwrap_or_default();
@@ -758,7 +788,7 @@ impl UnifiedQueueProcessor {
                 // Clean up old chunk records (new ones will be inserted below)
                 let _ = tracked_files_schema::delete_qdrant_chunks(pool, existing.file_id).await;
             } else {
-                // Not tracked yet — delete by filter as fallback for update
+                // Not tracked yet -- delete by filter as fallback for update
                 storage_client
                     .delete_points_by_filter(&item.collection, &payload.file_path)
                     .await
@@ -1131,6 +1161,7 @@ impl UnifiedQueueProcessor {
         item: &UnifiedQueueItem,
         queue_manager: &QueueManager,
         storage_client: &Arc<StorageClient>,
+        allowed_extensions: &Arc<AllowedExtensions>,
     ) -> UnifiedProcessorResult<()> {
         info!(
             "Processing project item: {} (op={:?})",
@@ -1159,7 +1190,7 @@ impl UnifiedQueueProcessor {
             }
             QueueOperation::Scan => {
                 // Scan project directory and queue file ingestion items
-                Self::scan_project_directory(item, &payload, queue_manager, storage_client).await?;
+                Self::scan_project_directory(item, &payload, queue_manager, storage_client, allowed_extensions).await?;
 
                 // Update last_scan timestamp for this project's watch_folder
                 let update_result = sqlx::query(
@@ -1214,13 +1245,15 @@ impl UnifiedQueueProcessor {
 
     /// Scan a project directory and queue file ingestion items
     ///
-    /// Walks the project directory recursively, filters files using exclusion rules,
-    /// and queues (File, Ingest) items for each eligible file.
+    /// Walks the project directory recursively, filters files using exclusion rules
+    /// and the file type allowlist (Task 511), and queues (File, Ingest) items for
+    /// each eligible file.
     async fn scan_project_directory(
         item: &UnifiedQueueItem,
         payload: &ProjectPayload,
         queue_manager: &QueueManager,
         storage_client: &Arc<StorageClient>,
+        allowed_extensions: &Arc<AllowedExtensions>,
     ) -> UnifiedProcessorResult<()> {
         let project_root = Path::new(&payload.project_root);
 
@@ -1289,6 +1322,12 @@ impl UnifiedQueueProcessor {
             // Also check absolute path for completeness
             let abs_path = path.to_string_lossy();
             if should_exclude_file(&abs_path) {
+                files_excluded += 1;
+                continue;
+            }
+
+            // Check file type allowlist (Task 511)
+            if !allowed_extensions.is_allowed(&abs_path, &item.collection) {
                 files_excluded += 1;
                 continue;
             }
@@ -1363,6 +1402,7 @@ impl UnifiedQueueProcessor {
             project_root,
             queue_manager,
             storage_client,
+            allowed_extensions,
         ).await?;
 
         let elapsed = start_time.elapsed();
@@ -1377,13 +1417,15 @@ impl UnifiedQueueProcessor {
     /// Clean up excluded files after a scan completes (Task 506)
     ///
     /// Queries tracked_files (fast SQLite) instead of scrolling Qdrant.
-    /// Checks each tracked file against current exclusion rules and queues
-    /// deletion for files that now match exclusion patterns.
+    /// Checks each tracked file against current exclusion rules and the
+    /// file type allowlist (Task 511), queuing deletion for files that
+    /// now match exclusion patterns or are no longer in the allowlist.
     async fn cleanup_excluded_files(
         item: &UnifiedQueueItem,
         project_root: &Path,
         queue_manager: &QueueManager,
         storage_client: &Arc<StorageClient>,
+        allowed_extensions: &Arc<AllowedExtensions>,
     ) -> UnifiedProcessorResult<u64> {
         let pool = queue_manager.pool();
 
@@ -1397,10 +1439,10 @@ impl UnifiedQueueProcessor {
         let (watch_folder_id, base_path) = match &watch_info {
             Some((wid, bp)) => (wid.as_str(), bp.as_str()),
             None => {
-                // No watch_folder — fall back to Qdrant scroll for backward compatibility
+                // No watch_folder -- fall back to Qdrant scroll for backward compatibility
                 debug!("No watch_folder for tenant_id={}, falling back to Qdrant scroll for cleanup", item.tenant_id);
                 return Self::cleanup_excluded_files_qdrant_fallback(
-                    item, project_root, queue_manager, storage_client,
+                    item, project_root, queue_manager, storage_client, allowed_extensions,
                 ).await;
             }
         };
@@ -1429,8 +1471,13 @@ impl UnifiedQueueProcessor {
         let mut files_cleaned = 0u64;
 
         for (_file_id, rel_path, _branch) in &tracked_files {
-            // Check if this file should now be excluded
-            if !should_exclude_file(rel_path) {
+            // Check if this file should now be excluded (pattern or allowlist)
+            let should_clean = should_exclude_file(rel_path) || {
+                let abs_path = Path::new(base_path).join(rel_path);
+                !allowed_extensions.is_allowed(&abs_path.to_string_lossy(), &item.collection)
+            };
+
+            if !should_clean {
                 continue;
             }
 
@@ -1504,6 +1551,7 @@ impl UnifiedQueueProcessor {
         project_root: &Path,
         queue_manager: &QueueManager,
         storage_client: &Arc<StorageClient>,
+        allowed_extensions: &Arc<AllowedExtensions>,
     ) -> UnifiedProcessorResult<u64> {
         if !storage_client
             .collection_exists(&item.collection)
@@ -1536,7 +1584,11 @@ impl UnifiedQueueProcessor {
                 Err(_) => qdrant_file.clone(),
             };
 
-            if !should_exclude_file(&rel_path) {
+            // Check exclusion patterns and allowlist (Task 511)
+            let should_clean = should_exclude_file(&rel_path)
+                || !allowed_extensions.is_allowed(qdrant_file, &item.collection);
+
+            if !should_clean {
                 continue;
             }
 
