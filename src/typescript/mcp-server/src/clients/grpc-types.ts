@@ -184,6 +184,7 @@ export interface RegisterProjectRequest {
   project_id: string;
   name?: string;
   git_remote?: string;
+  register_if_new?: boolean;
 }
 
 export interface RegisterProjectResponse {
@@ -191,6 +192,7 @@ export interface RegisterProjectResponse {
   project_id: string;
   priority: string;
   is_active: boolean;
+  newly_registered: boolean;
 }
 
 export interface DeprioritizeProjectRequest {

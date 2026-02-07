@@ -749,7 +749,10 @@ export class WorkspaceQdrantMcpServer {
 
   /**
    * Register/activate the current project with the daemon
-   * For new projects, the daemon will generate the project ID
+   *
+   * Only re-activates EXISTING projects (register_if_new: false).
+   * New projects must be registered explicitly via CLI or other means,
+   * preventing accidental registration of home directories or config folders.
    */
   private async registerProject(): Promise<void> {
     if (!this.sessionState.projectPath) {
@@ -761,9 +764,20 @@ export class WorkspaceQdrantMcpServer {
         path: this.sessionState.projectPath,
         project_id: this.sessionState.projectId ?? '', // Empty for new projects
         name: this.sessionState.projectPath.split('/').pop() ?? 'unknown',
+        register_if_new: false, // Never auto-register new projects on session start
       });
 
-      // Store the project ID from daemon response (important for new projects)
+      // If the project was not registered (not found and register_if_new=false),
+      // log it and continue without error - the MCP server still works without daemon
+      if (!response.is_active && !response.created) {
+        logInfo('Project not registered with daemon, skipping activation', {
+          project_path: this.sessionState.projectPath,
+          project_id: response.project_id,
+        });
+        return;
+      }
+
+      // Store the project ID from daemon response (important for existing projects)
       if (response.project_id && !this.sessionState.projectId) {
         this.sessionState.projectId = response.project_id;
         logDebug('Project ID assigned by daemon', { project_id: response.project_id });
@@ -775,6 +789,7 @@ export class WorkspaceQdrantMcpServer {
         created: response.created,
         priority: response.priority,
         is_active: response.is_active,
+        newly_registered: response.newly_registered,
       });
     } catch (error) {
       logError('Failed to register project', error, {
