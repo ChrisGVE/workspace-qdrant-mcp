@@ -574,14 +574,13 @@ impl UnifiedQueueProcessor {
                 Self::process_file_item(item, queue_manager, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore, allowed_extensions).await
             }
             ItemType::Folder => {
-                // Folder operations typically trigger file enqueues
-                Self::process_folder_item(item).await
+                Self::process_folder_item(item, queue_manager, storage_client, allowed_extensions).await
             }
             ItemType::Project => {
                 Self::process_project_item(item, queue_manager, storage_client, allowed_extensions).await
             }
             ItemType::Library => {
-                Self::process_library_item(item, storage_client).await
+                Self::process_library_item(item, queue_manager, storage_client, allowed_extensions).await
             }
             ItemType::DeleteTenant => {
                 Self::process_delete_tenant_item(item, storage_client).await
@@ -1286,20 +1285,35 @@ impl UnifiedQueueProcessor {
     }
 
     /// Process folder item - typically triggers scanning
-    async fn process_folder_item(item: &UnifiedQueueItem) -> UnifiedProcessorResult<()> {
+    async fn process_folder_item(
+        item: &UnifiedQueueItem,
+        queue_manager: &QueueManager,
+        storage_client: &Arc<StorageClient>,
+        allowed_extensions: &Arc<AllowedExtensions>,
+    ) -> UnifiedProcessorResult<()> {
         info!(
-            "Processing folder item: {} (op={:?})",
-            item.queue_id, item.op
+            "Processing folder item: {} (op={:?}, collection={})",
+            item.queue_id, item.op, item.collection
         );
 
-        // Folder operations are typically handled by the file watcher
-        // This is a placeholder for folder-level metadata operations
-        warn!(
-            "Folder item processing is a no-op (handled by watcher): {}",
-            item.queue_id
-        );
+        match item.op {
+            QueueOperation::Scan => {
+                // Parse folder path from payload
+                let payload_value: serde_json::Value = serde_json::from_str(&item.payload_json)
+                    .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse folder payload: {}", e)))?;
 
-        Ok(())
+                let folder_path = payload_value.get("folder_path")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing folder_path in payload".to_string()))?;
+
+                Self::scan_library_directory(item, folder_path, queue_manager, storage_client, allowed_extensions).await
+            }
+            _ => {
+                // Other folder operations are handled by the file watcher
+                debug!("Folder item {} with op={:?} is handled by watcher", item.queue_id, item.op);
+                Ok(())
+            }
+        }
     }
 
     /// Process project item (Task 37.29) - create/manage project collections
@@ -1560,6 +1574,166 @@ impl UnifiedQueueProcessor {
         Ok(())
     }
 
+    /// Scan a library directory and enqueue files for ingestion (Task 523)
+    ///
+    /// Similar to scan_project_directory but for library folders:
+    /// - Uses tenant_id as library name
+    /// - Targets the 'libraries' collection
+    /// - No branch tracking (libraries are not Git repos)
+    async fn scan_library_directory(
+        item: &UnifiedQueueItem,
+        folder_path: &str,
+        queue_manager: &QueueManager,
+        storage_client: &Arc<StorageClient>,
+        allowed_extensions: &Arc<AllowedExtensions>,
+    ) -> UnifiedProcessorResult<()> {
+        let library_root = Path::new(folder_path);
+
+        if !library_root.exists() {
+            return Err(UnifiedProcessorError::FileNotFound(format!(
+                "Library path does not exist: {}", folder_path
+            )));
+        }
+
+        if !library_root.is_dir() {
+            return Err(UnifiedProcessorError::InvalidPayload(format!(
+                "Library path is not a directory: {}", folder_path
+            )));
+        }
+
+        // Ensure the libraries collection exists
+        if !storage_client
+            .collection_exists(&item.collection)
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
+        {
+            info!("Creating libraries collection for scan: {}", item.collection);
+            storage_client
+                .create_collection(&item.collection, None, None)
+                .await
+                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+        }
+
+        info!(
+            "Scanning library directory: {} (tenant_id={})",
+            folder_path, item.tenant_id
+        );
+
+        let mut files_queued = 0u64;
+        let mut files_excluded = 0u64;
+        let mut errors = 0u64;
+        let start_time = std::time::Instant::now();
+
+        for entry in WalkDir::new(library_root)
+            .follow_links(false)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+
+            if !path.is_file() {
+                continue;
+            }
+
+            let rel_path = path
+                .strip_prefix(library_root)
+                .unwrap_or(path)
+                .to_string_lossy();
+
+            if should_exclude_file(&rel_path) {
+                files_excluded += 1;
+                continue;
+            }
+
+            let abs_path = path.to_string_lossy();
+            if should_exclude_file(&abs_path) {
+                files_excluded += 1;
+                continue;
+            }
+
+            if !allowed_extensions.is_allowed(&abs_path, &item.collection) {
+                files_excluded += 1;
+                continue;
+            }
+
+            let metadata = match path.metadata() {
+                Ok(m) => m,
+                Err(e) => {
+                    warn!("Failed to get metadata for {}: {}", abs_path, e);
+                    errors += 1;
+                    continue;
+                }
+            };
+
+            const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+            if metadata.len() > MAX_FILE_SIZE {
+                debug!("Skipping large file: {} ({} bytes)", abs_path, metadata.len());
+                files_excluded += 1;
+                continue;
+            }
+
+            let file_type = classify_file_type(path);
+
+            let file_payload = FilePayload {
+                file_path: abs_path.to_string(),
+                file_type: Some(file_type.as_str().to_string()),
+                file_hash: None,
+                size_bytes: Some(metadata.len()),
+            };
+
+            let payload_json = serde_json::to_string(&file_payload)
+                .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("Failed to serialize FilePayload: {}", e)))?;
+
+            match queue_manager.enqueue_unified(
+                ItemType::File,
+                QueueOperation::Ingest,
+                &item.tenant_id,
+                &item.collection,
+                &payload_json,
+                0,
+                Some(""),  // No branch for libraries
+                None,
+            ).await {
+                Ok((queue_id, is_new)) => {
+                    if is_new {
+                        files_queued += 1;
+                        debug!("Queued library file for ingestion: {} (queue_id={})", abs_path, queue_id);
+                    } else {
+                        debug!("Library file already in queue (deduplicated): {}", abs_path);
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to queue library file {}: {}", abs_path, e);
+                    errors += 1;
+                }
+            }
+
+            if files_queued % 100 == 0 && files_queued > 0 {
+                tokio::task::yield_now().await;
+            }
+        }
+
+        // Update last_scan timestamp for this library's watch_folder
+        let update_result = sqlx::query(
+            "UPDATE watch_folders SET last_scan = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE tenant_id = ?1 AND collection = 'libraries'"
+        )
+            .bind(&item.tenant_id)
+            .execute(queue_manager.pool())
+            .await;
+
+        if let Err(e) = update_result {
+            warn!("Failed to update last_scan for library {}: {}", item.tenant_id, e);
+        }
+
+        let elapsed = start_time.elapsed();
+        info!(
+            "Library scan complete: {} files queued, {} excluded, {} errors in {:?} (library={})",
+            files_queued, files_excluded, errors, elapsed, folder_path
+        );
+
+        Ok(())
+    }
+
     /// Clean up excluded files after a scan completes (Task 506)
     ///
     /// Queries tracked_files (fast SQLite) instead of scrolling Qdrant.
@@ -1789,7 +1963,9 @@ impl UnifiedQueueProcessor {
     /// Process library item - create/manage library collections
     async fn process_library_item(
         item: &UnifiedQueueItem,
+        queue_manager: &QueueManager,
         storage_client: &Arc<StorageClient>,
+        allowed_extensions: &Arc<AllowedExtensions>,
     ) -> UnifiedProcessorResult<()> {
         info!(
             "Processing library item: {} (op={:?})",
@@ -1814,8 +1990,28 @@ impl UnifiedQueueProcessor {
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }
             }
+            QueueOperation::Scan => {
+                // Scan library directory - look up path from watch_folders
+                let pool = queue_manager.pool();
+                let folder_path: Option<String> = sqlx::query_scalar(
+                    "SELECT path FROM watch_folders WHERE tenant_id = ?1 AND collection = 'libraries'"
+                )
+                    .bind(&item.tenant_id)
+                    .fetch_optional(pool)
+                    .await
+                    .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Failed to lookup library path: {}", e)))?;
+
+                match folder_path {
+                    Some(path) => {
+                        Self::scan_library_directory(item, &path, queue_manager, storage_client, allowed_extensions).await?;
+                    }
+                    None => {
+                        warn!("Library '{}' not found in watch_folders", item.tenant_id);
+                    }
+                }
+            }
             QueueOperation::Delete => {
-                // Delete library collection
+                // Delete library data from collection
                 if storage_client
                     .collection_exists(&item.collection)
                     .await
