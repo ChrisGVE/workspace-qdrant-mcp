@@ -510,9 +510,12 @@ impl UnifiedQueueProcessor {
                                     item.queue_id, item.item_type, e
                                 );
 
-                                // Mark item as failed
+                                // Classify error: permanent errors skip retry
+                                let is_permanent = Self::is_permanent_error(&e);
+
+                                // Mark item as failed (with exponential backoff for transient errors)
                                 if let Err(mark_err) = queue_manager
-                                    .mark_unified_failed(&item.queue_id, &e.to_string())
+                                    .mark_unified_failed(&item.queue_id, &e.to_string(), is_permanent)
                                     .await
                                 {
                                     error!("Failed to mark item {} as failed: {}", item.queue_id, mark_err);
@@ -2175,6 +2178,39 @@ impl UnifiedQueueProcessor {
         let elapsed_secs = (Utc::now() - m.last_update).num_seconds() as f64;
         if elapsed_secs > 0.0 {
             m.items_per_second = total_items_f / elapsed_secs;
+        }
+    }
+
+    /// Classify whether an error is permanent (should not be retried).
+    ///
+    /// Permanent errors: file not found, invalid payload, validation failures.
+    /// Transient errors (retryable): storage/Qdrant issues, embedding failures,
+    /// queue operation failures (DB locked, etc).
+    fn is_permanent_error(error: &UnifiedProcessorError) -> bool {
+        match error {
+            // File doesn't exist - retrying won't help
+            UnifiedProcessorError::FileNotFound(_) => true,
+            // Malformed payload - retrying won't fix the data
+            UnifiedProcessorError::InvalidPayload(_) => true,
+            // Check error message for permanent patterns
+            UnifiedProcessorError::QueueOperation(msg) => {
+                let lower = msg.to_lowercase();
+                lower.contains("no watch_folder found")
+                    || lower.contains("validation")
+                    || lower.contains("invalid")
+            }
+            UnifiedProcessorError::ProcessingFailed(msg) => {
+                let lower = msg.to_lowercase();
+                lower.contains("permission denied")
+                    || lower.contains("invalid format")
+                    || lower.contains("malformed")
+                    || lower.contains("unsupported")
+            }
+            // Storage and embedding errors are transient (Qdrant may be temporarily down)
+            UnifiedProcessorError::Storage(_) => false,
+            UnifiedProcessorError::Embedding(_) => false,
+            // Default: treat as transient (retry)
+            _ => false,
         }
     }
 

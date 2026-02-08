@@ -1834,7 +1834,10 @@ impl QueueManager {
                         ON q.tenant_id = w.tenant_id
                         AND q.collection = 'projects'
                         AND w.parent_watch_id IS NULL
-                    WHERE (q.status = 'pending' OR (q.status = 'in_progress' AND q.lease_until < ?1))
+                    WHERE (
+                        (q.status = 'pending' AND (q.lease_until IS NULL OR q.lease_until < ?1))
+                        OR (q.status = 'in_progress' AND q.lease_until < ?1)
+                    )
                     AND q.tenant_id = ?2
                     AND q.item_type = ?3
                     ORDER BY
@@ -1867,7 +1870,10 @@ impl QueueManager {
                         ON q.tenant_id = w.tenant_id
                         AND q.collection = 'projects'
                         AND w.parent_watch_id IS NULL
-                    WHERE (q.status = 'pending' OR (q.status = 'in_progress' AND q.lease_until < ?1))
+                    WHERE (
+                        (q.status = 'pending' AND (q.lease_until IS NULL OR q.lease_until < ?1))
+                        OR (q.status = 'in_progress' AND q.lease_until < ?1)
+                    )
                     AND q.tenant_id = ?2
                     ORDER BY
                         CASE
@@ -1898,7 +1904,10 @@ impl QueueManager {
                         ON q.tenant_id = w.tenant_id
                         AND q.collection = 'projects'
                         AND w.parent_watch_id IS NULL
-                    WHERE (q.status = 'pending' OR (q.status = 'in_progress' AND q.lease_until < ?1))
+                    WHERE (
+                        (q.status = 'pending' AND (q.lease_until IS NULL OR q.lease_until < ?1))
+                        OR (q.status = 'in_progress' AND q.lease_until < ?1)
+                    )
                     AND q.item_type = ?2
                     ORDER BY
                         CASE
@@ -1929,7 +1938,10 @@ impl QueueManager {
                         ON q.tenant_id = w.tenant_id
                         AND q.collection = 'projects'
                         AND w.parent_watch_id IS NULL
-                    WHERE (q.status = 'pending' OR (q.status = 'in_progress' AND q.lease_until < ?1))
+                    WHERE (
+                        (q.status = 'pending' AND (q.lease_until IS NULL OR q.lease_until < ?1))
+                        OR (q.status = 'in_progress' AND q.lease_until < ?1)
+                    )
                     ORDER BY
                         CASE
                             WHEN q.collection = 'memory' THEN 1
@@ -2098,14 +2110,19 @@ impl QueueManager {
 
     /// Mark a unified queue item as failed
     ///
-    /// If retries remain, increments retry_count and resets to pending.
+    /// If `permanent` is true, skips retry logic and marks as failed immediately.
+    /// Otherwise, if retries remain, increments retry_count, sets exponential
+    /// backoff delay via `lease_until`, and resets to pending.
     /// If max retries exceeded, sets status to 'failed'.
+    ///
+    /// Backoff schedule: 60s * 2^retry_count, capped at 1 hour, with 10% jitter.
     ///
     /// Returns true if the item will be retried, false if permanently failed.
     pub async fn mark_unified_failed(
         &self,
         queue_id: &str,
         error_message: &str,
+        permanent: bool,
     ) -> QueueResult<bool> {
         // Get current retry state
         let row = sqlx::query(
@@ -2120,35 +2137,47 @@ impl QueueManager {
             let max_retries: i32 = row.try_get("max_retries")?;
             let new_retry_count = retry_count + 1;
 
-            if new_retry_count < max_retries {
+            if !permanent && new_retry_count < max_retries {
                 // Can retry - reset to pending with incremented retry count
+                // Apply exponential backoff: 60s * 2^retry_count, capped at 3600s
+                let base_delay_secs = 60.0_f64;
+                let delay_secs = (base_delay_secs * 2.0_f64.powi(retry_count)).min(3600.0);
+                // Add 10% jitter to prevent thundering herd
+                let jitter = delay_secs * 0.1 * rand::random::<f64>();
+                let total_delay = delay_secs + jitter;
+                let retry_after = Utc::now() + ChronoDuration::seconds(total_delay as i64);
+                let retry_after_str = retry_after.to_rfc3339();
+
                 let query = r#"
                     UPDATE unified_queue
                     SET status = 'pending',
                         retry_count = ?1,
                         error_message = ?2,
                         last_error_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-                        lease_until = NULL,
+                        lease_until = ?3,
                         worker_id = NULL,
                         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                    WHERE queue_id = ?3
+                    WHERE queue_id = ?4
                 "#;
 
                 sqlx::query(query)
                     .bind(new_retry_count)
                     .bind(error_message)
+                    .bind(&retry_after_str)
                     .bind(queue_id)
                     .execute(&self.pool)
                     .await?;
 
                 info!(
-                    "Unified item {} failed, will retry ({}/{}): {}",
-                    queue_id, new_retry_count, max_retries, error_message
+                    "Unified item {} failed, will retry ({}/{}) after {:.0}s backoff: {}",
+                    queue_id, new_retry_count, max_retries, total_delay, error_message
                 );
 
                 Ok(true)
             } else {
-                // Max retries exceeded - mark as permanently failed
+                // Permanent error or max retries exceeded - mark as permanently failed
+                let reason = if permanent { "permanent error" } else { "max retries exceeded" };
+
                 let query = r#"
                     UPDATE unified_queue
                     SET status = 'failed',
@@ -2169,12 +2198,12 @@ impl QueueManager {
                     .await?;
 
                 warn!(
-                    "Unified item {} permanently failed after {} retries: {}",
-                    queue_id, new_retry_count, error_message
+                    "Unified item {} permanently failed ({}, attempt {}/{}): {}",
+                    queue_id, reason, new_retry_count, max_retries, error_message
                 );
 
                 METRICS.queue_item_processed("unified", "failure", 0.0);
-                METRICS.ingestion_error("max_retries_exceeded");
+                METRICS.ingestion_error(reason);
 
                 Ok(false)
             }
@@ -3050,6 +3079,7 @@ mod tests {
 
         let config = QueueConnectionConfig::with_database_path(&db_path);
         let pool = config.create_pool().await.unwrap();
+        let test_pool = pool.clone(); // Keep reference for test-only backoff reset
 
         // Initialize schemas (watch_folders required for JOIN in dequeue_unified)
         apply_sql_script(
@@ -3083,16 +3113,23 @@ mod tests {
             .await
             .unwrap();
 
-        // First failure - should retry
+        // First failure (transient) - should retry with backoff
         let will_retry = manager
-            .mark_unified_failed(&queue_id, "Test error 1")
+            .mark_unified_failed(&queue_id, "Test error 1", false)
             .await
             .unwrap();
         assert!(will_retry);
 
-        // Check it's back to pending
+        // Check it's back to pending (with backoff lease_until)
         let stats = manager.get_unified_queue_stats().await.unwrap();
         assert_eq!(stats.pending_items, 1);
+
+        // Item has backoff, so dequeue won't return it. Reset lease_until for test.
+        sqlx::query("UPDATE unified_queue SET lease_until = NULL WHERE queue_id = ?1")
+            .bind(&queue_id)
+            .execute(&test_pool)
+            .await
+            .unwrap();
 
         // Dequeue again and fail until max retries
         for i in 2..=3 {
@@ -3101,12 +3138,18 @@ mod tests {
                 .await
                 .unwrap();
             let will_retry = manager
-                .mark_unified_failed(&queue_id, &format!("Test error {}", i))
+                .mark_unified_failed(&queue_id, &format!("Test error {}", i), false)
                 .await
                 .unwrap();
 
             if i < 3 {
                 assert!(will_retry);
+                // Clear backoff for next test iteration
+                sqlx::query("UPDATE unified_queue SET lease_until = NULL WHERE queue_id = ?1")
+                    .bind(&queue_id)
+                    .execute(&test_pool)
+                    .await
+                    .unwrap();
             } else {
                 assert!(!will_retry); // Max retries exceeded
             }
@@ -3116,6 +3159,119 @@ mod tests {
         let stats = manager.get_unified_queue_stats().await.unwrap();
         assert_eq!(stats.failed_items, 1);
         assert_eq!(stats.pending_items, 0);
+    }
+
+    #[tokio::test]
+    async fn test_unified_queue_mark_failed_permanent() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_unified_permanent.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        // Initialize schemas
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue
+        let (queue_id, _) = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"file_path":"/test/file.rs"}"#,
+                0,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Dequeue
+        manager
+            .dequeue_unified(10, "worker-1", None, None, None, None)
+            .await
+            .unwrap();
+
+        // Permanent failure - should NOT retry even though retries remain
+        let will_retry = manager
+            .mark_unified_failed(&queue_id, "File not found: /test/file.rs", true)
+            .await
+            .unwrap();
+        assert!(!will_retry, "Permanent errors should not retry");
+
+        // Verify immediately failed (not pending)
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+        assert_eq!(stats.failed_items, 1);
+        assert_eq!(stats.pending_items, 0);
+    }
+
+    #[tokio::test]
+    async fn test_unified_queue_backoff_prevents_immediate_dequeue() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_unified_backoff.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        // Initialize schemas
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue
+        let (queue_id, _) = manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Ingest,
+                "test-tenant",
+                "test-collection",
+                r#"{"file_path":"/test/file.rs"}"#,
+                0,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Dequeue
+        manager
+            .dequeue_unified(10, "worker-1", None, None, None, None)
+            .await
+            .unwrap();
+
+        // Transient failure with backoff
+        let will_retry = manager
+            .mark_unified_failed(&queue_id, "Connection refused", false)
+            .await
+            .unwrap();
+        assert!(will_retry);
+
+        // Try to dequeue immediately - should get nothing (item is in backoff)
+        let items = manager
+            .dequeue_unified(10, "worker-2", None, None, None, None)
+            .await
+            .unwrap();
+        assert!(items.is_empty(), "Item should not be dequeued during backoff");
+
+        // Verify item is still pending (not lost)
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+        assert_eq!(stats.pending_items, 1);
+        assert_eq!(stats.failed_items, 0);
     }
 
     #[tokio::test]
