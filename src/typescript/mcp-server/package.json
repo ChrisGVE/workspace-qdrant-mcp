@@ -17,7 +17,8 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "npm run clean && tsc && npm run copy:proto && npm run chmod:bin",
+    "generate:config": "tsx scripts/generate-config-defaults.ts",
+    "build": "npm run clean && npm run generate:config && tsc && npm run copy:proto && npm run chmod:bin",
     "copy:proto": "mkdir -p dist/proto && cp src/proto/*.proto dist/proto/",
     "chmod:bin": "chmod +x dist/index.js dist/agent.js",
     "build:watch": "tsc --watch",

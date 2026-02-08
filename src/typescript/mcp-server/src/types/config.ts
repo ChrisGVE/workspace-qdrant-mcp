@@ -52,40 +52,6 @@ export interface ServerConfig {
   memory?: MemoryConfig;
 }
 
-export const DEFAULT_CONFIG: ServerConfig = {
-  database: {
-    path: '~/.workspace-qdrant/state.db',
-  },
-  qdrant: {
-    url: 'http://localhost:6333',
-    timeout: 30000,
-  },
-  daemon: {
-    grpcPort: 50051,
-    queuePollIntervalMs: 1000,
-    queueBatchSize: 10,
-  },
-  watching: {
-    patterns: ['*.py', '*.rs', '*.md', '*.js', '*.ts'],
-    ignorePatterns: [
-      '*.pyc',
-      '__pycache__/*',
-      '.git/*',
-      'node_modules/*',
-      'target/*',
-      '.venv/*',
-    ],
-  },
-  collections: {
-    memoryCollectionName: 'memory',
-  },
-  environment: {},
-  memory: {
-    limits: {
-      maxLabelLength: 15,
-      maxTitleLength: 50,
-      maxTagLength: 20,
-      maxTagsPerRule: 5,
-    },
-  },
-};
+// DEFAULT_CONFIG is generated from assets/default_configuration.yaml
+// Re-generate with: npx tsx scripts/generate-config-defaults.ts
+export { DEFAULT_CONFIG } from './generated-defaults.js';
