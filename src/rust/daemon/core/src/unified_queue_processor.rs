@@ -785,10 +785,9 @@ impl UnifiedQueueProcessor {
                         .await
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }
-                // Clean up old chunk records (new ones will be inserted below)
-                let _ = tracked_files_schema::delete_qdrant_chunks(pool, existing.file_id).await;
+                // Old chunk records will be cleaned up atomically in the transaction below
             } else {
-                // Not tracked yet -- delete by filter as fallback for update
+                // Not tracked yet -- defensive cleanup: delete by filter as fallback for update
                 storage_client
                     .delete_points_by_filter(&item.collection, &payload.file_path)
                     .await
@@ -938,7 +937,7 @@ impl UnifiedQueueProcessor {
             info!("Qdrant upsert completed: {} points in {}ms", chunk_records.len(), upsert_start.elapsed().as_millis());
         }
 
-        // After Qdrant success: record in tracked_files + qdrant_chunks (Task 506)
+        // After Qdrant success: record in tracked_files + qdrant_chunks atomically (Task 519)
         if !watch_folder_id.is_empty() {
             let file_hash = tracked_files_schema::compute_file_hash(file_path)
                 .unwrap_or_else(|_| "unknown".to_string());
@@ -953,64 +952,92 @@ impl UnifiedQueueProcessor {
                 Some("text")
             };
 
-            // Check if file is already tracked (update vs insert)
+            // Check if file is already tracked (read outside transaction)
             let existing = tracked_files_schema::lookup_tracked_file(
                 pool, watch_folder_id, &relative_path, Some(item.branch.as_str()),
             )
             .await
             .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files lookup failed: {}", e)))?;
 
-            let file_id = match existing {
-                Some(existing_file) => {
-                    // Update existing record
-                    tracked_files_schema::update_tracked_file(
-                        pool,
-                        existing_file.file_id,
-                        &file_mtime,
-                        &file_hash,
-                        chunk_records.len() as i32,
-                        chunking_method,
-                        lsp_status,
-                        treesitter_status,
-                    )
-                    .await
-                    .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files update failed: {}", e)))?;
-                    // Delete old chunks before inserting new
-                    let _ = tracked_files_schema::delete_qdrant_chunks(pool, existing_file.file_id).await;
-                    existing_file.file_id
-                }
-                None => {
-                    // Insert new record
-                    tracked_files_schema::insert_tracked_file(
-                        pool,
-                        watch_folder_id,
-                        &relative_path,
-                        Some(item.branch.as_str()),
-                        payload.file_type.as_deref(),
-                        language.as_deref(),
-                        &file_mtime,
-                        &file_hash,
-                        chunk_records.len() as i32,
-                        chunking_method,
-                        lsp_status,
-                        treesitter_status,
-                    )
-                    .await
-                    .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files insert failed: {}", e)))?
-                }
-            };
+            // Begin SQLite transaction for atomic tracked_files + qdrant_chunks writes
+            let tx_result: Result<(), UnifiedProcessorError> = async {
+                let mut tx = pool.begin().await
+                    .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e)))?;
 
-            // Insert qdrant_chunks
-            if !chunk_records.is_empty() {
-                tracked_files_schema::insert_qdrant_chunks(pool, file_id, &chunk_records)
-                    .await
-                    .map_err(|e| UnifiedProcessorError::QueueOperation(format!("qdrant_chunks insert failed: {}", e)))?;
+                let file_id = match &existing {
+                    Some(existing_file) => {
+                        // Update existing record
+                        tracked_files_schema::update_tracked_file_tx(
+                            &mut tx,
+                            existing_file.file_id,
+                            &file_mtime,
+                            &file_hash,
+                            chunk_records.len() as i32,
+                            chunking_method,
+                            lsp_status,
+                            treesitter_status,
+                        )
+                        .await
+                        .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files update failed: {}", e)))?;
+                        // Delete old chunks before inserting new
+                        tracked_files_schema::delete_qdrant_chunks_tx(&mut tx, existing_file.file_id)
+                            .await
+                            .map_err(|e| UnifiedProcessorError::QueueOperation(format!("qdrant_chunks delete failed: {}", e)))?;
+                        existing_file.file_id
+                    }
+                    None => {
+                        // Insert new record
+                        tracked_files_schema::insert_tracked_file_tx(
+                            &mut tx,
+                            watch_folder_id,
+                            &relative_path,
+                            Some(item.branch.as_str()),
+                            payload.file_type.as_deref(),
+                            language.as_deref(),
+                            &file_mtime,
+                            &file_hash,
+                            chunk_records.len() as i32,
+                            chunking_method,
+                            lsp_status,
+                            treesitter_status,
+                        )
+                        .await
+                        .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files insert failed: {}", e)))?
+                    }
+                };
+
+                // Insert qdrant_chunks
+                if !chunk_records.is_empty() {
+                    tracked_files_schema::insert_qdrant_chunks_tx(&mut tx, file_id, &chunk_records)
+                        .await
+                        .map_err(|e| UnifiedProcessorError::QueueOperation(format!("qdrant_chunks insert failed: {}", e)))?;
+                }
+
+                tx.commit().await
+                    .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Transaction commit failed: {}", e)))?;
+
+                debug!(
+                    "Recorded {} chunks in tracked_files for file_id={} ({})",
+                    chunk_records.len(), file_id, relative_path
+                );
+                Ok(())
+            }.await;
+
+            // Handle transaction failure: Qdrant has points but SQLite state is inconsistent
+            if let Err(e) = tx_result {
+                warn!(
+                    "SQLite transaction failed after Qdrant upsert for {}: {}. File will be reconciled on next startup.",
+                    relative_path, e
+                );
+                // If the file was already tracked, mark it for reconciliation
+                if let Some(existing_file) = &existing {
+                    let _ = tracked_files_schema::mark_needs_reconcile(
+                        pool, existing_file.file_id,
+                        &format!("ingest_tx_failed: {}", e),
+                    ).await;
+                }
+                // Don't propagate error - Qdrant has the data, startup recovery will fix SQLite
             }
-
-            debug!(
-                "Recorded {} chunks in tracked_files for file_id={} ({})",
-                chunk_records.len(), file_id, relative_path
-            );
         }
 
         info!(
@@ -1021,7 +1048,7 @@ impl UnifiedQueueProcessor {
         Ok(())
     }
 
-    /// Process file delete operation with tracked_files awareness (Task 506)
+    /// Process file delete operation with tracked_files awareness (Task 506 + Task 519)
     async fn process_file_delete(
         item: &UnifiedQueueItem,
         pool: &SqlitePool,
@@ -1043,19 +1070,37 @@ impl UnifiedQueueProcessor {
                     .unwrap_or_default();
 
                 if !point_ids.is_empty() {
-                    // Delete from Qdrant by filter (we lack batch-by-id API)
+                    // Delete from Qdrant first (irreversible)
                     storage_client
                         .delete_points_by_filter(&item.collection, abs_file_path)
                         .await
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }
 
-                // Clean up SQLite records (CASCADE handles qdrant_chunks)
-                tracked_files_schema::delete_tracked_file(pool, existing.file_id)
-                    .await
-                    .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files delete failed: {}", e)))?;
+                // Clean up SQLite records in a transaction (CASCADE handles qdrant_chunks)
+                let tx_result: Result<(), UnifiedProcessorError> = async {
+                    let mut tx = pool.begin().await
+                        .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e)))?;
+                    tracked_files_schema::delete_tracked_file_tx(&mut tx, existing.file_id)
+                        .await
+                        .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files delete failed: {}", e)))?;
+                    tx.commit().await
+                        .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Transaction commit failed: {}", e)))?;
+                    Ok(())
+                }.await;
 
-                info!("Deleted tracked file and {} Qdrant points for: {} in {}ms", point_ids.len(), relative_path, delete_start.elapsed().as_millis());
+                if let Err(e) = tx_result {
+                    warn!(
+                        "SQLite transaction failed after Qdrant delete for {}: {}. Will be reconciled on next startup.",
+                        relative_path, e
+                    );
+                    let _ = tracked_files_schema::mark_needs_reconcile(
+                        pool, existing.file_id,
+                        &format!("delete_tx_failed: {}", e),
+                    ).await;
+                } else {
+                    info!("Deleted tracked file and {} Qdrant points for: {} in {}ms", point_ids.len(), relative_path, delete_start.elapsed().as_millis());
+                }
                 return Ok(());
             }
         }

@@ -10,6 +10,7 @@
 //! - `qdrant_chunks` is a child of `tracked_files` with CASCADE delete
 
 use serde::{Deserialize, Serialize};
+use sqlx::Sqlite;
 use std::fmt;
 
 // ---------------------------------------------------------------------------
@@ -140,6 +141,10 @@ pub struct TrackedFile {
     pub treesitter_status: ProcessingStatus,
     /// Last error message (NULL on success)
     pub last_error: Option<String>,
+    /// Whether this file needs reconciliation (Qdrant/SQLite mismatch)
+    pub needs_reconcile: bool,
+    /// Reason for reconciliation (e.g., "sqlite_commit_failed: ...")
+    pub reconcile_reason: Option<String>,
     /// Creation timestamp (ISO 8601)
     pub created_at: String,
     /// Last update timestamp (ISO 8601)
@@ -191,6 +196,8 @@ CREATE TABLE IF NOT EXISTS tracked_files (
     lsp_status TEXT DEFAULT 'none' CHECK (lsp_status IN ('none', 'done', 'failed', 'skipped')),
     treesitter_status TEXT DEFAULT 'none' CHECK (treesitter_status IN ('none', 'done', 'failed', 'skipped')),
     last_error TEXT,
+    needs_reconcile INTEGER DEFAULT 0,
+    reconcile_reason TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),
@@ -244,12 +251,55 @@ pub const CREATE_QDRANT_CHUNKS_INDEXES_SQL: &[&str] = &[
 ];
 
 // ---------------------------------------------------------------------------
+// Migration SQL — v3: needs_reconcile columns
+// ---------------------------------------------------------------------------
+
+/// SQL statements for migration v3: add needs_reconcile and reconcile_reason
+/// to tracked_files table
+pub const MIGRATE_V3_SQL: &[&str] = &[
+    "ALTER TABLE tracked_files ADD COLUMN needs_reconcile INTEGER DEFAULT 0",
+    "ALTER TABLE tracked_files ADD COLUMN reconcile_reason TEXT",
+];
+
+/// Index for quickly finding files needing reconciliation
+pub const CREATE_RECONCILE_INDEX_SQL: &str =
+    r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_reconcile
+       ON tracked_files(needs_reconcile) WHERE needs_reconcile = 1"#;
+
+// ---------------------------------------------------------------------------
 // Database operations
 // ---------------------------------------------------------------------------
 
 use sha2::{Sha256, Digest};
-use sqlx::{SqlitePool, Row};
+use sqlx::{SqlitePool, Row, sqlite::SqliteRow};
 use std::path::Path;
+
+/// Build a TrackedFile from a SQLite row
+fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
+    TrackedFile {
+        file_id: r.get("file_id"),
+        watch_folder_id: r.get("watch_folder_id"),
+        file_path: r.get("file_path"),
+        branch: r.get("branch"),
+        file_type: r.get("file_type"),
+        language: r.get("language"),
+        file_mtime: r.get("file_mtime"),
+        file_hash: r.get("file_hash"),
+        chunk_count: r.get("chunk_count"),
+        chunking_method: r.get("chunking_method"),
+        lsp_status: ProcessingStatus::from_str(
+            r.get::<Option<String>, _>("lsp_status").as_deref().unwrap_or("none")
+        ).unwrap_or(ProcessingStatus::None),
+        treesitter_status: ProcessingStatus::from_str(
+            r.get::<Option<String>, _>("treesitter_status").as_deref().unwrap_or("none")
+        ).unwrap_or(ProcessingStatus::None),
+        last_error: r.get("last_error"),
+        needs_reconcile: r.get::<i32, _>("needs_reconcile") != 0,
+        reconcile_reason: r.get("reconcile_reason"),
+        created_at: r.get("created_at"),
+        updated_at: r.get("updated_at"),
+    }
+}
 
 /// Compute SHA256 hash of file content
 pub fn compute_file_hash(path: &Path) -> std::io::Result<String> {
@@ -311,7 +361,8 @@ pub async fn lookup_tracked_file(
             sqlx::query(
                 "SELECT file_id, watch_folder_id, file_path, branch, file_type, language,
                         file_mtime, file_hash, chunk_count, chunking_method,
-                        lsp_status, treesitter_status, last_error, created_at, updated_at
+                        lsp_status, treesitter_status, last_error,
+                        needs_reconcile, reconcile_reason, created_at, updated_at
                  FROM tracked_files
                  WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch = ?3"
             )
@@ -325,7 +376,8 @@ pub async fn lookup_tracked_file(
             sqlx::query(
                 "SELECT file_id, watch_folder_id, file_path, branch, file_type, language,
                         file_mtime, file_hash, chunk_count, chunking_method,
-                        lsp_status, treesitter_status, last_error, created_at, updated_at
+                        lsp_status, treesitter_status, last_error,
+                        needs_reconcile, reconcile_reason, created_at, updated_at
                  FROM tracked_files
                  WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch IS NULL"
             )
@@ -336,27 +388,7 @@ pub async fn lookup_tracked_file(
         }
     };
 
-    Ok(row.map(|r| TrackedFile {
-        file_id: r.get("file_id"),
-        watch_folder_id: r.get("watch_folder_id"),
-        file_path: r.get("file_path"),
-        branch: r.get("branch"),
-        file_type: r.get("file_type"),
-        language: r.get("language"),
-        file_mtime: r.get("file_mtime"),
-        file_hash: r.get("file_hash"),
-        chunk_count: r.get("chunk_count"),
-        chunking_method: r.get("chunking_method"),
-        lsp_status: ProcessingStatus::from_str(
-            r.get::<Option<String>, _>("lsp_status").as_deref().unwrap_or("none")
-        ).unwrap_or(ProcessingStatus::None),
-        treesitter_status: ProcessingStatus::from_str(
-            r.get::<Option<String>, _>("treesitter_status").as_deref().unwrap_or("none")
-        ).unwrap_or(ProcessingStatus::None),
-        last_error: r.get("last_error"),
-        created_at: r.get("created_at"),
-        updated_at: r.get("updated_at"),
-    }))
+    Ok(row.map(|r| tracked_file_from_row(&r)))
 }
 
 /// Insert a new tracked file record, returning the file_id
@@ -515,6 +547,196 @@ pub fn compute_relative_path(abs_path: &str, base_path: &str) -> Option<String> 
 }
 
 // ---------------------------------------------------------------------------
+// Transaction-aware write operations
+// ---------------------------------------------------------------------------
+
+/// Insert a new tracked file record within a transaction, returning the file_id
+pub async fn insert_tracked_file_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    watch_folder_id: &str,
+    file_path: &str,
+    branch: Option<&str>,
+    file_type: Option<&str>,
+    language: Option<&str>,
+    file_mtime: &str,
+    file_hash: &str,
+    chunk_count: i32,
+    chunking_method: Option<&str>,
+    lsp_status: ProcessingStatus,
+    treesitter_status: ProcessingStatus,
+) -> Result<i64, sqlx::Error> {
+    let now = chrono::Utc::now().to_rfc3339();
+    let result = sqlx::query(
+        "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_type, language,
+         file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,
+         created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+    )
+    .bind(watch_folder_id)
+    .bind(file_path)
+    .bind(branch)
+    .bind(file_type)
+    .bind(language)
+    .bind(file_mtime)
+    .bind(file_hash)
+    .bind(chunk_count)
+    .bind(chunking_method)
+    .bind(lsp_status.to_string())
+    .bind(treesitter_status.to_string())
+    .bind(&now)
+    .bind(&now)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(result.last_insert_rowid())
+}
+
+/// Update an existing tracked file record within a transaction
+pub async fn update_tracked_file_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    file_id: i64,
+    file_mtime: &str,
+    file_hash: &str,
+    chunk_count: i32,
+    chunking_method: Option<&str>,
+    lsp_status: ProcessingStatus,
+    treesitter_status: ProcessingStatus,
+) -> Result<(), sqlx::Error> {
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE tracked_files SET file_mtime = ?1, file_hash = ?2, chunk_count = ?3,
+         chunking_method = ?4, lsp_status = ?5, treesitter_status = ?6,
+         last_error = NULL, needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?7
+         WHERE file_id = ?8"
+    )
+    .bind(file_mtime)
+    .bind(file_hash)
+    .bind(chunk_count)
+    .bind(chunking_method)
+    .bind(lsp_status.to_string())
+    .bind(treesitter_status.to_string())
+    .bind(&now)
+    .bind(file_id)
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
+}
+
+/// Delete a tracked file by file_id within a transaction (CASCADE deletes qdrant_chunks)
+pub async fn delete_tracked_file_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    file_id: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM tracked_files WHERE file_id = ?1")
+        .bind(file_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+/// Insert qdrant_chunks for a file within a transaction (batch)
+pub async fn insert_qdrant_chunks_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    file_id: i64,
+    chunks: &[(String, i32, String, Option<ChunkType>, Option<String>, Option<i32>, Option<i32>)],
+) -> Result<(), sqlx::Error> {
+    let now = chrono::Utc::now().to_rfc3339();
+    for (point_id, chunk_index, content_hash, chunk_type, symbol_name, start_line, end_line) in chunks {
+        sqlx::query(
+            "INSERT INTO qdrant_chunks (file_id, point_id, chunk_index, content_hash,
+             chunk_type, symbol_name, start_line, end_line, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+        )
+        .bind(file_id)
+        .bind(point_id)
+        .bind(chunk_index)
+        .bind(content_hash)
+        .bind(chunk_type.as_ref().map(|ct| ct.to_string()))
+        .bind(symbol_name.as_deref())
+        .bind(start_line)
+        .bind(end_line)
+        .bind(&now)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
+/// Delete all qdrant_chunks for a file_id within a transaction
+pub async fn delete_qdrant_chunks_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    file_id: i64,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM qdrant_chunks WHERE file_id = ?1")
+        .bind(file_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Reconcile operations
+// ---------------------------------------------------------------------------
+
+/// Mark a tracked file as needing reconciliation (using pool, not transaction)
+///
+/// Used when Qdrant succeeds but the SQLite transaction for tracked_files fails.
+/// This allows startup recovery to prioritize fixing inconsistencies.
+pub async fn mark_needs_reconcile(
+    pool: &SqlitePool,
+    file_id: i64,
+    reason: &str,
+) -> Result<(), sqlx::Error> {
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE tracked_files SET needs_reconcile = 1, reconcile_reason = ?1, updated_at = ?2
+         WHERE file_id = ?3"
+    )
+    .bind(reason)
+    .bind(&now)
+    .bind(file_id)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+/// Get all tracked files that need reconciliation
+pub async fn get_files_needing_reconcile(
+    pool: &SqlitePool,
+) -> Result<Vec<TrackedFile>, sqlx::Error> {
+    let rows = sqlx::query(
+        "SELECT file_id, watch_folder_id, file_path, branch, file_type, language,
+                file_mtime, file_hash, chunk_count, chunking_method,
+                lsp_status, treesitter_status, last_error,
+                needs_reconcile, reconcile_reason, created_at, updated_at
+         FROM tracked_files
+         WHERE needs_reconcile = 1"
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.iter().map(tracked_file_from_row).collect())
+}
+
+/// Clear the reconcile flag for a tracked file within a transaction
+pub async fn clear_reconcile_flag_tx(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    file_id: i64,
+) -> Result<(), sqlx::Error> {
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE tracked_files SET needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?1
+         WHERE file_id = ?2"
+    )
+    .bind(&now)
+    .bind(file_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -574,6 +796,8 @@ mod tests {
         assert!(CREATE_TRACKED_FILES_SQL.contains("UNIQUE(watch_folder_id, file_path, branch)"));
         assert!(CREATE_TRACKED_FILES_SQL.contains("lsp_status"));
         assert!(CREATE_TRACKED_FILES_SQL.contains("treesitter_status"));
+        assert!(CREATE_TRACKED_FILES_SQL.contains("needs_reconcile INTEGER DEFAULT 0"));
+        assert!(CREATE_TRACKED_FILES_SQL.contains("reconcile_reason TEXT"));
     }
 
     #[test]
@@ -630,6 +854,8 @@ mod tests {
             lsp_status: ProcessingStatus::Done,
             treesitter_status: ProcessingStatus::Done,
             last_error: None,
+            needs_reconcile: false,
+            reconcile_reason: None,
             created_at: "2025-01-01T00:00:00Z".to_string(),
             updated_at: "2025-01-01T00:00:00Z".to_string(),
         };
@@ -643,6 +869,7 @@ mod tests {
         assert_eq!(deserialized.branch, Some("main".to_string()));
         assert_eq!(deserialized.chunk_count, 5);
         assert_eq!(deserialized.lsp_status, ProcessingStatus::Done);
+        assert!(!deserialized.needs_reconcile);
     }
 
     #[test]
@@ -687,6 +914,8 @@ mod tests {
             lsp_status: ProcessingStatus::Skipped,
             treesitter_status: ProcessingStatus::Skipped,
             last_error: None,
+            needs_reconcile: false,
+            reconcile_reason: None,
             created_at: "2025-01-01T00:00:00Z".to_string(),
             updated_at: "2025-01-01T00:00:00Z".to_string(),
         };
@@ -989,5 +1218,223 @@ mod tests {
         // But the tracked_file record should still exist
         let file = lookup_tracked_file(&pool, "w1", "file.rs", Some("main")).await.unwrap();
         assert!(file.is_some());
+    }
+
+    // --- Transaction-aware function tests (Task 519) ---
+
+    #[tokio::test]
+    async fn test_insert_tracked_file_tx_commit() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let mut tx = pool.begin().await.unwrap();
+        let file_id = insert_tracked_file_tx(
+            &mut tx, "w1", "src/tx_test.rs", Some("main"),
+            Some("code"), Some("rust"),
+            "2025-01-01T00:00:00Z", "txhash1",
+            2, Some("tree_sitter"),
+            ProcessingStatus::Done, ProcessingStatus::Done,
+        ).await.expect("Tx insert failed");
+        tx.commit().await.unwrap();
+
+        assert!(file_id > 0);
+        let found = lookup_tracked_file(&pool, "w1", "src/tx_test.rs", Some("main"))
+            .await.unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().file_hash, "txhash1");
+    }
+
+    #[tokio::test]
+    async fn test_insert_tracked_file_tx_rollback() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        {
+            let mut tx = pool.begin().await.unwrap();
+            let _file_id = insert_tracked_file_tx(
+                &mut tx, "w1", "src/rollback.rs", Some("main"),
+                Some("code"), Some("rust"),
+                "2025-01-01T00:00:00Z", "rollback_hash",
+                1, None,
+                ProcessingStatus::None, ProcessingStatus::None,
+            ).await.expect("Tx insert failed");
+            // Drop tx without committing = implicit rollback
+        }
+
+        let found = lookup_tracked_file(&pool, "w1", "src/rollback.rs", Some("main"))
+            .await.unwrap();
+        assert!(found.is_none(), "Rolled-back insert should not be visible");
+    }
+
+    #[tokio::test]
+    async fn test_transaction_atomicity_insert_and_chunks() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        // Commit path: insert file + chunks in one transaction
+        let mut tx = pool.begin().await.unwrap();
+        let file_id = insert_tracked_file_tx(
+            &mut tx, "w1", "src/atomic.rs", Some("main"),
+            Some("code"), Some("rust"),
+            "2025-01-01T00:00:00Z", "atomic_hash",
+            2, Some("tree_sitter"),
+            ProcessingStatus::Done, ProcessingStatus::Done,
+        ).await.unwrap();
+
+        let chunks = vec![
+            ("pt-1".to_string(), 0, "ch1".to_string(), Some(ChunkType::Function), Some("main".to_string()), Some(1), Some(20)),
+            ("pt-2".to_string(), 1, "ch2".to_string(), Some(ChunkType::Struct), Some("Config".to_string()), Some(22), Some(40)),
+        ];
+        insert_qdrant_chunks_tx(&mut tx, file_id, &chunks).await.unwrap();
+        tx.commit().await.unwrap();
+
+        // Verify both are visible
+        let found = lookup_tracked_file(&pool, "w1", "src/atomic.rs", Some("main"))
+            .await.unwrap().unwrap();
+        assert_eq!(found.chunk_count, 2);
+        let point_ids = get_chunk_point_ids(&pool, found.file_id).await.unwrap();
+        assert_eq!(point_ids.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_transaction_atomicity_rollback_both() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        // First, insert a file using pool (not transaction) so we have a base record
+        let file_id = insert_tracked_file(
+            &pool, "w1", "src/base.rs", Some("main"),
+            Some("code"), Some("rust"),
+            "2025-01-01T00:00:00Z", "base_hash",
+            0, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        // Now try to update + insert chunks in a rolled-back transaction
+        {
+            let mut tx = pool.begin().await.unwrap();
+            update_tracked_file_tx(
+                &mut tx, file_id,
+                "2025-02-01T00:00:00Z", "new_hash",
+                3, Some("tree_sitter"),
+                ProcessingStatus::Done, ProcessingStatus::Done,
+            ).await.unwrap();
+
+            let chunks = vec![
+                ("p1".to_string(), 0, "c1".to_string(), None, None, None, None),
+            ];
+            insert_qdrant_chunks_tx(&mut tx, file_id, &chunks).await.unwrap();
+            // Drop tx = rollback
+        }
+
+        // Verify original state is unchanged
+        let found = lookup_tracked_file(&pool, "w1", "src/base.rs", Some("main"))
+            .await.unwrap().unwrap();
+        assert_eq!(found.file_hash, "base_hash", "Hash should not have changed after rollback");
+        assert_eq!(found.chunk_count, 0, "Chunk count should not have changed after rollback");
+
+        let point_ids = get_chunk_point_ids(&pool, file_id).await.unwrap();
+        assert_eq!(point_ids.len(), 0, "No chunks should exist after rollback");
+    }
+
+    #[tokio::test]
+    async fn test_delete_tracked_file_tx() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let file_id = insert_tracked_file(
+            &pool, "w1", "src/delete_tx.rs", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h1", 1, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        let chunks = vec![("p1".to_string(), 0, "c1".to_string(), None, None, None, None)];
+        insert_qdrant_chunks(&pool, file_id, &chunks).await.unwrap();
+
+        // Delete in transaction
+        let mut tx = pool.begin().await.unwrap();
+        delete_tracked_file_tx(&mut tx, file_id).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let found = lookup_tracked_file(&pool, "w1", "src/delete_tx.rs", Some("main"))
+            .await.unwrap();
+        assert!(found.is_none(), "File should be deleted");
+
+        let point_ids = get_chunk_point_ids(&pool, file_id).await.unwrap();
+        assert_eq!(point_ids.len(), 0, "Chunks should be deleted via CASCADE");
+    }
+
+    #[tokio::test]
+    async fn test_mark_and_query_needs_reconcile() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let file_id = insert_tracked_file(
+            &pool, "w1", "src/reconcile.rs", Some("main"),
+            Some("code"), Some("rust"),
+            "2025-01-01T00:00:00Z", "hash1",
+            3, Some("tree_sitter"),
+            ProcessingStatus::Done, ProcessingStatus::Done,
+        ).await.unwrap();
+
+        // Initially no files need reconciliation
+        let reconcile_files = get_files_needing_reconcile(&pool).await.unwrap();
+        assert_eq!(reconcile_files.len(), 0);
+
+        // Mark for reconciliation
+        mark_needs_reconcile(&pool, file_id, "test_reason: sqlite_commit_failed").await.unwrap();
+
+        // Now should appear
+        let reconcile_files = get_files_needing_reconcile(&pool).await.unwrap();
+        assert_eq!(reconcile_files.len(), 1);
+        assert_eq!(reconcile_files[0].file_id, file_id);
+        assert!(reconcile_files[0].needs_reconcile);
+        assert_eq!(reconcile_files[0].reconcile_reason.as_deref(), Some("test_reason: sqlite_commit_failed"));
+
+        // Clear the flag
+        let mut tx = pool.begin().await.unwrap();
+        clear_reconcile_flag_tx(&mut tx, file_id).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let reconcile_files = get_files_needing_reconcile(&pool).await.unwrap();
+        assert_eq!(reconcile_files.len(), 0, "Flag should be cleared");
+
+        // Verify the file still exists
+        let found = lookup_tracked_file(&pool, "w1", "src/reconcile.rs", Some("main"))
+            .await.unwrap().unwrap();
+        assert!(!found.needs_reconcile);
+        assert!(found.reconcile_reason.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_update_tracked_file_tx_clears_reconcile_flag() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let file_id = insert_tracked_file(
+            &pool, "w1", "src/reconcile_clear.rs", Some("main"),
+            Some("code"), Some("rust"),
+            "2025-01-01T00:00:00Z", "hash1",
+            1, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        // Mark for reconciliation
+        mark_needs_reconcile(&pool, file_id, "test_failure").await.unwrap();
+
+        // Update via transaction should clear the reconcile flag
+        let mut tx = pool.begin().await.unwrap();
+        update_tracked_file_tx(
+            &mut tx, file_id,
+            "2025-02-01T00:00:00Z", "hash2",
+            5, Some("tree_sitter"),
+            ProcessingStatus::Done, ProcessingStatus::Done,
+        ).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let found = lookup_tracked_file(&pool, "w1", "src/reconcile_clear.rs", Some("main"))
+            .await.unwrap().unwrap();
+        assert!(!found.needs_reconcile, "Update should clear needs_reconcile");
+        assert!(found.reconcile_reason.is_none(), "Update should clear reconcile_reason");
     }
 }

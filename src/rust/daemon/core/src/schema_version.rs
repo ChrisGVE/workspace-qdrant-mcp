@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 2;
+pub const CURRENT_SCHEMA_VERSION: i32 = 3;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -152,6 +152,7 @@ impl SchemaManager {
         match version {
             1 => self.migrate_v1().await,
             2 => self.migrate_v2().await,
+            3 => self.migrate_v3().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -241,6 +242,40 @@ impl SchemaManager {
         }
 
         info!("Migration v2 complete");
+        Ok(())
+    }
+
+    /// Migration v3: Add needs_reconcile columns to tracked_files for transactional integrity
+    async fn migrate_v3(&self) -> Result<(), SchemaError> {
+        info!("Migration v3: Adding needs_reconcile columns to tracked_files");
+
+        use super::tracked_files_schema::{MIGRATE_V3_SQL, CREATE_RECONCILE_INDEX_SQL};
+
+        // Check if columns already exist (handles CREATE TABLE that already includes them)
+        let has_reconcile: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'needs_reconcile'"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        if !has_reconcile {
+            for alter_sql in MIGRATE_V3_SQL {
+                debug!("Running ALTER TABLE: {}", alter_sql);
+                sqlx::query(alter_sql)
+                    .execute(&self.pool)
+                    .await?;
+            }
+        } else {
+            debug!("needs_reconcile columns already exist, skipping ALTER TABLE");
+        }
+
+        // Index creation is idempotent (IF NOT EXISTS)
+        debug!("Creating reconcile index");
+        sqlx::query(CREATE_RECONCILE_INDEX_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        info!("Migration v3 complete");
         Ok(())
     }
 }
@@ -434,7 +469,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_incremental_migration_v1_to_v2() {
+    async fn test_incremental_migration_v1_to_current() {
         let pool = create_test_pool().await;
         let manager = SchemaManager::new(pool.clone());
 
@@ -452,7 +487,7 @@ mod tests {
         .unwrap();
         assert!(!tracked_exists_before, "tracked_files should NOT exist before v2 migration");
 
-        // Run remaining migrations (v2)
+        // Run remaining migrations (v2 + v3)
         manager.run_migrations().await.expect("Failed to run migrations from v1");
 
         // Verify v2 tables now exist
@@ -464,8 +499,17 @@ mod tests {
         .unwrap();
         assert!(tracked_exists_after, "tracked_files should exist after v2 migration");
 
+        // Verify v3 columns exist (needs_reconcile)
+        let has_reconcile: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'needs_reconcile'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(has_reconcile, "needs_reconcile column should exist after v3 migration");
+
         let version = manager.get_current_version().await.expect("Failed to get version");
-        assert_eq!(version, Some(2));
+        assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
     }
 
     #[tokio::test]
@@ -602,5 +646,40 @@ mod tests {
             }
             other => panic!("Expected DowngradeNotSupported error, got: {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn test_incremental_migration_v2_to_v3() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+
+        // Simulate v2 state: run v1 and v2 only
+        manager.initialize().await.expect("Failed to initialize");
+        manager.run_migration(1).await.expect("Failed to run v1");
+        manager.record_migration(1).await.expect("Failed to record v1");
+        manager.run_migration(2).await.expect("Failed to run v2");
+        manager.record_migration(2).await.expect("Failed to record v2");
+
+        // Verify needs_reconcile column does NOT exist yet (v2 CREATE TABLE doesn't have it
+        // when created via migration, since the SQL constant was updated but migration v2
+        // runs the CREATE TABLE which now includes the column)
+        // Actually, since we updated CREATE_TRACKED_FILES_SQL, v2 migration creates the table
+        // with the column already. v3 migration handles this gracefully.
+
+        // Run remaining migrations (v3)
+        manager.run_migrations().await.expect("Failed to run migrations from v2 to v3");
+
+        // Verify v3 migration completed
+        let version = manager.get_current_version().await.unwrap();
+        assert_eq!(version, Some(3));
+
+        // Verify the reconcile index exists
+        let has_index: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_tracked_files_reconcile'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(has_index, "Reconcile index should exist after v3 migration");
     }
 }

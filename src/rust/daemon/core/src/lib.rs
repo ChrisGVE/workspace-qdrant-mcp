@@ -100,6 +100,7 @@ pub use crate::tracked_files_schema::{
     TrackedFile, QdrantChunk, ProcessingStatus, ChunkType as TrackedChunkType,
     CREATE_TRACKED_FILES_SQL, CREATE_TRACKED_FILES_INDEXES_SQL,
     CREATE_QDRANT_CHUNKS_SQL, CREATE_QDRANT_CHUNKS_INDEXES_SQL,
+    MIGRATE_V3_SQL, CREATE_RECONCILE_INDEX_SQL,
 };
 pub use crate::schema_version::{
     SchemaManager, SchemaError, CURRENT_SCHEMA_VERSION
