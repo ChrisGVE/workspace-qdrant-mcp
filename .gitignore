@@ -281,6 +281,8 @@ coverage_temp.json
 # Test artifacts
 tests/reporting/*.db
 *.backup
+*.original
+*.broken
 *.lcov
 *.rlib
 test_ingestion*.txt
