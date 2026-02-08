@@ -126,6 +126,14 @@ async fn main() -> Result<()> {
         std::process::exit(1);
     }
 
+    // Set up environment PATH (expand, merge, deduplicate, save)
+    // Non-fatal: warn on failure but continue CLI execution
+    if let Err(e) = config::setup_environment_path() {
+        if cfg.verbose {
+            eprintln!("Warning: PATH setup failed: {}", e);
+        }
+    }
+
     // Execute the command
     let result = match cli.command {
         // Service & Status

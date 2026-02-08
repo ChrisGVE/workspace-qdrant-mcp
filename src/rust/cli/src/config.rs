@@ -247,22 +247,167 @@ pub fn get_current_path() -> String {
     env::var("PATH").unwrap_or_default()
 }
 
-/// Capture and store current PATH to config
+/// Platform-specific PATH separator
+#[cfg(not(target_os = "windows"))]
+pub const PATH_SEPARATOR: char = ':';
+#[cfg(target_os = "windows")]
+pub const PATH_SEPARATOR: char = ';';
+
+/// Expand a single path segment, resolving `~` and environment variables.
 ///
-/// Returns true if PATH was captured, false if it was already stored.
-pub fn capture_user_path() -> Result<bool, String> {
-    // Check if PATH is already stored
-    if read_user_path().is_some() {
+/// Handles:
+/// - `~` or `~/...` → home directory
+/// - `$VAR` or `${VAR}` → environment variable value
+/// - Recursive expansion up to a depth limit to prevent infinite loops
+fn expand_path_segment(segment: &str) -> String {
+    expand_path_segment_recursive(segment, 0)
+}
+
+fn expand_path_segment_recursive(segment: &str, depth: u8) -> String {
+    if depth > 10 || segment.is_empty() {
+        return segment.to_string();
+    }
+
+    let mut result = segment.to_string();
+
+    // Expand ~ at start
+    if result == "~" || result.starts_with("~/") {
+        if let Some(home) = dirs::home_dir() {
+            result = if result == "~" {
+                home.to_string_lossy().to_string()
+            } else {
+                format!("{}{}", home.display(), &result[1..])
+            };
+        }
+    }
+
+    // Expand ${VAR} patterns
+    let mut expanded = String::with_capacity(result.len());
+    let chars: Vec<char> = result.chars().collect();
+    let mut i = 0;
+    let mut changed = false;
+
+    while i < chars.len() {
+        if chars[i] == '$' && i + 1 < chars.len() {
+            if chars[i + 1] == '{' {
+                // ${VAR} form
+                if let Some(close) = chars[i + 2..].iter().position(|&c| c == '}') {
+                    let var_name: String = chars[i + 2..i + 2 + close].iter().collect();
+                    if let Ok(val) = env::var(&var_name) {
+                        expanded.push_str(&val);
+                        changed = true;
+                    }
+                    // Skip past the closing brace
+                    i = i + 2 + close + 1;
+                    continue;
+                }
+            } else if chars[i + 1].is_ascii_alphanumeric() || chars[i + 1] == '_' {
+                // $VAR form - collect alphanumeric + underscore
+                let start = i + 1;
+                let mut end = start;
+                while end < chars.len()
+                    && (chars[end].is_ascii_alphanumeric() || chars[end] == '_')
+                {
+                    end += 1;
+                }
+                let var_name: String = chars[start..end].iter().collect();
+                if let Ok(val) = env::var(&var_name) {
+                    expanded.push_str(&val);
+                    changed = true;
+                }
+                i = end;
+                continue;
+            }
+        }
+        expanded.push(chars[i]);
+        i += 1;
+    }
+
+    // Recurse if we made substitutions (to handle nested vars)
+    if changed {
+        expand_path_segment_recursive(&expanded, depth + 1)
+    } else {
+        expanded
+    }
+}
+
+/// Expand all segments in a PATH string.
+///
+/// Splits by platform separator, expands each segment, and returns the
+/// expanded segments.
+fn expand_path_segments(path: &str) -> Vec<String> {
+    path.split(PATH_SEPARATOR)
+        .filter(|s| !s.is_empty())
+        .map(|s| expand_path_segment(s))
+        .collect()
+}
+
+/// Merge and deduplicate PATH segments.
+///
+/// Combines current PATH with saved user_path, keeping first occurrence
+/// of each entry. Current PATH entries take precedence.
+fn merge_and_dedup(current_segments: &[String], saved_segments: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut merged = Vec::new();
+
+    // Current PATH first (higher precedence)
+    for seg in current_segments {
+        if !seg.is_empty() && seen.insert(seg.clone()) {
+            merged.push(seg.clone());
+        }
+    }
+
+    // Then saved user_path
+    for seg in saved_segments {
+        if !seg.is_empty() && seen.insert(seg.clone()) {
+            merged.push(seg.clone());
+        }
+    }
+
+    merged
+}
+
+/// Join PATH segments with platform separator.
+fn join_path_segments(segments: &[String]) -> String {
+    segments.join(&PATH_SEPARATOR.to_string())
+}
+
+/// Set up the environment PATH on CLI invocation.
+///
+/// Per specification:
+/// 1. Expand: Retrieve $PATH and expand all env vars recursively
+/// 2. Merge: Append existing user_path from config to expanded $PATH
+/// 3. Deduplicate: Remove duplicates, keeping first occurrence
+/// 4. Save: Write to config only if different from current value
+///
+/// Returns Ok(true) if user_path was updated, Ok(false) if unchanged.
+pub fn setup_environment_path() -> Result<bool, String> {
+    // Step 1: Expand current $PATH
+    let current_path = get_current_path();
+    let current_segments = expand_path_segments(&current_path);
+
+    // Step 2: Read saved user_path and expand it too
+    let saved_path = read_user_path().unwrap_or_default();
+    let saved_segments = expand_path_segments(&saved_path);
+
+    // Step 3: Merge and deduplicate
+    let merged = merge_and_dedup(&current_segments, &saved_segments);
+    let new_user_path = join_path_segments(&merged);
+
+    // Step 4: Save only if different
+    if new_user_path == saved_path {
         return Ok(false);
     }
 
-    let current_path = get_current_path();
-    if current_path.is_empty() {
-        return Err("Current PATH is empty".to_string());
-    }
-
-    write_user_path(&current_path)?;
+    write_user_path(&new_user_path)?;
     Ok(true)
+}
+
+/// Capture and store current PATH to config (legacy compatibility).
+///
+/// Returns true if PATH was captured, false if it was already stored.
+pub fn capture_user_path() -> Result<bool, String> {
+    setup_environment_path()
 }
 
 /// Output format for CLI responses
@@ -531,5 +676,250 @@ mod tests {
             path: PathBuf::from("/test/path"),
         };
         assert_eq!(error.to_string(), "Test error message");
+    }
+
+    // =========================================================================
+    // PATH expansion tests
+    // =========================================================================
+
+    #[test]
+    fn test_expand_path_segment_tilde() {
+        let expanded = expand_path_segment("~/bin");
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(expanded, format!("{}/bin", home.display()));
+        }
+    }
+
+    #[test]
+    fn test_expand_path_segment_tilde_alone() {
+        let expanded = expand_path_segment("~");
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(expanded, home.to_string_lossy().to_string());
+        }
+    }
+
+    #[test]
+    fn test_expand_path_segment_env_var_dollar() {
+        // Use HOME which is always set on Unix
+        let expanded = expand_path_segment("$HOME/bin");
+        if let Ok(home) = env::var("HOME") {
+            assert_eq!(expanded, format!("{}/bin", home));
+        }
+    }
+
+    #[test]
+    fn test_expand_path_segment_env_var_braces() {
+        let expanded = expand_path_segment("${HOME}/bin");
+        if let Ok(home) = env::var("HOME") {
+            assert_eq!(expanded, format!("{}/bin", home));
+        }
+    }
+
+    #[test]
+    fn test_expand_path_segment_no_expansion() {
+        let expanded = expand_path_segment("/usr/local/bin");
+        assert_eq!(expanded, "/usr/local/bin");
+    }
+
+    #[test]
+    fn test_expand_path_segment_empty() {
+        let expanded = expand_path_segment("");
+        assert_eq!(expanded, "");
+    }
+
+    #[test]
+    fn test_expand_path_segment_unknown_var() {
+        // Unknown vars should be removed (no value to substitute)
+        let expanded =
+            expand_path_segment("$WQM_TEST_NONEXISTENT_VAR_12345/bin");
+        // The $VAR is consumed but env::var fails, so nothing is written
+        assert_eq!(expanded, "/bin");
+    }
+
+    #[test]
+    fn test_expand_path_segment_recursive() {
+        // Set up nested env vars for recursive expansion
+        env::set_var("WQM_TEST_INNER", "/resolved");
+        env::set_var("WQM_TEST_OUTER", "$WQM_TEST_INNER/path");
+        let expanded = expand_path_segment("$WQM_TEST_OUTER");
+        assert_eq!(expanded, "/resolved/path");
+        env::remove_var("WQM_TEST_INNER");
+        env::remove_var("WQM_TEST_OUTER");
+    }
+
+    #[test]
+    fn test_expand_path_segment_depth_limit() {
+        // Set up a self-referencing var to test depth limit
+        env::set_var("WQM_TEST_LOOP", "$WQM_TEST_LOOP");
+        let expanded = expand_path_segment("$WQM_TEST_LOOP");
+        // Should terminate without infinite recursion
+        assert!(!expanded.is_empty() || expanded.is_empty()); // just prove it returns
+        env::remove_var("WQM_TEST_LOOP");
+    }
+
+    // =========================================================================
+    // PATH segments expansion tests
+    // =========================================================================
+
+    #[test]
+    fn test_expand_path_segments_basic() {
+        let segments = expand_path_segments("/usr/bin:/usr/local/bin");
+        assert_eq!(segments, vec!["/usr/bin", "/usr/local/bin"]);
+    }
+
+    #[test]
+    fn test_expand_path_segments_with_tilde() {
+        let segments = expand_path_segments("~/bin:/usr/local/bin");
+        assert_eq!(segments.len(), 2);
+        if let Some(home) = dirs::home_dir() {
+            assert_eq!(segments[0], format!("{}/bin", home.display()));
+        }
+        assert_eq!(segments[1], "/usr/local/bin");
+    }
+
+    #[test]
+    fn test_expand_path_segments_empty() {
+        let segments = expand_path_segments("");
+        assert!(segments.is_empty());
+    }
+
+    #[test]
+    fn test_expand_path_segments_filters_empty() {
+        // Double separator produces empty segments which should be filtered
+        let segments = expand_path_segments("/usr/bin::/usr/local/bin");
+        assert_eq!(segments, vec!["/usr/bin", "/usr/local/bin"]);
+    }
+
+    // =========================================================================
+    // Merge and dedup tests
+    // =========================================================================
+
+    #[test]
+    fn test_merge_and_dedup_no_overlap() {
+        let current = vec!["/usr/bin".to_string(), "/usr/local/bin".to_string()];
+        let saved = vec!["/opt/bin".to_string()];
+        let result = merge_and_dedup(&current, &saved);
+        assert_eq!(result, vec!["/usr/bin", "/usr/local/bin", "/opt/bin"]);
+    }
+
+    #[test]
+    fn test_merge_and_dedup_with_overlap() {
+        let current = vec!["/usr/bin".to_string(), "/usr/local/bin".to_string()];
+        let saved = vec![
+            "/usr/bin".to_string(),
+            "/opt/bin".to_string(),
+        ];
+        let result = merge_and_dedup(&current, &saved);
+        // /usr/bin appears only once, from current (first occurrence wins)
+        assert_eq!(result, vec!["/usr/bin", "/usr/local/bin", "/opt/bin"]);
+    }
+
+    #[test]
+    fn test_merge_and_dedup_preserves_order() {
+        let current = vec![
+            "/c".to_string(),
+            "/a".to_string(),
+            "/b".to_string(),
+        ];
+        let saved = vec![
+            "/d".to_string(),
+            "/a".to_string(), // duplicate
+        ];
+        let result = merge_and_dedup(&current, &saved);
+        assert_eq!(result, vec!["/c", "/a", "/b", "/d"]);
+    }
+
+    #[test]
+    fn test_merge_and_dedup_both_empty() {
+        let result = merge_and_dedup(&[], &[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_merge_and_dedup_current_empty() {
+        let saved = vec!["/opt/bin".to_string()];
+        let result = merge_and_dedup(&[], &saved);
+        assert_eq!(result, vec!["/opt/bin"]);
+    }
+
+    #[test]
+    fn test_merge_and_dedup_saved_empty() {
+        let current = vec!["/usr/bin".to_string()];
+        let result = merge_and_dedup(&current, &[]);
+        assert_eq!(result, vec!["/usr/bin"]);
+    }
+
+    #[test]
+    fn test_merge_and_dedup_filters_empty_entries() {
+        let current = vec!["".to_string(), "/usr/bin".to_string()];
+        let saved = vec!["".to_string(), "/opt/bin".to_string()];
+        let result = merge_and_dedup(&current, &saved);
+        assert_eq!(result, vec!["/usr/bin", "/opt/bin"]);
+    }
+
+    #[test]
+    fn test_merge_and_dedup_all_duplicates() {
+        let current = vec!["/usr/bin".to_string(), "/usr/local/bin".to_string()];
+        let saved = vec!["/usr/local/bin".to_string(), "/usr/bin".to_string()];
+        let result = merge_and_dedup(&current, &saved);
+        assert_eq!(result, vec!["/usr/bin", "/usr/local/bin"]);
+    }
+
+    // =========================================================================
+    // Join and separator tests
+    // =========================================================================
+
+    #[test]
+    fn test_join_path_segments() {
+        let segments = vec!["/usr/bin".to_string(), "/usr/local/bin".to_string()];
+        let joined = join_path_segments(&segments);
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(joined, "/usr/bin:/usr/local/bin");
+        #[cfg(target_os = "windows")]
+        assert_eq!(joined, "/usr/bin;/usr/local/bin");
+    }
+
+    #[test]
+    fn test_join_path_segments_empty() {
+        let segments: Vec<String> = vec![];
+        let joined = join_path_segments(&segments);
+        assert_eq!(joined, "");
+    }
+
+    #[test]
+    fn test_join_path_segments_single() {
+        let segments = vec!["/usr/bin".to_string()];
+        let joined = join_path_segments(&segments);
+        assert_eq!(joined, "/usr/bin");
+    }
+
+    #[test]
+    fn test_path_separator_value() {
+        #[cfg(not(target_os = "windows"))]
+        assert_eq!(PATH_SEPARATOR, ':');
+        #[cfg(target_os = "windows")]
+        assert_eq!(PATH_SEPARATOR, ';');
+    }
+
+    // =========================================================================
+    // Integration: setup_environment_path
+    // =========================================================================
+
+    #[test]
+    fn test_setup_environment_path_captures_path() {
+        // Test the full flow using component functions
+        let current = get_current_path();
+        assert!(!current.is_empty(), "System PATH should not be empty");
+
+        let segments = expand_path_segments(&current);
+        assert!(!segments.is_empty());
+
+        let merged = merge_and_dedup(&segments, &[]);
+        // Dedup may reduce count if system PATH has duplicates
+        assert!(merged.len() <= segments.len());
+        assert!(!merged.is_empty());
+
+        let joined = join_path_segments(&merged);
+        assert!(!joined.is_empty());
     }
 }
