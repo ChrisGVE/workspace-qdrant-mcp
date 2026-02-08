@@ -970,14 +970,65 @@ impl UnifiedQueueProcessor {
         info!("Embedding generation completed: {} chunks in {}ms", chunk_records.len(), embedding_start.elapsed().as_millis());
 
         // Upsert points to Qdrant
-        if !points.is_empty() {
+        // Task 555: If insert fails after old points were deleted (update path),
+        // clean up stale SQLite chunk records before propagating the error.
+        let qdrant_insert_failed = if !points.is_empty() {
             info!("Inserting {} points into {}", points.len(), item.collection);
             let upsert_start = std::time::Instant::now();
-            storage_client
+            match storage_client
                 .insert_points_batch(&item.collection, points, Some(100))
                 .await
-                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-            info!("Qdrant upsert completed: {} points in {}ms", chunk_records.len(), upsert_start.elapsed().as_millis());
+            {
+                Ok(_stats) => {
+                    info!("Qdrant upsert completed: {} points in {}ms", chunk_records.len(), upsert_start.elapsed().as_millis());
+                    None
+                }
+                Err(e) => Some(e.to_string()),
+            }
+        } else {
+            None
+        };
+
+        // If Qdrant insert failed, clean up stale SQLite state before propagating
+        if let Some(ref qdrant_err) = qdrant_insert_failed {
+            if !watch_folder_id.is_empty() {
+                // Old Qdrant points were deleted but new ones failed to insert.
+                // Clean up stale qdrant_chunks so SQLite doesn't reference non-existent points.
+                if let Ok(Some(existing)) = tracked_files_schema::lookup_tracked_file(
+                    pool, watch_folder_id, &relative_path, Some(item.branch.as_str()),
+                ).await {
+                    let cleanup_result: Result<(), String> = async {
+                        let mut tx = pool.begin().await
+                            .map_err(|e| format!("begin tx: {}", e))?;
+                        tracked_files_schema::delete_qdrant_chunks_tx(&mut tx, existing.file_id)
+                            .await
+                            .map_err(|e| format!("delete chunks: {}", e))?;
+                        tx.commit().await
+                            .map_err(|e| format!("commit: {}", e))?;
+                        Ok(())
+                    }.await;
+
+                    match cleanup_result {
+                        Ok(()) => {
+                            warn!(
+                                "Qdrant insert failed for {}; cleaned up stale SQLite chunks. Error: {}",
+                                relative_path, qdrant_err
+                            );
+                        }
+                        Err(cleanup_err) => {
+                            warn!(
+                                "Qdrant insert failed AND chunk cleanup failed for {}: insert={}, cleanup={}",
+                                relative_path, qdrant_err, cleanup_err
+                            );
+                            let _ = tracked_files_schema::mark_needs_reconcile(
+                                pool, existing.file_id,
+                                &format!("qdrant_insert_failed_cleanup_failed: {}", cleanup_err),
+                            ).await;
+                        }
+                    }
+                }
+            }
+            return Err(UnifiedProcessorError::Storage(qdrant_err.clone()));
         }
 
         // After Qdrant success: record in tracked_files + qdrant_chunks atomically (Task 519)
