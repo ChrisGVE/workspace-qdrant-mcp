@@ -125,25 +125,29 @@ mod single_folder_watch_tests {
         let watcher = FileWatcher::new(config, task_submitter)?;
         watcher.watch_path(temp_dir.path()).await?;
 
-        tokio::time::sleep(Duration::from_millis(200)).await;
+        // Allow watcher to settle and process initial events from the pre-existing file
+        tokio::time::sleep(Duration::from_secs(1)).await;
 
-        // Reset stats
+        // Record baseline stats
         let initial_stats = watcher.stats().await;
 
+        // Ensure mtime changes: sleep >1s so mtime (second resolution) visibly differs
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+
         // Modify the file
-        fs::write(&test_file, "Modified content")?;
+        fs::write(&test_file, "Modified content — this is different")?;
 
         // Wait for event with retry loop (handles macOS FSEvents latency under load)
         let mut detected = false;
-        for _ in 0..10 {
-            tokio::time::sleep(Duration::from_millis(300)).await;
+        for _ in 0..20 {
+            tokio::time::sleep(Duration::from_millis(500)).await;
             let final_stats = watcher.stats().await;
             if final_stats.events_received > initial_stats.events_received {
                 detected = true;
                 break;
             }
         }
-        assert!(detected, "Expected modification event to be detected within 3 seconds");
+        assert!(detected, "Expected modification event to be detected within 10 seconds");
 
         watcher.stop_watching().await?;
         Ok(())
