@@ -473,32 +473,73 @@ pub async fn delete_tracked_file(pool: &SqlitePool, file_id: i64) -> Result<(), 
     Ok(())
 }
 
-/// Insert qdrant_chunks for a file (batch)
+/// Maximum chunks per batch insert. With 9 params per chunk, 100 * 9 = 900,
+/// safely under SQLite's default SQLITE_MAX_VARIABLE_NUMBER (999).
+const CHUNK_INSERT_BATCH_SIZE: usize = 100;
+
+/// Insert qdrant_chunks for a file using batched multi-row INSERT.
+///
+/// Reduces round-trips from O(n) to O(n/BATCH_SIZE). A file with 1000 chunks
+/// executes 10 batched queries instead of 1000 individual inserts.
 pub async fn insert_qdrant_chunks(
     pool: &SqlitePool,
     file_id: i64,
     chunks: &[(String, i32, String, Option<ChunkType>, Option<String>, Option<i32>, Option<i32>)],
     // Each tuple: (point_id, chunk_index, content_hash, chunk_type, symbol_name, start_line, end_line)
 ) -> Result<(), sqlx::Error> {
-    let now = chrono::Utc::now().to_rfc3339();
-    for (point_id, chunk_index, content_hash, chunk_type, symbol_name, start_line, end_line) in chunks {
-        sqlx::query(
-            "INSERT INTO qdrant_chunks (file_id, point_id, chunk_index, content_hash,
-             chunk_type, symbol_name, start_line, end_line, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
-        )
-        .bind(file_id)
-        .bind(point_id)
-        .bind(chunk_index)
-        .bind(content_hash)
-        .bind(chunk_type.as_ref().map(|ct| ct.to_string()))
-        .bind(symbol_name.as_deref())
-        .bind(start_line)
-        .bind(end_line)
-        .bind(&now)
-        .execute(pool)
-        .await?;
+    if chunks.is_empty() {
+        return Ok(());
     }
+    let now = chrono::Utc::now().to_rfc3339();
+    let mut tx = pool.begin().await?;
+    for batch in chunks.chunks(CHUNK_INSERT_BATCH_SIZE) {
+        execute_chunk_batch_insert(&mut tx, file_id, batch, &now).await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// Execute a single batched INSERT for a slice of chunks within an existing transaction.
+///
+/// Builds a dynamic multi-row VALUES clause to insert all chunks in one query.
+async fn execute_chunk_batch_insert(
+    tx: &mut sqlx::Transaction<'_, Sqlite>,
+    file_id: i64,
+    batch: &[(String, i32, String, Option<ChunkType>, Option<String>, Option<i32>, Option<i32>)],
+    now: &str,
+) -> Result<(), sqlx::Error> {
+    // Build "VALUES (?,?,?,?,?,?,?,?,?), (?,?,?,?,?,?,?,?,?), ..." with 9 params per row
+    let placeholders: Vec<String> = (0..batch.len())
+        .map(|i| {
+            let base = i * 9 + 1;
+            format!(
+                "(?{}, ?{}, ?{}, ?{}, ?{}, ?{}, ?{}, ?{}, ?{})",
+                base, base + 1, base + 2, base + 3, base + 4,
+                base + 5, base + 6, base + 7, base + 8
+            )
+        })
+        .collect();
+
+    let sql = format!(
+        "INSERT INTO qdrant_chunks (file_id, point_id, chunk_index, content_hash, \
+         chunk_type, symbol_name, start_line, end_line, created_at) VALUES {}",
+        placeholders.join(", ")
+    );
+
+    let mut query = sqlx::query(&sql);
+    for (point_id, chunk_index, content_hash, chunk_type, symbol_name, start_line, end_line) in batch {
+        query = query
+            .bind(file_id)
+            .bind(point_id)
+            .bind(chunk_index)
+            .bind(content_hash)
+            .bind(chunk_type.as_ref().map(|ct| ct.to_string()))
+            .bind(symbol_name.as_deref())
+            .bind(start_line)
+            .bind(end_line)
+            .bind(now);
+    }
+    query.execute(&mut **tx).await?;
     Ok(())
 }
 
@@ -635,30 +676,18 @@ pub async fn delete_tracked_file_tx(
     Ok(())
 }
 
-/// Insert qdrant_chunks for a file within a transaction (batch)
+/// Insert qdrant_chunks for a file within a transaction using batched multi-row INSERT.
 pub async fn insert_qdrant_chunks_tx(
     tx: &mut sqlx::Transaction<'_, Sqlite>,
     file_id: i64,
     chunks: &[(String, i32, String, Option<ChunkType>, Option<String>, Option<i32>, Option<i32>)],
 ) -> Result<(), sqlx::Error> {
+    if chunks.is_empty() {
+        return Ok(());
+    }
     let now = chrono::Utc::now().to_rfc3339();
-    for (point_id, chunk_index, content_hash, chunk_type, symbol_name, start_line, end_line) in chunks {
-        sqlx::query(
-            "INSERT INTO qdrant_chunks (file_id, point_id, chunk_index, content_hash,
-             chunk_type, symbol_name, start_line, end_line, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
-        )
-        .bind(file_id)
-        .bind(point_id)
-        .bind(chunk_index)
-        .bind(content_hash)
-        .bind(chunk_type.as_ref().map(|ct| ct.to_string()))
-        .bind(symbol_name.as_deref())
-        .bind(start_line)
-        .bind(end_line)
-        .bind(&now)
-        .execute(&mut **tx)
-        .await?;
+    for batch in chunks.chunks(CHUNK_INSERT_BATCH_SIZE) {
+        execute_chunk_batch_insert(tx, file_id, batch, &now).await?;
     }
     Ok(())
 }
@@ -1436,5 +1465,128 @@ mod tests {
             .await.unwrap().unwrap();
         assert!(!found.needs_reconcile, "Update should clear needs_reconcile");
         assert!(found.reconcile_reason.is_none(), "Update should clear reconcile_reason");
+    }
+
+    #[tokio::test]
+    async fn test_batch_insert_large_chunk_count() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let file_id = insert_tracked_file(
+            &pool, "w1", "src/large.rs", Some("main"),
+            Some("code"), Some("rust"),
+            "2025-01-01T00:00:00Z", "hash1",
+            250, Some("tree_sitter"),
+            ProcessingStatus::Done, ProcessingStatus::Done,
+        ).await.unwrap();
+
+        // Generate 250 chunks (spans 3 batches: 100 + 100 + 50)
+        let chunks: Vec<_> = (0..250)
+            .map(|i| (
+                format!("point-{}", i),
+                i as i32,
+                format!("hash-{}", i),
+                Some(ChunkType::Function),
+                Some(format!("func_{}", i)),
+                Some(i as i32 * 10),
+                Some(i as i32 * 10 + 9),
+            ))
+            .collect();
+
+        insert_qdrant_chunks(&pool, file_id, &chunks).await.expect("Batch insert failed");
+
+        let point_ids = get_chunk_point_ids(&pool, file_id).await.unwrap();
+        assert_eq!(point_ids.len(), 250, "All 250 chunks should be inserted");
+        assert!(point_ids.contains(&"point-0".to_string()));
+        assert!(point_ids.contains(&"point-124".to_string())); // middle
+        assert!(point_ids.contains(&"point-249".to_string())); // last
+    }
+
+    #[tokio::test]
+    async fn test_batch_insert_boundary_sizes() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        // Test boundary sizes: 1, 99, 100, 101
+        for count in [1usize, 99, 100, 101] {
+            let path = format!("src/boundary_{}.rs", count);
+            let file_id = insert_tracked_file(
+                &pool, "w1", &path, Some("main"),
+                None, None,
+                "2025-01-01T00:00:00Z", "h1",
+                count as i32, None,
+                ProcessingStatus::None, ProcessingStatus::None,
+            ).await.unwrap();
+
+            let chunks: Vec<_> = (0..count)
+                .map(|i| (
+                    format!("p-{}-{}", count, i),
+                    i as i32,
+                    format!("c-{}", i),
+                    None,
+                    None,
+                    None,
+                    None,
+                ))
+                .collect();
+
+            insert_qdrant_chunks(&pool, file_id, &chunks)
+                .await
+                .unwrap_or_else(|e| panic!("Failed for count={}: {}", count, e));
+
+            let ids = get_chunk_point_ids(&pool, file_id).await.unwrap();
+            assert_eq!(ids.len(), count, "Expected {} chunks, got {}", count, ids.len());
+        }
+    }
+
+    #[tokio::test]
+    async fn test_batch_insert_empty_chunks() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let file_id = insert_tracked_file(
+            &pool, "w1", "src/empty.rs", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h1", 0, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        // Empty chunk list should succeed without database operations
+        insert_qdrant_chunks(&pool, file_id, &[]).await.expect("Empty insert should succeed");
+
+        let ids = get_chunk_point_ids(&pool, file_id).await.unwrap();
+        assert_eq!(ids.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_batch_insert_tx_large_count() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let mut tx = pool.begin().await.unwrap();
+        let file_id = insert_tracked_file_tx(
+            &mut tx, "w1", "src/tx_large.rs", Some("main"),
+            Some("code"), Some("rust"),
+            "2025-01-01T00:00:00Z", "hash1",
+            150, Some("tree_sitter"),
+            ProcessingStatus::Done, ProcessingStatus::Done,
+        ).await.unwrap();
+
+        let chunks: Vec<_> = (0..150)
+            .map(|i| (
+                format!("tp-{}", i),
+                i as i32,
+                format!("th-{}", i),
+                Some(ChunkType::Method),
+                None,
+                Some(i as i32),
+                Some(i as i32 + 5),
+            ))
+            .collect();
+
+        insert_qdrant_chunks_tx(&mut tx, file_id, &chunks).await.unwrap();
+        tx.commit().await.unwrap();
+
+        let ids = get_chunk_point_ids(&pool, file_id).await.unwrap();
+        assert_eq!(ids.len(), 150, "All 150 tx chunks should be inserted");
     }
 }
