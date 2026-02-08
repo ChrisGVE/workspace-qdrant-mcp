@@ -88,9 +88,10 @@ impl UnifiedConfigManager {
     ///
     /// Search paths (in priority order):
     /// 1. Explicit config via WQM_CONFIG_PATH environment variable
-    /// 2. Project-local: .wq_config.yaml, .workspace-qdrant.yaml (in config_dir)
+    /// 2. Project-local: .workspace-qdrant.yaml (in config_dir)
     /// 3. User config: ~/.workspace-qdrant/config.yaml
-    /// 4. XDG config: ~/.config/workspace-qdrant/config.yaml
+    /// 4. Platform config: $XDG_CONFIG_HOME/workspace-qdrant/config.yaml (Linux),
+    ///    %APPDATA%/workspace-qdrant/config.yaml (Windows)
     /// 5. macOS: ~/Library/Application Support/workspace-qdrant/config.yaml
     pub fn new<P: Into<PathBuf>>(config_dir: Option<P>) -> Self {
         let config_dir = config_dir.map(|p| p.into()).unwrap_or_else(|| {
@@ -99,15 +100,8 @@ impl UnifiedConfigManager {
 
         // Project-local config file patterns (searched in config_dir)
         let config_file_patterns = vec![
-            // Preferred: short unique name with dot prefix
-            ".wq_config.yaml".to_string(),
-            ".wq_config.yml".to_string(),
-            // Full name variants (dot prefix for dotfiles)
             ".workspace-qdrant.yaml".to_string(),
             ".workspace-qdrant.yml".to_string(),
-            // Legacy: full name without dot prefix
-            "workspace_qdrant_config.yaml".to_string(),
-            "workspace_qdrant_config.yml".to_string(),
         ];
 
         Self {
@@ -574,26 +568,23 @@ mod tests {
         let temp_dir = TempDir::new().unwrap();
         let config_manager = UnifiedConfigManager::new(Some(temp_dir.path()));
 
-        // Create test config files (new preferred name + legacy name)
-        let preferred_path = temp_dir.path().join(".wq_config.yaml");
-        let legacy_path = temp_dir.path().join("workspace_qdrant_config.yaml");
-
-        fs::write(&preferred_path, "# Preferred config").unwrap();
-        fs::write(&legacy_path, "# Legacy config").unwrap();
+        // Create config file with current preferred name
+        let preferred_path = temp_dir.path().join(".workspace-qdrant.yaml");
+        fs::write(&preferred_path, "# Config").unwrap();
 
         let sources = config_manager.discover_config_sources();
         let existing_sources: Vec<_> = sources.into_iter()
             .filter(|(_, _, exists)| *exists)
             .collect();
 
-        assert_eq!(existing_sources.len(), 2);
+        assert_eq!(existing_sources.len(), 1);
 
-        // Should prefer .wq_config.yaml (first in list)
+        // Should find .workspace-qdrant.yaml
         let preferred = config_manager.get_preferred_config_source(Some(ConfigFormat::Yaml));
         assert!(preferred.is_some());
         let (path, format) = preferred.unwrap();
         assert_eq!(format, ConfigFormat::Yaml);
-        assert!(path.ends_with(".wq_config.yaml"));
+        assert!(path.ends_with(".workspace-qdrant.yaml"));
     }
 
     #[test]

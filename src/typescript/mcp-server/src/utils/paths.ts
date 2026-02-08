@@ -91,7 +91,8 @@ export function getMcpServerLogPath(): string {
  *
  * Platform-specific paths:
  * - Linux: $XDG_CONFIG_HOME/workspace-qdrant/ (default: ~/.config/workspace-qdrant/)
- * - macOS/Windows/other: ~/.workspace-qdrant/
+ * - Windows: %LOCALAPPDATA%\workspace-qdrant\ (default: AppData\Local\workspace-qdrant\)
+ * - macOS/other: ~/.workspace-qdrant/
  */
 export function getConfigDirectory(): string {
   const home = homedir() || tmpdir();
@@ -100,6 +101,11 @@ export function getConfigDirectory(): string {
   if (currentPlatform === 'linux') {
     const xdgConfigHome = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
     return join(xdgConfigHome, 'workspace-qdrant');
+  }
+
+  if (currentPlatform === 'win32') {
+    const localAppData = process.env['LOCALAPPDATA'] ?? join(home, 'AppData', 'Local');
+    return join(localAppData, 'workspace-qdrant');
   }
 
   return join(home, '.workspace-qdrant');
