@@ -58,12 +58,23 @@ function createLogger(): Logger {
   if (dirCreated) {
     const logPath = getMcpServerLogPath();
 
-    // Use pino.transport for async file logging
+    // Rotation settings matching daemon defaults:
+    // - 50MB max file size
+    // - 5 rotated files kept (+ 1 active)
+    const rotationSizeMb = parseInt(process.env['WQM_LOG_ROTATION_SIZE_MB'] ?? '50', 10);
+    const rotationCount = parseInt(process.env['WQM_LOG_ROTATION_COUNT'] ?? '5', 10);
+
+    // Use pino-roll transport for size-based file rotation
     return pino(
       options,
       pino.transport({
-        target: 'pino/file',
-        options: { destination: logPath, mkdir: true },
+        target: 'pino-roll',
+        options: {
+          file: logPath,
+          size: `${rotationSizeMb}m`,
+          limit: { count: rotationCount },
+          mkdir: true,
+        },
       })
     );
   } else {

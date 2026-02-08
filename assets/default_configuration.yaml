@@ -1178,6 +1178,23 @@ logging:
   # Format: String file path or null
   log_file: null
 
+  # rotation: Log rotation settings for file-based logging
+  # Purpose: Prevents unbounded log file growth in long-running services
+  rotation:
+    # max_size_mb: Maximum log file size before rotation
+    # Format: Integer (megabytes)
+    max_size_mb: 50
+
+    # max_files: Number of rotated log files to retain
+    # Older files beyond this count are deleted automatically
+    # Format: Integer >= 1
+    max_files: 5
+
+    # compress: Gzip compress rotated log files to save disk space
+    # Active log file is never compressed; only rotated files
+    # Format: Boolean
+    compress: true
+
 # =============================================================================
 # OBSERVABILITY CONFIGURATION
 # =============================================================================

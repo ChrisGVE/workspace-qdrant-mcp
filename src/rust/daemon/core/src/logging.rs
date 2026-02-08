@@ -11,6 +11,7 @@ use std::time::SystemTime;
 use once_cell::sync::Lazy;
 use atty::Stream;
 
+use logroller::{LogRollerBuilder, Rotation, RotationSize, Compression};
 use tracing::{error, info, warn, debug, instrument, Level};
 use tracing_subscriber::{
     fmt::{self, time::ChronoUtc},
@@ -43,6 +44,12 @@ pub struct LoggingConfig {
     pub global_fields: HashMap<String, String>,
     /// Force disable ANSI colors (automatically detected if None)
     pub force_disable_ansi: Option<bool>,
+    /// Maximum log file size in MB before rotation (default: 50)
+    pub rotation_size_mb: u64,
+    /// Number of rotated log files to keep (default: 5)
+    pub rotation_count: usize,
+    /// Compress rotated log files with gzip (default: true)
+    pub compress_rotated: bool,
 }
 
 impl Default for LoggingConfig {
@@ -57,6 +64,9 @@ impl Default for LoggingConfig {
             error_tracking: true,
             global_fields: HashMap::new(),
             force_disable_ansi: None,
+            rotation_size_mb: 50,
+            rotation_count: 5,
+            compress_rotated: true,
         }
     }
 }
@@ -167,6 +177,21 @@ impl LoggingConfig {
             .map(|v| v.to_lowercase() != "false" && v != "0")
             .unwrap_or(true);
 
+        // Log rotation settings
+        if let Ok(size_str) = env::var("WQM_LOG_ROTATION_SIZE_MB") {
+            if let Ok(size) = size_str.parse::<u64>() {
+                config.rotation_size_mb = size;
+            }
+        }
+        if let Ok(count_str) = env::var("WQM_LOG_ROTATION_COUNT") {
+            if let Ok(count) = count_str.parse::<usize>() {
+                config.rotation_count = count;
+            }
+        }
+        if let Ok(compress_str) = env::var("WQM_LOG_ROTATION_COMPRESS") {
+            config.compress_rotated = compress_str.to_lowercase() == "true" || compress_str == "1";
+        }
+
         // Global fields
         for (key, value) in env::vars() {
             if key.starts_with("WQM_LOG_FIELD_") {
@@ -214,6 +239,9 @@ impl LoggingConfig {
                 fields.insert("component".to_string(), "rust-daemon".to_string());
                 fields
             },
+            rotation_size_mb: 50,
+            rotation_count: 5,
+            compress_rotated: true,
         }
     }
 
@@ -233,6 +261,9 @@ impl LoggingConfig {
                 fields.insert("env".to_string(), "development".to_string());
                 fields
             },
+            rotation_size_mb: 50,
+            rotation_count: 5,
+            compress_rotated: true,
         }
     }
 }
@@ -330,6 +361,47 @@ pub fn suppress_tty_debug_output() {
     std::env::set_var("TERM", "dumb");
 }
 
+/// Build a rotating file writer using logroller.
+///
+/// Creates a size-based rotating file appender with optional gzip compression.
+/// The directory is created if it doesn't exist.
+fn build_log_roller(
+    log_file_path: &PathBuf,
+    config: &LoggingConfig,
+) -> Result<logroller::LogRoller, WorkspaceError> {
+    let parent = log_file_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let filename = log_file_path
+        .file_name()
+        .unwrap_or_else(|| std::ffi::OsStr::new("daemon.jsonl"))
+        .to_string_lossy();
+
+    // Ensure directory exists
+    std::fs::create_dir_all(parent).map_err(|e| {
+        WorkspaceError::file_system(
+            format!("Failed to create log directory: {}", e),
+            parent.to_string_lossy().to_string(),
+            "create_directory",
+        )
+    })?;
+
+    let filename_path = std::path::Path::new(filename.as_ref());
+    let mut builder = LogRollerBuilder::new(parent, filename_path)
+        .rotation(Rotation::SizeBased(RotationSize::MB(config.rotation_size_mb)))
+        .max_keep_files(config.rotation_count as u64);
+
+    if config.compress_rotated {
+        builder = builder.compression(Compression::Gzip);
+    }
+
+    builder.build().map_err(|e| {
+        WorkspaceError::file_system(
+            format!("Failed to create rotating log file: {}", e),
+            log_file_path.to_string_lossy().to_string(),
+            "create_log_roller",
+        )
+    })
+}
+
 /// Initialize comprehensive logging system with daemon mode silence support
 pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     // Detect daemon mode early for complete suppression
@@ -396,28 +468,10 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     if config.console_output && config.file_logging {
         // Both console and file logging
         if let Some(ref log_file_path) = config.log_file_path {
-            // Ensure directory exists
-            if let Some(parent) = log_file_path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    WorkspaceError::file_system(
-                        format!("Failed to create log directory: {}", e),
-                        parent.to_string_lossy().to_string(),
-                        "create_directory",
-                    )
-                })?;
-            }
-            
-            let log_file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(log_file_path)
-                .map_err(|e| {
-                    WorkspaceError::file_system(
-                        format!("Failed to open log file: {}", e),
-                        log_file_path.to_string_lossy().to_string(),
-                        "open_file",
-                    )
-                })?;
+            let roller = build_log_roller(log_file_path, &config)?;
+            let (non_blocking, _guard) = tracing_appender::non_blocking(roller);
+            // Leak the guard so the non-blocking writer stays alive for the process lifetime
+            std::mem::forget(_guard);
 
             let console_layer = if config.json_format {
                 fmt::layer()
@@ -437,10 +491,10 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
                     .with_ansi(!disable_ansi)
                     .boxed()
             };
-            
+
             let file_layer = fmt::layer()
                 .json()
-                .with_writer(Arc::new(log_file))
+                .with_writer(non_blocking)
                 .with_timer(ChronoUtc::rfc_3339())
                 .with_target(true)
                 .with_thread_ids(true)
@@ -477,32 +531,13 @@ pub fn initialize_logging(config: LoggingConfig) -> Result<(), WorkspaceError> {
     } else if config.file_logging {
         // File logging only
         if let Some(ref log_file_path) = config.log_file_path {
-            // Ensure directory exists
-            if let Some(parent) = log_file_path.parent() {
-                std::fs::create_dir_all(parent).map_err(|e| {
-                    WorkspaceError::file_system(
-                        format!("Failed to create log directory: {}", e),
-                        parent.to_string_lossy().to_string(),
-                        "create_directory",
-                    )
-                })?;
-            }
-            
-            let log_file = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(log_file_path)
-                .map_err(|e| {
-                    WorkspaceError::file_system(
-                        format!("Failed to open log file: {}", e),
-                        log_file_path.to_string_lossy().to_string(),
-                        "open_file",
-                    )
-                })?;
-            
+            let roller = build_log_roller(log_file_path, &config)?;
+            let (non_blocking, _guard) = tracing_appender::non_blocking(roller);
+            std::mem::forget(_guard);
+
             let file_layer = fmt::layer()
                 .json()
-                .with_writer(Arc::new(log_file))
+                .with_writer(non_blocking)
                 .with_timer(ChronoUtc::rfc_3339())
                 .with_target(true)
                 .with_thread_ids(true)
@@ -1297,6 +1332,51 @@ mod tests {
             Some(v) => env::set_var("WQM_LOG_DIR", v),
             None => env::remove_var("WQM_LOG_DIR"),
         }
+    }
+
+    #[serial]
+    #[test]
+    fn test_rotation_config_from_environment() {
+        let keys = [
+            "WQM_LOG_ROTATION_SIZE_MB",
+            "WQM_LOG_ROTATION_COUNT",
+            "WQM_LOG_ROTATION_COMPRESS",
+        ];
+        let previous: Vec<Option<String>> = keys.iter().map(|k| env::var(k).ok()).collect();
+
+        env::set_var("WQM_LOG_ROTATION_SIZE_MB", "100");
+        env::set_var("WQM_LOG_ROTATION_COUNT", "10");
+        env::set_var("WQM_LOG_ROTATION_COMPRESS", "false");
+
+        let config = LoggingConfig::from_environment();
+        assert_eq!(config.rotation_size_mb, 100);
+        assert_eq!(config.rotation_count, 10);
+        assert!(!config.compress_rotated);
+
+        for (key, value) in keys.iter().zip(previous) {
+            match value {
+                Some(v) => env::set_var(key, v),
+                None => env::remove_var(key),
+            }
+        }
+    }
+
+    #[test]
+    fn test_rotation_defaults() {
+        let config = LoggingConfig::default();
+        assert_eq!(config.rotation_size_mb, 50);
+        assert_eq!(config.rotation_count, 5);
+        assert!(config.compress_rotated);
+    }
+
+    #[test]
+    fn test_build_log_roller_creates_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let log_path = dir.path().join("test.jsonl");
+        let config = LoggingConfig::default();
+
+        let roller = build_log_roller(&log_path, &config);
+        assert!(roller.is_ok(), "log roller should be created successfully");
     }
 
     #[test]
