@@ -106,7 +106,7 @@ impl WatchType {
 /// # Examples
 /// ```
 /// use std::path::Path;
-/// use workspace_qdrant_daemon_core::calculate_tenant_id;
+/// use workspace_qdrant_core::calculate_tenant_id;
 ///
 /// let tenant_id = calculate_tenant_id(Path::new("/path/to/repo"));
 /// // Returns: "abc123def456" (12-char hash if git remote exists)
@@ -157,7 +157,7 @@ pub fn calculate_tenant_id(project_root: &Path) -> String {
 ///
 /// # Examples
 /// ```
-/// use workspace_qdrant_daemon_core::sanitize_remote_url;
+/// use workspace_qdrant_core::sanitize_remote_url;
 ///
 /// assert_eq!(
 ///     sanitize_remote_url("https://github.com/user/repo.git"),
@@ -214,7 +214,7 @@ pub fn sanitize_remote_url(remote_url: &str) -> String {
 /// # Examples
 /// ```
 /// use std::path::Path;
-/// use workspace_qdrant_daemon_core::generate_path_hash_tenant_id;
+/// use workspace_qdrant_core::generate_path_hash_tenant_id;
 ///
 /// let tenant_id = generate_path_hash_tenant_id(Path::new("/home/user/project"));
 /// assert!(tenant_id.starts_with("path_"));
@@ -260,7 +260,7 @@ pub fn generate_path_hash_tenant_id(project_root: &Path) -> String {
 /// # Examples
 /// ```
 /// use std::path::Path;
-/// use workspace_qdrant_daemon_core::get_current_branch;
+/// use workspace_qdrant_core::get_current_branch;
 ///
 /// let branch = get_current_branch(Path::new("/path/to/repo"));
 /// // Returns: "feature/new-api" or "main"

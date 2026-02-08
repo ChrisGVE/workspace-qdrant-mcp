@@ -497,16 +497,16 @@ pub fn generate_idempotency_key(
 ///
 /// # Example
 /// ```
-/// use workspace_qdrant_core::{ItemType, QueueOperation, generate_unified_idempotency_key};
+/// use workspace_qdrant_core::{ItemType, UnifiedQueueOp, generate_unified_idempotency_key};
 ///
 /// let key = generate_unified_idempotency_key(
 ///     ItemType::File,
-///     QueueOperation::Ingest,
+///     UnifiedQueueOp::Ingest,
 ///     "proj_abc123",
 ///     "my-project-code",
 ///     r#"{"file_path":"/path/to/file.rs"}"#,
 /// );
-/// assert_eq!(key.len(), 32); // Always 32 hex chars
+/// assert_eq!(key.unwrap().len(), 32); // Always 32 hex chars
 /// ```
 ///
 /// # Errors

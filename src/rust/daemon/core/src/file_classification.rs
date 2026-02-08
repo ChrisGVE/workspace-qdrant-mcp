@@ -171,7 +171,7 @@ impl std::fmt::Display for FileType {
 /// # Examples
 /// ```
 /// use std::path::Path;
-/// use workspace_qdrant_daemon_core::classify_file_type;
+/// use workspace_qdrant_core::classify_file_type;
 ///
 /// let file_type = classify_file_type(Path::new("test_auth.py"));
 /// assert_eq!(file_type.as_str(), "test");

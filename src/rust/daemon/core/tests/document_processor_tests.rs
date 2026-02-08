@@ -1,4 +1,3 @@
-use std::path::Path;
 use tempfile::NamedTempFile;
 use tokio::io::AsyncWriteExt;
 use workspace_qdrant_core::{DocumentProcessor, DocumentType, ChunkingConfig};
@@ -23,49 +22,42 @@ async fn create_temp_file(content: &str, extension: &str) -> NamedTempFile {
 #[tokio::test]
 async fn test_document_type_detection() {
     let processor = DocumentProcessor::new();
-    
-    // Test PDF detection
-    let pdf_path = Path::new("test.pdf");
+
+    // detect_document_type requires the file to exist, so use temp files
+    let pdf_file = create_temp_file("dummy", "pdf").await;
     assert_eq!(
-        processor.detect_document_type(pdf_path).unwrap(),
+        processor.detect_document_type(pdf_file.path()).unwrap(),
         DocumentType::Pdf
     );
-    
-    // Test EPUB detection
-    let epub_path = Path::new("test.epub");
+
+    let epub_file = create_temp_file("dummy", "epub").await;
     assert_eq!(
-        processor.detect_document_type(epub_path).unwrap(),
+        processor.detect_document_type(epub_file.path()).unwrap(),
         DocumentType::Epub
     );
-    
-    // Test DOCX detection
-    let docx_path = Path::new("test.docx");
+
+    let docx_file = create_temp_file("dummy", "docx").await;
     assert_eq!(
-        processor.detect_document_type(docx_path).unwrap(),
+        processor.detect_document_type(docx_file.path()).unwrap(),
         DocumentType::Docx
     );
-    
-    // Test Markdown detection
-    let md_path = Path::new("test.md");
+
+    let md_file = create_temp_file("dummy", "md").await;
     assert_eq!(
-        processor.detect_document_type(md_path).unwrap(),
+        processor.detect_document_type(md_file.path()).unwrap(),
         DocumentType::Markdown
     );
-    
-    // Test code file detection
-    let rs_path = Path::new("test.rs");
+
+    let rs_file = create_temp_file("fn main() {}", "rs").await;
     assert_eq!(
-        processor.detect_document_type(rs_path).unwrap(),
+        processor.detect_document_type(rs_file.path()).unwrap(),
         DocumentType::Code("rust".to_string())
     );
-    
-    // Python files might be detected as text/plain by MIME, so let's test with extension
-    let py_path = Path::new("script.py");
-    let detected_type = processor.detect_document_type(py_path).unwrap();
-    // Accept either detection result since MIME might vary
-    assert!(
-        detected_type == DocumentType::Code("python".to_string()) ||
-        detected_type == DocumentType::Text
+
+    let py_file = create_temp_file("print('hello')", "py").await;
+    assert_eq!(
+        processor.detect_document_type(py_file.path()).unwrap(),
+        DocumentType::Code("python".to_string())
     );
 }
 
@@ -82,8 +74,8 @@ async fn test_text_file_processing() {
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "test_collection");
     assert!(doc_result.chunks_created.unwrap_or(0) > 0);
-    // Processing time might be 0 for very fast operations
-    assert!(doc_result.processing_time_ms >= 0);
+    // processing_time_ms is u64, always >= 0 — just verify it's set
+    let _ = doc_result.processing_time_ms;
 }
 
 #[tokio::test]
@@ -177,7 +169,7 @@ pub fn main() {
 #[tokio::test]
 async fn test_python_code_file_processing() {
     let processor = DocumentProcessor::new();
-    let content = r#"""
+    let content = r#""""
 A test Python module
 This module demonstrates various Python constructs
 """
@@ -188,17 +180,17 @@ from typing import Dict, List, Optional
 
 class TestClass:
     """A test class for demonstration."""
-    
+
     def __init__(self, name: str):
         """Initialize the test class."""
         self.name = name
         self.count = 0
-    
+
     def increment(self) -> None:
         """Increment the counter."""
         self.count += 1
         # TODO: Add validation
-    
+
     def get_info(self) -> Dict[str, any]:
         """Get information about the instance."""
         return {
@@ -211,7 +203,7 @@ def main():
     test = TestClass("example")
     test.increment()
     print(f"Test: {test.get_info()}")
-    
+
     # FIXME: This needs proper error handling
     data: List[int] = []
     return data
@@ -220,10 +212,10 @@ if __name__ == "__main__":
     main()"#;
     
     let temp_file = create_temp_file(content, "py").await;
-    
+
     let result = processor.process_file(temp_file.path(), "python_collection").await;
     assert!(result.is_ok());
-    
+
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "python_collection");
     assert!(doc_result.chunks_created.unwrap_or(0) > 0);
@@ -321,23 +313,25 @@ async fn test_empty_file_handling() {
 #[tokio::test]
 async fn test_large_document_chunking() {
     let processor = DocumentProcessor::new();
-    
-    // Create a large document with repeated content
-    let base_content = "This is sentence number ";
+
+    // Create a large document with paragraph breaks every 10 sentences
+    // so preserve_paragraphs chunking can split it properly
     let mut large_content = String::new();
-    
     for i in 1..=1000 {
-        large_content.push_str(&format!("{}{}. ", base_content, i));
+        large_content.push_str(&format!("This is sentence number {}. ", i));
+        if i % 10 == 0 {
+            large_content.push_str("\n\n");
+        }
     }
-    
+
     let temp_file = create_temp_file(&large_content, "txt").await;
-    
+
     let result = processor.process_file(temp_file.path(), "large_test").await;
     assert!(result.is_ok());
-    
+
     let doc_result = result.unwrap();
     assert_eq!(doc_result.collection, "large_test");
-    // Large document should create multiple chunks
+    // Large document with paragraph breaks should create multiple chunks
     assert!(doc_result.chunks_created.unwrap_or(0) > 5);
 }
 
@@ -358,16 +352,12 @@ async fn test_docx_placeholder() {
 #[tokio::test]
 async fn test_pdf_placeholder() {
     let processor = DocumentProcessor::new();
-    
-    // Create a fake PDF file
+
+    // Create a fake PDF file (invalid content)
     let content = "This is not a real PDF file";
     let temp_file = create_temp_file(content, "pdf").await;
-    
-    // The PDF processor currently returns a placeholder message
+
+    // pdf_extract correctly rejects invalid PDF content
     let result = processor.process_file(temp_file.path(), "pdf_test").await;
-    assert!(result.is_ok());
-    
-    let doc_result = result.unwrap();
-    assert_eq!(doc_result.collection, "pdf_test");
-    assert!(doc_result.chunks_created.unwrap_or(0) > 0);
+    assert!(result.is_err(), "Expected error for invalid PDF content");
 }

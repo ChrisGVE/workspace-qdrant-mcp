@@ -59,7 +59,7 @@ impl CollectionType {
     ///
     /// # Examples
     /// ```
-    /// use workspace_qdrant_daemon_core::metadata_enrichment::CollectionType;
+    /// use workspace_qdrant_core::metadata_enrichment::CollectionType;
     ///
     /// let ctype = CollectionType::from_name("_0f72d776622e");
     /// assert!(matches!(ctype, CollectionType::Project { .. }));
@@ -173,7 +173,7 @@ fn find_project_root(file_path: &Path) -> PathBuf {
 /// ```no_run
 /// use std::path::Path;
 /// use std::collections::HashMap;
-/// use workspace_qdrant_daemon_core::metadata_enrichment::enrich_metadata;
+/// use workspace_qdrant_core::metadata_enrichment::enrich_metadata;
 ///
 /// let metadata = enrich_metadata(
 ///     "_0f72d776622e",
