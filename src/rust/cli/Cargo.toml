@@ -64,6 +64,9 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 semver = "1.0"
 
 
+[dev-dependencies]
+tempfile = "3.10"
+
 [build-dependencies]
 tonic-build = { version = "0.12", features = ["prost"] }
 
