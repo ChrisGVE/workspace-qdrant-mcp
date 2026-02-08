@@ -1,0 +1,109 @@
+# Dependency Post-Merge Release Workflow
+# Triggers a patch version bump and release when dependency update PRs merge to main.
+# This replaces the broken post-merge jobs that were in the individual version bump workflows
+# (those workflows only trigger on schedule/workflow_dispatch, never on pull_request events).
+name: Deps Post-Merge Release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+
+permissions:
+  contents: write
+
+jobs:
+  check-dependency-update:
+    name: Check if Dependency Update
+    runs-on: ubuntu-latest
+    outputs:
+      is_dep_update: ${{ steps.check.outputs.is_dep_update }}
+      dep_name: ${{ steps.check.outputs.dep_name }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check commit message for dependency update
+        id: check
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          # Check if this push is from a squash-merged dependency update PR
+          # The version bump workflows create commits like:
+          #   "deps: bump tree-sitter to X.Y.Z"
+          #   "deps: bump ort (ONNX Runtime) to X.Y.Z"
+          if echo "$COMMIT_MSG" | grep -qE '^deps: bump (tree-sitter|ort)'; then
+            echo "is_dep_update=true" >> $GITHUB_OUTPUT
+            DEP=$(echo "$COMMIT_MSG" | sed -E 's/^deps: bump ([^ ]+).*/\1/')
+            echo "dep_name=$DEP" >> $GITHUB_OUTPUT
+            echo "Detected dependency update for: $DEP"
+          else
+            echo "is_dep_update=false" >> $GITHUB_OUTPUT
+            echo "Not a dependency update commit"
+          fi
+
+  patch-release:
+    name: Patch Release
+    needs: check-dependency-update
+    if: needs.check-dependency-update.outputs.is_dep_update == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump patch version
+        id: bump
+        run: |
+          # Get current version from daemon workspace Cargo.toml
+          CURRENT=$(grep '^version = ' src/rust/daemon/Cargo.toml | head -1 | sed 's/.*"\([^"]*\)".*/\1/')
+          if [ -z "$CURRENT" ]; then
+            echo "Could not determine current version"
+            exit 1
+          fi
+
+          # Bump patch version
+          IFS='.' read -ra VERSION_PARTS <<< "$CURRENT"
+          MAJOR=${VERSION_PARTS[0]}
+          MINOR=${VERSION_PARTS[1]}
+          PATCH=${VERSION_PARTS[2]}
+          NEW_PATCH=$((PATCH + 1))
+          NEW_VERSION="$MAJOR.$MINOR.$NEW_PATCH"
+
+          echo "Bumping version: $CURRENT -> $NEW_VERSION"
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+          echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+
+          # Update version in all workspace Cargo.toml files
+          find . -name 'Cargo.toml' -type f | while read file; do
+            if grep -q "^version = \"$CURRENT\"" "$file"; then
+              echo "Updating $file"
+              sed -i "s/^version = \"$CURRENT\"/version = \"$NEW_VERSION\"/" "$file"
+            fi
+          done
+
+      - name: Commit version bump
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+          DEP_NAME: ${{ needs.check-dependency-update.outputs.dep_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet && { echo "No changes to commit"; exit 0; }
+          git commit -m "chore: bump version to $NEW_VERSION after $DEP_NAME update"
+          git push
+
+      - name: Create and push tag
+        env:
+          NEW_VERSION: ${{ steps.bump.outputs.new_version }}
+        run: |
+          git tag "v$NEW_VERSION"
+          git push origin "v$NEW_VERSION"
+          echo "Created tag v$NEW_VERSION - release.yml will trigger automatically"
