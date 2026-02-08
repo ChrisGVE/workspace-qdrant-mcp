@@ -12,9 +12,11 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use clap::{Args, Subcommand, ValueEnum};
 use rusqlite::Connection;
 
+use crate::config::get_database_path;
 use crate::grpc::client::DaemonClient;
 use crate::queue::{UnifiedQueueClient, ItemType, QueueOperation};
 
@@ -175,47 +177,87 @@ pub async fn execute(args: LibraryArgs) -> Result<()> {
     }
 }
 
-/// Get SQLite database path
+/// Get SQLite database path (canonical: ~/.workspace-qdrant/state.db)
 fn get_db_path() -> Result<PathBuf> {
-    let data_dir = dirs::data_local_dir()
-        .context("Could not find local data directory")?
-        .join("workspace-qdrant");
-    Ok(data_dir.join("state.db"))
+    get_database_path().map_err(|e| anyhow::anyhow!("{}", e))
+}
+
+/// Open a connection to the state database with WAL mode
+fn open_db() -> Result<Connection> {
+    let db_path = get_db_path()?;
+    if !db_path.exists() {
+        anyhow::bail!(
+            "Database not found at {}. Run daemon first: wqm service start",
+            db_path.display()
+        );
+    }
+    let conn = Connection::open(&db_path)
+        .context("Failed to open state database")?;
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
+        .context("Failed to set SQLite pragmas")?;
+    Ok(conn)
 }
 
 async fn list(verbose: bool) -> Result<()> {
     output::section("Libraries");
 
-    let db_path = get_db_path()?;
+    let conn = match open_db() {
+        Ok(c) => c,
+        Err(_) => {
+            output::info("No libraries configured yet.");
+            output::info("Add a library with: wqm library add <tag> <path>");
+            return Ok(());
+        }
+    };
 
-    if !db_path.exists() {
+    let mut stmt = conn.prepare(
+        "SELECT watch_id, tenant_id, path, library_mode, enabled, is_active, created_at, last_activity_at
+         FROM watch_folders WHERE collection = 'libraries' ORDER BY tenant_id"
+    ).context("Failed to query watch_folders")?;
+
+    let libraries: Vec<(String, String, String, Option<String>, bool, bool, String, Option<String>)> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, i32>(4)? != 0,
+                row.get::<_, i32>(5)? != 0,
+                row.get::<_, String>(6)?,
+                row.get::<_, Option<String>>(7)?,
+            ))
+        })
+        .context("Failed to read library rows")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("Failed to parse library rows")?;
+
+    if libraries.is_empty() {
         output::info("No libraries configured yet.");
         output::info("Add a library with: wqm library add <tag> <path>");
         return Ok(());
     }
 
-    // Query SQLite for watch_folders with library pattern
-    output::info("Library watch folders (from SQLite):");
-    output::info(&format!("  Database: {}", db_path.display()));
+    output::info(format!("Found {} library/libraries:", libraries.len()));
     output::separator();
 
-    // Show command to query directly
-    if verbose {
-        output::info("Query watch folders:");
-        output::info(&format!(
-            "  sqlite3 {} 'SELECT watch_id, path, library_mode, patterns, enabled FROM watch_folders WHERE watch_id LIKE \"lib-%\"'",
-            db_path.display()
-        ));
-    } else {
-        output::info("Use -v/--verbose to see query commands");
+    for (watch_id, tenant_id, path, mode, enabled, _is_active, created_at, last_activity) in &libraries {
+        let status = if *enabled { "watching" } else { "paused" };
+        let mode_str = mode.as_deref().unwrap_or("incremental");
+
+        output::kv("  Tag", tenant_id);
+        output::kv("  Path", path);
+        output::kv("  Status", status);
+        output::kv("  Mode", mode_str);
+        if verbose {
+            output::kv("  Watch ID", watch_id);
+            output::kv("  Created", created_at);
+            if let Some(activity) = last_activity {
+                output::kv("  Last Activity", activity);
+            }
+        }
+        output::separator();
     }
-
-    // Note: Full implementation would query SQLite directly
-    // For now, provide guidance to user
-    output::separator();
-    output::info("Library collections follow naming: _{library_name}");
-    output::info("Query Qdrant for library collections:");
-    output::info("  curl http://localhost:6333/collections | jq '.result.collections[] | select(.name | startswith(\"_\"))'");
 
     Ok(())
 }
@@ -232,26 +274,51 @@ async fn add(tag: &str, path: &PathBuf, mode: LibraryMode) -> Result<()> {
     let abs_path = path.canonicalize()
         .context("Could not resolve absolute path")?;
 
-    output::info(format!("Library tag: {}", tag));
-    output::info(format!("Path: {}", abs_path.display()));
-    output::info(format!("Mode: {} ({})", mode, mode_description(mode)));
-    output::separator();
+    let conn = open_db()?;
+    let watch_id = format!("lib-{}", tag);
+    let now = Utc::now().to_rfc3339();
+    let abs_path_str = abs_path.to_string_lossy().to_string();
 
-    // Library add creates metadata without watching
-    // This would write to SQLite with enabled=false
-    output::info("To add library with watching enabled, use:");
-    output::info(&format!("  wqm library watch {} {} --mode {}", tag, abs_path.display(), mode));
-    output::separator();
+    // Check for duplicate
+    let exists: bool = conn.query_row(
+        "SELECT 1 FROM watch_folders WHERE watch_id = ?",
+        [&watch_id],
+        |_| Ok(true),
+    ).unwrap_or(false);
 
-    output::info("Library metadata storage:");
-    output::info("  Libraries are stored in SQLite watch_folders table");
-    output::info("  Watch ID format: lib-{tag}");
-    output::info(&format!("  Collection name: _{}", tag));
-    output::info(&format!("  library_mode: {}", mode));
+    if exists {
+        output::error(format!("Library '{}' already exists. Use 'wqm library config' to update it.", tag));
+        return Ok(());
+    }
+
+    // Check for duplicate path
+    let path_exists: bool = conn.query_row(
+        "SELECT 1 FROM watch_folders WHERE path = ?",
+        [&abs_path_str],
+        |_| Ok(true),
+    ).unwrap_or(false);
+
+    if path_exists {
+        output::error(format!("Path '{}' is already registered.", abs_path.display()));
+        return Ok(());
+    }
+
+    // Insert into watch_folders (enabled=0 for add, use watch to enable)
+    conn.execute(
+        "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, library_mode, enabled, is_active, follow_symlinks, cleanup_on_disable, created_at, updated_at)
+         VALUES (?1, ?2, 'libraries', ?3, ?4, 0, 0, 0, 0, ?5, ?5)",
+        rusqlite::params![&watch_id, &abs_path_str, tag, &mode.to_string(), &now],
+    ).context("Failed to insert library into watch_folders")?;
+
+    output::success(format!("Library '{}' added (not watching yet)", tag));
+    output::kv("  Tag", tag);
+    output::kv("  Path", &abs_path_str);
+    output::kv("  Mode", &mode.to_string());
+    output::separator();
+    output::info("To start watching: wqm library watch <tag> <path>");
 
     // Signal daemon if available
     if let Ok(mut client) = DaemonClient::connect_default().await {
-        output::info("Daemon connected - signaling configuration change...");
         let request = RefreshSignalRequest {
             queue_type: QueueType::WatchedFolders as i32,
             lsp_languages: vec![],
@@ -273,7 +340,7 @@ fn mode_description(mode: LibraryMode) -> &'static str {
     }
 }
 
-async fn watch(tag: &str, path: &PathBuf, patterns: &[String], mode: LibraryMode) -> Result<()> {
+async fn watch(tag: &str, path: &PathBuf, _patterns: &[String], mode: LibraryMode) -> Result<()> {
     output::section(format!("Watch Library: {}", tag));
 
     // Validate path exists
@@ -285,50 +352,76 @@ async fn watch(tag: &str, path: &PathBuf, patterns: &[String], mode: LibraryMode
     let abs_path = path.canonicalize()
         .context("Could not resolve absolute path")?;
 
-    let patterns_str = if patterns.is_empty() {
-        vec!["*.pdf", "*.epub", "*.md", "*.txt", "*.html"]
-            .into_iter()
-            .map(String::from)
-            .collect::<Vec<_>>()
-    } else {
-        patterns.to_vec()
-    };
-
-    output::info(format!("Library tag: {}", tag));
-    output::info(format!("Path: {}", abs_path.display()));
-    output::info(format!("Patterns: {}", patterns_str.join(", ")));
-    output::info(format!("Mode: {} ({})", mode, mode_description(mode)));
-    output::separator();
-
-    // This would insert into SQLite watch_folders table
+    let conn = open_db()?;
     let watch_id = format!("lib-{}", tag);
-    let collection = format!("_{}", tag);
+    let now = Utc::now().to_rfc3339();
+    let abs_path_str = abs_path.to_string_lossy().to_string();
 
-    output::info("Watch configuration:");
-    output::kv("  watch_id", &watch_id);
-    output::kv("  collection", &collection);
-    output::kv("  library_mode", &mode.to_string());
-    output::kv("  auto_ingest", "true");
-    output::kv("  recursive", "true");
-    output::kv("  enabled", "true");
-    output::separator();
+    // Check if library already exists
+    let exists: bool = conn.query_row(
+        "SELECT 1 FROM watch_folders WHERE watch_id = ?",
+        [&watch_id],
+        |_| Ok(true),
+    ).unwrap_or(false);
 
-    output::info("To configure in SQLite:");
-    let db_path = get_db_path()?;
-    output::info(&format!(
-        "  sqlite3 {} \"INSERT INTO watch_folders (watch_id, path, collection, patterns, library_mode, enabled) VALUES ('{}', '{}', '{}', '{}', '{}', 1)\"",
-        db_path.display(),
-        watch_id,
-        abs_path.display(),
-        collection,
-        serde_json::to_string(&patterns_str).unwrap_or_default(),
-        mode
-    ));
+    if exists {
+        // Enable watching on existing library
+        conn.execute(
+            "UPDATE watch_folders SET enabled = 1, library_mode = ?, path = ?, updated_at = ?, last_activity_at = ? WHERE watch_id = ?",
+            rusqlite::params![&mode.to_string(), &abs_path_str, &now, &now, &watch_id],
+        ).context("Failed to enable watch")?;
+        output::success(format!("Library '{}' watching enabled", tag));
+    } else {
+        // Insert new library with watching enabled
+        conn.execute(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, library_mode, enabled, is_active, follow_symlinks, cleanup_on_disable, created_at, updated_at, last_activity_at)
+             VALUES (?1, ?2, 'libraries', ?3, ?4, 1, 0, 0, 0, ?5, ?5, ?5)",
+            rusqlite::params![&watch_id, &abs_path_str, tag, &mode.to_string(), &now],
+        ).context("Failed to insert library watch")?;
+        output::success(format!("Library '{}' added and watching enabled", tag));
+    }
+
+    output::kv("  Tag", tag);
+    output::kv("  Path", &abs_path_str);
+    output::kv("  Mode", &format!("{} ({})", mode, mode_description(mode)));
+
+    // Enqueue a folder scan for the library
+    match UnifiedQueueClient::connect() {
+        Ok(client) => {
+            let payload_json = serde_json::json!({
+                "folder_path": abs_path_str,
+                "recursive": true,
+            }).to_string();
+
+            match client.enqueue(
+                ItemType::Folder,
+                QueueOperation::Scan,
+                tag,            // tenant_id
+                "libraries",    // collection
+                &payload_json,
+                0,              // priority
+                "",             // branch (not applicable)
+                None,
+            ) {
+                Ok(result) => {
+                    if result.was_duplicate {
+                        output::info("Library scan already queued");
+                    } else {
+                        output::success("Library scan queued for ingestion");
+                    }
+                }
+                Err(e) => {
+                    output::warning(format!("Could not queue library scan: {}", e));
+                }
+            }
+        }
+        Err(e) => {
+            output::warning(format!("Could not connect to queue: {}. Daemon will scan on next poll.", e));
+        }
+    }
 
     // Signal daemon
     if let Ok(mut client) = DaemonClient::connect_default().await {
-        output::separator();
-        output::info("Signaling daemon to reload watch configuration...");
         let request = RefreshSignalRequest {
             queue_type: QueueType::WatchedFolders as i32,
             lsp_languages: vec![],
@@ -347,30 +440,35 @@ async fn watch(tag: &str, path: &PathBuf, patterns: &[String], mode: LibraryMode
 async fn unwatch(tag: &str) -> Result<()> {
     output::section(format!("Unwatch Library: {}", tag));
 
+    let conn = open_db()?;
     let watch_id = format!("lib-{}", tag);
-    let db_path = get_db_path()?;
+    let now = Utc::now().to_rfc3339();
 
-    output::info(format!("Disabling watch for library: {}", tag));
-    output::info(format!("Watch ID: {}", watch_id));
-    output::separator();
+    // Verify library exists
+    let exists: bool = conn.query_row(
+        "SELECT 1 FROM watch_folders WHERE watch_id = ? AND collection = 'libraries'",
+        [&watch_id],
+        |_| Ok(true),
+    ).unwrap_or(false);
 
-    output::info("To disable in SQLite:");
-    output::info(&format!(
-        "  sqlite3 {} \"UPDATE watch_folders SET enabled = 0 WHERE watch_id = '{}'\"",
-        db_path.display(),
-        watch_id
-    ));
+    if !exists {
+        output::error(format!("Library '{}' not found", tag));
+        return Ok(());
+    }
 
-    output::info("To remove completely:");
-    output::info(&format!(
-        "  sqlite3 {} \"DELETE FROM watch_folders WHERE watch_id = '{}'\"",
-        db_path.display(),
-        watch_id
-    ));
+    // Disable watching (keep the record for re-enabling later)
+    conn.execute(
+        "UPDATE watch_folders SET enabled = 0, updated_at = ? WHERE watch_id = ?",
+        rusqlite::params![&now, &watch_id],
+    ).context("Failed to disable watch")?;
+
+    output::success(format!("Library '{}' watching disabled", tag));
+    output::info("Existing indexed content is preserved.");
+    output::info("To re-enable: wqm library watch <tag> <path>");
+    output::info("To remove completely: wqm library remove <tag>");
 
     // Signal daemon
     if let Ok(mut client) = DaemonClient::connect_default().await {
-        output::separator();
         let request = RefreshSignalRequest {
             queue_type: QueueType::WatchedFolders as i32,
             lsp_languages: vec![],
@@ -388,17 +486,7 @@ async fn remove(tag: &str, skip_confirm: bool) -> Result<()> {
     output::section(format!("Remove Library: {}", tag));
 
     let watch_id = format!("lib-{}", tag);
-    let db_path = get_db_path()?;
-
-    // Check if database exists
-    if !db_path.exists() {
-        output::error("Database not found. Run daemon first to initialize.");
-        return Ok(());
-    }
-
-    // Check if library exists in watch_folders
-    let conn = Connection::open(&db_path)
-        .context("Failed to open state database")?;
+    let conn = open_db()?;
 
     let exists: bool = conn.query_row(
         "SELECT 1 FROM watch_folders WHERE watch_id = ?",
@@ -564,51 +652,77 @@ async fn rescan(tag: &str, force: bool) -> Result<()> {
 }
 
 async fn info(tag: Option<&str>) -> Result<()> {
+    let conn = match open_db() {
+        Ok(c) => c,
+        Err(e) => {
+            output::error(format!("Cannot read database: {}", e));
+            return Ok(());
+        }
+    };
+
     match tag {
         Some(t) => {
             output::section(format!("Library Info: {}", t));
 
             let watch_id = format!("lib-{}", t);
-            let collection = format!("_{}", t);
 
-            output::kv("Tag", t);
-            output::kv("Watch ID", &watch_id);
-            output::kv("Collection", &collection);
-            output::separator();
+            let result: Result<(String, String, Option<String>, bool, String, Option<String>, Option<String>), _> = conn.query_row(
+                "SELECT path, tenant_id, library_mode, enabled, created_at, updated_at, last_activity_at
+                 FROM watch_folders WHERE watch_id = ? AND collection = 'libraries'",
+                [&watch_id],
+                |row| Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, i32>(3)? != 0,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, Option<String>>(5).ok().flatten(),
+                    row.get::<_, Option<String>>(6).ok().flatten(),
+                )),
+            );
 
-            let db_path = get_db_path()?;
-            output::info("Query configuration:");
-            output::info(&format!(
-                "  sqlite3 {} \"SELECT * FROM watch_folders WHERE watch_id = '{}'\" -header -column",
-                db_path.display(),
-                watch_id
-            ));
+            match result {
+                Ok((path, tenant_id, mode, enabled, created_at, updated_at, last_activity)) => {
+                    let status = if enabled { "watching" } else { "paused" };
+                    output::kv("Tag", &tenant_id);
+                    output::kv("Watch ID", &watch_id);
+                    output::kv("Path", &path);
+                    output::kv("Status", status);
+                    output::kv("Mode", mode.as_deref().unwrap_or("incremental"));
+                    output::kv("Collection", "libraries");
+                    output::kv("Created", &created_at);
+                    if let Some(updated) = updated_at {
+                        output::kv("Updated", &updated);
+                    }
+                    if let Some(activity) = last_activity {
+                        output::kv("Last Activity", &activity);
+                    }
 
-            output::separator();
-            output::info("Query document count:");
-            output::info(&format!(
-                "  curl 'http://localhost:6333/collections/{}/points/count' -H 'Content-Type: application/json' -d '{{}}'",
-                collection
-            ));
+                    // Query tracked_files for file count
+                    output::separator();
+                    let file_count: i64 = conn.query_row(
+                        "SELECT COUNT(*) FROM tracked_files WHERE watch_folder_id = ?",
+                        [&watch_id],
+                        |row| row.get(0),
+                    ).unwrap_or(0);
+
+                    let chunk_count: i64 = conn.query_row(
+                        "SELECT COALESCE(SUM(chunk_count), 0) FROM tracked_files WHERE watch_folder_id = ?",
+                        [&watch_id],
+                        |row| row.get(0),
+                    ).unwrap_or(0);
+
+                    output::kv("Tracked Files", &file_count.to_string());
+                    output::kv("Total Chunks", &chunk_count.to_string());
+                }
+                Err(_) => {
+                    output::error(format!("Library '{}' not found", t));
+                }
+            }
         }
         None => {
-            output::section("All Libraries");
-
-            let db_path = get_db_path()?;
-            output::info("Library watch configurations:");
-            output::info(&format!(
-                "  sqlite3 {} \"SELECT watch_id, path, library_mode, enabled FROM watch_folders WHERE watch_id LIKE 'lib-%'\" -header -column",
-                db_path.display()
-            ));
-
-            output::separator();
-            output::info("Library modes:");
-            output::info("  sync: Deletes vectors when source files are removed");
-            output::info("  incremental: Append-only, never deletes vectors (default)");
-
-            output::separator();
-            output::info("Library collections in Qdrant (prefix with _):");
-            output::info("  curl http://localhost:6333/collections | jq '.result.collections[] | select(.name | startswith(\"_\")) | .name'");
+            // Show info for all libraries (delegates to list with verbose)
+            list(true).await?;
         }
     }
 
@@ -627,7 +741,6 @@ async fn status() -> Result<()> {
                 Ok(response) => {
                     let health = response.into_inner();
 
-                    // Look for file_watcher component
                     for comp in &health.components {
                         if comp.component_name.contains("watcher") || comp.component_name.contains("library") {
                             let comp_status = ServiceStatus::from_proto(comp.status);
@@ -645,23 +758,55 @@ async fn status() -> Result<()> {
         }
         Err(_) => {
             output::status_line("Daemon", ServiceStatus::Unhealthy);
-            output::error("Daemon not running");
+            output::warning("Daemon not running - start it with: wqm service start");
         }
     }
 
     output::separator();
-    output::info("Watch folder configuration stored in SQLite:");
 
-    let db_path = get_db_path()?;
-    output::info(&format!("  Database: {}", db_path.display()));
-    output::info("  Table: watch_folders");
+    // Show library watch status from SQLite
+    let conn = match open_db() {
+        Ok(c) => c,
+        Err(_) => {
+            output::info("No database found. Run daemon first to initialize.");
+            return Ok(());
+        }
+    };
+
+    let mut stmt = conn.prepare(
+        "SELECT tenant_id, path, library_mode, enabled FROM watch_folders WHERE collection = 'libraries' ORDER BY tenant_id"
+    ).context("Failed to query watch_folders")?;
+
+    let libraries: Vec<(String, String, Option<String>, bool)> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, i32>(3)? != 0,
+            ))
+        })
+        .context("Failed to read library rows")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("Failed to parse library rows")?;
+
+    if libraries.is_empty() {
+        output::info("No libraries configured.");
+        return Ok(());
+    }
+
+    output::info(format!("{} library/libraries configured:", libraries.len()));
+
+    let watching = libraries.iter().filter(|(_, _, _, e)| *e).count();
+    let paused = libraries.len() - watching;
+    output::kv("  Watching", &watching.to_string());
+    output::kv("  Paused", &paused.to_string());
     output::separator();
 
-    output::info("Query enabled library watches:");
-    output::info(&format!(
-        "  sqlite3 {} \"SELECT watch_id, path, library_mode FROM watch_folders WHERE watch_id LIKE 'lib-%' AND enabled = 1\"",
-        db_path.display()
-    ));
+    for (tag, path, mode, enabled) in &libraries {
+        let status_icon = if *enabled { "watching" } else { "paused" };
+        output::info(format!("{}: {} [{}] ({})", tag, path, status_icon, mode.as_deref().unwrap_or("incremental")));
+    }
 
     Ok(())
 }
@@ -669,28 +814,21 @@ async fn status() -> Result<()> {
 async fn config(
     tag: &str,
     mode: Option<LibraryMode>,
-    patterns: Option<String>,
+    _patterns: Option<String>,
     enable: bool,
     disable: bool,
     show: bool,
 ) -> Result<()> {
     output::section(format!("Library Configuration: {}", tag));
 
+    let conn = open_db()?;
     let watch_id = format!("lib-{}", tag);
-    let db_path = get_db_path()?;
-
-    // Check if database exists
-    if !db_path.exists() {
-        output::error("Database not found. Run daemon first to initialize.");
-        return Ok(());
-    }
-
-    let conn = Connection::open(&db_path).context("Failed to open state database")?;
+    let now = Utc::now().to_rfc3339();
 
     // Check if library exists
     let exists: bool = conn
         .query_row(
-            "SELECT 1 FROM watch_folders WHERE watch_id = ?",
+            "SELECT 1 FROM watch_folders WHERE watch_id = ? AND collection = 'libraries'",
             [&watch_id],
             |_| Ok(true),
         )
@@ -706,31 +844,31 @@ async fn config(
     }
 
     // Show current configuration
-    if show || (mode.is_none() && patterns.is_none() && !enable && !disable) {
+    if show || (mode.is_none() && !enable && !disable) {
         output::info("Current configuration:");
         output::separator();
 
-        let result: Result<(String, String, String, i32), _> = conn.query_row(
-            "SELECT path, library_mode, patterns, enabled FROM watch_folders WHERE watch_id = ?",
+        let result: Result<(String, Option<String>, i32, bool), _> = conn.query_row(
+            "SELECT path, library_mode, enabled, follow_symlinks FROM watch_folders WHERE watch_id = ?",
             [&watch_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get::<_, i32>(3)? != 0)),
         );
 
         match result {
-            Ok((path, lib_mode, pats, enabled)) => {
+            Ok((path, lib_mode, enabled, follow_symlinks)) => {
                 output::kv("Tag", tag);
                 output::kv("Watch ID", &watch_id);
                 output::kv("Path", &path);
-                output::kv("Mode", &lib_mode);
-                output::kv("Patterns", &pats);
+                output::kv("Mode", lib_mode.as_deref().unwrap_or("incremental"));
                 output::kv("Enabled", if enabled == 1 { "yes" } else { "no" });
+                output::kv("Follow Symlinks", if follow_symlinks { "yes" } else { "no" });
             }
             Err(e) => {
                 output::error(format!("Failed to read configuration: {}", e));
             }
         }
 
-        if mode.is_some() || patterns.is_some() || enable || disable {
+        if mode.is_some() || enable || disable {
             output::separator();
         }
     }
@@ -741,30 +879,18 @@ async fn config(
     if let Some(new_mode) = mode {
         output::info(format!("Setting mode to: {}", new_mode));
         conn.execute(
-            "UPDATE watch_folders SET library_mode = ? WHERE watch_id = ?",
-            [&new_mode.to_string(), &watch_id],
+            "UPDATE watch_folders SET library_mode = ?, updated_at = ? WHERE watch_id = ?",
+            rusqlite::params![&new_mode.to_string(), &now, &watch_id],
         )
         .context("Failed to update mode")?;
-        changes_made = true;
-    }
-
-    if let Some(new_patterns) = patterns {
-        let pattern_list: Vec<&str> = new_patterns.split(',').map(|s| s.trim()).collect();
-        let patterns_json = serde_json::to_string(&pattern_list).unwrap_or_default();
-        output::info(format!("Setting patterns to: {}", patterns_json));
-        conn.execute(
-            "UPDATE watch_folders SET patterns = ? WHERE watch_id = ?",
-            [&patterns_json, &watch_id],
-        )
-        .context("Failed to update patterns")?;
         changes_made = true;
     }
 
     if enable {
         output::info("Enabling watch...");
         conn.execute(
-            "UPDATE watch_folders SET enabled = 1 WHERE watch_id = ?",
-            [&watch_id],
+            "UPDATE watch_folders SET enabled = 1, updated_at = ? WHERE watch_id = ?",
+            rusqlite::params![&now, &watch_id],
         )
         .context("Failed to enable")?;
         changes_made = true;
@@ -773,8 +899,8 @@ async fn config(
     if disable {
         output::info("Disabling watch...");
         conn.execute(
-            "UPDATE watch_folders SET enabled = 0 WHERE watch_id = ?",
-            [&watch_id],
+            "UPDATE watch_folders SET enabled = 0, updated_at = ? WHERE watch_id = ?",
+            rusqlite::params![&now, &watch_id],
         )
         .context("Failed to disable")?;
         changes_made = true;
