@@ -63,13 +63,20 @@ impl Default for LoggingConfig {
 
 /// Returns the canonical OS-specific log directory for workspace-qdrant logs.
 ///
-/// Platform-specific paths:
-/// - Linux: `$XDG_STATE_HOME/workspace-qdrant/logs/` (default: `~/.local/state/workspace-qdrant/logs/`)
-/// - macOS: `~/Library/Logs/workspace-qdrant/`
-/// - Windows: `%LOCALAPPDATA%\workspace-qdrant\logs\`
+/// Precedence:
+/// 1. `WQM_LOG_DIR` environment variable (explicit override)
+/// 2. Platform-specific default:
+///    - Linux: `$XDG_STATE_HOME/workspace-qdrant/logs/` (default: `~/.local/state/workspace-qdrant/logs/`)
+///    - macOS: `~/Library/Logs/workspace-qdrant/`
+///    - Windows: `%LOCALAPPDATA%\workspace-qdrant\logs\`
 ///
 /// Falls back to a temp directory if home cannot be determined.
 pub fn get_canonical_log_dir() -> PathBuf {
+    // WQM_LOG_DIR takes highest precedence
+    if let Ok(custom_dir) = env::var("WQM_LOG_DIR") {
+        return PathBuf::from(custom_dir);
+    }
+
     #[cfg(target_os = "linux")]
     {
         env::var("XDG_STATE_HOME")
@@ -113,11 +120,18 @@ pub fn get_canonical_log_dir() -> PathBuf {
 
 impl LoggingConfig {
     /// Create logging configuration from environment variables
+    ///
+    /// Log level precedence: `WQM_LOG_LEVEL` > `RUST_LOG` > default (INFO)
     pub fn from_environment() -> Self {
         let mut config = Self::default();
 
         // Set log level from environment
-        if let Ok(level_str) = env::var("RUST_LOG") {
+        // Precedence: WQM_LOG_LEVEL > RUST_LOG > default
+        if let Ok(level_str) = env::var("WQM_LOG_LEVEL") {
+            if let Ok(level) = level_str.to_uppercase().parse::<Level>() {
+                config.level = level;
+            }
+        } else if let Ok(level_str) = env::var("RUST_LOG") {
             if let Ok(level) = level_str.to_uppercase().parse::<Level>() {
                 config.level = level;
             }
@@ -167,18 +181,26 @@ impl LoggingConfig {
     }
 
     /// Create production logging configuration with canonical OS log paths
+    ///
+    /// Respects `WQM_LOG_LEVEL`, `WQM_LOG_DIR`, and `WQM_LOG_FILE_PATH` env vars.
     pub fn production() -> Self {
         // Determine log file path using canonical OS-specific locations
         let log_file_path = if let Ok(custom_path) = env::var("WQM_LOG_FILE_PATH") {
             // Use custom path from environment variable (allows override)
             Some(PathBuf::from(custom_path))
         } else {
-            // Use canonical OS-specific log directory
+            // Use canonical OS-specific log directory (respects WQM_LOG_DIR)
             Some(get_canonical_log_dir().join("daemon.jsonl"))
         };
 
+        // Respect WQM_LOG_LEVEL for production too
+        let level = env::var("WQM_LOG_LEVEL")
+            .ok()
+            .and_then(|s| s.to_uppercase().parse::<Level>().ok())
+            .unwrap_or(Level::INFO);
+
         Self {
-            level: Level::INFO,
+            level,
             json_format: true,
             console_output: true,
             file_logging: true,
@@ -1185,6 +1207,7 @@ mod tests {
     fn test_logging_config_from_environment() {
         let keys = [
             "RUST_LOG",
+            "WQM_LOG_LEVEL",
             "WQM_LOG_JSON",
             "WQM_LOG_CONSOLE",
             "WQM_LOG_FILE",
@@ -1199,6 +1222,7 @@ mod tests {
             .map(|key| env::var(key).ok())
             .collect();
 
+        env::remove_var("WQM_LOG_LEVEL");
         env::set_var("RUST_LOG", "debug");
         env::set_var("WQM_LOG_JSON", "true");
         env::set_var("WQM_LOG_CONSOLE", "0");
@@ -1227,6 +1251,51 @@ mod tests {
                 Some(v) => env::set_var(key, v),
                 None => env::remove_var(key),
             }
+        }
+    }
+
+    #[serial]
+    #[test]
+    fn test_wqm_log_level_takes_precedence_over_rust_log() {
+        let prev_wqm = env::var("WQM_LOG_LEVEL").ok();
+        let prev_rust = env::var("RUST_LOG").ok();
+
+        // Set both; WQM_LOG_LEVEL should win
+        env::set_var("WQM_LOG_LEVEL", "WARN");
+        env::set_var("RUST_LOG", "TRACE");
+
+        let config = LoggingConfig::from_environment();
+        assert_eq!(config.level, Level::WARN);
+
+        // Clean up
+        match prev_wqm {
+            Some(v) => env::set_var("WQM_LOG_LEVEL", v),
+            None => env::remove_var("WQM_LOG_LEVEL"),
+        }
+        match prev_rust {
+            Some(v) => env::set_var("RUST_LOG", v),
+            None => env::remove_var("RUST_LOG"),
+        }
+    }
+
+    #[serial]
+    #[test]
+    fn test_wqm_log_dir_overrides_default() {
+        let prev = env::var("WQM_LOG_DIR").ok();
+
+        env::set_var("WQM_LOG_DIR", "/custom/log/path");
+        let dir = get_canonical_log_dir();
+        assert_eq!(dir, PathBuf::from("/custom/log/path"));
+
+        // Without the env var, should return a platform default (not /custom)
+        env::remove_var("WQM_LOG_DIR");
+        let dir = get_canonical_log_dir();
+        assert_ne!(dir, PathBuf::from("/custom/log/path"));
+
+        // Clean up
+        match prev {
+            Some(v) => env::set_var("WQM_LOG_DIR", v),
+            None => env::remove_var("WQM_LOG_DIR"),
         }
     }
 

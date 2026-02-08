@@ -109,7 +109,14 @@ pub async fn execute(args: DebugArgs) -> Result<()> {
 }
 
 /// Returns the canonical OS-specific log directory for workspace-qdrant logs.
+///
+/// Precedence: `WQM_LOG_DIR` > platform-specific default.
 fn get_canonical_log_dir() -> PathBuf {
+    // WQM_LOG_DIR takes highest precedence
+    if let Ok(custom_dir) = env::var("WQM_LOG_DIR") {
+        return PathBuf::from(custom_dir);
+    }
+
     #[cfg(target_os = "linux")]
     {
         env::var("XDG_STATE_HOME")

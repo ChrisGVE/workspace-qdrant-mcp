@@ -9,14 +9,22 @@ import { mkdirSync, existsSync } from 'node:fs';
 /**
  * Returns the canonical OS-specific log directory for workspace-qdrant logs.
  *
- * Platform-specific paths:
- * - Linux: $XDG_STATE_HOME/workspace-qdrant/logs/ (default: ~/.local/state/workspace-qdrant/logs/)
- * - macOS: ~/Library/Logs/workspace-qdrant/
- * - Windows: %LOCALAPPDATA%\workspace-qdrant\logs\
+ * Precedence:
+ * 1. `WQM_LOG_DIR` environment variable (explicit override)
+ * 2. Platform-specific default:
+ *    - Linux: $XDG_STATE_HOME/workspace-qdrant/logs/ (default: ~/.local/state/workspace-qdrant/logs/)
+ *    - macOS: ~/Library/Logs/workspace-qdrant/
+ *    - Windows: %LOCALAPPDATA%\workspace-qdrant\logs\
  *
  * Falls back to temp directory if home cannot be determined.
  */
 export function getLogDirectory(): string {
+  // WQM_LOG_DIR takes highest precedence
+  const customDir = process.env['WQM_LOG_DIR'];
+  if (customDir) {
+    return customDir;
+  }
+
   const home = homedir() || tmpdir();
   const currentPlatform = platform();
 
