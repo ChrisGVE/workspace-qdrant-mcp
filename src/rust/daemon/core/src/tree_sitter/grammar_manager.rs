@@ -116,12 +116,14 @@ impl GrammarManager {
             None
         };
 
+        let default_version = config.tree_sitter_version.clone();
+
         Self {
             config,
             loader,
             downloader,
             loaded_grammars: HashMap::new(),
-            default_version: "0.23.0".to_string(), // Default grammar version
+            default_version,
         }
     }
 
@@ -142,24 +144,47 @@ impl GrammarManager {
         // Try to load from cache
         match self.loader.load_grammar(language) {
             Ok(loaded) => {
-                // Check version compatibility
+                // Check ABI compatibility first
                 let compat = check_grammar_compatibility(&loaded.language);
                 if !compat.is_compatible() {
                     warn!(
                         language = language,
-                        "Grammar version incompatible, will try to download new version"
+                        "Grammar ABI incompatible, will try to download new version"
                     );
 
-                    // Try to download a new version if auto_download enabled
-                    if let Some(ref downloader) = self.downloader {
+                    if self.downloader.is_some() {
                         return self
                             .download_and_load(language, &self.default_version.clone())
                             .await;
                     } else {
                         return Err(GrammarError::VersionIncompatible(format!(
-                            "Grammar {} has incompatible version and auto_download is disabled",
+                            "Grammar {} has incompatible ABI version and auto_download is disabled",
                             language
                         )));
+                    }
+                }
+
+                // Check metadata version matches configured version
+                let cache_paths = self.loader.cache_paths();
+                if let Ok(Some(metadata)) = cache_paths.load_metadata(language) {
+                    if metadata.tree_sitter_version != self.config.tree_sitter_version {
+                        warn!(
+                            language = language,
+                            cached_version = %metadata.tree_sitter_version,
+                            expected_version = %self.config.tree_sitter_version,
+                            "Grammar metadata version mismatch, will try to re-download"
+                        );
+
+                        if self.downloader.is_some() {
+                            return self
+                                .download_and_load(language, &self.default_version.clone())
+                                .await;
+                        }
+                        // If auto_download is disabled, use the cached version anyway
+                        debug!(
+                            language = language,
+                            "Using cached grammar despite version mismatch (auto_download disabled)"
+                        );
                     }
                 }
 
@@ -171,7 +196,7 @@ impl GrammarManager {
             }
             Err(GrammarLoadError::NotFound(_)) => {
                 // Try to download if enabled
-                if let Some(ref downloader) = self.downloader {
+                if self.downloader.is_some() {
                     self.download_and_load(language, &self.default_version.clone())
                         .await
                 } else {
@@ -543,8 +568,8 @@ impl GrammarManager {
             debug!("{}", msg);
         }
 
-        // If all required are available or auto_download is disabled, return
-        if initial.is_valid() || self.downloader.is_none() {
+        // If nothing needs downloading or auto_download is disabled, return
+        if initial.needs_download.is_empty() || self.downloader.is_none() {
             return initial;
         }
 
@@ -562,6 +587,97 @@ impl GrammarManager {
 
         // Re-validate after preloading
         self.validate_grammars()
+    }
+
+    /// Check if a periodic grammar version check is due.
+    ///
+    /// Compares the `last_checked_at` timestamp in grammar metadata against
+    /// the configured `check_interval_hours`. Returns true if any required
+    /// grammar needs checking.
+    pub fn needs_periodic_check(&self) -> bool {
+        if self.config.check_interval_hours == 0 {
+            return false;
+        }
+
+        let interval = chrono::Duration::hours(self.config.check_interval_hours as i64);
+        let now = chrono::Utc::now();
+        let cache_paths = self.loader.cache_paths();
+
+        for language in &self.config.required {
+            if let Ok(Some(metadata)) = cache_paths.load_metadata(language) {
+                let last_check = metadata
+                    .last_checked_at
+                    .as_deref()
+                    .or(Some(metadata.cached_at.as_str()))
+                    .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc));
+
+                match last_check {
+                    Some(checked_at) if now - checked_at < interval => continue,
+                    _ => return true,
+                }
+            } else {
+                // No metadata means no check has been done
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Perform a periodic grammar version check.
+    ///
+    /// For each required grammar, checks if the cached version matches the
+    /// configured `tree_sitter_version`. Re-downloads if mismatched and
+    /// auto_download is enabled. Updates `last_checked_at` timestamps.
+    ///
+    /// This method is designed to be called by the daemon's main loop at
+    /// the interval specified by `check_interval_hours`.
+    pub async fn periodic_version_check(&mut self) -> HashMap<String, GrammarResult<()>> {
+        let mut results = HashMap::new();
+
+        if self.downloader.is_none() {
+            debug!("Periodic grammar check skipped: auto_download disabled");
+            return results;
+        }
+
+        info!("Running periodic grammar version check");
+
+        let required = self.config.required.clone();
+        let expected_version = self.config.tree_sitter_version.clone();
+        let cache_paths = self.loader.cache_paths().clone();
+
+        for language in &required {
+            let needs_update = if let Ok(Some(metadata)) = cache_paths.load_metadata(language) {
+                metadata.tree_sitter_version != expected_version
+            } else {
+                true // No metadata means grammar needs download
+            };
+
+            if needs_update {
+                info!(
+                    language = language.as_str(),
+                    expected_version = expected_version.as_str(),
+                    "Grammar version mismatch, re-downloading"
+                );
+                let result = self.get_grammar(language).await.map(|_| ());
+                results.insert(language.clone(), result);
+            } else {
+                // Update last_checked_at timestamp
+                if let Ok(Some(mut metadata)) = cache_paths.load_metadata(language) {
+                    metadata.mark_checked();
+                    if let Err(e) = cache_paths.save_metadata(language, &metadata) {
+                        warn!(
+                            language = language.as_str(),
+                            "Failed to update grammar check timestamp: {}", e
+                        );
+                    }
+                }
+                results.insert(language.clone(), Ok(()));
+            }
+        }
+
+        results
     }
 }
 
@@ -939,8 +1055,6 @@ mod tests {
 
     #[test]
     fn test_clear_cache_with_cached_grammar() {
-        use crate::tree_sitter::grammar_cache::grammar_filename;
-
         let temp_dir = TempDir::new().unwrap();
         let config = test_config(&temp_dir, true);
         let manager = GrammarManager::new(config);
@@ -1024,5 +1138,99 @@ mod tests {
         // Reloading all when nothing is loaded should return empty map
         let results = manager.reload_all().await;
         assert!(results.is_empty());
+    }
+
+    #[test]
+    fn test_default_version_from_config() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, true);
+        let manager = GrammarManager::new(config);
+
+        // default_version should match config.tree_sitter_version, not hardcoded
+        assert_eq!(manager.default_version, "0.24");
+    }
+
+    #[test]
+    fn test_default_version_custom_config() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = GrammarConfig {
+            tree_sitter_version: "0.25.1".to_string(),
+            ..test_config(&temp_dir, true)
+        };
+        let manager = GrammarManager::new(config);
+
+        assert_eq!(manager.default_version, "0.25.1");
+    }
+
+    #[test]
+    fn test_needs_periodic_check_no_metadata() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, true);
+        let manager = GrammarManager::new(config);
+
+        // No metadata files exist, so periodic check is needed
+        assert!(manager.needs_periodic_check());
+    }
+
+    #[test]
+    fn test_needs_periodic_check_recent_metadata() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, true);
+        let manager = GrammarManager::new(config);
+
+        // Create metadata with recent last_checked_at for all required grammars
+        let cache_paths = manager.loader.cache_paths();
+        for lang in &["rust", "python"] {
+            cache_paths.create_directories(lang).unwrap();
+            std::fs::write(cache_paths.grammar_path(lang), "fake").unwrap();
+
+            let mut metadata = GrammarMetadata::new(
+                *lang,
+                "0.24",
+                "0.24.0",
+                &cache_paths.platform,
+                "checksum",
+            );
+            metadata.mark_checked();
+            cache_paths.save_metadata(lang, &metadata).unwrap();
+        }
+
+        // Recent check - should not need periodic check
+        assert!(!manager.needs_periodic_check());
+    }
+
+    #[test]
+    fn test_needs_periodic_check_disabled() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = GrammarConfig {
+            check_interval_hours: 0,
+            ..test_config(&temp_dir, true)
+        };
+        let manager = GrammarManager::new(config);
+
+        // check_interval_hours = 0 disables periodic checks
+        assert!(!manager.needs_periodic_check());
+    }
+
+    #[test]
+    fn test_default_url_template_has_all_placeholders() {
+        // Verify the default URL template contains all required placeholders
+        let config = GrammarConfig::default();
+        assert!(config.download_base_url.contains("{language}"));
+        assert!(config.download_base_url.contains("{version}"));
+        assert!(config.download_base_url.contains("{platform}"));
+        assert!(config.download_base_url.contains("{ext}"));
+        // Verify it's a complete URL, not just a base path
+        assert!(config.download_base_url.contains("tree-sitter-{language}-{platform}"));
+    }
+
+    #[tokio::test]
+    async fn test_periodic_version_check_no_downloader() {
+        let temp_dir = TempDir::new().unwrap();
+        let config = test_config(&temp_dir, false); // auto_download disabled
+        let mut manager = GrammarManager::new(config);
+
+        let results = manager.periodic_version_check().await;
+        assert!(results.is_empty()); // Skipped because no downloader
     }
 }

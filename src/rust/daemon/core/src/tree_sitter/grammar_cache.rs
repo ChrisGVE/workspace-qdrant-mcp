@@ -32,6 +32,9 @@ pub struct GrammarMetadata {
     pub download_url: Option<String>,
     /// Timestamp when grammar was cached (ISO 8601)
     pub cached_at: String,
+    /// Timestamp of last version check (ISO 8601), used for periodic checking
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub last_checked_at: Option<String>,
 }
 
 impl GrammarMetadata {
@@ -51,7 +54,13 @@ impl GrammarMetadata {
             checksum: checksum.into(),
             download_url: None,
             cached_at: chrono::Utc::now().to_rfc3339(),
+            last_checked_at: None,
         }
+    }
+
+    /// Update the last_checked_at timestamp to now.
+    pub fn mark_checked(&mut self) {
+        self.last_checked_at = Some(chrono::Utc::now().to_rfc3339());
     }
 }
 

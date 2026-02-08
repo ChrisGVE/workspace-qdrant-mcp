@@ -641,7 +641,7 @@ fn default_tree_sitter_version() -> String {
 }
 
 fn default_download_base_url() -> String {
-    "https://github.com/tree-sitter/tree-sitter-{language}/releases/download".to_string()
+    "https://github.com/tree-sitter/tree-sitter-{language}/releases/download/v{version}/tree-sitter-{language}-{platform}.{ext}".to_string()
 }
 
 impl Default for GrammarConfig {
