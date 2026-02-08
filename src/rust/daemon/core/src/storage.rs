@@ -603,31 +603,42 @@ impl StorageClient {
         Ok(())
     }
 
-    /// Delete points from a collection by file_path filter
+    /// Delete points from a collection by file_path AND tenant_id filter
     ///
-    /// Uses Qdrant's delete_points API with a filter condition to remove all points
-    /// that match the specified file_path. This is the primary deletion method for
-    /// file-based operations.
+    /// Uses Qdrant's delete_points API with a combined filter condition to remove
+    /// all points matching both the file_path and tenant_id. Tenant isolation is
+    /// enforced to prevent cross-tenant data deletion in shared collections.
     ///
     /// # Arguments
     /// * `collection_name` - The collection to delete points from
     /// * `file_path` - The file_path to match for deletion
+    /// * `tenant_id` - The tenant_id to scope the deletion (must not be empty)
     ///
     /// # Returns
     /// * `Ok(u64)` - Number of points deleted (estimated from operation)
-    /// * `Err(StorageError)` - If deletion fails
+    /// * `Err(StorageError)` - If deletion fails or tenant_id is empty
     pub async fn delete_points_by_filter(
         &self,
         collection_name: &str,
         file_path: &str,
+        tenant_id: &str,
     ) -> Result<u64, StorageError> {
+        if tenant_id.trim().is_empty() {
+            return Err(StorageError::Point(
+                "tenant_id must not be empty for delete operations".to_string(),
+            ));
+        }
+
         info!(
-            "Deleting points with file_path='{}' from collection '{}'",
-            file_path, collection_name
+            "Deleting points with file_path='{}' tenant_id='{}' from collection '{}'",
+            file_path, tenant_id, collection_name
         );
 
-        // Build filter to match file_path
-        let filter = Filter::must([Condition::matches("file_path", file_path.to_string())]);
+        // Build filter requiring BOTH file_path AND tenant_id match
+        let filter = Filter::must([
+            Condition::matches("file_path", file_path.to_string()),
+            Condition::matches("tenant_id", tenant_id.to_string()),
+        ]);
 
         // Build delete request
         let delete_request = DeletePointsBuilder::new(collection_name)
@@ -643,11 +654,9 @@ impl StorageClient {
         })
         .await?;
 
-        // Note: Qdrant's delete_points doesn't return count of deleted points directly
-        // We log success and return 0 as placeholder - caller should verify if needed
         info!(
-            "Successfully deleted points with file_path='{}' from '{}'",
-            file_path, collection_name
+            "Successfully deleted points with file_path='{}' tenant_id='{}' from '{}'",
+            file_path, tenant_id, collection_name
         );
 
         Ok(0) // Qdrant delete doesn't return count
@@ -662,6 +671,12 @@ impl StorageClient {
         collection_name: &str,
         tenant_id: &str,
     ) -> Result<u64, StorageError> {
+        if tenant_id.trim().is_empty() {
+            return Err(StorageError::Point(
+                "tenant_id must not be empty for tenant delete operations".to_string(),
+            ));
+        }
+
         info!(
             "Deleting points with tenant_id='{}' from collection '{}'",
             tenant_id, collection_name

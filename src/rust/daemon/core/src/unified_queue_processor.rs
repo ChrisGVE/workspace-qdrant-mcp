@@ -779,9 +779,9 @@ impl UnifiedQueueProcessor {
                     .await
                     .unwrap_or_default();
                 if !old_point_ids.is_empty() {
-                    // Delete old points by filter (file_path) as we lack batch-by-id API
+                    // Delete old points by filter (file_path + tenant_id) as we lack batch-by-id API
                     storage_client
-                        .delete_points_by_filter(&item.collection, &payload.file_path)
+                        .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
                         .await
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }
@@ -789,7 +789,7 @@ impl UnifiedQueueProcessor {
             } else {
                 // Not tracked yet -- defensive cleanup: delete by filter as fallback for update
                 storage_client
-                    .delete_points_by_filter(&item.collection, &payload.file_path)
+                    .delete_points_by_filter(&item.collection, &payload.file_path, &item.tenant_id)
                     .await
                     .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
             }
@@ -1070,9 +1070,9 @@ impl UnifiedQueueProcessor {
                     .unwrap_or_default();
 
                 if !point_ids.is_empty() {
-                    // Delete from Qdrant first (irreversible)
+                    // Delete from Qdrant first (irreversible), scoped to tenant
                     storage_client
-                        .delete_points_by_filter(&item.collection, abs_file_path)
+                        .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
                         .await
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }
@@ -1105,10 +1105,10 @@ impl UnifiedQueueProcessor {
             }
         }
 
-        // Fallback: file not in tracked_files, attempt Qdrant filter delete
+        // Fallback: file not in tracked_files, attempt Qdrant filter delete (tenant-scoped)
         warn!("File not in tracked_files, falling back to Qdrant filter delete: {}", abs_file_path);
         storage_client
-            .delete_points_by_filter(&item.collection, abs_file_path)
+            .delete_points_by_filter(&item.collection, abs_file_path, &item.tenant_id)
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
@@ -1266,15 +1266,15 @@ impl UnifiedQueueProcessor {
                 }
             }
             QueueOperation::Delete => {
-                // Delete project collection
+                // Delete project data (tenant-scoped, not the whole collection)
                 if storage_client
                     .collection_exists(&item.collection)
                     .await
                     .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
                 {
-                    info!("Deleting project collection: {}", item.collection);
+                    info!("Deleting project data for tenant={} from collection={}", item.tenant_id, item.collection);
                     storage_client
-                        .delete_collection(&item.collection)
+                        .delete_points_by_tenant(&item.collection, &item.tenant_id)
                         .await
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }
@@ -1727,9 +1727,9 @@ impl UnifiedQueueProcessor {
                     .await
                     .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
                 {
-                    info!("Deleting library collection: {}", item.collection);
+                    info!("Deleting library data for tenant={} from collection={}", item.tenant_id, item.collection);
                     storage_client
-                        .delete_collection(&item.collection)
+                        .delete_points_by_tenant(&item.collection, &item.tenant_id)
                         .await
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }
@@ -1760,21 +1760,14 @@ impl UnifiedQueueProcessor {
             item.queue_id, item.tenant_id
         );
 
-        // Delete all points with matching tenant_id from the collection
-        // This requires a filter-based deletion
+        // Delete all points with matching tenant_id from the collection (tenant-scoped)
         if storage_client
             .collection_exists(&item.collection)
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
         {
-            // For now, we delete the entire collection if it's a tenant-specific collection
-            // In future, implement filter-based deletion by tenant_id
-            warn!(
-                "Tenant deletion for {} - deleting collection {}",
-                item.tenant_id, item.collection
-            );
             storage_client
-                .delete_collection(&item.collection)
+                .delete_points_by_tenant(&item.collection, &item.tenant_id)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
@@ -1812,14 +1805,14 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
         {
             storage_client
-                .delete_points_by_filter(&item.collection, doc_id)
+                .delete_points_by_filter(&item.collection, doc_id, &item.tenant_id)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
 
         info!(
-            "Successfully deleted document {} from {}",
-            doc_id, item.collection
+            "Successfully deleted document {} from {} (tenant={})",
+            doc_id, item.collection, item.tenant_id
         );
 
         Ok(())
@@ -1857,7 +1850,7 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
         {
             storage_client
-                .delete_points_by_filter(&item.collection, old_path)
+                .delete_points_by_filter(&item.collection, old_path, &item.tenant_id)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
