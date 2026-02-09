@@ -4066,46 +4066,70 @@ This section documents research findings and architectural ideas that may be pur
 
 | DB | License | Embeddable | Query Language | Multi-process R/W | Verdict |
 |----|---------|------------|----------------|-------------------|---------|
-| SQLite adjacency | Public domain | Yes | SQL + recursive CTE | WAL: 1 writer + N readers | **Best fit for architecture** |
-| Kuzu | MIT | Yes (Rust + Node.js) | Full Cypher | No concurrent R+W | Best graph engine, concurrency limitation |
-| Neo4j Community | GPLv3 + Commons Clause | No (separate JVM) | Cypher | Yes | Too heavy, licensing friction |
+| Kuzu | MIT | Yes (Rust + Node.js) | Full Cypher | No concurrent R+W | **Best graph engine** — concurrency solved via dedicated daemon |
+| SQLite adjacency | Public domain | Yes | SQL + recursive CTE | WAL: 1 writer + N readers | Viable fallback, but 3+ hop queries get expensive |
+| Neo4j Community | GPLv3 + Commons Clause | No (separate JVM) | Cypher | Yes | Too heavy, licensing friction (GPLv3 + Commons Clause) |
 | SurrealDB | Apache 2.0 | Yes (Rust) | SurrealQL | Yes | Multi-model, vector HNSW persistence incomplete |
-| Oxigraph | Apache 2.0/MIT | Yes (Rust) | SPARQL (RDF only) | N/A | Wrong data model for property graphs |
+| Oxigraph | Apache 2.0/MIT | Yes (Rust) | SPARQL (RDF only) | N/A | Wrong data model (RDF triples, not property graphs) |
 
-**Architecture constraint:** This system uses a multi-process architecture where the daemon writes data and the MCP server + CLI read it from separate processes. Kuzu does NOT support safe concurrent read+write access across processes (see [Kuzu concurrency docs](https://docs.kuzudb.com/concurrency/)). SQLite with WAL mode supports exactly this pattern (one writer + multiple readers).
+**Kuzu concurrency constraint:** Kuzu does NOT support safe concurrent read+write access across processes (see [Kuzu concurrency docs](https://docs.kuzudb.com/concurrency/)). However, single-process exclusive access with serialized operations is fully supported. Kuzu benchmarks show up to 188x faster multi-hop traversal than Neo4j for analytical queries.
 
-**Recommended two-tier approach:**
+**Qdrant confirmed** as the right choice for vector search. No multi-model database matches Qdrant's vector performance. The architecture combines specialized systems: Qdrant (vectors) + Kuzu (graph) + SQLite (state/metadata).
 
-1. **SQLite `code_relationships` table** — stores graph edges, queryable by MCP server and CLI directly (multi-process safe). Covers 1-2 hop queries efficiently.
-2. **Kuzu (daemon-internal)** — optional, used by the daemon for advanced graph analytics (community detection, centrality, impact analysis) during ingestion or batch operations. Results are materialized back to SQLite or Qdrant metadata for query-time access.
+**Recommended approach: Dedicated graph daemon (graphd)**
 
-**SQLite schema for graph edges:**
+A separate Rust daemon (`graphd`) owns the Kuzu database exclusively, serving both write and query operations via gRPC. This resolves the concurrency limitation while providing full Cypher capabilities at query time — no capability loss from materialization or SQL approximation.
 
-```sql
-CREATE TABLE code_relationships (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_file TEXT NOT NULL,
-    source_symbol TEXT NOT NULL,
-    target_file TEXT NOT NULL,
-    target_symbol TEXT NOT NULL,
-    relationship_type TEXT NOT NULL,  -- calls, imports, extends, implements, uses_type, mentions
-    tenant_id TEXT NOT NULL,
-    confidence REAL DEFAULT 1.0,      -- 1.0 for LSP-verified, <1.0 for heuristic/text-match
-    created_at TEXT DEFAULT (datetime('now'))
-);
-
-CREATE INDEX idx_code_rel_source ON code_relationships(source_file, source_symbol);
-CREATE INDEX idx_code_rel_target ON code_relationships(target_file, target_symbol);
-CREATE INDEX idx_code_rel_tenant ON code_relationships(tenant_id);
-CREATE INDEX idx_code_rel_type ON code_relationships(relationship_type);
 ```
+MCP Server (TypeScript)
+    ├── Vector search    → Qdrant (direct HTTP/gRPC)
+    ├── Graph queries    → graphd (gRPC)
+    └── State/metadata   → SQLite state.db (direct read-only)
+
+memexd (Rust daemon)
+    ├── File watching    → filesystem (notify)
+    ├── Embedding        → ONNX Runtime (all-MiniLM-L6-v2)
+    ├── Vector writes    → Qdrant (direct)
+    ├── Graph edges      → graphd (gRPC)
+    └── State writes     → SQLite state.db (WAL mode)
+
+graphd (Rust daemon)
+    ├── Graph storage    → Kuzu database (exclusive access)
+    ├── Write API        → gRPC (receives edges from memexd)
+    ├── Query API        → gRPC (serves MCP server, CLI, memexd)
+    └── Analytics        → Kuzu Cypher (community detection, centrality, impact analysis)
+
+CLI (Rust)
+    ├── Vector queries   → Qdrant (direct)
+    ├── Graph queries    → graphd (gRPC)
+    └── State queries    → SQLite state.db (direct read-only)
+```
+
+**Why a separate daemon, not embedded:**
+- Eliminates Kuzu's concurrency limitation (single process = single owner)
+- Full Cypher available at query time (multi-hop traversal, path finding, graph algorithms)
+- Follows the established pattern (same launchd management, gRPC integration, binary distribution as memexd)
+- Future-proof: if Kuzu adds multi-process concurrency, the gRPC interface remains the contract
+- Clean separation of concerns: each daemon does one thing well
+
+**Graph daemon storage:** `~/.workspace-qdrant/graph/` (Kuzu database directory)
+
+**Graph daemon management:** Same launchd plist pattern as memexd. Single-threaded with internal queue for write operations. Read queries served directly. Managed via CLI (`wqm service install --graph`, `wqm service start --graph`).
 
 **Query pattern:**
 
-1. Vector search finds semantically relevant chunks
-2. SQLite graph traversal expands results to structurally related code (1-2 hops)
-3. Results are re-ranked combining semantic similarity + graph proximity
-4. For advanced analytics (impact analysis, community detection), daemon pre-computes via Kuzu and stores results as metadata
+1. Vector search finds semantically relevant chunks (Qdrant)
+2. Graph traversal expands results to structurally related code (graphd, full Cypher — no hop limit)
+3. Results re-ranked combining semantic similarity + graph proximity
+4. Advanced analytics (community detection, centrality, impact analysis) available as direct Cypher queries
+
+**Graph schema (Kuzu property graph):**
+
+Node types: `File`, `Function`, `Class`, `Method`, `Struct`, `Trait`, `Module`, `Document`
+
+Edge types: `CALLS`, `IMPORTS`, `EXTENDS`, `IMPLEMENTS`, `USES_TYPE`, `CONTAINS`, `MENTIONS`
+
+Each node and edge carries a `tenant_id` property for project isolation. Cross-tenant queries are explicitly forbidden.
 
 ### Cross-Project Search
 
@@ -4132,11 +4156,13 @@ Search should support three scopes, selectable per query:
 
 **Observation:** Not all files in a project folder are "project code." Research papers, development notes, experiment results, and reference PDFs are background knowledge that supports the project but clutters code search results.
 
-**Revised approach — content-type routing:**
-- **Code files** (source, config, specs, tests, documentation): Stay in `projects` collection with project `tenant_id`
-- **Reference/background files** (PDFs, research papers, downloaded references): Route to `libraries` collection with a `source_project_id` metadata field linking them back to their project
+**Revised approach — format-based routing (deterministic, no content classification):**
+- **Developer-created text files** (`.md`, `.txt`, `.rst`, source code, configs, specs, tests): Stay in `projects` collection with project `tenant_id`. This includes experiment notes, PoC write-ups, and development logs — these are project context, not parasites. Vector search naturally ranks code higher for code queries and notes higher for design rationale queries.
+- **Binary/downloaded reference files** (`.pdf`, `.epub`, `.djvu`, `.docx`): Route to `libraries` collection with a `source_project_id` metadata field linking them back to their project. These are external reference material, not developer-created project artifacts.
 
-This leverages the existing architectural separation: `projects` collection is optimized for code intelligence (tree-sitter, LSP enrichment), `libraries` collection is optimized for document retrieval (chunk-based, no AST parsing).
+**Rationale for keeping .md experiments in projects:** Experiment notes, PoC results, and development logs answer questions like "why did we choose this algorithm?" and "what did we try that didn't work?" — genuinely valuable project context. The occasional noise in code search is far less costly than the complexity of content-based classification to sort .md files. The hybrid search system handles relevance naturally: code-related queries rank code chunks higher; design rationale queries rank notes higher.
+
+**Configurable edge cases:** `.docx` files could exist in either context (a spec written in Word vs. a downloaded paper). The default routes `.docx` to libraries, but users can override per-project via configuration. The routing rule is extension-based and lives in the watching configuration.
 
 **Cross-collection search:** Qdrant does not support native cross-collection queries. Implementation requires issuing parallel queries to both collections and merging results via RRF. The MCP `search` tool would accept an optional `include_libraries: true` parameter (default false for code queries, true for general knowledge queries).
 
@@ -4168,21 +4194,54 @@ Example: Library root "main" containing `computer_science/design_patterns/Gang_o
 
 **Problem:** Manual tagging creates mental overhead and inconsistent coverage. Tags should be generated automatically from available signals.
 
-**Automated tagging pipeline (no LLM required for base tier):**
+**Core principle: per-chunk aggregation.** Tags are not derived from a document summary or its first N tokens. Instead, each chunk (without overlap) is independently tagged, then tags are aggregated across all chunks by frequency. Tags appearing in the highest fraction of chunks represent the document's dominant topics. This naturally weights tags by coverage — a QM textbook mentioning "Schrödinger equation" in 40% of chunks gets a strong tag; "classical limit" in 3% gets a weak tag. A configurable `min_frequency` threshold (e.g., 10% of chunks) filters noise.
 
-1. **Path-derived tags**: Parse directory names and filenames into normalized topic tags. `computer_science/design_patterns/` → tags: `computer-science`, `design-patterns`
-2. **PDF metadata extraction**: Extract title, author, subject, keywords from PDF document metadata fields (available in most academic papers and textbooks)
-3. **TF-IDF keyword extraction**: Extract top-N distinctive terms from document content, filtered against a stop-word list. Produces topic-level tags without requiring ML.
-4. **Embedding-based clustering**: Group documents by embedding similarity (we already generate embeddings). Cluster labels derived from the most distinctive terms within each cluster.
+**Concept normalization:** Raw implementation-level names (library names, API names) must be mapped to concept-level tags. `regex` (Rust crate), `re` (Python stdlib), `pcre` (C library), and `oniguruma` (Ruby) all map to the concept `regular-expressions`. Without normalization, two projects using the same concept in different languages appear unrelated.
 
-**Enhanced tagging (optional, requires LLM access):**
+Normalization sources (in order of preference):
+1. **Package registry categories**: crates.io categories (`text-processing`, `parsing`), npm keywords, PyPI classifiers. These are already concept-level and maintained by the package ecosystem.
+2. **Curated concept dictionary**: A mapping from common library names to concepts, generated once by an LLM and stored as a configuration file (`assets/concept_normalization.yaml`). One-time cost, periodically refreshed.
+3. **Embedding-based semantic grouping**: Embed dependency descriptions (from registry metadata). Libraries with similar descriptions cluster into shared concept tags.
 
-5. **LLM-based classification**: Send first ~500 tokens + extracted metadata to the MCP-connected LLM, ask for 3-5 topic tags. This produces the highest quality tags but requires LLM availability.
-6. **Zero-shot classification**: Compare document embedding against embeddings of a predefined topic taxonomy. No LLM call needed, uses the existing embedding model.
+**Automated tagging pipeline:**
 
-**Tag inheritance:** Tags propagate to contained documents. A folder tagged `physics` automatically tags all documents within it. Document-level tags override or extend folder-level tags.
+**Tier 1 — Zero-cost heuristics (always active, no ML):**
+1. **Path-derived tags**: Parse directory names and filenames into normalized topic tags. `computer_science/design_patterns/` → tags: `computer-science`, `design-patterns`. Most reliable signal because directory names tend to be conceptual.
+2. **PDF metadata extraction**: Extract title, author, subject, keywords from PDF document metadata fields. Available in most academic papers and textbooks without content analysis.
+3. **Dependency-derived concepts** (projects only): Parse dependency files (Cargo.toml, package.json, requirements.txt), normalize via concept dictionary/registry categories. Produces project-level topic tags.
 
-**Applicability to projects:** The same pipeline applies to project grouping. Dependency file analysis (Cargo.toml, package.json) provides strong domain signals. README content provides semantic classification.
+**Tier 2 — Embedding-based (uses existing model, no LLM):**
+4. **TF-IDF keyword extraction per chunk**: Extract top distinctive terms from each chunk, aggregate by frequency across all chunks. Filtered against stop-word list. Produces content-level topic tags.
+5. **Embedding-based clustering**: Group documents by embedding similarity (embeddings already generated during ingestion). Cluster labels derived from distinctive terms within each cluster.
+6. **Zero-shot classification**: Compare document embedding against embeddings of a predefined topic taxonomy (~100 terms). If cosine similarity exceeds threshold, apply the tag. Uses existing embedding model.
+
+**Tier 3 — LLM-assisted (optional, configurable, independent from MCP session):**
+7. **LLM-based chunk tagging**: For each chunk, ask a configured LLM for 3-5 topic tags. Aggregate across chunks by frequency. Top-N by frequency = document tags.
+
+**Tier 3 LLM configuration:** The tagging LLM is independent from the MCP-connected LLM session. Tagging happens during daemon ingestion, which may run when no LLM session is active. The model is configurable:
+
+```yaml
+# In default_configuration.yaml
+tagging:
+  auto_tag: true
+  min_frequency: 0.1              # Tag must appear in ≥10% of chunks
+  top_n_tags: 10                  # Maximum tags per document
+  tier3_enabled: false            # LLM tagging off by default
+  tier3_provider: "anthropic"     # anthropic, openai, ollama, none
+  tier3_model: "claude-haiku"     # Cheapest appropriate model
+  tier3_api_key_env: "ANTHROPIC_API_KEY"
+  tier3_ollama_url: "http://localhost:11434"  # For local models
+```
+
+Supported providers:
+- **Anthropic** (Haiku recommended for cost efficiency)
+- **OpenAI** (GPT-4o-mini or similar low-cost model)
+- **Ollama** (local models for users with hardware — no API cost, no network dependency)
+- **None** (Tiers 1-2 only)
+
+**Tag inheritance:** Tags propagate to contained documents. A folder tagged `physics` automatically tags all documents within it. Document-level tags extend folder-level tags.
+
+**Applicability to projects:** The same pipeline applies to project grouping. Dependency analysis with concept normalization provides strong domain signals. README content embedding provides semantic classification. Two projects with different dependency names but the same concepts (e.g., `regex` and `re`) are correctly grouped.
 
 ### Knowledge Overlap and Complementary Sources
 
@@ -4194,21 +4253,81 @@ Example: Library root "main" containing `computer_science/design_patterns/Gang_o
 - **Source diversity in results**: When multiple chunks from different sources match a query, prefer diverse results (1 chunk from each of 3 books) over concentrated results (3 chunks from 1 book). This is a post-retrieval re-ranking step.
 - **Contradiction handling**: Not automatically resolved. Provenance metadata enables the LLM consumer to reason about conflicting sources. Academic research confirms this remains an unsolved problem for automated systems.
 
-### Kuzu as Daemon-Internal Graph Engine
+### Graph Daemon (graphd) — Kuzu Service
 
-**Evaluation:** Kuzu (MIT, embeddable, Cypher, 188x faster than Neo4j for analytical queries) is the strongest candidate for advanced graph analytics. It has official bindings for both Rust and Node.js (`kuzu` npm package).
+**Evaluation:** Kuzu (MIT, embeddable, Cypher, 188x faster than Neo4j for analytical queries) is the strongest candidate for graph storage and analytics. It has official bindings for both Rust (`kuzu` crate) and Node.js (`kuzu` npm package).
 
-**Concurrency constraint:** Kuzu does NOT support safe concurrent read+write across processes. Only one process may have write access; multiple read-only processes are safe only when no writer is active. This precludes the MCP server and CLI from directly querying a Kuzu database that the daemon writes to.
+**Concurrency constraint and solution:** Kuzu does NOT support safe concurrent read+write across processes. The solution is a dedicated daemon (`graphd`) that owns the Kuzu database exclusively and serves both writes and queries via gRPC. This is architecturally analogous to how Qdrant operates — a dedicated process with exclusive database access, serving clients via API.
 
-**Integration model:** Daemon-internal only. Kuzu runs inside the daemon process for advanced analytics (community detection, centrality analysis, impact graphs, cross-project pattern detection). Results are materialized to:
-- SQLite `code_relationships` table (for MCP/CLI query-time access)
-- Qdrant point metadata (e.g., `centrality_score`, `community_id`, `impact_radius` fields)
+**graphd responsibilities:**
+- Own the Kuzu database at `~/.workspace-qdrant/graph/` (exclusive access)
+- Accept graph edge writes from memexd via gRPC (during ingestion)
+- Serve graph queries from MCP server, CLI, and memexd via gRPC (full Cypher)
+- Run graph analytics (community detection, centrality, impact analysis) on demand or as background tasks
+- Internal write queue for serialized operations; read queries served directly
+- Managed via launchd (same pattern as memexd): `~/Library/LaunchAgents/com.workspace-qdrant.graphd.plist`
 
-**Qdrant is confirmed as the right choice** for vector search. No multi-model database matches Qdrant's vector performance. The architecture is Qdrant (vectors) + SQLite (graph edges, metadata) + Kuzu (daemon-internal advanced analytics).
+**gRPC service definition (conceptual):**
+```protobuf
+service GraphService {
+    // Write operations (from memexd during ingestion)
+    rpc AddEdge(AddEdgeRequest) returns (AddEdgeResponse);
+    rpc AddNode(AddNodeRequest) returns (AddNodeResponse);
+    rpc RemoveFileEdges(RemoveFileEdgesRequest) returns (RemoveFileEdgesResponse);
+
+    // Query operations (from MCP server, CLI)
+    rpc QueryCypher(CypherRequest) returns (CypherResponse);
+    rpc GetRelated(GetRelatedRequest) returns (GetRelatedResponse);
+    rpc GetCallChain(CallChainRequest) returns (CallChainResponse);
+    rpc GetImpactAnalysis(ImpactRequest) returns (ImpactResponse);
+
+    // Analytics (from CLI or daemon batch)
+    rpc RunCommunityDetection(AnalyticsRequest) returns (AnalyticsResponse);
+    rpc RunCentralityAnalysis(AnalyticsRequest) returns (AnalyticsResponse);
+
+    // Health
+    rpc Health(HealthRequest) returns (HealthResponse);
+}
+```
+
+**Future-proofing:** If Kuzu adds multi-process concurrency support in a future release, the migration path is simple: the gRPC interface remains the stable contract. The daemon could be evolved to allow direct database access, or kept as-is (the gRPC overhead for localhost communication is negligible).
+
+**CLI management:**
+```bash
+wqm service install --graph     # Install graphd launchd plist
+wqm service start --graph       # Start graphd
+wqm service status --graph      # Check graphd health
+wqm graph query "MATCH (f:Function)-[:CALLS]->(g:Function) WHERE f.name = 'main' RETURN g"
+wqm graph impact --symbol parse --file document_processor.rs
+wqm graph communities           # List detected code communities
+```
 
 ### Knowledge Manager Product Potential
 
-The capabilities being built (hybrid vector search, automated file watching, multi-tenant knowledge organization, semantic code intelligence, graph relationships, automated tagging) form the foundation for a general-purpose knowledge management system. The MCP interface is one access point; the underlying engine could serve personal knowledge bases, team documentation search, research paper management, and code intelligence tools. This is a long-term product direction, not currently scoped.
+The capabilities being built form the foundation for a general-purpose knowledge management system that extends well beyond code intelligence:
+
+**Current capabilities (developer tool):**
+- Automatic file watching with intelligent ingestion
+- Hybrid semantic + keyword search with RRF fusion
+- Multi-tenant knowledge organization (projects, libraries, memory)
+- Semantic code intelligence (tree-sitter, LSP)
+- MCP interface (any LLM client can use it)
+- CLI for direct access and diagnostics
+
+**Planned capabilities (knowledge base):**
+- Graph relationship tracking (graphd with Kuzu)
+- Automated tagging and classification (Tiers 1-3)
+- Cross-collection and cross-project search
+- Content-type routing (code vs. reference material)
+- Hierarchical library organization with cross-library synthesis
+- Source diversity in results and provenance metadata
+
+**Product evolution path:**
+1. **Current**: Developer tool — code intelligence + reference libraries for individual developers
+2. **Near-term**: Personal knowledge base — automated tagging, cross-library synthesis, background knowledge routing. The user's entire document collection (textbooks, research papers, notes, code) becomes a searchable, interconnected knowledge graph.
+3. **Long-term**: Team knowledge manager — multi-user access control, shared libraries, collaborative tagging, organizational knowledge graph
+
+**The MCP interface is the critical enabler.** It means the knowledge manager is accessible from any LLM-powered tool (Claude Desktop, Claude Code, Cursor, or any future MCP client) without building a custom UI. The LLM conversation itself becomes the interface. The underlying engine (memexd + graphd + Qdrant + SQLite) is domain-agnostic — it handles code, documents, research papers, and any text content through the same pipeline.
 
 ### Chunk Size Optimization Research
 
