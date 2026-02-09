@@ -4233,15 +4233,34 @@ tagging:
   tier3_ollama_url: "http://localhost:11434"  # For local models
 ```
 
-Supported providers:
-- **Anthropic** (Haiku recommended for cost efficiency)
-- **OpenAI** (GPT-4o-mini or similar low-cost model)
-- **Ollama** (local models for users with hardware — no API cost, no network dependency)
-- **None** (Tiers 1-2 only)
+Supported providers (prefer subscription/local models over per-call API charges):
+- **Ollama** (local models — zero marginal cost, no network dependency, recommended for users with hardware)
+- **Subscription-based platforms** (e.g., Abacus.ai, or subscription plans that include API access)
+- **Anthropic** (Haiku for cost efficiency, only when API calls are acceptable)
+- **OpenAI** (GPT-4o-mini or similar low-cost model, only when API calls are acceptable)
+- **None** (Tiers 1-2 only — default)
 
 **Tag inheritance:** Tags propagate to contained documents. A folder tagged `physics` automatically tags all documents within it. Document-level tags extend folder-level tags.
 
 **Applicability to projects:** The same pipeline applies to project grouping. Dependency analysis with concept normalization provides strong domain signals. README content embedding provides semantic classification. Two projects with different dependency names but the same concepts (e.g., `regex` and `re`) are correctly grouped.
+
+**Tag evolution — lifecycle tied to ingestion pipeline:**
+
+Tags are dynamic and must evolve as content changes. Tag updates piggyback on the existing file change processing pipeline — no separate watcher or queue needed.
+
+| Event | Tag action |
+|-------|-----------|
+| File created | Chunks tagged (Tiers 1-2) → aggregate by frequency → store document-level tags |
+| File modified | Chunks re-generated → re-tagged → document tags recomputed from new frequencies → old zero-frequency tags removed, new tags added |
+| File deleted | Document tags removed → cluster memberships recalculated if clustering active |
+| Dependency file changed | Concept tags re-derived from updated dependencies → project-level tags updated |
+| Folder renamed | Path-derived tags re-derived from new path |
+
+**Tag storage (dual):**
+- **Qdrant payload**: Each point carries chunk-level tags (enables tag-filtered vector search)
+- **SQLite `tracked_files`**: Document-level tag summary with frequencies (enables browsing, management, cross-document tag analysis)
+
+**Tag drift:** A project that starts as `data-processing` and evolves toward `machine-learning` naturally reflects this because tags are re-derived from content on every re-ingestion, never manually pinned. Frequency-based aggregation means dominant topics surface automatically as the codebase evolves.
 
 ### Knowledge Overlap and Complementary Sources
 
@@ -4289,6 +4308,40 @@ service GraphService {
     rpc Health(HealthRequest) returns (HealthResponse);
 }
 ```
+
+**Graph evolution — delete/re-ingest pattern (same as Qdrant):**
+
+Graph data follows the same lifecycle as vector data. When a file changes, old graph edges are deleted and new ones are extracted and inserted.
+
+| Event | Graph action |
+|-------|-------------|
+| File created | Tree-sitter extracts symbols (nodes) → LSP resolves references (edges) → sent to graphd |
+| File modified | Delete edges WHERE `source_file = modified_file` → re-extract → re-insert. Nodes updated in place (symbol identity persists even if signature changes) |
+| File deleted | Delete edges WHERE `source_file = deleted_file` → orphan node cleanup (nodes with no remaining edges pruned) |
+| Project deleted | Delete all nodes/edges WHERE `tenant_id = project_id` |
+
+**Node vs. edge ownership:**
+- **Edges** are owned by the source file. When `bar.rs` changes, edges *from* symbols in `bar.rs` are deleted and re-created. Edges *to* symbols in `bar.rs` from other files remain untouched — they update when their source files are re-processed.
+- **Nodes** represent symbols and are updated in place. A function may change its signature but keeps its graph identity. Orphaned nodes (no remaining edges) are pruned during cleanup.
+
+**Pipeline integration — additions to existing ingestion flow:**
+```
+File change detected (file watcher)
+    → Queue item created (unified_queue)
+        → memexd processes:
+            1. Delete old Qdrant chunks for file       (existing)
+            2. Delete old graph edges for file          (NEW → gRPC to graphd)
+            3. Re-chunk (tree-sitter or fixed-size)     (existing)
+            4. Re-embed chunks                          (existing)
+            5. Extract relationships from AST/LSP       (NEW)
+            6. Upsert chunks to Qdrant                  (existing)
+            7. Send edges to graphd                     (NEW → gRPC)
+            8. Update tags (per-chunk, aggregate)       (NEW)
+```
+
+Steps 2, 5, 7, 8 are additions. The queue, file watching, debouncing, and processing loop remain unchanged.
+
+**Eventual consistency:** During batch operations (e.g., `git checkout` changing many files), the graph may have stale edges briefly while files are processed through the queue. This is the same trade-off accepted with Qdrant — the queue guarantees all files are eventually processed.
 
 **Future-proofing:** If Kuzu adds multi-process concurrency support in a future release, the migration path is simple: the gRPC interface remains the stable contract. The daemon could be evolved to allow direct database access, or kept as-is (the gRPC overhead for localhost communication is negligible).
 
