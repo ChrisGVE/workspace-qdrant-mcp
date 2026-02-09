@@ -183,14 +183,6 @@ jobs:
           cp src/rust/target/${{ matrix.target }}/release/memexd artifacts/
           cp src/rust/target/${{ matrix.target }}/release/wqm artifacts/
 
-          # Verify binary is self-contained (no external ONNX Runtime dependency)
-          echo "Checking binary dependencies..."
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            otool -L artifacts/memexd | grep -i onnx && echo "WARNING: Binary has ONNX Runtime dependency" || echo "OK: No external ONNX Runtime dependency (statically linked)"
-          elif [[ "${{ runner.os }}" == "Linux" ]]; then
-            ldd artifacts/memexd | grep -i onnx && echo "WARNING: Binary has ONNX Runtime dependency" || echo "OK: No external ONNX Runtime dependency (statically linked)"
-          fi
-
           # Create archive
           cd artifacts
           tar -czvf ../workspace-qdrant-mcp-${{ matrix.artifact_name }}.tar.gz *
@@ -204,6 +196,41 @@ jobs:
           Copy-Item src/rust/target/${{ matrix.target }}/release/wqm.exe artifacts/
 
           Compress-Archive -Path artifacts/* -DestinationPath workspace-qdrant-mcp-${{ matrix.artifact_name }}.zip
+
+      # Verify binaries are self-contained (no unexpected dynamic dependencies)
+      - name: Verify binary dependencies (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: scripts/verify-deps-macos.sh artifacts/memexd artifacts/wqm
+
+      - name: Verify binary dependencies (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: scripts/verify-deps-linux.sh artifacts/memexd artifacts/wqm
+
+      - name: Verify binary dependencies (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: scripts/verify-deps-windows.ps1 artifacts/memexd.exe artifacts/wqm.exe
+
+      # Smoke tests - verify binaries are runnable
+      - name: Smoke test (Unix)
+        if: runner.os != 'Windows' && !matrix.cross
+        shell: bash
+        run: |
+          echo "Running smoke tests..."
+          artifacts/memexd --version
+          artifacts/wqm --version
+          echo "Smoke tests passed"
+
+      - name: Smoke test (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Write-Host "Running smoke tests..."
+          & artifacts/memexd.exe --version
+          & artifacts/wqm.exe --version
+          Write-Host "Smoke tests passed"
 
       # Create individual binary files for direct download (used by wqm update)
       - name: Prepare individual binaries (Unix)
