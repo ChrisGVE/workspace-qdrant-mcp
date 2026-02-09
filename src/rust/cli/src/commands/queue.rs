@@ -1,9 +1,7 @@
-//! Queue command - unified queue inspector for debugging
+//! Queue command - unified queue management and inspection
 //!
-//! Read-only queue inspector for debugging and monitoring.
-//! Subcommands: list, show, stats
-//!
-//! Note: Queue cleanup is automatic (daemon handles this).
+//! Queue inspector and management for debugging and monitoring.
+//! Subcommands: list, show, stats, retry, clean
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
@@ -92,6 +90,31 @@ enum QueueCommand {
         /// Show breakdown by collection
         #[arg(short = 'c', long)]
         by_collection: bool,
+    },
+
+    /// Retry failed queue items
+    Retry {
+        /// Queue ID to retry (omit for --all)
+        queue_id: Option<String>,
+
+        /// Retry all failed items
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Clean old completed or failed queue items
+    Clean {
+        /// Remove items older than N days (default: 7)
+        #[arg(long, default_value = "7")]
+        days: i64,
+
+        /// Only clean items with this status (done, failed)
+        #[arg(long)]
+        status: Option<String>,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 }
 
@@ -203,6 +226,8 @@ pub async fn execute(args: QueueArgs) -> Result<()> {
         QueueCommand::Stats { json, by_type, by_op, by_collection } => {
             stats(json, by_type, by_op, by_collection).await
         }
+        QueueCommand::Retry { queue_id, all } => retry(queue_id, all).await,
+        QueueCommand::Clean { days, status, yes } => clean(days, status, yes).await,
     }
 }
 
@@ -698,6 +723,160 @@ fn print_breakdown(conn: &Connection, column: &str, title: &str) -> Result<()> {
             stats.failed
         );
     }
+
+    Ok(())
+}
+
+/// Connect to the state database (read-write for retry/clean)
+fn connect_readwrite() -> Result<Connection> {
+    let db_path = get_database_path_checked()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let conn = Connection::open(&db_path)
+        .context(format!("Failed to open state database at {:?}", db_path))?;
+
+    conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL;")
+        .context("Failed to set SQLite pragmas")?;
+
+    Ok(conn)
+}
+
+async fn retry(queue_id: Option<String>, all: bool) -> Result<()> {
+    if !all && queue_id.is_none() {
+        anyhow::bail!("Specify a queue_id or use --all to retry all failed items");
+    }
+
+    let conn = connect_readwrite()?;
+
+    if all {
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM unified_queue WHERE status = 'failed'",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if count == 0 {
+            output::success("No failed items to retry");
+            return Ok(());
+        }
+
+        let updated = conn.execute(
+            r#"
+            UPDATE unified_queue
+            SET status = 'pending',
+                retry_count = 0,
+                error_message = NULL,
+                last_error_at = NULL,
+                lease_until = NULL,
+                worker_id = NULL,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE status = 'failed'
+            "#,
+            [],
+        )?;
+
+        output::success(format!("Reset {} failed items to pending", updated));
+    } else {
+        let id = queue_id.unwrap();
+        let prefix = format!("{}%", id);
+
+        // Find the item first
+        let result: Result<(String, String, i32, i32), _> = conn.query_row(
+            "SELECT queue_id, status, retry_count, max_retries FROM unified_queue WHERE queue_id = ?1 OR queue_id LIKE ?2 LIMIT 1",
+            params![&id, &prefix],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        );
+
+        match result {
+            Ok((found_id, status, retry_count, max_retries)) => {
+                if status != "failed" {
+                    output::warning(format!(
+                        "Item {} has status '{}', not 'failed'. Use --status filter with list to find failed items.",
+                        truncate(&found_id, 20), status
+                    ));
+                    return Ok(());
+                }
+
+                conn.execute(
+                    r#"
+                    UPDATE unified_queue
+                    SET status = 'pending',
+                        retry_count = 0,
+                        error_message = NULL,
+                        last_error_at = NULL,
+                        lease_until = NULL,
+                        worker_id = NULL,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    WHERE queue_id = ?1
+                    "#,
+                    params![&found_id],
+                )?;
+
+                output::success(format!(
+                    "Reset item {} to pending (was retry {}/{})",
+                    truncate(&found_id, 20), retry_count, max_retries
+                ));
+            }
+            Err(rusqlite::Error::QueryReturnedNoRows) => {
+                output::error(format!("Queue item not found: {}", id));
+            }
+            Err(e) => return Err(e.into()),
+        }
+    }
+
+    Ok(())
+}
+
+async fn clean(days: i64, status_filter: Option<String>, yes: bool) -> Result<()> {
+    // Validate status filter
+    let valid_statuses = match status_filter.as_deref() {
+        Some("done") => vec!["done"],
+        Some("failed") => vec!["failed"],
+        Some(other) => anyhow::bail!("Invalid status '{}'. Use 'done' or 'failed'.", other),
+        None => vec!["done", "failed"],
+    };
+
+    let conn = connect_readwrite()?;
+
+    // Count items to be cleaned
+    let placeholders = valid_statuses.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let count_query = format!(
+        "SELECT COUNT(*) FROM unified_queue WHERE status IN ({}) AND updated_at < datetime('now', '-{} days')",
+        placeholders, days
+    );
+
+    let mut stmt = conn.prepare(&count_query)?;
+    let params_slice: Vec<&dyn rusqlite::ToSql> = valid_statuses
+        .iter()
+        .map(|s| s as &dyn rusqlite::ToSql)
+        .collect();
+    let count: i64 = stmt.query_row(params_slice.as_slice(), |row| row.get(0))?;
+
+    if count == 0 {
+        output::success(format!(
+            "No {} items older than {} days to clean",
+            valid_statuses.join("/"), days
+        ));
+        return Ok(());
+    }
+
+    if !yes {
+        output::warning(format!(
+            "Will remove {} {} items older than {} days. Use -y to skip this confirmation.",
+            count, valid_statuses.join("/"), days
+        ));
+        return Ok(());
+    }
+
+    let delete_query = format!(
+        "DELETE FROM unified_queue WHERE status IN ({}) AND updated_at < datetime('now', '-{} days')",
+        placeholders, days
+    );
+
+    let mut stmt = conn.prepare(&delete_query)?;
+    let deleted = stmt.execute(params_slice.as_slice())?;
+
+    output::success(format!("Removed {} old queue items", deleted));
 
     Ok(())
 }
