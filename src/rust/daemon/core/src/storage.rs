@@ -657,6 +657,9 @@ impl StorageClient {
             Condition::matches("tenant_id", tenant_id.to_string()),
         ]);
 
+        // Count matching points before deletion (Qdrant delete doesn't return count)
+        let count = self.count_points_with_filter(collection_name, filter.clone()).await?;
+
         // Build delete request
         let delete_request = DeletePointsBuilder::new(collection_name)
             .points(filter)
@@ -672,11 +675,11 @@ impl StorageClient {
         .await?;
 
         info!(
-            "Successfully deleted points with file_path='{}' tenant_id='{}' from '{}'",
-            file_path, tenant_id, collection_name
+            "Deleted {} points with file_path='{}' tenant_id='{}' from '{}'",
+            count, file_path, tenant_id, collection_name
         );
 
-        Ok(0) // Qdrant delete doesn't return count
+        Ok(count)
     }
 
     /// Delete points from a collection by tenant_id filter
@@ -701,6 +704,9 @@ impl StorageClient {
 
         let filter = Filter::must([Condition::matches("tenant_id", tenant_id.to_string())]);
 
+        // Count matching points before deletion
+        let count = self.count_points_with_filter(collection_name, filter.clone()).await?;
+
         let delete_request = DeletePointsBuilder::new(collection_name)
             .points(filter)
             .wait(true);
@@ -714,11 +720,11 @@ impl StorageClient {
         .await?;
 
         info!(
-            "Successfully deleted points with tenant_id='{}' from '{}'",
-            tenant_id, collection_name
+            "Deleted {} points with tenant_id='{}' from '{}'",
+            count, tenant_id, collection_name
         );
 
-        Ok(0)
+        Ok(count)
     }
 
     /// Scroll through all points in a collection for a tenant, returning file paths
@@ -984,6 +990,9 @@ impl StorageClient {
             Condition::matches("document_id", document_id.to_string()),
         ]);
 
+        // Count matching points before deletion
+        let count = self.count_points_with_filter(collection_name, filter.clone()).await?;
+
         let delete_request = DeletePointsBuilder::new(collection_name)
             .points(filter)
             .wait(true);
@@ -997,11 +1006,32 @@ impl StorageClient {
         .await?;
 
         info!(
-            "Successfully deleted points with document_id='{}' from '{}'",
-            document_id, collection_name
+            "Deleted {} points with document_id='{}' from '{}'",
+            count, document_id, collection_name
         );
 
-        Ok(0) // Qdrant delete doesn't return count
+        Ok(count)
+    }
+
+    /// Count points matching a specific filter
+    ///
+    /// Private helper used by delete methods to get an accurate count
+    /// before deletion, since Qdrant's delete response doesn't include a count.
+    async fn count_points_with_filter(
+        &self,
+        collection_name: &str,
+        filter: Filter,
+    ) -> Result<u64, StorageError> {
+        let builder = CountPointsBuilder::new(collection_name)
+            .filter(filter)
+            .exact(true);
+
+        let count = self.retry_operation(|| async {
+            self.client.count(builder.clone()).await
+                .map_err(|e| StorageError::Collection(e.to_string()))
+        }).await?;
+
+        Ok(count.result.map(|r| r.count).unwrap_or(0))
     }
 
     /// Count points in a collection, optionally filtered by tenant_id
