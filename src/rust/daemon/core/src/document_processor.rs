@@ -127,8 +127,12 @@ impl DocumentProcessor {
 
         let processing_time_ms = start_time.elapsed().as_millis() as u64;
 
+        // Generate stable document_id from collection + file path
+        let path_str = file_path.to_string_lossy();
+        let document_id = crate::generate_document_id(&collection_result, &path_str);
+
         Ok(DocumentResult {
-            document_id: uuid::Uuid::new_v4().to_string(),
+            document_id,
             collection: collection_result,
             chunks_created: Some(content.chunks.len()),
             processing_time_ms,

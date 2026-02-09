@@ -635,9 +635,13 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
         drop(_permit);
 
+        // Generate stable document_id for content (deterministic from tenant + content)
+        let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
+
         // Build payload with metadata
         let mut point_payload = std::collections::HashMap::new();
         point_payload.insert("content".to_string(), serde_json::json!(payload.content));
+        point_payload.insert("document_id".to_string(), serde_json::json!(content_doc_id));
         point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
         point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
         point_payload.insert("item_type".to_string(), serde_json::json!("content"));
@@ -651,9 +655,9 @@ impl UnifiedQueueProcessor {
             point_payload.insert("full_tag".to_string(), serde_json::json!(full_tag));
         }
 
-        // Create document point with generated ID
+        // Create document point with stable point ID
         let point = DocumentPoint {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: crate::generate_point_id(&content_doc_id, 0),
             dense_vector: embedding_result.dense.vector,
             sparse_vector: None,
             payload: point_payload,
@@ -874,6 +878,9 @@ impl UnifiedQueueProcessor {
         let mut lsp_status = ProcessingStatus::None;
         let mut treesitter_status = ProcessingStatus::None;
 
+        // Generate stable document_id for this file (deterministic from tenant + path)
+        let file_document_id = crate::generate_document_id(&item.tenant_id, &payload.file_path);
+
         // Process each chunk and build points + chunk metadata
         let mut points = Vec::new();
         let mut chunk_records: Vec<(String, i32, String, Option<TrackedChunkType>, Option<String>, Option<i32>, Option<i32>)> = Vec::new();
@@ -893,6 +900,7 @@ impl UnifiedQueueProcessor {
             point_payload.insert("content".to_string(), serde_json::json!(chunk.content));
             point_payload.insert("chunk_index".to_string(), serde_json::json!(chunk.chunk_index));
             point_payload.insert("file_path".to_string(), serde_json::json!(payload.file_path));
+            point_payload.insert("document_id".to_string(), serde_json::json!(file_document_id));
             point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
             point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
             point_payload.insert(
@@ -950,7 +958,7 @@ impl UnifiedQueueProcessor {
                 lsp_status = ProcessingStatus::Done;
             }
 
-            let point_id = uuid::Uuid::new_v4().to_string();
+            let point_id = crate::generate_point_id(&file_document_id, chunk_idx);
             let content_hash = tracked_files_schema::compute_content_hash(&chunk.content);
 
             let point = DocumentPoint {
