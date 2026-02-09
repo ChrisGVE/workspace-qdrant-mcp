@@ -1614,10 +1614,36 @@ pub struct TaskResultHandle {
 }
 
 impl TaskResultHandle {
+    /// Create a TaskResultHandle for testing purposes.
+    #[cfg(test)]
+    pub(crate) fn new_for_test(
+        task_id: Uuid,
+        context: TaskContext,
+        result_receiver: oneshot::Receiver<TaskResult>,
+    ) -> Self {
+        Self { task_id, context, result_receiver }
+    }
+
     /// Wait for the task to complete and return the result
     pub async fn wait(self) -> Result<TaskResult, PriorityError> {
         self.result_receiver.await
             .map_err(|_| PriorityError::Communication("Task executor disconnected".to_string()))
+    }
+
+    /// Check if the task result sender has been dropped (task completed or abandoned).
+    ///
+    /// Returns true when the oneshot sender is no longer alive, meaning the task
+    /// executor has either sent a result or been dropped. Used by IPC cleanup to
+    /// identify completed tasks that can be removed from the active tasks map.
+    pub fn is_completed(&mut self) -> bool {
+        match self.result_receiver.try_recv() {
+            // Value was sent - task completed
+            Ok(_) => true,
+            // Sender dropped without sending - task abandoned
+            Err(oneshot::error::TryRecvError::Closed) => true,
+            // No value yet, sender still alive - task still running
+            Err(oneshot::error::TryRecvError::Empty) => false,
+        }
     }
 }
 
@@ -3207,5 +3233,85 @@ mod tests {
             }
             other => panic!("Expected cancelled or success, got: {:?}", other),
         }
+    }
+
+    #[tokio::test]
+    async fn test_task_result_handle_is_completed_when_sender_alive() {
+        let (tx, rx) = oneshot::channel::<TaskResult>();
+        let mut handle = TaskResultHandle {
+            task_id: Uuid::new_v4(),
+            context: TaskContext {
+                task_id: Uuid::new_v4(),
+                priority: TaskPriority::BackgroundWatching,
+                created_at: chrono::Utc::now(),
+                timeout_ms: None,
+                source: TaskSource::Generic { operation: "test".into() },
+                metadata: HashMap::new(),
+                checkpoint_id: None,
+                supports_checkpointing: false,
+            },
+            result_receiver: rx,
+        };
+
+        // Sender still alive, task not completed
+        assert!(!handle.is_completed());
+
+        // Keep tx alive to prevent premature drop
+        drop(tx);
+    }
+
+    #[tokio::test]
+    async fn test_task_result_handle_is_completed_when_sender_dropped() {
+        let (_tx, rx) = oneshot::channel::<TaskResult>();
+        let mut handle = TaskResultHandle {
+            task_id: Uuid::new_v4(),
+            context: TaskContext {
+                task_id: Uuid::new_v4(),
+                priority: TaskPriority::BackgroundWatching,
+                created_at: chrono::Utc::now(),
+                timeout_ms: None,
+                source: TaskSource::Generic { operation: "test".into() },
+                metadata: HashMap::new(),
+                checkpoint_id: None,
+                supports_checkpointing: false,
+            },
+            result_receiver: rx,
+        };
+
+        // Drop sender to simulate task completion/abandonment
+        drop(_tx);
+
+        assert!(handle.is_completed());
+    }
+
+    #[tokio::test]
+    async fn test_task_result_handle_is_completed_when_value_sent() {
+        let (tx, rx) = oneshot::channel::<TaskResult>();
+        let mut handle = TaskResultHandle {
+            task_id: Uuid::new_v4(),
+            context: TaskContext {
+                task_id: Uuid::new_v4(),
+                priority: TaskPriority::BackgroundWatching,
+                created_at: chrono::Utc::now(),
+                timeout_ms: None,
+                source: TaskSource::Generic { operation: "test".into() },
+                metadata: HashMap::new(),
+                checkpoint_id: None,
+                supports_checkpointing: false,
+            },
+            result_receiver: rx,
+        };
+
+        // Send a result
+        let _ = tx.send(TaskResult::Success {
+            execution_time_ms: 42,
+            data: TaskResultData::Generic {
+                message: "done".into(),
+                data: serde_json::json!({}),
+                checkpoint_id: None,
+            },
+        });
+
+        assert!(handle.is_completed());
     }
 }

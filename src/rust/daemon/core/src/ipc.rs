@@ -427,16 +427,28 @@ impl IpcServer {
         Ok(())
     }
     
-    /// Clean up completed tasks
+    /// Clean up completed tasks from the active tasks registry.
+    ///
+    /// Checks each task handle to see if its result sender has been dropped
+    /// (indicating the task executor finished or was abandoned). Completed
+    /// tasks are removed to free resources and prevent unbounded growth.
     async fn cleanup_completed_tasks(
         active_tasks: &Arc<RwLock<HashMap<Uuid, TaskResultHandle>>>,
     ) {
-        // This is a placeholder for cleanup logic
-        // In practice, we'd check which task handles have completed
-        let _active_count = {
-            let active_lock = active_tasks.read().await;
-            active_lock.len()
-        };
+        let mut active_lock = active_tasks.write().await;
+        let before = active_lock.len();
+
+        // Retain only tasks whose result receiver is still waiting
+        active_lock.retain(|_task_id, handle| !handle.is_completed());
+
+        let removed = before - active_lock.len();
+        if removed > 0 {
+            tracing::debug!(
+                removed = removed,
+                remaining = active_lock.len(),
+                "Cleaned up completed IPC tasks"
+            );
+        }
     }
     
     /// Wait for the server to shut down
@@ -681,6 +693,91 @@ mod tests {
         }
     }
     
+    /// Helper to create a test TaskResultHandle
+    fn make_test_handle(
+        id: Uuid,
+        rx: tokio::sync::oneshot::Receiver<crate::processing::TaskResult>,
+    ) -> crate::processing::TaskResultHandle {
+        use crate::processing::TaskContext;
+        use chrono::Utc;
+
+        let ctx = TaskContext {
+            task_id: id,
+            priority: TaskPriority::BackgroundWatching,
+            created_at: Utc::now(),
+            timeout_ms: None,
+            source: TaskSource::Generic { operation: "test".into() },
+            metadata: HashMap::new(),
+            checkpoint_id: None,
+            supports_checkpointing: false,
+        };
+
+        crate::processing::TaskResultHandle::new_for_test(id, ctx, rx)
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_completed_tasks_removes_finished() {
+        use crate::processing::{TaskResult, TaskResultHandle};
+        use tokio::sync::oneshot;
+
+        let active_tasks: Arc<RwLock<HashMap<Uuid, TaskResultHandle>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        // Create a "completed" task (sender dropped)
+        let id1 = Uuid::new_v4();
+        let (_tx1, rx1) = oneshot::channel::<TaskResult>();
+        drop(_tx1); // simulate completion
+        let handle1 = make_test_handle(id1, rx1);
+
+        // Create an "active" task (sender still alive)
+        let id2 = Uuid::new_v4();
+        let (tx2, rx2) = oneshot::channel::<TaskResult>();
+        let handle2 = make_test_handle(id2, rx2);
+
+        {
+            let mut lock = active_tasks.write().await;
+            lock.insert(id1, handle1);
+            lock.insert(id2, handle2);
+        }
+
+        assert_eq!(active_tasks.read().await.len(), 2);
+
+        IpcServer::cleanup_completed_tasks(&active_tasks).await;
+
+        // Only the active task should remain
+        let remaining = active_tasks.read().await;
+        assert_eq!(remaining.len(), 1);
+        assert!(remaining.contains_key(&id2));
+
+        // Keep tx2 alive for the duration of the test
+        drop(tx2);
+    }
+
+    #[tokio::test]
+    async fn test_cleanup_completed_tasks_noop_when_all_active() {
+        use crate::processing::{TaskResult, TaskResultHandle};
+        use tokio::sync::oneshot;
+
+        let active_tasks: Arc<RwLock<HashMap<Uuid, TaskResultHandle>>> =
+            Arc::new(RwLock::new(HashMap::new()));
+
+        let id1 = Uuid::new_v4();
+        let (tx1, rx1) = oneshot::channel::<TaskResult>();
+        let handle1 = make_test_handle(id1, rx1);
+
+        {
+            let mut lock = active_tasks.write().await;
+            lock.insert(id1, handle1);
+        }
+
+        IpcServer::cleanup_completed_tasks(&active_tasks).await;
+
+        // Task should still be there - it's active
+        assert_eq!(active_tasks.read().await.len(), 1);
+
+        drop(tx1);
+    }
+
     #[tokio::test]
     async fn test_ipc_shutdown() {
         let (server, client) = IpcServer::new(2);
