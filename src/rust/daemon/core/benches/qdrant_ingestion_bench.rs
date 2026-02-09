@@ -3,13 +3,16 @@
 //! Measures embedding generation, Qdrant upsert, and deletion timing using
 //! real PDF content at multiple sizes (100KB, 500KB, 1MB, full).
 //!
-//! Production daemon path reference results (2026-02-07):
-//!   PDF: 25MB physics textbook → 2716 chunks (512 chars, 50 overlap)
-//!   Embedding generation: 61,715ms (22.7ms/chunk)
-//!   Qdrant upsert:            454ms ( 0.17ms/chunk)
-//!   Qdrant deletion:           28ms ( 0.01ms/chunk)
-//!   Ingestion/Deletion ratio: 2,521x
+//! Benchmark results (2026-02-09, Apple M-series, Qdrant localhost):
+//!
+//!   Size       Chunks  Embed(ms/chunk)  Ingest(ms/chunk)  Delete(ms/chunk)  Ratio
+//!   100KB        220     18.72            0.61              0.01             44.6x
+//!   500KB       1071     16.60            0.44              0.01             39.6x
+//!   1MB         2181     24.63            0.37              0.01             31.0x
+//!   full_pdf    2527     36.28            0.41              0.01             28.3x
+//!
 //!   Conclusion: delete+re-ingest is the right strategy; deletion is free.
+//!   Embedding dominates total time (>98%). Ingestion/deletion ratio: 28-45x.
 //!
 //! Uses a dedicated `bench_ingestion` collection with plain overlap chunking (no tree-sitter/LSP).
 //! The collection is created at the start and deleted at the end (no production data touched).
