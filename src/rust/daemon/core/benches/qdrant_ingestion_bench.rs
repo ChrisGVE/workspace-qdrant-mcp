@@ -14,6 +14,20 @@
 //!   Conclusion: delete+re-ingest is the right strategy; deletion is free.
 //!   Embedding dominates total time (>98%). Ingestion/deletion ratio: 28-45x.
 //!
+//! Chunk size optimization results (2026-02-09, 500KB text, embedding-only):
+//!
+//!   ChunkSz  Overlap  Chunks  Total(ms)  ms/chunk  ms/KB      eff_chars/ms
+//!   128      13       4300    50498      11.74     101.00     9.79
+//!   256      26       2150    46194      21.49      92.39    10.70
+//!   384      38       1429    43082      30.15      86.16    11.48  ← optimal
+//!   512      50       1071    53482      49.94     106.96     9.25
+//!   768      77        716    51393      71.78     102.79     9.63
+//!   1024    102        537    48634      90.57      97.27    10.18
+//!   2048    205        269    71310     265.09     142.62     6.95
+//!
+//!   Optimal: 384 chars / 38 overlap (86.16 ms/KB, 19% better than 512 default).
+//!   Model max sequence: 256 tokens (~512 chars); 384 avoids truncation waste.
+//!
 //! Uses a dedicated `bench_ingestion` collection with plain overlap chunking (no tree-sitter/LSP).
 //! The collection is created at the start and deleted at the end (no production data touched).
 //! Requires a running Qdrant instance and a PDF file for input.
@@ -25,7 +39,7 @@
 //!   BENCH_PDF_PATH=/path/to/file.pdf cargo bench --bench qdrant_ingestion_bench
 //!
 //! NOTE: This benchmark requires a live Qdrant instance on localhost:6334.
-//! It will create and delete test points in the 'libraries' collection.
+//! It creates a dedicated 'bench_ingestion' collection (no production data touched).
 //! The benchmark is NOT run as part of normal CI - it's for manual profiling.
 
 use std::collections::HashMap;
@@ -431,5 +445,142 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, qdrant_ingestion_benchmark);
+/// Chunk size optimization benchmark (embedding-only, no Qdrant)
+///
+/// Tests multiple chunk sizes on a fixed 500KB text slice to find the
+/// chunk size that minimizes embedding time per KB of content.
+///
+/// The key metric is: time_per_chunk / effective_chars_per_chunk
+/// where effective_chars = chunk_size - overlap (new content per chunk).
+fn chunk_size_optimization_benchmark(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    // --- Resolve PDF ---
+    let pdf_path = match resolve_pdf_path() {
+        Some(p) => p,
+        None => {
+            eprintln!("WARNING: No PDF file found. Skipping chunk size benchmark.");
+            return;
+        }
+    };
+
+    // --- Extract and clean text ---
+    let raw_text = match extract_pdf_text(&pdf_path) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("ERROR: {}", e);
+            return;
+        }
+    };
+    let full_text = clean_text(&raw_text);
+
+    // Use 500KB slice for consistent comparison
+    let target_bytes = 500 * 1024;
+    let text_slice: String = {
+        let chars: Vec<char> = full_text.chars().collect();
+        let mut byte_count = 0;
+        let mut char_end = chars.len();
+        for (i, ch) in chars.iter().enumerate() {
+            byte_count += ch.len_utf8();
+            if byte_count >= target_bytes {
+                char_end = i + 1;
+                break;
+            }
+        }
+        chars[..char_end].iter().collect()
+    };
+    let slice_bytes = text_slice.len();
+    let slice_kb = slice_bytes as f64 / 1024.0;
+    eprintln!("Chunk size benchmark: {:.1}KB text slice", slice_kb);
+
+    // --- Initialize embedding model ---
+    let embedding_config = EmbeddingConfig::default();
+    let embedding_gen = Arc::new(
+        EmbeddingGenerator::new(embedding_config)
+            .expect("Failed to create embedding generator")
+    );
+
+    // Warm up
+    rt.block_on(async {
+        let _ = embedding_gen
+            .generate_embedding("warmup text", "all-MiniLM-L6-v2")
+            .await;
+    });
+
+    // --- Test chunk sizes ---
+    // overlap = 10% of chunk size (rounded)
+    let chunk_configs: Vec<(usize, usize)> = vec![
+        (128, 13),    // 128 chars, 13 overlap
+        (256, 26),    // 256 chars, 26 overlap
+        (384, 38),    // 384 chars, 38 overlap
+        (512, 50),    // 512 chars, 50 overlap (current default)
+        (768, 77),    // 768 chars, 77 overlap
+        (1024, 102),  // 1024 chars, 102 overlap
+        (2048, 205),  // 2048 chars, 205 overlap
+    ];
+
+    // --- Criterion benchmark group ---
+    let mut group = c.benchmark_group("chunk_size_embed_only");
+    group.sample_size(10);
+    group.measurement_time(Duration::from_secs(60));
+    group.warm_up_time(Duration::from_secs(3));
+
+    for (chunk_size, overlap) in &chunk_configs {
+        let chunks = chunk_text(&text_slice, *chunk_size, *overlap);
+        let eg = embedding_gen.clone();
+
+        group.bench_with_input(
+            BenchmarkId::new("embed", format!("{}c_{}o", chunk_size, overlap)),
+            &chunks,
+            |b, chunks| {
+                b.to_async(tokio::runtime::Runtime::new().unwrap()).iter(|| {
+                    let eg = eg.clone();
+                    let ch = chunks.clone();
+                    async move {
+                        for chunk in &ch {
+                            let _ = eg
+                                .generate_embedding(chunk, "all-MiniLM-L6-v2")
+                                .await;
+                        }
+                    }
+                });
+            },
+        );
+    }
+    group.finish();
+
+    // --- Detailed report with ms/KB metric ---
+    eprintln!("\n=== Chunk Size Optimization Report (500KB, embedding-only) ===");
+    eprintln!("{:<10} {:<8} {:<8} {:<12} {:<12} {:<12}",
+        "ChunkSz", "Overlap", "Chunks", "Total(ms)", "ms/chunk", "ms/KB");
+    eprintln!("{}", "-".repeat(70));
+
+    rt.block_on(async {
+        for (chunk_size, overlap) in &chunk_configs {
+            let chunks = chunk_text(&text_slice, *chunk_size, *overlap);
+            let chunk_count = chunks.len();
+
+            // Run 3 iterations and average
+            let mut total_times = Vec::new();
+            for _ in 0..3 {
+                let start = Instant::now();
+                for chunk in &chunks {
+                    let _ = embedding_gen
+                        .generate_embedding(chunk, "all-MiniLM-L6-v2")
+                        .await;
+                }
+                total_times.push(start.elapsed().as_millis() as f64);
+            }
+
+            let avg_total = total_times.iter().sum::<f64>() / total_times.len() as f64;
+            let ms_per_chunk = avg_total / chunk_count as f64;
+            let ms_per_kb = avg_total / slice_kb;
+
+            eprintln!("{:<10} {:<8} {:<8} {:<12.0} {:<12.2} {:<12.2}",
+                chunk_size, overlap, chunk_count, avg_total, ms_per_chunk, ms_per_kb);
+        }
+    });
+}
+
+criterion_group!(benches, qdrant_ingestion_benchmark, chunk_size_optimization_benchmark);
 criterion_main!(benches);
