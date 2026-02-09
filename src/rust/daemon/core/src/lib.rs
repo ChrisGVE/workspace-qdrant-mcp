@@ -370,11 +370,16 @@ impl Default for ChunkingConfig {
 }
 
 /// Main ingestion engine
+///
+/// Provides a high-level API for processing documents through the full pipeline:
+/// 1. Content extraction and chunking via DocumentProcessor
+/// 2. Embedding generation (dense + sparse) via EmbeddingGenerator
+/// 3. Storage in Qdrant via StorageClient
 pub struct IngestionEngine {
     _config: Config,
-    _storage_client: Arc<crate::storage::StorageClient>,
-    _embedding_generator: Arc<EmbeddingGenerator>,
-    _pipeline: Arc<crate::processing::Pipeline>,
+    storage_client: Arc<crate::storage::StorageClient>,
+    embedding_generator: Arc<EmbeddingGenerator>,
+    document_processor: DocumentProcessor,
 }
 
 impl IngestionEngine {
@@ -386,20 +391,23 @@ impl IngestionEngine {
             EmbeddingGenerator::new(embedding_config)
                 .map_err(|e| ProcessingError::Processing(format!("Failed to initialize embedding generator: {}", e)))?
         );
-
-        // Pipeline uses internal task management with max concurrent tasks
-        // Default to 8 concurrent tasks for balanced throughput
-        let pipeline = Arc::new(crate::processing::Pipeline::new(8));
+        let document_processor = DocumentProcessor::new();
 
         Ok(Self {
             _config: config,
-            _storage_client: storage_client,
-            _embedding_generator: embedding_generator,
-            _pipeline: pipeline,
+            storage_client,
+            embedding_generator,
+            document_processor,
         })
     }
 
-    /// Process a single document
+    /// Process a single document through the full pipeline.
+    ///
+    /// Steps:
+    /// 1. Extract content and generate chunks (tree-sitter for code, sliding window for text)
+    /// 2. Generate dense + sparse embeddings for each chunk
+    /// 3. Create Qdrant points with stable document_id and point_id
+    /// 4. Upsert points to the specified collection
     pub async fn process_document(
         &self,
         file_path: &Path,
@@ -407,68 +415,96 @@ impl IngestionEngine {
     ) -> std::result::Result<DocumentResult, ProcessingError> {
         let start = Instant::now();
 
-        // Extract text content
-        let content = self.extract_content(file_path).await?;
-
-        // Generate chunks
-        let chunks = self.chunk_content(&content)?;
-
-        // Generate stable document ID from collection (as tenant) and file path
+        // Generate stable document ID
         let path_str = file_path.to_string_lossy();
         let document_id = generate_document_id(collection, &path_str);
+
+        // Extract content and chunk using DocumentProcessor
+        let content = self.document_processor
+            .process_file_content(file_path, collection)
+            .await
+            .map_err(|e| ProcessingError::Processing(format!("Document processing failed: {}", e)))?;
+
+        // Ensure collection exists
+        if !self.storage_client
+            .collection_exists(collection)
+            .await
+            .map_err(|e| ProcessingError::Storage(format!("Collection check failed: {}", e)))?
+        {
+            self.storage_client
+                .create_collection(collection, None, None)
+                .await
+                .map_err(|e| ProcessingError::Storage(format!("Collection creation failed: {}", e)))?;
+        }
+
+        // Generate embeddings and build points for each chunk
+        let mut points = Vec::with_capacity(content.chunks.len());
+        for (chunk_idx, chunk) in content.chunks.iter().enumerate() {
+            let embedding_result = self.embedding_generator
+                .generate_embedding(&chunk.content, "bge-small-en-v1.5")
+                .await
+                .map_err(|e| ProcessingError::Processing(format!("Embedding generation failed: {}", e)))?;
+
+            // Build point payload
+            let mut payload = HashMap::new();
+            payload.insert("content".to_string(), serde_json::json!(chunk.content));
+            payload.insert("chunk_index".to_string(), serde_json::json!(chunk.chunk_index));
+            payload.insert("file_path".to_string(), serde_json::json!(path_str));
+            payload.insert("document_id".to_string(), serde_json::json!(document_id));
+            payload.insert("tenant_id".to_string(), serde_json::json!(collection));
+            payload.insert("document_type".to_string(), serde_json::json!(format!("{:?}", content.document_type)));
+            payload.insert("item_type".to_string(), serde_json::json!("file"));
+
+            // Include chunk metadata (symbol_name, start_line, etc.)
+            for (key, value) in &chunk.metadata {
+                payload.insert(format!("chunk_{}", key), serde_json::json!(value));
+            }
+
+            // Convert sparse embedding to HashMap format
+            let sparse_vector = if !embedding_result.sparse.indices.is_empty() {
+                let map: HashMap<u32, f32> = embedding_result.sparse.indices.iter()
+                    .zip(embedding_result.sparse.values.iter())
+                    .map(|(&idx, &val)| (idx, val))
+                    .collect();
+                Some(map)
+            } else {
+                None
+            };
+
+            points.push(crate::storage::DocumentPoint {
+                id: generate_point_id(&document_id, chunk_idx),
+                dense_vector: embedding_result.dense.vector,
+                sparse_vector,
+                payload,
+            });
+        }
+
+        // Upsert points to Qdrant
+        if !points.is_empty() {
+            self.storage_client
+                .insert_points_batch(collection, points.clone(), Some(100))
+                .await
+                .map_err(|e| ProcessingError::Storage(format!("Qdrant upsert failed: {}", e)))?;
+        }
 
         let processing_time = start.elapsed();
 
         Ok(DocumentResult {
             document_id,
             collection: collection.to_string(),
-            chunks_created: Some(chunks.len()),
+            chunks_created: Some(points.len()),
             processing_time_ms: processing_time.as_millis() as u64,
         })
     }
 
-    /// Extract text content from a file
-    async fn extract_content(&self, file_path: &Path) -> std::result::Result<DocumentContent, ProcessingError> {
-        // Placeholder implementation
-        // TODO: Implement actual document parsing based on file type
-        let raw_text = tokio::fs::read_to_string(file_path).await?;
-
-        Ok(DocumentContent {
-            raw_text,
-            metadata: HashMap::new(),
-            document_type: DocumentType::Text,
-            chunks: Vec::new(),
-        })
+    /// Get the document processor for direct access
+    pub fn document_processor(&self) -> &DocumentProcessor {
+        &self.document_processor
     }
 
-    /// Chunk document content
-    fn chunk_content(&self, content: &DocumentContent) -> std::result::Result<Vec<TextChunk>, ProcessingError> {
-        let config = ChunkingConfig::default();
-        let mut chunks = Vec::new();
-
-        let text = &content.raw_text;
-        let total_chars = text.len();
-
-        let mut start = 0;
-        let mut chunk_index = 0;
-
-        while start < total_chars {
-            let end = (start + config.chunk_size).min(total_chars);
-            let chunk_text = &text[start..end];
-
-            chunks.push(TextChunk {
-                content: chunk_text.to_string(),
-                chunk_index,
-                start_char: start,
-                end_char: end,
-                metadata: HashMap::new(),
-            });
-
-            chunk_index += 1;
-            start = end - config.overlap_size;
-        }
-
-        Ok(chunks)
+    /// Get the storage client for direct access
+    pub fn storage_client(&self) -> &Arc<crate::storage::StorageClient> {
+        &self.storage_client
     }
 }
 
