@@ -16,6 +16,17 @@ use workspace_qdrant_grpc::proto::{
 use workspace_qdrant_grpc::services::CollectionServiceImpl;
 use tonic::{Request, Code};
 
+/// Helper to clean up a collection created during testing.
+/// Silently ignores errors (collection may not have been created if Qdrant was unavailable).
+async fn cleanup_collection(service: &CollectionServiceImpl, name: &str) {
+    let request = Request::new(DeleteCollectionRequest {
+        collection_name: name.to_string(),
+        project_id: "test".to_string(),
+        force: true,
+    });
+    let _ = service.delete_collection(request).await;
+}
+
 /// Test helper to create a basic collection config
 fn create_test_config(vector_size: i32, metric: &str) -> CollectionConfig {
     CollectionConfig {
@@ -54,6 +65,9 @@ async fn test_create_collection_success() {
             );
         }
     }
+
+    // Cleanup
+    cleanup_collection(&service, "test_collection").await;
 }
 
 #[tokio::test]
@@ -242,8 +256,11 @@ async fn test_various_distance_metrics() {
 
     // Test each valid metric
     let metrics = vec!["Cosine", "Euclidean", "Dot"];
+    let collection_names: Vec<String> = metrics.iter()
+        .map(|m| format!("test_{}", m.to_lowercase()))
+        .collect();
 
-    for metric in metrics {
+    for metric in &metrics {
         let request = Request::new(CreateCollectionRequest {
             collection_name: format!("test_{}", metric.to_lowercase()),
             project_id: "test_project".to_string(),
@@ -259,6 +276,11 @@ async fn test_various_distance_metrics() {
             );
         }
     }
+
+    // Cleanup
+    for name in &collection_names {
+        cleanup_collection(&service, name).await;
+    }
 }
 
 #[tokio::test]
@@ -267,12 +289,15 @@ async fn test_various_vector_sizes() {
 
     // Test standard sizes
     let sizes = vec![384, 768, 1536];
+    let collection_names: Vec<String> = sizes.iter()
+        .map(|s| format!("test_size_{}", s))
+        .collect();
 
-    for size in sizes {
+    for size in &sizes {
         let request = Request::new(CreateCollectionRequest {
             collection_name: format!("test_size_{}", size),
             project_id: "test_project".to_string(),
-            config: Some(create_test_config(size, "Cosine")),
+            config: Some(create_test_config(*size, "Cosine")),
         });
 
         let result = service.create_collection(request).await;
@@ -283,6 +308,11 @@ async fn test_various_vector_sizes() {
                 "Size {} should be valid but got InvalidArgument", size
             );
         }
+    }
+
+    // Cleanup
+    for name in &collection_names {
+        cleanup_collection(&service, name).await;
     }
 }
 
@@ -314,6 +344,11 @@ async fn test_edge_case_names() {
                 name, status.message()
             );
         }
+    }
+
+    // Cleanup valid names that may have been created
+    for name in &valid_names {
+        cleanup_collection(&service, name).await;
     }
 
     // Invalid edge cases

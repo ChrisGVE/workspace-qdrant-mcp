@@ -11,7 +11,8 @@
 //!   Ingestion/Deletion ratio: 2,521x
 //!   Conclusion: delete+re-ingest is the right strategy; deletion is free.
 //!
-//! Uses the libraries collection with plain overlap chunking (no tree-sitter/LSP).
+//! Uses a dedicated `bench_ingestion` collection with plain overlap chunking (no tree-sitter/LSP).
+//! The collection is created at the start and deleted at the end (no production data touched).
 //! Requires a running Qdrant instance and a PDF file for input.
 //!
 //! Run with:
@@ -121,6 +122,9 @@ fn chunk_text(text: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
     chunks
 }
 
+/// Dedicated benchmark collection name (not a production collection)
+const BENCH_COLLECTION: &str = "bench_ingestion";
+
 /// Run a single benchmark iteration: embed + ingest + delete
 async fn run_iteration(
     embedding_gen: &EmbeddingGenerator,
@@ -128,7 +132,7 @@ async fn run_iteration(
     chunks: &[String],
     iteration: usize,
 ) -> Result<(u64, u64, u64), String> {
-    let collection = "libraries";
+    let collection = BENCH_COLLECTION;
     let bench_file = format!("/bench/pdf_iter_{}", iteration);
 
     // Step 1: Generate embeddings
@@ -244,6 +248,27 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
         group.finish();
         return;
     }
+
+    // --- Create dedicated benchmark collection ---
+    let collection_created = rt.block_on(async {
+        // Delete any leftover from a previous run
+        let _ = storage_client.delete_collection(BENCH_COLLECTION).await;
+        storage_client
+            .create_collection(BENCH_COLLECTION, Some(384), None)
+            .await
+            .is_ok()
+    });
+
+    if !collection_created {
+        eprintln!("WARNING: Failed to create benchmark collection '{}'. Skipping.", BENCH_COLLECTION);
+        let mut group = c.benchmark_group("qdrant_ingestion_vs_deletion");
+        group.bench_function("skipped_collection_error", |b| {
+            b.iter(|| std::thread::sleep(Duration::from_millis(1)))
+        });
+        group.finish();
+        return;
+    }
+    eprintln!("Created dedicated benchmark collection: {}", BENCH_COLLECTION);
 
     // --- Initialize embedding model ---
     let embedding_config = EmbeddingConfig::default();
@@ -394,6 +419,12 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
             eprintln!("  Deletion:   {:.0}ms avg ({:.2}ms/chunk)", avg_delete, avg_delete / chunk_count as f64);
             eprintln!("  Ratio:      {:.1}x (ingestion/deletion)", ratio);
         }
+    });
+
+    // --- Cleanup benchmark collection ---
+    eprintln!("\nCleaning up benchmark collection: {}", BENCH_COLLECTION);
+    rt.block_on(async {
+        let _ = storage_client.delete_collection(BENCH_COLLECTION).await;
     });
 }
 
