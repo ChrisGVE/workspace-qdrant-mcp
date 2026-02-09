@@ -26,7 +26,7 @@ use crate::unified_queue_schema::{
     ItemType, QueueOperation, UnifiedQueueItem,
     ContentPayload, FilePayload, ProjectPayload, LibraryPayload,
 };
-use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig};
+use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
 use crate::patterns::exclusion::should_exclude_file;
 use crate::file_classification::classify_file_type;
@@ -655,11 +655,11 @@ impl UnifiedQueueProcessor {
             point_payload.insert("full_tag".to_string(), serde_json::json!(full_tag));
         }
 
-        // Create document point with stable point ID
+        // Create document point with stable point ID and sparse vector for hybrid search
         let point = DocumentPoint {
             id: crate::generate_point_id(&content_doc_id, 0),
             dense_vector: embedding_result.dense.vector,
-            sparse_vector: None,
+            sparse_vector: Self::sparse_embedding_to_map(&embedding_result.sparse),
             payload: point_payload,
         };
 
@@ -964,7 +964,7 @@ impl UnifiedQueueProcessor {
             let point = DocumentPoint {
                 id: point_id.clone(),
                 dense_vector: embedding_result.dense.vector,
-                sparse_vector: None,
+                sparse_vector: Self::sparse_embedding_to_map(&embedding_result.sparse),
                 payload: point_payload,
             };
 
@@ -1216,6 +1216,18 @@ impl UnifiedQueueProcessor {
 
         info!("Deleted points for file (fallback) in {}ms: {}", delete_start.elapsed().as_millis(), abs_file_path);
         Ok(())
+    }
+
+    /// Convert a SparseEmbedding to the HashMap format expected by DocumentPoint
+    fn sparse_embedding_to_map(sparse: &SparseEmbedding) -> Option<std::collections::HashMap<u32, f32>> {
+        if sparse.indices.is_empty() {
+            return None;
+        }
+        let map: std::collections::HashMap<u32, f32> = sparse.indices.iter()
+            .zip(sparse.values.iter())
+            .map(|(&idx, &val)| (idx, val))
+            .collect();
+        Some(map)
     }
 
     /// Add LSP enrichment data to a point payload
