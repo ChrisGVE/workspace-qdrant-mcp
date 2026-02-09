@@ -1280,8 +1280,20 @@ impl StorageClient {
         points: Vec<DocumentPoint>,
         batch_size: Option<usize>,
     ) -> Result<BatchStats, StorageError> {
-        info!("Inserting {} points into collection {} in batches", points.len(), collection_name);
-        
+        self.insert_points_batch_with_wait(collection_name, points, batch_size, false).await
+    }
+
+    /// Insert points with explicit wait control.
+    /// When `wait` is true, each batch blocks until Qdrant commits the points.
+    pub async fn insert_points_batch_with_wait(
+        &self,
+        collection_name: &str,
+        points: Vec<DocumentPoint>,
+        batch_size: Option<usize>,
+        wait: bool,
+    ) -> Result<BatchStats, StorageError> {
+        info!("Inserting {} points into collection {} in batches (wait={})", points.len(), collection_name, wait);
+
         let start_time = std::time::Instant::now();
         let batch_size = batch_size.unwrap_or(100); // Default batch size
         let total_points = points.len();
@@ -1298,7 +1310,7 @@ impl StorageClient {
                     let upsert_points = UpsertPoints {
                         collection_name: collection_name.to_string(),
                         points: points_batch,
-                        wait: Some(false), // Don't wait for batch operations
+                        wait: Some(wait),
                         ..Default::default()
                     };
                     

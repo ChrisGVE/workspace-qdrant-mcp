@@ -1,17 +1,13 @@
-//! Qdrant Ingestion vs Deletion Benchmark (Task 508)
+//! Qdrant Ingestion vs Deletion Benchmark (Task 508/516)
 //!
-//! KNOWN ISSUES (Task 516): This criterion-based benchmark produces INVALID results
-//! because DocumentPoint IDs (e.g. "bench_pdf_1_0") are not valid UUIDs but are
-//! passed to PointIdOptions::Uuid(), causing silent upsert failures. Additionally,
-//! insert_points_batch uses wait=false (non-blocking), so deletion timing measures
-//! deleting zero points.
+//! Measures embedding generation, Qdrant upsert, and deletion timing using
+//! real PDF content at multiple sizes (100KB, 500KB, 1MB, full).
 //!
-//! REAL BENCHMARK RESULTS (via production daemon path, 2026-02-07):
+//! Production daemon path reference results (2026-02-07):
 //!   PDF: 25MB physics textbook → 2716 chunks (512 chars, 50 overlap)
 //!   Embedding generation: 61,715ms (22.7ms/chunk)
 //!   Qdrant upsert:            454ms ( 0.17ms/chunk)
 //!   Qdrant deletion:           28ms ( 0.01ms/chunk)
-//!   Total ingestion:       70,595ms (26.0ms/chunk)
 //!   Ingestion/Deletion ratio: 2,521x
 //!   Conclusion: delete+re-ingest is the right strategy; deletion is free.
 //!
@@ -34,11 +30,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use uuid::Uuid;
 
 use workspace_qdrant_core::{
     EmbeddingGenerator, EmbeddingConfig,
     StorageClient, StorageConfig, DocumentPoint,
 };
+
+/// Namespace UUID for benchmark point IDs (deterministic)
+const BENCH_UUID_NAMESPACE: Uuid = Uuid::from_bytes([
+    0xb6, 0x43, 0x1a, 0x2e, 0x7f, 0x8c, 0x4d, 0x1a,
+    0x9e, 0x3b, 0x5c, 0x2d, 0x4e, 0x6f, 0x7a, 0x8b,
+]);
 
 /// Default PDF path relative to the project root
 const DEFAULT_PDF_RELATIVE: &str =
@@ -149,8 +152,12 @@ async fn run_iteration(
         payload.insert("chunk_index".to_string(), serde_json::json!(i));
         payload.insert("content".to_string(), serde_json::json!(chunk));
 
+        // Generate deterministic UUID v5 from the bench ID string
+        let id_str = format!("bench_pdf_{}_{}", iteration, i);
+        let point_uuid = Uuid::new_v5(&BENCH_UUID_NAMESPACE, id_str.as_bytes());
+
         points.push(DocumentPoint {
-            id: format!("bench_pdf_{}_{}", iteration, i),
+            id: point_uuid.to_string(),
             dense_vector: result.dense.vector,
             sparse_vector: Some(sparse_map),
             payload,
@@ -158,22 +165,20 @@ async fn run_iteration(
     }
     let embedding_ms = embed_start.elapsed().as_millis() as u64;
 
-    // Step 2: Measure ingestion (upsert)
+    // Step 2: Measure ingestion (upsert with wait=true for accurate timing)
     let ingest_start = Instant::now();
     storage_client
-        .insert_points_batch(collection, points, Some(50))
+        .insert_points_batch_with_wait(collection, points, Some(50), true)
         .await
         .map_err(|e| format!("Ingestion failed: {}", e))?;
-    tokio::time::sleep(Duration::from_millis(100)).await;
     let ingestion_ms = ingest_start.elapsed().as_millis() as u64;
 
-    // Step 3: Measure deletion
+    // Step 3: Measure deletion (already uses wait=true internally)
     let delete_start = Instant::now();
     storage_client
         .delete_points_by_filter(collection, &bench_file, "bench_pdf")
         .await
         .map_err(|e| format!("Deletion failed: {}", e))?;
-    tokio::time::sleep(Duration::from_millis(100)).await;
     let deletion_ms = delete_start.elapsed().as_millis() as u64;
 
     Ok((embedding_ms, ingestion_ms, deletion_ms))
