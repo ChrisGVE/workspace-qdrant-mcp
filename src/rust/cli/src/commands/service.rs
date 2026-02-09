@@ -824,6 +824,21 @@ mod tests {
     }
 
     #[test]
+    fn test_generate_launchd_plist_uses_canonical_log_dir() {
+        let binary = PathBuf::from("/Users/test/.local/bin/memexd");
+        let plist = generate_launchd_plist(&binary);
+
+        // Must NOT use /tmp for logs (Task 515)
+        assert!(!plist.contains("/tmp/memexd"), "plist must not use /tmp for log paths");
+
+        // Must use canonical log directory
+        assert!(plist.contains("Library/Logs/workspace-qdrant"),
+            "plist must use canonical log directory");
+        assert!(plist.contains("daemon.out.log"), "plist must define stdout log");
+        assert!(plist.contains("daemon.err.log"), "plist must define stderr log");
+    }
+
+    #[test]
     fn test_get_service_manager() {
         let manager = get_service_manager();
         #[cfg(target_os = "macos")]

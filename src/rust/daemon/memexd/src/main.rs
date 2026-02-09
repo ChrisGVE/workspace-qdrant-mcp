@@ -291,6 +291,26 @@ fn remove_pid_file(pid_file: &Path) {
     }
 }
 
+/// Warn if the stale legacy directory from the old Python MCP server exists.
+///
+/// The old Python MCP server (pre-Rust, September 2025) used `~/.workspace-qdrant-mcp/`
+/// for state and logs. The current codebase uses `~/.workspace-qdrant/` for state
+/// and the OS-canonical log directory for logs. This function logs a warning to
+/// help users discover and clean up the old directory.
+fn check_stale_legacy_directory() {
+    if let Ok(home) = std::env::var("HOME") {
+        let legacy_dir = PathBuf::from(&home).join(".workspace-qdrant-mcp");
+        if legacy_dir.exists() {
+            warn!(
+                path = %legacy_dir.display(),
+                "Stale legacy directory found from old Python MCP server. \
+                 This directory is no longer used and can be safely removed: \
+                 rm -rf ~/.workspace-qdrant-mcp"
+            );
+        }
+    }
+}
+
 /// Check if another instance is already running
 fn check_existing_instance(pid_file: &Path, project_id: Option<&String>) -> Result<(), Box<dyn std::error::Error>> {
     if pid_file.exists() {
@@ -446,6 +466,9 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     check_existing_instance(&args.pid_file, args.project_id.as_ref())?;
     create_pid_file(&args.pid_file, args.project_id.as_ref())?;
+
+    // Warn about stale legacy directory from old Python MCP server
+    check_stale_legacy_directory();
 
     // Convert DaemonConfig to Config for queue processor settings
     let config = Config::from(daemon_config.clone());
