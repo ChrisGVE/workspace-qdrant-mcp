@@ -16,7 +16,7 @@ use qdrant_client::qdrant::{
     Condition, CountPointsBuilder, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
     DeletePointsBuilder, FieldType, Filter, HnswConfigDiffBuilder, VectorParamsBuilder,
     DenseVector, SparseVector, VectorParamsMap, SparseVectorConfig, SparseVectorParams,
-    vectors_config, QueryPointsBuilder,
+    vectors_config, QueryPointsBuilder, CreateAliasBuilder, RenameAliasBuilder,
 };
 use serde::{Serialize, Deserialize};
 use tokio::time::sleep;
@@ -911,6 +911,53 @@ impl StorageClient {
             vector_dimension,
             aliases,
         })
+    }
+
+    // =========================================================================
+    // Collection Alias Operations
+    // =========================================================================
+
+    /// Create a collection alias
+    ///
+    /// Maps `alias_name` to `collection_name` in Qdrant. Queries to the alias
+    /// will be directed to the target collection.
+    pub async fn create_alias(
+        &self,
+        collection_name: &str,
+        alias_name: &str,
+    ) -> Result<(), StorageError> {
+        self.client
+            .create_alias(CreateAliasBuilder::new(collection_name, alias_name))
+            .await
+            .map_err(|e| StorageError::Collection(format!("Failed to create alias '{}': {}", alias_name, e)))?;
+        Ok(())
+    }
+
+    /// Delete a collection alias
+    pub async fn delete_alias(&self, alias_name: &str) -> Result<(), StorageError> {
+        self.client
+            .delete_alias(alias_name)
+            .await
+            .map_err(|e| StorageError::Collection(format!("Failed to delete alias '{}': {}", alias_name, e)))?;
+        Ok(())
+    }
+
+    /// Rename a collection alias atomically
+    ///
+    /// Changes the alias name from `old_alias_name` to `new_alias_name`.
+    /// The alias continues pointing to the same collection.
+    pub async fn rename_alias(
+        &self,
+        old_alias_name: &str,
+        new_alias_name: &str,
+    ) -> Result<(), StorageError> {
+        self.client
+            .rename_alias(RenameAliasBuilder::new(old_alias_name, new_alias_name))
+            .await
+            .map_err(|e| StorageError::Collection(format!(
+                "Failed to rename alias '{}' to '{}': {}", old_alias_name, new_alias_name, e
+            )))?;
+        Ok(())
     }
 
     /// Delete points from a collection by document_id filter

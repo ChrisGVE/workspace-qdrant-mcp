@@ -95,6 +95,20 @@ impl CollectionServiceImpl {
         Ok(())
     }
 
+    /// Canonical collection names that cannot be used as aliases (per ADR-001)
+    const CANONICAL_COLLECTIONS: &'static [&'static str] = &["projects", "libraries", "memory"];
+
+    /// Validate that an alias name does not conflict with canonical collection names
+    fn validate_alias_name(alias_name: &str) -> Result<(), Status> {
+        if Self::CANONICAL_COLLECTIONS.contains(&alias_name) {
+            return Err(Status::invalid_argument(format!(
+                "Cannot use '{}' as alias: conflicts with canonical collection name",
+                alias_name
+            )));
+        }
+        Ok(())
+    }
+
     /// Map distance metric string to Qdrant Distance enum
     fn map_distance_metric(metric: &str) -> Result<String, Status> {
         match metric {
@@ -362,13 +376,19 @@ impl CollectionService for CollectionServiceImpl {
             _ => {}
         }
 
-        // Create alias using Qdrant client directly
-        // Note: The StorageClient doesn't have alias methods, we need to use the raw Qdrant client
-        // For now, return unimplemented
-        warn!("Alias creation not yet implemented in StorageClient");
-        Err(Status::unimplemented(
-            "Alias operations are not yet implemented. This requires direct Qdrant API access."
-        ))
+        // Reject aliases that match canonical collection names
+        Self::validate_alias_name(&req.alias_name)?;
+
+        match self.storage_client.create_alias(&req.collection_name, &req.alias_name).await {
+            Ok(_) => {
+                info!("Successfully created alias '{}' -> '{}'", req.alias_name, req.collection_name);
+                Ok(Response::new(()))
+            }
+            Err(err) => {
+                error!("Failed to create alias '{}': {:?}", req.alias_name, err);
+                Err(Self::map_storage_error(err))
+            }
+        }
     }
 
     async fn delete_collection_alias(
@@ -382,12 +402,16 @@ impl CollectionService for CollectionServiceImpl {
         // Validate alias name
         Self::validate_collection_name(&req.alias_name)?;
 
-        // Delete alias using Qdrant client directly
-        // Note: The StorageClient doesn't have alias methods, we need to use the raw Qdrant client
-        warn!("Alias deletion not yet implemented in StorageClient");
-        Err(Status::unimplemented(
-            "Alias operations are not yet implemented. This requires direct Qdrant API access."
-        ))
+        match self.storage_client.delete_alias(&req.alias_name).await {
+            Ok(_) => {
+                info!("Successfully deleted alias '{}'", req.alias_name);
+                Ok(Response::new(()))
+            }
+            Err(err) => {
+                error!("Failed to delete alias '{}': {:?}", req.alias_name, err);
+                Err(Self::map_storage_error(err))
+            }
+        }
     }
 
     async fn rename_collection_alias(
@@ -403,13 +427,19 @@ impl CollectionService for CollectionServiceImpl {
         Self::validate_collection_name(&req.new_alias_name)?;
         Self::validate_collection_name(&req.collection_name)?;
 
-        // Rename alias using Qdrant client directly
-        // This is typically done atomically: delete old, create new
-        // Note: The StorageClient doesn't have alias methods, we need to use the raw Qdrant client
-        warn!("Alias rename not yet implemented in StorageClient");
-        Err(Status::unimplemented(
-            "Alias operations are not yet implemented. This requires direct Qdrant API access."
-        ))
+        // Reject new alias names that match canonical collection names
+        Self::validate_alias_name(&req.new_alias_name)?;
+
+        match self.storage_client.rename_alias(&req.old_alias_name, &req.new_alias_name).await {
+            Ok(_) => {
+                info!("Successfully renamed alias '{}' -> '{}'", req.old_alias_name, req.new_alias_name);
+                Ok(Response::new(()))
+            }
+            Err(err) => {
+                error!("Failed to rename alias '{}' to '{}': {:?}", req.old_alias_name, req.new_alias_name, err);
+                Err(Self::map_storage_error(err))
+            }
+        }
     }
 }
 
@@ -488,5 +518,22 @@ mod tests {
         // Invalid metric
         assert!(CollectionServiceImpl::map_distance_metric("Invalid").is_err());
         assert!(CollectionServiceImpl::map_distance_metric("manhattan").is_err());
+    }
+
+    #[test]
+    fn test_validate_alias_name_rejects_canonical() {
+        // Canonical collection names must be rejected as aliases
+        assert!(CollectionServiceImpl::validate_alias_name("projects").is_err());
+        assert!(CollectionServiceImpl::validate_alias_name("libraries").is_err());
+        assert!(CollectionServiceImpl::validate_alias_name("memory").is_err());
+    }
+
+    #[test]
+    fn test_validate_alias_name_allows_non_canonical() {
+        // Non-canonical names should be allowed
+        assert!(CollectionServiceImpl::validate_alias_name("my-alias").is_ok());
+        assert!(CollectionServiceImpl::validate_alias_name("project_v2").is_ok());
+        assert!(CollectionServiceImpl::validate_alias_name("lib-backup").is_ok());
+        assert!(CollectionServiceImpl::validate_alias_name("_projects").is_ok());
     }
 }

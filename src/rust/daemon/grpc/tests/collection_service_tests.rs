@@ -179,42 +179,61 @@ async fn test_delete_collection_validation() {
 }
 
 #[tokio::test]
-async fn test_alias_operations_unimplemented() {
+async fn test_alias_canonical_name_rejection() {
     let service = CollectionServiceImpl::default();
 
-    // Create alias
+    // Create alias with canonical name should fail
+    for canonical in &["projects", "libraries", "memory"] {
+        let request = Request::new(CreateAliasRequest {
+            alias_name: canonical.to_string(),
+            collection_name: "test_collection".to_string(),
+        });
+
+        let result = service.create_collection_alias(request).await;
+        assert!(result.is_err(), "Alias '{}' should be rejected", canonical);
+        assert_eq!(result.unwrap_err().code(), Code::InvalidArgument);
+    }
+
+    // Rename alias to canonical name should fail
+    for canonical in &["projects", "libraries", "memory"] {
+        let request = Request::new(RenameAliasRequest {
+            old_alias_name: "old_alias".to_string(),
+            new_alias_name: canonical.to_string(),
+            collection_name: "test_collection".to_string(),
+        });
+
+        let result = service.rename_collection_alias(request).await;
+        assert!(result.is_err(), "Rename to '{}' should be rejected", canonical);
+        assert_eq!(result.unwrap_err().code(), Code::InvalidArgument);
+    }
+}
+
+#[tokio::test]
+async fn test_alias_validation_errors() {
+    let service = CollectionServiceImpl::default();
+
+    // Create alias with invalid alias name (too short)
     let request = Request::new(CreateAliasRequest {
-        alias_name: "test_alias".to_string(),
+        alias_name: "ab".to_string(),
         collection_name: "test_collection".to_string(),
     });
-
     let result = service.create_collection_alias(request).await;
     assert!(result.is_err());
-    // Should be unimplemented since StorageClient lacks alias methods
-    let err = result.unwrap_err();
+    assert_eq!(result.unwrap_err().code(), Code::InvalidArgument);
+
+    // Create alias targeting non-existent collection should fail with NotFound
+    let request = Request::new(CreateAliasRequest {
+        alias_name: "valid_alias".to_string(),
+        collection_name: "nonexistent_collection".to_string(),
+    });
+    let result = service.create_collection_alias(request).await;
+    assert!(result.is_err());
+    let code = result.unwrap_err().code();
+    // Either NotFound (if Qdrant is reachable) or Unavailable (if not)
     assert!(
-        err.code() == Code::Unimplemented || err.code() == Code::Unavailable
+        code == Code::NotFound || code == Code::Unavailable || code == Code::Internal,
+        "Expected NotFound/Unavailable/Internal, got {:?}", code
     );
-
-    // Delete alias
-    let request = Request::new(DeleteAliasRequest {
-        alias_name: "test_alias".to_string(),
-    });
-
-    let result = service.delete_collection_alias(request).await;
-    assert!(result.is_err());
-    assert_eq!(result.unwrap_err().code(), Code::Unimplemented);
-
-    // Rename alias
-    let request = Request::new(RenameAliasRequest {
-        old_alias_name: "old_alias".to_string(),
-        new_alias_name: "new_alias".to_string(),
-        collection_name: "test_collection".to_string(),
-    });
-
-    let result = service.rename_collection_alias(request).await;
-    assert!(result.is_err());
-    assert_eq!(result.unwrap_err().code(), Code::Unimplemented);
 }
 
 #[tokio::test]
