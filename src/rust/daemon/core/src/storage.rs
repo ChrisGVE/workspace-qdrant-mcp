@@ -13,7 +13,7 @@ use qdrant_client::qdrant::{PointStruct, SearchPoints, UpsertPoints};
 use qdrant_client::qdrant::{CreateCollection, DeleteCollection, Distance, VectorParams, VectorsConfig};
 use qdrant_client::qdrant::Datatype;
 use qdrant_client::qdrant::{
-    Condition, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
+    Condition, CountPointsBuilder, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
     DeletePointsBuilder, FieldType, Filter, HnswConfigDiffBuilder, VectorParamsBuilder,
     DenseVector, SparseVector, VectorParamsMap, SparseVectorConfig, SparseVectorParams,
     vectors_config,
@@ -344,6 +344,23 @@ pub struct BatchStats {
     pub processing_time_ms: u64,
     /// Average throughput (points per second)
     pub throughput: f64,
+}
+
+/// Collection information returned from Qdrant
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionInfoResult {
+    /// Collection name
+    pub name: String,
+    /// Number of points in the collection
+    pub points_count: u64,
+    /// Number of indexed vectors
+    pub vectors_count: u64,
+    /// Collection status (green, yellow, red, grey)
+    pub status: String,
+    /// Dense vector dimension (if configured)
+    pub vector_dimension: Option<u64>,
+    /// Collection aliases
+    pub aliases: Vec<String>,
 }
 
 /// Connection pool statistics
@@ -796,6 +813,128 @@ impl StorageClient {
         }).await?;
 
         Ok(response)
+    }
+
+    /// List all collections in Qdrant
+    ///
+    /// Returns a list of collection names.
+    pub async fn list_collections(&self) -> Result<Vec<String>, StorageError> {
+        debug!("Listing all collections");
+
+        let response = self.retry_operation(|| async {
+            self.client.list_collections().await
+                .map_err(|e| StorageError::Collection(e.to_string()))
+        }).await?;
+
+        let names = response.collections
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+
+        Ok(names)
+    }
+
+    /// Get detailed information about a collection
+    ///
+    /// Returns point count, vector config, status, and aliases.
+    pub async fn get_collection_info(
+        &self,
+        collection_name: &str,
+    ) -> Result<CollectionInfoResult, StorageError> {
+        debug!("Getting collection info: {}", collection_name);
+
+        let info = self.retry_operation(|| async {
+            self.client.collection_info(collection_name).await
+                .map_err(|e| StorageError::Collection(e.to_string()))
+        }).await?;
+
+        // Extract point and vector counts from collection info
+        let points_count = info.result
+            .as_ref()
+            .map(|r| r.points_count.unwrap_or(0))
+            .unwrap_or(0);
+
+        let vectors_count = info.result
+            .as_ref()
+            .map(|r| r.indexed_vectors_count.unwrap_or(0))
+            .unwrap_or(0);
+
+        // Extract status
+        let status = info.result
+            .as_ref()
+            .map(|r| match r.status() {
+                qdrant_client::qdrant::CollectionStatus::Green => "green",
+                qdrant_client::qdrant::CollectionStatus::Yellow => "yellow",
+                qdrant_client::qdrant::CollectionStatus::Red => "red",
+                qdrant_client::qdrant::CollectionStatus::Grey => "grey",
+                _ => "unknown",
+            })
+            .unwrap_or("unknown")
+            .to_string();
+
+        // Extract dense vector dimension from config
+        let vector_dimension = info.result
+            .as_ref()
+            .and_then(|r| r.config.as_ref())
+            .and_then(|c| c.params.as_ref())
+            .and_then(|p| p.vectors_config.as_ref())
+            .and_then(|vc| {
+                use qdrant_client::qdrant::vectors_config::Config;
+                match &vc.config {
+                    Some(Config::Params(params)) => Some(params.size),
+                    Some(Config::ParamsMap(map)) => {
+                        map.map.get("dense").map(|p| p.size)
+                    }
+                    _ => None,
+                }
+            });
+
+        // Get aliases for this collection
+        let aliases = match self.client.list_collection_aliases(collection_name).await {
+            Ok(response) => {
+                response.aliases
+                    .into_iter()
+                    .map(|a| a.alias_name)
+                    .collect()
+            }
+            Err(e) => {
+                warn!("Failed to get aliases for {}: {}", collection_name, e);
+                vec![]
+            }
+        };
+
+        Ok(CollectionInfoResult {
+            name: collection_name.to_string(),
+            points_count,
+            vectors_count,
+            status,
+            vector_dimension,
+            aliases,
+        })
+    }
+
+    /// Count points in a collection, optionally filtered by tenant_id
+    pub async fn count_points(
+        &self,
+        collection_name: &str,
+        tenant_id: Option<&str>,
+    ) -> Result<u64, StorageError> {
+        debug!("Counting points in collection: {} (tenant: {:?})", collection_name, tenant_id);
+
+        let mut builder = CountPointsBuilder::new(collection_name).exact(true);
+
+        if let Some(tid) = tenant_id {
+            builder = builder.filter(Filter::must([
+                Condition::matches("tenant_id", tid.to_string()),
+            ]));
+        }
+
+        let count = self.retry_operation(|| async {
+            self.client.count(builder.clone()).await
+                .map_err(|e| StorageError::Collection(e.to_string()))
+        }).await?;
+
+        Ok(count.result.map(|r| r.count).unwrap_or(0))
     }
 
     /// Create a multi-tenant collection with optimized HNSW configuration

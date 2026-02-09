@@ -243,31 +243,35 @@ impl CollectionService for CollectionServiceImpl {
     ) -> Result<Response<ListCollectionsResponse>, Status> {
         debug!("Listing collections");
 
-        // Return the canonical collections (projects, libraries, memory)
-        // Note: StorageClient doesn't have a list_collections method yet
-        // This stub returns the well-known collection names
-        let canonical_collections = vec![
-            "projects".to_string(),
-            "libraries".to_string(),
-            "memory".to_string(),
-        ];
+        // Query Qdrant for actual collection list
+        let collection_names = self.storage_client.list_collections().await
+            .map_err(Self::map_storage_error)?;
 
         let mut collections = Vec::new();
-        for name in &canonical_collections {
-            // Check if collection exists
-            let exists = self.storage_client.collection_exists(name).await
-                .unwrap_or(false);
-
-            if exists {
-                let info = CollectionInfo {
-                    name: name.clone(),
-                    vectors_count: 0,  // Would need separate call to get count
-                    points_count: 0,
-                    status: "green".to_string(),
-                    created_at: Some(prost_types::Timestamp::from(SystemTime::now())),
-                    aliases: vec![],
-                };
-                collections.push(info);
+        for name in &collection_names {
+            match self.storage_client.get_collection_info(name).await {
+                Ok(info_result) => {
+                    collections.push(CollectionInfo {
+                        name: info_result.name,
+                        vectors_count: info_result.vectors_count as i64,
+                        points_count: info_result.points_count as i64,
+                        status: info_result.status,
+                        created_at: Some(prost_types::Timestamp::from(SystemTime::now())),
+                        aliases: info_result.aliases,
+                    });
+                }
+                Err(err) => {
+                    warn!("Failed to get info for collection {}: {:?}", name, err);
+                    // Include collection with minimal info rather than failing entirely
+                    collections.push(CollectionInfo {
+                        name: name.clone(),
+                        vectors_count: 0,
+                        points_count: 0,
+                        status: "unknown".to_string(),
+                        created_at: None,
+                        aliases: vec![],
+                    });
+                }
             }
         }
 
@@ -303,18 +307,23 @@ impl CollectionService for CollectionServiceImpl {
             _ => {}
         }
 
-        // Collection exists, get info
+        // Get actual collection info from Qdrant
+        let info_result = self.storage_client.get_collection_info(&req.name).await
+            .map_err(Self::map_storage_error)?;
+
         let info = CollectionInfo {
-            name: req.name.clone(),
-            vectors_count: 0,  // Would need separate call
-            points_count: 0,
-            status: "green".to_string(),
+            name: info_result.name,
+            vectors_count: info_result.vectors_count as i64,
+            points_count: info_result.points_count as i64,
+            status: info_result.status,
             created_at: Some(prost_types::Timestamp::from(SystemTime::now())),
-            aliases: vec![],
+            aliases: info_result.aliases,
         };
 
+        let vector_size = info_result.vector_dimension.unwrap_or(384) as i32;
+
         let config = CollectionConfig {
-            vector_size: 384,  // Default, would need to get actual config
+            vector_size,
             distance_metric: "Cosine".to_string(),
             enable_indexing: true,
             metadata_schema: std::collections::HashMap::new(),
