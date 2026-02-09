@@ -199,6 +199,35 @@ fn process_file_sync(
         DocumentType::Pdf => extract_pdf(file_path)?,
         DocumentType::Epub => extract_epub(file_path)?,
         DocumentType::Docx => extract_docx(file_path)?,
+        DocumentType::Pptx => extract_pptx(file_path)?,
+        DocumentType::Odt | DocumentType::Odp | DocumentType::Ods => {
+            let fmt = match &document_type {
+                DocumentType::Odt => "odt",
+                DocumentType::Odp => "odp",
+                DocumentType::Ods => "ods",
+                _ => unreachable!(),
+            };
+            extract_opendocument(file_path, fmt)?
+        }
+        DocumentType::Rtf => extract_rtf(file_path)?,
+        DocumentType::Ppt | DocumentType::Doc => {
+            let fmt = match &document_type {
+                DocumentType::Ppt => "PPT",
+                DocumentType::Doc => "DOC",
+                _ => unreachable!(),
+            };
+            warn!("Legacy binary format {} not supported, attempting text extraction: {:?}", fmt, file_path.file_name());
+            extract_text_with_encoding(file_path)?
+        }
+        DocumentType::Pages | DocumentType::Key => {
+            let fmt = match &document_type {
+                DocumentType::Pages => "Pages",
+                DocumentType::Key => "Keynote",
+                _ => unreachable!(),
+            };
+            warn!("Apple iWork format {} has limited support, attempting extraction: {:?}", fmt, file_path.file_name());
+            extract_iwork(file_path, fmt)?
+        }
         DocumentType::Code(lang) => extract_code(file_path, lang)?,
         DocumentType::Markdown => extract_text_with_encoding(file_path)?,
         DocumentType::Text => extract_text_with_encoding(file_path)?,
@@ -324,6 +353,15 @@ fn detect_document_type(file_path: &Path) -> DocumentType {
         "pdf" => DocumentType::Pdf,
         "epub" => DocumentType::Epub,
         "docx" => DocumentType::Docx,
+        "pptx" => DocumentType::Pptx,
+        "ppt" => DocumentType::Ppt,
+        "odt" => DocumentType::Odt,
+        "odp" => DocumentType::Odp,
+        "ods" => DocumentType::Ods,
+        "rtf" => DocumentType::Rtf,
+        "doc" => DocumentType::Doc,
+        "pages" => DocumentType::Pages,
+        "key" => DocumentType::Key,
 
         // Markup and text
         "md" | "markdown" => DocumentType::Markdown,
@@ -481,6 +519,286 @@ fn extract_text_from_docx_xml(xml_content: &str) -> String {
                     current_text.push_str(&part[end_pos + 1..]);
                 } else {
                     current_text.push_str(part);
+                }
+            }
+        }
+    }
+
+    text
+}
+
+/// Extract text from PowerPoint PPTX file (ZIP-based, slides in ppt/slides/slide*.xml)
+fn extract_pptx(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
+    let mut metadata = HashMap::new();
+    metadata.insert("source_format".to_string(), "pptx".to_string());
+
+    let file = File::open(file_path)?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| DocumentProcessorError::DocxExtraction(format!("PPTX: {}", e)))?;
+
+    let mut all_text = String::new();
+    let mut slide_count = 0u32;
+
+    // Collect slide file names (they're numbered: slide1.xml, slide2.xml, etc.)
+    let slide_names: Vec<String> = (0..archive.len())
+        .filter_map(|i| {
+            archive.by_index(i).ok().and_then(|f| {
+                let name = f.name().to_string();
+                if name.starts_with("ppt/slides/slide") && name.ends_with(".xml") {
+                    Some(name)
+                } else {
+                    None
+                }
+            })
+        })
+        .collect();
+
+    for slide_name in &slide_names {
+        if let Ok(mut slide_file) = archive.by_name(slide_name) {
+            let mut content = String::new();
+            slide_file.read_to_string(&mut content)?;
+            let slide_text = extract_text_from_xml_tags(&content, "a:t");
+            if !slide_text.is_empty() {
+                slide_count += 1;
+                if !all_text.is_empty() {
+                    all_text.push('\n');
+                }
+                all_text.push_str(&slide_text);
+            }
+        }
+    }
+
+    metadata.insert("slide_count".to_string(), slide_count.to_string());
+
+    if all_text.is_empty() {
+        return Err(DocumentProcessorError::DocxExtraction(
+            "No text content found in PPTX".to_string(),
+        ));
+    }
+
+    Ok((clean_extracted_text(&all_text), metadata))
+}
+
+/// Extract text from OpenDocument formats (ODT/ODP/ODS) — all are ZIP-based with content.xml
+fn extract_opendocument(file_path: &Path, format_name: &str) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
+    let mut metadata = HashMap::new();
+    metadata.insert("source_format".to_string(), format_name.to_string());
+
+    let file = File::open(file_path)?;
+    let mut archive = zip::ZipArchive::new(file)
+        .map_err(|e| DocumentProcessorError::DocxExtraction(format!("{}: {}", format_name.to_uppercase(), e)))?;
+
+    let mut text = String::new();
+
+    if let Ok(mut content_file) = archive.by_name("content.xml") {
+        let mut content = String::new();
+        content_file.read_to_string(&mut content)?;
+        text = extract_text_from_xml_tags(&content, "text:p");
+
+        // Also extract from text:h (heading) and text:span tags
+        if text.is_empty() {
+            text = extract_text_from_xml_tags(&content, "text:span");
+        }
+    }
+
+    if text.is_empty() {
+        return Err(DocumentProcessorError::DocxExtraction(
+            format!("No text content found in {} file", format_name.to_uppercase()),
+        ));
+    }
+
+    Ok((clean_extracted_text(&text), metadata))
+}
+
+/// Extract text from RTF file by stripping RTF control codes
+fn extract_rtf(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
+    let mut metadata = HashMap::new();
+    metadata.insert("source_format".to_string(), "rtf".to_string());
+
+    let (raw_text, _) = extract_text_with_encoding(file_path)?;
+
+    // Strip RTF control codes
+    let mut result = String::with_capacity(raw_text.len());
+    let mut skip_group_depth = 0i32; // Track depth of groups to skip (e.g., \fonttbl)
+    let mut group_depth = 0i32;
+    let mut chars = raw_text.chars().peekable();
+
+    // RTF groups that contain metadata, not text content
+    let skip_groups = ["fonttbl", "colortbl", "stylesheet", "info", "pict", "object"];
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '{' => {
+                group_depth += 1;
+                if skip_group_depth > 0 {
+                    skip_group_depth += 1;
+                }
+            }
+            '}' => {
+                if skip_group_depth > 0 {
+                    skip_group_depth -= 1;
+                }
+                group_depth -= 1;
+            }
+            '\\' if skip_group_depth == 0 => {
+                // RTF control word or symbol
+                if let Some(&next) = chars.peek() {
+                    if next == '\'' {
+                        // Hex-encoded character: skip the \'XX
+                        chars.next();
+                        chars.next();
+                        chars.next();
+                    } else if next == '\\' || next == '{' || next == '}' {
+                        result.push(chars.next().unwrap());
+                    } else if next == '\n' || next == '\r' {
+                        chars.next();
+                        result.push('\n');
+                    } else {
+                        let mut control_word = String::new();
+                        while let Some(&c) = chars.peek() {
+                            if c.is_ascii_alphabetic() {
+                                control_word.push(c);
+                                chars.next();
+                            } else {
+                                if c == '-' || c.is_ascii_digit() {
+                                    chars.next();
+                                    while let Some(&d) = chars.peek() {
+                                        if d.is_ascii_digit() { chars.next(); } else { break; }
+                                    }
+                                }
+                                if chars.peek() == Some(&' ') {
+                                    chars.next();
+                                }
+                                break;
+                            }
+                        }
+                        if control_word == "par" || control_word == "line" {
+                            result.push('\n');
+                        } else if control_word == "tab" {
+                            result.push('\t');
+                        } else if skip_groups.contains(&control_word.as_str()) {
+                            skip_group_depth = 1;
+                        }
+                    }
+                }
+            }
+            _ if skip_group_depth == 0 => {
+                result.push(ch);
+            }
+            _ => {}
+        }
+    }
+
+    let text = clean_extracted_text(&result);
+    if text.is_empty() {
+        return Err(DocumentProcessorError::DocxExtraction(
+            "No text content found in RTF file".to_string(),
+        ));
+    }
+
+    Ok((text, metadata))
+}
+
+/// Extract text from Apple iWork formats (.pages, .key) — ZIP-based bundles
+fn extract_iwork(file_path: &Path, format_name: &str) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
+    let mut metadata = HashMap::new();
+    metadata.insert("source_format".to_string(), format_name.to_lowercase());
+
+    let file = File::open(file_path)?;
+    let archive_result = zip::ZipArchive::new(file);
+
+    let mut archive = match archive_result {
+        Ok(a) => a,
+        Err(_) => {
+            // Some iWork files are package bundles (directories), not ZIP
+            return Err(DocumentProcessorError::DocxExtraction(
+                format!("{} format: not a ZIP archive (may be a package bundle)", format_name),
+            ));
+        }
+    };
+
+    let mut text = String::new();
+
+    // Try QuickLook preview text first (most reliable for iWork)
+    if let Ok(mut preview) = archive.by_name("QuickLook/Preview.txt") {
+        preview.read_to_string(&mut text)?;
+    }
+
+    // Try index.xml or Index/Document.iwa
+    if text.is_empty() {
+        // Try extracting from any XML files in the archive
+        let xml_names: Vec<String> = (0..archive.len())
+            .filter_map(|i| {
+                archive.by_index(i).ok().and_then(|f| {
+                    let name = f.name().to_string();
+                    if name.ends_with(".xml") {
+                        Some(name)
+                    } else {
+                        None
+                    }
+                })
+            })
+            .collect();
+
+        for name in &xml_names {
+            if let Ok(mut f) = archive.by_name(name) {
+                let mut content = String::new();
+                if f.read_to_string(&mut content).is_ok() {
+                    let extracted = extract_text_from_xml_tags(&content, "sf:p");
+                    if !extracted.is_empty() {
+                        text.push_str(&extracted);
+                        text.push('\n');
+                    }
+                }
+            }
+        }
+    }
+
+    if text.is_empty() {
+        return Err(DocumentProcessorError::DocxExtraction(
+            format!("No text content found in {} file. Consider exporting as PDF or DOCX.", format_name),
+        ));
+    }
+
+    Ok((clean_extracted_text(&text), metadata))
+}
+
+/// Generic XML tag text extractor — extracts text content from all matching tags
+fn extract_text_from_xml_tags(xml_content: &str, tag_name: &str) -> String {
+    let mut text = String::new();
+    let open_tag = format!("<{}", tag_name);
+    let close_tag = format!("</{}", tag_name);
+
+    let mut in_tag = false;
+    let mut depth = 0i32;
+
+    for part in xml_content.split('<') {
+        if part.is_empty() {
+            continue;
+        }
+
+        if part.starts_with(&tag_name[..]) || part.starts_with(&open_tag[1..]) {
+            in_tag = true;
+            depth += 1;
+            if let Some(content_start) = part.find('>') {
+                let content = &part[content_start + 1..];
+                if !content.is_empty() {
+                    text.push_str(content);
+                }
+            }
+        } else if part.starts_with(&close_tag[1..]) {
+            depth -= 1;
+            if depth <= 0 {
+                in_tag = false;
+                depth = 0;
+                text.push('\n');
+            }
+        } else if in_tag {
+            // Nested tags inside — extract text after '>'
+            if let Some(pos) = part.find('>') {
+                let content = &part[pos + 1..];
+                if !content.is_empty() {
+                    text.push_str(content);
                 }
             }
         }
@@ -908,5 +1226,63 @@ mod tests {
             // Each chunk should be valid UTF-8 (guaranteed by &str, but verify no panics)
             assert!(!chunk.content.is_empty());
         }
+    }
+
+    #[test]
+    fn test_detect_document_type_new_formats() {
+        assert_eq!(detect_document_type(Path::new("slides.pptx")), DocumentType::Pptx);
+        assert_eq!(detect_document_type(Path::new("slides.ppt")), DocumentType::Ppt);
+        assert_eq!(detect_document_type(Path::new("doc.odt")), DocumentType::Odt);
+        assert_eq!(detect_document_type(Path::new("slides.odp")), DocumentType::Odp);
+        assert_eq!(detect_document_type(Path::new("sheet.ods")), DocumentType::Ods);
+        assert_eq!(detect_document_type(Path::new("doc.rtf")), DocumentType::Rtf);
+        assert_eq!(detect_document_type(Path::new("legacy.doc")), DocumentType::Doc);
+        assert_eq!(detect_document_type(Path::new("doc.pages")), DocumentType::Pages);
+        assert_eq!(detect_document_type(Path::new("slides.key")), DocumentType::Key);
+    }
+
+    #[test]
+    fn test_detect_document_type_case_insensitive() {
+        assert_eq!(detect_document_type(Path::new("FILE.PPTX")), DocumentType::Pptx);
+        assert_eq!(detect_document_type(Path::new("FILE.Rtf")), DocumentType::Rtf);
+        assert_eq!(detect_document_type(Path::new("FILE.ODT")), DocumentType::Odt);
+    }
+
+    #[test]
+    fn test_extract_text_from_xml_tags() {
+        let xml = r#"<a:t>Hello</a:t><a:t>World</a:t>"#;
+        let result = extract_text_from_xml_tags(xml, "a:t");
+        assert!(result.contains("Hello"));
+        assert!(result.contains("World"));
+    }
+
+    #[test]
+    fn test_extract_text_from_xml_tags_nested() {
+        let xml = r#"<text:p><text:span>Inner text</text:span></text:p>"#;
+        let result = extract_text_from_xml_tags(xml, "text:p");
+        assert!(result.contains("Inner text"));
+    }
+
+    #[test]
+    fn test_extract_rtf_basic() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, r"{{\rtf1\ansi Hello World \par Second line}}").unwrap();
+        let result = extract_rtf(tmp.path());
+        assert!(result.is_ok());
+        let (text, metadata) = result.unwrap();
+        assert!(text.contains("Hello World"));
+        assert!(text.contains("Second line"));
+        assert_eq!(metadata.get("source_format").unwrap(), "rtf");
+    }
+
+    #[test]
+    fn test_extract_rtf_with_formatting() {
+        let mut tmp = NamedTempFile::new().unwrap();
+        write!(tmp, r"{{\rtf1\ansi\deff0 {{\b Bold text}} normal text \par New para}}").unwrap();
+        let result = extract_rtf(tmp.path());
+        assert!(result.is_ok());
+        let (text, _) = result.unwrap();
+        assert!(text.contains("Bold text"));
+        assert!(text.contains("normal text"));
     }
 }
