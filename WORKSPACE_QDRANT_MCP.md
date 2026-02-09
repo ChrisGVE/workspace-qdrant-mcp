@@ -3113,6 +3113,17 @@ The Rust daemon statically links ONNX Runtime for embedding generation. This ens
 - Users should NEVER need to install ONNX Runtime separately (e.g., via Homebrew)
 - The `ort-load-dynamic` feature MUST NOT be used in production builds
 
+**Allowed External Dependencies (per platform):**
+- **macOS**: System libraries in `/usr/lib/` and `/System/Library/Frameworks/` only
+- **Linux**: `libc`, `libm`, `libdl`, `libpthread`, `libgcc_s`, `libstdc++`, `librt` only
+- **Windows**: Windows system DLLs (`KERNEL32`, `ADVAPI32`, `WS2_32`, `bcrypt`, etc.) only
+- **All platforms**: Tree-sitter grammar files (external `.so`/`.dylib`/`.dll` in cache dir) and LSP binaries (external executables)
+
+**Release Verification:**
+The CI release workflow (`release.yml`) enforces self-contained binaries via:
+1. Per-platform dependency verification scripts (`scripts/verify-deps-{linux,macos,windows}.*`) that **fail the build** if unexpected dynamic dependencies are found
+2. Smoke tests (`--version`) that verify binaries are runnable before release
+
 **Intel Mac Build Pipeline:**
 Since the `ort` crate doesn't provide prebuilt static libraries for `x86_64-apple-darwin`:
 1. CI downloads ONNX Runtime source or prebuilt static library
@@ -3838,6 +3849,17 @@ Tag Push (vX.Y.Z)
 - **Rust dependencies:** Dependabot PRs for security updates
 
 ### Upgrade and Migration
+
+#### Release Packaging (Placeholder)
+
+Define per-OS release packaging and installer expectations, and how the CLI performs updates.
+
+- **macOS**: Specify installer format (e.g., `.pkg` or `.dmg`) and signing/notarization requirements.
+- **Windows**: Specify installer format (e.g., `.msi` or `.exe`) and code signing requirements.
+- **Linux**: Specify package formats (e.g., `.deb`, `.rpm`, AppImage, or tarball) and repository strategy.
+- **CLI-driven updates**: `wqm update` is the primary mechanism for installing updates across all OSes and should handle download, verification, install, and service restart steps.
+
+> Placeholder: fill in exact packaging formats, install locations, and service integration per OS.
 
 #### Standard Upgrade
 
