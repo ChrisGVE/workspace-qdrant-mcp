@@ -913,6 +913,50 @@ impl StorageClient {
         })
     }
 
+    /// Delete points from a collection by document_id filter
+    ///
+    /// Deletes all chunks belonging to a specific document from the collection.
+    /// Used by gRPC update_document (delete + re-ingest) and delete_document.
+    pub async fn delete_points_by_document_id(
+        &self,
+        collection_name: &str,
+        document_id: &str,
+    ) -> Result<u64, StorageError> {
+        if document_id.trim().is_empty() {
+            return Err(StorageError::Point(
+                "document_id must not be empty for delete operations".to_string(),
+            ));
+        }
+
+        info!(
+            "Deleting points with document_id='{}' from collection '{}'",
+            document_id, collection_name
+        );
+
+        let filter = Filter::must([
+            Condition::matches("document_id", document_id.to_string()),
+        ]);
+
+        let delete_request = DeletePointsBuilder::new(collection_name)
+            .points(filter)
+            .wait(true);
+
+        self.retry_operation(|| async {
+            self.client
+                .delete_points(delete_request.clone())
+                .await
+                .map_err(|e| StorageError::Point(format!("Failed to delete points by document_id: {}", e)))
+        })
+        .await?;
+
+        info!(
+            "Successfully deleted points with document_id='{}' from '{}'",
+            document_id, collection_name
+        );
+
+        Ok(0) // Qdrant delete doesn't return count
+    }
+
     /// Count points in a collection, optionally filtered by tenant_id
     pub async fn count_points(
         &self,

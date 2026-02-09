@@ -799,8 +799,7 @@ impl DocumentService for DocumentServiceImpl {
         // Validate document ID
         Self::validate_document_id(&req.document_id)?;
 
-        // Determine collection name - for updates, the collection_name should be
-        // the actual collection (e.g., projects, libraries, or memory)
+        // Determine collection name
         let collection_name = if let Some(coll_name) = req.collection_name {
             Self::validate_collection_name(&coll_name)?;
             coll_name
@@ -815,19 +814,31 @@ impl DocumentService for DocumentServiceImpl {
             collection_name, req.document_id
         );
 
-        // TODO: Delete existing chunks for this document_id
-        // This requires implementing a delete-by-metadata filter in StorageClient
-        // For now, we'll log a warning
-        warn!(
-            "UpdateDocument: Cannot delete existing chunks for document {} - delete_by_filter not yet implemented",
-            req.document_id
-        );
+        // Delete existing chunks for this document_id before re-ingesting
+        match self.storage_client
+            .delete_points_by_document_id(&collection_name, &req.document_id)
+            .await
+        {
+            Ok(_) => {
+                info!(
+                    "Deleted existing chunks for document '{}' in '{}'",
+                    req.document_id, collection_name
+                );
+            }
+            Err(err) => {
+                // Log but continue - the document may not have existed before
+                warn!(
+                    "Failed to delete existing chunks for document '{}': {:?}",
+                    req.document_id, err
+                );
+            }
+        }
 
         // Add updated_at to metadata
         let mut enriched_metadata = req.metadata.clone();
         enriched_metadata.insert("updated_at".to_string(), chrono::Utc::now().to_rfc3339());
 
-        // Ingest new content
+        // Re-ingest new content
         let response = self.ingest_text_internal(
             req.content,
             collection_name,
@@ -871,12 +882,44 @@ impl DocumentService for DocumentServiceImpl {
             );
         }
 
-        // TODO: Implement delete by metadata filter
-        // This requires adding a delete_by_filter method to StorageClient
-        // For now, return unimplemented
-        Err(Status::unimplemented(
-            "DeleteDocument not yet implemented - requires delete_by_filter support in StorageClient"
-        ))
+        // Check collection exists
+        match self.storage_client.collection_exists(&req.collection_name).await {
+            Ok(false) => {
+                return Err(Status::not_found(format!(
+                    "Collection '{}' does not exist", req.collection_name
+                )));
+            }
+            Err(err) => {
+                error!("Failed to check collection existence: {:?}", err);
+                return Err(Status::unavailable(format!(
+                    "Failed to check collection: {}", err
+                )));
+            }
+            _ => {}
+        }
+
+        // Delete all points with matching document_id
+        match self.storage_client
+            .delete_points_by_document_id(&req.collection_name, &req.document_id)
+            .await
+        {
+            Ok(_) => {
+                info!(
+                    "Successfully deleted document '{}' from '{}'",
+                    req.document_id, req.collection_name
+                );
+                Ok(Response::new(()))
+            }
+            Err(err) => {
+                error!(
+                    "Failed to delete document '{}' from '{}': {:?}",
+                    req.document_id, req.collection_name, err
+                );
+                Err(Status::internal(format!(
+                    "Failed to delete document: {}", err
+                )))
+            }
+        }
     }
 }
 
