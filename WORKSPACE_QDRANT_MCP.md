@@ -2780,7 +2780,7 @@ daemon:
   max_concurrent_tasks: 4               # Max parallel processing tasks
   default_timeout_ms: 30000             # Task timeout
   enable_preemption: true               # Allow task preemption
-  chunk_size: 1000                      # Default document chunk size (characters)
+  chunk_size: 1000                      # Default batch processing unit size
   grpc_port: 50051
 
   # Resource limits (prevent daemon from consuming excessive CPU/memory)
@@ -2853,6 +2853,10 @@ git:
 
 # Embedding generation
 embedding:
+  model: "sentence-transformers/all-MiniLM-L6-v2"  # 384-dim, 256-token max
+  enable_sparse_vectors: true          # Enable BM25 sparse vectors for hybrid search
+  chunk_size: 384                      # Chars per chunk (≈82 prose tokens, ≈110 code tokens)
+  chunk_overlap: 58                    # 15% overlap for context preservation
   cache_max_entries: 1000              # Max cached embedding results
   model_cache_dir: null                # Override model download dir (~/.cache/fastembed/)
   # Env overrides: WQM_EMBEDDING_CACHE_MAX_ENTRIES, WQM_EMBEDDING_MODEL_CACHE_DIR
@@ -2983,7 +2987,7 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 
 **Distance Matrix API:** For graph visualization of semantically similar documents, use Qdrant's Distance Matrix API to compute pairwise distances between points using the `dense` vector. This can reveal clusters of related code files or documentation.
 
-**Future consideration:** GraphRAG patterns could leverage the distance matrix to build code intelligence graphs (e.g., "files that are semantically related" or "functions that co-occur in similar contexts").
+**Future consideration:** GraphRAG patterns could leverage the distance matrix to build code intelligence graphs (e.g., "files that are semantically related" or "functions that co-occur in similar contexts"). See the [Future Development](#future-development-wishlist-not-yet-scoped) section for detailed research findings.
 
 ### SQLite Database
 
@@ -4024,6 +4028,105 @@ wqm admin diagnose --component file-watching
 wqm admin diagnose --component embedding
 wqm admin diagnose --component grpc
 ```
+
+---
+
+## Future Development (Wishlist, Not Yet Scoped)
+
+This section documents research findings and architectural ideas that may be pursued in future development cycles. These items are exploratory and have not been scoped into the project plan.
+
+### Graph RAG (Knowledge Graph-Enhanced Retrieval)
+
+**What it is:** Graph RAG augments traditional vector search with knowledge graph traversal, enabling relationship-aware retrieval that understands structural connections between code entities (function calls, imports, type hierarchies, module dependencies).
+
+**Measured benefits (external benchmarks):**
+
+- Lettria (2024): 20-25% accuracy improvement over vector-only RAG on relational queries
+- Neo4j benchmark (2024): 3.4x accuracy improvement for schema-heavy and relationship-dependent queries
+- Microsoft GraphRAG (2024): Significant improvement on "global" questions requiring synthesis across documents
+- Matt Ambrogi retrieval study: Smaller, focused chunks (128 tokens) achieved 3x better MRR than larger chunks (256 tokens)
+
+**Where it adds value in this project:**
+
+- Cross-file navigation: "What functions call this method?" or "What imports this module?"
+- Impact analysis: "What would break if I change this interface?"
+- Architectural understanding: "Show me the dependency chain from this entry point"
+- Cross-language boundaries: Connecting TypeScript MCP server to Rust daemon via gRPC definitions
+- Multi-product relationships: CLI ↔ daemon SQLite schema sharing, MCP ↔ daemon gRPC communication
+
+**Existing building blocks already in the codebase:**
+
+- Tree-sitter semantic chunking extracts functions, classes, methods, structs, traits, enums, and their hierarchical relationships (`parent_symbol`)
+- LSP integration provides resolved references, type information, and cross-file relationships
+- SQLite infrastructure is already in place (`state.db` with WAL mode, ACID guarantees)
+- Hybrid search (dense + sparse + RRF) provides the vector retrieval foundation
+- `tracked_files` and `qdrant_chunks` tables already track file-to-chunk relationships
+
+**Implementation options assessed:**
+
+| Approach | Complexity | Latency | Storage | Recommendation |
+|----------|-----------|---------|---------|----------------|
+| Qdrant payload pseudo-graph | Low | High (filtered searches per hop) | None extra | Not recommended |
+| SQLite adjacency table | Low-Medium | Low (indexed lookups) | ~10-20% overhead | **Recommended** |
+| Neo4j / Dedicated graph DB | High | Low | Separate service | Overkill for current scale |
+| Embedded graph DB (e.g., Oxigraph) | Medium | Low | Embedded | Viable alternative |
+
+**Recommended approach: SQLite adjacency table**
+
+Add a `code_relationships` table to the existing SQLite database:
+
+```sql
+CREATE TABLE code_relationships (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_file TEXT NOT NULL,
+    source_symbol TEXT NOT NULL,
+    target_file TEXT NOT NULL,
+    target_symbol TEXT NOT NULL,
+    relationship_type TEXT NOT NULL,  -- calls, imports, extends, implements, uses_type
+    tenant_id TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_code_rel_source ON code_relationships(source_file, source_symbol);
+CREATE INDEX idx_code_rel_target ON code_relationships(target_file, target_symbol);
+CREATE INDEX idx_code_rel_tenant ON code_relationships(tenant_id);
+```
+
+This leverages the existing SQLite infrastructure without adding external dependencies. The daemon would populate this table during LSP-enriched ingestion, extracting relationships from resolved references and type information.
+
+**Query pattern:**
+
+1. Vector search finds semantically relevant chunks
+2. SQLite graph traversal expands results to structurally related code
+3. Results are re-ranked combining semantic similarity + graph proximity
+
+**Applicability by collection type:**
+
+- **Projects (code):** Highest value. Dense cross-file relationships, function calls, imports, type hierarchies.
+- **Projects (code-adjacent documents):** Limited direct graph participation (no tree-sitter/LSP enrichment), but a lightweight "mentions" relationship could link specs to the code entities they discuss via text matching.
+- **Libraries:** Lower value. Reference documentation lacks the cross-file relationships that make graph traversal most valuable. A simpler section-to-example linking may suffice.
+
+**Multi-tenancy:** The `tenant_id` column ensures graph relationships respect project boundaries. Cross-tenant graph queries must be explicitly forbidden to prevent information leakage between projects.
+
+### Chunk Size Optimization Research
+
+**Finding:** 384 characters with 15% overlap (58 characters) is optimal for the all-MiniLM-L6-v2 embedding model.
+
+**Evidence:**
+
+- Internal benchmark (2026-02-09, 500KB text): 384 chars achieved 86.16 ms/KB, 19% better throughput than the previous 512-char default
+- Matt Ambrogi study: 128 tokens had 3x better MRR than 256 tokens for retrieval
+- Chroma Research: 200-token chunks had 2x better precision than 400-token chunks
+- all-MiniLM-L6-v2 is trained on 128-token sequences (256-token max); 384 chars ≈ 82 tokens (prose) or ≈ 110 tokens (code)
+- NVIDIA research: 15% overlap is optimal for context preservation across chunk boundaries
+
+**Status:** Defaults updated to 384 chars / 58 overlap in configuration and `ChunkingConfig`.
+
+**Note:** These defaults apply to fixed-size text chunking only. Tree-sitter semantic chunking uses natural code boundaries (functions, classes, methods) and has its own size limits (`DEFAULT_MAX_CHUNK_SIZE = 8000` estimated tokens).
+
+### Distance Matrix Visualization
+
+Qdrant's Distance Matrix API can compute pairwise distances between points using the `dense` vector. This could power interactive code intelligence visualizations showing clusters of semantically related files, functions, or documentation. Could serve as a stepping stone toward full Graph RAG by revealing natural code clusters. See the [Qdrant Dashboard Visualization](#qdrant-dashboard-visualization) section for current capabilities.
 
 ---
 
