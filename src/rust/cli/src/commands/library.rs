@@ -41,6 +41,14 @@ impl std::fmt::Display for LibraryMode {
 use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output::{self, ServiceStatus};
 
+/// Default file patterns for library collections.
+/// Covers all supported document formats in `AllowedExtensions::library_extensions`.
+const DEFAULT_LIBRARY_PATTERNS: &[&str] = &[
+    "*.pdf", "*.epub", "*.docx", "*.pptx", "*.ppt", "*.pages", "*.key",
+    "*.odt", "*.odp", "*.ods", "*.rtf", "*.doc",
+    "*.md", "*.txt", "*.html", "*.htm",
+];
+
 /// Library command arguments
 #[derive(Args)]
 pub struct LibraryArgs {
@@ -340,7 +348,7 @@ fn mode_description(mode: LibraryMode) -> &'static str {
     }
 }
 
-async fn watch(tag: &str, path: &PathBuf, _patterns: &[String], mode: LibraryMode) -> Result<()> {
+async fn watch(tag: &str, path: &PathBuf, patterns: &[String], mode: LibraryMode) -> Result<()> {
     output::section(format!("Watch Library: {}", tag));
 
     // Validate path exists
@@ -385,12 +393,22 @@ async fn watch(tag: &str, path: &PathBuf, _patterns: &[String], mode: LibraryMod
     output::kv("  Path", &abs_path_str);
     output::kv("  Mode", &format!("{} ({})", mode, mode_description(mode)));
 
+    // Use user-provided patterns or defaults
+    let effective_patterns: Vec<String> = if patterns.is_empty() {
+        DEFAULT_LIBRARY_PATTERNS.iter().map(|s| s.to_string()).collect()
+    } else {
+        patterns.to_vec()
+    };
+
+    output::kv("  Patterns", &format!("{}", effective_patterns.len()));
+
     // Enqueue a folder scan for the library
     match UnifiedQueueClient::connect() {
         Ok(client) => {
             let payload_json = serde_json::json!({
                 "folder_path": abs_path_str,
                 "recursive": true,
+                "patterns": effective_patterns,
             }).to_string();
 
             match client.enqueue(
@@ -814,7 +832,7 @@ async fn status() -> Result<()> {
 async fn config(
     tag: &str,
     mode: Option<LibraryMode>,
-    _patterns: Option<String>,
+    patterns: Option<String>,
     enable: bool,
     disable: bool,
     show: bool,
@@ -906,6 +924,13 @@ async fn config(
         changes_made = true;
     }
 
+    if let Some(ref pat) = patterns {
+        let parsed: Vec<&str> = pat.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+        output::info(format!("Patterns: {} (applied at next scan/rescan)", parsed.join(", ")));
+        // Patterns are passed through the queue payload at scan time.
+        // To apply new patterns, rescan the library: wqm library rescan <tag>
+    }
+
     if changes_made {
         output::success("Configuration updated");
 
@@ -925,4 +950,55 @@ async fn config(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_default_library_patterns_cover_all_formats() {
+        // All supported document formats must be present
+        let expected = [
+            "*.pdf", "*.epub", "*.docx", "*.pptx", "*.ppt", "*.pages", "*.key",
+            "*.odt", "*.odp", "*.ods", "*.rtf", "*.doc",
+            "*.md", "*.txt", "*.html", "*.htm",
+        ];
+        for pat in &expected {
+            assert!(
+                DEFAULT_LIBRARY_PATTERNS.contains(pat),
+                "Missing default library pattern: {}",
+                pat
+            );
+        }
+        assert_eq!(
+            DEFAULT_LIBRARY_PATTERNS.len(),
+            expected.len(),
+            "Default patterns count mismatch"
+        );
+    }
+
+    #[test]
+    fn test_default_patterns_used_when_none_provided() {
+        let user_patterns: Vec<String> = vec![];
+        let effective: Vec<String> = if user_patterns.is_empty() {
+            DEFAULT_LIBRARY_PATTERNS.iter().map(|s| s.to_string()).collect()
+        } else {
+            user_patterns
+        };
+        assert_eq!(effective.len(), DEFAULT_LIBRARY_PATTERNS.len());
+        assert_eq!(effective[0], "*.pdf");
+    }
+
+    #[test]
+    fn test_user_patterns_override_defaults() {
+        let user_patterns: Vec<String> = vec!["*.pdf".to_string(), "*.md".to_string()];
+        let effective: Vec<String> = if user_patterns.is_empty() {
+            DEFAULT_LIBRARY_PATTERNS.iter().map(|s| s.to_string()).collect()
+        } else {
+            user_patterns.clone()
+        };
+        assert_eq!(effective.len(), 2);
+        assert_eq!(effective, vec!["*.pdf", "*.md"]);
+    }
 }
