@@ -419,13 +419,22 @@ impl IngestionEngine {
         let path_str = file_path.to_string_lossy();
         let document_id = generate_document_id(collection, &path_str);
 
-        // Extract content and chunk using DocumentProcessor
+        // Stage 1: Extract content and chunk using DocumentProcessor
+        let extract_start = Instant::now();
         let content = self.document_processor
             .process_file_content(file_path, collection)
             .await
             .map_err(|e| ProcessingError::Processing(format!("Document processing failed: {}", e)))?;
+        let extract_ms = extract_start.elapsed().as_millis();
+        tracing::info!(
+            file = %path_str,
+            chunks = content.chunks.len(),
+            doc_type = ?content.document_type,
+            extract_ms = extract_ms,
+            "Stage 1: extraction complete"
+        );
 
-        // Ensure collection exists
+        // Stage 2: Ensure collection exists
         if !self.storage_client
             .collection_exists(collection)
             .await
@@ -437,7 +446,8 @@ impl IngestionEngine {
                 .map_err(|e| ProcessingError::Storage(format!("Collection creation failed: {}", e)))?;
         }
 
-        // Generate embeddings and build points for each chunk
+        // Stage 3: Generate embeddings and build points for each chunk
+        let embed_start = Instant::now();
         let mut points = Vec::with_capacity(content.chunks.len());
         for (chunk_idx, chunk) in content.chunks.iter().enumerate() {
             let embedding_result = self.embedding_generator
@@ -478,22 +488,47 @@ impl IngestionEngine {
                 payload,
             });
         }
+        let embed_ms = embed_start.elapsed().as_millis();
+        let per_chunk_ms = if !points.is_empty() { embed_ms / points.len() as u128 } else { 0 };
+        tracing::info!(
+            chunks = points.len(),
+            embed_ms = embed_ms,
+            per_chunk_ms = per_chunk_ms,
+            "Stage 3: embedding complete"
+        );
 
-        // Upsert points to Qdrant
+        // Stage 4: Upsert points to Qdrant
+        let store_start = Instant::now();
         if !points.is_empty() {
             self.storage_client
                 .insert_points_batch(collection, points.clone(), Some(100))
                 .await
                 .map_err(|e| ProcessingError::Storage(format!("Qdrant upsert failed: {}", e)))?;
         }
+        let store_ms = store_start.elapsed().as_millis();
+        tracing::info!(
+            points = points.len(),
+            store_ms = store_ms,
+            "Stage 4: storage complete"
+        );
 
-        let processing_time = start.elapsed();
+        let total_ms = start.elapsed().as_millis() as u64;
+        tracing::info!(
+            document_id = %document_id,
+            collection = %collection,
+            chunks = points.len(),
+            extract_ms = extract_ms,
+            embed_ms = embed_ms,
+            store_ms = store_ms,
+            total_ms = total_ms,
+            "Document processing complete"
+        );
 
         Ok(DocumentResult {
             document_id,
             collection: collection.to_string(),
             chunks_created: Some(points.len()),
-            processing_time_ms: processing_time.as_millis() as u64,
+            processing_time_ms: total_ms,
         })
     }
 
