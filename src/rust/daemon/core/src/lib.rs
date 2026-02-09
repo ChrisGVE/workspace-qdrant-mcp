@@ -371,8 +371,8 @@ pub struct ChunkingConfig {
 impl Default for ChunkingConfig {
     fn default() -> Self {
         Self {
-            chunk_size: 512,
-            overlap_size: 50,
+            chunk_size: 384,
+            overlap_size: 58,
             preserve_paragraphs: true,
         }
     }

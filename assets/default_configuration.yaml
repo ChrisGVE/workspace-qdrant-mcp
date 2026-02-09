@@ -396,9 +396,9 @@ embedding:
   # Model limits: Most embedding models have maximum input length constraints
   # Search relevance: Chunk size affects relevance of search results
   # Memory usage: Larger chunks consume more processing memory
-  # Optimization: Balance between context and precision based on content type
+  # Optimization: 384 chars aligns with all-MiniLM-L6-v2 training (128 tokens)
   # Format: Integer characters
-  chunk_size: 800
+  chunk_size: 384
 
   # chunk_overlap: Character overlap between consecutive text segments
   # Purpose: Preserves context across chunk boundaries to prevent information loss
@@ -406,9 +406,9 @@ embedding:
   # Search coverage: Improves recall for queries spanning chunk boundaries
   # Processing overhead: Slight increase in total vectors due to overlapping content
   # Deduplication: Search results may contain overlapping content snippets
-  # Sizing guideline: 10-20% of chunk_size for optimal context preservation
+  # Sizing guideline: 15% of chunk_size for optimal context preservation
   # Format: Integer characters
-  chunk_overlap: 120
+  chunk_overlap: 58
 
   # batch_size: Concurrent text chunks processed for embedding
   # Purpose: Controls parallelization and memory usage during embedding operations
