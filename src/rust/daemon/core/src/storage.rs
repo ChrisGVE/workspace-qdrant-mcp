@@ -9,14 +9,14 @@ use std::time::Duration;
 use std::env;
 use qdrant_client::{Qdrant, QdrantError};
 use qdrant_client::config::QdrantConfig;
-use qdrant_client::qdrant::{PointStruct, SearchPoints, UpsertPoints};
+use qdrant_client::qdrant::{PointStruct, UpsertPoints};
 use qdrant_client::qdrant::{CreateCollection, DeleteCollection, Distance, VectorParams, VectorsConfig};
 use qdrant_client::qdrant::Datatype;
 use qdrant_client::qdrant::{
     Condition, CountPointsBuilder, CreateCollectionBuilder, CreateFieldIndexCollectionBuilder,
     DeletePointsBuilder, FieldType, Filter, HnswConfigDiffBuilder, VectorParamsBuilder,
     DenseVector, SparseVector, VectorParamsMap, SparseVectorConfig, SparseVectorParams,
-    vectors_config,
+    vectors_config, QueryPointsBuilder,
 };
 use serde::{Serialize, Deserialize};
 use tokio::time::sleep;
@@ -1443,7 +1443,7 @@ impl StorageClient {
         }
     }
     
-    /// Dense vector search
+    /// Dense vector search using Qdrant's QueryPoints API with named dense vectors
     async fn search_dense(
         &self,
         collection_name: &str,
@@ -1452,32 +1452,29 @@ impl StorageClient {
         _score_threshold: Option<f32>,
         _filter: Option<HashMap<String, serde_json::Value>>,
     ) -> Result<Vec<SearchResult>, StorageError> {
-        let search_points = SearchPoints {
-            collection_name: collection_name.to_string(),
-            vector: dense_vector,
-            limit: limit as u64,
-            with_payload: Some(true.into()),
-            with_vectors: Some(false.into()),
-            ..Default::default()
-        };
-        
+        let query_builder = QueryPointsBuilder::new(collection_name)
+            .query(dense_vector)
+            .using("dense")
+            .limit(limit as u64)
+            .with_payload(true);
+
         let response = self.retry_operation(|| async {
-            self.client.search_points(search_points.clone()).await
+            self.client.query(query_builder.clone()).await
                 .map_err(|e| StorageError::Search(e.to_string()))
         }).await?;
-        
+
         let results = response.result.into_iter()
             .map(|scored_point| {
                 let payload = scored_point.payload;
                 let json_payload: HashMap<String, serde_json::Value> = payload.into_iter()
                     .map(|(k, v)| (k, Self::convert_qdrant_value_to_json(v)))
                     .collect();
-                    
+
                 let id = match scored_point.id.unwrap().point_id_options.unwrap() {
                     qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid) => uuid,
                     qdrant_client::qdrant::point_id::PointIdOptions::Num(num) => num.to_string(),
                 };
-                
+
                 SearchResult {
                     id,
                     score: scored_point.score,
@@ -1487,22 +1484,63 @@ impl StorageClient {
                 }
             })
             .collect();
-            
+
         Ok(results)
     }
     
-    /// Sparse vector search (placeholder implementation)
+    /// Sparse vector search using Qdrant's QueryPoints API with named sparse vectors
     async fn search_sparse(
         &self,
-        _collection_name: &str,
-        _sparse_vector: HashMap<u32, f32>,
-        _limit: usize,
+        collection_name: &str,
+        sparse_vector: HashMap<u32, f32>,
+        limit: usize,
         _score_threshold: Option<f32>,
         _filter: Option<HashMap<String, serde_json::Value>>,
     ) -> Result<Vec<SearchResult>, StorageError> {
-        // Note: Sparse vector search implementation depends on Qdrant version
-        warn!("Sparse vector search not fully implemented in this version");
-        Ok(vec![])
+        if sparse_vector.is_empty() {
+            debug!("Empty sparse vector, returning no results");
+            return Ok(vec![]);
+        }
+
+        // Convert HashMap<u32, f32> to Vec<(u32, f32)> for QueryPointsBuilder
+        let sparse_pairs: Vec<(u32, f32)> = sparse_vector
+            .into_iter()
+            .collect();
+
+        let query_builder = QueryPointsBuilder::new(collection_name)
+            .query(sparse_pairs)
+            .using("sparse")
+            .limit(limit as u64)
+            .with_payload(true);
+
+        let response = self.retry_operation(|| async {
+            self.client.query(query_builder.clone()).await
+                .map_err(|e| StorageError::Search(e.to_string()))
+        }).await?;
+
+        let results = response.result.into_iter()
+            .map(|scored_point| {
+                let payload = scored_point.payload;
+                let json_payload: HashMap<String, serde_json::Value> = payload.into_iter()
+                    .map(|(k, v)| (k, Self::convert_qdrant_value_to_json(v)))
+                    .collect();
+
+                let id = match scored_point.id.unwrap().point_id_options.unwrap() {
+                    qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid) => uuid,
+                    qdrant_client::qdrant::point_id::PointIdOptions::Num(num) => num.to_string(),
+                };
+
+                SearchResult {
+                    id,
+                    score: scored_point.score,
+                    payload: json_payload,
+                    dense_vector: None,
+                    sparse_vector: None,
+                }
+            })
+            .collect();
+
+        Ok(results)
     }
     
     /// Hybrid search with RRF (Reciprocal Rank Fusion)
