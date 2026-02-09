@@ -4062,18 +4062,24 @@ This section documents research findings and architectural ideas that may be pur
 - Hybrid search (dense + sparse + RRF) provides the vector retrieval foundation
 - `tracked_files` and `qdrant_chunks` tables already track file-to-chunk relationships
 
-**Implementation options assessed:**
+**Graph database evaluation (2026-02-09):**
 
-| Approach | Complexity | Latency | Storage | Recommendation |
-|----------|-----------|---------|---------|----------------|
-| Qdrant payload pseudo-graph | Low | High (filtered searches per hop) | None extra | Not recommended |
-| SQLite adjacency table | Low-Medium | Low (indexed lookups) | ~10-20% overhead | **Recommended** |
-| Neo4j / Dedicated graph DB | High | Low | Separate service | Overkill for current scale |
-| Embedded graph DB (e.g., Oxigraph) | Medium | Low | Embedded | Viable alternative |
+| DB | License | Embeddable | Query Language | Multi-process R/W | Verdict |
+|----|---------|------------|----------------|-------------------|---------|
+| SQLite adjacency | Public domain | Yes | SQL + recursive CTE | WAL: 1 writer + N readers | **Best fit for architecture** |
+| Kuzu | MIT | Yes (Rust + Node.js) | Full Cypher | No concurrent R+W | Best graph engine, concurrency limitation |
+| Neo4j Community | GPLv3 + Commons Clause | No (separate JVM) | Cypher | Yes | Too heavy, licensing friction |
+| SurrealDB | Apache 2.0 | Yes (Rust) | SurrealQL | Yes | Multi-model, vector HNSW persistence incomplete |
+| Oxigraph | Apache 2.0/MIT | Yes (Rust) | SPARQL (RDF only) | N/A | Wrong data model for property graphs |
 
-**Recommended approach: SQLite adjacency table**
+**Architecture constraint:** This system uses a multi-process architecture where the daemon writes data and the MCP server + CLI read it from separate processes. Kuzu does NOT support safe concurrent read+write access across processes (see [Kuzu concurrency docs](https://docs.kuzudb.com/concurrency/)). SQLite with WAL mode supports exactly this pattern (one writer + multiple readers).
 
-Add a `code_relationships` table to the existing SQLite database:
+**Recommended two-tier approach:**
+
+1. **SQLite `code_relationships` table** — stores graph edges, queryable by MCP server and CLI directly (multi-process safe). Covers 1-2 hop queries efficiently.
+2. **Kuzu (daemon-internal)** — optional, used by the daemon for advanced graph analytics (community detection, centrality, impact analysis) during ingestion or batch operations. Results are materialized back to SQLite or Qdrant metadata for query-time access.
+
+**SQLite schema for graph edges:**
 
 ```sql
 CREATE TABLE code_relationships (
@@ -4082,31 +4088,127 @@ CREATE TABLE code_relationships (
     source_symbol TEXT NOT NULL,
     target_file TEXT NOT NULL,
     target_symbol TEXT NOT NULL,
-    relationship_type TEXT NOT NULL,  -- calls, imports, extends, implements, uses_type
+    relationship_type TEXT NOT NULL,  -- calls, imports, extends, implements, uses_type, mentions
     tenant_id TEXT NOT NULL,
+    confidence REAL DEFAULT 1.0,      -- 1.0 for LSP-verified, <1.0 for heuristic/text-match
     created_at TEXT DEFAULT (datetime('now'))
 );
 
 CREATE INDEX idx_code_rel_source ON code_relationships(source_file, source_symbol);
 CREATE INDEX idx_code_rel_target ON code_relationships(target_file, target_symbol);
 CREATE INDEX idx_code_rel_tenant ON code_relationships(tenant_id);
+CREATE INDEX idx_code_rel_type ON code_relationships(relationship_type);
 ```
-
-This leverages the existing SQLite infrastructure without adding external dependencies. The daemon would populate this table during LSP-enriched ingestion, extracting relationships from resolved references and type information.
 
 **Query pattern:**
 
 1. Vector search finds semantically relevant chunks
-2. SQLite graph traversal expands results to structurally related code
+2. SQLite graph traversal expands results to structurally related code (1-2 hops)
 3. Results are re-ranked combining semantic similarity + graph proximity
+4. For advanced analytics (impact analysis, community detection), daemon pre-computes via Kuzu and stores results as metadata
 
-**Applicability by collection type:**
+### Cross-Project Search
 
-- **Projects (code):** Highest value. Dense cross-file relationships, function calls, imports, type hierarchies.
-- **Projects (code-adjacent documents):** Limited direct graph participation (no tree-sitter/LSP enrichment), but a lightweight "mentions" relationship could link specs to the code entities they discuss via text matching.
-- **Libraries:** Lower value. Reference documentation lacks the cross-file relationships that make graph traversal most valuable. A simpler section-to-example linking may suffice.
+**Current model:** Projects are isolated by `tenant_id` in the `projects` collection. Search is project-scoped.
 
-**Multi-tenancy:** The `tenant_id` column ensures graph relationships respect project boundaries. Cross-tenant graph queries must be explicitly forbidden to prevent information leakage between projects.
+**Revised model: Tiered search with automated grouping**
+
+Search should support three scopes, selectable per query:
+1. **Project scope** (default): Search within the current project's `tenant_id`
+2. **Group scope**: Search within an automatically detected project group
+3. **All projects scope**: Search across the entire `projects` collection (no tenant filter)
+
+**Automated project grouping (no manual configuration required):**
+- Shared dependencies: Projects using the same libraries (parsed from Cargo.toml, package.json, requirements.txt)
+- Git organization: Projects under the same GitHub org/user
+- Explicit cross-references: Projects linked by gRPC proto imports, shared crate dependencies, or workspace membership
+- Embedding similarity: Projects whose README/description embeddings cluster together
+
+**Relevance ranking across projects:** When searching beyond the current project, results from the current project receive full weight. Results from group projects receive a decay factor (e.g., 0.7). Results from unrelated projects receive a further decay (e.g., 0.4). This preserves signal-to-noise while enabling cross-project discovery.
+
+**Graph RAG across projects:** Cross-project graph edges (e.g., shared dependency usage patterns, similar function signatures) enable structural code reuse discovery that vector search alone misses. GitHub research shows ~5% of code across repositories is cross-project clones, concentrated within similar domains.
+
+### Project vs. Library Boundary
+
+**Observation:** Not all files in a project folder are "project code." Research papers, development notes, experiment results, and reference PDFs are background knowledge that supports the project but clutters code search results.
+
+**Revised approach — content-type routing:**
+- **Code files** (source, config, specs, tests, documentation): Stay in `projects` collection with project `tenant_id`
+- **Reference/background files** (PDFs, research papers, downloaded references): Route to `libraries` collection with a `source_project_id` metadata field linking them back to their project
+
+This leverages the existing architectural separation: `projects` collection is optimized for code intelligence (tree-sitter, LSP enrichment), `libraries` collection is optimized for document retrieval (chunk-based, no AST parsing).
+
+**Cross-collection search:** Qdrant does not support native cross-collection queries. Implementation requires issuing parallel queries to both collections and merging results via RRF. The MCP `search` tool would accept an optional `include_libraries: true` parameter (default false for code queries, true for general knowledge queries).
+
+### Library Collection Tenancy (Revised)
+
+**Current model:** Libraries isolated by `library_name`. Each library is a separate tenant.
+
+**Revised model: Hierarchical naming + cross-library search by default**
+
+**Hierarchical tenant naming** derived from the filesystem structure relative to the watched folder root:
+```
+library_name.relative_path_segments.document_name
+```
+Example: Library root "main" containing `computer_science/design_patterns/Gang_of_Four.pdf`:
+- `library_name`: "main"
+- `library_path`: "computer_science/design_patterns"
+- `document_name`: "Gang_of_Four.pdf"
+- Full tenant: "main.computer_science.design_patterns.Gang_of_Four"
+
+**Search scoping via prefix matching:**
+- `library_name = "main"` → search entire main library
+- `library_name = "main" AND library_path LIKE "computer_science%"` → search CS subdomain
+- No filter → search all libraries (default for knowledge queries)
+- `source_project_id = "<project>"` → search project-associated references
+
+**Cross-library search is the default.** The `library_name` and `library_path` fields are metadata for management (deletion, updates) and optional scoping, not mandatory isolation. Knowledge synthesis across complementary sources (e.g., multiple physics textbooks) happens naturally when search is unfiltered.
+
+### Automated Tagging and Grouping
+
+**Problem:** Manual tagging creates mental overhead and inconsistent coverage. Tags should be generated automatically from available signals.
+
+**Automated tagging pipeline (no LLM required for base tier):**
+
+1. **Path-derived tags**: Parse directory names and filenames into normalized topic tags. `computer_science/design_patterns/` → tags: `computer-science`, `design-patterns`
+2. **PDF metadata extraction**: Extract title, author, subject, keywords from PDF document metadata fields (available in most academic papers and textbooks)
+3. **TF-IDF keyword extraction**: Extract top-N distinctive terms from document content, filtered against a stop-word list. Produces topic-level tags without requiring ML.
+4. **Embedding-based clustering**: Group documents by embedding similarity (we already generate embeddings). Cluster labels derived from the most distinctive terms within each cluster.
+
+**Enhanced tagging (optional, requires LLM access):**
+
+5. **LLM-based classification**: Send first ~500 tokens + extracted metadata to the MCP-connected LLM, ask for 3-5 topic tags. This produces the highest quality tags but requires LLM availability.
+6. **Zero-shot classification**: Compare document embedding against embeddings of a predefined topic taxonomy. No LLM call needed, uses the existing embedding model.
+
+**Tag inheritance:** Tags propagate to contained documents. A folder tagged `physics` automatically tags all documents within it. Document-level tags override or extend folder-level tags.
+
+**Applicability to projects:** The same pipeline applies to project grouping. Dependency file analysis (Cargo.toml, package.json) provides strong domain signals. README content provides semantic classification.
+
+### Knowledge Overlap and Complementary Sources
+
+**Challenge:** Multiple sources covering the same topic (e.g., physics textbooks with math prerequisite chapters) overlap and complement each other. The system should synthesize across sources rather than treating each in isolation.
+
+**Approach:**
+- **Cross-library search by default** ensures overlapping content from different sources is surfaced together
+- **Provenance metadata** (library_name, library_path, document_name) returned with every search result enables the consumer to assess source diversity and reliability
+- **Source diversity in results**: When multiple chunks from different sources match a query, prefer diverse results (1 chunk from each of 3 books) over concentrated results (3 chunks from 1 book). This is a post-retrieval re-ranking step.
+- **Contradiction handling**: Not automatically resolved. Provenance metadata enables the LLM consumer to reason about conflicting sources. Academic research confirms this remains an unsolved problem for automated systems.
+
+### Kuzu as Daemon-Internal Graph Engine
+
+**Evaluation:** Kuzu (MIT, embeddable, Cypher, 188x faster than Neo4j for analytical queries) is the strongest candidate for advanced graph analytics. It has official bindings for both Rust and Node.js (`kuzu` npm package).
+
+**Concurrency constraint:** Kuzu does NOT support safe concurrent read+write across processes. Only one process may have write access; multiple read-only processes are safe only when no writer is active. This precludes the MCP server and CLI from directly querying a Kuzu database that the daemon writes to.
+
+**Integration model:** Daemon-internal only. Kuzu runs inside the daemon process for advanced analytics (community detection, centrality analysis, impact graphs, cross-project pattern detection). Results are materialized to:
+- SQLite `code_relationships` table (for MCP/CLI query-time access)
+- Qdrant point metadata (e.g., `centrality_score`, `community_id`, `impact_radius` fields)
+
+**Qdrant is confirmed as the right choice** for vector search. No multi-model database matches Qdrant's vector performance. The architecture is Qdrant (vectors) + SQLite (graph edges, metadata) + Kuzu (daemon-internal advanced analytics).
+
+### Knowledge Manager Product Potential
+
+The capabilities being built (hybrid vector search, automated file watching, multi-tenant knowledge organization, semantic code intelligence, graph relationships, automated tagging) form the foundation for a general-purpose knowledge management system. The MCP interface is one access point; the underlying engine could serve personal knowledge bases, team documentation search, research paper management, and code intelligence tools. This is a long-term product direction, not currently scoped.
 
 ### Chunk Size Optimization Research
 
