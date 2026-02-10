@@ -1,0 +1,49 @@
+# cargo-about configuration for third-party license attribution
+# See: https://embarkstudios.github.io/cargo-about/
+
+# Accept all common open-source licenses
+accepted = [
+    "Apache-2.0",
+    "MIT",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "CC0-1.0",
+    "MPL-2.0",
+    "OpenSSL",
+    "OpenSSL-standalone",
+    "SSLeay-standalone",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "NCSA",
+    "CDLA-Permissive-2.0",
+    "LGPL-3.0",
+    "LGPL-3.0-only",
+    "LGPL-3.0-or-later",
+    "GPL-3.0",
+    "GPL-3.0-only",
+    "GPL-3.0-or-later",
+    "GPL-2.0",
+    "GPL-2.0-only",
+    "GPL-2.0-or-later",
+]
+
+# Ignore dev-only dependencies
+ignore-build-dependencies = false
+ignore-dev-dependencies = true
+ignore-transitive-dependencies = false
+filter-noassertion = true
+
+# Private/unpublished workspace crates
+[private]
+ignore = true
+registries = []
+
+# Workarounds for crates with non-standard license expressions
+[chardet]
+accepted = ["LGPL-3.0"]
+
+[epub]
+accepted = ["GPL-3.0"]
