@@ -726,8 +726,39 @@ impl UnifiedQueueProcessor {
         // CRITICAL: watch_folders lookup MUST succeed before ingestion.
         // This ensures tracked_files can be updated after Qdrant write, maintaining
         // tracked_files as authoritative inventory and preventing orphaned Qdrant data.
+        //
+        // For library-routed files from project folders (Task 568), the item's collection
+        // is "libraries" but the watch_folder has collection="projects". Fall back to
+        // looking up by "projects" when the primary lookup fails.
         let (watch_folder_id, base_path) = match watch_info {
             Some((wid, bp)) => (wid, bp),
+            None if item.collection == "libraries" => {
+                // Try fallback: file may originate from a project watch folder
+                let fallback = tracked_files_schema::lookup_watch_folder(
+                    pool, &item.tenant_id, "projects",
+                ).await
+                .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Fallback watch_folder lookup failed: {}", e)))?;
+
+                match fallback {
+                    Some((wid, bp)) => {
+                        debug!(
+                            "Library-routed file resolved via project watch_folder: tenant={}, watch_id={}",
+                            item.tenant_id, wid
+                        );
+                        (wid, bp)
+                    }
+                    None => {
+                        error!(
+                            "watch_folders validation failed: tenant_id={}, collection={} (also tried 'projects') -- refusing ingestion",
+                            item.tenant_id, item.collection
+                        );
+                        return Err(UnifiedProcessorError::QueueOperation(format!(
+                            "No watch_folder found for tenant_id={}, collection={} or projects. Cannot ingest without tracked_files context.",
+                            item.tenant_id, item.collection
+                        )));
+                    }
+                }
+            }
             None => {
                 error!(
                     "watch_folders validation failed: tenant_id={}, collection={} -- refusing ingestion to prevent orphaned data",
