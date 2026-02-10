@@ -669,7 +669,7 @@ mod tests {
         let id1 = generate_document_id("tenant", "/home/user/file.rs");
         let id2 = generate_document_id("tenant", "\\home\\user\\file.rs");
         // After normalization both become "/home/user/file.rs" -> same ID
-        // Note: on Unix the backslash path is unusual but the normalization ensures consistency
+        assert_eq!(id1, id2, "Forward and back slashes should produce same document_id");
     }
 
     #[test]

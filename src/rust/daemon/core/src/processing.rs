@@ -3217,8 +3217,8 @@ mod tests {
         // Get metrics
         let metrics = pipeline.get_priority_system_metrics().await;
         
-        // Verify basic metrics (uptime might be 0 in fast tests)
-        assert!(metrics.pipeline.uptime_seconds >= 0);
+        // Verify basic metrics structure exists (uptime might be 0 in fast tests)
+        let _ = metrics.pipeline.uptime_seconds;
         assert!(metrics.performance.throughput_tasks_per_second >= 0.0);
         assert!(metrics.queue.queued_by_priority.len() > 0);
         

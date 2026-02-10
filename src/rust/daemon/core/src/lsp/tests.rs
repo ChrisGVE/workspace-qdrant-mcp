@@ -5,17 +5,14 @@
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
     use tempfile::tempdir;
     use tokio::time::Duration;
 
     use crate::lsp::{
         LspConfig, Language, LspServerDetector,
-        ServerStatus,
         JsonRpcClient, JsonRpcMessage,
     };
-    // NOTE: LspManager and StateManager removed as part of 3-table SQLite compliance
-    use crate::lsp::lifecycle::{ServerMetadata, RestartPolicy, HealthMetrics};
+    use crate::lsp::lifecycle::RestartPolicy;
 
     #[test]
     fn test_language_enumeration() {
@@ -272,7 +269,7 @@ mod tests {
         LanguageServerManager, ProjectLspConfig, ProjectLanguageKey,
         EnrichmentStatus, LspMetrics,
     };
-    use std::sync::Arc;
+
 
     /// Helper to create a test project LSP config
     fn create_test_project_config() -> ProjectLspConfig {

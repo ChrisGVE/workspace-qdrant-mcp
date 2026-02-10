@@ -524,8 +524,6 @@ mod project_auto_watch_tests {
         init_test_tracing();
 
         let temp_dir1 = TempDir::new()?;
-        let temp_dir2 = TempDir::new()?;
-        let temp_dir3 = TempDir::new()?;
 
         let config = test_watcher_config();
         let (task_submitter, _pipeline) = create_test_task_submitter().await;

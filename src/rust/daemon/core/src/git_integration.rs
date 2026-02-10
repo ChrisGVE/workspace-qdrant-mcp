@@ -1165,7 +1165,7 @@ mod tests {
         branch.delete().unwrap();
 
         // Scan for changes - first scan should detect deletion after timeout
-        let events = detector.scan_for_changes().await.unwrap();
+        let _events = detector.scan_for_changes().await.unwrap();
 
         // Wait for rename correlation timeout
         tokio::time::sleep(Duration::from_millis(600)).await;
