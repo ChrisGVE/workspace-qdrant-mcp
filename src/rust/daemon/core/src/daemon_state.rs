@@ -13,7 +13,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::{Row, SqlitePool, sqlite::{SqlitePoolOptions, SqliteConnectOptions}};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::schema_version::{SchemaManager, SchemaError};
 
@@ -462,6 +462,54 @@ impl DaemonStateManager {
             }
             None => Ok((0, None)),
         }
+    }
+
+    /// Deactivate projects that have been inactive for longer than the timeout.
+    ///
+    /// Queries for active projects whose `last_activity_at` is older than
+    /// `timeout_secs` seconds ago. For each timed-out project, deactivates
+    /// the entire project group (including submodules) via `deactivate_project_group`.
+    ///
+    /// Returns the number of project groups deactivated.
+    pub async fn deactivate_inactive_projects(&self, timeout_secs: i64) -> DaemonStateResult<u64> {
+        // Find active parent projects (not submodules) whose last activity exceeds timeout
+        let stale_watches: Vec<String> = sqlx::query_scalar(
+            r#"
+            SELECT watch_id FROM watch_folders
+            WHERE is_active = 1
+              AND collection = 'projects'
+              AND parent_watch_id IS NULL
+              AND last_activity_at IS NOT NULL
+              AND (julianday('now') - julianday(last_activity_at)) * 86400 > ?1
+            "#,
+        )
+        .bind(timeout_secs)
+        .fetch_all(&self.pool)
+        .await?;
+
+        if stale_watches.is_empty() {
+            return Ok(0);
+        }
+
+        info!(
+            "Inactivity timeout: deactivating {} project(s) inactive for >{}s",
+            stale_watches.len(), timeout_secs
+        );
+
+        let mut deactivated = 0u64;
+        for watch_id in &stale_watches {
+            match self.deactivate_project_group(watch_id).await {
+                Ok(affected) => {
+                    info!("Deactivated project group {} ({} watch folders)", watch_id, affected);
+                    deactivated += 1;
+                }
+                Err(e) => {
+                    warn!("Failed to deactivate project group {}: {}", watch_id, e);
+                }
+            }
+        }
+
+        Ok(deactivated)
     }
 
     /// Update watch folder enabled status
@@ -2013,5 +2061,115 @@ mod tests {
         let changed = poll_pause_state(manager.pool(), &flag).await.unwrap();
         assert!(changed);
         assert!(!flag.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_deactivate_inactive_projects() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_inactivity.db");
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Create an active project with old last_activity_at
+        let old_project = WatchFolderRecord {
+            watch_id: "old-project".to_string(),
+            path: "/projects/old".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "old-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: Some(Utc::now() - chrono::Duration::hours(13)),
+            is_paused: false,
+            pause_start_time: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&old_project).await.unwrap();
+
+        // Create an active project with recent activity
+        let recent_project = WatchFolderRecord {
+            watch_id: "recent-project".to_string(),
+            path: "/projects/recent".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "recent-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: Some(Utc::now() - chrono::Duration::minutes(30)),
+            is_paused: false,
+            pause_start_time: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&recent_project).await.unwrap();
+
+        // 12-hour timeout (43200 seconds)
+        let deactivated = manager.deactivate_inactive_projects(43200).await.unwrap();
+        assert_eq!(deactivated, 1, "Only the 13h-old project should be deactivated");
+
+        // Verify old project is deactivated
+        let old = manager.get_watch_folder("old-project").await.unwrap().unwrap();
+        assert!(!old.is_active);
+
+        // Verify recent project is still active
+        let recent = manager.get_watch_folder("recent-project").await.unwrap().unwrap();
+        assert!(recent.is_active);
+    }
+
+    #[tokio::test]
+    async fn test_deactivate_inactive_skips_null_activity() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_inactivity_null.db");
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Create active project with NULL last_activity_at (never had a session)
+        let null_project = WatchFolderRecord {
+            watch_id: "null-project".to_string(),
+            path: "/projects/null".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "null-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&null_project).await.unwrap();
+
+        // Should not deactivate projects with NULL last_activity_at
+        let deactivated = manager.deactivate_inactive_projects(43200).await.unwrap();
+        assert_eq!(deactivated, 0);
+
+        let record = manager.get_watch_folder("null-project").await.unwrap().unwrap();
+        assert!(record.is_active);
     }
 }

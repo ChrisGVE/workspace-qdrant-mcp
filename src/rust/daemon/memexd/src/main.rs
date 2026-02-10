@@ -687,6 +687,28 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         }
     });
 
+    // Start periodic inactivity timeout check (Task 569)
+    // Deactivates projects whose last_activity_at exceeds the timeout.
+    // Default: 12 hours (43200 seconds), configurable via WQM_INACTIVITY_TIMEOUT_SECS.
+    let inactivity_pool = queue_pool.clone();
+    let inactivity_timeout_secs: i64 = std::env::var("WQM_INACTIVITY_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(43200);
+    let _inactivity_handle = tokio::spawn(async move {
+        let state_mgr = workspace_qdrant_core::daemon_state::DaemonStateManager::with_pool(inactivity_pool);
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(300)); // check every 5 min
+        loop {
+            interval.tick().await;
+            match state_mgr.deactivate_inactive_projects(inactivity_timeout_secs).await {
+                Ok(0) => {} // no stale projects
+                Ok(n) => info!("Inactivity timeout: deactivated {} project group(s)", n),
+                Err(e) => warn!("Inactivity timeout check failed: {}", e),
+            }
+        }
+    });
+    info!("Inactivity timeout polling started (5min interval, {}s timeout)", inactivity_timeout_secs);
+
     info!("Initializing IPC server");
     let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);
     let (mut ipc_server, _ipc_client) = IpcServer::new(max_concurrent);
