@@ -20,7 +20,7 @@ use glob::Pattern;
 use crate::queue_operations::{QueueManager, QueueError};
 use crate::unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload};
 use crate::file_classification::classify_file_type;
-use crate::allowed_extensions::AllowedExtensions;
+use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 use crate::patterns::exclusion::should_exclude_file;
 use crate::project_disambiguation::ProjectIdCalculator;
 use serde::{Deserialize, Serialize};
@@ -813,7 +813,7 @@ impl FileWatcherQueue {
             }
         }
 
-        // Check allowlist before pattern matching (Task 511)
+        // Check allowlist via route_file() before pattern matching (Task 511/567)
         // Skip allowlist for delete events (must be able to clean up any file)
         if !matches!(event.event_kind, EventKind::Remove(_)) {
             let collection_for_check = {
@@ -824,7 +824,8 @@ impl FileWatcherQueue {
                 }.to_string()
             };
             let file_path_str = event.path.to_string_lossy();
-            if !allowed_extensions.is_allowed(&file_path_str, &collection_for_check) {
+            // tenant_id only affects source_project_id metadata, not the Excluded decision
+            if matches!(allowed_extensions.route_file(&file_path_str, &collection_for_check, ""), FileRoute::Excluded) {
                 let mut count = events_filtered.lock().await;
                 *count += 1;
                 return;
@@ -852,6 +853,7 @@ impl FileWatcherQueue {
                 event,
                 config,
                 queue_manager,
+                allowed_extensions,
                 error_tracker,
                 throttle_state,
                 events_processed,
@@ -889,7 +891,7 @@ impl FileWatcherQueue {
                 }
             }
 
-            // Check allowlist (Task 511) - skip for delete events
+            // Check allowlist via route_file() (Task 511/567) - skip for delete events
             if !matches!(event.event_kind, EventKind::Remove(_)) {
                 let collection_for_check = {
                     let config_lock = config.read().await;
@@ -899,7 +901,7 @@ impl FileWatcherQueue {
                     }.to_string()
                 };
                 let file_path_str = event.path.to_string_lossy();
-                if !allowed_extensions.is_allowed(&file_path_str, &collection_for_check) {
+                if matches!(allowed_extensions.route_file(&file_path_str, &collection_for_check, ""), FileRoute::Excluded) {
                     continue;
                 }
             }
@@ -916,6 +918,7 @@ impl FileWatcherQueue {
                 event,
                 config,
                 queue_manager,
+                allowed_extensions,
                 error_tracker,
                 throttle_state,
                 events_processed,
@@ -999,6 +1002,7 @@ impl FileWatcherQueue {
         event: FileEvent,
         config: &Arc<RwLock<WatchConfig>>,
         queue_manager: &Arc<QueueManager>,
+        allowed_extensions: &Arc<AllowedExtensions>,
         error_tracker: &Arc<WatchErrorTracker>,
         throttle_state: &Arc<QueueThrottleState>,
         events_processed: &Arc<Mutex<u64>>,
@@ -1081,10 +1085,30 @@ impl FileWatcherQueue {
         // Get absolute path
         let file_absolute_path = event.path.to_string_lossy().to_string();
 
+        // Apply format-based routing (Task 567): override collection for library-routed files
+        let (final_collection, metadata) = if matches!(operation, UnifiedOp::Delete) {
+            // For deletes, use the original collection (tracked_files has the correct value)
+            (collection.clone(), None)
+        } else {
+            match allowed_extensions.route_file(&file_absolute_path, &collection, &tenant_id) {
+                FileRoute::LibraryCollection { source_project_id } if collection != UNIFIED_LIBRARIES_COLLECTION => {
+                    let meta = source_project_id.as_ref().map(|pid| {
+                        serde_json::json!({"source_project_id": pid}).to_string()
+                    });
+                    debug!(
+                        "Format-based routing override: {} -> libraries (source_project={})",
+                        file_absolute_path, tenant_id
+                    );
+                    (UNIFIED_LIBRARIES_COLLECTION.to_string(), meta)
+                }
+                _ => (collection.clone(), None),
+            }
+        };
+
         // Log multi-tenant routing decision
         debug!(
             "Multi-tenant routing: file={}, collection={}, tenant={}, file_type={}, branch={}",
-            file_absolute_path, collection, tenant_id, file_type.as_str(), branch
+            file_absolute_path, final_collection, tenant_id, file_type.as_str(), branch
         );
 
         // Create FilePayload for unified queue per spec
@@ -1105,11 +1129,11 @@ impl FileWatcherQueue {
                 ItemType::File,
                 operation,
                 &tenant_id,
-                &collection,
+                &final_collection,
                 &payload_json,
                 0,  // Priority is computed at dequeue time via CASE/JOIN, not stored
                 Some(&branch),
-                None,  // metadata
+                metadata.as_deref(),
             ).await {
                 Ok(_) => {
                     let mut count = events_processed.lock().await;
@@ -1120,7 +1144,7 @@ impl FileWatcherQueue {
 
                     debug!(
                         "Enqueued file to unified_queue: {} (operation={:?}, collection={}, tenant={}, branch={}, file_type={})",
-                        file_absolute_path, operation, collection, tenant_id, branch, file_type.as_str()
+                        file_absolute_path, operation, final_collection, tenant_id, branch, file_type.as_str()
                     );
                     return;
                 },
