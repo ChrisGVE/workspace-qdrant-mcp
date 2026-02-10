@@ -620,7 +620,14 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     info!("Initializing IPC server");
     let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);
-    let (ipc_server, _ipc_client) = IpcServer::new(max_concurrent);
+    let (mut ipc_server, _ipc_client) = IpcServer::new(max_concurrent);
+
+    // Wire SQLite spill-to-disk for queue overflow handling (Task 557)
+    let ipc_spill_qm = std::sync::Arc::new(
+        workspace_qdrant_core::queue_operations::QueueManager::new(queue_pool.clone())
+    );
+    ipc_server.set_spill_queue(ipc_spill_qm);
+    info!("IPC server configured with SQLite spill-to-disk for queue overflow");
 
     info!("Starting IPC server");
     ipc_server.start().await.map_err(|e| {

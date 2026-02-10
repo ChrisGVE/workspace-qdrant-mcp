@@ -218,7 +218,16 @@ impl IpcServer {
         
         (server, client)
     }
-    
+
+    /// Configure SQLite spill-to-disk for queue overflow handling.
+    /// Must be called before `start()`.
+    pub fn set_spill_queue(&mut self, queue_manager: std::sync::Arc<crate::queue_operations::QueueManager>) {
+        let mut pipeline = self.pipeline.try_lock()
+            .expect("pipeline lock not contended during init");
+        pipeline.set_spill_queue(queue_manager);
+        self.task_submitter = pipeline.task_submitter();
+    }
+
     /// Start the IPC server
     pub async fn start(&self) -> Result<(), IpcError> {
         // Start the pipeline

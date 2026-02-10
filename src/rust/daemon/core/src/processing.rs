@@ -17,6 +17,7 @@ use chrono;
 use std::path::PathBuf;
 use std::num::NonZeroU32;
 use governor::{Quota, RateLimiter, clock::DefaultClock, state::{InMemoryState, NotKeyed}};
+use crate::queue_operations::QueueManager;
 
 /// Pipeline statistics for monitoring
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +30,7 @@ pub struct PipelineStats {
     pub tasks_cancelled: u64,
     pub tasks_timed_out: u64,
     pub queue_rejections: u64,
+    pub queue_spills: u64,
     pub rate_limited_tasks: u64,
     pub backpressure_events: u64,
     pub uptime_seconds: u64,
@@ -344,6 +346,8 @@ pub struct Pipeline {
     metrics_collector: Arc<MetricsCollector>,
     /// Optional ingestion engine for real document processing
     ingestion_engine: Option<Arc<crate::IngestionEngine>>,
+    /// Optional SQLite queue manager for spill-to-disk on overflow
+    spill_queue: Option<Arc<QueueManager>>,
 }
 
 /// Information about a currently running task
@@ -589,12 +593,18 @@ impl Pipeline {
             checkpoint_manager,
             metrics_collector,
             ingestion_engine: None,
+            spill_queue: None,
         }
     }
 
     /// Set the ingestion engine for real document processing
     pub fn set_ingestion_engine(&mut self, engine: Arc<crate::IngestionEngine>) {
         self.ingestion_engine = Some(engine);
+    }
+
+    /// Set the SQLite queue manager for spill-to-disk on overflow
+    pub fn set_spill_queue(&mut self, queue_manager: Arc<QueueManager>) {
+        self.spill_queue = Some(queue_manager);
     }
 
     /// Get a handle for submitting tasks to the pipeline
@@ -616,6 +626,7 @@ impl Pipeline {
             request_queue: Arc::clone(&self.request_queue),
             metrics_collector: Arc::clone(&self.metrics_collector),
             rate_limiter,
+            spill_queue: self.spill_queue.clone(),
         }
     }
     
@@ -657,6 +668,7 @@ impl Pipeline {
             tasks_cancelled: self.metrics_collector.tasks_cancelled.load(AtomicOrdering::Relaxed),
             tasks_timed_out: self.metrics_collector.tasks_timed_out.load(AtomicOrdering::Relaxed),
             queue_rejections: self.metrics_collector.queue_overflow_count.load(AtomicOrdering::Relaxed),
+            queue_spills: self.metrics_collector.queue_spill_count.load(AtomicOrdering::Relaxed),
             rate_limited_tasks: self.metrics_collector.rate_limited_tasks.load(AtomicOrdering::Relaxed),
             backpressure_events: self.metrics_collector.backpressure_events.load(AtomicOrdering::Relaxed),
             uptime_seconds: self.metrics_collector.start_time.elapsed().as_secs(),
@@ -1441,6 +1453,8 @@ pub struct TaskSubmitter {
     request_queue: Arc<RequestQueue>,
     metrics_collector: Arc<MetricsCollector>,
     rate_limiter: Option<Arc<RateLimiter<NotKeyed, InMemoryState, DefaultClock>>>,
+    /// Optional SQLite queue manager for spill-to-disk on overflow
+    spill_queue: Option<Arc<QueueManager>>,
 }
 
 impl TaskSubmitter {
@@ -1521,18 +1535,9 @@ impl TaskSubmitter {
         }
 
         // Check queue capacity BEFORE enqueuing (to implement retry without cloning task)
-        // Queue is full - apply aggressive backpressure with retry
-        //
-        // NOTE: Full SQLite spill-to-disk implementation requires:
-        // 1. Schema coordination with Python SQLiteStateManager (ingestion_queue table)
-        // 2. Daemon startup logic to process spilled tasks from SQLite
-        // 3. Transaction management to prevent duplicate processing
-        //
-        // For now, we use blocking retry with exponential backoff to prevent data loss
-        // while staying within in-memory bounds. This ensures zero data loss by blocking
-        // the producer (file watcher) until queue space is available.
-        //
-        // TODO(issue #17 - layer 3): Implement proper SQLite spill for unbounded overflow handling
+        // Queue is full - apply aggressive backpressure with retry.
+        // After retries exhausted, spill to SQLite unified_queue if configured.
+        // The UnifiedQueueProcessor picks up spilled tasks on its next poll cycle.
 
         let max_retries = 5;
         let mut retry_delay_ms = 100;
@@ -1558,15 +1563,52 @@ impl TaskSubmitter {
                     retry_delay_ms *= 2; // Exponential backoff
                     continue;
                 } else {
-                    // All retries exhausted
-                    tracing::error!(
-                        "Task {} REJECTED after {} retry attempts - queue still full",
-                        task_id, max_retries
-                    );
-                    return Err(PriorityError::QueueCapacityExceeded {
-                        current: self.request_queue.size(),
-                        max: self.request_queue.capacity()
-                    });
+                    // All retries exhausted — attempt spill to SQLite
+                    if let Some(ref spill_queue) = self.spill_queue {
+                        match self.spill_to_sqlite(spill_queue, &context, &payload).await {
+                            Ok(()) => {
+                                self.metrics_collector.record_queue_spill();
+                                tracing::warn!(
+                                    "Task {} spilled to SQLite after {} retry attempts - will be processed by queue processor",
+                                    task_id, max_retries
+                                );
+                                // Return a handle with an immediate "spilled" result
+                                let (result_sender, result_receiver) = oneshot::channel();
+                                let _ = result_sender.send(TaskResult::Success {
+                                    execution_time_ms: 0,
+                                    data: TaskResultData::Generic {
+                                        message: "Task spilled to SQLite unified_queue".to_string(),
+                                        data: serde_json::json!({"spilled_to_sqlite": true}),
+                                        checkpoint_id: None,
+                                    },
+                                });
+                                return Ok(TaskResultHandle {
+                                    task_id,
+                                    context,
+                                    result_receiver,
+                                });
+                            }
+                            Err(spill_err) => {
+                                tracing::error!(
+                                    "Task {} REJECTED after {} retry attempts and SQLite spill failed: {}",
+                                    task_id, max_retries, spill_err
+                                );
+                                return Err(PriorityError::QueueCapacityExceeded {
+                                    current: self.request_queue.size(),
+                                    max: self.request_queue.capacity()
+                                });
+                            }
+                        }
+                    } else {
+                        tracing::error!(
+                            "Task {} REJECTED after {} retry attempts - queue still full (no spill target configured)",
+                            task_id, max_retries
+                        );
+                        return Err(PriorityError::QueueCapacityExceeded {
+                            current: self.request_queue.size(),
+                            max: self.request_queue.capacity()
+                        });
+                    }
                 }
             } else {
                 // Queue has capacity, break out of retry loop
@@ -1655,6 +1697,93 @@ impl TaskSubmitter {
     /// Clean up timed out requests from queue
     pub async fn cleanup_queue_timeouts(&self) -> usize {
         self.request_queue.cleanup_timeouts().await
+    }
+
+    /// Spill a task to SQLite unified_queue when in-memory queue is full
+    ///
+    /// Maps Pipeline TaskPayload to unified_queue format and persists it.
+    /// The UnifiedQueueProcessor will pick it up on its next poll cycle.
+    #[cfg_attr(test, allow(dead_code))]
+    pub(crate) async fn spill_to_sqlite(
+        &self,
+        queue_manager: &QueueManager,
+        context: &TaskContext,
+        payload: &TaskPayload,
+    ) -> Result<(), PriorityError> {
+        use crate::unified_queue_schema::{
+            ItemType, QueueOperation as UnifiedOp, FilePayload as UqFilePayload,
+        };
+
+        match payload {
+            TaskPayload::ProcessDocument { file_path, collection } => {
+                // Derive tenant_id from TaskSource
+                let tenant_id = match &context.source {
+                    TaskSource::ProjectWatcher { project_path } => {
+                        crate::watching_queue::calculate_tenant_id(
+                            std::path::Path::new(project_path),
+                        )
+                    }
+                    TaskSource::BackgroundWatcher { folder_path } => {
+                        crate::watching_queue::calculate_tenant_id(
+                            std::path::Path::new(folder_path),
+                        )
+                    }
+                    _ => {
+                        // Fallback: hash the file's parent directory
+                        let parent = file_path.parent()
+                            .unwrap_or_else(|| std::path::Path::new("/"));
+                        crate::watching_queue::calculate_tenant_id(parent)
+                    }
+                };
+
+                let file_payload = UqFilePayload {
+                    file_path: file_path.to_string_lossy().to_string(),
+                    file_type: None,
+                    file_hash: None,
+                    size_bytes: None,
+                };
+
+                let payload_json = serde_json::to_string(&file_payload)
+                    .map_err(|e| PriorityError::Communication(
+                        format!("Failed to serialize spill payload: {}", e)
+                    ))?;
+
+                let metadata = serde_json::json!({
+                    "spilled_from": "pipeline",
+                    "original_priority": format!("{:?}", context.priority),
+                    "task_id": context.task_id.to_string(),
+                }).to_string();
+
+                queue_manager.enqueue_unified(
+                    ItemType::File,
+                    UnifiedOp::Ingest,
+                    &tenant_id,
+                    collection,
+                    &payload_json,
+                    0, // Priority computed at dequeue time
+                    Some("main"),
+                    Some(&metadata),
+                ).await.map_err(|e| PriorityError::Communication(
+                    format!("SQLite spill failed: {}", e)
+                ))?;
+
+                tracing::info!(
+                    file_path = %file_path.display(),
+                    collection = %collection,
+                    tenant_id = %tenant_id,
+                    "Task spilled to SQLite unified_queue"
+                );
+
+                Ok(())
+            }
+            _ => {
+                // Only ProcessDocument tasks can be spilled
+                Err(PriorityError::Communication(
+                    format!("Cannot spill {:?} task to SQLite - only ProcessDocument is supported",
+                        std::mem::discriminant(payload))
+                ))
+            }
+        }
     }
 }
 
@@ -2200,6 +2329,7 @@ pub struct QueueMetrics {
     pub average_queue_time_ms: f64,
     pub max_queue_time_ms: u64,
     pub queue_overflow_count: u64,
+    pub queue_spill_count: u64,
     pub deduplication_hits: u64,
     pub priority_boosts_applied: u64,
 }
@@ -2268,6 +2398,7 @@ pub struct MetricsCollector {
     checkpoints_created: AtomicU64,
     rollbacks_executed: AtomicU64,
     queue_overflow_count: AtomicU64,
+    queue_spill_count: AtomicU64,
     deduplication_hits: AtomicU64,
     priority_boosts_applied: AtomicU64,
     rate_limited_tasks: AtomicU64,
@@ -2315,6 +2446,7 @@ impl MetricsCollector {
             checkpoints_created: AtomicU64::new(0),
             rollbacks_executed: AtomicU64::new(0),
             queue_overflow_count: AtomicU64::new(0),
+            queue_spill_count: AtomicU64::new(0),
             deduplication_hits: AtomicU64::new(0),
             priority_boosts_applied: AtomicU64::new(0),
             rate_limited_tasks: AtomicU64::new(0),
@@ -2405,6 +2537,11 @@ impl MetricsCollector {
     /// Record queue overflow
     pub fn record_queue_overflow(&self) {
         self.queue_overflow_count.fetch_add(1, AtomicOrdering::Relaxed);
+    }
+
+    /// Record queue spill to SQLite
+    pub fn record_queue_spill(&self) {
+        self.queue_spill_count.fetch_add(1, AtomicOrdering::Relaxed);
     }
 
     /// Record rate limit hit
@@ -2568,6 +2705,7 @@ impl MetricsCollector {
                 average_queue_time_ms: avg_queue_time,
                 max_queue_time_ms: 0, // Would need max tracking
                 queue_overflow_count: self.queue_overflow_count.load(AtomicOrdering::Relaxed),
+                queue_spill_count: self.queue_spill_count.load(AtomicOrdering::Relaxed),
                 deduplication_hits: self.deduplication_hits.load(AtomicOrdering::Relaxed),
                 priority_boosts_applied: self.priority_boosts_applied.load(AtomicOrdering::Relaxed),
             },
@@ -3365,5 +3503,231 @@ mod tests {
         });
 
         assert!(handle.is_completed());
+    }
+
+    #[tokio::test]
+    async fn test_spill_to_sqlite_process_document() {
+        use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
+
+        // Create in-memory SQLite database with unified_queue table
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+        sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
+            .execute(&pool)
+            .await
+            .expect("Failed to create unified_queue table");
+
+        let queue_manager = Arc::new(QueueManager::new(pool.clone()));
+
+        // Create a pipeline with spill queue and get a submitter
+        let mut pipeline = Pipeline::new(2);
+        pipeline.set_spill_queue(queue_manager.clone());
+        let submitter = pipeline.task_submitter();
+
+        // Create a ProcessDocument context and payload
+        let context = TaskContext {
+            task_id: Uuid::new_v4(),
+            priority: TaskPriority::ProjectWatching,
+            created_at: chrono::Utc::now(),
+            timeout_ms: None,
+            source: TaskSource::ProjectWatcher {
+                project_path: "/tmp/test_project".to_string(),
+            },
+            metadata: HashMap::new(),
+            checkpoint_id: None,
+            supports_checkpointing: true,
+        };
+        let payload = TaskPayload::ProcessDocument {
+            file_path: std::path::PathBuf::from("/tmp/test_project/src/main.rs"),
+            collection: "projects".to_string(),
+        };
+
+        // Spill directly to SQLite
+        submitter.spill_to_sqlite(&queue_manager, &context, &payload)
+            .await
+            .expect("Spill should succeed");
+
+        // Verify the item was inserted into unified_queue
+        let row: (String, String, String, String) = sqlx::query_as(
+            "SELECT item_type, op, collection, status FROM unified_queue LIMIT 1"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Should have one spilled item");
+
+        assert_eq!(row.0, "file");
+        assert_eq!(row.1, "ingest");
+        assert_eq!(row.2, "projects");
+        assert_eq!(row.3, "pending");
+
+        // Verify the payload contains the file path
+        let payload_json: (String,) = sqlx::query_as(
+            "SELECT payload_json FROM unified_queue LIMIT 1"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Should have payload");
+
+        let payload_val: serde_json::Value = serde_json::from_str(&payload_json.0).unwrap();
+        assert_eq!(
+            payload_val["file_path"].as_str().unwrap(),
+            "/tmp/test_project/src/main.rs"
+        );
+
+        // Verify metadata contains spill info
+        let metadata_json: (String,) = sqlx::query_as(
+            "SELECT metadata FROM unified_queue LIMIT 1"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Should have metadata");
+
+        let meta_val: serde_json::Value = serde_json::from_str(&metadata_json.0).unwrap();
+        assert_eq!(meta_val["spilled_from"].as_str().unwrap(), "pipeline");
+        assert_eq!(meta_val["original_priority"].as_str().unwrap(), "ProjectWatching");
+    }
+
+    #[tokio::test]
+    async fn test_spill_non_process_document_fails() {
+        use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+        sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
+            .execute(&pool)
+            .await
+            .expect("Failed to create unified_queue table");
+
+        let queue_manager = Arc::new(QueueManager::new(pool.clone()));
+
+        let mut pipeline = Pipeline::new(2);
+        pipeline.set_spill_queue(queue_manager.clone());
+        let submitter = pipeline.task_submitter();
+
+        let context = TaskContext {
+            task_id: Uuid::new_v4(),
+            priority: TaskPriority::BackgroundWatching,
+            created_at: chrono::Utc::now(),
+            timeout_ms: None,
+            source: TaskSource::Generic {
+                operation: "test".to_string(),
+            },
+            metadata: HashMap::new(),
+            checkpoint_id: None,
+            supports_checkpointing: false,
+        };
+
+        // Generic task should NOT be spillable
+        let payload = TaskPayload::Generic {
+            operation: "test".to_string(),
+            parameters: HashMap::new(),
+        };
+
+        let result = submitter.spill_to_sqlite(&queue_manager, &context, &payload).await;
+        assert!(result.is_err(), "Generic tasks should not be spillable");
+
+        // ExecuteQuery should NOT be spillable
+        let payload = TaskPayload::ExecuteQuery {
+            query: "test".to_string(),
+            collection: "test".to_string(),
+            limit: 10,
+        };
+
+        let result = submitter.spill_to_sqlite(&queue_manager, &context, &payload).await;
+        assert!(result.is_err(), "ExecuteQuery tasks should not be spillable");
+    }
+
+    #[tokio::test]
+    async fn test_spill_with_background_watcher_source() {
+        use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+        sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
+            .execute(&pool)
+            .await
+            .expect("Failed to create unified_queue table");
+
+        let queue_manager = Arc::new(QueueManager::new(pool.clone()));
+
+        let mut pipeline = Pipeline::new(2);
+        pipeline.set_spill_queue(queue_manager.clone());
+        let submitter = pipeline.task_submitter();
+
+        let context = TaskContext {
+            task_id: Uuid::new_v4(),
+            priority: TaskPriority::BackgroundWatching,
+            created_at: chrono::Utc::now(),
+            timeout_ms: None,
+            source: TaskSource::BackgroundWatcher {
+                folder_path: "/home/user/docs".to_string(),
+            },
+            metadata: HashMap::new(),
+            checkpoint_id: None,
+            supports_checkpointing: true,
+        };
+        let payload = TaskPayload::ProcessDocument {
+            file_path: std::path::PathBuf::from("/home/user/docs/readme.md"),
+            collection: "libraries".to_string(),
+        };
+
+        submitter.spill_to_sqlite(&queue_manager, &context, &payload)
+            .await
+            .expect("Spill with BackgroundWatcher source should succeed");
+
+        // Verify correct collection
+        let row: (String,) = sqlx::query_as(
+            "SELECT collection FROM unified_queue LIMIT 1"
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("Should have spilled item");
+
+        assert_eq!(row.0, "libraries");
+    }
+
+    #[tokio::test]
+    async fn test_pipeline_stats_include_spill_count() {
+        let pipeline = Pipeline::new(2);
+        let stats = pipeline.stats().await;
+        assert_eq!(stats.queue_spills, 0);
+    }
+
+    #[tokio::test]
+    async fn test_queue_metrics_include_spill_count() {
+        let mut pipeline = Pipeline::new(2);
+        pipeline.start().await.expect("Failed to start pipeline");
+
+        let metrics = pipeline.get_priority_system_metrics().await;
+        assert_eq!(metrics.queue.queue_spill_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_spill_queue_configuration() {
+        use crate::unified_queue_schema::CREATE_UNIFIED_QUEUE_SQL;
+
+        let pool = sqlx::SqlitePool::connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool");
+        sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
+            .execute(&pool)
+            .await
+            .expect("Failed to create unified_queue table");
+
+        let queue_manager = Arc::new(QueueManager::new(pool));
+
+        // Pipeline without spill queue
+        let pipeline = Pipeline::new(2);
+        let submitter = pipeline.task_submitter();
+        assert!(submitter.spill_queue.is_none());
+
+        // Pipeline with spill queue
+        let mut pipeline = Pipeline::new(2);
+        pipeline.set_spill_queue(queue_manager);
+        let submitter = pipeline.task_submitter();
+        assert!(submitter.spill_queue.is_some());
     }
 }
