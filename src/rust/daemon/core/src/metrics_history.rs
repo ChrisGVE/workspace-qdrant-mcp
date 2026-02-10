@@ -178,7 +178,6 @@ pub async fn query_metrics(
     }
     if query.aggregation_period.is_some() {
         sql.push_str(&format!(" AND aggregation_period = ?{}", param_idx));
-        param_idx += 1;
     }
 
     sql.push_str(" ORDER BY timestamp ASC");
