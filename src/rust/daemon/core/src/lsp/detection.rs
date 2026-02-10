@@ -495,10 +495,6 @@ impl LspServerDetector {
         self.known_servers.contains_key(name)
     }
 
-    /// Get template for a known server
-    fn get_server_template(&self, name: &str) -> Option<&ServerTemplate> {
-        self.known_servers.get(name)
-    }
 }
 
 impl Default for LspServerDetector {
@@ -838,7 +834,7 @@ mod tests {
         
         // Should be sorted by priority
         let priorities: Vec<u8> = python_servers.iter()
-            .map(|name| detector.get_server_template(name).unwrap().priority)
+            .map(|name| detector.known_servers.get(name).unwrap().priority)
             .collect();
         
         for i in 1..priorities.len() {
