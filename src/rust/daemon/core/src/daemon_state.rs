@@ -542,6 +542,17 @@ impl DaemonStateManager {
         Ok(rows.iter().map(|r| r.try_get::<String, _>("watch_id").unwrap_or_default()).collect())
     }
 
+    /// Check if any enabled watch folder is paused.
+    /// Returns true if at least one enabled watch has is_paused=1.
+    pub async fn any_watchers_paused(&self) -> DaemonStateResult<bool> {
+        let count: i32 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM watch_folders WHERE is_paused = 1 AND enabled = 1"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count > 0)
+    }
+
     // ========================================================================
     // Project Disambiguation methods (Task 3)
     // ========================================================================
@@ -797,6 +808,11 @@ impl DaemonStateManager {
 
         Ok(stats)
     }
+
+    /// Get a reference to the underlying SQLite pool
+    pub fn pool(&self) -> &SqlitePool {
+        &self.pool
+    }
 }
 
 impl Clone for DaemonStateManager {
@@ -805,6 +821,27 @@ impl Clone for DaemonStateManager {
             pool: self.pool.clone(),
         }
     }
+}
+
+/// Poll the database for pause state and sync to a shared AtomicBool.
+///
+/// This function queries whether any enabled watch folder is paused and sets
+/// the provided `pause_flag` accordingly. Used by the daemon to detect
+/// CLI-driven pause/resume changes that bypass the gRPC endpoint.
+///
+/// Returns `true` if the flag value changed.
+pub async fn poll_pause_state(
+    pool: &SqlitePool,
+    pause_flag: &std::sync::atomic::AtomicBool,
+) -> DaemonStateResult<bool> {
+    let count: i32 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM watch_folders WHERE is_paused = 1 AND enabled = 1"
+    )
+    .fetch_one(pool)
+    .await?;
+    let db_paused = count > 0;
+    let previous = pause_flag.swap(db_paused, std::sync::atomic::Ordering::SeqCst);
+    Ok(previous != db_paused)
 }
 
 #[cfg(test)]
@@ -1861,5 +1898,120 @@ mod tests {
 
         // Different path should not be registered
         assert!(!manager.is_path_registered("/home/user/other").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_any_watchers_paused() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("pause_test.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // No watchers at all - should return false
+        assert!(!manager.any_watchers_paused().await.unwrap());
+
+        // Add an enabled, non-paused watcher
+        let record = WatchFolderRecord {
+            watch_id: "pause-test-001".to_string(),
+            path: "/projects/pause-test".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "pause-test-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&record).await.unwrap();
+
+        // Not paused yet
+        assert!(!manager.any_watchers_paused().await.unwrap());
+
+        // Pause all watchers
+        let paused = manager.pause_all_watchers().await.unwrap();
+        assert_eq!(paused, 1);
+        assert!(manager.any_watchers_paused().await.unwrap());
+
+        // Resume
+        let resumed = manager.resume_all_watchers().await.unwrap();
+        assert_eq!(resumed, 1);
+        assert!(!manager.any_watchers_paused().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn test_poll_pause_state() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("poll_pause_test.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        let flag = std::sync::atomic::AtomicBool::new(false);
+
+        // No change when no watchers
+        let changed = poll_pause_state(manager.pool(), &flag).await.unwrap();
+        assert!(!changed);
+        assert!(!flag.load(std::sync::atomic::Ordering::SeqCst));
+
+        // Add enabled watcher
+        let record = WatchFolderRecord {
+            watch_id: "poll-test-001".to_string(),
+            path: "/projects/poll-test".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "poll-test-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&record).await.unwrap();
+
+        // Still no change (not paused)
+        let changed = poll_pause_state(manager.pool(), &flag).await.unwrap();
+        assert!(!changed);
+
+        // Pause via DB
+        manager.pause_all_watchers().await.unwrap();
+
+        // Flag should change from false -> true
+        let changed = poll_pause_state(manager.pool(), &flag).await.unwrap();
+        assert!(changed);
+        assert!(flag.load(std::sync::atomic::Ordering::SeqCst));
+
+        // Poll again - no change (already true)
+        let changed = poll_pause_state(manager.pool(), &flag).await.unwrap();
+        assert!(!changed);
+
+        // Resume via DB
+        manager.resume_all_watchers().await.unwrap();
+
+        // Flag should change from true -> false
+        let changed = poll_pause_state(manager.pool(), &flag).await.unwrap();
+        assert!(changed);
+        assert!(!flag.load(std::sync::atomic::Ordering::SeqCst));
     }
 }

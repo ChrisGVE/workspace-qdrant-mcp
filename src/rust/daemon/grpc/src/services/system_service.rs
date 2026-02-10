@@ -131,6 +131,10 @@ pub struct SystemServiceImpl {
     db_pool: Option<sqlx::SqlitePool>,
     /// Server status store for tracking component status
     status_store: ServerStatusStore,
+    /// Shared pause flag for propagation to file watchers
+    /// When the gRPC endpoint pauses/resumes, this flag is toggled atomically
+    /// so that any FileWatcher sharing this flag reacts immediately.
+    pause_flag: Arc<AtomicBool>,
 }
 
 impl SystemServiceImpl {
@@ -141,6 +145,7 @@ impl SystemServiceImpl {
             queue_health: None,
             db_pool: None,
             status_store: Arc::new(RwLock::new(HashMap::new())),
+            pause_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -151,6 +156,7 @@ impl SystemServiceImpl {
             queue_health: Some(queue_health),
             db_pool: None,
             status_store: Arc::new(RwLock::new(HashMap::new())),
+            pause_flag: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -158,6 +164,19 @@ impl SystemServiceImpl {
     pub fn with_database_pool(mut self, pool: sqlx::SqlitePool) -> Self {
         self.db_pool = Some(pool);
         self
+    }
+
+    /// Set a shared pause flag for propagation to file watchers.
+    /// The returned `Arc<AtomicBool>` should be passed to the FileWatcher so both
+    /// the gRPC endpoint and the watcher share the same atomic flag.
+    pub fn with_pause_flag(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.pause_flag = flag;
+        self
+    }
+
+    /// Get a clone of the pause flag for sharing with file watchers
+    pub fn pause_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.pause_flag)
     }
 
     /// Get queue processor health component
@@ -667,18 +686,21 @@ impl SystemService for SystemServiceImpl {
 
     /// Pause all file watchers (master switch)
     ///
-    /// Sets is_paused=1 in watch_folders for all enabled watches.
-    /// The file watcher system checks this flag and buffers events while paused.
+    /// Sets is_paused=1 in watch_folders for all enabled watches and toggles
+    /// the shared pause flag so connected FileWatcher instances react immediately.
     async fn pause_all_watchers(
         &self,
         _request: Request<()>,
     ) -> Result<Response<()>, Status> {
         info!("Pause all watchers requested");
 
+        // Toggle the in-memory pause flag immediately for connected watchers
+        self.pause_flag.store(true, Ordering::SeqCst);
+
         let pool = match &self.db_pool {
             Some(p) => p,
             None => {
-                warn!("Pause requested but no database pool configured");
+                warn!("Pause requested but no database pool configured (in-memory flag set)");
                 return Ok(Response::new(()));
             }
         };
@@ -702,18 +724,21 @@ impl SystemService for SystemServiceImpl {
 
     /// Resume all file watchers (master switch)
     ///
-    /// Sets is_paused=0 in watch_folders for all enabled watches.
-    /// The file watcher system detects this and processes buffered events.
+    /// Sets is_paused=0 in watch_folders for all enabled watches and clears
+    /// the shared pause flag so connected FileWatcher instances resume processing.
     async fn resume_all_watchers(
         &self,
         _request: Request<()>,
     ) -> Result<Response<()>, Status> {
         info!("Resume all watchers requested");
 
+        // Clear the in-memory pause flag immediately for connected watchers
+        self.pause_flag.store(false, Ordering::SeqCst);
+
         let pool = match &self.db_pool {
             Some(p) => p,
             None => {
-                warn!("Resume requested but no database pool configured");
+                warn!("Resume requested but no database pool configured (in-memory flag cleared)");
                 return Ok(Response::new(()));
             }
         };

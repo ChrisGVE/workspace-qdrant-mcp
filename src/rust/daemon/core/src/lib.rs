@@ -94,7 +94,7 @@ pub use crate::tracing_otel::{
     current_trace_id, current_span_id
 };
 pub use crate::daemon_state::{
-    DaemonStateManager
+    DaemonStateManager, poll_pause_state,
 };
 pub use crate::tracked_files_schema::{
     TrackedFile, QdrantChunk, ProcessingStatus, ChunkType as TrackedChunkType,
