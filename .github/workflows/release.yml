@@ -182,6 +182,8 @@ jobs:
           mkdir -p artifacts
           cp src/rust/target/${{ matrix.target }}/release/memexd artifacts/
           cp src/rust/target/${{ matrix.target }}/release/wqm artifacts/
+          cp THIRD-PARTY-LICENSES.md artifacts/
+          cp LICENSE artifacts/
 
           # Create archive
           cd artifacts
@@ -194,6 +196,8 @@ jobs:
           New-Item -ItemType Directory -Force -Path artifacts
           Copy-Item src/rust/target/${{ matrix.target }}/release/memexd.exe artifacts/
           Copy-Item src/rust/target/${{ matrix.target }}/release/wqm.exe artifacts/
+          Copy-Item THIRD-PARTY-LICENSES.md artifacts/
+          Copy-Item LICENSE artifacts/
 
           Compress-Archive -Path artifacts/* -DestinationPath workspace-qdrant-mcp-${{ matrix.artifact_name }}.zip
 
@@ -326,6 +330,8 @@ jobs:
             ## Self-Contained Binaries
 
             All binaries include ONNX Runtime statically linked - no external dependencies required.
+
+            Each archive includes `LICENSE` and `THIRD-PARTY-LICENSES.md` with full attribution for all third-party dependencies.
 
             ### Quick Install
             ```bash
