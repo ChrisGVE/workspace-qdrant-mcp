@@ -496,7 +496,7 @@ impl LspServerDetector {
     }
 
     /// Get template for a known server
-    pub fn get_server_template(&self, name: &str) -> Option<&ServerTemplate> {
+    fn get_server_template(&self, name: &str) -> Option<&ServerTemplate> {
         self.known_servers.get(name)
     }
 }
