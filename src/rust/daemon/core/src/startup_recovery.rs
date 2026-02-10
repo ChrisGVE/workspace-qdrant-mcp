@@ -14,7 +14,7 @@ use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
 use crate::allowed_extensions::AllowedExtensions;
-use crate::patterns::exclusion::should_exclude_file;
+use crate::patterns::exclusion::{should_exclude_file, should_exclude_directory};
 use crate::queue_operations::QueueManager;
 use crate::tracked_files_schema;
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation};
@@ -151,11 +151,21 @@ async fn recover_watch_folder(
     }
 
     // Step 2: Walk filesystem to get current eligible files
+    // Use filter_entry to skip excluded directories entirely (target/, node_modules/, .git/, etc.)
+    // This avoids enumerating hundreds of thousands of files in build artifact directories.
     let mut disk_files: HashMap<String, ()> = HashMap::new();
 
     for entry in WalkDir::new(root)
         .follow_links(false)
         .into_iter()
+        .filter_entry(|e| {
+            if e.file_type().is_dir() && e.depth() > 0 {
+                let dir_name = e.file_name().to_string_lossy();
+                !should_exclude_directory(&dir_name)
+            } else {
+                true
+            }
+        })
         .filter_map(|e| e.ok())
     {
         let path = entry.path();

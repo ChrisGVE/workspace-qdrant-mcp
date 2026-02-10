@@ -488,6 +488,31 @@ pub fn should_exclude_file(file_path: &str) -> bool {
     }
 }
 
+/// Check if a directory should be skipped entirely during filesystem walks.
+///
+/// Uses the existing exclusion engine by testing if a synthetic file path
+/// under this directory would be excluded. This allows WalkDir's `filter_entry`
+/// to skip entire subtrees (e.g., target/, node_modules/, .git/) without
+/// enumerating their contents.
+pub fn should_exclude_directory(dir_name: &str) -> bool {
+    // .github is explicitly whitelisted — never skip it
+    if dir_name == ".github" {
+        return false;
+    }
+    // Hidden directories (start with '.') are always excluded
+    if dir_name.starts_with('.') {
+        return true;
+    }
+    // Check if the exclusion engine would exclude files under this directory
+    match ExclusionEngine::global() {
+        Ok(engine) => {
+            let synthetic_path = format!("{}/placeholder.txt", dir_name);
+            engine.should_exclude(&synthetic_path).excluded
+        }
+        Err(_) => false,
+    }
+}
+
 /// Convenient function for contextual exclusion checking
 pub fn should_exclude_file_with_context(file_path: &str, project_type: &str) -> ExclusionResult {
     match ExclusionEngine::global() {
@@ -707,5 +732,27 @@ mod tests {
 
         // Multiple slashes (should handle gracefully)
         assert!(engine.should_exclude("src//.hidden//file").excluded);
+    }
+
+    #[test]
+    fn test_should_exclude_directory() {
+        // Well-known excluded directories
+        assert!(should_exclude_directory("target"));
+        assert!(should_exclude_directory("node_modules"));
+        assert!(should_exclude_directory("__pycache__"));
+
+        // Hidden directories
+        assert!(should_exclude_directory(".git"));
+        assert!(should_exclude_directory(".venv"));
+        assert!(should_exclude_directory(".mypy_cache"));
+
+        // .github is whitelisted - should NOT be excluded
+        assert!(!should_exclude_directory(".github"));
+
+        // Normal directories should NOT be excluded
+        assert!(!should_exclude_directory("src"));
+        assert!(!should_exclude_directory("lib"));
+        assert!(!should_exclude_directory("tests"));
+        assert!(!should_exclude_directory("docs"));
     }
 }

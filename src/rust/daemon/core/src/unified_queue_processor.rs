@@ -28,7 +28,7 @@ use crate::unified_queue_schema::{
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
-use crate::patterns::exclusion::should_exclude_file;
+use crate::patterns::exclusion::{should_exclude_file, should_exclude_directory};
 use crate::file_classification::classify_file_type;
 use crate::tracked_files_schema::{
     self, ProcessingStatus, ChunkType as TrackedChunkType,
@@ -1589,10 +1589,18 @@ impl UnifiedQueueProcessor {
         let mut errors = 0u64;
         let start_time = std::time::Instant::now();
 
-        // Walk directory recursively
+        // Walk directory recursively, skipping excluded directories entirely
         for entry in WalkDir::new(project_root)
             .follow_links(false)  // Don't follow symlinks to avoid cycles
             .into_iter()
+            .filter_entry(|e| {
+                if e.file_type().is_dir() && e.depth() > 0 {
+                    let dir_name = e.file_name().to_string_lossy();
+                    !should_exclude_directory(&dir_name)
+                } else {
+                    true
+                }
+            })
             .filter_map(|e| e.ok())  // Skip entries with errors
         {
             let path = entry.path();
@@ -1762,6 +1770,14 @@ impl UnifiedQueueProcessor {
         for entry in WalkDir::new(library_root)
             .follow_links(false)
             .into_iter()
+            .filter_entry(|e| {
+                if e.file_type().is_dir() && e.depth() > 0 {
+                    let dir_name = e.file_name().to_string_lossy();
+                    !should_exclude_directory(&dir_name)
+                } else {
+                    true
+                }
+            })
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
