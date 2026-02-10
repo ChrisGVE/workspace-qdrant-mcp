@@ -174,22 +174,6 @@ impl DocumentServiceImpl {
         Ok(())
     }
 
-    /// Format collection name from basename and tenant_id
-    /// Format: {collection_basename}_{tenant_id}
-    fn format_collection_name(basename: &str, tenant_id: &str) -> Result<String, Status> {
-        if basename.is_empty() {
-            return Err(Status::invalid_argument("Collection basename cannot be empty"));
-        }
-
-        if tenant_id.is_empty() {
-            return Err(Status::invalid_argument("Tenant ID cannot be empty"));
-        }
-
-        let collection_name = format!("{}_{}", basename, tenant_id);
-        Self::validate_collection_name(&collection_name)?;
-        Ok(collection_name)
-    }
-
     /// Check if tenant_id is a project ID format
     ///
     /// Project IDs are generated from:
@@ -529,39 +513,6 @@ impl DocumentServiceImpl {
         (hits, misses, evictions, hit_rate)
     }
 
-    /// Generate embeddings for multiple texts in a batch (more efficient)
-    async fn generate_embeddings_batch(&self, texts: &[String]) -> Result<Vec<Vec<f32>>, Status> {
-        if texts.is_empty() {
-            return Ok(Vec::new());
-        }
-
-        // Ensure model is initialized
-        Self::init_embedding_model()?;
-
-        let model = EMBEDDING_MODEL.get()
-            .ok_or_else(|| Status::internal("Embedding model not initialized"))?;
-
-        // Acquire lock and generate embeddings
-        let embeddings = {
-            let mut model_guard = model.lock().await;
-
-            // Prepare documents - convert &[String] to Vec<&str>
-            let documents: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-
-            match model_guard.embed(documents, None) {
-                Ok(embeddings) => embeddings,
-                Err(e) => {
-                    error!("FastEmbed batch embedding generation failed: {:?}", e);
-                    return Err(Status::internal(format!(
-                        "Batch embedding generation failed: {}", e
-                    )));
-                }
-            }
-        };
-
-        debug!("Generated {} embeddings in batch", embeddings.len());
-        Ok(embeddings)
-    }
 
     /// Ensure collection exists, create if not
     async fn ensure_collection_exists(&self, collection_name: &str) -> Result<(), Status> {
@@ -1081,25 +1032,6 @@ mod tests {
         // Both empty
         let result = DocumentServiceImpl::determine_collection_routing("", "");
         assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_format_collection_name() {
-        // Valid formatting
-        assert_eq!(
-            DocumentServiceImpl::format_collection_name("memory", "tenant1").unwrap(),
-            "memory_tenant1"
-        );
-        assert_eq!(
-            DocumentServiceImpl::format_collection_name("scratchbook", "user-123").unwrap(),
-            "scratchbook_user-123"
-        );
-
-        // Invalid: empty basename
-        assert!(DocumentServiceImpl::format_collection_name("", "tenant1").is_err());
-
-        // Invalid: empty tenant_id
-        assert!(DocumentServiceImpl::format_collection_name("memory", "").is_err());
     }
 
     #[test]
