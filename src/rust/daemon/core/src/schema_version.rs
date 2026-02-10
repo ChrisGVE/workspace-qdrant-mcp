@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 4;
+pub const CURRENT_SCHEMA_VERSION: i32 = 5;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -154,6 +154,7 @@ impl SchemaManager {
             2 => self.migrate_v2().await,
             3 => self.migrate_v3().await,
             4 => self.migrate_v4().await,
+            5 => self.migrate_v5().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -305,6 +306,30 @@ impl SchemaManager {
         }
 
         info!("Migration v4 complete");
+        Ok(())
+    }
+
+    /// Migration v5: Create metrics_history table for time-series storage
+    async fn migrate_v5(&self) -> Result<(), SchemaError> {
+        info!("Migration v5: Creating metrics_history table");
+
+        use super::metrics_history_schema::{CREATE_METRICS_HISTORY_SQL, CREATE_METRICS_HISTORY_INDEXES_SQL};
+
+        // Create metrics_history table
+        debug!("Creating metrics_history table");
+        sqlx::query(CREATE_METRICS_HISTORY_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        // Create indexes
+        for index_sql in CREATE_METRICS_HISTORY_INDEXES_SQL {
+            debug!("Creating metrics_history index");
+            sqlx::query(index_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        info!("Migration v5 complete");
         Ok(())
     }
 }
@@ -729,9 +754,9 @@ mod tests {
         // Run remaining migrations (v4)
         manager.run_migrations().await.expect("Failed to run migrations from v3 to v4");
 
-        // Verify v4 migration completed
+        // Verify all migrations completed (v4 + v5)
         let version = manager.get_current_version().await.unwrap();
-        assert_eq!(version, Some(4));
+        assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
 
         // Verify is_paused column exists
         let has_is_paused: bool = sqlx::query_scalar(
@@ -750,5 +775,52 @@ mod tests {
         .await
         .unwrap();
         assert!(has_pause_start_time, "pause_start_time column should exist after v4 migration");
+    }
+
+    #[tokio::test]
+    async fn test_incremental_migration_v4_to_v5() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+
+        // Simulate v4 state: run v1 through v4
+        manager.initialize().await.expect("Failed to initialize");
+        for v in 1..=4 {
+            manager.run_migration(v).await.unwrap_or_else(|e| panic!("Failed to run v{}: {}", v, e));
+            manager.record_migration(v).await.unwrap_or_else(|e| panic!("Failed to record v{}: {}", v, e));
+        }
+
+        // Verify metrics_history does NOT exist yet
+        let exists_before: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='metrics_history')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(!exists_before, "metrics_history should NOT exist before v5 migration");
+
+        // Run remaining migrations (v5)
+        manager.run_migrations().await.expect("Failed to run migrations from v4 to v5");
+
+        // Verify v5 completed
+        let version = manager.get_current_version().await.unwrap();
+        assert_eq!(version, Some(5));
+
+        // Verify metrics_history table exists
+        let exists_after: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='metrics_history')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(exists_after, "metrics_history table should exist after v5 migration");
+
+        // Verify indexes exist
+        let idx_count: i32 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name LIKE 'idx_metrics_%'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(idx_count, 3, "Should have 3 metrics_history indexes");
     }
 }
