@@ -41,6 +41,7 @@ pub mod unified_queue_schema;
 pub mod watch_folders_schema;
 pub mod tracked_files_schema;
 pub mod metrics_history_schema;
+pub mod metrics_history;
 pub mod schema_version;
 pub mod tree_sitter;
 pub mod watching;
