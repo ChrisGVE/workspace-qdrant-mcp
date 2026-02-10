@@ -384,7 +384,8 @@ fn build_log_roller(
         )
     })?;
 
-    let filename_path = std::path::Path::new(filename.as_ref());
+    let filename_str: &str = filename.as_ref();
+    let filename_path = std::path::Path::new(filename_str);
     let mut builder = LogRollerBuilder::new(parent, filename_path)
         .rotation(Rotation::SizeBased(RotationSize::MB(config.rotation_size_mb)))
         .max_keep_files(config.rotation_count as u64);

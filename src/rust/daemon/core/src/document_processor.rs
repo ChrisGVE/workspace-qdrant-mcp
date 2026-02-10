@@ -43,6 +43,15 @@ pub enum DocumentProcessorError {
     #[error("Encoding detection failed: {0}")]
     EncodingError(String),
 
+    #[error("Spreadsheet extraction error: {0}")]
+    SpreadsheetExtraction(String),
+
+    #[error("CSV extraction error: {0}")]
+    CsvExtraction(String),
+
+    #[error("Jupyter extraction error: {0}")]
+    JupyterExtraction(String),
+
     #[error("Unsupported file format: {0}")]
     UnsupportedFormat(String),
 
@@ -210,6 +219,9 @@ fn process_file_sync(
             extract_opendocument(file_path, fmt)?
         }
         DocumentType::Rtf => extract_rtf(file_path)?,
+        DocumentType::Xlsx | DocumentType::Xls => extract_spreadsheet(file_path)?,
+        DocumentType::Csv => extract_csv(file_path)?,
+        DocumentType::Jupyter => extract_jupyter(file_path)?,
         DocumentType::Ppt | DocumentType::Doc => {
             let fmt = match &document_type {
                 DocumentType::Ppt => "PPT",
@@ -360,6 +372,10 @@ fn detect_document_type(file_path: &Path) -> DocumentType {
         "ods" => DocumentType::Ods,
         "rtf" => DocumentType::Rtf,
         "doc" => DocumentType::Doc,
+        "xlsx" => DocumentType::Xlsx,
+        "xls" => DocumentType::Xls,
+        "csv" | "tsv" => DocumentType::Csv,
+        "ipynb" => DocumentType::Jupyter,
         "pages" => DocumentType::Pages,
         "key" => DocumentType::Key,
 
@@ -869,6 +885,214 @@ fn extract_text_with_encoding(
     Ok((String::from_utf8_lossy(&buffer).to_string(), metadata))
 }
 
+/// Extract text from Excel spreadsheet files (XLSX and XLS) using calamine
+fn extract_spreadsheet(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
+    use calamine::{open_workbook_auto, Reader, Data};
+
+    let mut metadata = HashMap::new();
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("xlsx")
+        .to_lowercase();
+    metadata.insert("source_format".to_string(), ext);
+
+    let mut workbook = open_workbook_auto(file_path)
+        .map_err(|e| DocumentProcessorError::SpreadsheetExtraction(e.to_string()))?;
+
+    let sheet_names: Vec<String> = workbook.sheet_names().to_vec();
+    metadata.insert("sheet_count".to_string(), sheet_names.len().to_string());
+
+    let mut all_text = String::new();
+    let mut total_rows = 0usize;
+
+    for sheet_name in &sheet_names {
+        if let Ok(range) = workbook.worksheet_range(sheet_name) {
+            if !all_text.is_empty() {
+                all_text.push('\n');
+            }
+            all_text.push_str(&format!("## {}\n", sheet_name));
+
+            for row in range.rows() {
+                total_rows += 1;
+                let cells: Vec<String> = row
+                    .iter()
+                    .map(|cell| match cell {
+                        Data::Empty => String::new(),
+                        Data::String(s) => s.clone(),
+                        Data::Int(i) => i.to_string(),
+                        Data::Float(f) => f.to_string(),
+                        Data::Bool(b) => b.to_string(),
+                        Data::DateTime(dt) => dt.to_string(),
+                        Data::Error(e) => format!("#ERR:{:?}", e),
+                        Data::DateTimeIso(s) => s.clone(),
+                        Data::DurationIso(s) => s.clone(),
+                    })
+                    .collect();
+
+                // Skip entirely empty rows
+                if cells.iter().all(|c| c.is_empty()) {
+                    continue;
+                }
+
+                all_text.push_str(&cells.join("\t"));
+                all_text.push('\n');
+            }
+        }
+    }
+
+    metadata.insert("row_count".to_string(), total_rows.to_string());
+
+    if all_text.trim().is_empty() {
+        return Err(DocumentProcessorError::SpreadsheetExtraction(
+            "No data found in spreadsheet".to_string(),
+        ));
+    }
+
+    Ok((clean_extracted_text(&all_text), metadata))
+}
+
+/// Extract text from CSV/TSV files
+fn extract_csv(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
+    let mut metadata = HashMap::new();
+    let ext = file_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("csv")
+        .to_lowercase();
+    metadata.insert("source_format".to_string(), ext.clone());
+
+    let delimiter = if ext == "tsv" { b'\t' } else { b',' };
+
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .flexible(true) // tolerate rows with varying column counts
+        .has_headers(true)
+        .from_path(file_path)
+        .map_err(|e| DocumentProcessorError::CsvExtraction(e.to_string()))?;
+
+    let mut all_text = String::new();
+    let mut row_count = 0usize;
+
+    // Include headers
+    let headers = reader.headers()
+        .map_err(|e| DocumentProcessorError::CsvExtraction(e.to_string()))?
+        .clone();
+    let col_count = headers.len();
+    metadata.insert("column_count".to_string(), col_count.to_string());
+
+    if col_count > 0 {
+        let header_line: Vec<&str> = headers.iter().collect();
+        all_text.push_str(&header_line.join("\t"));
+        all_text.push('\n');
+    }
+
+    for result in reader.records() {
+        let record = result.map_err(|e| DocumentProcessorError::CsvExtraction(e.to_string()))?;
+        row_count += 1;
+        let fields: Vec<&str> = record.iter().collect();
+        all_text.push_str(&fields.join("\t"));
+        all_text.push('\n');
+    }
+
+    metadata.insert("row_count".to_string(), row_count.to_string());
+
+    if all_text.trim().is_empty() {
+        return Err(DocumentProcessorError::CsvExtraction(
+            "No data found in CSV/TSV file".to_string(),
+        ));
+    }
+
+    Ok((clean_extracted_text(&all_text), metadata))
+}
+
+/// Extract code and markdown from Jupyter notebook (.ipynb) files
+fn extract_jupyter(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
+    let mut metadata = HashMap::new();
+    metadata.insert("source_format".to_string(), "jupyter".to_string());
+
+    let mut file = File::open(file_path)?;
+    let mut content = String::new();
+    file.read_to_string(&mut content)?;
+
+    let notebook: serde_json::Value = serde_json::from_str(&content)
+        .map_err(|e| DocumentProcessorError::JupyterExtraction(
+            format!("Invalid notebook JSON: {}", e),
+        ))?;
+
+    // Detect kernel language from metadata
+    let language = notebook
+        .pointer("/metadata/kernelspec/language")
+        .or_else(|| notebook.pointer("/metadata/language_info/name"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("python")
+        .to_string();
+    metadata.insert("language".to_string(), language.clone());
+
+    let cells = notebook
+        .get("cells")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| DocumentProcessorError::JupyterExtraction(
+            "No cells array found in notebook".to_string(),
+        ))?;
+
+    metadata.insert("cell_count".to_string(), cells.len().to_string());
+
+    let mut all_text = String::new();
+    let mut code_cells = 0usize;
+    let mut markdown_cells = 0usize;
+
+    for cell in cells {
+        let cell_type = cell.get("cell_type").and_then(|v| v.as_str()).unwrap_or("unknown");
+        let source = cell.get("source")
+            .and_then(|v| v.as_array())
+            .map(|lines| {
+                lines.iter()
+                    .filter_map(|l| l.as_str())
+                    .collect::<Vec<&str>>()
+                    .join("")
+            })
+            .or_else(|| cell.get("source").and_then(|v| v.as_str()).map(String::from))
+            .unwrap_or_default();
+
+        if source.trim().is_empty() {
+            continue;
+        }
+
+        if !all_text.is_empty() {
+            all_text.push('\n');
+        }
+
+        match cell_type {
+            "code" => {
+                code_cells += 1;
+                all_text.push_str(&format!("```{}\n{}\n```", language, source.trim()));
+            }
+            "markdown" => {
+                markdown_cells += 1;
+                all_text.push_str(source.trim());
+            }
+            "raw" => {
+                all_text.push_str(source.trim());
+            }
+            _ => {
+                all_text.push_str(source.trim());
+            }
+        }
+    }
+
+    metadata.insert("code_cells".to_string(), code_cells.to_string());
+    metadata.insert("markdown_cells".to_string(), markdown_cells.to_string());
+
+    if all_text.trim().is_empty() {
+        return Err(DocumentProcessorError::JupyterExtraction(
+            "No content found in notebook".to_string(),
+        ));
+    }
+
+    Ok((clean_extracted_text(&all_text), metadata))
+}
+
 /// Clean up extracted text (normalize whitespace, remove control chars)
 fn clean_extracted_text(text: &str) -> String {
     let mut result = String::with_capacity(text.len());
@@ -1284,5 +1508,163 @@ mod tests {
         let (text, _) = result.unwrap();
         assert!(text.contains("Bold text"));
         assert!(text.contains("normal text"));
+    }
+
+    // --- New format detection tests ---
+
+    #[test]
+    fn test_detect_document_type_spreadsheet_formats() {
+        assert_eq!(detect_document_type(Path::new("data.xlsx")), DocumentType::Xlsx);
+        assert_eq!(detect_document_type(Path::new("data.xls")), DocumentType::Xls);
+        assert_eq!(detect_document_type(Path::new("DATA.XLSX")), DocumentType::Xlsx);
+        assert_eq!(detect_document_type(Path::new("report.XLS")), DocumentType::Xls);
+    }
+
+    #[test]
+    fn test_detect_document_type_csv() {
+        assert_eq!(detect_document_type(Path::new("data.csv")), DocumentType::Csv);
+        assert_eq!(detect_document_type(Path::new("data.tsv")), DocumentType::Csv);
+        assert_eq!(detect_document_type(Path::new("DATA.CSV")), DocumentType::Csv);
+    }
+
+    #[test]
+    fn test_detect_document_type_jupyter() {
+        assert_eq!(detect_document_type(Path::new("notebook.ipynb")), DocumentType::Jupyter);
+        assert_eq!(detect_document_type(Path::new("analysis.IPYNB")), DocumentType::Jupyter);
+    }
+
+    // --- CSV extraction tests ---
+
+    #[test]
+    fn test_extract_csv_basic() {
+        let mut tmp = NamedTempFile::with_suffix(".csv").unwrap();
+        write!(tmp, "name,age,city\nAlice,30,New York\nBob,25,London\n").unwrap();
+        let result = extract_csv(tmp.path());
+        assert!(result.is_ok());
+        let (text, metadata) = result.unwrap();
+        assert!(text.contains("name"));
+        assert!(text.contains("Alice"));
+        assert!(text.contains("Bob"));
+        assert_eq!(metadata.get("source_format").unwrap(), "csv");
+        assert_eq!(metadata.get("row_count").unwrap(), "2");
+        assert_eq!(metadata.get("column_count").unwrap(), "3");
+    }
+
+    #[test]
+    fn test_extract_csv_tsv() {
+        let mut tmp = NamedTempFile::with_suffix(".tsv").unwrap();
+        write!(tmp, "col1\tcol2\nval1\tval2\n").unwrap();
+        let result = extract_csv(tmp.path());
+        assert!(result.is_ok());
+        let (text, metadata) = result.unwrap();
+        assert!(text.contains("col1"));
+        assert!(text.contains("val1"));
+        assert_eq!(metadata.get("source_format").unwrap(), "tsv");
+    }
+
+    #[test]
+    fn test_extract_csv_empty() {
+        let mut tmp = NamedTempFile::with_suffix(".csv").unwrap();
+        write!(tmp, "").unwrap();
+        let result = extract_csv(tmp.path());
+        assert!(result.is_err());
+    }
+
+    // --- Jupyter extraction tests ---
+
+    #[test]
+    fn test_extract_jupyter_basic() {
+        let notebook = serde_json::json!({
+            "metadata": {
+                "kernelspec": { "language": "python" }
+            },
+            "cells": [
+                {
+                    "cell_type": "markdown",
+                    "source": ["# Test Notebook\n", "This is a test."]
+                },
+                {
+                    "cell_type": "code",
+                    "source": ["import pandas as pd\n", "df = pd.read_csv('data.csv')"]
+                }
+            ],
+            "nbformat": 4,
+            "nbformat_minor": 2
+        }).to_string();
+
+        let mut tmp = NamedTempFile::with_suffix(".ipynb").unwrap();
+        write!(tmp, "{}", &notebook).unwrap();
+        let result = extract_jupyter(tmp.path());
+        assert!(result.is_ok());
+        let (text, metadata) = result.unwrap();
+        assert!(text.contains("Test Notebook"));
+        assert!(text.contains("import pandas"));
+        assert_eq!(metadata.get("language").unwrap(), "python");
+        assert_eq!(metadata.get("cell_count").unwrap(), "2");
+        assert_eq!(metadata.get("code_cells").unwrap(), "1");
+        assert_eq!(metadata.get("markdown_cells").unwrap(), "1");
+    }
+
+    #[test]
+    fn test_extract_jupyter_source_as_string() {
+        // Some notebooks have source as a single string instead of array
+        let notebook = serde_json::json!({
+            "metadata": { "language_info": { "name": "r" } },
+            "cells": [
+                { "cell_type": "code", "source": "x <- 1:10\nplot(x)" }
+            ],
+            "nbformat": 4,
+            "nbformat_minor": 2
+        }).to_string();
+
+        let mut tmp = NamedTempFile::with_suffix(".ipynb").unwrap();
+        write!(tmp, "{}", &notebook).unwrap();
+        let result = extract_jupyter(tmp.path());
+        assert!(result.is_ok());
+        let (text, metadata) = result.unwrap();
+        assert!(text.contains("x <- 1:10"));
+        assert_eq!(metadata.get("language").unwrap(), "r");
+    }
+
+    #[test]
+    fn test_extract_jupyter_invalid_json() {
+        let mut tmp = NamedTempFile::with_suffix(".ipynb").unwrap();
+        write!(tmp, "not valid json").unwrap();
+        let result = extract_jupyter(tmp.path());
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_jupyter_no_cells() {
+        let notebook = serde_json::json!({ "metadata": {}, "nbformat": 4 }).to_string();
+        let mut tmp = NamedTempFile::with_suffix(".ipynb").unwrap();
+        write!(tmp, "{}", &notebook).unwrap();
+        let result = extract_jupyter(tmp.path());
+        assert!(result.is_err());
+    }
+
+    // --- Spreadsheet extraction tests ---
+
+    #[test]
+    fn test_extract_spreadsheet_invalid_file() {
+        let mut tmp = NamedTempFile::with_suffix(".xlsx").unwrap();
+        write!(tmp, "not a valid xlsx file").unwrap();
+        let result = extract_spreadsheet(tmp.path());
+        assert!(result.is_err());
+    }
+
+    // --- Allowed extensions tests ---
+
+    #[test]
+    fn test_allowed_extensions_new_formats() {
+        use crate::allowed_extensions::AllowedExtensions;
+        let ae = AllowedExtensions::default();
+        // Project extensions
+        assert!(ae.is_allowed("data.csv", "projects"));
+        assert!(ae.is_allowed("data.tsv", "projects"));
+        assert!(ae.is_allowed("notebook.ipynb", "projects"));
+        // Library extensions
+        assert!(ae.is_allowed("report.xlsx", "libraries"));
+        assert!(ae.is_allowed("legacy.xls", "libraries"));
     }
 }

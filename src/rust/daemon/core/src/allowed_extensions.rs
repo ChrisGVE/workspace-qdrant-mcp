@@ -46,6 +46,10 @@ impl Default for AllowedExtensions {
             ".sh", ".bash", ".zsh", ".fish",
             // Config / Data
             ".toml", ".yaml", ".yml", ".json", ".xml",
+            // Spreadsheets and data
+            ".csv", ".tsv",
+            // Notebooks
+            ".ipynb",
             // Web
             ".html", ".css", ".scss", ".less", ".vue", ".svelte", ".astro",
             // SQL / GraphQL / Proto
@@ -97,6 +101,8 @@ impl Default for AllowedExtensions {
             // Documents
             ".pdf", ".epub", ".docx", ".pptx", ".ppt", ".pages", ".key",
             ".odt", ".odp", ".ods", ".rtf", ".doc",
+            // Spreadsheets
+            ".xlsx", ".xls",
             // Text / Markup
             ".md", ".txt", ".html", ".htm",
         ]

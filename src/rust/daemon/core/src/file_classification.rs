@@ -83,6 +83,8 @@ static CONFIG_FILENAMES: phf::Set<&'static str> = phf_set! {
 /// Data file extensions
 static DATA_EXTENSIONS: phf::Set<&'static str> = phf_set! {
     ".csv", ".tsv",  // CSV/TSV
+    ".xlsx", ".xls",  // Excel spreadsheets
+    ".ipynb",  // Jupyter notebooks
     ".parquet",  // Parquet
     ".json", ".jsonl", ".ndjson",  // JSON data (overlaps with config, intent-based)
     ".xml",  // XML data (overlaps with config)
