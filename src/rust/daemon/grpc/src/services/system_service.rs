@@ -666,24 +666,72 @@ impl SystemService for SystemServiceImpl {
     }
 
     /// Pause all file watchers (master switch)
+    ///
+    /// Sets is_paused=1 in watch_folders for all enabled watches.
+    /// The file watcher system checks this flag and buffers events while paused.
     async fn pause_all_watchers(
         &self,
         _request: Request<()>,
     ) -> Result<Response<()>, Status> {
         info!("Pause all watchers requested");
 
-        // Stub implementation - would pause watchers in full implementation
+        let pool = match &self.db_pool {
+            Some(p) => p,
+            None => {
+                warn!("Pause requested but no database pool configured");
+                return Ok(Response::new(()));
+            }
+        };
+
+        let result = sqlx::query(
+            "UPDATE watch_folders SET is_paused = 1, \
+             pause_start_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE enabled = 1 AND is_paused = 0"
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to pause watchers: {}", e);
+            Status::internal(format!("Database error: {}", e))
+        })?;
+
+        info!("Paused {} watch folder(s)", result.rows_affected());
         Ok(Response::new(()))
     }
 
     /// Resume all file watchers (master switch)
+    ///
+    /// Sets is_paused=0 in watch_folders for all enabled watches.
+    /// The file watcher system detects this and processes buffered events.
     async fn resume_all_watchers(
         &self,
         _request: Request<()>,
     ) -> Result<Response<()>, Status> {
         info!("Resume all watchers requested");
 
-        // Stub implementation - would resume watchers in full implementation
+        let pool = match &self.db_pool {
+            Some(p) => p,
+            None => {
+                warn!("Resume requested but no database pool configured");
+                return Ok(Response::new(()));
+            }
+        };
+
+        let result = sqlx::query(
+            "UPDATE watch_folders SET is_paused = 0, \
+             pause_start_time = NULL, \
+             updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+             WHERE enabled = 1 AND is_paused = 1"
+        )
+        .execute(pool)
+        .await
+        .map_err(|e| {
+            error!("Failed to resume watchers: {}", e);
+            Status::internal(format!("Database error: {}", e))
+        })?;
+
+        info!("Resumed {} watch folder(s)", result.rows_affected());
         Ok(Response::new(()))
     }
 }
@@ -1018,5 +1066,19 @@ mod tests {
         assert_eq!(store.len(), 2);
         assert_eq!(store.get("project-a").unwrap().state, ServerState::Up);
         assert_eq!(store.get("project-b").unwrap().state, ServerState::Down);
+    }
+
+    #[tokio::test]
+    async fn test_pause_all_watchers_without_db_pool() {
+        let service = SystemServiceImpl::new();
+        let response = service.pause_all_watchers(Request::new(())).await;
+        assert!(response.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_resume_all_watchers_without_db_pool() {
+        let service = SystemServiceImpl::new();
+        let response = service.resume_all_watchers(Request::new(())).await;
+        assert!(response.is_ok());
     }
 }
