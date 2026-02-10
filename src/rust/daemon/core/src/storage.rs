@@ -1425,17 +1425,10 @@ impl StorageClient {
         // Build named vectors with "dense" and optionally "sparse"
         let mut named_vectors = std::collections::HashMap::new();
 
-        // Add dense vector using the new Vector format with DenseVector
+        // Add dense vector
         named_vectors.insert(
             "dense".to_string(),
-            qdrant_client::qdrant::Vector {
-                data: vec![], // Deprecated, use vector field instead
-                indices: None,
-                vectors_count: None,
-                vector: Some(qdrant_client::qdrant::vector::Vector::Dense(DenseVector {
-                    data: point.dense_vector,
-                })),
-            }
+            DenseVector { data: point.dense_vector }.into(),
         );
 
         // Add sparse vector if present
@@ -1455,15 +1448,7 @@ impl StorageClient {
 
             named_vectors.insert(
                 "sparse".to_string(),
-                qdrant_client::qdrant::Vector {
-                    data: vec![], // Deprecated for sparse vectors
-                    indices: None, // Deprecated, use vector field instead
-                    vectors_count: None,
-                    vector: Some(qdrant_client::qdrant::vector::Vector::Sparse(SparseVector {
-                        indices,
-                        values,
-                    })),
-                }
+                SparseVector { indices, values }.into(),
             );
         }
 
