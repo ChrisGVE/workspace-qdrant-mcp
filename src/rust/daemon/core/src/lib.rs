@@ -52,7 +52,7 @@ pub mod startup_recovery;
 pub mod startup_reconciliation;
 
 use crate::config::Config;
-pub use crate::allowed_extensions::AllowedExtensions;
+pub use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 pub use crate::document_processor::{
     DocumentProcessor, DocumentProcessorError, DocumentProcessorResult
 };

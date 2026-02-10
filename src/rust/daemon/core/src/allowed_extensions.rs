@@ -8,6 +8,38 @@
 use std::collections::HashSet;
 use std::path::Path;
 
+/// Routing decision for a file based on its extension and source context.
+///
+/// Determines which Qdrant collection a file should be ingested into:
+/// - `ProjectCollection` for source code and project config files
+/// - `LibraryCollection` for reference/document formats (even when found in project folders)
+/// - `Excluded` for file types not in any allowlist
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FileRoute {
+    /// File routes to the `projects` collection.
+    ProjectCollection,
+    /// File routes to the `libraries` collection.
+    /// `source_project_id` is set when a library-format file is found inside a project folder,
+    /// allowing the library entry to be associated back to its originating project.
+    LibraryCollection { source_project_id: Option<String> },
+    /// File is not in any allowlist and should be skipped.
+    Excluded,
+}
+
+/// Extensions for binary/reference formats that route to the `libraries` collection
+/// even when discovered inside a project folder.
+///
+/// These are document formats (PDF, EPUB, etc.) that are unlikely to be "source code"
+/// and are better served by the library ingestion pipeline. Source-like formats
+/// (e.g., `.md`, `.txt`, `.html`) stay in `projects` because they are typically
+/// project documentation meant to be searched alongside code.
+const LIBRARY_ROUTED_EXTENSIONS: &[&str] = &[
+    ".pdf", ".epub", ".djvu", ".docx", ".doc", ".rtf", ".odt",
+    ".mobi",
+    ".pptx", ".ppt", ".pages", ".key", ".odp",
+    ".xlsx", ".xls", ".ods", ".parquet",
+];
+
 /// Two-tier allowlist of file extensions for project and library ingestion.
 ///
 /// The library set is a superset of the project set: `library_extensions ⊇ project_extensions`.
@@ -155,6 +187,59 @@ impl AllowedExtensions {
             self.library_extensions.contains(&dotted)
         } else {
             self.project_extensions.contains(&dotted)
+        }
+    }
+
+    /// Route a file to the appropriate Qdrant collection based on its extension
+    /// and the watch folder's configured collection.
+    ///
+    /// # Routing logic
+    ///
+    /// 1. **Library watch folders** (`watch_collection == "libraries"`):
+    ///    Files with extensions in the library allowlist route to `LibraryCollection`.
+    ///    All others are `Excluded`.
+    ///
+    /// 2. **Project watch folders** (`watch_collection == "projects"`):
+    ///    - If the extension is in `LIBRARY_ROUTED_EXTENSIONS` (binary document formats
+    ///      like `.pdf`, `.docx`, `.epub`), the file routes to `LibraryCollection` with
+    ///      `source_project_id` set to the project's tenant_id, so the library entry
+    ///      can be traced back to its origin project.
+    ///    - If the extension is in the project allowlist, it routes to `ProjectCollection`.
+    ///    - Otherwise, the file is `Excluded`.
+    ///
+    /// # Arguments
+    /// * `file_path` - Path to the file being routed.
+    /// * `watch_collection` - The collection configured on the watch folder (`"projects"` or `"libraries"`).
+    /// * `tenant_id` - The tenant identifier (project ID or library name) for the watch folder.
+    pub fn route_file(&self, file_path: &str, watch_collection: &str, tenant_id: &str) -> FileRoute {
+        let path = Path::new(file_path);
+
+        // Extract extension; reject extension-less files
+        let ext = match path.extension() {
+            Some(ext) => ext.to_string_lossy().to_lowercase(),
+            None => return FileRoute::Excluded,
+        };
+
+        let dotted = format!(".{}", ext);
+
+        if watch_collection == "libraries" {
+            // Library watch folder: accept any library-allowed extension
+            if self.library_extensions.contains(&dotted) {
+                FileRoute::LibraryCollection { source_project_id: None }
+            } else {
+                FileRoute::Excluded
+            }
+        } else {
+            // Project watch folder: check for library-routed override first
+            if LIBRARY_ROUTED_EXTENSIONS.contains(&dotted.as_str()) {
+                FileRoute::LibraryCollection {
+                    source_project_id: Some(tenant_id.to_string()),
+                }
+            } else if self.project_extensions.contains(&dotted) {
+                FileRoute::ProjectCollection
+            } else {
+                FileRoute::Excluded
+            }
         }
     }
 }
@@ -346,5 +431,155 @@ mod tests {
         assert!(ae.is_allowed("doc.PDF", "libraries"));
         assert!(ae.is_allowed("book.EPUB", "libraries"));
         assert!(ae.is_allowed("report.DOCX", "libraries"));
+    }
+
+    // --- FileRoute / route_file() tests ---
+
+    #[test]
+    fn test_route_source_file_in_project() {
+        let ae = AllowedExtensions::default();
+        assert_eq!(
+            ae.route_file("/project/src/main.rs", "projects", "my-project"),
+            FileRoute::ProjectCollection
+        );
+        assert_eq!(
+            ae.route_file("lib.py", "projects", "my-project"),
+            FileRoute::ProjectCollection
+        );
+        assert_eq!(
+            ae.route_file("index.ts", "projects", "my-project"),
+            FileRoute::ProjectCollection
+        );
+    }
+
+    #[test]
+    fn test_route_pdf_in_project_goes_to_library() {
+        let ae = AllowedExtensions::default();
+        let route = ae.route_file("/project/docs/manual.pdf", "projects", "my-project");
+        assert_eq!(
+            route,
+            FileRoute::LibraryCollection {
+                source_project_id: Some("my-project".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn test_route_docx_in_project_goes_to_library() {
+        let ae = AllowedExtensions::default();
+        let route = ae.route_file("report.docx", "projects", "my-project");
+        assert_eq!(
+            route,
+            FileRoute::LibraryCollection {
+                source_project_id: Some("my-project".to_string())
+            }
+        );
+    }
+
+    #[test]
+    fn test_route_all_library_routed_extensions_in_project() {
+        let ae = AllowedExtensions::default();
+        for ext in LIBRARY_ROUTED_EXTENSIONS {
+            let filename = format!("file{}", ext);
+            let route = ae.route_file(&filename, "projects", "proj-1");
+            assert_eq!(
+                route,
+                FileRoute::LibraryCollection {
+                    source_project_id: Some("proj-1".to_string())
+                },
+                "Extension {} in project should route to LibraryCollection",
+                ext
+            );
+        }
+    }
+
+    #[test]
+    fn test_route_source_file_in_library() {
+        let ae = AllowedExtensions::default();
+        // .rs is in the library set (superset), so it's allowed in library folders
+        assert_eq!(
+            ae.route_file("main.rs", "libraries", "my-lib"),
+            FileRoute::LibraryCollection { source_project_id: None }
+        );
+        assert_eq!(
+            ae.route_file("example.py", "libraries", "my-lib"),
+            FileRoute::LibraryCollection { source_project_id: None }
+        );
+    }
+
+    #[test]
+    fn test_route_pdf_in_library() {
+        let ae = AllowedExtensions::default();
+        assert_eq!(
+            ae.route_file("book.pdf", "libraries", "my-lib"),
+            FileRoute::LibraryCollection { source_project_id: None }
+        );
+    }
+
+    #[test]
+    fn test_route_binary_file_excluded() {
+        let ae = AllowedExtensions::default();
+        assert_eq!(ae.route_file("image.png", "projects", "proj"), FileRoute::Excluded);
+        assert_eq!(ae.route_file("photo.jpg", "libraries", "lib"), FileRoute::Excluded);
+        assert_eq!(ae.route_file("archive.zip", "projects", "proj"), FileRoute::Excluded);
+    }
+
+    #[test]
+    fn test_route_extensionless_excluded() {
+        let ae = AllowedExtensions::default();
+        assert_eq!(ae.route_file("Makefile", "projects", "proj"), FileRoute::Excluded);
+        assert_eq!(ae.route_file("Dockerfile", "libraries", "lib"), FileRoute::Excluded);
+    }
+
+    #[test]
+    fn test_route_case_insensitive() {
+        let ae = AllowedExtensions::default();
+        assert_eq!(
+            ae.route_file("file.RS", "projects", "proj"),
+            FileRoute::ProjectCollection
+        );
+        assert_eq!(
+            ae.route_file("doc.PDF", "projects", "proj"),
+            FileRoute::LibraryCollection {
+                source_project_id: Some("proj".to_string())
+            }
+        );
+        assert_eq!(
+            ae.route_file("doc.PDF", "libraries", "lib"),
+            FileRoute::LibraryCollection { source_project_id: None }
+        );
+    }
+
+    #[test]
+    fn test_route_md_stays_in_project() {
+        // .md is a project extension, not in LIBRARY_ROUTED_EXTENSIONS,
+        // so it stays in the project collection when found in project folders
+        let ae = AllowedExtensions::default();
+        assert_eq!(
+            ae.route_file("README.md", "projects", "proj"),
+            FileRoute::ProjectCollection
+        );
+    }
+
+    #[test]
+    fn test_route_empty_path() {
+        let ae = AllowedExtensions::default();
+        assert_eq!(ae.route_file("", "projects", "proj"), FileRoute::Excluded);
+    }
+
+    #[test]
+    fn test_route_unknown_collection_uses_project_logic() {
+        let ae = AllowedExtensions::default();
+        // Non-"libraries" collections fall through to project logic
+        assert_eq!(
+            ae.route_file("main.rs", "custom", "proj"),
+            FileRoute::ProjectCollection
+        );
+        assert_eq!(
+            ae.route_file("doc.pdf", "custom", "proj"),
+            FileRoute::LibraryCollection {
+                source_project_id: Some("proj".to_string())
+            }
+        );
     }
 }
