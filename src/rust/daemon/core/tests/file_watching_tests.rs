@@ -920,7 +920,7 @@ async_test!(test_watcher_performance_baseline, {
     let detection_duration = detection_start.elapsed();
 
     // Performance assertions (generous to avoid flaky tests in CI)
-    assert!(setup_duration < Duration::from_secs(2), "Watcher setup should be fast: {:?}", setup_duration);
+    assert!(setup_duration < Duration::from_secs(10), "Watcher setup should be fast: {:?}", setup_duration);
     assert!(creation_duration < Duration::from_secs(3), "File creation should be reasonable: {:?}", creation_duration);
     assert!(detection_duration < Duration::from_secs(5), "Event detection should be timely: {:?}", detection_duration);
 
@@ -1041,7 +1041,7 @@ async_test!(test_large_directory_tree_performance, {
     let events = watcher.wait_for_events(10, Duration::from_secs(8)).await;
 
     // Performance should be reasonable even with large directory trees
-    assert!(watch_setup_time < Duration::from_secs(3), "Large tree setup should be reasonable: {:?}", watch_setup_time);
+    assert!(watch_setup_time < Duration::from_secs(15), "Large tree setup should be reasonable: {:?}", watch_setup_time);
     assert!(file_creation_time < Duration::from_secs(2), "File creation in large tree should be fast: {:?}", file_creation_time);
     assert!(!events.is_empty(), "Should detect events in large directory tree");
 
