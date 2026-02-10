@@ -312,19 +312,22 @@ impl DaemonStateManager {
         Ok(results)
     }
 
-    /// Activate a project and all related watches (parent, siblings, children)
-    /// Implements activity inheritance per spec
+    /// Activate a project and all descendant watches (recursive)
+    /// Uses WITH RECURSIVE to traverse the full parent_watch_id hierarchy
     pub async fn activate_project_group(&self, watch_id: &str) -> DaemonStateResult<u64> {
         let result = sqlx::query(
             r#"
+            WITH RECURSIVE project_group AS (
+                SELECT watch_id FROM watch_folders WHERE watch_id = ?1
+                UNION
+                SELECT wf.watch_id FROM watch_folders wf
+                JOIN project_group pg ON wf.parent_watch_id = pg.watch_id
+            )
             UPDATE watch_folders
             SET is_active = 1,
                 last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE watch_id = ?1
-               OR parent_watch_id = ?1
-               OR watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
-               OR parent_watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
+            WHERE watch_id IN (SELECT watch_id FROM project_group)
             "#,
         )
         .bind(watch_id)
@@ -334,17 +337,21 @@ impl DaemonStateManager {
         Ok(result.rows_affected())
     }
 
-    /// Deactivate a project and all related watches
+    /// Deactivate a project and all descendant watches (recursive)
+    /// Uses WITH RECURSIVE to traverse the full parent_watch_id hierarchy
     pub async fn deactivate_project_group(&self, watch_id: &str) -> DaemonStateResult<u64> {
         let result = sqlx::query(
             r#"
+            WITH RECURSIVE project_group AS (
+                SELECT watch_id FROM watch_folders WHERE watch_id = ?1
+                UNION
+                SELECT wf.watch_id FROM watch_folders wf
+                JOIN project_group pg ON wf.parent_watch_id = pg.watch_id
+            )
             UPDATE watch_folders
             SET is_active = 0,
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE watch_id = ?1
-               OR parent_watch_id = ?1
-               OR watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
-               OR parent_watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
+            WHERE watch_id IN (SELECT watch_id FROM project_group)
             "#,
         )
         .bind(watch_id)
@@ -424,18 +431,21 @@ impl DaemonStateManager {
         }
     }
 
-    /// Update last_activity_at for a project and all related watches (heartbeat)
-    /// This refreshes the activity timestamp without changing is_active status
+    /// Update last_activity_at for a project and all descendant watches (heartbeat)
+    /// Uses WITH RECURSIVE to traverse the full parent_watch_id hierarchy
     pub async fn heartbeat_project_group(&self, watch_id: &str) -> DaemonStateResult<u64> {
         let result = sqlx::query(
             r#"
+            WITH RECURSIVE project_group AS (
+                SELECT watch_id FROM watch_folders WHERE watch_id = ?1
+                UNION
+                SELECT wf.watch_id FROM watch_folders wf
+                JOIN project_group pg ON wf.parent_watch_id = pg.watch_id
+            )
             UPDATE watch_folders
             SET last_activity_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE watch_id = ?1
-               OR parent_watch_id = ?1
-               OR watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
-               OR parent_watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = ?1)
+            WHERE watch_id IN (SELECT watch_id FROM project_group)
             "#,
         )
         .bind(watch_id)
@@ -1043,12 +1053,17 @@ mod tests {
         assert!(parent_record.is_active);
         assert!(submodule_record.is_active);
 
-        // Deactivate submodule should deactivate parent too (activity inheritance)
+        // Deactivate submodule only affects the submodule (recursive goes DOWN, not UP)
         manager.deactivate_project_group("submodule-001").await.unwrap();
         let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
         let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
-        assert!(!parent_record.is_active);
+        assert!(parent_record.is_active); // Parent stays active
         assert!(!submodule_record.is_active);
+
+        // Deactivate from parent deactivates entire group
+        manager.deactivate_project_group("parent-001").await.unwrap();
+        let parent_record = manager.get_watch_folder("parent-001").await.unwrap().unwrap();
+        assert!(!parent_record.is_active);
     }
 
     #[tokio::test]
@@ -1606,6 +1621,128 @@ mod tests {
         let submodule_record = manager.get_watch_folder("submodule-001").await.unwrap().unwrap();
         assert!(parent_record.last_activity_at.is_some());
         assert!(submodule_record.last_activity_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_recursive_activity_inheritance_3_levels() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_3level_recursive.db");
+
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Create 3-level hierarchy: root -> mid -> leaf
+        let root = WatchFolderRecord {
+            watch_id: "root-001".to_string(),
+            path: "/projects/root".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "root-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&root).await.unwrap();
+
+        let mid = WatchFolderRecord {
+            watch_id: "mid-001".to_string(),
+            path: "/projects/root/libs/mid".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "mid-tenant".to_string(),
+            parent_watch_id: Some("root-001".to_string()),
+            submodule_path: Some("libs/mid".to_string()),
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&mid).await.unwrap();
+
+        let leaf = WatchFolderRecord {
+            watch_id: "leaf-001".to_string(),
+            path: "/projects/root/libs/mid/deps/leaf".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "leaf-tenant".to_string(),
+            parent_watch_id: Some("mid-001".to_string()),
+            submodule_path: Some("deps/leaf".to_string()),
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: false,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&leaf).await.unwrap();
+
+        // Activate from root should activate all 3 levels
+        let affected = manager.activate_project_group("root-001").await.unwrap();
+        assert_eq!(affected, 3);
+
+        let root_r = manager.get_watch_folder("root-001").await.unwrap().unwrap();
+        let mid_r = manager.get_watch_folder("mid-001").await.unwrap().unwrap();
+        let leaf_r = manager.get_watch_folder("leaf-001").await.unwrap().unwrap();
+        assert!(root_r.is_active);
+        assert!(mid_r.is_active);
+        assert!(leaf_r.is_active);
+        assert!(root_r.last_activity_at.is_some());
+        assert!(mid_r.last_activity_at.is_some());
+        assert!(leaf_r.last_activity_at.is_some());
+
+        // Heartbeat from root should touch all 3 levels
+        let hb = manager.heartbeat_project_group("root-001").await.unwrap();
+        assert_eq!(hb, 3);
+
+        // Deactivate from root should deactivate all 3 levels
+        let deact = manager.deactivate_project_group("root-001").await.unwrap();
+        assert_eq!(deact, 3);
+
+        let root_r = manager.get_watch_folder("root-001").await.unwrap().unwrap();
+        let mid_r = manager.get_watch_folder("mid-001").await.unwrap().unwrap();
+        let leaf_r = manager.get_watch_folder("leaf-001").await.unwrap().unwrap();
+        assert!(!root_r.is_active);
+        assert!(!mid_r.is_active);
+        assert!(!leaf_r.is_active);
+
+        // Activate from mid should only activate mid and leaf (not root)
+        let affected = manager.activate_project_group("mid-001").await.unwrap();
+        assert_eq!(affected, 2);
+
+        let root_r = manager.get_watch_folder("root-001").await.unwrap().unwrap();
+        let mid_r = manager.get_watch_folder("mid-001").await.unwrap().unwrap();
+        let leaf_r = manager.get_watch_folder("leaf-001").await.unwrap().unwrap();
+        assert!(!root_r.is_active); // Root stays inactive
+        assert!(mid_r.is_active);
+        assert!(leaf_r.is_active);
     }
 
     #[tokio::test]
