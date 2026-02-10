@@ -54,7 +54,6 @@ const DEFAULT_CACHE_SIZE: usize = 1000;
 
 /// Default BM25 parameters (standard values from research)
 const DEFAULT_BM25_K1: f32 = 1.2;
-const DEFAULT_BM25_B: f32 = 0.75;
 
 /// Cache metrics for monitoring
 pub struct EmbeddingCacheMetrics {
@@ -375,8 +374,8 @@ impl DocumentServiceImpl {
 
         // Initialize BM25 for sparse vector generation
         BM25_MODEL.get_or_init(|| {
-            info!("Initializing BM25 model (k1={}, b={})...", DEFAULT_BM25_K1, DEFAULT_BM25_B);
-            TokioRwLock::new(BM25::new(DEFAULT_BM25_K1, DEFAULT_BM25_B))
+            info!("Initializing BM25 model (k1={})...", DEFAULT_BM25_K1);
+            TokioRwLock::new(BM25::new(DEFAULT_BM25_K1))
         });
 
         Ok(())

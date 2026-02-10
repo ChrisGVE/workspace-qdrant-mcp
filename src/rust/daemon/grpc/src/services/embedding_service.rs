@@ -40,7 +40,6 @@ const DEFAULT_CACHE_SIZE: usize = 1000;
 
 /// Default BM25 parameters
 const DEFAULT_BM25_K1: f32 = 1.2;
-const DEFAULT_BM25_B: f32 = 0.75;
 
 /// Default vector dimension for all-MiniLM-L6-v2
 const DEFAULT_VECTOR_SIZE: i32 = 384;
@@ -98,8 +97,8 @@ impl EmbeddingServiceImpl {
 
         // Initialize BM25 for sparse vector generation
         BM25_MODEL.get_or_init(|| {
-            info!("Initializing BM25 model (k1={}, b={})...", DEFAULT_BM25_K1, DEFAULT_BM25_B);
-            TokioRwLock::new(BM25::new(DEFAULT_BM25_K1, DEFAULT_BM25_B))
+            info!("Initializing BM25 model (k1={})...", DEFAULT_BM25_K1);
+            TokioRwLock::new(BM25::new(DEFAULT_BM25_K1))
         });
 
         Ok(())
