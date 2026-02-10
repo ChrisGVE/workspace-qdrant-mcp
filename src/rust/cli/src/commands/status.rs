@@ -5,9 +5,11 @@
 //! Subcommands: default, history, queue, watch, performance, live,
 //!              messages (list/clear), errors, health
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
+use rusqlite::Connection;
 
+use crate::config::get_database_path_checked;
 use crate::grpc::client::DaemonClient;
 use crate::output::{self, ServiceStatus};
 
@@ -162,31 +164,103 @@ async fn default_status(show_queue: bool, show_watch: bool, show_performance: bo
 async fn history(range: &str) -> Result<()> {
     output::section(format!("Metrics History ({})", range));
 
-    // Note: GetMetrics returns current point-in-time metrics, not historical
-    // Historical metrics would require additional storage/implementation
-    output::info("Historical metrics require time-series storage.");
-    output::info("Showing current metrics snapshot instead:");
+    let seconds = parse_range_to_seconds(range);
+    let conn = connect_history_readonly()?;
 
-    match DaemonClient::connect_default().await {
-        Ok(mut client) => {
-            match client.system().get_metrics(()).await {
-                Ok(response) => {
-                    let metrics_resp = response.into_inner();
-                    for metric in &metrics_resp.metrics {
-                        output::kv(&metric.name, &format!("{:.2}", metric.value));
-                    }
-                }
-                Err(e) => {
-                    output::error(format!("Failed to get metrics: {}", e));
-                }
+    // Check if metrics_history table exists
+    let table_exists: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='metrics_history'",
+        [],
+        |row| row.get(0),
+    ).unwrap_or(false);
+
+    if !table_exists {
+        output::warning("Metrics history table not found. Daemon needs to run with schema v5+.");
+        output::info("Start the daemon to enable metrics collection.");
+        return Ok(());
+    }
+
+    let cutoff = chrono::Utc::now() - chrono::Duration::seconds(seconds);
+    let cutoff_str = cutoff.to_rfc3339();
+
+    // Get available metrics in the time range
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT metric_name FROM metrics_history \
+         WHERE timestamp >= ?1 AND aggregation_period = 'raw' \
+         ORDER BY metric_name"
+    )?;
+
+    let metric_names: Vec<String> = stmt.query_map([&cutoff_str], |row| {
+        row.get(0)
+    })?.filter_map(|r| r.ok()).collect();
+
+    if metric_names.is_empty() {
+        output::info("No historical metrics found in the requested time range.");
+        output::info("The daemon collects metrics every 60 seconds.");
+        return Ok(());
+    }
+
+    // Show summary for each metric
+    for name in &metric_names {
+        let stats: Result<(f64, f64, f64, i64, f64), _> = conn.query_row(
+            "SELECT AVG(metric_value), MIN(metric_value), MAX(metric_value), \
+             COUNT(*), \
+             (SELECT metric_value FROM metrics_history \
+              WHERE metric_name = ?1 AND timestamp >= ?2 AND aggregation_period = 'raw' \
+              ORDER BY timestamp DESC LIMIT 1) \
+             FROM metrics_history \
+             WHERE metric_name = ?1 AND timestamp >= ?2 AND aggregation_period = 'raw'",
+            rusqlite::params![name, &cutoff_str],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+        );
+
+        match stats {
+            Ok((avg, min, max, count, latest)) => {
+                output::kv(
+                    name,
+                    &format!(
+                        "latest={:.1}  avg={:.1}  min={:.1}  max={:.1}  ({} samples)",
+                        latest, avg, min, max, count
+                    ),
+                );
             }
-        }
-        Err(_) => {
-            output::error("Cannot connect to daemon");
+            Err(_) => {
+                output::kv(name, "no data");
+            }
         }
     }
 
+    output::separator();
+    output::info(format!("{} metrics tracked over {}", metric_names.len(), range));
+
     Ok(())
+}
+
+/// Parse range string (1h, 24h, 7d, 30d) to seconds
+fn parse_range_to_seconds(range: &str) -> i64 {
+    let range = range.trim().to_lowercase();
+    if let Some(hours) = range.strip_suffix('h') {
+        hours.parse::<i64>().unwrap_or(1) * 3600
+    } else if let Some(days) = range.strip_suffix('d') {
+        days.parse::<i64>().unwrap_or(1) * 86400
+    } else if let Some(minutes) = range.strip_suffix('m') {
+        minutes.parse::<i64>().unwrap_or(60) * 60
+    } else {
+        3600 // default 1h
+    }
+}
+
+fn connect_history_readonly() -> Result<Connection> {
+    let db_path = get_database_path_checked()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    let conn = Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .context(format!("Failed to open state database at {:?}", db_path))?;
+
+    Ok(conn)
 }
 
 async fn queue(verbose: bool) -> Result<()> {
