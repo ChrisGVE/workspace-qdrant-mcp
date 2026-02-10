@@ -675,6 +675,18 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     });
     info!("Metrics history collection started (60s interval)");
 
+    // Start hourly metrics maintenance (aggregation + retention) (Task 544.11-14)
+    let metrics_maint_pool = queue_pool.clone();
+    let metrics_maint_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            if let Err(e) = metrics_history::run_maintenance_now(&metrics_maint_pool).await {
+                warn!("Metrics maintenance failed: {}", e);
+            }
+        }
+    });
+
     info!("Initializing IPC server");
     let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);
     let (mut ipc_server, _ipc_client) = IpcServer::new(max_concurrent);
@@ -863,6 +875,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     uptime_handle.abort();
     pause_poll_handle.abort();
     metrics_collect_handle.abort();
+    metrics_maint_handle.abort();
     grpc_handle.abort();
     info!("gRPC server stopped");
     if let Some(handle) = metrics_handle {
