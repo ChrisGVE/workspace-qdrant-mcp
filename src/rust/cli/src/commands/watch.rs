@@ -70,6 +70,12 @@ enum WatchCommand {
         #[arg(long)]
         json: bool,
     },
+
+    /// Pause all enabled watchers (stops file event processing)
+    Pause,
+
+    /// Resume all paused watchers (restarts file event processing)
+    Resume,
 }
 
 /// Watch item for list display
@@ -148,6 +154,8 @@ pub async fn execute(args: WatchArgs) -> Result<()> {
         WatchCommand::Enable { watch_id } => enable(&watch_id).await,
         WatchCommand::Disable { watch_id } => disable(&watch_id).await,
         WatchCommand::Show { watch_id, json } => show(&watch_id, json).await,
+        WatchCommand::Pause => pause().await,
+        WatchCommand::Resume => resume().await,
     }
 }
 
@@ -543,6 +551,48 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
         Err(e) => {
             return Err(e.into());
         }
+    }
+
+    Ok(())
+}
+
+async fn pause() -> Result<()> {
+    let conn = connect_readwrite()?;
+
+    let updated = conn.execute(
+        "UPDATE watch_folders SET is_paused = 1, \
+         pause_start_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), \
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+         WHERE enabled = 1 AND is_paused = 0",
+        [],
+    )?;
+
+    if updated > 0 {
+        output::success(format!("Paused {} watch folder(s)", updated));
+        output::info("File events will be buffered until watchers are resumed");
+    } else {
+        output::info("No active watchers to pause (all already paused or none enabled)");
+    }
+
+    Ok(())
+}
+
+async fn resume() -> Result<()> {
+    let conn = connect_readwrite()?;
+
+    let updated = conn.execute(
+        "UPDATE watch_folders SET is_paused = 0, \
+         pause_start_time = NULL, \
+         updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') \
+         WHERE enabled = 1 AND is_paused = 1",
+        [],
+    )?;
+
+    if updated > 0 {
+        output::success(format!("Resumed {} watch folder(s)", updated));
+        output::info("Buffered file events will be processed");
+    } else {
+        output::info("No paused watchers to resume");
     }
 
     Ok(())
