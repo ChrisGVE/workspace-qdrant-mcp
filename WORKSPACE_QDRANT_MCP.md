@@ -408,6 +408,10 @@ CREATE TABLE watch_folders (
     -- Library-specific (NULL for projects)
     library_mode TEXT,                      -- "sync" or "incremental"
 
+    -- Pause state
+    is_paused INTEGER DEFAULT 0,           -- 1 = file event processing paused
+    pause_start_time TEXT,                 -- ISO 8601 timestamp when pause began (NULL if not paused)
+
     -- Shared
     follow_symlinks INTEGER DEFAULT 0,
     enabled INTEGER DEFAULT 1,
@@ -1410,6 +1414,34 @@ When a watch entry is deleted or disabled:
    a. Delete all content from Qdrant for that tenant
    b. Update watch_folders.last_scan = NULL
 ```
+
+#### Runtime: Pause/Resume
+
+Global pause halts file event processing for maintenance or backups. CLI writes directly to SQLite; daemon detects changes via polling.
+
+**Pause (`wqm watch pause`):**
+```
+1. CLI sets is_paused = 1 and pause_start_time on all enabled watches
+2. Daemon polls DB every 5 seconds, detects change
+3. In-memory AtomicBool pause flag set to true
+4. FileWatcher buffers incoming events (up to 10K capacity, FIFO eviction)
+5. Queue processor skips paused items
+```
+
+**Resume (`wqm watch resume`):**
+```
+1. CLI sets is_paused = 0 and clears pause_start_time on all paused watches
+2. Daemon polls DB, detects change
+3. In-memory pause flag set to false
+4. FileWatcher drains buffered events into normal processing
+5. Queue processor resumes normal operation
+```
+
+**gRPC alternative:** `PauseAllWatchers` / `ResumeAllWatchers` RPCs update DB and flag atomically.
+
+**Persistence:** Pause state survives daemon restarts. On startup, daemon calls `poll_pause_state()` to restore the flag from DB.
+
+**Diagnostic entries:** Each pause/resume writes a metadata entry to `unified_queue` for audit.
 
 #### Watch Folders Table Reference
 
