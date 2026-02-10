@@ -6,7 +6,6 @@
 use std::collections::HashMap;
 use std::env;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::SystemTime;
 use once_cell::sync::Lazy;
 use atty::Stream;

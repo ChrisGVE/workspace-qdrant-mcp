@@ -1325,7 +1325,7 @@ impl UnifiedQueueProcessor {
                 Self::scan_library_directory(item, &payload.folder_path, queue_manager, storage_client, allowed_extensions).await
             }
             QueueOperation::Delete => {
-                Self::process_folder_delete(item, &payload, queue_manager, storage_client).await
+                Self::process_folder_delete(item, &payload, queue_manager).await
             }
             QueueOperation::Update | QueueOperation::Ingest => {
                 // Folder update/ingest is equivalent to a rescan
@@ -1346,7 +1346,6 @@ impl UnifiedQueueProcessor {
         item: &UnifiedQueueItem,
         payload: &FolderPayload,
         queue_manager: &QueueManager,
-        storage_client: &Arc<StorageClient>,
     ) -> UnifiedProcessorResult<()> {
         let start = std::time::Instant::now();
         let pool = queue_manager.pool();

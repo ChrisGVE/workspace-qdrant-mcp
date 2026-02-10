@@ -726,9 +726,6 @@ impl LanguageServerManager {
             }
         })?;
 
-        // Save server path string for persistence before moving into DetectedServer
-        let server_path_str = server_path.to_string_lossy().to_string();
-
         tracing::info!(
             project_id = project_id,
             language = ?language,
@@ -1534,7 +1531,6 @@ impl LanguageServerManager {
                                 if !crash_detected {
                                     if let Some(ref key) = server_key {
                                         if self.handle_potential_crash(key, &error_msg).await {
-                                            crash_detected = true;
                                             // Server crashed, add remaining imports as unresolved
                                             // and break out of the loop
                                             for remaining_import in &import_names {
@@ -1820,7 +1816,7 @@ impl LanguageServerManager {
                 );
 
                 // Attempt restart
-                let mut instances = self.instances.write().await;
+                let instances = self.instances.write().await;
                 if let Some(instance_arc) = instances.get(&key) {
                     let mut instance = instance_arc.lock().await;
                     match instance.check_and_restart_if_needed().await {
@@ -1900,7 +1896,7 @@ impl LanguageServerManager {
             };
 
             if restart_needed {
-                let mut instances = self.instances.write().await;
+                let instances = self.instances.write().await;
                 if let Some(instance_arc) = instances.get(&key) {
                     let mut instance = instance_arc.lock().await;
                     match instance.check_and_restart_if_needed().await {

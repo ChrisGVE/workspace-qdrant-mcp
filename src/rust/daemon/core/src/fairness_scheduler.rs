@@ -10,7 +10,7 @@ use tokio::sync::RwLock;
 use tracing::{debug, info};
 
 use crate::queue_operations::{QueueManager, QueueError};
-use crate::unified_queue_schema::{ItemType, UnifiedQueueItem};
+use crate::unified_queue_schema::UnifiedQueueItem;
 
 /// Fairness scheduler errors
 #[derive(Error, Debug)]

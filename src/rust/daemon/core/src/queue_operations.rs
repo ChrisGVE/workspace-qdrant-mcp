@@ -1048,7 +1048,7 @@ impl QueueManager {
         let query = r#"
             SELECT
                 file_absolute_path, collection_name, tenant_id, branch,
-                operation, priority, retry_count
+                operation
             FROM missing_metadata_queue
             WHERE queue_id = ?1
         "#;
@@ -1064,8 +1064,6 @@ impl QueueManager {
             let tenant_id: String = row.try_get("tenant_id")?;
             let branch: String = row.try_get("branch")?;
             let operation_str: String = row.try_get("operation")?;
-            let priority: i32 = row.try_get("priority")?;
-            let retry_count: i32 = row.try_get("retry_count")?;
 
             // Map legacy operation to unified operation
             let unified_op = match operation_str.as_str() {

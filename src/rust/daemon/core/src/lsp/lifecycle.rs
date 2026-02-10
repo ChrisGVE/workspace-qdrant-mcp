@@ -766,7 +766,7 @@ impl LspServerManager {
     pub async fn restart_instance(&mut self, instance: &ServerInstance) -> LspResult<()> {
         let id = instance.id();
         
-        if let Some(mut server) = self.instances.write().await.get_mut(&id) {
+        if let Some(server) = self.instances.write().await.get_mut(&id) {
             server.restart().await?;
         }
 

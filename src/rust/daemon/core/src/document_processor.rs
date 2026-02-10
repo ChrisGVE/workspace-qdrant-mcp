@@ -636,7 +636,6 @@ fn extract_rtf(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<Str
     // Strip RTF control codes
     let mut result = String::with_capacity(raw_text.len());
     let mut skip_group_depth = 0i32; // Track depth of groups to skip (e.g., \fonttbl)
-    let mut group_depth = 0i32;
     let mut chars = raw_text.chars().peekable();
 
     // RTF groups that contain metadata, not text content
@@ -645,7 +644,6 @@ fn extract_rtf(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<Str
     while let Some(ch) = chars.next() {
         match ch {
             '{' => {
-                group_depth += 1;
                 if skip_group_depth > 0 {
                     skip_group_depth += 1;
                 }
@@ -654,7 +652,6 @@ fn extract_rtf(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<Str
                 if skip_group_depth > 0 {
                     skip_group_depth -= 1;
                 }
-                group_depth -= 1;
             }
             '\\' if skip_group_depth == 0 => {
                 // RTF control word or symbol
