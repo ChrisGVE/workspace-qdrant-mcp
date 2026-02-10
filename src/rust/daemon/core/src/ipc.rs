@@ -228,6 +228,14 @@ impl IpcServer {
         self.task_submitter = pipeline.task_submitter();
     }
 
+    /// Configure storage client for Qdrant rollback operations.
+    /// Must be called before `start()`.
+    pub fn set_rollback_storage(&mut self, client: std::sync::Arc<crate::storage::StorageClient>) {
+        let mut pipeline = self.pipeline.try_lock()
+            .expect("pipeline lock not contended during init");
+        pipeline.set_rollback_storage(client);
+    }
+
     /// Start the IPC server
     pub async fn start(&self) -> Result<(), IpcError> {
         // Start the pipeline

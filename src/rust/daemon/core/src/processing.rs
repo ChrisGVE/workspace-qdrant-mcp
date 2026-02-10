@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use std::num::NonZeroU32;
 use governor::{Quota, RateLimiter, clock::DefaultClock, state::{InMemoryState, NotKeyed}};
 use crate::queue_operations::QueueManager;
+use crate::storage::StorageClient;
 
 /// Pipeline statistics for monitoring
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -165,6 +166,16 @@ pub enum RollbackAction {
     RemoveFromCollection { document_id: String, collection: String },
     RevertIndexChanges { index_snapshot: serde_json::Value },
     Custom { action_type: String, data: serde_json::Value },
+}
+
+/// Handler for custom rollback actions
+///
+/// Implement this trait to register domain-specific rollback logic
+/// via `CheckpointManager::register_custom_handler`.
+#[async_trait::async_trait]
+pub trait CustomRollbackHandler: Send + Sync {
+    /// Execute the rollback action with the provided data payload
+    async fn execute(&self, data: &serde_json::Value) -> Result<(), String>;
 }
 
 /// Specific data returned by task execution
@@ -374,6 +385,10 @@ pub struct CheckpointManager {
     checkpoint_retention: Duration,
     /// Directory for checkpoint file storage
     checkpoint_dir: PathBuf,
+    /// Storage client for Qdrant rollback operations (RemoveFromCollection)
+    storage_client: Option<Arc<StorageClient>>,
+    /// Registry of custom rollback handlers
+    custom_handlers: Arc<RwLock<HashMap<String, Arc<dyn CustomRollbackHandler>>>>,
 }
 
 impl CheckpointManager {
@@ -383,7 +398,24 @@ impl CheckpointManager {
             checkpoints: Arc::new(RwLock::new(HashMap::new())),
             checkpoint_retention: retention,
             checkpoint_dir,
+            storage_client: None,
+            custom_handlers: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Set the storage client for Qdrant rollback operations
+    pub fn set_storage_client(&mut self, client: Arc<StorageClient>) {
+        self.storage_client = Some(client);
+    }
+
+    /// Register a custom rollback handler for a given action type
+    pub async fn register_custom_handler(
+        &self,
+        action_type: impl Into<String>,
+        handler: Arc<dyn CustomRollbackHandler>,
+    ) {
+        let mut handlers = self.custom_handlers.write().await;
+        handlers.insert(action_type.into(), handler);
     }
     
     /// Create a checkpoint for a task
@@ -498,15 +530,90 @@ impl CheckpointManager {
                 }
             }
             RollbackAction::RemoveFromCollection { document_id, collection } => {
-                // Placeholder for Qdrant collection removal
-                tracing::warn!("Rollback: Remove document {} from collection {} (not implemented)", document_id, collection);
+                if let Some(ref storage) = self.storage_client {
+                    tracing::info!(
+                        "Rollback: removing document '{}' from collection '{}'",
+                        document_id, collection
+                    );
+                    match storage.delete_points_by_document_id(collection, document_id).await {
+                        Ok(count) => {
+                            tracing::info!(
+                                "Rollback: deleted {} points for document '{}' from '{}'",
+                                count, document_id, collection
+                            );
+                        }
+                        Err(e) => {
+                            return Err(PriorityError::RollbackFailed(
+                                format!(
+                                    "Failed to remove document '{}' from '{}': {}",
+                                    document_id, collection, e
+                                ),
+                            ));
+                        }
+                    }
+                } else {
+                    return Err(PriorityError::RollbackFailed(
+                        format!(
+                            "No storage client configured; cannot remove document '{}' from '{}'",
+                            document_id, collection
+                        ),
+                    ));
+                }
             }
-            RollbackAction::RevertIndexChanges { index_snapshot: _ } => {
-                // Placeholder for index reversion
-                tracing::warn!("Rollback: Revert index changes (not implemented)");
+            RollbackAction::RevertIndexChanges { index_snapshot } => {
+                // Index reversion logs the snapshot for manual recovery.
+                // Qdrant does not support atomic index rollback; field indexes
+                // must be recreated individually. The snapshot preserves the
+                // pre-change state so operators can restore manually if needed.
+                if let Some(ref storage) = self.storage_client {
+                    if let Some(collection) = index_snapshot.get("collection").and_then(|v| v.as_str()) {
+                        match storage.get_collection_info(collection).await {
+                            Ok(info) => {
+                                tracing::warn!(
+                                    "Rollback: index revert requested for collection '{}' \
+                                     (status={}, points={}). Snapshot: {}",
+                                    collection, info.status, info.points_count,
+                                    serde_json::to_string(index_snapshot).unwrap_or_default()
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    "Rollback: index revert requested but collection query failed: {}. \
+                                     Snapshot: {}",
+                                    e,
+                                    serde_json::to_string(index_snapshot).unwrap_or_default()
+                                );
+                            }
+                        }
+                    } else {
+                        tracing::warn!(
+                            "Rollback: index revert requested but snapshot missing 'collection' field. \
+                             Snapshot: {}",
+                            serde_json::to_string(index_snapshot).unwrap_or_default()
+                        );
+                    }
+                } else {
+                    tracing::warn!(
+                        "Rollback: index revert requested but no storage client configured. \
+                         Snapshot: {}",
+                        serde_json::to_string(index_snapshot).unwrap_or_default()
+                    );
+                }
             }
-            RollbackAction::Custom { action_type, data: _ } => {
-                tracing::warn!("Rollback: Custom action type {} (not implemented)", action_type);
+            RollbackAction::Custom { action_type, data } => {
+                let handlers = self.custom_handlers.read().await;
+                if let Some(handler) = handlers.get(action_type.as_str()) {
+                    tracing::info!("Rollback: executing custom handler '{}'", action_type);
+                    handler.execute(data).await
+                        .map_err(|e| PriorityError::RollbackFailed(
+                            format!("Custom rollback '{}' failed: {}", action_type, e)
+                        ))?;
+                    tracing::info!("Rollback: custom handler '{}' completed", action_type);
+                } else {
+                    return Err(PriorityError::RollbackFailed(
+                        format!("No handler registered for custom rollback type '{}'", action_type),
+                    ));
+                }
             }
         }
         
@@ -605,6 +712,22 @@ impl Pipeline {
     /// Set the SQLite queue manager for spill-to-disk on overflow
     pub fn set_spill_queue(&mut self, queue_manager: Arc<QueueManager>) {
         self.spill_queue = Some(queue_manager);
+    }
+
+    /// Set the storage client for Qdrant rollback operations
+    ///
+    /// Must be called during initialization before the Pipeline is shared,
+    /// since it requires exclusive access to the CheckpointManager Arc.
+    pub fn set_rollback_storage(&mut self, client: Arc<StorageClient>) {
+        if let Some(cm) = Arc::get_mut(&mut self.checkpoint_manager) {
+            cm.set_storage_client(client);
+            tracing::info!("Rollback storage client configured for checkpoint manager");
+        } else {
+            tracing::error!(
+                "Cannot set rollback storage: CheckpointManager Arc has multiple references. \
+                 Call set_rollback_storage before sharing the Pipeline."
+            );
+        }
     }
 
     /// Get a handle for submitting tasks to the pipeline
@@ -3729,5 +3852,296 @@ mod tests {
         pipeline.set_spill_queue(queue_manager);
         let submitter = pipeline.task_submitter();
         assert!(submitter.spill_queue.is_some());
+    }
+
+    // =========================================================================
+    // Rollback operation tests (Task 549)
+    // =========================================================================
+
+    #[tokio::test]
+    async fn test_rollback_delete_file() {
+        let dir = std::env::temp_dir().join("test_rollback_delete");
+        let _ = std::fs::create_dir_all(&dir);
+        let file_path = dir.join("to_delete.txt");
+        std::fs::write(&file_path, "temporary data").unwrap();
+
+        let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
+        let ckpt_id = cm.create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::DeleteFile { path: file_path.clone() }],
+        ).await.unwrap();
+
+        cm.rollback_checkpoint(&ckpt_id).await.unwrap();
+        assert!(!file_path.exists(), "File should have been deleted by rollback");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_rollback_restore_file() {
+        let dir = std::env::temp_dir().join("test_rollback_restore");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let original = dir.join("original.txt");
+        let backup = dir.join("backup.txt");
+        std::fs::write(&original, "modified").unwrap();
+        std::fs::write(&backup, "original content").unwrap();
+
+        let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
+        let ckpt_id = cm.create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::RestoreFile {
+                original_path: original.clone(),
+                backup_path: backup.clone(),
+            }],
+        ).await.unwrap();
+
+        cm.rollback_checkpoint(&ckpt_id).await.unwrap();
+        let content = std::fs::read_to_string(&original).unwrap();
+        assert_eq!(content, "original content");
+        assert!(!backup.exists(), "Backup should be cleaned up");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_rollback_remove_from_collection_no_storage_client() {
+        let dir = std::env::temp_dir().join("test_rollback_remove_no_sc");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
+        let ckpt_id = cm.create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::RemoveFromCollection {
+                document_id: "doc-123".into(),
+                collection: "projects".into(),
+            }],
+        ).await.unwrap();
+
+        // Without storage client, rollback should fail with descriptive error
+        let result = cm.rollback_checkpoint(&ckpt_id).await;
+        // rollback_checkpoint logs errors but continues; individual action errors
+        // are logged as warnings. The checkpoint is still deleted.
+        // Since we changed the implementation to return Err from execute_rollback_action,
+        // the rollback_checkpoint logs a warning and continues.
+        // The checkpoint itself is still cleaned up.
+        assert!(result.is_ok(), "rollback_checkpoint should succeed even if individual actions fail");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_rollback_revert_index_no_storage_client() {
+        let dir = std::env::temp_dir().join("test_rollback_revert_no_sc");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
+        let snapshot = serde_json::json!({
+            "collection": "projects",
+            "indexes": ["field1", "field2"]
+        });
+
+        let ckpt_id = cm.create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::RevertIndexChanges { index_snapshot: snapshot }],
+        ).await.unwrap();
+
+        // RevertIndexChanges without storage logs warning but doesn't error
+        let result = cm.rollback_checkpoint(&ckpt_id).await;
+        assert!(result.is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_rollback_custom_handler_registered() {
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let dir = std::env::temp_dir().join("test_rollback_custom");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let executed = Arc::new(AtomicBool::new(false));
+        let executed_clone = executed.clone();
+
+        struct TestHandler {
+            executed: Arc<AtomicBool>,
+        }
+
+        #[async_trait::async_trait]
+        impl CustomRollbackHandler for TestHandler {
+            async fn execute(&self, _data: &serde_json::Value) -> Result<(), String> {
+                self.executed.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+        }
+
+        let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
+        cm.register_custom_handler(
+            "test_action",
+            Arc::new(TestHandler { executed: executed_clone }),
+        ).await;
+
+        let ckpt_id = cm.create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::Custom {
+                action_type: "test_action".into(),
+                data: serde_json::json!({"key": "value"}),
+            }],
+        ).await.unwrap();
+
+        cm.rollback_checkpoint(&ckpt_id).await.unwrap();
+        assert!(executed.load(Ordering::SeqCst), "Custom handler should have been executed");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_rollback_custom_handler_not_registered() {
+        let dir = std::env::temp_dir().join("test_rollback_custom_unreg");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
+        let ckpt_id = cm.create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![RollbackAction::Custom {
+                action_type: "unregistered_action".into(),
+                data: serde_json::json!({}),
+            }],
+        ).await.unwrap();
+
+        // Unregistered handler causes action failure, but rollback_checkpoint continues
+        let result = cm.rollback_checkpoint(&ckpt_id).await;
+        assert!(result.is_ok(), "rollback_checkpoint succeeds even with failed actions");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_rollback_multiple_actions_continue_on_failure() {
+        let dir = std::env::temp_dir().join("test_rollback_multi");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let file_to_delete = dir.join("should_be_deleted.txt");
+        std::fs::write(&file_to_delete, "data").unwrap();
+
+        let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
+        let ckpt_id = cm.create_checkpoint(
+            Uuid::new_v4(),
+            TaskProgress::Generic {
+                progress_percentage: 100.0,
+                stage: "test".into(),
+                metadata: HashMap::new(),
+            },
+            serde_json::json!({}),
+            vec![],
+            vec![
+                // Action 1: RemoveFromCollection will fail (no storage client)
+                RollbackAction::RemoveFromCollection {
+                    document_id: "doc-456".into(),
+                    collection: "projects".into(),
+                },
+                // Action 2: DeleteFile should still execute despite action 1 failure
+                RollbackAction::DeleteFile { path: file_to_delete.clone() },
+            ],
+        ).await.unwrap();
+
+        // rollback_checkpoint processes actions in reverse order and continues on failure
+        let result = cm.rollback_checkpoint(&ckpt_id).await;
+        assert!(result.is_ok());
+        // DeleteFile is action index 1, processed first in reverse order
+        assert!(!file_to_delete.exists(), "DeleteFile should execute even when other actions fail");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_rollback_storage_configuration() {
+        let dir = std::env::temp_dir().join("test_rollback_storage_cfg");
+        let _ = std::fs::create_dir_all(&dir);
+
+        // Pipeline without rollback storage
+        let pipeline = Pipeline::new(2);
+        let cm = pipeline.checkpoint_manager();
+        assert!(cm.storage_client.is_none());
+
+        // Note: We can't easily test set_rollback_storage with a real StorageClient
+        // in unit tests since it requires a Qdrant connection. The wiring is tested
+        // via the compilation of main.rs which calls set_rollback_storage.
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_custom_handler_registry() {
+        struct NoopHandler;
+
+        #[async_trait::async_trait]
+        impl CustomRollbackHandler for NoopHandler {
+            async fn execute(&self, _data: &serde_json::Value) -> Result<(), String> {
+                Ok(())
+            }
+        }
+
+        let dir = std::env::temp_dir().join("test_custom_registry");
+        let _ = std::fs::create_dir_all(&dir);
+
+        let cm = CheckpointManager::new(dir.clone(), Duration::from_secs(60));
+
+        // Initially no handlers
+        {
+            let handlers = cm.custom_handlers.read().await;
+            assert!(handlers.is_empty());
+        }
+
+        // Register a handler
+        cm.register_custom_handler("noop", Arc::new(NoopHandler)).await;
+        {
+            let handlers = cm.custom_handlers.read().await;
+            assert_eq!(handlers.len(), 1);
+            assert!(handlers.contains_key("noop"));
+        }
+
+        // Register another handler
+        cm.register_custom_handler("another", Arc::new(NoopHandler)).await;
+        {
+            let handlers = cm.custom_handlers.read().await;
+            assert_eq!(handlers.len(), 2);
+        }
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

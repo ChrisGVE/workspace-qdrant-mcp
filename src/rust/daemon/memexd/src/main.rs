@@ -627,7 +627,11 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         workspace_qdrant_core::queue_operations::QueueManager::new(queue_pool.clone())
     );
     ipc_server.set_spill_queue(ipc_spill_qm);
-    info!("IPC server configured with SQLite spill-to-disk for queue overflow");
+
+    // Wire Qdrant storage client for rollback operations (Task 549)
+    let ipc_rollback_storage = Arc::new(StorageClient::with_config(StorageConfig::daemon_mode()));
+    ipc_server.set_rollback_storage(ipc_rollback_storage);
+    info!("IPC server configured with spill-to-disk and rollback storage");
 
     info!("Starting IPC server");
     ipc_server.start().await.map_err(|e| {
