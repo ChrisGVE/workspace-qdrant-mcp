@@ -32,6 +32,8 @@ use workspace_qdrant_core::{
     SchemaManager,
     // File type allowlist (Task 511)
     AllowedExtensions,
+    // Pause state polling (Task 543)
+    poll_pause_state,
 };
 
 // gRPC server for Python MCP server and CLI communication (Task 421)
@@ -565,6 +567,17 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     }
     info!("Startup reconciliation complete");
 
+    // Initialize shared pause flag from database state (Task 543.16)
+    // This ensures pause state persists across daemon restarts
+    let pause_flag = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    if let Ok(changed) = poll_pause_state(&queue_pool, &pause_flag).await {
+        if pause_flag.load(std::sync::atomic::Ordering::SeqCst) {
+            info!("Restored pause state from database: watchers are PAUSED");
+        } else if changed {
+            info!("Pause state synced from database: watchers are ACTIVE");
+        }
+    }
+
     // Clone pool for gRPC server (ProjectService needs it)
     let grpc_db_pool = queue_pool.clone();
 
@@ -603,9 +616,11 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     let grpc_config = GrpcServerConfig::new(grpc_addr);
 
     info!("Starting gRPC server on port {}", grpc_port);
+    let grpc_pause_flag = Arc::clone(&pause_flag);
     let grpc_handle = tokio::spawn(async move {
         let mut grpc_server = GrpcServer::new(grpc_config)
-            .with_database_pool(grpc_db_pool);
+            .with_database_pool(grpc_db_pool)
+            .with_pause_flag(grpc_pause_flag);
 
         // Enable LSP if manager was created successfully
         if let Some(lsp_manager) = grpc_lsp_manager {
@@ -617,6 +632,26 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         }
     });
     info!("gRPC server started on 127.0.0.1:{} with ProjectService enabled", grpc_port);
+
+    // Start periodic DB polling for CLI-driven pause state changes (Task 543.10)
+    let poll_pause_pool = queue_pool.clone();
+    let poll_pause_flag = Arc::clone(&pause_flag);
+    let pause_poll_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(5));
+        loop {
+            interval.tick().await;
+            match poll_pause_state(&poll_pause_pool, &poll_pause_flag).await {
+                Ok(true) => {
+                    let is_paused = poll_pause_flag.load(std::sync::atomic::Ordering::SeqCst);
+                    info!("Pause state changed via DB: watchers are now {}", if is_paused { "PAUSED" } else { "ACTIVE" });
+                }
+                Ok(false) => {} // No change
+                Err(e) => {
+                    warn!("Failed to poll pause state: {}", e);
+                }
+            }
+        }
+    });
 
     info!("Initializing IPC server");
     let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);
@@ -804,6 +839,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     }
 
     uptime_handle.abort();
+    pause_poll_handle.abort();
     grpc_handle.abort();
     info!("gRPC server stopped");
     if let Some(handle) = metrics_handle {

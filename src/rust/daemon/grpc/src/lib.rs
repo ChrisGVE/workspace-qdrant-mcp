@@ -5,6 +5,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -283,6 +284,8 @@ pub struct GrpcServer {
     /// External LSP manager for lifecycle control (optional)
     /// If provided, this takes precedence over internal creation
     lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
+    /// Shared pause flag for watcher pause/resume propagation
+    pause_flag: Option<Arc<AtomicBool>>,
 }
 
 /// Server metrics for monitoring
@@ -357,6 +360,7 @@ impl GrpcServer {
             db_pool: None,
             enable_lsp: false,
             lsp_manager: None,
+            pause_flag: None,
         }
     }
 
@@ -394,6 +398,14 @@ impl GrpcServer {
         self
     }
 
+    /// Set a shared pause flag for watcher pause/resume propagation.
+    /// This flag is shared with SystemServiceImpl so that gRPC pause/resume
+    /// endpoints toggle it in addition to updating the database.
+    pub fn with_pause_flag(mut self, flag: Arc<AtomicBool>) -> Self {
+        self.pause_flag = Some(flag);
+        self
+    }
+
     pub async fn start(&mut self) -> Result<(), GrpcError> {
         // Debug: verify this code path is reached
         if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -424,11 +436,14 @@ impl GrpcServer {
 
         let storage_client = Arc::new(StorageClient::with_config(StorageConfig::daemon_mode()));
 
-        let system_service = if let Some(pool) = self.db_pool.as_ref() {
+        let mut system_service = if let Some(pool) = self.db_pool.as_ref() {
             SystemServiceImpl::new().with_database_pool(pool.clone())
         } else {
             SystemServiceImpl::new()
         };
+        if let Some(flag) = &self.pause_flag {
+            system_service = system_service.with_pause_flag(Arc::clone(flag));
+        }
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
         let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));
         let embedding_service = EmbeddingServiceImpl::new();
