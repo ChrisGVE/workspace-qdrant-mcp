@@ -342,6 +342,8 @@ pub struct Pipeline {
     checkpoint_manager: Arc<CheckpointManager>,
     /// Metrics collector for performance monitoring
     metrics_collector: Arc<MetricsCollector>,
+    /// Optional ingestion engine for real document processing
+    ingestion_engine: Option<Arc<crate::IngestionEngine>>,
 }
 
 /// Information about a currently running task
@@ -586,9 +588,15 @@ impl Pipeline {
             queue_config,
             checkpoint_manager,
             metrics_collector,
+            ingestion_engine: None,
         }
     }
-    
+
+    /// Set the ingestion engine for real document processing
+    pub fn set_ingestion_engine(&mut self, engine: Arc<crate::IngestionEngine>) {
+        self.ingestion_engine = Some(engine);
+    }
+
     /// Get a handle for submitting tasks to the pipeline
     pub fn task_submitter(&self) -> TaskSubmitter {
         // Create rate limiter if enabled
@@ -618,7 +626,8 @@ impl Pipeline {
         let task_receiver = Arc::clone(&self.task_receiver);
         let sequence_counter = Arc::clone(&self.sequence_counter);
         let max_concurrent = self.max_concurrent_tasks;
-        
+        let ingestion_engine = self.ingestion_engine.clone();
+
         let handle = tokio::spawn(async move {
             Self::execution_loop(
                 task_queue,
@@ -626,6 +635,7 @@ impl Pipeline {
                 task_receiver,
                 sequence_counter,
                 max_concurrent,
+                ingestion_engine,
             ).await;
         });
         
@@ -819,6 +829,7 @@ impl Pipeline {
         task_receiver: Arc<RwLock<Option<mpsc::UnboundedReceiver<PriorityTask>>>>,
         sequence_counter: Arc<AtomicU64>,
         max_concurrent: usize,
+        ingestion_engine: Option<Arc<crate::IngestionEngine>>,
     ) {
         let mut receiver = {
             let mut lock = task_receiver.write().await;
@@ -847,6 +858,7 @@ impl Pipeline {
                                 &task_queue,
                                 &running_tasks,
                                 max_concurrent,
+                                &ingestion_engine,
                             ).await;
                         }
                         None => {
@@ -855,7 +867,7 @@ impl Pipeline {
                         }
                     }
                 }
-                
+
                 // Periodic cleanup and task starting
                 _ = cleanup_interval.tick() => {
                     Self::cleanup_completed_tasks(&running_tasks).await;
@@ -864,6 +876,7 @@ impl Pipeline {
                         &task_queue,
                         &running_tasks,
                         max_concurrent,
+                        &ingestion_engine,
                     ).await;
                 }
                 
@@ -889,6 +902,7 @@ impl Pipeline {
         task_queue: &Arc<RwLock<BinaryHeap<TaskQueueItem>>>,
         running_tasks: &Arc<RwLock<HashMap<Uuid, RunningTask>>>,
         max_concurrent: usize,
+        ingestion_engine: &Option<Arc<crate::IngestionEngine>>,
     ) {
         loop {
             let running_count = {
@@ -936,7 +950,7 @@ impl Pipeline {
             };
             
             if let Some(queue_item) = task_item {
-                Self::start_task(running_tasks, queue_item.task).await;
+                Self::start_task(running_tasks, queue_item.task, ingestion_engine.clone()).await;
             } else {
                 break; // No more tasks to start
             }
@@ -1085,6 +1099,7 @@ impl Pipeline {
     async fn start_task(
         running_tasks: &Arc<RwLock<HashMap<Uuid, RunningTask>>>,
         task: PriorityTask,
+        ingestion_engine: Option<Arc<crate::IngestionEngine>>,
     ) {
         let task_id = task.context.task_id;
         let cancellation_token = tokio_util::sync::CancellationToken::new();
@@ -1102,7 +1117,7 @@ impl Pipeline {
             let start_time = Instant::now();
             
             let result = tokio::select! {
-                result = Self::execute_task_payload(payload, &context_for_task) => {
+                result = Self::execute_task_payload(payload, &context_for_task, &ingestion_engine) => {
                     match result {
                         Ok(data) => TaskResult::Success {
                             execution_time_ms: start_time.elapsed().as_millis() as u64,
@@ -1193,24 +1208,61 @@ impl Pipeline {
     async fn execute_task_payload(
         payload: TaskPayload,
         context: &TaskContext,
+        ingestion_engine: &Option<Arc<crate::IngestionEngine>>,
     ) -> Result<TaskResultData, PriorityError> {
         match payload {
             TaskPayload::ProcessDocument { file_path, collection } => {
-                // Placeholder implementation - will be expanded in later subtasks
-                tracing::info!(
-                    "Processing document: {:?} for collection: {}",
-                    file_path, collection
-                );
-                
-                // Simulate some processing time
-                tokio::time::sleep(Duration::from_millis(100)).await;
-                
-                Ok(TaskResultData::DocumentProcessing {
-                    document_id: context.task_id.to_string(),
-                    collection,
-                    chunks_created: 1,
-                    checkpoint_id: context.checkpoint_id.clone(),
-                })
+                if let Some(engine) = ingestion_engine {
+                    tracing::info!(
+                        file = %file_path.display(),
+                        collection = %collection,
+                        "Processing document with ingestion engine"
+                    );
+
+                    let result = engine
+                        .process_document(&file_path, &collection)
+                        .await
+                        .map_err(|e| {
+                            tracing::error!(
+                                file = %file_path.display(),
+                                collection = %collection,
+                                error = %e,
+                                "Document processing failed"
+                            );
+                            PriorityError::ExecutionFailed {
+                                reason: format!("Document processing failed: {}", e),
+                            }
+                        })?;
+
+                    tracing::info!(
+                        document_id = %result.document_id,
+                        collection = %result.collection,
+                        chunks_created = result.chunks_created.unwrap_or(0),
+                        processing_time_ms = result.processing_time_ms,
+                        "Document processed successfully"
+                    );
+
+                    Ok(TaskResultData::DocumentProcessing {
+                        document_id: result.document_id,
+                        collection: result.collection,
+                        chunks_created: result.chunks_created.unwrap_or(0),
+                        checkpoint_id: context.checkpoint_id.clone(),
+                    })
+                } else {
+                    // Stub fallback when no ingestion engine is configured (e.g. tests)
+                    tracing::info!(
+                        "Processing document (stub): {:?} for collection: {}",
+                        file_path, collection
+                    );
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+
+                    Ok(TaskResultData::DocumentProcessing {
+                        document_id: context.task_id.to_string(),
+                        collection,
+                        chunks_created: 1,
+                        checkpoint_id: context.checkpoint_id.clone(),
+                    })
+                }
             }
             
             TaskPayload::WatchDirectory { path, recursive } => {
