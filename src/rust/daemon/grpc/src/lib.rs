@@ -424,7 +424,11 @@ impl GrpcServer {
 
         let storage_client = Arc::new(StorageClient::with_config(StorageConfig::daemon_mode()));
 
-        let system_service = SystemServiceImpl::new();
+        let system_service = if let Some(pool) = self.db_pool.as_ref() {
+            SystemServiceImpl::new().with_database_pool(pool.clone())
+        } else {
+            SystemServiceImpl::new()
+        };
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
         let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));
         let embedding_service = EmbeddingServiceImpl::new();
