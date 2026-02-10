@@ -9,9 +9,9 @@
 
 use workspace_qdrant_grpc::proto::{
     collection_service_server::CollectionService,
-    CreateCollectionRequest, CreateCollectionResponse,
+    CreateCollectionRequest,
     DeleteCollectionRequest, CreateAliasRequest,
-    DeleteAliasRequest, RenameAliasRequest, CollectionConfig,
+    RenameAliasRequest, CollectionConfig,
 };
 use workspace_qdrant_grpc::services::CollectionServiceImpl;
 use tonic::{Request, Code};

@@ -11,7 +11,7 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 use workspace_qdrant_core::storage::{
-    StorageClient, StorageConfig, StorageError, DocumentPoint, SearchParams,
+    StorageClient, StorageConfig, DocumentPoint, SearchParams,
     HybridSearchMode, TransportMode,
 };
 

@@ -233,7 +233,7 @@ async fn test_concurrent_grammar_manager_access() {
     use tokio::task;
 
     let temp_dir = TempDir::new().unwrap();
-    let config = test_config(&temp_dir, false);
+    let _config = test_config(&temp_dir, false);
 
     // Create manager - each task will create its own for thread safety
     let temp_path = temp_dir.path().to_path_buf();

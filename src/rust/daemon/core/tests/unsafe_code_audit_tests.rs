@@ -153,16 +153,16 @@ pub enum UnsafeAuditError {
 /// Main unsafe code audit suite
 pub struct UnsafeCodeAuditor {
     violations: Arc<Mutex<Vec<SafetyViolation>>>,
-    memory_tracker: Arc<RwLock<MemoryTracker>>,
-    concurrency_tracker: Arc<Mutex<ConcurrencyTracker>>,
+    _memory_tracker: Arc<RwLock<MemoryTracker>>,
+    _concurrency_tracker: Arc<Mutex<ConcurrencyTracker>>,
 }
 
 impl UnsafeCodeAuditor {
     pub fn new() -> Self {
         Self {
             violations: Arc::new(Mutex::new(Vec::new())),
-            memory_tracker: Arc::new(RwLock::new(MemoryTracker::new())),
-            concurrency_tracker: Arc::new(Mutex::new(ConcurrencyTracker::new())),
+            _memory_tracker: Arc::new(RwLock::new(MemoryTracker::new())),
+            _concurrency_tracker: Arc::new(Mutex::new(ConcurrencyTracker::new())),
         }
     }
 
@@ -724,8 +724,8 @@ struct MemoryTracker {
 #[derive(Debug, Clone)]
 struct AllocationInfo {
     size: usize,
-    timestamp: Instant,
-    location: String,
+    _timestamp: Instant,
+    _location: String,
 }
 
 impl MemoryTracker {
@@ -739,8 +739,8 @@ impl MemoryTracker {
     fn track_allocation(&mut self, ptr: usize, size: usize, location: String) {
         let info = AllocationInfo {
             size,
-            timestamp: Instant::now(),
-            location,
+            _timestamp: Instant::now(),
+            _location: location,
         };
 
         self.allocations.insert(ptr, info);
@@ -766,22 +766,22 @@ struct ConcurrencyTracker {
 
 #[derive(Debug, Clone)]
 struct ThreadInfo {
-    start_time: Instant,
-    unsafe_operations: usize,
+    _start_time: Instant,
+    _unsafe_operations: usize,
 }
 
 #[derive(Debug, Clone)]
 struct AccessInfo {
-    thread_id: thread::ThreadId,
-    access_time: Instant,
-    access_type: AccessType,
+    _thread_id: thread::ThreadId,
+    _access_time: Instant,
+    _access_type: AccessType,
 }
 
 #[derive(Debug, Clone)]
 enum AccessType {
     Read,
-    Write,
-    ReadWrite,
+    _Write,
+    _ReadWrite,
 }
 
 impl ConcurrencyTracker {
@@ -794,17 +794,17 @@ impl ConcurrencyTracker {
 
     fn register_thread(&mut self, thread_id: thread::ThreadId) {
         self.active_threads.insert(thread_id, ThreadInfo {
-            start_time: Instant::now(),
-            unsafe_operations: 0,
+            _start_time: Instant::now(),
+            _unsafe_operations: 0,
         });
     }
 
     fn record_access(&mut self, address: usize, access_type: AccessType) {
         let thread_id = thread::current().id();
         let access = AccessInfo {
-            thread_id,
-            access_time: Instant::now(),
-            access_type,
+            _thread_id: thread_id,
+            _access_time: Instant::now(),
+            _access_type: access_type,
         };
 
         self.shared_accesses

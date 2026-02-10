@@ -399,7 +399,7 @@ async fn test_response_consistency() {
 #[tokio::test]
 async fn test_empty_message_serialization() {
     // Test that empty () messages serialize correctly
-    let empty = ();
+    let _empty = ();
     let bytes = prost::Message::encode_to_vec(&());
     assert_eq!(bytes.len(), 0); // Empty message has zero bytes
 }

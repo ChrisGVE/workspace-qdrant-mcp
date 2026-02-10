@@ -460,7 +460,7 @@ struct MemoryTracker {
 #[derive(Debug, Clone)]
 struct AllocationInfo {
     size: usize,
-    timestamp: Instant,
+    _timestamp: Instant,
     stack_trace: String,
 }
 
@@ -492,7 +492,7 @@ impl MemoryTracker {
 
         let info = AllocationInfo {
             size,
-            timestamp: Instant::now(),
+            _timestamp: Instant::now(),
             stack_trace: format!("Stack trace for allocation at {:p}", ptr as *const u8),
         };
 

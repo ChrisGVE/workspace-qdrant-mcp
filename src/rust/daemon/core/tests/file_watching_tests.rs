@@ -16,7 +16,7 @@ use shared_test_utils::{async_test, serial_async_test, TestResult};
 /// Test helper for creating a notify watcher with event collection
 struct TestWatcher {
     _watcher: RecommendedWatcher,
-    events: Arc<Mutex<Vec<Event>>>,
+    _events: Arc<Mutex<Vec<Event>>>,
     event_rx: mpsc::UnboundedReceiver<Event>,
 }
 
@@ -39,7 +39,7 @@ impl TestWatcher {
 
         Ok(Self {
             _watcher: watcher,
-            events,
+            _events: events,
             event_rx,
         })
     }
@@ -70,8 +70,8 @@ impl TestWatcher {
         collected_events
     }
 
-    fn get_collected_events(&self) -> Vec<Event> {
-        if let Ok(events_lock) = self.events.lock() {
+    fn _get_collected_events(&self) -> Vec<Event> {
+        if let Ok(events_lock) = self._events.lock() {
             events_lock.clone()
         } else {
             Vec::new()

@@ -557,7 +557,7 @@ impl ValgrindTestSuite {
 
     /// Parse Cachegrind results
     fn parse_cachegrind_results(&self, output_file: &PathBuf) -> Result<CachegrindResults, ValgrindError> {
-        let content = fs::read_to_string(output_file)?;
+        let _content = fs::read_to_string(output_file)?;
 
         // Simplified parsing - real implementation would parse the cachegrind format
         Ok(CachegrindResults {
@@ -574,7 +574,7 @@ impl ValgrindTestSuite {
 
     /// Parse Massif results
     fn parse_massif_results(&self, output_file: &PathBuf) -> Result<MassifResults, ValgrindError> {
-        let content = fs::read_to_string(output_file)?;
+        let _content = fs::read_to_string(output_file)?;
 
         // Simplified parsing - real implementation would parse the massif format
         Ok(MassifResults {

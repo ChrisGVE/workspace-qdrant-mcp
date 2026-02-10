@@ -122,11 +122,11 @@ pub struct FfiPerformanceTester {
 
 #[derive(Debug, Clone)]
 struct PerformanceDataPoint {
-    timestamp: Instant,
+    _timestamp: Instant,
     operation: String,
-    duration: Duration,
+    _duration: Duration,
     data_size: usize,
-    thread_id: thread::ThreadId,
+    _thread_id: thread::ThreadId,
 }
 
 impl FfiPerformanceTester {
@@ -390,7 +390,7 @@ impl FfiPerformanceTester {
         // Benchmark future creation
         let future_start = Instant::now();
         for _ in 0..self.config.measurement_iterations {
-            black_box(async {
+            let _ = black_box(async {
                 tokio::task::yield_now().await;
             });
         }
@@ -652,11 +652,11 @@ impl FfiPerformanceTester {
 
     fn record_performance_data(&self, operation: &str, duration: Duration, data_size: usize) {
         let data_point = PerformanceDataPoint {
-            timestamp: Instant::now(),
+            _timestamp: Instant::now(),
             operation: operation.to_string(),
-            duration,
+            _duration: duration,
             data_size,
-            thread_id: thread::current().id(),
+            _thread_id: thread::current().id(),
         };
 
         if let Ok(mut data) = self.performance_data.lock() {
@@ -759,7 +759,6 @@ mod tests {
 
         let benchmark = result.unwrap();
         assert!(benchmark.async_function_call_ns > 0);
-        assert!(benchmark.future_creation_ns >= 0);
     }
 
     #[tokio::test]
@@ -780,10 +779,7 @@ mod tests {
         let result = tester.benchmark_function_calls().await;
         assert!(result.is_ok());
 
-        let benchmark = result.unwrap();
-        assert!(benchmark.simple_call_ns >= 0);
-        assert!(benchmark.with_parameters_ns >= 0);
-        assert!(benchmark.with_return_value_ns >= 0);
+        let _benchmark = result.unwrap();
     }
 
     #[tokio::test]

@@ -9,7 +9,7 @@
 use workspace_qdrant_grpc::proto::{
     document_service_server::DocumentService,
     IngestTextRequest, IngestTextResponse,
-    UpdateDocumentRequest, UpdateDocumentResponse,
+    UpdateDocumentRequest,
     DeleteDocumentRequest,
 };
 use workspace_qdrant_grpc::services::DocumentServiceImpl;

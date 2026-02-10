@@ -4,7 +4,7 @@
 
 use workspace_qdrant_core::{
     AllowedExtensions,
-    FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats,
+    FileWatcherQueue, WatchManager, WatchConfig,
     QueueManager, WatchType,
     unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload},
 };

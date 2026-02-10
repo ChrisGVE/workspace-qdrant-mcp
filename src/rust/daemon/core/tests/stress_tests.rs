@@ -11,7 +11,7 @@
 
 use serde_json;
 use shared_test_utils::{
-    config::*, fixtures::*, test_helpers::*, TestResult,
+    TestResult,
 };
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,13 +21,11 @@ use tempfile::{tempdir, TempDir};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::{Semaphore, RwLock};
-use tokio::time::{sleep, timeout};
+use tokio::time::sleep;
 use workspace_qdrant_core::{
     queue_config::QueueConnectionConfig,
     queue_operations::QueueManager,
-    queue_types::ProcessorConfig,
-    DocumentProcessor, EmbeddingGenerator, EmbeddingConfig,
-    storage::{StorageClient, StorageConfig},
+    DocumentProcessor,
     unified_queue_schema::{ItemType, QueueOperation as UnifiedOp, FilePayload},
 };
 
@@ -404,7 +402,7 @@ async fn stress_test_high_rate_ingestion() -> TestResult {
     let metrics = StressMetrics::new();
     let temp_dir = tempdir()?;
     let (pool, _db_dir) = setup_test_db().await;
-    let queue_manager = QueueManager::new(pool.clone());
+    let _queue_manager = QueueManager::new(pool.clone());
 
     println!("\n🚀 Starting high rate stress test: {} files/sec for {}s",
         TARGET_RATE, DURATION_SECONDS);
@@ -487,13 +485,13 @@ async fn stress_test_multiple_watchers() -> TestResult {
     const FILES_PER_WATCHER: usize = 50;
 
     let metrics = StressMetrics::new();
-    let (pool, _db_dir) = setup_test_db().await;
+    let (_pool, _db_dir) = setup_test_db().await;
 
     println!("\n🚀 Starting multiple watchers stress test: {} watchers", WATCHER_COUNT);
 
     // Create multiple watched directories
     let mut watch_dirs = Vec::new();
-    for i in 0..WATCHER_COUNT {
+    for _i in 0..WATCHER_COUNT {
         let dir = tempdir()?;
         watch_dirs.push(dir);
     }

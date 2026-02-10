@@ -15,7 +15,6 @@ use tempfile::{NamedTempFile, TempDir};
 use workspace_qdrant_core::{
     DocumentProcessor, DocumentProcessorError,
     ipc::IpcServer,
-    config::Config,
     daemon_state::DaemonStateManager,
     logging::track_async_operation,
 };
@@ -552,7 +551,7 @@ async_test!(test_tokio_test_ready_pending, {
     let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(1);
     
     // Channel should be empty initially
-    let mut recv_future = Box::pin(rx.recv());
+    let recv_future = Box::pin(rx.recv());
     // Test that initially no message is available
     // (simplified from tokio-test polling due to API complexity)
 
