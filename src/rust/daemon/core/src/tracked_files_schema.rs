@@ -145,6 +145,8 @@ pub struct TrackedFile {
     pub needs_reconcile: bool,
     /// Reason for reconciliation (e.g., "sqlite_commit_failed: ...")
     pub reconcile_reason: Option<String>,
+    /// Target Qdrant collection this file was routed to (e.g., "projects" or "libraries")
+    pub collection: String,
     /// Creation timestamp (ISO 8601)
     pub created_at: String,
     /// Last update timestamp (ISO 8601)
@@ -198,6 +200,7 @@ CREATE TABLE IF NOT EXISTS tracked_files (
     last_error TEXT,
     needs_reconcile INTEGER DEFAULT 0,
     reconcile_reason TEXT,
+    collection TEXT NOT NULL DEFAULT 'projects',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (watch_folder_id) REFERENCES watch_folders(watch_id),
@@ -261,6 +264,14 @@ pub const MIGRATE_V3_SQL: &[&str] = &[
     "ALTER TABLE tracked_files ADD COLUMN reconcile_reason TEXT",
 ];
 
+// ---------------------------------------------------------------------------
+// Migration SQL — v6: collection column for format-based routing
+// ---------------------------------------------------------------------------
+
+/// SQL statement for migration v6: add collection column to tracked_files
+pub const MIGRATE_V6_SQL: &str =
+    "ALTER TABLE tracked_files ADD COLUMN collection TEXT NOT NULL DEFAULT 'projects'";
+
 /// Index for quickly finding files needing reconciliation
 pub const CREATE_RECONCILE_INDEX_SQL: &str =
     r#"CREATE INDEX IF NOT EXISTS idx_tracked_files_reconcile
@@ -296,6 +307,7 @@ fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
         last_error: r.get("last_error"),
         needs_reconcile: r.get::<i32, _>("needs_reconcile") != 0,
         reconcile_reason: r.get("reconcile_reason"),
+        collection: r.get::<Option<String>, _>("collection").unwrap_or_else(|| "projects".to_string()),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }
@@ -362,7 +374,7 @@ pub async fn lookup_tracked_file(
                 "SELECT file_id, watch_folder_id, file_path, branch, file_type, language,
                         file_mtime, file_hash, chunk_count, chunking_method,
                         lsp_status, treesitter_status, last_error,
-                        needs_reconcile, reconcile_reason, created_at, updated_at
+                        needs_reconcile, reconcile_reason, collection, created_at, updated_at
                  FROM tracked_files
                  WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch = ?3"
             )
@@ -377,7 +389,7 @@ pub async fn lookup_tracked_file(
                 "SELECT file_id, watch_folder_id, file_path, branch, file_type, language,
                         file_mtime, file_hash, chunk_count, chunking_method,
                         lsp_status, treesitter_status, last_error,
-                        needs_reconcile, reconcile_reason, created_at, updated_at
+                        needs_reconcile, reconcile_reason, collection, created_at, updated_at
                  FROM tracked_files
                  WHERE watch_folder_id = ?1 AND file_path = ?2 AND branch IS NULL"
             )
@@ -405,13 +417,15 @@ pub async fn insert_tracked_file(
     chunking_method: Option<&str>,
     lsp_status: ProcessingStatus,
     treesitter_status: ProcessingStatus,
+    collection: Option<&str>,
 ) -> Result<i64, sqlx::Error> {
     let now = chrono::Utc::now().to_rfc3339();
+    let collection = collection.unwrap_or("projects");
     let result = sqlx::query(
         "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_type, language,
          file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,
-         created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+         collection, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
     )
     .bind(watch_folder_id)
     .bind(file_path)
@@ -424,6 +438,7 @@ pub async fn insert_tracked_file(
     .bind(chunking_method)
     .bind(lsp_status.to_string())
     .bind(treesitter_status.to_string())
+    .bind(collection)
     .bind(&now)
     .bind(&now)
     .execute(pool)
@@ -634,13 +649,15 @@ pub async fn insert_tracked_file_tx(
     chunking_method: Option<&str>,
     lsp_status: ProcessingStatus,
     treesitter_status: ProcessingStatus,
+    collection: Option<&str>,
 ) -> Result<i64, sqlx::Error> {
     let now = chrono::Utc::now().to_rfc3339();
+    let collection = collection.unwrap_or("projects");
     let result = sqlx::query(
         "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_type, language,
          file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,
-         created_at, updated_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)"
+         collection, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)"
     )
     .bind(watch_folder_id)
     .bind(file_path)
@@ -653,6 +670,7 @@ pub async fn insert_tracked_file_tx(
     .bind(chunking_method)
     .bind(lsp_status.to_string())
     .bind(treesitter_status.to_string())
+    .bind(collection)
     .bind(&now)
     .bind(&now)
     .execute(&mut **tx)
@@ -767,7 +785,8 @@ pub async fn get_files_needing_reconcile(
         "SELECT file_id, watch_folder_id, file_path, branch, file_type, language,
                 file_mtime, file_hash, chunk_count, chunking_method,
                 lsp_status, treesitter_status, last_error,
-                needs_reconcile, reconcile_reason, created_at, updated_at
+                needs_reconcile, reconcile_reason, created_at, updated_at,
+                collection
          FROM tracked_files
          WHERE needs_reconcile = 1"
     )
@@ -856,6 +875,7 @@ mod tests {
         assert!(CREATE_TRACKED_FILES_SQL.contains("treesitter_status"));
         assert!(CREATE_TRACKED_FILES_SQL.contains("needs_reconcile INTEGER DEFAULT 0"));
         assert!(CREATE_TRACKED_FILES_SQL.contains("reconcile_reason TEXT"));
+        assert!(CREATE_TRACKED_FILES_SQL.contains("collection TEXT NOT NULL DEFAULT 'projects'"));
     }
 
     #[test]
@@ -914,6 +934,7 @@ mod tests {
             last_error: None,
             needs_reconcile: false,
             reconcile_reason: None,
+            collection: "projects".to_string(),
             created_at: "2025-01-01T00:00:00Z".to_string(),
             updated_at: "2025-01-01T00:00:00Z".to_string(),
         };
@@ -974,6 +995,7 @@ mod tests {
             last_error: None,
             needs_reconcile: false,
             reconcile_reason: None,
+            collection: "projects".to_string(),
             created_at: "2025-01-01T00:00:00Z".to_string(),
             updated_at: "2025-01-01T00:00:00Z".to_string(),
         };
@@ -1082,6 +1104,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "abc123hash",
             3, Some("tree_sitter"),
             ProcessingStatus::Done, ProcessingStatus::Done,
+            None,
         ).await.expect("Insert failed");
 
         assert!(file_id > 0);
@@ -1109,6 +1132,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "hash1",
             0, None,
             ProcessingStatus::None, ProcessingStatus::Skipped,
+            None,
         ).await.expect("Insert failed");
 
         // Lookup with None branch
@@ -1134,6 +1158,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "hash1",
             3, Some("text"),
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.expect("Insert failed");
 
         update_tracked_file(
@@ -1164,6 +1189,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "hash1",
             2, Some("tree_sitter"),
             ProcessingStatus::Done, ProcessingStatus::Done,
+            None,
         ).await.unwrap();
 
         let chunks = vec![
@@ -1190,6 +1216,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "hash1",
             1, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         let chunks = vec![
@@ -1218,12 +1245,14 @@ mod tests {
             &pool, "w1", "src/main.rs", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h1", 0, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         insert_tracked_file(
             &pool, "w1", "src/lib.rs", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h2", 0, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         let paths = get_tracked_file_paths(&pool, "w1").await.expect("Query failed");
@@ -1259,6 +1288,7 @@ mod tests {
             &pool, "w1", "file.rs", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h1", 2, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         let chunks = vec![
@@ -1292,6 +1322,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "txhash1",
             2, Some("tree_sitter"),
             ProcessingStatus::Done, ProcessingStatus::Done,
+            None,
         ).await.expect("Tx insert failed");
         tx.commit().await.unwrap();
 
@@ -1315,6 +1346,7 @@ mod tests {
                 "2025-01-01T00:00:00Z", "rollback_hash",
                 1, None,
                 ProcessingStatus::None, ProcessingStatus::None,
+                None,
             ).await.expect("Tx insert failed");
             // Drop tx without committing = implicit rollback
         }
@@ -1337,6 +1369,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "atomic_hash",
             2, Some("tree_sitter"),
             ProcessingStatus::Done, ProcessingStatus::Done,
+            None,
         ).await.unwrap();
 
         let chunks = vec![
@@ -1366,6 +1399,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "base_hash",
             0, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         // Now try to update + insert chunks in a rolled-back transaction
@@ -1404,6 +1438,7 @@ mod tests {
             &pool, "w1", "src/delete_tx.rs", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h1", 1, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         let chunks = vec![("p1".to_string(), 0, "c1".to_string(), None, None, None, None)];
@@ -1433,6 +1468,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "hash1",
             3, Some("tree_sitter"),
             ProcessingStatus::Done, ProcessingStatus::Done,
+            None,
         ).await.unwrap();
 
         // Initially no files need reconciliation
@@ -1475,6 +1511,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "hash1",
             1, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         // Mark for reconciliation
@@ -1507,6 +1544,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "hash1",
             250, Some("tree_sitter"),
             ProcessingStatus::Done, ProcessingStatus::Done,
+            None,
         ).await.unwrap();
 
         // Generate 250 chunks (spans 3 batches: 100 + 100 + 50)
@@ -1545,6 +1583,7 @@ mod tests {
                 "2025-01-01T00:00:00Z", "h1",
                 count as i32, None,
                 ProcessingStatus::None, ProcessingStatus::None,
+                None,
             ).await.unwrap();
 
             let chunks: Vec<_> = (0..count)
@@ -1577,6 +1616,7 @@ mod tests {
             &pool, "w1", "src/empty.rs", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h1", 0, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         // Empty chunk list should succeed without database operations
@@ -1598,6 +1638,7 @@ mod tests {
             "2025-01-01T00:00:00Z", "hash1",
             150, Some("tree_sitter"),
             ProcessingStatus::Done, ProcessingStatus::Done,
+            None,
         ).await.unwrap();
 
         let chunks: Vec<_> = (0..150)
@@ -1629,30 +1670,35 @@ mod tests {
             &pool, "w1", "src/core/main.rs", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h1", 0, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         insert_tracked_file(
             &pool, "w1", "src/core/lib.rs", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h2", 0, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         insert_tracked_file(
             &pool, "w1", "src/core/utils/helpers.rs", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h3", 0, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         insert_tracked_file(
             &pool, "w1", "src/cli/main.rs", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h4", 0, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         insert_tracked_file(
             &pool, "w1", "README.md", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h5", 0, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         // Query prefix "src/core" should match 3 files
@@ -1690,12 +1736,14 @@ mod tests {
             &pool, "w1", "src/core/main.rs", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h1", 0, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         insert_tracked_file(
             &pool, "w1", "src/core_utils/helpers.rs", Some("main"),
             None, None, "2025-01-01T00:00:00Z", "h2", 0, None,
             ProcessingStatus::None, ProcessingStatus::None,
+            None,
         ).await.unwrap();
 
         // "src/core" should NOT match "src/core_utils/helpers.rs"

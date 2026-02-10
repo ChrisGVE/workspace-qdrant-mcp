@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 5;
+pub const CURRENT_SCHEMA_VERSION: i32 = 6;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -155,6 +155,7 @@ impl SchemaManager {
             3 => self.migrate_v3().await,
             4 => self.migrate_v4().await,
             5 => self.migrate_v5().await,
+            6 => self.migrate_v6().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -330,6 +331,32 @@ impl SchemaManager {
         }
 
         info!("Migration v5 complete");
+        Ok(())
+    }
+
+    /// Migration v6: Add collection column to tracked_files for format-based routing
+    async fn migrate_v6(&self) -> Result<(), SchemaError> {
+        info!("Migration v6: Adding collection column to tracked_files");
+
+        use super::tracked_files_schema::MIGRATE_V6_SQL;
+
+        // Check if column already exists (handles fresh installs that include it in CREATE TABLE)
+        let has_collection: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'collection'"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        if !has_collection {
+            debug!("Running ALTER TABLE: {}", MIGRATE_V6_SQL);
+            sqlx::query(MIGRATE_V6_SQL)
+                .execute(&self.pool)
+                .await?;
+        } else {
+            debug!("Collection column already exists, skipping ALTER TABLE");
+        }
+
+        info!("Migration v6 complete");
         Ok(())
     }
 }
@@ -778,7 +805,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_incremental_migration_v4_to_v5() {
+    async fn test_incremental_migration_v4_to_current() {
         let pool = create_test_pool().await;
         let manager = SchemaManager::new(pool.clone());
 
@@ -798,14 +825,14 @@ mod tests {
         .unwrap();
         assert!(!exists_before, "metrics_history should NOT exist before v5 migration");
 
-        // Run remaining migrations (v5)
-        manager.run_migrations().await.expect("Failed to run migrations from v4 to v5");
+        // Run remaining migrations (v5, v6)
+        manager.run_migrations().await.expect("Failed to run migrations from v4 to current");
 
-        // Verify v5 completed
+        // Verify all migrations completed
         let version = manager.get_current_version().await.unwrap();
-        assert_eq!(version, Some(5));
+        assert_eq!(version, Some(CURRENT_SCHEMA_VERSION as i32));
 
-        // Verify metrics_history table exists
+        // Verify metrics_history table exists (v5)
         let exists_after: bool = sqlx::query_scalar(
             "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='metrics_history')"
         )
@@ -814,7 +841,7 @@ mod tests {
         .unwrap();
         assert!(exists_after, "metrics_history table should exist after v5 migration");
 
-        // Verify indexes exist
+        // Verify indexes exist (v5)
         let idx_count: i32 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name LIKE 'idx_metrics_%'"
         )
@@ -822,5 +849,14 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(idx_count, 3, "Should have 3 metrics_history indexes");
+
+        // Verify collection column exists in tracked_files (v6)
+        let has_collection: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'collection'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(has_collection, "collection column should exist after v6 migration");
     }
 }

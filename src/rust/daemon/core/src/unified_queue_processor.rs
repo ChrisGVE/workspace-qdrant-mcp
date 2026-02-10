@@ -1108,6 +1108,7 @@ impl UnifiedQueueProcessor {
                         chunking_method,
                         lsp_status,
                         treesitter_status,
+                        Some(&item.collection),
                     )
                     .await
                     .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files insert failed: {}", e)))?
