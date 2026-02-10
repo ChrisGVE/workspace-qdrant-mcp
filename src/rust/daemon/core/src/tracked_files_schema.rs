@@ -578,6 +578,35 @@ pub async fn get_tracked_file_paths(
     Ok(rows.iter().map(|r| (r.get("file_id"), r.get("file_path"), r.get("branch"))).collect())
 }
 
+/// Get tracked files under a folder path prefix for a watch_folder
+///
+/// Used for folder-level delete/move operations. Matches files whose relative
+/// path starts with `folder_prefix/` (ensuring proper directory boundary).
+pub async fn get_tracked_files_by_prefix(
+    pool: &SqlitePool,
+    watch_folder_id: &str,
+    folder_prefix: &str,
+) -> Result<Vec<(i64, String, Option<String>)>, sqlx::Error> {
+    // Ensure prefix ends with '/' for proper directory boundary matching
+    let prefix = if folder_prefix.ends_with('/') {
+        folder_prefix.to_string()
+    } else {
+        format!("{}/", folder_prefix)
+    };
+
+    let rows = sqlx::query(
+        "SELECT file_id, file_path, branch FROM tracked_files
+         WHERE watch_folder_id = ?1 AND (file_path LIKE ?2 OR file_path = ?3)"
+    )
+    .bind(watch_folder_id)
+    .bind(format!("{}%", prefix))
+    .bind(folder_prefix)  // Also match the exact path (in case it's a file, not a dir)
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows.iter().map(|r| (r.get("file_id"), r.get("file_path"), r.get("branch"))).collect())
+}
+
 /// Compute relative path from absolute file path and watch folder base path
 pub fn compute_relative_path(abs_path: &str, base_path: &str) -> Option<String> {
     let abs = Path::new(abs_path);
@@ -1588,5 +1617,91 @@ mod tests {
 
         let ids = get_chunk_point_ids(&pool, file_id).await.unwrap();
         assert_eq!(ids.len(), 150, "All 150 tx chunks should be inserted");
+    }
+
+    #[tokio::test]
+    async fn test_get_tracked_files_by_prefix() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        // Insert files in different directories
+        insert_tracked_file(
+            &pool, "w1", "src/core/main.rs", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h1", 0, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        insert_tracked_file(
+            &pool, "w1", "src/core/lib.rs", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h2", 0, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        insert_tracked_file(
+            &pool, "w1", "src/core/utils/helpers.rs", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h3", 0, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        insert_tracked_file(
+            &pool, "w1", "src/cli/main.rs", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h4", 0, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        insert_tracked_file(
+            &pool, "w1", "README.md", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h5", 0, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        // Query prefix "src/core" should match 3 files
+        let result = get_tracked_files_by_prefix(&pool, "w1", "src/core").await.unwrap();
+        assert_eq!(result.len(), 3, "Should match all 3 files under src/core/");
+        let paths: Vec<&str> = result.iter().map(|(_, p, _)| p.as_str()).collect();
+        assert!(paths.contains(&"src/core/main.rs"));
+        assert!(paths.contains(&"src/core/lib.rs"));
+        assert!(paths.contains(&"src/core/utils/helpers.rs"));
+
+        // Query prefix "src/core/" (with trailing slash) should also match 3
+        let result2 = get_tracked_files_by_prefix(&pool, "w1", "src/core/").await.unwrap();
+        assert_eq!(result2.len(), 3, "Trailing slash should not affect result");
+
+        // Query prefix "src" should match 4 files
+        let result3 = get_tracked_files_by_prefix(&pool, "w1", "src").await.unwrap();
+        assert_eq!(result3.len(), 4, "Should match all 4 files under src/");
+
+        // Query prefix "src/cli" should match 1 file
+        let result4 = get_tracked_files_by_prefix(&pool, "w1", "src/cli").await.unwrap();
+        assert_eq!(result4.len(), 1);
+
+        // Query prefix "nonexistent" should match 0 files
+        let result5 = get_tracked_files_by_prefix(&pool, "w1", "nonexistent").await.unwrap();
+        assert_eq!(result5.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_get_tracked_files_by_prefix_no_false_positives() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        // Insert files with similar-looking prefixes
+        insert_tracked_file(
+            &pool, "w1", "src/core/main.rs", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h1", 0, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        insert_tracked_file(
+            &pool, "w1", "src/core_utils/helpers.rs", Some("main"),
+            None, None, "2025-01-01T00:00:00Z", "h2", 0, None,
+            ProcessingStatus::None, ProcessingStatus::None,
+        ).await.unwrap();
+
+        // "src/core" should NOT match "src/core_utils/helpers.rs"
+        // because we add '/' boundary
+        let result = get_tracked_files_by_prefix(&pool, "w1", "src/core").await.unwrap();
+        assert_eq!(result.len(), 1, "Should only match src/core/ not src/core_utils/");
+        assert_eq!(result[0].1, "src/core/main.rs");
     }
 }

@@ -24,7 +24,7 @@ use crate::lsp::{
 use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{
     ItemType, QueueOperation, UnifiedQueueItem,
-    ContentPayload, FilePayload, ProjectPayload, LibraryPayload,
+    ContentPayload, FilePayload, FolderPayload, ProjectPayload, LibraryPayload,
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
@@ -1305,7 +1305,7 @@ impl UnifiedQueueProcessor {
         }
     }
 
-    /// Process folder item - typically triggers scanning
+    /// Process folder item - scanning, deletion, and update operations
     async fn process_folder_item(
         item: &UnifiedQueueItem,
         queue_manager: &QueueManager,
@@ -1317,24 +1317,139 @@ impl UnifiedQueueProcessor {
             item.queue_id, item.op, item.collection
         );
 
+        let payload: FolderPayload = serde_json::from_str(&item.payload_json)
+            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse FolderPayload: {}", e)))?;
+
         match item.op {
             QueueOperation::Scan => {
-                // Parse folder path from payload
-                let payload_value: serde_json::Value = serde_json::from_str(&item.payload_json)
-                    .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse folder payload: {}", e)))?;
-
-                let folder_path = payload_value.get("folder_path")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing folder_path in payload".to_string()))?;
-
-                Self::scan_library_directory(item, folder_path, queue_manager, storage_client, allowed_extensions).await
+                Self::scan_library_directory(item, &payload.folder_path, queue_manager, storage_client, allowed_extensions).await
             }
-            _ => {
-                // Other folder operations are handled by the file watcher
-                debug!("Folder item {} with op={:?} is handled by watcher", item.queue_id, item.op);
-                Ok(())
+            QueueOperation::Delete => {
+                Self::process_folder_delete(item, &payload, queue_manager, storage_client).await
+            }
+            QueueOperation::Update | QueueOperation::Ingest => {
+                // Folder update/ingest is equivalent to a rescan
+                info!(
+                    "Folder {:?} operation treated as rescan for: {}",
+                    item.op, payload.folder_path
+                );
+                Self::scan_library_directory(item, &payload.folder_path, queue_manager, storage_client, allowed_extensions).await
             }
         }
+    }
+
+    /// Delete all tracked files under a folder path
+    ///
+    /// Looks up tracked files whose relative path falls under the folder,
+    /// then enqueues individual (File, Delete) items for each one.
+    async fn process_folder_delete(
+        item: &UnifiedQueueItem,
+        payload: &FolderPayload,
+        queue_manager: &QueueManager,
+        storage_client: &Arc<StorageClient>,
+    ) -> UnifiedProcessorResult<()> {
+        let start = std::time::Instant::now();
+        let pool = queue_manager.pool();
+
+        // Look up watch_folder to resolve paths
+        let watch_info = tracked_files_schema::lookup_watch_folder(
+            pool, &item.tenant_id, &item.collection,
+        )
+        .await
+        .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Failed to lookup watch_folder: {}", e)))?;
+
+        let (watch_folder_id, base_path) = match watch_info {
+            Some((wid, bp)) => (wid, bp),
+            None => {
+                warn!(
+                    "No watch_folder for tenant_id={}, collection={} -- nothing to delete",
+                    item.tenant_id, item.collection
+                );
+                return Ok(());
+            }
+        };
+
+        // Compute relative folder path from absolute folder_path and base_path
+        let relative_folder = tracked_files_schema::compute_relative_path(&payload.folder_path, &base_path)
+            .unwrap_or_else(|| payload.folder_path.clone());
+
+        // Get all tracked files under this folder prefix
+        let tracked_files = tracked_files_schema::get_tracked_files_by_prefix(
+            pool, &watch_folder_id, &relative_folder,
+        )
+        .await
+        .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Failed to query tracked files: {}", e)))?;
+
+        if tracked_files.is_empty() {
+            info!(
+                "No tracked files found under folder '{}' (relative='{}') -- nothing to delete",
+                payload.folder_path, relative_folder
+            );
+            return Ok(());
+        }
+
+        info!(
+            "Folder delete: found {} tracked files under '{}', enqueueing file deletions",
+            tracked_files.len(), relative_folder
+        );
+
+        let mut files_queued = 0u64;
+        let mut errors = 0u64;
+
+        for (file_id, rel_path, _branch) in &tracked_files {
+            // Reconstruct absolute path for the file payload
+            let abs_path = std::path::Path::new(&base_path).join(rel_path);
+            let abs_path_str = abs_path.to_string_lossy().to_string();
+
+            let file_payload = FilePayload {
+                file_path: abs_path_str.clone(),
+                file_type: None,
+                file_hash: None,
+                size_bytes: None,
+            };
+
+            let payload_json = serde_json::to_string(&file_payload)
+                .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("Failed to serialize FilePayload: {}", e)))?;
+
+            match queue_manager.enqueue_unified(
+                ItemType::File,
+                QueueOperation::Delete,
+                &item.tenant_id,
+                &item.collection,
+                &payload_json,
+                0,
+                Some(&item.branch),
+                None,
+            ).await {
+                Ok((_queue_id, is_new)) => {
+                    if is_new {
+                        files_queued += 1;
+                        debug!("Queued file for deletion: {} (file_id={})", abs_path_str, file_id);
+                    } else {
+                        debug!("File deletion already in queue (deduplicated): {}", abs_path_str);
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to queue file deletion for {}: {}", abs_path_str, e);
+                    errors += 1;
+                }
+            }
+        }
+
+        let elapsed = start.elapsed();
+        info!(
+            "Folder delete complete: {} files queued for deletion, {} errors in {:?} (folder={})",
+            files_queued, errors, elapsed, payload.folder_path
+        );
+
+        if errors > 0 {
+            warn!(
+                "Folder delete had {} errors out of {} files for folder: {}",
+                errors, tracked_files.len(), payload.folder_path
+            );
+        }
+
+        Ok(())
     }
 
     /// Process project item (Task 37.29) - create/manage project collections
