@@ -1,23 +1,26 @@
-//! File Type Allowlist (Task 511)
+//! File Type Allowlist
 //!
-//! Provides an allowlist of file extensions that the daemon will process.
-//! Files whose extensions are not in the allowlist are silently skipped,
-//! preventing the ingestion of binary files, media, caches, and other
-//! non-textual content that caused the home directory contamination incident.
+//! Provides a two-tier allowlist of file extensions that the daemon will process.
+//! The library allowlist is a superset of the project allowlist, so reference
+//! material containing code examples can be fully processed. Files whose
+//! extensions are not in the appropriate allowlist are silently skipped.
 
 use std::collections::HashSet;
 use std::path::Path;
 
-/// Allowlist of file extensions for project and library ingestion.
+/// Two-tier allowlist of file extensions for project and library ingestion.
 ///
-/// The daemon will only process files whose extension (case-insensitive)
-/// matches an entry in the appropriate set. Extension-less files are
-/// rejected by default.
+/// The library set is a superset of the project set: `library_extensions ⊇ project_extensions`.
+/// This allows reference material (books, papers, documentation) containing code examples
+/// to be fully processed when ingested into the libraries collection.
+///
+/// Extension-less files are always rejected.
 #[derive(Debug, Clone)]
 pub struct AllowedExtensions {
     /// Extensions allowed for project collections (source code, config, docs).
     project_extensions: HashSet<String>,
-    /// Extensions allowed for library collections (documents, reference material).
+    /// Extensions allowed for library collections (superset of project_extensions
+    /// plus document/reference formats like .pdf, .epub, .docx, etc.).
     library_extensions: HashSet<String>,
 }
 
@@ -97,18 +100,26 @@ impl Default for AllowedExtensions {
         .map(|s| s.to_string())
         .collect();
 
-        let library_extensions: HashSet<String> = [
+        // Library-only extensions: document/reference formats not in project set.
+        // library_extensions = project_extensions ∪ library_only_extensions
+        let library_only: HashSet<String> = [
             // Documents
-            ".pdf", ".epub", ".docx", ".pptx", ".ppt", ".pages", ".key",
-            ".odt", ".odp", ".ods", ".rtf", ".doc",
-            // Spreadsheets
-            ".xlsx", ".xls",
-            // Text / Markup
-            ".md", ".txt", ".html", ".htm",
+            ".pdf", ".epub", ".djvu", ".docx", ".doc", ".rtf", ".odt",
+            // Ebooks
+            ".mobi",
+            // Presentations
+            ".pptx", ".ppt", ".pages", ".key", ".odp",
+            // Spreadsheets (formats not already in project_extensions)
+            ".xlsx", ".xls", ".ods", ".parquet",
+            // Web (variant not in project set)
+            ".htm",
         ]
         .iter()
         .map(|s| s.to_string())
         .collect();
+
+        let mut library_extensions = project_extensions.clone();
+        library_extensions.extend(library_only);
 
         Self {
             project_extensions,
@@ -167,10 +178,19 @@ mod tests {
     #[test]
     fn test_default_has_common_library_extensions() {
         let ae = AllowedExtensions::default();
-        for ext in &[".pdf", ".epub", ".docx", ".md", ".txt", ".html"] {
+        // Library-only document formats
+        for ext in &[".pdf", ".epub", ".docx", ".djvu", ".mobi", ".parquet"] {
             assert!(
                 ae.library_extensions.contains(*ext),
-                "Expected library extension {} to be present",
+                "Expected library-only extension {} to be present",
+                ext
+            );
+        }
+        // Project extensions should also be present (superset)
+        for ext in &[".rs", ".py", ".js", ".md", ".txt", ".html"] {
+            assert!(
+                ae.library_extensions.contains(*ext),
+                "Expected project extension {} to also be in library set",
                 ext
             );
         }
@@ -234,11 +254,11 @@ mod tests {
     }
 
     #[test]
-    fn test_project_collection_uses_project_set() {
+    fn test_project_extensions_allowed_in_libraries() {
         let ae = AllowedExtensions::default();
-        // .rs is in project but not library
+        // Project extensions like .rs are now also in library set (superset)
         assert!(ae.is_allowed("main.rs", "projects"));
-        assert!(!ae.is_allowed("main.rs", "libraries"));
+        assert!(ae.is_allowed("main.rs", "libraries"));
     }
 
     #[test]
@@ -286,5 +306,45 @@ mod tests {
         // Directories with dots should not confuse extension extraction
         assert!(ae.is_allowed("/home/user/my.project/src/main.rs", "projects"));
         assert!(!ae.is_allowed("/home/user/my.project/src/data.bin", "projects"));
+    }
+
+    #[test]
+    fn test_library_extensions_is_superset_of_project() {
+        let ae = AllowedExtensions::default();
+        // Every project extension must also be in library extensions
+        for ext in &ae.project_extensions {
+            assert!(
+                ae.library_extensions.contains(ext),
+                "Project extension {} missing from library set (superset violation)",
+                ext
+            );
+        }
+    }
+
+    #[test]
+    fn test_library_only_extensions_rejected_for_projects() {
+        let ae = AllowedExtensions::default();
+        // Document/reference formats should not be allowed in projects
+        for path in &["doc.pdf", "book.epub", "thesis.djvu", "report.docx",
+                       "novel.mobi", "slides.pptx", "data.parquet", "budget.xlsx"] {
+            assert!(
+                !ae.is_allowed(path, "projects"),
+                "Library-only file {} should be rejected for projects",
+                path
+            );
+            assert!(
+                ae.is_allowed(path, "libraries"),
+                "Library-only file {} should be accepted for libraries",
+                path
+            );
+        }
+    }
+
+    #[test]
+    fn test_case_insensitive_library_only_extensions() {
+        let ae = AllowedExtensions::default();
+        assert!(ae.is_allowed("doc.PDF", "libraries"));
+        assert!(ae.is_allowed("book.EPUB", "libraries"));
+        assert!(ae.is_allowed("report.DOCX", "libraries"));
     }
 }
