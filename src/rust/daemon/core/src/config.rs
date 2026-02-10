@@ -872,6 +872,34 @@ pub struct DaemonConfig {
     /// Resource limits configuration
     #[serde(default)]
     pub resource_limits: ResourceLimitsConfig,
+    /// Daemon endpoint configuration for service discovery
+    #[serde(default)]
+    pub daemon_endpoint: DaemonEndpointConfig,
+}
+
+/// Daemon endpoint configuration for service discovery
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DaemonEndpointConfig {
+    /// Daemon host address
+    pub host: String,
+    /// gRPC service port
+    pub grpc_port: u16,
+    /// Health check endpoint path
+    pub health_endpoint: String,
+    /// Optional authentication token
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth_token: Option<String>,
+}
+
+impl Default for DaemonEndpointConfig {
+    fn default() -> Self {
+        Self {
+            host: "127.0.0.1".to_string(),
+            grpc_port: 50051,
+            health_endpoint: "/health".to_string(),
+            auth_token: None,
+        }
+    }
 }
 
 impl Default for DaemonConfig {
@@ -896,6 +924,7 @@ impl Default for DaemonConfig {
             grammars: GrammarConfig::default(),
             updates: UpdatesConfig::default(),
             resource_limits: ResourceLimitsConfig::default(),
+            daemon_endpoint: DaemonEndpointConfig::default(),
         }
     }
 }

@@ -364,6 +364,20 @@ impl UnifiedConfigManager {
                 .map_err(|e| UnifiedConfigError::ValidationError(format!("Invalid auto_ingestion max_files_per_batch: {}", e)))?;
         }
 
+        // Daemon endpoint configuration overrides
+        if let Ok(host) = std::env::var(format!("{}DAEMON_HOST", ENV_PREFIX)) {
+            config.daemon_endpoint.host = host;
+        }
+
+        if let Ok(port) = std::env::var(format!("{}DAEMON_PORT", ENV_PREFIX)) {
+            config.daemon_endpoint.grpc_port = port.parse()
+                .map_err(|e| UnifiedConfigError::ValidationError(format!("Invalid daemon_port: {}", e)))?;
+        }
+
+        if let Ok(token) = std::env::var(format!("{}DAEMON_AUTH_TOKEN", ENV_PREFIX)) {
+            config.daemon_endpoint.auth_token = Some(token);
+        }
+
         Ok(config)
     }
 

@@ -74,7 +74,7 @@ pub struct DiscoveryManager {
     health_checker: HealthChecker,
 
     /// Unified configuration manager for fallback
-    _config_manager: UnifiedConfigManager,
+    config_manager: UnifiedConfigManager,
 
     /// Discovery configuration
     config: DiscoveryConfig,
@@ -133,7 +133,7 @@ impl DiscoveryManager {
                 NetworkDiscovery::new("239.255.42.42", 9999, None).unwrap()
             }),
             health_checker,
-            _config_manager: config_manager,
+            config_manager,
             config: config.clone(),
             event_sender,
             known_services: Arc::new(RwLock::new(HashMap::new())),
@@ -389,19 +389,65 @@ impl DiscoveryManager {
     /// Try discovery using configuration files
     async fn try_configuration_discovery(&self, service_name: &str) -> DiscoveryResult<Option<ServiceInfo>> {
         debug!("Trying configuration discovery for: {}", service_name);
-        
-        // TODO: Implement configuration-based discovery using unified config
-        // This would look up service endpoints from the configuration files
-        
-        warn!("Configuration discovery not yet implemented");
-        
-        let _ = self.event_sender.send(ServiceDiscoveryEvent::StrategyFailed {
-            strategy: DiscoveryStrategy::Configuration,
-            service_name: service_name.to_string(),
-            error: "Not implemented".to_string(),
-        });
-        
-        Ok(None)
+
+        // Load config from unified config search paths (includes env var overrides)
+        let daemon_config = match self.config_manager.load_config(None) {
+            Ok(config) => config,
+            Err(e) => {
+                debug!("Configuration load failed: {}", e);
+                let _ = self.event_sender.send(ServiceDiscoveryEvent::StrategyFailed {
+                    strategy: DiscoveryStrategy::Configuration,
+                    service_name: service_name.to_string(),
+                    error: format!("Config load failed: {}", e),
+                });
+                return Ok(None);
+            }
+        };
+
+        let endpoint = &daemon_config.daemon_endpoint;
+
+        // Only return a result for known service types that match the config
+        let service_info = match service_name {
+            "rust-daemon" => {
+                let mut info = ServiceInfo::new(endpoint.host.clone(), endpoint.grpc_port);
+                info.health_endpoint = endpoint.health_endpoint.clone();
+                if let Some(ref token) = endpoint.auth_token {
+                    info = info.with_auth_token(token.clone());
+                }
+                Some(info)
+            }
+            _ => None,
+        };
+
+        if let Some(service_info) = service_info {
+            // Verify the service is actually reachable
+            match self.health_checker.check_service_health(service_name, &service_info).await {
+                Ok(result) if result.status != HealthStatus::Unreachable => {
+                    debug!("Found {} via configuration discovery at {}:{}", service_name, service_info.host, service_info.port);
+                    self.update_known_service(service_name, service_info.clone(), DiscoveryStrategy::Configuration).await;
+
+                    let _ = self.event_sender.send(ServiceDiscoveryEvent::ServiceDiscovered {
+                        service_name: service_name.to_string(),
+                        service_info: service_info.clone(),
+                        strategy: DiscoveryStrategy::Configuration,
+                    });
+
+                    Ok(Some(service_info))
+                }
+                _ => {
+                    debug!("Configuration endpoint {}:{} not reachable for {}", endpoint.host, endpoint.grpc_port, service_name);
+                    let _ = self.event_sender.send(ServiceDiscoveryEvent::StrategyFailed {
+                        strategy: DiscoveryStrategy::Configuration,
+                        service_name: service_name.to_string(),
+                        error: format!("Endpoint {}:{} not reachable", endpoint.host, endpoint.grpc_port),
+                    });
+                    Ok(None)
+                }
+            }
+        } else {
+            debug!("No configuration endpoint for service: {}", service_name);
+            Ok(None)
+        }
     }
 
     /// Try discovery using default endpoints

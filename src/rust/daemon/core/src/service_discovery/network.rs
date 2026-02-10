@@ -117,6 +117,9 @@ pub struct NetworkDiscovery {
     
     /// Cache timeout for discovered services
     cache_timeout: Duration,
+
+    /// Locally registered services (services this node can respond for)
+    local_services: Arc<RwLock<HashMap<String, ServiceInfo>>>,
 }
 
 /// Discovery events broadcast to subscribers
@@ -177,6 +180,7 @@ impl NetworkDiscovery {
             event_sender,
             auth_token,
             cache_timeout: Duration::from_secs(300), // 5 minutes
+            local_services: Arc::new(RwLock::new(HashMap::new())),
         })
     }
 
@@ -226,7 +230,13 @@ impl NetworkDiscovery {
         service_info: &ServiceInfo,
     ) -> Result<(), NetworkError> {
         debug!("Announcing service: {}", service_name);
-        
+
+        // Track as local service so we can respond to discovery requests
+        {
+            let mut local = self.local_services.write().await;
+            local.insert(service_name.to_string(), service_info.clone());
+        }
+
         let message = DiscoveryMessage {
             message_type: DiscoveryMessageType::ServiceAnnouncement,
             service_name: service_name.to_string(),
@@ -234,9 +244,9 @@ impl NetworkDiscovery {
             payload: DiscoveryPayload::ServiceInfo(service_info.clone()),
             auth_token: self.auth_token.clone(),
         };
-        
+
         self.send_message(&message).await?;
-        
+
         debug!("Service {} announced successfully", service_name);
         Ok(())
     }
@@ -324,7 +334,13 @@ impl NetworkDiscovery {
     /// Announce service shutdown
     pub async fn announce_shutdown(&self, service_name: &str) -> Result<(), NetworkError> {
         info!("Announcing shutdown for service: {}", service_name);
-        
+
+        // Remove from local services
+        {
+            let mut local = self.local_services.write().await;
+            local.remove(service_name);
+        }
+
         let message = DiscoveryMessage {
             message_type: DiscoveryMessageType::ServiceShutdown,
             service_name: service_name.to_string(),
@@ -332,7 +348,7 @@ impl NetworkDiscovery {
             payload: DiscoveryPayload::Empty,
             auth_token: self.auth_token.clone(),
         };
-        
+
         self.send_message(&message).await?;
         Ok(())
     }
@@ -352,17 +368,23 @@ impl NetworkDiscovery {
 
     /// Send a message via multicast
     async fn send_message(&self, message: &DiscoveryMessage) -> Result<(), NetworkError> {
+        self.send_message_to(message, self.multicast_addr).await
+    }
+
+    /// Send a message to a specific address (for unicast responses)
+    async fn send_message_to(&self, message: &DiscoveryMessage, addr: SocketAddr) -> Result<(), NetworkError> {
         let socket_guard = self.socket.read().await;
         let socket = socket_guard.as_ref()
             .ok_or_else(|| NetworkError::DiscoveryFailed("Socket not initialized".to_string()))?;
 
         let message_data = serde_json::to_vec(message)?;
-        socket.send_to(&message_data, self.multicast_addr)?;
-        
-        debug!("Sent {} message for service {}", 
+        socket.send_to(&message_data, addr)?;
+
+        debug!("Sent {} message for service {} to {}",
                serde_json::to_string(&message.message_type).unwrap_or_default(),
-               message.service_name);
-        
+               message.service_name,
+               addr);
+
         Ok(())
     }
 
@@ -392,8 +414,41 @@ impl NetworkDiscovery {
             }
             
             DiscoveryMessageType::DiscoveryRequest => {
-                // TODO: Respond with our own service information if applicable
                 debug!("Received discovery request from {}", sender_addr);
+
+                if let DiscoveryPayload::Request { service_names, .. } = &message.payload {
+                    let local = self.local_services.read().await;
+
+                    // Respond with matching local services
+                    for (name, info) in local.iter() {
+                        // If service_names is empty, respond with all; otherwise filter
+                        if service_names.is_empty() || service_names.contains(name) {
+                            let response = DiscoveryMessage {
+                                message_type: DiscoveryMessageType::DiscoveryResponse,
+                                service_name: name.clone(),
+                                timestamp: current_iso_timestamp(),
+                                payload: DiscoveryPayload::ServiceInfo(info.clone()),
+                                auth_token: self.auth_token.clone(),
+                            };
+
+                            if let Err(e) = self.send_message_to(&response, sender_addr).await {
+                                warn!("Failed to send discovery response to {}: {}", sender_addr, e);
+                            }
+                        }
+                    }
+                }
+            }
+
+            DiscoveryMessageType::DiscoveryResponse => {
+                // Handle discovery response (same as announcement)
+                if let DiscoveryPayload::ServiceInfo(service_info) = message.payload {
+                    self._cache_discovered_service(&message.service_name, service_info.clone()).await;
+
+                    let _ = self.event_sender.send(DiscoveryEvent::ServiceDiscovered {
+                        service_name: message.service_name.clone(),
+                        service_info,
+                    });
+                }
             }
             
             DiscoveryMessageType::HealthPing => {
