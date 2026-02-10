@@ -10,7 +10,7 @@ use std::process;
 use std::sync::Arc;
 use tokio::signal;
 use tokio::sync::RwLock;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use workspace_qdrant_core::{
     config::{Config, DaemonConfig},
@@ -34,6 +34,8 @@ use workspace_qdrant_core::{
     AllowedExtensions,
     // Pause state polling (Task 543)
     poll_pause_state,
+    // Metrics history collection (Task 544)
+    metrics_history,
 };
 
 // gRPC server for Python MCP server and CLI communication (Task 421)
@@ -653,6 +655,26 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         }
     });
 
+    // Start periodic metrics history collection (Task 544.6)
+    let metrics_collect_pool = queue_pool.clone();
+    let metrics_collect_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
+        loop {
+            interval.tick().await;
+            match metrics_history::write_snapshot(&metrics_collect_pool).await {
+                Ok(count) => {
+                    if count > 0 {
+                        debug!("Collected {} metrics to history", count);
+                    }
+                }
+                Err(e) => {
+                    warn!("Failed to collect metrics history: {}", e);
+                }
+            }
+        }
+    });
+    info!("Metrics history collection started (60s interval)");
+
     info!("Initializing IPC server");
     let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);
     let (mut ipc_server, _ipc_client) = IpcServer::new(max_concurrent);
@@ -840,6 +862,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     uptime_handle.abort();
     pause_poll_handle.abort();
+    metrics_collect_handle.abort();
     grpc_handle.abort();
     info!("gRPC server stopped");
     if let Some(handle) = metrics_handle {
