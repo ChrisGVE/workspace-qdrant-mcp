@@ -25,6 +25,20 @@ const DEFAULT_MAX_CHUNK_SIZE: usize = 8000;
 /// Overlap size for fragmented chunks (in characters).
 const FRAGMENT_OVERLAP: usize = 500;
 
+/// Round a byte index down to the nearest UTF-8 char boundary.
+/// Prevents panics when slicing `&str` at byte offsets computed from
+/// arithmetic on `content.len()` (which counts bytes, not chars).
+fn safe_char_boundary(s: &str, index: usize) -> usize {
+    if index >= s.len() {
+        return s.len();
+    }
+    let mut i = index;
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
 /// Semantic chunker that extracts code units from source files.
 ///
 /// The chunker can optionally use a `LanguageProvider` for dynamic grammar loading,
@@ -195,6 +209,9 @@ impl SemanticChunker {
     }
 
     /// Split a large chunk into smaller fragments with overlap.
+    ///
+    /// All byte-offset arithmetic uses `safe_char_boundary` to avoid panics
+    /// on multi-byte UTF-8 characters (e.g., box-drawing `─`, CJK, emoji).
     fn split_chunk_with_overlap(&self, chunk: &SemanticChunk) -> Vec<SemanticChunk> {
         let content = &chunk.content;
         let target_size = self.max_chunk_size * 4; // Convert tokens to chars (approximate)
@@ -211,7 +228,7 @@ impl SemanticChunker {
 
         let mut fragment_index = 0;
         while start < content.len() {
-            let end = (start + target_size).min(content.len());
+            let end = safe_char_boundary(content, (start + target_size).min(content.len()));
 
             // Try to break at a line boundary
             let actual_end = if end < content.len() {
@@ -270,7 +287,7 @@ impl SemanticChunker {
             } else {
                 0
             };
-            start = actual_end - overlap;
+            start = safe_char_boundary(content, actual_end - overlap);
 
             // Safety check to prevent infinite loops
             if start >= content.len() || start >= actual_end {
@@ -495,6 +512,50 @@ mod tests {
             assert!(frag.is_fragment);
             assert!(frag.fragment_index.is_some());
             assert!(frag.total_fragments.is_some());
+        }
+    }
+
+    #[test]
+    fn test_safe_char_boundary() {
+        // ASCII: all byte indices are char boundaries
+        assert_eq!(safe_char_boundary("hello", 3), 3);
+        assert_eq!(safe_char_boundary("hello", 10), 5); // beyond end
+
+        // Box-drawing char ─ (U+2500, 3 bytes)
+        let s = "ab─cd";
+        // Layout: a(0) b(1) ─(2,3,4) c(5) d(6)
+        assert_eq!(safe_char_boundary(s, 2), 2); // start of ─
+        assert_eq!(safe_char_boundary(s, 3), 2); // inside ─ → back to 2
+        assert_eq!(safe_char_boundary(s, 4), 2); // inside ─ → back to 2
+        assert_eq!(safe_char_boundary(s, 5), 5); // start of c
+    }
+
+    #[test]
+    fn test_split_chunk_with_multibyte_utf8() {
+        // Reproduce the exact crash scenario: box-drawing chars in code comments
+        let chunker = SemanticChunker::new(200); // target_size = 800 bytes
+
+        // Build content with box-drawing chars that exceeds target_size
+        let line = "    // ── parse_relative_duration ────────────────────────────────\n";
+        let content = line.repeat(20); // ~1400 bytes with multi-byte chars
+        assert!(content.len() > 800, "Content must exceed target_size");
+
+        let chunk = SemanticChunk::new(
+            ChunkType::Function,
+            "test_fn",
+            &content,
+            1,
+            20,
+            "rust",
+            "test.rs",
+        );
+
+        // This should NOT panic even with multi-byte characters
+        let fragments = chunker.split_chunk_with_overlap(&chunk);
+        assert!(!fragments.is_empty());
+        // Verify all fragment content is valid UTF-8 (implicit in &str type)
+        for frag in &fragments {
+            assert!(!frag.content.is_empty());
         }
     }
 }
