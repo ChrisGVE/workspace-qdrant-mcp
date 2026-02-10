@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 3;
+pub const CURRENT_SCHEMA_VERSION: i32 = 4;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -153,6 +153,7 @@ impl SchemaManager {
             1 => self.migrate_v1().await,
             2 => self.migrate_v2().await,
             3 => self.migrate_v3().await,
+            4 => self.migrate_v4().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -276,6 +277,34 @@ impl SchemaManager {
             .await?;
 
         info!("Migration v3 complete");
+        Ok(())
+    }
+
+    /// Migration v4: Add is_paused and pause_start_time columns to watch_folders
+    async fn migrate_v4(&self) -> Result<(), SchemaError> {
+        info!("Migration v4: Adding pause columns to watch_folders");
+
+        use super::watch_folders_schema::MIGRATE_V4_PAUSE_SQL;
+
+        // Check if columns already exist (handles CREATE TABLE that already includes them)
+        let has_is_paused: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') WHERE name = 'is_paused'"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        if !has_is_paused {
+            for alter_sql in MIGRATE_V4_PAUSE_SQL {
+                debug!("Running ALTER TABLE: {}", alter_sql);
+                sqlx::query(alter_sql)
+                    .execute(&self.pool)
+                    .await?;
+            }
+        } else {
+            debug!("Pause columns already exist, skipping ALTER TABLE");
+        }
+
+        info!("Migration v4 complete");
         Ok(())
     }
 }
@@ -666,12 +695,12 @@ mod tests {
         // Actually, since we updated CREATE_TRACKED_FILES_SQL, v2 migration creates the table
         // with the column already. v3 migration handles this gracefully.
 
-        // Run remaining migrations (v3)
-        manager.run_migrations().await.expect("Failed to run migrations from v2 to v3");
+        // Run remaining migrations (v3, v4)
+        manager.run_migrations().await.expect("Failed to run migrations from v2");
 
-        // Verify v3 migration completed
+        // Verify all migrations completed
         let version = manager.get_current_version().await.unwrap();
-        assert_eq!(version, Some(3));
+        assert_eq!(version, Some(CURRENT_SCHEMA_VERSION));
 
         // Verify the reconcile index exists
         let has_index: bool = sqlx::query_scalar(
@@ -681,5 +710,45 @@ mod tests {
         .await
         .unwrap();
         assert!(has_index, "Reconcile index should exist after v3 migration");
+    }
+
+    #[tokio::test]
+    async fn test_incremental_migration_v3_to_v4() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+
+        // Simulate v3 state: run v1, v2, v3 only
+        manager.initialize().await.expect("Failed to initialize");
+        manager.run_migration(1).await.expect("Failed to run v1");
+        manager.record_migration(1).await.expect("Failed to record v1");
+        manager.run_migration(2).await.expect("Failed to run v2");
+        manager.record_migration(2).await.expect("Failed to record v2");
+        manager.run_migration(3).await.expect("Failed to run v3");
+        manager.record_migration(3).await.expect("Failed to record v3");
+
+        // Run remaining migrations (v4)
+        manager.run_migrations().await.expect("Failed to run migrations from v3 to v4");
+
+        // Verify v4 migration completed
+        let version = manager.get_current_version().await.unwrap();
+        assert_eq!(version, Some(4));
+
+        // Verify is_paused column exists
+        let has_is_paused: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') WHERE name = 'is_paused'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(has_is_paused, "is_paused column should exist after v4 migration");
+
+        // Verify pause_start_time column exists
+        let has_pause_start_time: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') WHERE name = 'pause_start_time'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(has_pause_start_time, "pause_start_time column should exist after v4 migration");
     }
 }

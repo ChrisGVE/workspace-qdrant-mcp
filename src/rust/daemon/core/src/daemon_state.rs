@@ -74,6 +74,10 @@ pub struct WatchFolderRecord {
     pub is_active: bool,
     /// Last activity timestamp
     pub last_activity_at: Option<DateTime<Utc>>,
+    /// Whether this watch folder is paused (events buffered, not processed)
+    pub is_paused: bool,
+    /// Timestamp when pause began, None if not paused
+    pub pause_start_time: Option<DateTime<Utc>>,
 
     // Library-specific fields (None for projects)
     /// Library mode: "sync" or "incremental"
@@ -184,10 +188,11 @@ impl DaemonStateManager {
                 watch_id, path, collection, tenant_id,
                 parent_watch_id, submodule_path,
                 git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                is_paused, pause_start_time,
                 library_mode,
                 follow_symlinks, enabled, cleanup_on_disable,
                 created_at, updated_at, last_scan
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)
             "#,
         )
         .bind(&record.watch_id)
@@ -201,6 +206,8 @@ impl DaemonStateManager {
         .bind(&record.disambiguation_path)
         .bind(record.is_active as i32)
         .bind(record.last_activity_at.map(|dt| dt.to_rfc3339()))
+        .bind(record.is_paused as i32)
+        .bind(record.pause_start_time.map(|dt| dt.to_rfc3339()))
         .bind(&record.library_mode)
         .bind(record.follow_symlinks as i32)
         .bind(record.enabled as i32)
@@ -221,6 +228,7 @@ impl DaemonStateManager {
             SELECT watch_id, path, collection, tenant_id,
                    parent_watch_id, submodule_path,
                    git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                   is_paused, pause_start_time,
                    library_mode,
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
@@ -244,6 +252,7 @@ impl DaemonStateManager {
             SELECT watch_id, path, collection, tenant_id,
                    parent_watch_id, submodule_path,
                    git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                   is_paused, pause_start_time,
                    library_mode,
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
@@ -283,6 +292,7 @@ impl DaemonStateManager {
             SELECT watch_id, path, collection, tenant_id,
                    parent_watch_id, submodule_path,
                    git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                   is_paused, pause_start_time,
                    library_mode,
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
@@ -356,6 +366,7 @@ impl DaemonStateManager {
             SELECT watch_id, path, collection, tenant_id,
                    parent_watch_id, submodule_path,
                    git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                   is_paused, pause_start_time,
                    library_mode,
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
@@ -498,6 +509,40 @@ impl DaemonStateManager {
     }
 
     // ========================================================================
+    // Pause/Resume methods (Task 543)
+    // ========================================================================
+
+    /// Pause all enabled watch folders
+    /// Returns the number of watch folders paused
+    pub async fn pause_all_watchers(&self) -> DaemonStateResult<u64> {
+        use super::watch_folders_schema::PAUSE_ALL_WATCHERS_SQL;
+        let result = sqlx::query(PAUSE_ALL_WATCHERS_SQL)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Resume all enabled watch folders
+    /// Returns the number of watch folders resumed
+    pub async fn resume_all_watchers(&self) -> DaemonStateResult<u64> {
+        use super::watch_folders_schema::RESUME_ALL_WATCHERS_SQL;
+        let result = sqlx::query(RESUME_ALL_WATCHERS_SQL)
+            .execute(&self.pool)
+            .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Get list of watch folder IDs that are currently paused
+    pub async fn get_paused_watch_ids(&self) -> DaemonStateResult<Vec<String>> {
+        let rows: Vec<sqlx::sqlite::SqliteRow> = sqlx::query(
+            "SELECT watch_id FROM watch_folders WHERE is_paused = 1 AND enabled = 1"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.iter().map(|r| r.try_get::<String, _>("watch_id").unwrap_or_default()).collect())
+    }
+
+    // ========================================================================
     // Project Disambiguation methods (Task 3)
     // ========================================================================
 
@@ -514,6 +559,7 @@ impl DaemonStateManager {
             SELECT watch_id, path, collection, tenant_id,
                    parent_watch_id, submodule_path,
                    git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                   is_paused, pause_start_time,
                    library_mode,
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
@@ -692,6 +738,8 @@ impl DaemonStateManager {
             disambiguation_path: row.try_get("disambiguation_path")?,
             is_active: row.try_get::<i32, _>("is_active")? != 0,
             last_activity_at: parse_optional_datetime(row.try_get("last_activity_at")?),
+            is_paused: row.try_get::<i32, _>("is_paused").unwrap_or(0) != 0,
+            pause_start_time: parse_optional_datetime(row.try_get("pause_start_time").unwrap_or(None)),
             library_mode: row.try_get("library_mode")?,
             follow_symlinks: row.try_get::<i32, _>("follow_symlinks")? != 0,
             enabled: row.try_get::<i32, _>("enabled")? != 0,
@@ -796,6 +844,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -862,6 +912,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -885,6 +937,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -933,6 +987,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: Some("sync".to_string()),
             follow_symlinks: true,
             enabled: true,
@@ -974,6 +1030,8 @@ mod tests {
                 disambiguation_path: None,
                 is_active: false,
                 last_activity_at: None,
+                is_paused: false,
+                pause_start_time: None,
                 library_mode: None,
                 follow_symlinks: false,
                 enabled: true,
@@ -999,6 +1057,8 @@ mod tests {
                 disambiguation_path: None,
                 is_active: false,
                 last_activity_at: None,
+                is_paused: false,
+                pause_start_time: None,
                 library_mode: None,
                 follow_symlinks: false,
                 enabled: true,
@@ -1043,6 +1103,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1099,6 +1161,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1143,6 +1207,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1191,6 +1257,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1214,6 +1282,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1261,6 +1331,8 @@ mod tests {
             disambiguation_path: None,
             is_active: true,
             last_activity_at: Some(Utc::now()),
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1284,6 +1356,8 @@ mod tests {
             disambiguation_path: None,
             is_active: true,
             last_activity_at: Some(Utc::now()),
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1329,6 +1403,8 @@ mod tests {
             disambiguation_path: None,
             is_active: true,
             last_activity_at: None, // No activity yet
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1352,6 +1428,8 @@ mod tests {
             disambiguation_path: None,
             is_active: true,
             last_activity_at: None, // No activity yet
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1394,6 +1472,8 @@ mod tests {
             disambiguation_path: None,
             is_active: true,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1417,6 +1497,8 @@ mod tests {
             disambiguation_path: None,
             is_active: true,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1479,6 +1561,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1536,6 +1620,8 @@ mod tests {
             disambiguation_path: Some("work/project".to_string()),
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1557,6 +1643,8 @@ mod tests {
             disambiguation_path: Some("personal/project".to_string()),
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1614,6 +1702,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1663,6 +1753,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1692,6 +1784,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,
@@ -1745,6 +1839,8 @@ mod tests {
             disambiguation_path: None,
             is_active: false,
             last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
             library_mode: None,
             follow_symlinks: false,
             enabled: true,

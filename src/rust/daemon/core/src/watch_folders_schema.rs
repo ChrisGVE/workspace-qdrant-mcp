@@ -96,6 +96,10 @@ pub struct WatchFolder {
     pub is_active: bool,
     /// Last activity timestamp - synced across parent and all subprojects
     pub last_activity_at: Option<String>,
+    /// Whether this watch folder is paused (events buffered, not processed)
+    pub is_paused: bool,
+    /// Timestamp when pause began (ISO 8601), None if not paused
+    pub pause_start_time: Option<String>,
 
     // Library-specific fields (NULL for projects)
     /// Library mode: sync or incremental
@@ -154,6 +158,8 @@ CREATE TABLE IF NOT EXISTS watch_folders (
     disambiguation_path TEXT,
     is_active INTEGER DEFAULT 0 CHECK (is_active IN (0, 1)),
     last_activity_at TEXT,
+    is_paused INTEGER DEFAULT 0 CHECK (is_paused IN (0, 1)),
+    pause_start_time TEXT,
 
     -- Library-specific (NULL for projects)
     library_mode TEXT CHECK (library_mode IS NULL OR library_mode IN ('sync', 'incremental')),
@@ -198,6 +204,12 @@ pub const CREATE_WATCH_FOLDERS_INDEXES_SQL: &[&str] = &[
        ON watch_folders(path)"#,
 ];
 
+/// SQL to add is_paused and pause_start_time columns (migration v4)
+pub const MIGRATE_V4_PAUSE_SQL: &[&str] = &[
+    "ALTER TABLE watch_folders ADD COLUMN is_paused INTEGER DEFAULT 0 CHECK (is_paused IN (0, 1))",
+    "ALTER TABLE watch_folders ADD COLUMN pause_start_time TEXT",
+];
+
 /// SQL to activate a project and all its related watches (parent, siblings, children)
 /// Use with parameter :watch_id
 pub const ACTIVATE_PROJECT_GROUP_SQL: &str = r#"
@@ -221,6 +233,24 @@ WHERE watch_id = :watch_id
    OR parent_watch_id = :watch_id
    OR watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = :watch_id)
    OR parent_watch_id = (SELECT parent_watch_id FROM watch_folders WHERE watch_id = :watch_id)
+"#;
+
+/// SQL to pause all enabled watch folders
+pub const PAUSE_ALL_WATCHERS_SQL: &str = r#"
+UPDATE watch_folders
+SET is_paused = 1,
+    pause_start_time = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE enabled = 1 AND is_paused = 0
+"#;
+
+/// SQL to resume all enabled watch folders
+pub const RESUME_ALL_WATCHERS_SQL: &str = r#"
+UPDATE watch_folders
+SET is_paused = 0,
+    pause_start_time = NULL,
+    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+WHERE enabled = 1 AND is_paused = 1
 "#;
 
 #[cfg(test)]
@@ -260,10 +290,27 @@ mod tests {
         assert!(CREATE_WATCH_FOLDERS_SQL.contains("watch_id TEXT PRIMARY KEY"));
         assert!(CREATE_WATCH_FOLDERS_SQL.contains("parent_watch_id"));
         assert!(CREATE_WATCH_FOLDERS_SQL.contains("is_active"));
+        assert!(CREATE_WATCH_FOLDERS_SQL.contains("is_paused"));
+        assert!(CREATE_WATCH_FOLDERS_SQL.contains("pause_start_time"));
 
         assert!(!CREATE_WATCH_FOLDERS_INDEXES_SQL.is_empty());
         for idx_sql in CREATE_WATCH_FOLDERS_INDEXES_SQL {
             assert!(idx_sql.contains("CREATE INDEX"));
         }
+    }
+
+    #[test]
+    fn test_pause_sql_constants_are_valid() {
+        assert!(PAUSE_ALL_WATCHERS_SQL.contains("is_paused = 1"));
+        assert!(PAUSE_ALL_WATCHERS_SQL.contains("pause_start_time"));
+        assert!(RESUME_ALL_WATCHERS_SQL.contains("is_paused = 0"));
+        assert!(RESUME_ALL_WATCHERS_SQL.contains("pause_start_time = NULL"));
+    }
+
+    #[test]
+    fn test_migrate_v4_pause_sql() {
+        assert_eq!(MIGRATE_V4_PAUSE_SQL.len(), 2);
+        assert!(MIGRATE_V4_PAUSE_SQL[0].contains("is_paused"));
+        assert!(MIGRATE_V4_PAUSE_SQL[1].contains("pause_start_time"));
     }
 }
