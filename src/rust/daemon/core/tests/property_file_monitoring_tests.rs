@@ -3,29 +3,24 @@
 //! This module focuses on property tests for file system monitoring patterns,
 //! integration with document processing workflows, and async/concurrent processing.
 
-use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use proptest::prelude::*;
-use tempfile::{NamedTempFile, TempDir};
+use tempfile::TempDir;
 use tokio::runtime::Runtime;
 use tokio::sync::RwLock;
 
 // Import core components
 use workspace_qdrant_core::{
-    DocumentProcessor, DocumentType, ChunkingConfig,
-    ProcessingError, TaskPriority,
+    DocumentProcessor, ChunkingConfig,
     config::Config,
-    patterns::{PatternManager, AllPatterns},
+    patterns::PatternManager,
 };
 
 // Import shared test utilities
-use shared_test_utils::{
-    test_helpers::init_test_tracing,
-    TestResult,
-};
+use shared_test_utils::test_helpers::init_test_tracing;
 
 // ============================================================================
 // FILE MONITORING PROPERTY GENERATORS
@@ -77,7 +72,7 @@ fn sanitize_filename(name: String) -> String {
         .replace("", "file") // Handle empty string
 }
 
-/// Generate random file patterns for include/exclude testing
+// Generate random file patterns for include/exclude testing
 prop_compose! {
     fn arb_file_pattern()(
         pattern_type in prop_oneof!["glob", "extension", "directory", "exact"],
@@ -93,7 +88,7 @@ prop_compose! {
     }
 }
 
-/// Generate random concurrent file operations
+// Generate random concurrent file operations
 prop_compose! {
     fn arb_concurrent_operations()(
         operations in prop::collection::vec(any::<FileOperation>(), 1..20),
@@ -103,7 +98,7 @@ prop_compose! {
     }
 }
 
-/// Generate random processing configurations
+// Generate random processing configurations
 prop_compose! {
     fn arb_processing_config()(
         max_concurrent in 1..20usize,
@@ -129,7 +124,7 @@ prop_compose! {
 // FILE MONITORING PROPERTY TESTS
 // ============================================================================
 
-/// Property test: File monitoring should handle rapid file operations
+// Property test: File monitoring should handle rapid file operations
 proptest! {
     #[test]
     fn prop_rapid_file_operations_handling(
@@ -163,7 +158,6 @@ proptest! {
                                     Ok(result) => {
                                         processed_files += 1;
                                         assert!(!result.document_id.is_empty());
-                                        assert!(result.processing_time_ms >= 0);
                                     },
                                     Err(e) => {
                                         // Processing errors are acceptable under rapid operations
@@ -220,7 +214,7 @@ proptest! {
     }
 }
 
-/// Property test: Concurrent document processing should be safe
+// Property test: Concurrent document processing should be safe
 proptest! {
     #[test]
     fn prop_concurrent_document_processing(
@@ -299,7 +293,6 @@ proptest! {
                 match result {
                     Ok(doc_result) => {
                         assert!(!doc_result.document_id.is_empty());
-                        assert!(doc_result.processing_time_ms >= 0);
                     },
                     Err(e) => {
                         let error_str = e.to_string();
@@ -312,7 +305,7 @@ proptest! {
     }
 }
 
-/// Property test: Pattern matching should be consistent and correct
+// Property test: Pattern matching should be consistent and correct
 proptest! {
     #[test]
     fn prop_pattern_matching_consistency(
@@ -384,7 +377,7 @@ fn matches_pattern(filename: &str, pattern: &str) -> bool {
     }
 }
 
-/// Property test: Memory bounds under file monitoring load
+// Property test: Memory bounds under file monitoring load
 proptest! {
     #[test]
     fn prop_memory_bounds_file_monitoring(
@@ -476,7 +469,7 @@ proptest! {
     }
 }
 
-/// Property test: Error recovery under filesystem stress
+// Property test: Error recovery under filesystem stress
 proptest! {
     #[test]
     fn prop_error_recovery_filesystem_stress(
@@ -564,7 +557,7 @@ proptest! {
     }
 }
 
-/// Property test: Integration with async patterns from subtask 243.2
+// Property test: Integration with async patterns from subtask 243.2
 proptest! {
     #[test]
     fn prop_async_integration_file_monitoring(
