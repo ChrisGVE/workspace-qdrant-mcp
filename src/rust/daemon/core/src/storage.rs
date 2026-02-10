@@ -727,6 +727,56 @@ impl StorageClient {
         Ok(count)
     }
 
+    /// Delete all points matching an arbitrary payload field name/value pair
+    ///
+    /// Generalized version of `delete_points_by_tenant` for any string payload field.
+    /// Useful for cleanup by `library_name`, `project_id`, or other identifiers.
+    ///
+    /// # Arguments
+    /// * `collection_name` - The collection to delete points from
+    /// * `field_name` - The payload field name to match
+    /// * `field_value` - The field value to match (must not be empty)
+    pub async fn delete_points_by_payload_field(
+        &self,
+        collection_name: &str,
+        field_name: &str,
+        field_value: &str,
+    ) -> Result<u64, StorageError> {
+        if field_value.trim().is_empty() {
+            return Err(StorageError::Point(
+                format!("{} must not be empty for delete operations", field_name),
+            ));
+        }
+
+        info!(
+            "Deleting points with {}='{}' from collection '{}'",
+            field_name, field_value, collection_name
+        );
+
+        let filter = Filter::must([Condition::matches(field_name, field_value.to_string())]);
+
+        let count = self.count_points_with_filter(collection_name, filter.clone()).await?;
+
+        let delete_request = DeletePointsBuilder::new(collection_name)
+            .points(filter)
+            .wait(true);
+
+        self.retry_operation(|| async {
+            self.client
+                .delete_points(delete_request.clone())
+                .await
+                .map_err(|e| StorageError::Point(format!("Failed to delete points by {}: {}", field_name, e)))
+        })
+        .await?;
+
+        info!(
+            "Deleted {} points with {}='{}' from '{}'",
+            count, field_name, field_value, collection_name
+        );
+
+        Ok(count)
+    }
+
     /// Scroll through all points in a collection for a tenant, returning file paths
     ///
     /// Paginates through Qdrant using the scroll API with a tenant_id filter,

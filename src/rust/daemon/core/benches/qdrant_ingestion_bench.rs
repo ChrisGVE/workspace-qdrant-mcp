@@ -142,6 +142,25 @@ fn chunk_text(text: &str, chunk_size: usize, overlap: usize) -> Vec<String> {
 /// Dedicated benchmark collection name (not a production collection)
 const BENCH_COLLECTION: &str = "bench_ingestion";
 
+/// Drop guard that ensures the benchmark collection is deleted on scope exit,
+/// whether the benchmark completes normally, panics, or is interrupted.
+struct BenchCleanupGuard {
+    rt: tokio::runtime::Handle,
+    storage_client: Arc<StorageClient>,
+    collection: &'static str,
+}
+
+impl Drop for BenchCleanupGuard {
+    fn drop(&mut self) {
+        eprintln!("\nCleaning up benchmark collection: {}", self.collection);
+        let client = self.storage_client.clone();
+        let collection = self.collection;
+        let _ = self.rt.block_on(async {
+            client.delete_collection(collection).await
+        });
+    }
+}
+
 /// Run a single benchmark iteration: embed + ingest + delete
 async fn run_iteration(
     embedding_gen: &EmbeddingGenerator,
@@ -286,6 +305,13 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
         return;
     }
     eprintln!("Created dedicated benchmark collection: {}", BENCH_COLLECTION);
+
+    // Guard ensures cleanup even on panic or Ctrl+C
+    let _cleanup_guard = BenchCleanupGuard {
+        rt: rt.handle().clone(),
+        storage_client: storage_client.clone(),
+        collection: BENCH_COLLECTION,
+    };
 
     // --- Initialize embedding model ---
     let embedding_config = EmbeddingConfig::default();
@@ -438,11 +464,7 @@ fn qdrant_ingestion_benchmark(c: &mut Criterion) {
         }
     });
 
-    // --- Cleanup benchmark collection ---
-    eprintln!("\nCleaning up benchmark collection: {}", BENCH_COLLECTION);
-    rt.block_on(async {
-        let _ = storage_client.delete_collection(BENCH_COLLECTION).await;
-    });
+    // Cleanup handled by BenchCleanupGuard's Drop impl
 }
 
 /// Chunk size optimization benchmark (embedding-only, no Qdrant)

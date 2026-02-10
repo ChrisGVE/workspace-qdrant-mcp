@@ -13,6 +13,7 @@ use workspace_qdrant_grpc::proto::{
     DeleteDocumentRequest,
 };
 use workspace_qdrant_grpc::services::DocumentServiceImpl;
+use workspace_qdrant_core::StorageClient;
 use tonic::{Request, Code};
 use prost::Message;
 use std::collections::HashMap;
@@ -20,6 +21,15 @@ use std::collections::HashMap;
 /// Test helper to create DocumentService instance
 fn create_service() -> DocumentServiceImpl {
     DocumentServiceImpl::default()
+}
+
+/// Clean up any test data written to a real Qdrant instance.
+/// The gRPC routing sends tenant_id="test-tenant" (non-hex) to the `libraries`
+/// collection with payload field `library_name = "test-tenant"`.
+/// This is best-effort: silently ignores errors when Qdrant is unavailable.
+async fn cleanup_test_tenant_data() {
+    let storage = StorageClient::new();
+    let _ = storage.delete_points_by_payload_field("libraries", "library_name", "test-tenant").await;
 }
 
 // =============================================================================
@@ -57,6 +67,7 @@ async fn test_ingest_text_basic_request() {
             );
         }
     }
+    cleanup_test_tenant_data().await;
 }
 
 #[tokio::test]
@@ -88,6 +99,7 @@ async fn test_ingest_text_with_custom_id() {
             );
         }
     }
+    cleanup_test_tenant_data().await;
 }
 
 #[tokio::test]
@@ -122,6 +134,7 @@ async fn test_ingest_text_with_metadata() {
             );
         }
     }
+    cleanup_test_tenant_data().await;
 }
 
 #[tokio::test]
@@ -153,6 +166,7 @@ async fn test_ingest_text_without_chunking() {
             );
         }
     }
+    cleanup_test_tenant_data().await;
 }
 
 // =============================================================================
@@ -374,6 +388,7 @@ async fn test_ingest_response_structure() {
             // Expected when Qdrant is not available
         }
     }
+    cleanup_test_tenant_data().await;
 }
 
 #[tokio::test]
@@ -406,6 +421,7 @@ async fn test_large_content_ingestion() {
             );
         }
     }
+    cleanup_test_tenant_data().await;
 }
 
 #[tokio::test]
@@ -433,4 +449,5 @@ async fn test_various_content_types() {
         // Should not panic or reject valid UTF-8 content
         let _ = service.ingest_text(request).await;
     }
+    cleanup_test_tenant_data().await;
 }
