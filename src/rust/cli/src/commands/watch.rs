@@ -91,6 +91,8 @@ pub struct WatchListItem {
     pub enabled: String,
     #[tabled(rename = "Active")]
     pub is_active: String,
+    #[tabled(rename = "Paused")]
+    pub is_paused: String,
     #[tabled(rename = "Last Scan")]
     pub last_scan: String,
 }
@@ -110,6 +112,8 @@ pub struct WatchListItemVerbose {
     pub enabled: String,
     #[tabled(rename = "Active")]
     pub is_active: String,
+    #[tabled(rename = "Paused")]
+    pub is_paused: String,
     #[tabled(rename = "Recursive")]
     pub recursive: String,
     #[tabled(rename = "Patterns")]
@@ -133,6 +137,7 @@ pub struct WatchDetailItem {
     pub debounce_seconds: f64,
     pub enabled: bool,
     pub is_active: bool,
+    pub is_paused: bool,
     pub created_at: String,
     pub updated_at: String,
     pub last_scan: Option<String>,
@@ -231,6 +236,15 @@ fn format_bool(value: bool) -> String {
     }
 }
 
+/// Format paused status with color (paused = yellow, not paused = green)
+fn format_bool_paused(value: bool) -> String {
+    if value {
+        "yes".yellow().to_string()
+    } else {
+        "no".green().to_string()
+    }
+}
+
 /// Resolve watch_id by exact match or prefix match
 /// Returns Some(resolved_id) if found, None if not found (error already printed)
 fn resolve_watch_id(conn: &Connection, watch_id: &str) -> Result<Option<String>> {
@@ -302,7 +316,8 @@ async fn list(
     let query = format!(
         r#"
         SELECT watch_id, path, collection, tenant_id, patterns, ignore_patterns,
-               enabled, is_active, recursive, last_scan_at
+               enabled, is_active, recursive, last_scan_at,
+               COALESCE(is_paused, 0) as is_paused
         FROM watch_folders
         {}
         ORDER BY path ASC
@@ -325,6 +340,7 @@ async fn list(
             row.get::<_, i32>(7)? != 0,  // is_active
             row.get::<_, i32>(8)? != 0,  // recursive
             row.get::<_, Option<String>>(9)?,  // last_scan_at
+            row.get::<_, i32>(10)? != 0,  // is_paused
         ))
     })?;
 
@@ -343,7 +359,7 @@ async fn list(
     if verbose {
         let display_items: Vec<WatchListItemVerbose> = items
             .iter()
-            .map(|(watch_id, path, collection, tenant_id, patterns, _ignore_patterns, enabled, is_active, recursive, last_scan)| {
+            .map(|(watch_id, path, collection, tenant_id, patterns, _ignore_patterns, enabled, is_active, recursive, last_scan, is_paused)| {
                 WatchListItemVerbose {
                     watch_id: truncate(watch_id, 20),
                     path: truncate(path, 40),
@@ -351,6 +367,7 @@ async fn list(
                     tenant_id: truncate(tenant_id, 20),
                     enabled: format_bool(*enabled),
                     is_active: format_bool(*is_active),
+                    is_paused: format_bool_paused(*is_paused),
                     recursive: if *recursive { "yes" } else { "no" }.to_string(),
                     patterns: truncate(patterns, 20),
                     last_scan: last_scan.as_ref().map(|s| format_relative_time(s)).unwrap_or_else(|| "never".to_string()),
@@ -368,13 +385,14 @@ async fn list(
     } else {
         let display_items: Vec<WatchListItem> = items
             .iter()
-            .map(|(watch_id, path, collection, _tenant_id, _patterns, _ignore_patterns, enabled, is_active, _recursive, last_scan)| {
+            .map(|(watch_id, path, collection, _tenant_id, _patterns, _ignore_patterns, enabled, is_active, _recursive, last_scan, is_paused)| {
                 WatchListItem {
                     watch_id: truncate(watch_id, 20),
                     path: truncate(path, 50),
                     collection: truncate(collection, 20),
                     enabled: format_bool(*enabled),
                     is_active: format_bool(*is_active),
+                    is_paused: format_bool_paused(*is_paused),
                     last_scan: last_scan.as_ref().map(|s| format_relative_time(s)).unwrap_or_else(|| "never".to_string()),
                 }
             })
@@ -454,7 +472,8 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
         SELECT watch_id, path, collection, tenant_id, patterns, ignore_patterns,
                auto_ingest, recursive, recursive_depth, debounce_seconds,
                enabled, is_active, created_at, updated_at, last_scan_at,
-               last_activity_at, parent_watch_id, metadata
+               last_activity_at, parent_watch_id, metadata,
+               COALESCE(is_paused, 0) as is_paused
         FROM watch_folders
         WHERE watch_id = ? OR watch_id LIKE ?
         LIMIT 1
@@ -482,6 +501,7 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
             last_activity_at: row.get(15)?,
             parent_watch_id: row.get(16)?,
             metadata: row.get(17)?,
+            is_paused: row.get::<_, i32>(18)? != 0,
         })
     });
 
@@ -499,6 +519,7 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
                 output::separator();
                 output::kv("Enabled", &format_bool(item.enabled));
                 output::kv("Active", &format_bool(item.is_active));
+                output::kv("Paused", &format_bool_paused(item.is_paused));
                 output::kv("Auto-ingest", &format_bool(item.auto_ingest));
                 output::kv("Recursive", &format_bool(item.recursive));
                 if item.recursive {
