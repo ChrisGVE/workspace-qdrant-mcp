@@ -3,7 +3,7 @@
 //! This crate provides common testing infrastructure, mock implementations,
 //! and test helpers that can be used across all workspace members.
 
-// pub mod containers; // Temporarily disabled due to dependency conflicts
+pub mod containers;
 pub mod fixtures;
 pub mod matchers;
 // pub mod mocks; // Temporarily disabled due to dependency conflicts
@@ -11,7 +11,7 @@ pub mod proptest_generators;
 pub mod test_helpers;
 
 // Re-export commonly used testing types and functions
-// pub use containers::*; // Temporarily disabled
+pub use containers::*;
 pub use fixtures::*;
 pub use matchers::*;
 // pub use mocks::*; // Temporarily disabled
@@ -23,8 +23,8 @@ pub use proptest;
 pub use serial_test;
 pub use tempfile;
 pub use test_log;
-// pub use testcontainers; // Temporarily disabled
-// pub use testcontainers_modules; // Temporarily disabled
+pub use testcontainers;
+pub use testcontainers_modules;
 pub use tokio_test;
 pub use tracing_test;
 // pub use wiremock; // Temporarily disabled

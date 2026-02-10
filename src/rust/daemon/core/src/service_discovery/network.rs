@@ -467,10 +467,6 @@ impl NetworkDiscovery {
                     service_name: message.service_name,
                 });
             }
-            
-            _ => {
-                debug!("Unhandled message type: {:?}", message.message_type);
-            }
         }
 
         Ok(())

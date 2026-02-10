@@ -5165,6 +5165,8 @@ dependencies = [
  "serial_test",
  "tempfile",
  "test-log",
+ "testcontainers",
+ "testcontainers-modules",
  "thiserror 1.0.69",
  "tokio",
  "tokio-test",
