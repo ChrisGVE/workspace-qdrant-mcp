@@ -100,12 +100,13 @@ pub struct UnifiedProcessorConfig {
     /// Retry delays (exponential backoff)
     pub retry_delays: Vec<ChronoDuration>,
 
-    // Fairness scheduler settings (Task 21 - Anti-starvation alternation)
+    // Fairness scheduler settings (asymmetric anti-starvation alternation)
     /// Whether fairness scheduling is enabled (if disabled, falls back to priority DESC always)
     pub fairness_enabled: bool,
-    /// Number of items between priority direction flips (default: 10)
-    /// Every N items, alternates between priority DESC and ASC to prevent starvation
-    pub items_per_flip: u64,
+    /// Batch size when processing high-priority items (priority DESC direction, default: 10)
+    pub high_priority_batch: u64,
+    /// Batch size when processing low-priority items (priority ASC / anti-starvation, default: 3)
+    pub low_priority_batch: u64,
 
     // Resource limits (Task 504)
     /// Delay in milliseconds between processing items
@@ -130,9 +131,10 @@ impl Default for UnifiedProcessorConfig {
                 ChronoDuration::minutes(15),
                 ChronoDuration::hours(1),
             ],
-            // Fairness scheduler defaults (Task 21 - Anti-starvation)
+            // Fairness scheduler defaults (asymmetric anti-starvation)
             fairness_enabled: true,
-            items_per_flip: 10, // Spec: every 10 items, flip priority direction
+            high_priority_batch: 10, // Spec: process 10 high-priority items per cycle
+            low_priority_batch: 3,   // Spec: process 3 low-priority items per anti-starvation cycle
             // Resource limits defaults (Task 504)
             inter_item_delay_ms: 50,
             max_concurrent_embeddings: 2,
@@ -192,11 +194,12 @@ impl UnifiedQueueProcessor {
         let storage_config = StorageConfig::default();
         let storage_client = Arc::new(StorageClient::with_config(storage_config));
 
-        // Create fairness scheduler with config from processor config (Task 21)
+        // Create fairness scheduler with config from processor config
         let queue_manager = QueueManager::new(pool);
         let fairness_config = FairnessSchedulerConfig {
             enabled: config.fairness_enabled,
-            items_per_flip: config.items_per_flip,
+            high_priority_batch: config.high_priority_batch,
+            low_priority_batch: config.low_priority_batch,
             worker_id: config.worker_id.clone(),
             lease_duration_secs: config.lease_duration_secs,
         };
@@ -231,11 +234,12 @@ impl UnifiedQueueProcessor {
         embedding_generator: Arc<EmbeddingGenerator>,
         storage_client: Arc<StorageClient>,
     ) -> Self {
-        // Create fairness scheduler with config from processor config (Task 21)
+        // Create fairness scheduler with config from processor config
         let queue_manager = QueueManager::new(pool);
         let fairness_config = FairnessSchedulerConfig {
             enabled: config.fairness_enabled,
-            items_per_flip: config.items_per_flip,
+            high_priority_batch: config.high_priority_batch,
+            low_priority_batch: config.low_priority_batch,
             worker_id: config.worker_id.clone(),
             lease_duration_secs: config.lease_duration_secs,
         };
@@ -2420,9 +2424,10 @@ mod tests {
         assert_eq!(config.lease_duration_secs, 300);
         assert_eq!(config.max_retries, 3);
         assert!(config.worker_id.starts_with("unified-worker-"));
-        // Fairness scheduler settings (Task 21 - Anti-starvation)
+        // Fairness scheduler settings (asymmetric anti-starvation)
         assert!(config.fairness_enabled);
-        assert_eq!(config.items_per_flip, 10); // Spec: every 10 items
+        assert_eq!(config.high_priority_batch, 10);
+        assert_eq!(config.low_priority_batch, 3);
         // Resource limits (Task 504)
         assert_eq!(config.inter_item_delay_ms, 50);
         assert_eq!(config.max_concurrent_embeddings, 2);

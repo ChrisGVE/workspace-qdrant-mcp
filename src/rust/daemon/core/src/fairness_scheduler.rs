@@ -1,8 +1,9 @@
 //! Fairness Scheduler Module
 //!
-//! Implements Task 21: 10-item anti-starvation alternation.
-//! Every 10 items, flips between priority DESC (active first) and priority ASC
-//! (inactive projects get a turn) to prevent starvation.
+//! Implements asymmetric anti-starvation alternation.
+//! Uses different batch sizes for high-priority (default 10) and low-priority (default 3)
+//! directions, flipping between priority DESC (active first) and priority ASC
+//! (inactive projects get a turn) to prevent starvation while preserving priority advantage.
 
 use std::sync::Arc;
 use thiserror::Error;
@@ -34,8 +35,11 @@ pub struct FairnessSchedulerConfig {
     /// Whether fairness scheduling is enabled (if disabled, falls back to priority DESC always)
     pub enabled: bool,
 
-    /// Number of items between priority direction flips (spec: 10)
-    pub items_per_flip: u64,
+    /// Batch size when processing high-priority items (priority DESC direction)
+    pub high_priority_batch: u64,
+
+    /// Batch size when processing low-priority items (priority ASC / anti-starvation direction)
+    pub low_priority_batch: u64,
 
     /// Worker ID for lease acquisition
     pub worker_id: String,
@@ -48,7 +52,8 @@ impl Default for FairnessSchedulerConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            items_per_flip: 10, // Spec: every 10 items
+            high_priority_batch: 10, // Spec: process 10 high-priority items per cycle
+            low_priority_batch: 3,   // Spec: process 3 low-priority items per anti-starvation cycle
             worker_id: format!("fairness-worker-{}", uuid::Uuid::new_v4()),
             lease_duration_secs: 300, // 5 minutes
         }
@@ -97,9 +102,9 @@ impl Default for AlternationState {
 
 /// Fairness scheduler for balanced queue processing
 ///
-/// Implements the spec's anti-starvation mechanism: every 10 items,
-/// alternate between priority DESC (active projects first) and
-/// priority ASC (inactive projects get a turn).
+/// Implements the spec's anti-starvation mechanism with asymmetric batch sizes:
+/// processes `high_priority_batch` items in priority DESC (active projects first),
+/// then flips to `low_priority_batch` items in priority ASC (inactive projects get a turn).
 pub struct FairnessScheduler {
     /// Queue manager for database operations
     queue_manager: QueueManager,
@@ -118,8 +123,8 @@ impl FairnessScheduler {
     /// Create a new fairness scheduler
     pub fn new(queue_manager: QueueManager, config: FairnessSchedulerConfig) -> Self {
         info!(
-            "Creating fairness scheduler (enabled={}, items_per_flip={})",
-            config.enabled, config.items_per_flip
+            "Creating fairness scheduler (enabled={}, high_priority_batch={}, low_priority_batch={})",
+            config.enabled, config.high_priority_batch, config.low_priority_batch
         );
 
         Self {
@@ -181,15 +186,18 @@ impl FairnessScheduler {
 
     /// Main scheduling method: dequeue the next batch of items
     ///
-    /// Algorithm (Task 21 - Anti-starvation alternation):
+    /// Algorithm (asymmetric anti-starvation alternation):
     /// 1. Get current priority direction (DESC or ASC)
-    /// 2. Dequeue up to batch_size items with that direction
+    /// 2. Dequeue up to max_batch_size items with that direction
     /// 3. Track items processed
-    /// 4. Every items_per_flip items (default 10), flip the direction
+    /// 4. After high_priority_batch items in DESC, flip to ASC
+    /// 5. After low_priority_batch items in ASC, flip back to DESC
     ///
     /// This ensures:
     /// - Most of the time, high priority (active projects/memory) go first
-    /// - Every 10 items, low priority (inactive projects/libraries) get a turn
+    /// - Periodically, low priority (inactive projects/libraries) get a turn
+    /// - Asymmetric batches (~77% high, ~23% low) prevent large library files
+    ///   from neutralizing the priority advantage
     /// - No items starve indefinitely
     pub async fn dequeue_next_batch(&self, max_batch_size: i32) -> FairnessResult<Vec<UnifiedQueueItem>> {
         // If fairness is disabled, always use priority DESC
@@ -198,16 +206,21 @@ impl FairnessScheduler {
             return self.dequeue_global_batch(max_batch_size, true).await;
         }
 
-        // Get current direction
-        let priority_descending = {
+        // Get current direction and determine batch size for this direction
+        let (priority_descending, current_batch_limit) = {
             let state = self.alternation_state.read().await;
-            state.use_priority_descending
+            let limit = if state.use_priority_descending {
+                self.config.high_priority_batch
+            } else {
+                self.config.low_priority_batch
+            };
+            (state.use_priority_descending, limit)
         };
 
         debug!(
-            "Dequeuing batch with priority {} (items_per_flip={})",
+            "Dequeuing batch with priority {} (batch_limit={})",
             if priority_descending { "DESC (high first)" } else { "ASC (low first)" },
-            self.config.items_per_flip
+            current_batch_limit
         );
 
         // Dequeue items with current direction
@@ -229,8 +242,8 @@ impl FairnessScheduler {
                 metrics.low_priority_first_items += items_count;
             }
 
-            // Check if we should flip direction
-            if state.items_since_flip >= self.config.items_per_flip {
+            // Check if we should flip direction (using direction-appropriate batch limit)
+            if state.items_since_flip >= current_batch_limit {
                 state.use_priority_descending = !state.use_priority_descending;
                 state.items_since_flip = 0;
                 metrics.direction_flips_total += 1;
@@ -249,7 +262,7 @@ impl FairnessScheduler {
                 items_count,
                 if priority_descending { "DESC" } else { "ASC" },
                 state.items_since_flip,
-                self.config.items_per_flip
+                current_batch_limit
             );
         } else {
             debug!("No items available in queue");
@@ -260,17 +273,22 @@ impl FairnessScheduler {
 
     /// Dequeue next batch for a specific project
     ///
-    /// Uses the anti-starvation alternation for the priority direction.
+    /// Uses the asymmetric anti-starvation alternation for the priority direction.
     pub async fn dequeue_project_next_batch(
         &self,
         project_id: &str,
         max_batch_size: i32,
     ) -> FairnessResult<Vec<UnifiedQueueItem>> {
-        let priority_descending = if !self.config.enabled {
-            true
+        let (priority_descending, current_batch_limit) = if !self.config.enabled {
+            (true, self.config.high_priority_batch)
         } else {
             let state = self.alternation_state.read().await;
-            state.use_priority_descending
+            let limit = if state.use_priority_descending {
+                self.config.high_priority_batch
+            } else {
+                self.config.low_priority_batch
+            };
+            (state.use_priority_descending, limit)
         };
 
         let items = self.dequeue_project_batch(project_id, max_batch_size, priority_descending).await?;
@@ -289,7 +307,7 @@ impl FairnessScheduler {
                 metrics.low_priority_first_items += items_count;
             }
 
-            if state.items_since_flip >= self.config.items_per_flip {
+            if state.items_since_flip >= current_batch_limit {
                 state.use_priority_descending = !state.use_priority_descending;
                 state.items_since_flip = 0;
                 metrics.direction_flips_total += 1;
@@ -343,7 +361,8 @@ mod tests {
     fn test_fairness_scheduler_config_default() {
         let config = FairnessSchedulerConfig::default();
         assert!(config.enabled);
-        assert_eq!(config.items_per_flip, 10);
+        assert_eq!(config.high_priority_batch, 10);
+        assert_eq!(config.low_priority_batch, 3);
         assert_eq!(config.lease_duration_secs, 300);
         assert!(config.worker_id.starts_with("fairness-worker-"));
     }
