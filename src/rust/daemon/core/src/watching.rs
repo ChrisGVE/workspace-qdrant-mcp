@@ -6,6 +6,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant, SystemTime};
 use std::num::NonZeroUsize;
 use tokio::sync::{mpsc, RwLock, Mutex};
@@ -265,6 +266,72 @@ pub struct FileEvent {
     pub system_time: SystemTime,
     pub size: Option<u64>,
     pub metadata: HashMap<String, String>,
+}
+
+/// Maximum capacity for the paused event buffer
+const PAUSED_EVENT_BUFFER_CAPACITY: usize = 10_000;
+
+/// Buffer for holding file events received while watchers are paused
+#[derive(Debug)]
+pub struct PausedEventBuffer {
+    /// Buffered events in FIFO order
+    events: VecDeque<FileEvent>,
+    /// Maximum capacity
+    capacity: usize,
+    /// Count of events evicted due to buffer overflow
+    evictions: u64,
+}
+
+impl PausedEventBuffer {
+    /// Create a new buffer with the default capacity
+    pub fn new() -> Self {
+        Self {
+            events: VecDeque::new(),
+            capacity: PAUSED_EVENT_BUFFER_CAPACITY,
+            evictions: 0,
+        }
+    }
+
+    /// Push an event into the buffer, evicting the oldest if at capacity
+    pub fn push_event(&mut self, event: FileEvent) {
+        if self.events.len() >= self.capacity {
+            self.events.pop_front();
+            self.evictions += 1;
+            if self.evictions % 1000 == 1 {
+                tracing::warn!(
+                    "Paused event buffer overflow: {} events evicted (capacity={})",
+                    self.evictions, self.capacity
+                );
+            }
+        }
+        self.events.push_back(event);
+    }
+
+    /// Drain all buffered events for processing
+    pub fn drain_events(&mut self) -> Vec<FileEvent> {
+        self.events.drain(..).collect()
+    }
+
+    /// Check if the buffer is empty
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    /// Get the number of buffered events
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+
+    /// Get the number of evicted events
+    pub fn evictions(&self) -> u64 {
+        self.evictions
+    }
+}
+
+impl Default for PausedEventBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Compiled patterns for efficient matching with LRU cache
@@ -689,6 +756,13 @@ pub struct WatchingStats {
     /// Number of unique paths in pattern matching cache
     pub pattern_cache_size: usize,
 
+    /// Whether watchers are currently paused
+    pub is_paused: bool,
+    /// Number of events currently buffered during pause
+    pub buffered_events: usize,
+    /// Total events evicted from buffer due to overflow
+    pub buffer_evictions: u64,
+
     /// Current telemetry snapshot (only populated if telemetry enabled)
     pub telemetry: Option<TelemetrySnapshot>,
 
@@ -731,6 +805,12 @@ pub struct FileWatcher {
 
     /// Currently watched paths
     watched_paths: Arc<RwLock<HashSet<PathBuf>>>,
+
+    /// Global pause state (atomic for fast checking in event loop)
+    is_paused: Arc<AtomicBool>,
+
+    /// Buffer for events received while paused
+    paused_event_buffer: Arc<Mutex<PausedEventBuffer>>,
 
     /// Telemetry tracking
     telemetry_tracker: Arc<Mutex<TelemetryTracker>>,
@@ -950,6 +1030,8 @@ impl FileWatcher {
             stats: Arc::new(Mutex::new(WatchingStats::default())),
             start_time: Instant::now(),
             watched_paths: Arc::new(RwLock::new(HashSet::new())),
+            is_paused: Arc::new(AtomicBool::new(false)),
+            paused_event_buffer: Arc::new(Mutex::new(PausedEventBuffer::new())),
             telemetry_tracker: Arc::new(Mutex::new(TelemetryTracker::new())),
         })
     }
@@ -1160,9 +1242,46 @@ impl FileWatcher {
             }
         }
 
+        // Add pause state
+        stats.is_paused = self.is_paused.load(Ordering::SeqCst);
+        {
+            let buffer = self.paused_event_buffer.lock().await;
+            stats.buffered_events = buffer.len();
+            stats.buffer_evictions = buffer.evictions();
+        }
+
         stats
     }
-    
+
+    /// Check if the watcher is currently paused
+    pub fn is_paused(&self) -> bool {
+        self.is_paused.load(Ordering::SeqCst)
+    }
+
+    /// Pause the watcher - events will be buffered instead of processed
+    pub fn pause(&self) {
+        let was_paused = self.is_paused.swap(true, Ordering::SeqCst);
+        if !was_paused {
+            tracing::info!("FileWatcher paused - events will be buffered");
+        }
+    }
+
+    /// Resume the watcher and return buffered events for processing
+    pub async fn resume(&self) -> Vec<FileEvent> {
+        let was_paused = self.is_paused.swap(false, Ordering::SeqCst);
+        if was_paused {
+            let mut buffer = self.paused_event_buffer.lock().await;
+            let events = buffer.drain_events();
+            tracing::info!(
+                "FileWatcher resumed - {} buffered events will be processed",
+                events.len()
+            );
+            events
+        } else {
+            Vec::new()
+        }
+    }
+
     /// Get currently watched paths
     pub async fn watched_paths(&self) -> Vec<PathBuf> {
         let watched_paths = self.watched_paths.read().await;
@@ -1225,6 +1344,8 @@ impl FileWatcher {
         let task_submitter = self.task_submitter.clone();
         let stats = self.stats.clone();
         let telemetry_tracker = self.telemetry_tracker.clone();
+        let is_paused = self.is_paused.clone();
+        let paused_event_buffer = self.paused_event_buffer.clone();
 
         let handle = tokio::spawn(async move {
             Self::event_processing_loop(
@@ -1235,7 +1356,9 @@ impl FileWatcher {
                 config,
                 task_submitter,
                 stats,
-                telemetry_tracker
+                telemetry_tracker,
+                is_paused,
+                paused_event_buffer,
             ).await;
         });
         
@@ -1257,6 +1380,8 @@ impl FileWatcher {
         task_submitter: TaskSubmitter,
         stats: Arc<Mutex<WatchingStats>>,
         telemetry_tracker: Arc<Mutex<TelemetryTracker>>,
+        is_paused: Arc<AtomicBool>,
+        paused_event_buffer: Arc<Mutex<PausedEventBuffer>>,
     ) {
         let mut cleanup_interval = interval(Duration::from_secs(300)); // 5 minute cleanup
         let mut debounce_interval = interval(Duration::from_millis(500)); // Check debounced events
@@ -1273,8 +1398,34 @@ impl FileWatcher {
                     }
                 } => {
                     if let Some(event) = event {
-                        Self::process_file_event(
-                            event,
+                        // Check pause state - buffer instead of processing
+                        if is_paused.load(Ordering::SeqCst) {
+                            let mut buffer = paused_event_buffer.lock().await;
+                            buffer.push_event(event);
+                            let mut stats_lock = stats.lock().await;
+                            stats_lock.events_received += 1;
+                        } else {
+                            Self::process_file_event(
+                                event,
+                                &debouncer,
+                                &batcher,
+                                &patterns,
+                                &config,
+                                &task_submitter,
+                                &stats,
+                                &telemetry_tracker
+                            ).await;
+                        }
+                    } else {
+                        // Channel closed, exit loop
+                        break;
+                    }
+                },
+
+                // Process debounced events (skip if paused)
+                _ = debounce_interval.tick() => {
+                    if !is_paused.load(Ordering::SeqCst) {
+                        Self::process_debounced_events(
                             &debouncer,
                             &batcher,
                             &patterns,
@@ -1283,23 +1434,7 @@ impl FileWatcher {
                             &stats,
                             &telemetry_tracker
                         ).await;
-                    } else {
-                        // Channel closed, exit loop
-                        break;
                     }
-                },
-
-                // Process debounced events
-                _ = debounce_interval.tick() => {
-                    Self::process_debounced_events(
-                        &debouncer,
-                        &batcher,
-                        &patterns,
-                        &config,
-                        &task_submitter,
-                        &stats,
-                        &telemetry_tracker
-                    ).await;
                 },
                 
                 // Cleanup old events
