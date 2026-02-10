@@ -718,7 +718,30 @@ impl SystemService for SystemServiceImpl {
             Status::internal(format!("Database error: {}", e))
         })?;
 
-        info!("Paused {} watch folder(s)", result.rows_affected());
+        let affected = result.rows_affected();
+        info!("Paused {} watch folder(s)", affected);
+
+        // Insert diagnostic entry into unified_queue for audit trail
+        let now = chrono::Utc::now().to_rfc3339();
+        let queue_id = format!("pause-{}", &now);
+        let metadata = serde_json::json!({
+            "action": "pause",
+            "affected_watchers": affected,
+        }).to_string();
+        let _ = sqlx::query(
+            "INSERT OR IGNORE INTO unified_queue \
+             (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
+              priority, status, metadata, created_at, updated_at) \
+             VALUES (?1, ?2, 'metadata', 'pause', '_system', '_system', 0, 'done', ?3, ?4, ?5)"
+        )
+        .bind(&queue_id)
+        .bind(&queue_id)
+        .bind(&metadata)
+        .bind(&now)
+        .bind(&now)
+        .execute(pool)
+        .await;
+
         Ok(Response::new(()))
     }
 
@@ -756,7 +779,30 @@ impl SystemService for SystemServiceImpl {
             Status::internal(format!("Database error: {}", e))
         })?;
 
-        info!("Resumed {} watch folder(s)", result.rows_affected());
+        let affected = result.rows_affected();
+        info!("Resumed {} watch folder(s)", affected);
+
+        // Insert diagnostic entry into unified_queue for audit trail
+        let now = chrono::Utc::now().to_rfc3339();
+        let queue_id = format!("resume-{}", &now);
+        let metadata = serde_json::json!({
+            "action": "resume",
+            "affected_watchers": affected,
+        }).to_string();
+        let _ = sqlx::query(
+            "INSERT OR IGNORE INTO unified_queue \
+             (queue_id, idempotency_key, item_type, op, tenant_id, collection, \
+              priority, status, metadata, created_at, updated_at) \
+             VALUES (?1, ?2, 'metadata', 'resume', '_system', '_system', 0, 'done', ?3, ?4, ?5)"
+        )
+        .bind(&queue_id)
+        .bind(&queue_id)
+        .bind(&metadata)
+        .bind(&now)
+        .bind(&now)
+        .execute(pool)
+        .await;
+
         Ok(Response::new(()))
     }
 }
