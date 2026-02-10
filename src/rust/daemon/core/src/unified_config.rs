@@ -587,13 +587,15 @@ mod tests {
         fs::write(&preferred_path, "# Config").unwrap();
 
         let sources = config_manager.discover_config_sources();
-        let existing_sources: Vec<_> = sources.into_iter()
-            .filter(|(_, _, exists)| *exists)
+
+        // Filter to sources under temp_dir to avoid picking up real user configs
+        // from ~/.workspace-qdrant/, ~/.config/workspace-qdrant/, etc.
+        let local_existing: Vec<_> = sources.iter()
+            .filter(|(p, _, exists)| *exists && p.starts_with(temp_dir.path()))
             .collect();
+        assert_eq!(local_existing.len(), 1);
 
-        assert_eq!(existing_sources.len(), 1);
-
-        // Should find .workspace-qdrant.yaml
+        // Should find .workspace-qdrant.yaml as the preferred source
         let preferred = config_manager.get_preferred_config_source(Some(ConfigFormat::Yaml));
         assert!(preferred.is_some());
         let (path, format) = preferred.unwrap();
