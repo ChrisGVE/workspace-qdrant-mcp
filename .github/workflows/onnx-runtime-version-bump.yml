@@ -23,6 +23,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # ONNX Runtime version for Intel Mac static linking
+  ORT_VERSION: "1.23.2"
 
 jobs:
   check-version:
@@ -146,6 +148,7 @@ jobs:
           - target: x86_64-apple-darwin
             os: macos-13  # Intel Mac runner
             name: macOS Intel
+            needs_ort_download: true
           - target: aarch64-apple-darwin
             os: macos-14  # Apple Silicon runner
             name: macOS ARM64
@@ -181,6 +184,41 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu
+
+      # ONNX Runtime static library for Intel Mac (ort crate handles other platforms)
+      - name: Cache ONNX Runtime (Intel Mac)
+        if: matrix.needs_ort_download
+        uses: actions/cache@v4
+        id: onnx-cache
+        with:
+          path: ~/.onnxruntime-static
+          key: onnxruntime-static-${{ env.ORT_VERSION }}-${{ matrix.target }}
+
+      - name: Download ONNX Runtime static library (Intel Mac)
+        if: matrix.needs_ort_download && steps.onnx-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p ~/.onnxruntime-static
+          curl -L "https://github.com/supertone-inc/onnxruntime-build/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-osx-universal2-static_lib-${{ env.ORT_VERSION }}.tgz" -o ~/.onnxruntime-static/ort.tgz
+          tar xzf ~/.onnxruntime-static/ort.tgz -C ~/.onnxruntime-static
+          rm ~/.onnxruntime-static/ort.tgz
+
+      - name: Set ORT environment (Intel Mac)
+        if: matrix.needs_ort_download
+        shell: bash
+        run: echo "ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib" >> $GITHUB_ENV
+
+      # Cache cargo dependencies
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
 
       - name: Build
         id: build

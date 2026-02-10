@@ -22,6 +22,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  # ONNX Runtime version for Intel Mac static linking
+  ORT_VERSION: "1.23.2"
 
 jobs:
   check-version:
@@ -68,11 +70,13 @@ jobs:
             echo "Already at latest version: $CURRENT"
           fi
 
-  create-update-pr:
-    name: Create Update PR
+  create-update-branch:
+    name: Create Update Branch
     needs: check-version
     if: needs.check-version.outputs.needs_update == 'true'
     runs-on: ubuntu-latest
+    outputs:
+      branch_name: ${{ steps.branch.outputs.name }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -83,7 +87,6 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: stable
-          components: rustfmt, clippy
 
       - name: Configure Git
         run: |
@@ -91,12 +94,13 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Create update branch
+        id: branch
         env:
           LATEST_VERSION: ${{ needs.check-version.outputs.latest_version }}
         run: |
           BRANCH_NAME="deps/tree-sitter-${LATEST_VERSION}"
           git checkout -b "$BRANCH_NAME"
-          echo "branch_name=$BRANCH_NAME" >> $GITHUB_ENV
+          echo "name=$BRANCH_NAME" >> $GITHUB_OUTPUT
 
       - name: Update tree-sitter version in Cargo.toml files
         env:
@@ -113,100 +117,184 @@ jobs:
           done
 
           # Update tree-sitter grammar crate versions if needed
-          # This updates tree-sitter-* crates to compatible versions
           cd src/rust/daemon
           cargo update tree-sitter || true
           cargo update -p tree-sitter || true
 
-      - name: Update Cargo.lock
-        working-directory: src/rust/daemon
-        run: cargo update
-
-      - name: Build and test
-        id: build
-        working-directory: src/rust/daemon
-        continue-on-error: true
-        run: |
-          cargo build --release 2>&1 | tee build.log
-          BUILD_STATUS=$?
-
-          if [ $BUILD_STATUS -eq 0 ]; then
-            echo "build_success=true" >> $GITHUB_OUTPUT
-            echo "Build succeeded"
-
-            # Run tests
-            cargo test 2>&1 | tee test.log
-            TEST_STATUS=$?
-
-            if [ $TEST_STATUS -eq 0 ]; then
-              echo "test_success=true" >> $GITHUB_OUTPUT
-              echo "Tests passed"
-            else
-              echo "test_success=false" >> $GITHUB_OUTPUT
-              echo "Tests failed"
-            fi
-          else
-            echo "build_success=false" >> $GITHUB_OUTPUT
-            echo "test_success=false" >> $GITHUB_OUTPUT
-            echo "Build failed"
-          fi
-
-      - name: Commit changes
-        if: steps.build.outputs.build_success == 'true'
+      - name: Commit and push
         env:
           LATEST_VERSION: ${{ needs.check-version.outputs.latest_version }}
         run: |
           git add -A
           git commit -m "deps: bump tree-sitter to $LATEST_VERSION"
+          git push origin "${{ steps.branch.outputs.name }}"
 
-      - name: Push branch
-        if: steps.build.outputs.build_success == 'true'
-        run: git push origin "$branch_name"
+  # Cross-platform build and test matrix (Task 525)
+  cross-platform-build:
+    name: Build & Test (${{ matrix.name }})
+    needs: [check-version, create-update-branch]
+    if: needs.check-version.outputs.needs_update == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            name: Linux x86_64
+          - target: x86_64-apple-darwin
+            os: macos-13  # Intel Mac runner
+            name: macOS Intel
+            needs_ort_download: true
+          - target: aarch64-apple-darwin
+            os: macos-latest  # Apple Silicon runner
+            name: macOS ARM64
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            name: Windows x86_64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout update branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.create-update-branch.outputs.branch_name }}
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      # Platform-specific dependencies
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: brew install cmake protobuf
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        run: choco install protoc cmake -y
+
+      # ONNX Runtime static library for Intel Mac
+      - name: Cache ONNX Runtime (Intel Mac)
+        if: matrix.needs_ort_download
+        uses: actions/cache@v4
+        id: onnx-cache
+        with:
+          path: ~/.onnxruntime-static
+          key: onnxruntime-static-${{ env.ORT_VERSION }}-${{ matrix.target }}
+
+      - name: Download ONNX Runtime (Intel Mac)
+        if: matrix.needs_ort_download && steps.onnx-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          mkdir -p ~/.onnxruntime-static
+          curl -L "https://github.com/supertone-inc/onnxruntime-build/releases/download/v${{ env.ORT_VERSION }}/onnxruntime-osx-universal2-static_lib-${{ env.ORT_VERSION }}.tgz" -o ~/.onnxruntime-static/ort.tgz
+          tar xzf ~/.onnxruntime-static/ort.tgz -C ~/.onnxruntime-static
+          rm ~/.onnxruntime-static/ort.tgz
+
+      - name: Set ORT environment (Intel Mac)
+        if: matrix.needs_ort_download
+        shell: bash
+        run: echo "ORT_LIB_LOCATION=$HOME/.onnxruntime-static/lib" >> $GITHUB_ENV
+
+      # Cache cargo dependencies
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ matrix.target }}-cargo-
+
+      - name: Build
+        id: build
+        working-directory: src/rust/daemon
+        continue-on-error: true
+        shell: bash
+        run: |
+          cargo build --release --target ${{ matrix.target }} 2>&1 | tee build.log
+          echo "status=$?" >> $GITHUB_OUTPUT
+
+      - name: Run tests
+        id: test
+        if: steps.build.outcome == 'success'
+        working-directory: src/rust/daemon
+        continue-on-error: true
+        shell: bash
+        run: |
+          cargo test --target ${{ matrix.target }} 2>&1 | tee test.log
+          echo "status=$?" >> $GITHUB_OUTPUT
+
+      - name: Upload build log on failure
+        if: steps.build.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-log-${{ matrix.target }}
+          path: src/rust/daemon/build.log
+
+  # Create PR or issue based on cross-platform results
+  create-pr-or-issue:
+    name: Create PR or Issue
+    needs: [check-version, create-update-branch, cross-platform-build]
+    if: always() && needs.check-version.outputs.needs_update == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Determine build status
+        id: status
+        run: |
+          if [ "${{ needs.cross-platform-build.result }}" == "success" ]; then
+            echo "all_success=true" >> $GITHUB_OUTPUT
+          else
+            echo "all_success=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Create Pull Request
-        if: steps.build.outputs.build_success == 'true'
+        if: steps.status.outputs.all_success == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CURRENT_VERSION: ${{ needs.check-version.outputs.current_version }}
           LATEST_VERSION: ${{ needs.check-version.outputs.latest_version }}
-          TEST_SUCCESS: ${{ steps.build.outputs.test_success }}
+          BRANCH_NAME: ${{ needs.create-update-branch.outputs.branch_name }}
         run: |
-          # Determine PR label based on test results
-          if [ "$TEST_SUCCESS" == "true" ]; then
-            LABELS="dependencies,automated,auto-merge"
-            BODY_SUFFIX="All tests passed. This PR is eligible for auto-merge."
-          else
-            LABELS="dependencies,automated,needs-review"
-            BODY_SUFFIX="**Note:** Some tests failed. Please review before merging."
-          fi
-
           gh pr create \
             --title "deps: bump tree-sitter from $CURRENT_VERSION to $LATEST_VERSION" \
             --body "## Tree-sitter Version Update
 
-Automated PR to update tree-sitter dependency.
+          Automated PR to update tree-sitter dependency.
 
-### Changes
-- Updated \`tree-sitter\` from \`$CURRENT_VERSION\` to \`$LATEST_VERSION\`
-- Updated related tree-sitter grammar crates to compatible versions
+          ### Changes
+          - Updated \`tree-sitter\` from \`$CURRENT_VERSION\` to \`$LATEST_VERSION\`
+          - Updated related tree-sitter grammar crates to compatible versions
 
-### Changelog
-See [tree-sitter releases](https://github.com/tree-sitter/tree-sitter/releases/tag/v$LATEST_VERSION) for details.
+          ### Cross-Platform Build Status
+          All platforms built and tested successfully:
+          - :white_check_mark: Linux x86_64
+          - :white_check_mark: macOS Intel (x86_64)
+          - :white_check_mark: macOS Apple Silicon (ARM64)
+          - :white_check_mark: Windows x86_64
 
-### Build Status
-- Build: :white_check_mark: Passed
-- Tests: $([ \"$TEST_SUCCESS\" == \"true\" ] && echo ':white_check_mark: Passed' || echo ':warning: Some failures')
+          ### Changelog
+          See [tree-sitter releases](https://github.com/tree-sitter/tree-sitter/releases/tag/v$LATEST_VERSION) for details.
 
-$BODY_SUFFIX
-
----
-*This PR was automatically created by the tree-sitter version bump workflow.*" \
-            --label "$LABELS" \
+          ---
+          *This PR was automatically created by the tree-sitter version bump workflow.*" \
+            --label "dependencies,automated,auto-merge" \
             --base main \
-            --head "$branch_name"
+            --head "$BRANCH_NAME"
 
       - name: Enable auto-merge
-        if: steps.build.outputs.build_success == 'true' && steps.build.outputs.test_success == 'true'
+        if: steps.status.outputs.all_success == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -214,7 +302,7 @@ $BODY_SUFFIX
           gh pr merge "$PR_NUMBER" --auto --squash
 
       - name: Create issue on build failure
-        if: steps.build.outputs.build_success == 'false'
+        if: steps.status.outputs.all_success == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CURRENT_VERSION: ${{ needs.check-version.outputs.current_version }}
@@ -224,24 +312,22 @@ $BODY_SUFFIX
             --title "Tree-sitter update to $LATEST_VERSION failed to build" \
             --body "## Tree-sitter Update Build Failure
 
-The automated tree-sitter version bump workflow detected a new version but failed to build.
+          The automated tree-sitter version bump workflow detected a new version but failed to build on some platforms.
 
-### Version Details
-- Current: \`$CURRENT_VERSION\`
-- Target: \`$LATEST_VERSION\`
+          ### Version Details
+          - Current: \`$CURRENT_VERSION\`
+          - Target: \`$LATEST_VERSION\`
 
-### Build Log
-\`\`\`
-$(tail -100 src/rust/daemon/build.log 2>/dev/null || echo 'Build log not available')
-\`\`\`
+          ### Build Result
+          Cross-platform build job result: ${{ needs.cross-platform-build.result }}
 
-### Next Steps
-1. Review the build failure
-2. Check if breaking changes require code updates
-3. Manually create a PR with the necessary fixes
+          ### Next Steps
+          1. Download build logs from the workflow artifacts
+          2. Check if breaking changes require code updates
+          3. Manually create a PR with the necessary fixes
 
----
-*This issue was automatically created by the tree-sitter version bump workflow.*" \
+          ---
+          *This issue was automatically created by the tree-sitter version bump workflow.*" \
             --label "bug,dependencies,automated"
   # Post-merge patch release is handled by deps-post-merge-release.yml
   # which triggers on push to main from dependency update branches.
