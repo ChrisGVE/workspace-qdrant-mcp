@@ -13,7 +13,7 @@ use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
-use crate::allowed_extensions::AllowedExtensions;
+use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 use crate::patterns::exclusion::{should_exclude_file, should_exclude_directory};
 use crate::queue_operations::QueueManager;
 use crate::tracked_files_schema;
@@ -31,6 +31,8 @@ pub struct RecoveryStats {
     pub files_to_update: u64,
     /// Number of files skipped (unchanged)
     pub files_unchanged: u64,
+    /// Number of files routed to libraries collection (from project folders)
+    pub files_routed_to_library: u64,
     /// Number of files now excluded (queued for deletion)
     pub files_newly_excluded: u64,
     /// Errors encountered during recovery
@@ -93,9 +95,10 @@ pub async fn run_startup_recovery(
             Ok(s) => {
                 if s.files_to_ingest > 0 || s.files_to_delete > 0 || s.files_to_update > 0 || s.files_newly_excluded > 0 {
                     info!(
-                        "Recovery for {} ({}): +{} ingest, -{} delete, ~{} update, x{} excluded, ={} unchanged, !{} errors",
+                        "Recovery for {} ({}): +{} ingest, -{} delete, ~{} update, >{} to-lib, x{} excluded, ={} unchanged, !{} errors",
                         watch_id, path, s.files_to_ingest, s.files_to_delete,
-                        s.files_to_update, s.files_newly_excluded, s.files_unchanged, s.errors
+                        s.files_to_update, s.files_routed_to_library, s.files_newly_excluded,
+                        s.files_unchanged, s.errors
                     );
                 } else {
                     debug!("Recovery for {} ({}): no changes detected ({} files unchanged)", watch_id, path, s.files_unchanged);
@@ -184,7 +187,7 @@ async fn recover_watch_folder(
             if tracked_map.contains_key(&rel_path) {
                 if let Err(e) = enqueue_file_op(
                     queue_manager, tenant_id, collection,
-                    &path.to_string_lossy(), QueueOperation::Delete,
+                    &path.to_string_lossy(), QueueOperation::Delete, None,
                 ).await {
                     warn!("Failed to queue excluded file for deletion: {}: {}", rel_path, e);
                     stats.errors += 1;
@@ -195,23 +198,37 @@ async fn recover_watch_folder(
             continue;
         }
 
-        // Check allowlist (Task 511)
+        // Route file to appropriate collection based on extension (Task 565/566)
         let abs_path_str = path.to_string_lossy();
-        if !allowed_extensions.is_allowed(&abs_path_str, collection) {
-            // File extension not in allowlist - queue delete if previously tracked
-            if tracked_map.contains_key(&rel_path) {
-                if let Err(e) = enqueue_file_op(
-                    queue_manager, tenant_id, collection,
-                    &abs_path_str, QueueOperation::Delete,
-                ).await {
-                    warn!("Failed to queue non-allowed file for deletion: {}: {}", rel_path, e);
-                    stats.errors += 1;
-                } else {
-                    stats.files_newly_excluded += 1;
-                }
+        let route = allowed_extensions.route_file(&abs_path_str, collection, tenant_id);
+
+        let (target_collection, target_tenant, metadata) = match &route {
+            FileRoute::ProjectCollection => (collection.to_string(), tenant_id.to_string(), None),
+            FileRoute::LibraryCollection { source_project_id } => {
+                let meta = source_project_id.as_ref().map(|pid| {
+                    serde_json::json!({"source_project_id": pid}).to_string()
+                });
+                ("libraries".to_string(), tenant_id.to_string(), meta)
             }
-            continue;
-        }
+            FileRoute::Excluded => {
+                // File extension not in any allowlist - queue delete if previously tracked
+                if tracked_map.contains_key(&rel_path) {
+                    if let Err(e) = enqueue_file_op(
+                        queue_manager, tenant_id, collection,
+                        &abs_path_str, QueueOperation::Delete, None,
+                    ).await {
+                        warn!("Failed to queue non-allowed file for deletion: {}: {}", rel_path, e);
+                        stats.errors += 1;
+                    } else {
+                        stats.files_newly_excluded += 1;
+                    }
+                }
+                continue;
+            }
+        };
+
+        let is_library_routed = matches!(route, FileRoute::LibraryCollection { .. })
+            && collection != "libraries";
 
         disk_files.insert(rel_path.clone(), ());
 
@@ -229,13 +246,14 @@ async fn recover_watch_folder(
 
             if needs_update {
                 if let Err(e) = enqueue_file_op(
-                    queue_manager, tenant_id, collection,
-                    &path.to_string_lossy(), QueueOperation::Update,
+                    queue_manager, &target_tenant, &target_collection,
+                    &abs_path_str, QueueOperation::Update, metadata.as_deref(),
                 ).await {
                     warn!("Failed to queue file update: {}: {}", rel_path, e);
                     stats.errors += 1;
                 } else {
                     stats.files_to_update += 1;
+                    if is_library_routed { stats.files_routed_to_library += 1; }
                 }
             } else {
                 stats.files_unchanged += 1;
@@ -243,13 +261,14 @@ async fn recover_watch_folder(
         } else {
             // File on disk but not in tracked_files → queue ingest
             if let Err(e) = enqueue_file_op(
-                queue_manager, tenant_id, collection,
-                &path.to_string_lossy(), QueueOperation::Ingest,
+                queue_manager, &target_tenant, &target_collection,
+                &abs_path_str, QueueOperation::Ingest, metadata.as_deref(),
             ).await {
                 warn!("Failed to queue file ingest: {}: {}", rel_path, e);
                 stats.errors += 1;
             } else {
                 stats.files_to_ingest += 1;
+                if is_library_routed { stats.files_routed_to_library += 1; }
             }
         }
 
@@ -267,7 +286,7 @@ async fn recover_watch_folder(
             let abs_path = root.join(tracked_path);
             if let Err(e) = enqueue_file_op(
                 queue_manager, tenant_id, collection,
-                &abs_path.to_string_lossy(), QueueOperation::Delete,
+                &abs_path.to_string_lossy(), QueueOperation::Delete, None,
             ).await {
                 warn!("Failed to queue file deletion: {}: {}", tracked_path, e);
                 stats.errors += 1;
@@ -306,6 +325,7 @@ async fn enqueue_file_op(
     collection: &str,
     abs_file_path: &str,
     op: QueueOperation,
+    metadata: Option<&str>,
 ) -> Result<(), String> {
     let file_type = if op != QueueOperation::Delete {
         Some(classify_file_type(Path::new(abs_file_path)).as_str().to_string())
@@ -334,7 +354,7 @@ async fn enqueue_file_op(
         &payload_json,
         0, // Priority computed at dequeue time
         Some(&branch),
-        None,
+        metadata,
     )
     .await
     .map(|_| ())
@@ -352,6 +372,7 @@ mod tests {
         assert_eq!(stats.files_to_delete, 0);
         assert_eq!(stats.files_to_update, 0);
         assert_eq!(stats.files_unchanged, 0);
+        assert_eq!(stats.files_routed_to_library, 0);
         assert_eq!(stats.files_newly_excluded, 0);
         assert_eq!(stats.errors, 0);
     }
@@ -364,6 +385,7 @@ mod tests {
             files_to_delete: 2,
             files_to_update: 3,
             files_unchanged: 100,
+            files_routed_to_library: 1,
             files_newly_excluded: 1,
             errors: 0,
         }));
@@ -372,6 +394,7 @@ mod tests {
             files_to_delete: 0,
             files_to_update: 1,
             files_unchanged: 50,
+            files_routed_to_library: 0,
             files_newly_excluded: 0,
             errors: 0,
         }));
