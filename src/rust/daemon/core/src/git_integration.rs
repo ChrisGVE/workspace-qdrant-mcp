@@ -124,12 +124,8 @@ impl BranchEvent {
 /// State of a tracked branch in the lifecycle detector
 #[derive(Debug, Clone)]
 struct TrackedBranch {
-    /// Branch name
-    name: String,
     /// Commit hash the branch points to
     commit_hash: String,
-    /// Last modification time of the branch ref file
-    last_modified: SystemTime,
 }
 
 /// Configuration for branch lifecycle detection
@@ -490,14 +486,10 @@ impl BranchLifecycleDetector {
         let mut tracked = self.tracked_branches.write().await;
         tracked.clear();
 
-        for (name, commit_hash, modified) in branches {
+        for (name, commit_hash, _modified) in branches {
             tracked.insert(
                 name.clone(),
-                TrackedBranch {
-                    name,
-                    commit_hash,
-                    last_modified: modified,
-                },
+                TrackedBranch { commit_hash },
             );
         }
 
@@ -645,7 +637,7 @@ impl BranchLifecycleDetector {
         let mut pending = self.pending_deletes.write().await;
 
         // Check for new branches
-        for (name, commit_hash, modified) in &current_branches {
+        for (name, commit_hash, _) in &current_branches {
             if !tracked_names.contains(name) {
                 // New branch - check if it's a rename
                 let rename_source = pending.iter().position(|pd| {
@@ -676,9 +668,7 @@ impl BranchLifecycleDetector {
                 tracked.insert(
                     name.clone(),
                     TrackedBranch {
-                        name: name.clone(),
                         commit_hash: commit_hash.clone(),
-                        last_modified: *modified,
                     },
                 );
             }

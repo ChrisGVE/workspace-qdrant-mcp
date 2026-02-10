@@ -63,9 +63,6 @@ struct PendingMove {
 
     /// When the MOVED_FROM was received
     timestamp: Instant,
-
-    /// File ID if available (for correlation)
-    file_id: Option<u64>,
 }
 
 /// Configuration for the move correlator
@@ -101,9 +98,6 @@ pub struct MoveCorrelator {
 
     /// Configuration
     config: MoveCorrelatorConfig,
-
-    /// Counter for generating synthetic IDs when file ID not available
-    synthetic_id_counter: u64,
 }
 
 impl MoveCorrelator {
@@ -118,7 +112,6 @@ impl MoveCorrelator {
             pending_moves: HashMap::with_capacity(1000),
             pending_by_path: HashMap::with_capacity(1000),
             config,
-            synthetic_id_counter: 0,
         }
     }
 
@@ -147,7 +140,6 @@ impl MoveCorrelator {
             old_path: path.clone(),
             is_directory,
             timestamp: Instant::now(),
-            file_id,
         };
 
         // Store by file ID if available, otherwise by path

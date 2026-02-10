@@ -35,7 +35,6 @@ pub struct EmbeddingConfig {
     pub max_sequence_length: usize,
     pub enable_preprocessing: bool,
     pub bm25_k1: f32,
-    pub bm25_b: f32,
     /// Directory for storing downloaded model files
     /// Default: Uses system-appropriate cache directory (~/.cache/fastembed/)
     #[serde(default)]
@@ -50,7 +49,6 @@ impl Default for EmbeddingConfig {
             max_sequence_length: 512,
             enable_preprocessing: true,
             bm25_k1: 1.2,
-            bm25_b: 0.75,
             model_cache_dir: None,
         }
     }
@@ -94,16 +92,14 @@ pub struct PreprocessedText {
 #[derive(Debug)]
 pub struct BM25 {
     k1: f32,
-    b: f32,
     vocab: std::collections::HashMap<String, u32>,
     next_vocab_id: u32,
 }
 
 impl BM25 {
-    pub fn new(k1: f32, b: f32) -> Self {
+    pub fn new(k1: f32) -> Self {
         Self {
             k1,
-            b,
             vocab: std::collections::HashMap::new(),
             next_vocab_id: 0,
         }
@@ -175,7 +171,7 @@ impl EmbeddingGenerator {
         Ok(Self {
             config: config.clone(),
             model: Arc::new(Mutex::new(None)),
-            bm25: Arc::new(Mutex::new(BM25::new(config.bm25_k1, config.bm25_b))),
+            bm25: Arc::new(Mutex::new(BM25::new(config.bm25_k1))),
             initialized: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             model_cache_dir,
         })

@@ -564,7 +564,6 @@ proptest! {
                 max_sequence_length: 512,
                 enable_preprocessing: true,
                 bm25_k1: 1.2,
-                bm25_b: 0.75,
             };
 
             // This should either work or fail gracefully

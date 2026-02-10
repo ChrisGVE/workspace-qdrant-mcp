@@ -29,7 +29,7 @@ use chrono::{DateTime, Utc};
 
 use super::{
     Language, LspConfig, LspError,
-    LspServerDetector, ServerInstance, ServerStatus,
+    ServerInstance, ServerStatus,
 };
 use crate::config::LspSettings;
 
@@ -368,9 +368,6 @@ pub struct LanguageServerManager {
     /// Configuration
     config: ProjectLspConfig,
 
-    /// Server detector
-    detector: LspServerDetector,
-
     /// Server state by (project_id, language)
     servers: Arc<RwLock<HashMap<ProjectLanguageKey, ProjectServerState>>>,
 
@@ -396,11 +393,8 @@ pub struct LanguageServerManager {
 impl LanguageServerManager {
     /// Create a new project LSP manager
     pub async fn new(config: ProjectLspConfig) -> ProjectLspResult<Self> {
-        let detector = LspServerDetector::new();
-
         Ok(Self {
             config,
-            detector,
             servers: Arc::new(RwLock::new(HashMap::new())),
             instances: Arc::new(RwLock::new(HashMap::new())),
             cache: Arc::new(RwLock::new(HashMap::new())),
@@ -1483,7 +1477,7 @@ impl LanguageServerManager {
         );
 
         let mut resolved_imports = Vec::new();
-        let mut crash_detected = false;
+        let crash_detected = false;
 
         // If we have an LSP server, try to resolve each import
         if let Some(instance) = server_instance {

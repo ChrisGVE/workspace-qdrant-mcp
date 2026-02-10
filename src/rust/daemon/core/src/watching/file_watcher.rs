@@ -123,7 +123,6 @@ pub enum WatchEvent {
 /// Tracks watched paths and their associated tenant IDs
 #[derive(Clone)]
 struct WatchEntry {
-    path: PathBuf,
     tenant_id: String,
     recursive: bool,
 }
@@ -540,8 +539,7 @@ impl WatcherHandle {
         // Record the watch entry
         {
             let mut entries = self.watch_entries.write().await;
-            entries.insert(canonical.clone(), WatchEntry {
-                path: canonical,
+            entries.insert(canonical, WatchEntry {
                 tenant_id,
                 recursive,
             });
