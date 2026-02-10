@@ -383,9 +383,50 @@ impl MemoryTracker {
         }
     }
 
+    /// Get current process RSS (Resident Set Size) in bytes
     fn get_memory_usage() -> Option<usize> {
-        // Placeholder - would need platform-specific implementation
-        // Could use crates like `memory-stats` or `sys-info`
+        Self::get_rss_bytes()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn get_rss_bytes() -> Option<usize> {
+        use std::mem;
+        // Use mach task_info to get resident memory
+        unsafe {
+            let mut info: libc::mach_task_basic_info_data_t = mem::zeroed();
+            let mut count = (mem::size_of::<libc::mach_task_basic_info_data_t>()
+                / mem::size_of::<libc::natural_t>()) as libc::mach_msg_type_number_t;
+            let result = libc::task_info(
+                #[allow(deprecated)]
+                libc::mach_task_self(),
+                libc::MACH_TASK_BASIC_INFO,
+                &mut info as *mut _ as libc::task_info_t,
+                &mut count,
+            );
+            if result == libc::KERN_SUCCESS {
+                Some(info.resident_size as usize)
+            } else {
+                None
+            }
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn get_rss_bytes() -> Option<usize> {
+        // Read /proc/self/statm for RSS in pages
+        let statm = std::fs::read_to_string("/proc/self/statm").ok()?;
+        let rss_pages: usize = statm.split_whitespace().nth(1)?.parse().ok()?;
+        let page_size = unsafe { libc::sysconf(libc::_SC_PAGESIZE) };
+        if page_size > 0 {
+            Some(rss_pages * page_size as usize)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    fn get_rss_bytes() -> Option<usize> {
+        tracing::warn!("Memory tracking not supported on this platform");
         None
     }
 }
@@ -594,5 +635,28 @@ mod tests {
         let duration = benchmark.end();
 
         assert!(duration >= Duration::from_millis(5));
+    }
+
+    #[test]
+    fn test_memory_tracker_returns_rss() {
+        let tracker = MemoryTracker::start("rss_test");
+        // On macOS and Linux, get_memory_usage should return Some with non-zero RSS
+        let diff = tracker.end();
+        if cfg!(any(target_os = "macos", target_os = "linux")) {
+            assert!(diff.is_some(), "MemoryTracker should return RSS on macOS/Linux");
+        }
+    }
+
+    #[test]
+    fn test_memory_tracker_reports_allocation() {
+        let tracker = MemoryTracker::start("alloc_test");
+        // Allocate a non-trivial amount of memory to detect a change
+        let _data: Vec<u8> = vec![0u8; 4 * 1024 * 1024]; // 4MB
+        let diff = tracker.end();
+        if cfg!(any(target_os = "macos", target_os = "linux")) {
+            let diff_val = diff.expect("should return a value");
+            // The diff should be positive since we allocated 4MB
+            assert!(diff_val > 0, "Expected positive memory diff after 4MB alloc, got {}", diff_val);
+        }
     }
 }
