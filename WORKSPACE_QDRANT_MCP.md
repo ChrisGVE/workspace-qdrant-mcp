@@ -477,6 +477,7 @@ CREATE TABLE tracked_files (
     watch_folder_id TEXT NOT NULL,          -- FK to watch_folders.watch_id
     file_path TEXT NOT NULL,                -- RELATIVE path within project/library root
     branch TEXT,                            -- Git branch at ingestion (NULL for libraries)
+    collection TEXT NOT NULL DEFAULT 'projects', -- Destination collection (format-based routing)
 
     -- File metadata (from filesystem at ingestion time)
     file_type TEXT,                         -- code|doc|test|config|note|artifact
@@ -510,6 +511,7 @@ CREATE INDEX idx_tracked_files_branch ON tracked_files(watch_folder_id, branch);
 **Key columns:**
 
 - `file_path`: **Relative** to `watch_folders.path`. When a project moves, only the watch_folder root path changes; tracked_files entries remain valid.
+- `collection`: Destination Qdrant collection for this file. Normally matches `watch_folders.collection`, but format-based routing can override it (e.g., a `.pdf` in a project folder routes to `libraries`).
 - `file_hash`: SHA256 of file content at ingestion. Used for recovery (detect changes during daemon downtime, including git checkout/rsync which change content without changing mtime) and update optimization (skip re-embedding when content hasn't changed).
 - `file_mtime`: Filesystem modification time at ingestion. Used for fast change detection during recovery.
 - `lsp_status` / `treesitter_status`: Track processing pipeline state per file. Enables re-processing files that had partial or failed enrichment.
@@ -718,12 +720,12 @@ Priority is **calculated at query time**, not stored in the queue:
 | `file`/`folder` for inactive project | 0 (low)  | JOIN with `watch_folders.is_active`    |
 | `library`                            | 0 (low)  | Background processing                  |
 
-**Anti-starvation mechanism:** Every 10 queue pops, alternate between:
+**Anti-starvation mechanism (asymmetric batching):** The fairness scheduler alternates between priority directions with different batch sizes:
 
-- `ORDER BY priority DESC, created_at ASC` (active projects first)
-- `ORDER BY priority ASC, created_at ASC` (inactive projects get a turn)
+- **High-priority batch** (default 10): `ORDER BY priority DESC, created_at ASC` (active projects first)
+- **Low-priority batch** (default 3): `ORDER BY priority ASC, created_at ASC` (inactive projects get a turn)
 
-This prevents inactive projects from being starved indefinitely.
+The asymmetric sizes (10:3) ensure ~77% of processing capacity goes to active projects while still preventing starvation. Equal batch sizes would neutralize priority advantages when library files are significantly larger than source code files.
 
 #### Project Activity Tracking
 
@@ -938,12 +940,12 @@ wqm queue show <queue_id>        # Show single item with full error history
 7. Commit SQL transaction
 ```
 
-**Sort alternation:** Every 10 items, daemon flips between:
+**Sort alternation (asymmetric):** Daemon alternates with different batch sizes per direction:
 
-- `ORDER BY priority DESC` (active projects first)
-- `ORDER BY priority ASC` (inactive projects get a turn)
+- **High-priority batch** (default 10): `ORDER BY priority DESC` (active projects first)
+- **Low-priority batch** (default 3): `ORDER BY priority ASC` (inactive projects get a turn)
 
-This prevents starvation of low-priority items.
+This prevents starvation while maintaining effective priority differentiation.
 
 **Qdrant atomicity:** Each batch request to Qdrant is atomic. Grouping by (op, collection) leverages this for efficiency.
 
@@ -1594,7 +1596,9 @@ The allowlist is the **primary ingestion gate** — files not on the allowlist a
 
 #### Design
 
-- **Single allowlist** for BOTH projects AND libraries
+- **Two-tier allowlist**: Project extensions (source code, configs, text) and library extensions (superset: project + reference formats)
+- **Library allowlist** = project_extensions UNION library_only_extensions (`.pdf`, `.epub`, `.djvu`, `.docx`, `.mobi`, `.odt`, `.rtf`, `.doc`, `.ppt`, `.pptx`, `.xls`, `.xlsx`, `.csv`, `.tsv`, `.parquet`)
+- **Format-based routing**: Files with library-only extensions found in project folders are routed to the `libraries` collection with `source_project_id` metadata (see [Project vs. Library Boundary](#project-vs-library-boundary))
 - Defined in YAML config under `watching.allowed_extensions` and `watching.allowed_filenames`
 - Compile-time embedded defaults in all three components (daemon, CLI, MCP server)
 - User config can override (extend or restrict) the defaults
@@ -4094,23 +4098,30 @@ This section documents research findings and architectural ideas that may be pur
 - Hybrid search (dense + sparse + RRF) provides the vector retrieval foundation
 - `tracked_files` and `qdrant_chunks` tables already track file-to-chunk relationships
 
-**Graph database evaluation (2026-02-09):**
+**Graph database evaluation (2026-02-09, updated 2026-02-10):**
 
 | DB | License | Embeddable | Query Language | Multi-process R/W | Verdict |
 |----|---------|------------|----------------|-------------------|---------|
-| Kuzu | MIT | Yes (Rust + Node.js) | Full Cypher | No concurrent R+W | **Best graph engine** — concurrency solved via dedicated daemon |
+| Kuzu | MIT | Yes (Rust + Node.js) | Full Cypher | No concurrent R+W | ~~Best graph engine~~ **ARCHIVED Oct 2025** — see note below |
+| LadybugDB | MIT | Yes (Kuzu fork) | Cypher (inherited) | TBD | Fork of Kuzu, carries legacy but under new maintenance |
+| HelixDB | AGPL-3.0 | Rust-native | HelixQL (proprietary) | TBD | Graph+vector in one, YC-backed, active dev — AGPL license concern |
 | SQLite adjacency | Public domain | Yes | SQL + recursive CTE | WAL: 1 writer + N readers | Viable fallback, but 3+ hop queries get expensive |
 | Neo4j Community | GPLv3 + Commons Clause | No (separate JVM) | Cypher | Yes | Too heavy, licensing friction (GPLv3 + Commons Clause) |
 | SurrealDB | Apache 2.0 | Yes (Rust) | SurrealQL | Yes | Multi-model, vector HNSW persistence incomplete |
 | Oxigraph | Apache 2.0/MIT | Yes (Rust) | SPARQL (RDF only) | N/A | Wrong data model (RDF triples, not property graphs) |
 
-**Kuzu concurrency constraint:** Kuzu does NOT support safe concurrent read+write access across processes (see [Kuzu concurrency docs](https://docs.kuzudb.com/concurrency/)). However, single-process exclusive access with serialized operations is fully supported. Kuzu benchmarks show up to 188x faster multi-hop traversal than Neo4j for analytical queries.
+**Kuzu archived (2026-02-10 update):** The [Kuzu GitHub repository was archived on Oct 10, 2025](https://github.com/kuzudb/kuzu). The maintainers stated they are "working on something new" with no further details. No new releases or bug fixes are expected. Existing releases remain usable but the project is effectively abandoned. All references to Kuzu in this spec are retained for historical context but should be considered superseded by the alternatives below when Graph RAG work begins.
 
-**Qdrant confirmed** as the right choice for vector search. No multi-model database matches Qdrant's vector performance. The architecture combines specialized systems: Qdrant (vectors) + Kuzu (graph) + SQLite (state/metadata).
+**Alternatives to evaluate when Graph RAG is scoped:**
+- **[LadybugDB](https://github.com/ladybugdb/ladybugdb)**: Fork of Kuzu under new maintenance. Inherits Kuzu's MIT license, Cypher support, and embeddable architecture. Carries Kuzu's codebase legacy (both strengths and technical debt). Maturity and long-term commitment to be assessed.
+- **[HelixDB](https://github.com/helixdb/helix-db)**: Rust-native graph+vector database with built-in embeddings. Active development (YC-backed, 165+ releases). Uses proprietary HelixQL query language (not Cypher). **AGPL-3.0 license** is a concern for our MIT-licensed project — would require careful evaluation of linking/embedding implications vs. using as a separate service.
+- **SQLite recursive CTEs**: Already available, no new dependency. Sufficient for shallow graph queries (1-2 hops) but expensive for deep traversals and graph algorithms.
+
+**Qdrant confirmed** as the right choice for vector search. No multi-model database matches Qdrant's vector performance. The graph database selection is deferred until Graph RAG work is scoped — the dedicated daemon architecture (`graphd` with gRPC) remains valid regardless of which graph engine is chosen.
 
 **Recommended approach: Dedicated graph daemon (graphd)**
 
-A separate Rust daemon (`graphd`) owns the Kuzu database exclusively, serving both write and query operations via gRPC. This resolves the concurrency limitation while providing full Cypher capabilities at query time — no capability loss from materialization or SQL approximation.
+A separate Rust daemon (`graphd`) owns the graph database exclusively, serving both write and query operations via gRPC. This resolves concurrency limitations while providing full query capabilities at query time.
 
 ```
 MCP Server (TypeScript)
@@ -4126,10 +4137,10 @@ memexd (Rust daemon)
     └── State writes     → SQLite state.db (WAL mode)
 
 graphd (Rust daemon)
-    ├── Graph storage    → Kuzu database (exclusive access)
+    ├── Graph storage    → Graph database (exclusive access; engine TBD — see evaluation table)
     ├── Write API        → gRPC (receives edges from memexd)
     ├── Query API        → gRPC (serves MCP server, CLI, memexd)
-    └── Analytics        → Kuzu Cypher (community detection, centrality, impact analysis)
+    └── Analytics        → Graph query language (community detection, centrality, impact analysis)
 
 CLI (Rust)
     ├── Vector queries   → Qdrant (direct)
@@ -4138,13 +4149,13 @@ CLI (Rust)
 ```
 
 **Why a separate daemon, not embedded:**
-- Eliminates Kuzu's concurrency limitation (single process = single owner)
+- Eliminates graph engine concurrency limitations (single process = single owner)
 - Full Cypher available at query time (multi-hop traversal, path finding, graph algorithms)
 - Follows the established pattern (same launchd management, gRPC integration, binary distribution as memexd)
-- Future-proof: if Kuzu adds multi-process concurrency, the gRPC interface remains the contract
+- Future-proof: graph engine can be swapped behind the gRPC interface without consumer changes
 - Clean separation of concerns: each daemon does one thing well
 
-**Graph daemon storage:** `~/.workspace-qdrant/graph/` (Kuzu database directory)
+**Graph daemon storage:** `~/.workspace-qdrant/graph/` (graph database directory)
 
 **Graph daemon management:** Same launchd plist pattern as memexd. Single-threaded with internal queue for write operations. Read queries served directly. Managed via CLI (`wqm service install --graph`, `wqm service start --graph`).
 
@@ -4155,7 +4166,7 @@ CLI (Rust)
 3. Results re-ranked combining semantic similarity + graph proximity
 4. Advanced analytics (community detection, centrality, impact analysis) available as direct Cypher queries
 
-**Graph schema (Kuzu property graph):**
+**Graph schema (property graph, engine-agnostic):**
 
 Node types: `File`, `Function`, `Class`, `Method`, `Struct`, `Trait`, `Module`, `Document`
 
@@ -4304,14 +4315,16 @@ Tags are dynamic and must evolve as content changes. Tag updates piggyback on th
 - **Source diversity in results**: When multiple chunks from different sources match a query, prefer diverse results (1 chunk from each of 3 books) over concentrated results (3 chunks from 1 book). This is a post-retrieval re-ranking step.
 - **Contradiction handling**: Not automatically resolved. Provenance metadata enables the LLM consumer to reason about conflicting sources. Academic research confirms this remains an unsolved problem for automated systems.
 
-### Graph Daemon (graphd) — Kuzu Service
+### Graph Daemon (graphd) — Graph Database Service
 
-**Evaluation:** Kuzu (MIT, embeddable, Cypher, 188x faster than Neo4j for analytical queries) is the strongest candidate for graph storage and analytics. It has official bindings for both Rust (`kuzu` crate) and Node.js (`kuzu` npm package).
+**Note (2026-02-10):** This section was originally written for Kuzu, which has since been [archived (Oct 2025)](https://github.com/kuzudb/kuzu). The dedicated daemon architecture described below remains valid regardless of which graph engine is chosen. When Graph RAG work is scoped, evaluate LadybugDB (Kuzu fork, MIT), HelixDB (Rust-native, AGPL-3.0), or SQLite CTEs as the backing engine. See the [Graph RAG evaluation table](#graph-rag-knowledge-graph-enhanced-retrieval) for details.
 
-**Concurrency constraint and solution:** Kuzu does NOT support safe concurrent read+write across processes. The solution is a dedicated daemon (`graphd`) that owns the Kuzu database exclusively and serves both writes and queries via gRPC. This is architecturally analogous to how Qdrant operates — a dedicated process with exclusive database access, serving clients via API.
+**Original evaluation:** Kuzu (MIT, embeddable, Cypher, 188x faster than Neo4j for analytical queries) was the strongest candidate for graph storage and analytics with official Rust and Node.js bindings.
+
+**Concurrency constraint and daemon solution:** The dedicated daemon pattern (`graphd`) remains the recommended architecture regardless of graph engine choice. A separate Rust daemon owns the graph database exclusively, serving both write and query operations via gRPC. This resolves concurrency limitations while providing full query capabilities at query time — same architectural pattern as memexd with Qdrant.
 
 **graphd responsibilities:**
-- Own the Kuzu database at `~/.workspace-qdrant/graph/` (exclusive access)
+- Own the graph database at `~/.workspace-qdrant/graph/` (exclusive access)
 - Accept graph edge writes from memexd via gRPC (during ingestion)
 - Serve graph queries from MCP server, CLI, and memexd via gRPC (full Cypher)
 - Run graph analytics (community detection, centrality, impact analysis) on demand or as background tasks
@@ -4375,7 +4388,7 @@ Steps 2, 5, 7, 8 are additions. The queue, file watching, debouncing, and proces
 
 **Eventual consistency:** During batch operations (e.g., `git checkout` changing many files), the graph may have stale edges briefly while files are processed through the queue. This is the same trade-off accepted with Qdrant — the queue guarantees all files are eventually processed.
 
-**Future-proofing:** If Kuzu adds multi-process concurrency support in a future release, the migration path is simple: the gRPC interface remains the stable contract. The daemon could be evolved to allow direct database access, or kept as-is (the gRPC overhead for localhost communication is negligible).
+**Future-proofing:** The gRPC interface is the stable contract. The graph engine behind `graphd` can be swapped (LadybugDB, HelixDB, SQLite CTEs, or any future candidate) without affecting consumers. This was the original intent even before Kuzu's archival — the daemon abstraction isolates the engine choice.
 
 **CLI management:**
 ```bash
@@ -4400,7 +4413,7 @@ The capabilities being built form the foundation for a general-purpose knowledge
 - CLI for direct access and diagnostics
 
 **Planned capabilities (knowledge base):**
-- Graph relationship tracking (graphd with Kuzu)
+- Graph relationship tracking (graphd — engine TBD, see evaluation table)
 - Automated tagging and classification (Tiers 1-3)
 - Cross-collection and cross-project search
 - Content-type routing (code vs. reference material)
