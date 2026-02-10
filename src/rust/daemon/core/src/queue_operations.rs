@@ -50,6 +50,9 @@ pub enum QueueError {
 
     #[error("Missing required field '{field}' in payload for item_type '{item_type}'")]
     MissingPayloadField { item_type: String, field: String },
+
+    #[error("Internal queue error: {0}")]
+    InternalError(String),
 }
 
 /// Result type for queue operations
@@ -757,12 +760,44 @@ impl QueueManager {
         let is_new = result.rows_affected() > 0;
 
         // Get the queue_id (either newly inserted or existing)
-        let queue_id: String = sqlx::query_scalar(
-            "SELECT queue_id FROM unified_queue WHERE idempotency_key = ?1"
-        )
-            .bind(&idempotency_key)
-            .fetch_one(&self.pool)
-            .await?;
+        // When INSERT OR IGNORE is ignored, it could be due to either:
+        //   1. idempotency_key UNIQUE constraint (same exact operation)
+        //   2. file_path UNIQUE constraint (same file, different operation/metadata)
+        // We try idempotency_key first, then fall back to file_path for case 2.
+        let queue_id: String = if is_new {
+            sqlx::query_scalar(
+                "SELECT queue_id FROM unified_queue WHERE idempotency_key = ?1"
+            )
+                .bind(&idempotency_key)
+                .fetch_one(&self.pool)
+                .await?
+        } else {
+            // INSERT was ignored — try idempotency_key first
+            match sqlx::query_scalar::<_, String>(
+                "SELECT queue_id FROM unified_queue WHERE idempotency_key = ?1"
+            )
+                .bind(&idempotency_key)
+                .fetch_optional(&self.pool)
+                .await?
+            {
+                Some(id) => id,
+                None => {
+                    // Ignored due to file_path UNIQUE constraint (different idempotency_key)
+                    if let Some(ref fp) = file_path {
+                        sqlx::query_scalar(
+                            "SELECT queue_id FROM unified_queue WHERE file_path = ?1"
+                        )
+                            .bind(fp)
+                            .fetch_one(&self.pool)
+                            .await?
+                    } else {
+                        return Err(QueueError::InternalError(
+                            "INSERT OR IGNORE returned 0 rows but no matching idempotency_key or file_path found".to_string()
+                        ));
+                    }
+                }
+            }
+        };
 
         if is_new {
             debug!(
@@ -771,10 +806,11 @@ impl QueueManager {
             );
         } else {
             // Update timestamp to show we tried to enqueue again
+            // Use queue_id (always valid) instead of idempotency_key (may not match)
             sqlx::query(
-                "UPDATE unified_queue SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE idempotency_key = ?1"
+                "UPDATE unified_queue SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE queue_id = ?1"
             )
-                .bind(&idempotency_key)
+                .bind(&queue_id)
                 .execute(&self.pool)
                 .await?;
 
