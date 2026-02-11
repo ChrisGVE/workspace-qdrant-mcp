@@ -47,6 +47,10 @@ enum WatchCommand {
         /// Show more columns
         #[arg(short, long)]
         verbose: bool,
+
+        /// Include archived watch folders in the list
+        #[arg(long)]
+        show_archived: bool,
     },
 
     /// Enable a watch configuration
@@ -71,6 +75,18 @@ enum WatchCommand {
         json: bool,
     },
 
+    /// Archive a watch folder (stops watching/ingesting, data remains searchable)
+    Archive {
+        /// Watch ID or path to the watch folder to archive
+        watch_id: String,
+    },
+
+    /// Unarchive a watch folder (resumes watching/ingesting)
+    Unarchive {
+        /// Watch ID or path to the watch folder to unarchive
+        watch_id: String,
+    },
+
     /// Pause all enabled watchers (stops file event processing)
     Pause,
 
@@ -93,6 +109,8 @@ pub struct WatchListItem {
     pub is_active: String,
     #[tabled(rename = "Paused")]
     pub is_paused: String,
+    #[tabled(rename = "Archived")]
+    pub archived: String,
     #[tabled(rename = "Last Scan")]
     pub last_scan: String,
 }
@@ -116,6 +134,8 @@ pub struct WatchListItemVerbose {
     pub is_paused: String,
     #[tabled(rename = "Recursive")]
     pub recursive: String,
+    #[tabled(rename = "Archived")]
+    pub archived: String,
     #[tabled(rename = "Patterns")]
     pub patterns: String,
     #[tabled(rename = "Last Scan")]
@@ -138,6 +158,7 @@ pub struct WatchDetailItem {
     pub enabled: bool,
     pub is_active: bool,
     pub is_paused: bool,
+    pub is_archived: bool,
     pub created_at: String,
     pub updated_at: String,
     pub last_scan: Option<String>,
@@ -155,10 +176,13 @@ pub async fn execute(args: WatchArgs) -> Result<()> {
             collection,
             json,
             verbose,
-        } => list(enabled, disabled, collection, json, verbose).await,
+            show_archived,
+        } => list(enabled, disabled, collection, json, verbose, show_archived).await,
         WatchCommand::Enable { watch_id } => enable(&watch_id).await,
         WatchCommand::Disable { watch_id } => disable(&watch_id).await,
         WatchCommand::Show { watch_id, json } => show(&watch_id, json).await,
+        WatchCommand::Archive { watch_id } => archive(&watch_id).await,
+        WatchCommand::Unarchive { watch_id } => unarchive(&watch_id).await,
         WatchCommand::Pause => pause().await,
         WatchCommand::Resume => resume().await,
     }
@@ -245,6 +269,15 @@ fn format_bool_paused(value: bool) -> String {
     }
 }
 
+/// Format archived status with color (archived = yellow, not archived = green)
+fn format_bool_archived(value: bool) -> String {
+    if value {
+        "yes".yellow().to_string()
+    } else {
+        "no".green().to_string()
+    }
+}
+
 /// Resolve watch_id by exact match or prefix match
 /// Returns Some(resolved_id) if found, None if not found (error already printed)
 fn resolve_watch_id(conn: &Connection, watch_id: &str) -> Result<Option<String>> {
@@ -289,12 +322,18 @@ async fn list(
     collection: Option<String>,
     json: bool,
     verbose: bool,
+    show_archived: bool,
 ) -> Result<()> {
     let conn = connect_readonly()?;
 
     // Build WHERE clause
     let mut conditions: Vec<String> = Vec::new();
     let mut params_vec: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    // By default, hide archived folders unless --show-archived is set
+    if !show_archived {
+        conditions.push("COALESCE(is_archived, 0) = 0".to_string());
+    }
 
     if enabled_only {
         conditions.push("enabled = 1".to_string());
@@ -317,7 +356,8 @@ async fn list(
         r#"
         SELECT watch_id, path, collection, tenant_id, patterns, ignore_patterns,
                enabled, is_active, recursive, last_scan_at,
-               COALESCE(is_paused, 0) as is_paused
+               COALESCE(is_paused, 0) as is_paused,
+               COALESCE(is_archived, 0) as is_archived
         FROM watch_folders
         {}
         ORDER BY path ASC
@@ -341,6 +381,7 @@ async fn list(
             row.get::<_, i32>(8)? != 0,  // recursive
             row.get::<_, Option<String>>(9)?,  // last_scan_at
             row.get::<_, i32>(10)? != 0,  // is_paused
+            row.get::<_, i32>(11)? != 0,  // is_archived
         ))
     })?;
 
@@ -359,7 +400,7 @@ async fn list(
     if verbose {
         let display_items: Vec<WatchListItemVerbose> = items
             .iter()
-            .map(|(watch_id, path, collection, tenant_id, patterns, _ignore_patterns, enabled, is_active, recursive, last_scan, is_paused)| {
+            .map(|(watch_id, path, collection, tenant_id, patterns, _ignore_patterns, enabled, is_active, recursive, last_scan, is_paused, is_archived)| {
                 WatchListItemVerbose {
                     watch_id: truncate(watch_id, 20),
                     path: truncate(path, 40),
@@ -368,6 +409,7 @@ async fn list(
                     enabled: format_bool(*enabled),
                     is_active: format_bool(*is_active),
                     is_paused: format_bool_paused(*is_paused),
+                    archived: format_bool_archived(*is_archived),
                     recursive: if *recursive { "yes" } else { "no" }.to_string(),
                     patterns: truncate(patterns, 20),
                     last_scan: last_scan.as_ref().map(|s| format_relative_time(s)).unwrap_or_else(|| "never".to_string()),
@@ -385,7 +427,7 @@ async fn list(
     } else {
         let display_items: Vec<WatchListItem> = items
             .iter()
-            .map(|(watch_id, path, collection, _tenant_id, _patterns, _ignore_patterns, enabled, is_active, _recursive, last_scan, is_paused)| {
+            .map(|(watch_id, path, collection, _tenant_id, _patterns, _ignore_patterns, enabled, is_active, _recursive, last_scan, is_paused, is_archived)| {
                 WatchListItem {
                     watch_id: truncate(watch_id, 20),
                     path: truncate(path, 50),
@@ -393,6 +435,7 @@ async fn list(
                     enabled: format_bool(*enabled),
                     is_active: format_bool(*is_active),
                     is_paused: format_bool_paused(*is_paused),
+                    archived: format_bool_archived(*is_archived),
                     last_scan: last_scan.as_ref().map(|s| format_relative_time(s)).unwrap_or_else(|| "never".to_string()),
                 }
             })
@@ -473,7 +516,8 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
                auto_ingest, recursive, recursive_depth, debounce_seconds,
                enabled, is_active, created_at, updated_at, last_scan_at,
                last_activity_at, parent_watch_id, metadata,
-               COALESCE(is_paused, 0) as is_paused
+               COALESCE(is_paused, 0) as is_paused,
+               COALESCE(is_archived, 0) as is_archived
         FROM watch_folders
         WHERE watch_id = ? OR watch_id LIKE ?
         LIMIT 1
@@ -502,6 +546,7 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
             parent_watch_id: row.get(16)?,
             metadata: row.get(17)?,
             is_paused: row.get::<_, i32>(18)? != 0,
+            is_archived: row.get::<_, i32>(19)? != 0,
         })
     });
 
@@ -520,6 +565,7 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
                 output::kv("Enabled", &format_bool(item.enabled));
                 output::kv("Active", &format_bool(item.is_active));
                 output::kv("Paused", &format_bool_paused(item.is_paused));
+                output::kv("Archived", &format_bool_archived(item.is_archived));
                 output::kv("Auto-ingest", &format_bool(item.auto_ingest));
                 output::kv("Recursive", &format_bool(item.recursive));
                 if item.recursive {
@@ -572,6 +618,96 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
         Err(e) => {
             return Err(e.into());
         }
+    }
+
+    Ok(())
+}
+
+async fn archive(watch_id: &str) -> Result<()> {
+    let conn = connect_readwrite()?;
+
+    // Try resolving as watch_id first, then try as filesystem path
+    let resolved_id = match resolve_watch_id(&conn, watch_id)? {
+        Some(id) => id,
+        None => {
+            // Try to resolve as a path: canonicalize and look up by path column
+            let path = std::path::Path::new(watch_id);
+            if let Ok(canonical) = path.canonicalize() {
+                let path_str = canonical.to_string_lossy().to_string();
+                let found: Option<String> = conn.query_row(
+                    "SELECT watch_id FROM watch_folders WHERE path = ?1",
+                    params![&path_str],
+                    |row| row.get(0),
+                ).ok();
+                match found {
+                    Some(id) => id,
+                    None => {
+                        output::error(format!("Watch folder not found for path: {}", path_str));
+                        output::info("Use 'wqm watch list' to see available watches");
+                        return Ok(());
+                    }
+                }
+            } else {
+                return Ok(()); // resolve_watch_id already printed the error
+            }
+        }
+    };
+
+    let updated = conn.execute(
+        "UPDATE watch_folders SET is_archived = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE watch_id = ?1 AND COALESCE(is_archived, 0) = 0",
+        params![resolved_id],
+    )?;
+
+    if updated > 0 {
+        output::success(format!("Archived watch '{}'", resolved_id));
+        output::info("Watching and ingesting stopped; data remains fully searchable");
+    } else {
+        output::warning(format!("Watch '{}' not found or already archived", resolved_id));
+    }
+
+    Ok(())
+}
+
+async fn unarchive(watch_id: &str) -> Result<()> {
+    let conn = connect_readwrite()?;
+
+    // Try resolving as watch_id first, then try as filesystem path
+    let resolved_id = match resolve_watch_id(&conn, watch_id)? {
+        Some(id) => id,
+        None => {
+            // Try to resolve as a path: canonicalize and look up by path column
+            let path = std::path::Path::new(watch_id);
+            if let Ok(canonical) = path.canonicalize() {
+                let path_str = canonical.to_string_lossy().to_string();
+                let found: Option<String> = conn.query_row(
+                    "SELECT watch_id FROM watch_folders WHERE path = ?1",
+                    params![&path_str],
+                    |row| row.get(0),
+                ).ok();
+                match found {
+                    Some(id) => id,
+                    None => {
+                        output::error(format!("Watch folder not found for path: {}", path_str));
+                        output::info("Use 'wqm watch list --show-archived' to see archived watches");
+                        return Ok(());
+                    }
+                }
+            } else {
+                return Ok(()); // resolve_watch_id already printed the error
+            }
+        }
+    };
+
+    let updated = conn.execute(
+        "UPDATE watch_folders SET is_archived = 0, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE watch_id = ?1 AND COALESCE(is_archived, 0) = 1",
+        params![resolved_id],
+    )?;
+
+    if updated > 0 {
+        output::success(format!("Unarchived watch '{}'", resolved_id));
+        output::info("Watching and ingesting will resume on next poll cycle");
+    } else {
+        output::warning(format!("Watch '{}' not found or not archived", resolved_id));
     }
 
     Ok(())
