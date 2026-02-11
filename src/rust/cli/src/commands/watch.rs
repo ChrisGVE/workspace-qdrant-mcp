@@ -653,19 +653,99 @@ async fn archive(watch_id: &str) -> Result<()> {
         }
     };
 
+    // Archive the parent watch folder
     let updated = conn.execute(
         "UPDATE watch_folders SET is_archived = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE watch_id = ?1 AND COALESCE(is_archived, 0) = 0",
         params![resolved_id],
     )?;
 
-    if updated > 0 {
-        output::success(format!("Archived watch '{}'", resolved_id));
-        output::info("Watching and ingesting stopped; data remains fully searchable");
-    } else {
+    if updated == 0 {
         output::warning(format!("Watch '{}' not found or already archived", resolved_id));
+        return Ok(());
     }
 
+    output::success(format!("Archived watch '{}'", resolved_id));
+
+    // Check and archive submodules with cross-reference safety
+    let (archived_count, skipped_count) = archive_submodules_safely(&conn, &resolved_id)?;
+
+    if archived_count > 0 || skipped_count > 0 {
+        output::info(format!(
+            "{} submodule(s) archived, {} shared submodule(s) kept active",
+            archived_count, skipped_count
+        ));
+    }
+
+    output::info("Watching and ingesting stopped; data remains fully searchable");
+
     Ok(())
+}
+
+/// Archive submodules of a parent project with cross-reference safety checks.
+///
+/// For each submodule: if other active projects reference the same remote,
+/// the submodule is skipped (stays active). Otherwise it is archived with the parent.
+/// Returns (archived_count, skipped_count).
+fn archive_submodules_safely(conn: &Connection, parent_watch_id: &str) -> Result<(usize, usize)> {
+    // Get submodules of this parent
+    let mut stmt = conn.prepare(
+        "SELECT watch_id, remote_hash, git_remote_url FROM watch_folders WHERE parent_watch_id = ?1"
+    )?;
+    let submodules: Vec<(String, Option<String>, Option<String>)> = stmt
+        .query_map(params![parent_watch_id], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    let mut archived_count = 0;
+    let mut skipped_count = 0;
+
+    for (sub_watch_id, remote_hash, git_remote_url) in &submodules {
+        let rh = remote_hash.as_deref().unwrap_or("");
+        let url = git_remote_url.as_deref().unwrap_or("");
+
+        if rh.is_empty() && url.is_empty() {
+            // No remote info, archive with parent
+            let updated = conn.execute(
+                "UPDATE watch_folders SET is_archived = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE watch_id = ?1 AND COALESCE(is_archived, 0) = 0",
+                params![sub_watch_id],
+            )?;
+            if updated > 0 {
+                archived_count += 1;
+            }
+            continue;
+        }
+
+        // Count other active references to this submodule (only where parent is also active)
+        let other_refs: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM watch_folders sub \
+             WHERE sub.remote_hash = ?1 AND sub.git_remote_url = ?2 \
+             AND sub.parent_watch_id != ?3 AND COALESCE(sub.is_archived, 0) = 0 \
+             AND EXISTS (SELECT 1 FROM watch_folders parent \
+             WHERE parent.watch_id = sub.parent_watch_id AND COALESCE(parent.is_archived, 0) = 0)",
+            params![rh, url, parent_watch_id],
+            |row| row.get(0),
+        )?;
+
+        if other_refs > 0 {
+            skipped_count += 1;
+        } else {
+            let updated = conn.execute(
+                "UPDATE watch_folders SET is_archived = 1, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE watch_id = ?1 AND COALESCE(is_archived, 0) = 0",
+                params![sub_watch_id],
+            )?;
+            if updated > 0 {
+                archived_count += 1;
+            }
+        }
+    }
+
+    Ok((archived_count, skipped_count))
 }
 
 async fn unarchive(watch_id: &str) -> Result<()> {

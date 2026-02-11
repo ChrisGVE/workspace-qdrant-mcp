@@ -615,6 +615,166 @@ impl DaemonStateManager {
     }
 
     // ========================================================================
+    // Archive methods (Task 582)
+    // ========================================================================
+
+    /// Get all submodule watch folders for a given parent project.
+    pub async fn get_submodules_for_project(
+        &self,
+        parent_watch_id: &str,
+    ) -> DaemonStateResult<Vec<WatchFolderRecord>> {
+        let rows = sqlx::query(
+            r#"
+            SELECT watch_id, path, collection, tenant_id,
+                   parent_watch_id, submodule_path,
+                   git_remote_url, remote_hash, disambiguation_path, is_active, last_activity_at,
+                   is_paused, pause_start_time, is_archived,
+                   library_mode,
+                   follow_symlinks, enabled, cleanup_on_disable,
+                   created_at, updated_at, last_scan
+            FROM watch_folders
+            WHERE parent_watch_id = ?1
+            "#,
+        )
+        .bind(parent_watch_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(self.row_to_watch_folder(&row)?);
+        }
+        Ok(results)
+    }
+
+    /// Count how many OTHER active (non-archived) projects reference the same submodule.
+    ///
+    /// Used to determine if a submodule can be safely archived when its parent
+    /// is archived. Only counts references whose parent project is also active
+    /// (not archived). This ensures that when a parent is archived but its
+    /// submodule was skipped, it doesn't block archiving the same submodule
+    /// under a different parent.
+    pub async fn count_active_submodule_references(
+        &self,
+        remote_hash: &str,
+        git_remote_url: &str,
+        excluding_parent_watch_id: &str,
+    ) -> DaemonStateResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*) FROM watch_folders sub
+            WHERE sub.remote_hash = ?1
+              AND sub.git_remote_url = ?2
+              AND sub.parent_watch_id != ?3
+              AND COALESCE(sub.is_archived, 0) = 0
+              AND EXISTS (
+                SELECT 1 FROM watch_folders parent
+                WHERE parent.watch_id = sub.parent_watch_id
+                  AND COALESCE(parent.is_archived, 0) = 0
+              )
+            "#,
+        )
+        .bind(remote_hash)
+        .bind(git_remote_url)
+        .bind(excluding_parent_watch_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count)
+    }
+
+    /// Archive a single watch folder by setting is_archived = 1.
+    ///
+    /// Does NOT modify parent_watch_id (preserved as historical fact).
+    /// Does NOT delete any Qdrant data (archived projects remain searchable).
+    /// Returns true if a row was updated, false if already archived or not found.
+    pub async fn archive_watch_folder(&self, watch_id: &str) -> DaemonStateResult<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET is_archived = 1,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE watch_id = ?1 AND COALESCE(is_archived, 0) = 0
+            "#,
+        )
+        .bind(watch_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Unarchive a single watch folder by setting is_archived = 0.
+    ///
+    /// Returns true if a row was updated, false if not archived or not found.
+    pub async fn unarchive_watch_folder(&self, watch_id: &str) -> DaemonStateResult<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET is_archived = 0,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE watch_id = ?1 AND COALESCE(is_archived, 0) = 1
+            "#,
+        )
+        .bind(watch_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Archive a project and its submodules with cross-reference safety.
+    ///
+    /// For each submodule of the parent project:
+    /// - If other active projects reference the same remote, skip archiving
+    /// - If no other active references exist, archive alongside parent
+    ///
+    /// Returns (archived_ids, skipped_ids).
+    pub async fn archive_project_with_submodules(
+        &self,
+        parent_watch_id: &str,
+    ) -> DaemonStateResult<(Vec<String>, Vec<String>)> {
+        // Archive the parent first
+        self.archive_watch_folder(parent_watch_id).await?;
+
+        let submodules = self.get_submodules_for_project(parent_watch_id).await?;
+        let mut archived = Vec::new();
+        let mut skipped = Vec::new();
+
+        for sub in &submodules {
+            // Check if submodule has matching remote_hash and git_remote_url for cross-ref check
+            let remote_hash = sub.remote_hash.as_deref().unwrap_or("");
+            let git_remote_url = sub.git_remote_url.as_deref().unwrap_or("");
+
+            if remote_hash.is_empty() && git_remote_url.is_empty() {
+                // No remote info, archive with parent
+                if self.archive_watch_folder(&sub.watch_id).await? {
+                    archived.push(sub.watch_id.clone());
+                }
+                continue;
+            }
+
+            let other_refs = self.count_active_submodule_references(
+                remote_hash,
+                git_remote_url,
+                parent_watch_id,
+            ).await?;
+
+            if other_refs > 0 {
+                info!(
+                    "Skipping archive of shared submodule {}: {} other active reference(s)",
+                    sub.watch_id, other_refs
+                );
+                skipped.push(sub.watch_id.clone());
+            } else {
+                if self.archive_watch_folder(&sub.watch_id).await? {
+                    info!("Archived submodule {} with parent", sub.watch_id);
+                    archived.push(sub.watch_id.clone());
+                }
+            }
+        }
+
+        Ok((archived, skipped))
+    }
+
+    // ========================================================================
     // Project Disambiguation methods (Task 3)
     // ========================================================================
 
@@ -2344,5 +2504,262 @@ mod tests {
 
         let record = manager.get_watch_folder("null-project").await.unwrap().unwrap();
         assert!(record.is_active);
+    }
+
+    #[tokio::test]
+    async fn test_archive_unarchive_watch_folder() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("archive_test.db");
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        let record = WatchFolderRecord {
+            watch_id: "archive-test-001".to_string(),
+            path: "/projects/archive-test".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "archive-test-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            is_archived: false,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&record).await.unwrap();
+
+        // Archive
+        let archived = manager.archive_watch_folder("archive-test-001").await.unwrap();
+        assert!(archived);
+        let r = manager.get_watch_folder("archive-test-001").await.unwrap().unwrap();
+        assert!(r.is_archived);
+
+        // Idempotent: archiving again returns false
+        let archived_again = manager.archive_watch_folder("archive-test-001").await.unwrap();
+        assert!(!archived_again);
+
+        // Unarchive
+        let unarchived = manager.unarchive_watch_folder("archive-test-001").await.unwrap();
+        assert!(unarchived);
+        let r = manager.get_watch_folder("archive-test-001").await.unwrap().unwrap();
+        assert!(!r.is_archived);
+
+        // Idempotent: unarchiving again returns false
+        let unarchived_again = manager.unarchive_watch_folder("archive-test-001").await.unwrap();
+        assert!(!unarchived_again);
+    }
+
+    #[tokio::test]
+    async fn test_submodule_archive_safety_shared_submodule() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("submodule_safety_test.db");
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        // Project A with submodule S1
+        let project_a = WatchFolderRecord {
+            watch_id: "project-a".to_string(),
+            path: "/projects/a".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "a-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: Some("https://github.com/org/project-a.git".to_string()),
+            remote_hash: Some("hash-a".to_string()),
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            is_archived: false,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&project_a).await.unwrap();
+
+        // Submodule S1 under project A
+        let sub_a = WatchFolderRecord {
+            watch_id: "sub-s1-under-a".to_string(),
+            path: "/projects/a/submodules/s1".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "s1-tenant".to_string(),
+            parent_watch_id: Some("project-a".to_string()),
+            submodule_path: Some("submodules/s1".to_string()),
+            git_remote_url: Some("https://github.com/org/shared-lib.git".to_string()),
+            remote_hash: Some("hash-shared".to_string()),
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            is_archived: false,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&sub_a).await.unwrap();
+
+        // Project B with same submodule S1
+        let project_b = WatchFolderRecord {
+            watch_id: "project-b".to_string(),
+            path: "/projects/b".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "b-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: Some("https://github.com/org/project-b.git".to_string()),
+            remote_hash: Some("hash-b".to_string()),
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            is_archived: false,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&project_b).await.unwrap();
+
+        // Same submodule S1 under project B
+        let sub_b = WatchFolderRecord {
+            watch_id: "sub-s1-under-b".to_string(),
+            path: "/projects/b/submodules/s1".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "s1-tenant-b".to_string(),
+            parent_watch_id: Some("project-b".to_string()),
+            submodule_path: Some("submodules/s1".to_string()),
+            git_remote_url: Some("https://github.com/org/shared-lib.git".to_string()),
+            remote_hash: Some("hash-shared".to_string()),
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            is_archived: false,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&sub_b).await.unwrap();
+
+        // Archive project A — submodule S1 should be SKIPPED (project B still active)
+        let (archived, skipped) = manager.archive_project_with_submodules("project-a").await.unwrap();
+        assert_eq!(archived.len(), 0);
+        assert_eq!(skipped.len(), 1);
+        assert_eq!(skipped[0], "sub-s1-under-a");
+
+        // Verify parent A is archived but submodule under A stays active
+        let a = manager.get_watch_folder("project-a").await.unwrap().unwrap();
+        assert!(a.is_archived);
+        let sa = manager.get_watch_folder("sub-s1-under-a").await.unwrap().unwrap();
+        assert!(!sa.is_archived);
+        // parent_watch_id preserved
+        assert_eq!(sa.parent_watch_id.as_deref(), Some("project-a"));
+
+        // Archive project B — now submodule S1 should also be archived
+        let (archived, skipped) = manager.archive_project_with_submodules("project-b").await.unwrap();
+        assert_eq!(archived.len(), 1);
+        assert_eq!(archived[0], "sub-s1-under-b");
+        assert_eq!(skipped.len(), 0);
+
+        let sb = manager.get_watch_folder("sub-s1-under-b").await.unwrap().unwrap();
+        assert!(sb.is_archived);
+        assert_eq!(sb.parent_watch_id.as_deref(), Some("project-b"));
+    }
+
+    #[tokio::test]
+    async fn test_get_submodules_for_project() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("submodules_list_test.db");
+        let manager = DaemonStateManager::new(&db_path).await.unwrap();
+        manager.initialize().await.unwrap();
+
+        let parent = WatchFolderRecord {
+            watch_id: "parent-001".to_string(),
+            path: "/projects/parent".to_string(),
+            collection: "projects".to_string(),
+            tenant_id: "parent-tenant".to_string(),
+            parent_watch_id: None,
+            submodule_path: None,
+            git_remote_url: None,
+            remote_hash: None,
+            disambiguation_path: None,
+            is_active: true,
+            last_activity_at: None,
+            is_paused: false,
+            pause_start_time: None,
+            is_archived: false,
+            library_mode: None,
+            follow_symlinks: false,
+            enabled: true,
+            cleanup_on_disable: false,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            last_scan: None,
+        };
+        manager.store_watch_folder(&parent).await.unwrap();
+
+        // Add 2 submodules
+        for i in 1..=2 {
+            let sub = WatchFolderRecord {
+                watch_id: format!("sub-{}", i),
+                path: format!("/projects/parent/sub{}", i),
+                collection: "projects".to_string(),
+                tenant_id: format!("sub-{}-tenant", i),
+                parent_watch_id: Some("parent-001".to_string()),
+                submodule_path: Some(format!("sub{}", i)),
+                git_remote_url: None,
+                remote_hash: None,
+                disambiguation_path: None,
+                is_active: true,
+                last_activity_at: None,
+                is_paused: false,
+                pause_start_time: None,
+                is_archived: false,
+                library_mode: None,
+                follow_symlinks: false,
+                enabled: true,
+                cleanup_on_disable: false,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                last_scan: None,
+            };
+            manager.store_watch_folder(&sub).await.unwrap();
+        }
+
+        let subs = manager.get_submodules_for_project("parent-001").await.unwrap();
+        assert_eq!(subs.len(), 2);
+
+        // No submodules for unknown parent
+        let empty = manager.get_submodules_for_project("nonexistent").await.unwrap();
+        assert!(empty.is_empty());
     }
 }
