@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use std::sync::Arc;
 use tokio::signal;
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 use tracing::{debug, error, info, warn};
 
 use workspace_qdrant_core::{
@@ -32,6 +32,8 @@ use workspace_qdrant_core::{
     SchemaManager,
     // File type allowlist (Task 511)
     AllowedExtensions,
+    // File watching (wiring WatchManager into daemon lifecycle)
+    WatchManager,
     // Pause state polling (Task 543)
     poll_pause_state,
     // Metrics history collection (Task 544)
@@ -611,6 +613,10 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     // Clone LSP manager for gRPC server
     let grpc_lsp_manager = lsp_manager.clone();
 
+    // Create watch refresh signal for event-driven WatchManager refresh
+    // Shared between gRPC services (producers) and WatchManager (consumer)
+    let watch_refresh_signal = Arc::new(Notify::new());
+
     // Start gRPC server for MCP server and CLI communication (Task 421)
     let grpc_port = args.grpc_port;
     let grpc_addr = format!("127.0.0.1:{}", grpc_port).parse()
@@ -619,10 +625,12 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     info!("Starting gRPC server on port {}", grpc_port);
     let grpc_pause_flag = Arc::clone(&pause_flag);
+    let grpc_watch_signal = Arc::clone(&watch_refresh_signal);
     let grpc_handle = tokio::spawn(async move {
         let mut grpc_server = GrpcServer::new(grpc_config)
             .with_database_pool(grpc_db_pool)
-            .with_pause_flag(grpc_pause_flag);
+            .with_pause_flag(grpc_pause_flag)
+            .with_watch_refresh_signal(grpc_watch_signal);
 
         // Enable LSP if manager was created successfully
         if let Some(lsp_manager) = grpc_lsp_manager {
@@ -808,6 +816,9 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         ..UnifiedProcessorConfig::default()
     };
 
+    // Clone pool for WatchManager before it's moved into the queue processor
+    let watch_pool = queue_pool.clone();
+
     let mut unified_queue_processor = UnifiedQueueProcessor::with_components(
         queue_pool,
         unified_config.clone(),
@@ -873,6 +884,20 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         });
     }
 
+    // Start file watching for all enabled watch folders
+    let watch_manager = Arc::new(
+        WatchManager::new(watch_pool, Arc::clone(&allowed_extensions))
+            .with_refresh_signal(Arc::clone(&watch_refresh_signal))
+    );
+    if let Err(e) = watch_manager.start_all_watches().await {
+        warn!("Failed to start file watchers (non-fatal): {}", e);
+    } else {
+        let count = watch_manager.active_watcher_count().await;
+        info!("File watchers started: {} active watches", count);
+    }
+    // Start polling with 5-minute fallback interval (primary refresh is signal-driven)
+    let _watch_poll_handle = Arc::clone(&watch_manager).start_polling(300);
+
     info!("memexd daemon is running. gRPC on port {}, send SIGTERM or SIGINT to stop.", grpc_port);
 
     let shutdown_future = setup_signal_handlers();
@@ -880,7 +905,15 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         error!("Error in signal handling: {}", e);
     }
 
-    // Cleanup - stop unified queue processor first for graceful shutdown
+    // Cleanup - stop file watchers first to prevent new queue items
+    info!("Stopping file watchers...");
+    if let Err(e) = watch_manager.stop_all_watches().await {
+        error!("Error stopping file watchers: {}", e);
+    } else {
+        info!("File watchers stopped");
+    }
+
+    // Stop unified queue processor for graceful shutdown
     // Note: Legacy QueueProcessor removed per Task 21 - all processing via unified_queue
     info!("Stopping unified queue processor...");
     if let Err(e) = unified_queue_processor.stop().await {
