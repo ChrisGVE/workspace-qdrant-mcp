@@ -39,6 +39,7 @@ fn test_watch_record(id: &str, path: &str) -> WatchFolderRecord {
         last_activity_at: None,
         is_paused: false,
         pause_start_time: None,
+        is_archived: false,
         library_mode: None,
         follow_symlinks: false,
         enabled: true,

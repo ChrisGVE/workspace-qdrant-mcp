@@ -100,6 +100,8 @@ pub struct WatchFolder {
     pub is_paused: bool,
     /// Timestamp when pause began (ISO 8601), None if not paused
     pub pause_start_time: Option<String>,
+    /// Whether this folder is archived (no watching/ingesting, but remains searchable)
+    pub is_archived: bool,
 
     // Library-specific fields (NULL for projects)
     /// Library mode: sync or incremental
@@ -160,6 +162,7 @@ CREATE TABLE IF NOT EXISTS watch_folders (
     last_activity_at TEXT,
     is_paused INTEGER DEFAULT 0 CHECK (is_paused IN (0, 1)),
     pause_start_time TEXT,
+    is_archived INTEGER DEFAULT 0 CHECK (is_archived IN (0, 1)),
 
     -- Library-specific (NULL for projects)
     library_mode TEXT CHECK (library_mode IS NULL OR library_mode IN ('sync', 'incremental')),
@@ -209,6 +212,10 @@ pub const MIGRATE_V4_PAUSE_SQL: &[&str] = &[
     "ALTER TABLE watch_folders ADD COLUMN is_paused INTEGER DEFAULT 0 CHECK (is_paused IN (0, 1))",
     "ALTER TABLE watch_folders ADD COLUMN pause_start_time TEXT",
 ];
+
+/// SQL to add is_archived column (migration v7)
+pub const MIGRATE_V7_ARCHIVE_SQL: &str =
+    "ALTER TABLE watch_folders ADD COLUMN is_archived INTEGER DEFAULT 0 CHECK (is_archived IN (0, 1))";
 
 /// SQL to activate a project and all its related watches (parent, siblings, children)
 /// Use with parameter :watch_id
@@ -292,6 +299,7 @@ mod tests {
         assert!(CREATE_WATCH_FOLDERS_SQL.contains("is_active"));
         assert!(CREATE_WATCH_FOLDERS_SQL.contains("is_paused"));
         assert!(CREATE_WATCH_FOLDERS_SQL.contains("pause_start_time"));
+        assert!(CREATE_WATCH_FOLDERS_SQL.contains("is_archived"));
 
         assert!(!CREATE_WATCH_FOLDERS_INDEXES_SQL.is_empty());
         for idx_sql in CREATE_WATCH_FOLDERS_INDEXES_SQL {
@@ -312,5 +320,12 @@ mod tests {
         assert_eq!(MIGRATE_V4_PAUSE_SQL.len(), 2);
         assert!(MIGRATE_V4_PAUSE_SQL[0].contains("is_paused"));
         assert!(MIGRATE_V4_PAUSE_SQL[1].contains("pause_start_time"));
+    }
+
+    #[test]
+    fn test_migrate_v7_archive_sql() {
+        assert!(MIGRATE_V7_ARCHIVE_SQL.contains("is_archived"));
+        assert!(MIGRATE_V7_ARCHIVE_SQL.contains("ALTER TABLE"));
+        assert!(MIGRATE_V7_ARCHIVE_SQL.contains("DEFAULT 0"));
     }
 }

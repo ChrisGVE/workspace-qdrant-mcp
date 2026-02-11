@@ -2785,7 +2785,7 @@ impl WatchManager {
             r#"
             SELECT watch_id, path, collection, tenant_id
             FROM watch_folders
-            WHERE enabled = 1 AND collection = 'projects'
+            WHERE enabled = 1 AND is_archived = 0 AND collection = 'projects'
             "#
         )
         .fetch_all(&self.pool)
@@ -2825,7 +2825,7 @@ impl WatchManager {
             r#"
             SELECT watch_id, path, collection, tenant_id
             FROM watch_folders
-            WHERE enabled = 1 AND collection = 'libraries'
+            WHERE enabled = 1 AND is_archived = 0 AND collection = 'libraries'
             "#
         )
         .fetch_all(&self.pool)

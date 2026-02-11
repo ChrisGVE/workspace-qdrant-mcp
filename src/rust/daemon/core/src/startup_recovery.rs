@@ -74,9 +74,9 @@ pub async fn run_startup_recovery(
     );
     let start = std::time::Instant::now();
 
-    // Get all enabled watch_folders
+    // Get all enabled, non-archived watch_folders
     let watch_folders = sqlx::query_as::<_, (String, String, String, String)>(
-        "SELECT watch_id, path, collection, tenant_id FROM watch_folders WHERE enabled = 1"
+        "SELECT watch_id, path, collection, tenant_id FROM watch_folders WHERE enabled = 1 AND is_archived = 0"
     )
     .fetch_all(pool)
     .await

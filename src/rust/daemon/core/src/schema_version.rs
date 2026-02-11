@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 6;
+pub const CURRENT_SCHEMA_VERSION: i32 = 7;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -156,6 +156,7 @@ impl SchemaManager {
             4 => self.migrate_v4().await,
             5 => self.migrate_v5().await,
             6 => self.migrate_v6().await,
+            7 => self.migrate_v7().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -357,6 +358,32 @@ impl SchemaManager {
         }
 
         info!("Migration v6 complete");
+        Ok(())
+    }
+
+    /// Migration v7: Add is_archived column to watch_folders
+    async fn migrate_v7(&self) -> Result<(), SchemaError> {
+        info!("Migration v7: Adding is_archived column to watch_folders");
+
+        use super::watch_folders_schema::MIGRATE_V7_ARCHIVE_SQL;
+
+        // Check if column already exists (handles fresh installs that include it in CREATE TABLE)
+        let has_archived: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') WHERE name = 'is_archived'"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        if !has_archived {
+            debug!("Running ALTER TABLE: {}", MIGRATE_V7_ARCHIVE_SQL);
+            sqlx::query(MIGRATE_V7_ARCHIVE_SQL)
+                .execute(&self.pool)
+                .await?;
+        } else {
+            debug!("is_archived column already exists, skipping ALTER TABLE");
+        }
+
+        info!("Migration v7 complete");
         Ok(())
     }
 }
