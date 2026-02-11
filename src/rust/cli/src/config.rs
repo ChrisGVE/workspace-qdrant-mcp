@@ -12,138 +12,19 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
-use crate::grpc::client::DEFAULT_GRPC_PORT;
+use wqm_common::yaml_defaults::DEFAULT_YAML_CONFIG;
 
-/// Database path error with helpful message
-#[derive(Debug)]
-pub struct DatabasePathError {
-    pub message: String,
-    pub path: PathBuf,
-}
-
-impl std::fmt::Display for DatabasePathError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for DatabasePathError {}
-
-/// Get the canonical path to the state database
-///
-/// Per spec, the canonical path is `~/.workspace-qdrant/state.db`
-/// This is shared between the daemon and CLI for consistency.
-pub fn get_database_path() -> Result<PathBuf, DatabasePathError> {
-    // First check environment variable override
-    if let Ok(path) = env::var("WQM_DATABASE_PATH") {
-        return Ok(PathBuf::from(path));
-    }
-
-    // Use canonical path: ~/.workspace-qdrant/state.db
-    if let Ok(home) = env::var("HOME") {
-        return Ok(PathBuf::from(format!("{}/.workspace-qdrant/state.db", home)));
-    }
-
-    // Fallback for systems without HOME
-    if let Some(home_dir) = dirs::home_dir() {
-        return Ok(home_dir.join(".workspace-qdrant").join("state.db"));
-    }
-
-    Err(DatabasePathError {
-        message: "Could not determine home directory for database path".to_string(),
-        path: PathBuf::new(),
-    })
-}
-
-/// Get the database path, checking if it exists
-///
-/// Returns an error with a helpful message if the database doesn't exist,
-/// indicating the user should start the daemon first.
-pub fn get_database_path_checked() -> Result<PathBuf, DatabasePathError> {
-    let path = get_database_path()?;
-
-    if !path.exists() {
-        return Err(DatabasePathError {
-            message: format!(
-                "Database not found at {}. Run daemon first: wqm service start",
-                path.display()
-            ),
-            path,
-        });
-    }
-
-    Ok(path)
-}
-
-/// Get the config directory path (~/.workspace-qdrant/)
-pub fn get_config_dir() -> Result<PathBuf, DatabasePathError> {
-    if let Ok(home) = env::var("HOME") {
-        return Ok(PathBuf::from(format!("{}/.workspace-qdrant", home)));
-    }
-
-    if let Some(home_dir) = dirs::home_dir() {
-        return Ok(home_dir.join(".workspace-qdrant"));
-    }
-
-    Err(DatabasePathError {
-        message: "Could not determine home directory for config path".to_string(),
-        path: PathBuf::new(),
-    })
-}
+// Re-export shared path functions from wqm-common (single source of truth)
+pub use wqm_common::paths::{
+    ConfigPathError as DatabasePathError,
+    get_database_path,
+    get_database_path_checked,
+    get_config_dir,
+};
 
 /// Get the config file path (~/.workspace-qdrant/config.yaml)
 pub fn get_config_file_path() -> Result<PathBuf, DatabasePathError> {
     get_config_dir().map(|dir| dir.join("config.yaml"))
-}
-
-/// Get unified config search paths (in priority order)
-///
-/// Returns all potential config file paths that should be checked:
-/// 1. WQM_CONFIG_PATH environment variable (if set)
-/// 2. User home: ~/.workspace-qdrant/config.yaml
-/// 3. XDG: ~/.config/workspace-qdrant/config.yaml
-/// 4. macOS: ~/Library/Application Support/workspace-qdrant/config.yaml
-///
-/// Note: Unlike the daemon, CLI does not search project-local configs
-/// since CLI commands operate system-wide.
-pub fn get_unified_config_search_paths() -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-
-    // 1. Explicit path via environment variable (highest priority)
-    if let Ok(explicit_path) = env::var("WQM_CONFIG_PATH") {
-        paths.push(PathBuf::from(explicit_path));
-    }
-
-    // 2. User home config: ~/.workspace-qdrant/config.yaml
-    if let Ok(home) = env::var("HOME") {
-        paths.push(PathBuf::from(format!("{}/.workspace-qdrant/config.yaml", home)));
-        paths.push(PathBuf::from(format!("{}/.workspace-qdrant/config.yml", home)));
-    } else if let Some(home_dir) = dirs::home_dir() {
-        paths.push(home_dir.join(".workspace-qdrant").join("config.yaml"));
-        paths.push(home_dir.join(".workspace-qdrant").join("config.yml"));
-    }
-
-    // 3. XDG config: ~/.config/workspace-qdrant/config.yaml
-    if let Some(config_dir) = dirs::config_dir() {
-        paths.push(config_dir.join("workspace-qdrant").join("config.yaml"));
-        paths.push(config_dir.join("workspace-qdrant").join("config.yml"));
-    }
-
-    // 4. macOS Application Support (only on macOS)
-    #[cfg(target_os = "macos")]
-    if let Some(home_dir) = dirs::home_dir() {
-        paths.push(home_dir.join("Library").join("Application Support")
-            .join("workspace-qdrant").join("config.yaml"));
-    }
-
-    paths
-}
-
-/// Find the first existing config file from unified search paths
-pub fn find_config_file() -> Option<PathBuf> {
-    get_unified_config_search_paths()
-        .into_iter()
-        .find(|path| path.exists())
 }
 
 /// Read user PATH from config file
@@ -455,8 +336,9 @@ pub struct Config {
 
 impl Default for Config {
     fn default() -> Self {
+        let yaml = &*DEFAULT_YAML_CONFIG;
         Self {
-            daemon_address: format!("http://127.0.0.1:{}", DEFAULT_GRPC_PORT),
+            daemon_address: format!("http://{}:{}", yaml.grpc.host, yaml.grpc.port),
             connection_timeout_secs: 5,
             output_format: OutputFormat::Table,
             color_enabled: true,
@@ -671,11 +553,13 @@ mod tests {
 
     #[test]
     fn test_database_path_error_display() {
-        let error = DatabasePathError {
-            message: "Test error message".to_string(),
-            path: PathBuf::from("/test/path"),
+        let error = DatabasePathError::NoHomeDirectory;
+        assert_eq!(error.to_string(), "could not determine home directory");
+
+        let error = DatabasePathError::DatabaseNotFound {
+            path: PathBuf::from("/test/state.db"),
         };
-        assert_eq!(error.to_string(), "Test error message");
+        assert!(error.to_string().contains("run daemon first"));
     }
 
     // =========================================================================

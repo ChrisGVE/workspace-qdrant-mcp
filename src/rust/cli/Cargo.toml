@@ -13,6 +13,9 @@ name = "wqm"
 path = "src/main.rs"
 
 [dependencies]
+# Shared configuration (paths, YAML defaults, env expansion)
+wqm-common = { path = "../common" }
+
 # Core library (for grammar management)
 workspace-qdrant-core = { path = "../daemon/core" }
 
