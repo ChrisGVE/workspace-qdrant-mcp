@@ -1,0 +1,25 @@
+[package]
+name = "wqm-common"
+version = "0.4.0"
+edition = "2021"
+description = "Shared configuration and path resolution for workspace-qdrant-mcp"
+authors = ["Chris Van Eerden"]
+license = "MIT"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+[dependencies]
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_yml = "0.0.12"
+
+# Platform directories
+dirs = "5.0"
+
+# Environment variable expansion
+shellexpand = "3.1"
+
+# Error handling
+thiserror = "2.0"
+
+[dev-dependencies]
+tempfile = "3.8"
