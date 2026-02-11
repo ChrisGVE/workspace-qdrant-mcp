@@ -297,16 +297,45 @@ pub struct DeleteDocumentPayload {
     pub point_ids: Vec<String>,
 }
 
+/// Discriminator for rename payload types
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum RenameType {
+    /// File or folder path rename (delete old + re-ingest new)
+    PathRename,
+    /// Tenant ID cascade rename (update Qdrant payloads in-place)
+    TenantIdRename,
+}
+
+impl Default for RenameType {
+    fn default() -> Self {
+        RenameType::PathRename
+    }
+}
+
 /// Payload for rename items
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RenamePayload {
-    /// Original path
-    pub old_path: String,
-    /// New path
-    pub new_path: String,
-    /// Whether this is a folder rename
+    /// Type of rename operation
+    #[serde(default)]
+    pub rename_type: RenameType,
+    /// Original path (for PathRename)
+    #[serde(default)]
+    pub old_path: Option<String>,
+    /// New path (for PathRename)
+    #[serde(default)]
+    pub new_path: Option<String>,
+    /// Whether this is a folder rename (for PathRename)
     #[serde(default)]
     pub is_folder: bool,
+    /// Old tenant ID (for TenantIdRename)
+    #[serde(default)]
+    pub old_tenant_id: Option<String>,
+    /// New tenant ID (for TenantIdRename)
+    #[serde(default)]
+    pub new_tenant_id: Option<String>,
+    /// Reason for the rename (e.g., "remote_url_changed", "manual_rename")
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 /// Complete unified queue item representation

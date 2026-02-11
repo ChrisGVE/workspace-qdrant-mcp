@@ -168,7 +168,7 @@ pub use crate::metadata_enrichment::{
 pub use crate::unified_queue_schema::{
     ItemType, QueueOperation as UnifiedQueueOp, QueueStatus,
     ContentPayload, FilePayload, FolderPayload, ProjectPayload,
-    LibraryPayload, DeleteTenantPayload, DeleteDocumentPayload, RenamePayload,
+    LibraryPayload, DeleteTenantPayload, DeleteDocumentPayload, RenamePayload, RenameType,
     generate_idempotency_key, generate_unified_idempotency_key, IdempotencyKeyError,
     CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL,
     // Unified queue item types (Task 37.21)

@@ -25,6 +25,7 @@ use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{
     ItemType, QueueOperation, UnifiedQueueItem,
     ContentPayload, FilePayload, FolderPayload, ProjectPayload, LibraryPayload,
+    RenamePayload, RenameType,
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
@@ -2380,27 +2381,31 @@ impl UnifiedQueueProcessor {
         item: &UnifiedQueueItem,
         storage_client: &Arc<StorageClient>,
     ) -> UnifiedProcessorResult<()> {
-        info!(
-            "Processing rename item: {}",
-            item.queue_id
-        );
+        let payload: RenamePayload = item.parse_rename_payload()
+            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse rename payload: {}", e)))?;
 
-        // Parse payload to get old and new paths
-        let payload: serde_json::Value = serde_json::from_str(&item.payload_json)
-            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse payload: {}", e)))?;
+        match payload.rename_type {
+            RenameType::PathRename => {
+                Self::process_path_rename(item, storage_client, &payload).await
+            }
+            RenameType::TenantIdRename => {
+                Self::process_tenant_cascade_rename(item, storage_client, &payload).await
+            }
+        }
+    }
 
-        let old_path = payload
-            .get("old_path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing old_path in payload".to_string()))?;
+    /// Handle file/folder path rename: delete old path from Qdrant.
+    /// The file watcher will detect the new file and enqueue ingestion.
+    async fn process_path_rename(
+        item: &UnifiedQueueItem,
+        storage_client: &Arc<StorageClient>,
+        payload: &RenamePayload,
+    ) -> UnifiedProcessorResult<()> {
+        let old_path = payload.old_path.as_deref()
+            .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing old_path in PathRename payload".to_string()))?;
 
-        let _new_path = payload
-            .get("new_path")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing new_path in payload".to_string()))?;
+        info!("Processing path rename item: {} (old_path: {})", item.queue_id, old_path);
 
-        // For now, rename is handled as delete old + re-ingest new
-        // The file watcher will detect the new file and enqueue it
         if storage_client
             .collection_exists(&item.collection)
             .await
@@ -2413,8 +2418,46 @@ impl UnifiedQueueProcessor {
         }
 
         info!(
-            "Successfully processed rename item {} (deleted old path: {})",
+            "Successfully processed path rename {} (deleted old path: {})",
             item.queue_id, old_path
+        );
+
+        Ok(())
+    }
+
+    /// Handle tenant_id cascade rename: update tenant_id payload on all matching Qdrant points.
+    async fn process_tenant_cascade_rename(
+        item: &UnifiedQueueItem,
+        storage_client: &Arc<StorageClient>,
+        payload: &RenamePayload,
+    ) -> UnifiedProcessorResult<()> {
+        let old_tenant = payload.old_tenant_id.as_deref()
+            .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing old_tenant_id in TenantIdRename payload".to_string()))?;
+        let new_tenant = payload.new_tenant_id.as_deref()
+            .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing new_tenant_id in TenantIdRename payload".to_string()))?;
+
+        let reason = payload.reason.as_deref().unwrap_or("unknown");
+        info!(
+            "Processing tenant cascade rename: {} -> {} in collection '{}' (reason: {})",
+            old_tenant, new_tenant, item.collection, reason
+        );
+
+        use qdrant_client::qdrant::{Condition, Filter};
+        let filter = Filter::must([
+            Condition::matches("tenant_id", old_tenant.to_string()),
+        ]);
+
+        let mut new_payload = std::collections::HashMap::new();
+        new_payload.insert("tenant_id".to_string(), serde_json::Value::String(new_tenant.to_string()));
+
+        storage_client
+            .set_payload_by_filter(&item.collection, filter, new_payload)
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+        info!(
+            "Successfully processed tenant cascade rename {} -> {} in '{}'",
+            old_tenant, new_tenant, item.collection
         );
 
         Ok(())

@@ -76,6 +76,7 @@ async fn create_test_database() -> SqlitePool {
             created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
             last_activity_at TEXT,
+            is_archived INTEGER DEFAULT 0 CHECK (is_archived IN (0, 1)),
             FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
         )
         "#

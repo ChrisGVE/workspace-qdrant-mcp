@@ -252,19 +252,42 @@ impl QueueManager {
                 }
             }
             ItemType::Rename => {
-                if !payload.get("old_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
-                    error!("Queue validation failed: rename item missing 'old_path' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "rename".to_string(),
-                        field: "old_path".to_string(),
-                    });
-                }
-                if !payload.get("new_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
-                    error!("Queue validation failed: rename item missing 'new_path' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "rename".to_string(),
-                        field: "new_path".to_string(),
-                    });
+                // Validate based on rename_type discriminator
+                let rename_type = payload.get("rename_type").and_then(|v| v.as_str()).unwrap_or("PathRename");
+                match rename_type {
+                    "TenantIdRename" => {
+                        if !payload.get("old_tenant_id").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                            error!("Queue validation failed: TenantIdRename missing 'old_tenant_id'");
+                            return Err(QueueError::MissingPayloadField {
+                                item_type: "rename".to_string(),
+                                field: "old_tenant_id".to_string(),
+                            });
+                        }
+                        if !payload.get("new_tenant_id").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                            error!("Queue validation failed: TenantIdRename missing 'new_tenant_id'");
+                            return Err(QueueError::MissingPayloadField {
+                                item_type: "rename".to_string(),
+                                field: "new_tenant_id".to_string(),
+                            });
+                        }
+                    }
+                    _ => {
+                        // PathRename (default)
+                        if !payload.get("old_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                            error!("Queue validation failed: rename item missing 'old_path' in payload");
+                            return Err(QueueError::MissingPayloadField {
+                                item_type: "rename".to_string(),
+                                field: "old_path".to_string(),
+                            });
+                        }
+                        if !payload.get("new_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                            error!("Queue validation failed: rename item missing 'new_path' in payload");
+                            return Err(QueueError::MissingPayloadField {
+                                item_type: "rename".to_string(),
+                                field: "new_path".to_string(),
+                            });
+                        }
+                    }
                 }
             }
             ItemType::Content => {
@@ -1449,6 +1472,58 @@ impl QueueManager {
         }
 
         Ok(deleted)
+    }
+
+    /// Enqueue cascade rename operations for all specified collections.
+    ///
+    /// Creates a rename queue item for each collection that needs its
+    /// tenant_id payloads updated in Qdrant. Called after SQLite state
+    /// (watch_folders, tracked_files) has already been updated.
+    pub async fn enqueue_cascade_rename(
+        &self,
+        old_tenant_id: &str,
+        new_tenant_id: &str,
+        collections: &[&str],
+        reason: &str,
+    ) -> QueueResult<Vec<String>> {
+        use crate::unified_queue_schema::{RenamePayload, RenameType};
+
+        let mut queue_ids = Vec::new();
+
+        for collection in collections {
+            let payload = RenamePayload {
+                rename_type: RenameType::TenantIdRename,
+                old_path: None,
+                new_path: None,
+                is_folder: false,
+                old_tenant_id: Some(old_tenant_id.to_string()),
+                new_tenant_id: Some(new_tenant_id.to_string()),
+                reason: Some(reason.to_string()),
+            };
+
+            let payload_json = serde_json::to_string(&payload)
+                .map_err(|e| QueueError::InvalidPayloadJson(e.to_string()))?;
+
+            let (queue_id, _is_new) = self.enqueue_unified(
+                ItemType::Rename,
+                UnifiedOp::Update,
+                new_tenant_id,
+                collection,
+                &payload_json,
+                0, // High priority
+                None,
+                None,
+            ).await?;
+
+            queue_ids.push(queue_id);
+        }
+
+        info!(
+            "Enqueued {} cascade rename items: {} -> {} (reason: {})",
+            queue_ids.len(), old_tenant_id, new_tenant_id, reason
+        );
+
+        Ok(queue_ids)
     }
 
 }

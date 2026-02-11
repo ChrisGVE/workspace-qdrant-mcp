@@ -777,6 +777,59 @@ impl StorageClient {
         Ok(count)
     }
 
+    /// Update payload fields on all points matching a filter.
+    ///
+    /// Used for cascade renames where tenant_id needs to be updated on all points
+    /// belonging to a project when the tenant_id changes (e.g., due to remote URL change).
+    ///
+    /// # Arguments
+    /// * `collection_name` - The collection containing points to update
+    /// * `filter` - Filter to select matching points
+    /// * `payload` - HashMap of field names to new JSON values to set
+    pub async fn set_payload_by_filter(
+        &self,
+        collection_name: &str,
+        filter: Filter,
+        payload: std::collections::HashMap<String, serde_json::Value>,
+    ) -> Result<(), StorageError> {
+        use qdrant_client::qdrant::SetPayloadPointsBuilder;
+
+        if !self.collection_exists(collection_name).await? {
+            return Err(StorageError::Collection(format!("Collection not found: {}", collection_name)));
+        }
+
+        // Convert serde_json::Value to Qdrant Value
+        let qdrant_payload: std::collections::HashMap<String, qdrant_client::qdrant::Value> =
+            payload.into_iter()
+                .map(|(k, v)| (k, Self::convert_json_to_qdrant_value(v)))
+                .collect();
+
+        let count = self.count_points_with_filter(collection_name, filter.clone()).await?;
+        info!(
+            "Updating payload on {} point(s) in collection '{}'",
+            count, collection_name
+        );
+
+        let set_payload_request = SetPayloadPointsBuilder::new(collection_name, qdrant_payload)
+            .points_selector(filter)
+            .wait(true);
+
+        self.retry_operation(|| async {
+            self.client
+                .set_payload(set_payload_request.clone())
+                .await
+                .map_err(|e| StorageError::Point(format!("Failed to set payload: {}", e)))
+        })
+        .await?;
+
+        info!(
+            "Updated payload on {} point(s) in '{}'",
+            count, collection_name
+        );
+
+        Ok(())
+    }
+
     /// Scroll through all points in a collection for a tenant, returning file paths
     ///
     /// Paginates through Qdrant using the scroll API with a tenant_id filter,
