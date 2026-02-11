@@ -362,6 +362,9 @@ impl CollectionService for CollectionServiceImpl {
         Self::validate_collection_name(&req.alias_name)?;
         Self::validate_collection_name(&req.collection_name)?;
 
+        // Reject aliases that match canonical collection names (before any I/O)
+        Self::validate_alias_name(&req.alias_name)?;
+
         // Check that target collection exists
         match self.storage_client.collection_exists(&req.collection_name).await {
             Ok(false) => {
@@ -375,9 +378,6 @@ impl CollectionService for CollectionServiceImpl {
             }
             _ => {}
         }
-
-        // Reject aliases that match canonical collection names
-        Self::validate_alias_name(&req.alias_name)?;
 
         match self.storage_client.create_alias(&req.collection_name, &req.alias_name).await {
             Ok(_) => {

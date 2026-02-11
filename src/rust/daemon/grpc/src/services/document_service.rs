@@ -229,13 +229,39 @@ impl DocumentServiceImpl {
     ///
     /// Returns: (collection_name, tenant_type, tenant_value)
     /// - tenant_type: "project_id" or "library_name"
+    fn validate_collection_basename(basename: &str) -> Result<(), Status> {
+        if basename.is_empty() {
+            return Err(Status::invalid_argument("Collection basename cannot be empty"));
+        }
+        if basename.len() < 3 {
+            return Err(Status::invalid_argument(
+                "Collection basename must be at least 3 characters",
+            ));
+        }
+        if basename.len() > 255 {
+            return Err(Status::invalid_argument(
+                "Collection basename must not exceed 255 characters",
+            ));
+        }
+        if basename.chars().next().map(|c| c.is_numeric()).unwrap_or(false) {
+            return Err(Status::invalid_argument(
+                "Collection basename cannot start with a number",
+            ));
+        }
+        if !basename.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+            return Err(Status::invalid_argument(
+                "Collection basename can only contain alphanumeric characters, underscores, and hyphens",
+            ));
+        }
+        Ok(())
+    }
+
     fn determine_collection_routing(
         basename: &str,
         tenant_id: &str,
     ) -> Result<(String, String, String), Status> {
-        if basename.is_empty() {
-            return Err(Status::invalid_argument("Collection basename cannot be empty"));
-        }
+        // Validate basename format
+        Self::validate_collection_basename(basename)?;
 
         if tenant_id.is_empty() {
             return Err(Status::invalid_argument("Tenant ID cannot be empty"));
