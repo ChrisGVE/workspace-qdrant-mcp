@@ -12,13 +12,14 @@ import { type ServerConfig, DEFAULT_CONFIG } from './types/config.js';
 /**
  * Unified configuration search paths (in priority order)
  *
- * Search order:
+ * Search order (consistent across all components: daemon, CLI, MCP server):
  * 1. WQM_CONFIG_PATH environment variable (if set)
- * 2. Project-local: .workspace-qdrant.yaml (CWD, daemon/MCP only)
- * 3. User home: ~/.workspace-qdrant/config.yaml
- * 4. XDG/platform config dir: $XDG_CONFIG_HOME/workspace-qdrant/config.yaml (Linux),
- *    %LOCALAPPDATA%\workspace-qdrant\config.yaml (Windows)
- * 5. macOS: ~/Library/Application Support/workspace-qdrant/config.yaml
+ * 2. User home: ~/.workspace-qdrant/config.yaml
+ * 3. XDG/platform config dir: $XDG_CONFIG_HOME/workspace-qdrant/config.yaml
+ *    (defaults to ~/.config on Linux/macOS, %LOCALAPPDATA% on Windows)
+ * 4. macOS: ~/Library/Application Support/workspace-qdrant/config.yaml
+ *
+ * No project-local .workspace-qdrant.yaml is searched.
  */
 function getConfigSearchPaths(): string[] {
   const home = homedir();
@@ -30,16 +31,11 @@ function getConfigSearchPaths(): string[] {
     paths.push(explicitPath);
   }
 
-  // 2. Project-local configs (current working directory)
-  const cwd = process.cwd();
-  paths.push(join(cwd, '.workspace-qdrant.yaml'));
-  paths.push(join(cwd, '.workspace-qdrant.yml'));
-
-  // 3. User home: ~/.workspace-qdrant/config.yaml
+  // 2. User home: ~/.workspace-qdrant/config.yaml
   paths.push(join(home, '.workspace-qdrant', 'config.yaml'));
   paths.push(join(home, '.workspace-qdrant', 'config.yml'));
 
-  // 4. Platform-specific config directory
+  // 3. Platform-specific config directory (XDG or equivalent)
   const currentPlatform = process.platform;
   if (currentPlatform === 'linux') {
     // XDG Base Directory Specification
@@ -52,12 +48,13 @@ function getConfigSearchPaths(): string[] {
     paths.push(join(localAppData, 'workspace-qdrant', 'config.yaml'));
     paths.push(join(localAppData, 'workspace-qdrant', 'config.yml'));
   } else if (currentPlatform === 'darwin') {
-    // macOS: ~/.config fallback then Application Support
-    paths.push(join(home, '.config', 'workspace-qdrant', 'config.yaml'));
-    paths.push(join(home, '.config', 'workspace-qdrant', 'config.yml'));
+    // macOS: ~/.config (XDG equivalent)
+    const xdgConfigHome = process.env['XDG_CONFIG_HOME'] ?? join(home, '.config');
+    paths.push(join(xdgConfigHome, 'workspace-qdrant', 'config.yaml'));
+    paths.push(join(xdgConfigHome, 'workspace-qdrant', 'config.yml'));
   }
 
-  // 5. macOS Application Support
+  // 4. macOS Application Support
   if (currentPlatform === 'darwin') {
     paths.push(join(home, 'Library', 'Application Support', 'workspace-qdrant', 'config.yaml'));
   }
