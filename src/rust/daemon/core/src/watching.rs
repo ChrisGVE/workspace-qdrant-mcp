@@ -1603,9 +1603,15 @@ impl FileWatcher {
                         },
                     };
                     
+                    // Determine branch from git repo at file location
+                    let branch = event.path.parent()
+                        .map(|p| crate::watching_queue::get_current_branch(p))
+                        .unwrap_or_else(|| "main".to_string());
+
                     let payload = TaskPayload::ProcessDocument {
                         file_path: event.path.clone(),
                         collection: default_collection.clone(),
+                        branch,
                     };
                     
                     match task_submitter.submit_task(task_priority, source, payload, None).await {

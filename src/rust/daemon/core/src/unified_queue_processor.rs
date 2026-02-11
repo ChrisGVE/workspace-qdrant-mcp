@@ -742,7 +742,7 @@ impl UnifiedQueueProcessor {
 
         // Create document point with stable point ID and sparse vector for hybrid search
         let point = DocumentPoint {
-            id: crate::generate_point_id(&content_doc_id, 0),
+            id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
             dense_vector: embedding_result.dense.vector,
             sparse_vector: Self::sparse_embedding_to_map(&embedding_result.sparse),
             payload: point_payload,
@@ -1074,7 +1074,7 @@ impl UnifiedQueueProcessor {
                 lsp_status = ProcessingStatus::Done;
             }
 
-            let point_id = crate::generate_point_id(&file_document_id, chunk_idx);
+            let point_id = crate::generate_point_id(&item.tenant_id, &item.branch, &payload.file_path, chunk_idx);
             let content_hash = tracked_files_schema::compute_content_hash(&chunk.content);
 
             let point = DocumentPoint {

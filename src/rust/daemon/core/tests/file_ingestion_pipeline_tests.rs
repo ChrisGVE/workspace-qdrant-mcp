@@ -74,6 +74,7 @@ async fn test_text_file_ingestion() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -126,6 +127,7 @@ async fn test_markdown_file_ingestion() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -175,6 +177,7 @@ fn main() {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -226,6 +229,7 @@ if __name__ == "__main__":
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -262,6 +266,7 @@ helloWorld();
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -296,6 +301,7 @@ async fn test_json_config_ingestion() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -325,6 +331,7 @@ async fn test_empty_file_handling() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -367,6 +374,7 @@ async fn test_large_file_ingestion() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -396,6 +404,7 @@ async fn test_nonexistent_file() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: nonexistent_path,
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -429,6 +438,7 @@ async fn test_file_with_unicode_content() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -466,6 +476,7 @@ async fn test_file_with_special_characters_in_name() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -497,6 +508,7 @@ async fn test_document_processing_execution_time() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -546,6 +558,7 @@ async fn test_collection_name_validation() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: collection_name.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -591,6 +604,7 @@ async fn test_small_batch_ingestion_10_files() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -636,6 +650,7 @@ async fn test_medium_batch_ingestion_50_files() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -683,6 +698,7 @@ async fn test_large_batch_ingestion_100_files() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -751,6 +767,7 @@ async fn test_mixed_file_types_batch() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -800,6 +817,7 @@ async fn test_concurrent_batch_with_unique_document_ids() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -856,6 +874,7 @@ async fn test_batch_processing_no_data_loss() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -917,6 +936,7 @@ async fn test_batch_with_varying_file_sizes() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -970,6 +990,7 @@ async fn test_markdown_document_classification_and_processing() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1017,6 +1038,7 @@ async fn test_pdf_document_classification_and_processing() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1055,6 +1077,7 @@ async fn test_docx_document_classification_and_processing() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1100,6 +1123,7 @@ async fn test_json_data_classification_and_processing() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1145,6 +1169,7 @@ async fn test_json_config_classification_and_processing() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1188,6 +1213,7 @@ async fn test_xml_data_classification_and_processing() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1225,6 +1251,7 @@ async fn test_yaml_config_classification_and_processing() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1262,6 +1289,7 @@ async fn test_csv_data_classification_and_processing() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1299,6 +1327,7 @@ async fn test_code_file_classification_and_processing() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1355,6 +1384,7 @@ async fn test_multiple_document_formats_concurrent() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -1436,6 +1466,7 @@ class Calculator:
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1497,6 +1528,7 @@ export { Calculator, calculateSum };
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1561,6 +1593,7 @@ export { Calculator, calculateSum, CalculatorInterface };
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1635,6 +1668,7 @@ mod tests {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1698,6 +1732,7 @@ func (c *Calculator) Add(x int, y int) int {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1777,6 +1812,7 @@ async fn test_multiple_code_languages_concurrent() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -1852,6 +1888,7 @@ async fn test_file_metadata_extraction_preparation() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1901,6 +1938,7 @@ async fn test_large_file_metadata_extraction() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -1957,6 +1995,7 @@ async fn test_file_extension_metadata_extraction() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -2001,6 +2040,7 @@ async fn test_timestamp_metadata_preparation() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -2048,6 +2088,7 @@ async fn test_collection_metadata_enrichment() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: custom_collection.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -2120,6 +2161,7 @@ async fn test_concurrent_metadata_extraction() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -2180,6 +2222,7 @@ async fn test_text_embedding_generation_preparation() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -2230,6 +2273,7 @@ def calculate_fibonacci(n):
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -2278,6 +2322,7 @@ async fn test_batch_embedding_generation() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )
@@ -2334,6 +2379,7 @@ async fn test_embedding_consistency_preparation() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path1.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -2351,6 +2397,7 @@ async fn test_embedding_consistency_preparation() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path2.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -2395,6 +2442,7 @@ async fn test_large_text_chunking_and_embedding() -> TestResult {
             TaskPayload::ProcessDocument {
                 file_path: file_path.clone(),
                 collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
             },
             Some(TASK_TIMEOUT),
         )
@@ -2452,6 +2500,7 @@ async fn test_mixed_content_embedding_generation() -> TestResult {
                 TaskPayload::ProcessDocument {
                     file_path: file_path.clone(),
                     collection: TEST_COLLECTION.to_string(),
+                branch: "main".to_string(),
                 },
                 Some(TASK_TIMEOUT),
             )

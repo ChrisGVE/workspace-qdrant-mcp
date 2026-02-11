@@ -50,10 +50,10 @@ impl RustIngestionEngine {
         "RUNNING".to_string()
     }
 
-    fn process_document(&self, _file_path: String, _collection: String) -> String {
+    fn process_document(&self, _file_path: String, _collection: String, _branch: String) -> String {
         // Placeholder for document processing
         // Future: send processing request via IPC to daemon
-        format!("Processed {} into collection {}", _file_path, _collection)
+        format!("Processed {} into collection {} on branch {}", _file_path, _collection, _branch)
     }
 }
 

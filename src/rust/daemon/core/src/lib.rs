@@ -231,13 +231,6 @@ const DOCUMENT_ID_NAMESPACE: uuid::Uuid = uuid::Uuid::from_bytes([
     0xb1, 0xc2, 0xd3, 0xe4, 0xf5, 0x06, 0x17, 0x28,
 ]);
 
-/// Namespace UUID for Qdrant point IDs (UUID v5).
-/// Distinct from document namespace to avoid collisions.
-const POINT_ID_NAMESPACE: uuid::Uuid = uuid::Uuid::from_bytes([
-    0x8b, 0x4c, 0xad, 0x5e, 0xf6, 0x07, 0x58, 0x9b,
-    0xc2, 0xd3, 0xe4, 0xf5, 0x06, 0x17, 0x28, 0x39,
-]);
-
 /// Generate a stable document ID from tenant_id and file path.
 ///
 /// The document ID is deterministic: the same tenant + file always produces
@@ -255,16 +248,20 @@ pub fn generate_document_id(tenant_id: &str, file_path: &str) -> String {
     uuid::Uuid::new_v5(&DOCUMENT_ID_NAMESPACE, input.as_bytes()).to_string()
 }
 
-/// Generate a stable Qdrant point ID from a document_id and chunk index.
+/// Generate a stable, branch-scoped Qdrant point ID.
 ///
-/// Each chunk within a document gets a deterministic point ID:
-/// `UUID v5(POINT_ID_NAMESPACE, "document_id|chunk_index")`
+/// Formula: `SHA256(tenant_id|branch|file_path|chunk_index)[:32]`
 ///
-/// This enables targeted updates: if a specific chunk changes, only that
-/// point needs to be re-embedded and upserted.
-pub fn generate_point_id(document_id: &str, chunk_index: usize) -> String {
-    let input = format!("{}|{}", document_id, chunk_index);
-    uuid::Uuid::new_v5(&POINT_ID_NAMESPACE, input.as_bytes()).to_string()
+/// Branch scoping ensures the same file on different branches gets distinct
+/// point IDs, enabling proper branch isolation in Qdrant.
+///
+/// Path normalization is applied to `file_path` for cross-platform consistency.
+pub fn generate_point_id(tenant_id: &str, branch: &str, file_path: &str, chunk_index: usize) -> String {
+    use sha2::{Sha256, Digest};
+    let normalized = normalize_path_for_id(file_path);
+    let input = format!("{}|{}|{}|{}", tenant_id, branch, normalized, chunk_index);
+    let hash = Sha256::digest(input.as_bytes());
+    format!("{:x}", hash)[..32].to_string()
 }
 
 /// Generate a stable document ID for content items (no file path).
@@ -429,6 +426,7 @@ impl IngestionEngine {
         &self,
         file_path: &Path,
         collection: &str,
+        branch: &str,
     ) -> std::result::Result<DocumentResult, ProcessingError> {
         let start = Instant::now();
 
@@ -499,7 +497,7 @@ impl IngestionEngine {
             };
 
             points.push(crate::storage::DocumentPoint {
-                id: generate_point_id(&document_id, chunk_idx),
+                id: generate_point_id(collection, branch, &path_str, chunk_idx),
                 dense_vector: embedding_result.dense.vector,
                 sparse_vector,
                 payload,
@@ -599,38 +597,40 @@ mod tests {
 
     #[test]
     fn test_generate_point_id_stability() {
-        let doc_id = generate_document_id("tenant", "/file.rs");
-        let p1 = generate_point_id(&doc_id, 0);
-        let p2 = generate_point_id(&doc_id, 0);
-        assert_eq!(p1, p2, "Same doc_id + chunk_index must produce same point_id");
+        let p1 = generate_point_id("tenant", "main", "/file.rs", 0);
+        let p2 = generate_point_id("tenant", "main", "/file.rs", 0);
+        assert_eq!(p1, p2, "Same inputs must produce same point_id");
     }
 
     #[test]
     fn test_generate_point_id_uniqueness_across_chunks() {
-        let doc_id = generate_document_id("tenant", "/file.rs");
-        let p0 = generate_point_id(&doc_id, 0);
-        let p1 = generate_point_id(&doc_id, 1);
-        let p2 = generate_point_id(&doc_id, 2);
+        let p0 = generate_point_id("tenant", "main", "/file.rs", 0);
+        let p1 = generate_point_id("tenant", "main", "/file.rs", 1);
+        let p2 = generate_point_id("tenant", "main", "/file.rs", 2);
         assert_ne!(p0, p1, "Different chunks must produce different point IDs");
         assert_ne!(p1, p2, "Different chunks must produce different point IDs");
         assert_ne!(p0, p2, "Different chunks must produce different point IDs");
     }
 
     #[test]
-    fn test_generate_point_id_uniqueness_across_documents() {
-        let doc1 = generate_document_id("tenant", "/file1.rs");
-        let doc2 = generate_document_id("tenant", "/file2.rs");
-        let p1 = generate_point_id(&doc1, 0);
-        let p2 = generate_point_id(&doc2, 0);
-        assert_ne!(p1, p2, "Same chunk index but different docs must produce different point IDs");
+    fn test_generate_point_id_uniqueness_across_files() {
+        let p1 = generate_point_id("tenant", "main", "/file1.rs", 0);
+        let p2 = generate_point_id("tenant", "main", "/file2.rs", 0);
+        assert_ne!(p1, p2, "Same chunk index but different files must produce different point IDs");
     }
 
     #[test]
-    fn test_generate_point_id_is_valid_uuid() {
-        let doc_id = generate_document_id("tenant", "/file.rs");
-        let point_id = generate_point_id(&doc_id, 42);
-        let parsed = uuid::Uuid::parse_str(&point_id).unwrap();
-        assert_eq!(parsed.get_version_num(), 5, "Must be UUID v5");
+    fn test_generate_point_id_branch_isolation() {
+        let p_main = generate_point_id("tenant", "main", "/file.rs", 0);
+        let p_dev = generate_point_id("tenant", "dev", "/file.rs", 0);
+        assert_ne!(p_main, p_dev, "Same file on different branches must produce different point IDs");
+    }
+
+    #[test]
+    fn test_generate_point_id_is_hex_string() {
+        let point_id = generate_point_id("tenant", "main", "/file.rs", 42);
+        assert_eq!(point_id.len(), 32, "Point ID should be 32-char hex string");
+        assert!(point_id.chars().all(|c| c.is_ascii_hexdigit()), "Point ID must be hex: {}", point_id);
     }
 
     #[test]

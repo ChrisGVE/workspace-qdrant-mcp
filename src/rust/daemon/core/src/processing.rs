@@ -276,6 +276,7 @@ pub enum TaskPayload {
     ProcessDocument {
         file_path: std::path::PathBuf,
         collection: String,
+        branch: String,
     },
     /// Watch a directory for changes
     WatchDirectory {
@@ -1346,7 +1347,7 @@ impl Pipeline {
         ingestion_engine: &Option<Arc<crate::IngestionEngine>>,
     ) -> Result<TaskResultData, PriorityError> {
         match payload {
-            TaskPayload::ProcessDocument { file_path, collection } => {
+            TaskPayload::ProcessDocument { file_path, collection, branch } => {
                 if let Some(engine) = ingestion_engine {
                     tracing::info!(
                         file = %file_path.display(),
@@ -1355,7 +1356,7 @@ impl Pipeline {
                     );
 
                     let result = engine
-                        .process_document(&file_path, &collection)
+                        .process_document(&file_path, &collection, &branch)
                         .await
                         .map_err(|e| {
                             tracing::error!(
@@ -1606,7 +1607,7 @@ impl TaskSubmitter {
         
         // Determine if task supports checkpointing based on payload type
         let supports_checkpointing = match &payload {
-            TaskPayload::ProcessDocument { .. } => true,
+            TaskPayload::ProcessDocument { .. } => true, // Can be checkpointed
             TaskPayload::WatchDirectory { .. } => true,
             TaskPayload::ExecuteQuery { .. } => false, // Queries are typically fast
             TaskPayload::Generic { .. } => true, // Assume generic tasks can be checkpointed
@@ -1838,7 +1839,7 @@ impl TaskSubmitter {
         };
 
         match payload {
-            TaskPayload::ProcessDocument { file_path, collection } => {
+            TaskPayload::ProcessDocument { file_path, collection, branch } => {
                 // Derive tenant_id from TaskSource
                 let tenant_id = match &context.source {
                     TaskSource::ProjectWatcher { project_path } => {
@@ -1884,7 +1885,7 @@ impl TaskSubmitter {
                     collection,
                     &payload_json,
                     0, // Priority computed at dequeue time
-                    Some("main"),
+                    Some(branch),
                     Some(&metadata),
                 ).await.map_err(|e| PriorityError::Communication(
                     format!("SQLite spill failed: {}", e)
@@ -2313,10 +2314,11 @@ impl RequestQueue {
         
         // Hash the task payload for deduplication
         match &task.payload {
-            TaskPayload::ProcessDocument { file_path, collection } => {
+            TaskPayload::ProcessDocument { file_path, collection, branch } => {
                 "ProcessDocument".hash(&mut hasher);
                 file_path.hash(&mut hasher);
                 collection.hash(&mut hasher);
+                branch.hash(&mut hasher);
             }
             TaskPayload::WatchDirectory { path, recursive } => {
                 "WatchDirectory".hash(&mut hasher);
@@ -3664,6 +3666,7 @@ mod tests {
         let payload = TaskPayload::ProcessDocument {
             file_path: std::path::PathBuf::from("/tmp/test_project/src/main.rs"),
             collection: "projects".to_string(),
+            branch: "main".to_string(),
         };
 
         // Spill directly to SQLite
@@ -3795,6 +3798,7 @@ mod tests {
         let payload = TaskPayload::ProcessDocument {
             file_path: std::path::PathBuf::from("/home/user/docs/readme.md"),
             collection: "libraries".to_string(),
+            branch: "main".to_string(),
         };
 
         submitter.spill_to_sqlite(&queue_manager, &context, &payload)
