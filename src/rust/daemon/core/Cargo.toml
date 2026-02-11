@@ -5,6 +5,9 @@ edition = "2021"
 license = "MIT"
 
 [dependencies]
+# Shared configuration (paths, YAML defaults, env expansion)
+wqm-common = { path = "../../common" }
+
 # Core dependencies
 serde = { version = "1.0", features = ["derive", "rc"] }
 serde_json = "1.0"
