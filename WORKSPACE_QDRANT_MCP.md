@@ -2729,25 +2729,19 @@ updates:
 
 **All components (Daemon, MCP Server, CLI) share the same configuration file.** This is a key architectural requirement to prevent configuration drift between components.
 
-**Configuration file search order (first found wins):**
+**Configuration file search order (first found wins, identical across all components):**
 
 1. `WQM_CONFIG_PATH` environment variable (explicit override)
-2. `.workspace-qdrant.yaml` or `.workspace-qdrant.yml` (project-local, daemon/MCP only)
-3. `~/.workspace-qdrant/config.yaml` (or `.yml`)
-4. `~/.config/workspace-qdrant/config.yaml` (or `.yml`)
-5. `~/Library/Application Support/workspace-qdrant/config.yaml` (or `.yml`, macOS only)
+2. `~/.workspace-qdrant/config.yaml` (or `.yml`)
+3. `$XDG_CONFIG_HOME/workspace-qdrant/config.yaml` (or `.yml`; defaults to `~/.config`)
+4. `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS only)
 
-**Dropped:** `.wq_config.yaml` (legacy name removed — use `.workspace-qdrant.yaml` instead).
-
-**Note on project-local config:** Project-local config is for MCP server settings only (Qdrant URL override, etc.). Allowlist and exclusion patterns are system-wide daemon settings and are NOT overridable per-project.
-
-**Note:** The CLI does not search project-local configs since it operates system-wide.
+No project-local `.workspace-qdrant.yaml` is searched. All components use the same cascade.
 
 **Built-in defaults:** The configuration template (`assets/default_configuration.yaml`) defines all default values. User configuration only needs to specify overrides.
 
-**Embedded defaults:** All three components embed `assets/default_configuration.yaml` at build time:
-- **Rust daemon:** `include_str!("../../assets/default_configuration.yaml")` (proven pattern in `comprehensive.rs`)
-- **Rust CLI:** same `include_str!()` pattern
+**Embedded defaults:** All components embed `assets/default_configuration.yaml` at build time:
+- **Rust (daemon + CLI):** The shared `wqm-common` crate uses `include_str!()` to embed the YAML and provides `DEFAULT_YAML_CONFIG` (a `LazyLock<YamlConfig>`) as the single source of truth. Both daemon and CLI derive their `Default` impls from this parsed config.
 - **TypeScript MCP server:** build step generates `default-config.ts` from YAML, or inline import
 
 This ensures defaults are always in sync with the binary version without requiring a deployed config file.
@@ -4205,7 +4199,7 @@ Search should support three scopes, selectable per query:
 
 **Rationale for keeping .md experiments in projects:** Experiment notes, PoC results, and development logs answer questions like "why did we choose this algorithm?" and "what did we try that didn't work?" — genuinely valuable project context. The occasional noise in code search is far less costly than the complexity of content-based classification to sort .md files. The hybrid search system handles relevance naturally: code-related queries rank code chunks higher; design rationale queries rank notes higher.
 
-**Configurable edge cases:** `.docx` files could exist in either context (a spec written in Word vs. a downloaded paper). The default routes `.docx` to libraries, but users can override per-project via configuration. The routing rule is extension-based and lives in the watching configuration.
+**Configurable edge cases:** `.docx` files could exist in either context (a spec written in Word vs. a downloaded paper). The default routes `.docx` to libraries, but users can override via configuration. The routing rule is extension-based and lives in the watching configuration.
 
 **Cross-collection search:** Qdrant does not support native cross-collection queries. Implementation requires issuing parallel queries to both collections and merging results via RRF. The MCP `search` tool would accept an optional `include_libraries: true` parameter (default false for code queries, true for general knowledge queries).
 
