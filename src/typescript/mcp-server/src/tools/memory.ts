@@ -124,7 +124,7 @@ export class MemoryTool {
   private async addRule(options: MemoryOptions): Promise<MemoryResponse> {
     const {
       content,
-      scope = 'global',
+      scope = 'project',
       projectId,
       title,
       tags,
@@ -343,7 +343,7 @@ export class MemoryTool {
    * List rules by scope
    */
   private async listRules(options: MemoryOptions): Promise<MemoryResponse> {
-    const { scope = 'global', projectId, limit = 50 } = options;
+    const { scope = 'project', projectId, limit = 50 } = options;
 
     // Resolve project ID for project-scoped queries
     let resolvedProjectId = projectId;

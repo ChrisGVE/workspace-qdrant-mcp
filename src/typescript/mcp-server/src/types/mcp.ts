@@ -81,7 +81,7 @@ export const MemoryInputSchema = z.object({
   action: MemoryActionSchema.describe('Memory operation'),
   label: z.string().optional().describe('Rule label (unique per scope)'),
   content: z.string().optional().describe('Rule content'),
-  scope: MemoryScopeSchema.default('global').describe('Rule scope'),
+  scope: MemoryScopeSchema.default('project').describe('Rule scope (default: project)'),
   project_id: z.string().optional().describe('Project ID for project-scoped rules'),
 });
 
