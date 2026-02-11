@@ -214,7 +214,7 @@ impl Default for StorageConfig {
             transport: TransportMode::default(),
             pool_size: 10,
             tls: false,
-            dense_vector_size: 1536, // Default for OpenAI embeddings
+            dense_vector_size: 384, // Default for all-MiniLM-L6-v2
             sparse_vector_size: None,
             http2: Http2Config::default(),
             check_compatibility: true,
@@ -1967,7 +1967,7 @@ mod tests {
         assert_eq!(config.timeout_ms, 30000);
         assert_eq!(config.max_retries, 3);
         assert_eq!(config.retry_delay_ms, 1000);
-        assert_eq!(config.dense_vector_size, 1536);
+        assert_eq!(config.dense_vector_size, 384);
         assert!(config.check_compatibility);
     }
 

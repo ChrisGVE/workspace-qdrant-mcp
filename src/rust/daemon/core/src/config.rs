@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use crate::storage::StorageConfig;
 use crate::queue_types::ProcessorConfig;
 use chrono::Duration as ChronoDuration;
+use wqm_common::yaml_defaults::{self, YamlConfig};
 
 /// Auto-ingestion configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -904,27 +905,115 @@ impl Default for DaemonEndpointConfig {
 
 impl Default for DaemonConfig {
     fn default() -> Self {
+        DaemonConfig::from(&*yaml_defaults::DEFAULT_YAML_CONFIG)
+    }
+}
+
+impl From<&YamlConfig> for DaemonConfig {
+    fn from(yaml: &YamlConfig) -> Self {
         Self {
             log_file: None,
-            max_concurrent_tasks: Some(4),
-            default_timeout_ms: Some(30_000),
-            enable_preemption: true,
-            chunk_size: 1000,
+            max_concurrent_tasks: Some(yaml.performance.max_concurrent_tasks),
+            default_timeout_ms: Some(yaml.performance.default_timeout_ms() as usize),
+            enable_preemption: yaml.performance.enable_preemption,
+            chunk_size: yaml.performance.chunk_size,
             log_level: "info".to_string(),
-            auto_ingestion: AutoIngestionConfig::default(),
+            auto_ingestion: AutoIngestionConfig {
+                enabled: yaml.auto_ingestion.enabled,
+                auto_create_watches: yaml.auto_ingestion.auto_create_watches,
+                include_common_files: yaml.auto_ingestion.include_common_files,
+                include_source_files: yaml.auto_ingestion.include_source_files,
+                target_collection_suffix: "scratchbook".to_string(),
+                max_files_per_batch: yaml.auto_ingestion.max_files_per_batch,
+                batch_delay_seconds: 2.0,
+                max_file_size_mb: 50,
+                recursive_depth: 5,
+                debounce_seconds: yaml.auto_ingestion.debounce_seconds(),
+            },
             project_path: None,
-            qdrant: StorageConfig::default(),
+            qdrant: StorageConfig {
+                url: yaml.qdrant.url.clone(),
+                api_key: yaml.qdrant.api_key.clone(),
+                timeout_ms: yaml.qdrant.timeout,
+                pool_size: yaml.qdrant.pool.max_connections,
+                dense_vector_size: yaml.qdrant.default_collection.vector_size,
+                ..StorageConfig::default()
+            },
             logging: LoggingConfig::default(),
-            queue_processor: QueueProcessorSettings::default(),
+            queue_processor: QueueProcessorSettings {
+                batch_size: yaml.queue_processor.batch_size,
+                poll_interval_ms: yaml.queue_processor.poll_interval_ms,
+                max_retries: yaml.queue_processor.max_retries,
+                retry_delays_seconds: default_retry_delays_seconds(),
+                target_throughput: yaml.queue_processor.target_throughput,
+                enable_metrics: yaml.queue_processor.enable_metrics,
+            },
             monitoring: MonitoringConfig::default(),
-            git: GitConfig::default(),
-            observability: ObservabilityConfig::default(),
-            embedding: EmbeddingSettings::default(),
-            lsp: LspSettings::default(),
-            grammars: GrammarConfig::default(),
-            updates: UpdatesConfig::default(),
+            git: GitConfig {
+                enable_branch_detection: yaml.git.track_branch_lifecycle,
+                cache_ttl_seconds: yaml.git.branch_scan_interval_seconds,
+            },
+            observability: ObservabilityConfig {
+                collection_interval: yaml.observability.collection_interval_secs(),
+                metrics: MetricsConfig {
+                    enabled: yaml.observability.metrics.enabled,
+                },
+                telemetry: TelemetryConfig {
+                    enabled: yaml.observability.telemetry.enabled,
+                    history_retention: yaml.observability.telemetry.history_retention,
+                    cpu_usage: yaml.observability.telemetry.cpu_usage,
+                    memory_usage: yaml.observability.telemetry.memory_usage,
+                    latency: yaml.observability.telemetry.latency,
+                    queue_depth: yaml.observability.telemetry.queue_depth,
+                    throughput: yaml.observability.telemetry.throughput,
+                },
+            },
+            embedding: EmbeddingSettings {
+                cache_max_entries: yaml.embedding.cache_max_entries,
+                model_cache_dir: yaml.embedding.model_cache_dir.as_ref().map(PathBuf::from),
+            },
+            lsp: LspSettings {
+                user_path: yaml.lsp.user_path.clone(),
+                max_servers_per_project: yaml.lsp.max_servers_per_project,
+                auto_start_on_activation: yaml.lsp.auto_start_on_activation,
+                deactivation_delay_secs: yaml.lsp.deactivation_delay_secs,
+                enable_enrichment_cache: yaml.lsp.enable_enrichment_cache,
+                cache_ttl_secs: yaml.lsp.cache_ttl_secs,
+                startup_timeout_secs: yaml.lsp.startup_timeout_secs,
+                request_timeout_secs: yaml.lsp.request_timeout_secs,
+                health_check_interval_secs: yaml.lsp.health_check_interval_secs,
+                max_restart_attempts: yaml.lsp.max_restart_attempts,
+                restart_backoff_multiplier: yaml.lsp.restart_backoff_multiplier,
+                enable_auto_restart: true,
+                stability_reset_secs: 3600,
+            },
+            grammars: GrammarConfig {
+                cache_dir: PathBuf::from(&yaml.grammars.cache_dir),
+                required: yaml.grammars.required.clone(),
+                auto_download: yaml.grammars.auto_download,
+                tree_sitter_version: yaml.grammars.tree_sitter_version.clone(),
+                download_base_url: yaml.grammars.download_base_url.clone(),
+                verify_checksums: yaml.grammars.verify_checksums,
+                lazy_loading: yaml.grammars.lazy_loading,
+                check_interval_hours: yaml.grammars.check_interval_hours,
+            },
+            updates: UpdatesConfig {
+                auto_check: yaml.updates.auto_check,
+                channel: match yaml.updates.channel.as_str() {
+                    "beta" => UpdateChannel::Beta,
+                    "dev" => UpdateChannel::Dev,
+                    _ => UpdateChannel::Stable,
+                },
+                notify_only: yaml.updates.notify_only,
+                check_interval_hours: yaml.updates.check_interval_hours,
+            },
             resource_limits: ResourceLimitsConfig::default(),
-            daemon_endpoint: DaemonEndpointConfig::default(),
+            daemon_endpoint: DaemonEndpointConfig {
+                host: yaml.grpc.host.clone(),
+                grpc_port: yaml.grpc.port,
+                health_endpoint: "/health".to_string(),
+                auth_token: None,
+            },
         }
     }
 }
@@ -1130,7 +1219,7 @@ mod tests {
         assert_eq!(config.monitoring.check_interval_hours, 24);
         assert!(config.monitoring.enable_monitoring);
         assert!(config.git.enable_branch_detection);
-        assert_eq!(config.git.cache_ttl_seconds, 60);
+        assert_eq!(config.git.cache_ttl_seconds, 5); // from YAML branch_scan_interval_seconds
         // Embedding settings defaults
         assert_eq!(config.embedding.cache_max_entries, 1000);
         assert!(config.embedding.model_cache_dir.is_none());
