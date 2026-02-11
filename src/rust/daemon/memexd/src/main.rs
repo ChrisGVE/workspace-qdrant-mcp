@@ -38,6 +38,8 @@ use workspace_qdrant_core::{
     poll_pause_state,
     // Metrics history collection (Task 544)
     metrics_history,
+    // Remote URL change detection (Task 584)
+    check_remote_url_changes,
 };
 
 // gRPC server for Python MCP server and CLI communication (Task 421)
@@ -716,6 +718,34 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         }
     });
     info!("Inactivity timeout polling started (5min interval, {}s timeout)", inactivity_timeout_secs);
+
+    // Start periodic remote URL change detection (Task 584)
+    // Checks active projects for git remote URL changes and triggers cascade renames
+    let remote_monitor_pool = queue_pool.clone();
+    let _remote_monitor_handle = tokio::spawn(async move {
+        let queue_manager = workspace_qdrant_core::queue_operations::QueueManager::new(
+            remote_monitor_pool.clone(),
+        );
+        // Check every 30 seconds (less frequent than pause polling since remote changes are rare)
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
+        loop {
+            interval.tick().await;
+            match check_remote_url_changes(&remote_monitor_pool, &queue_manager).await {
+                Ok(result) => {
+                    if result.changes_detected > 0 {
+                        info!(
+                            "Remote URL monitoring: {} change(s) detected, {} checked, {} error(s)",
+                            result.changes_detected, result.projects_checked, result.errors
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!("Remote URL monitoring failed: {}", e);
+                }
+            }
+        }
+    });
+    info!("Remote URL monitoring started (30s interval)");
 
     info!("Initializing IPC server");
     let max_concurrent = config.max_concurrent_tasks.unwrap_or(8);

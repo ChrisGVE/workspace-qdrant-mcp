@@ -48,6 +48,7 @@ pub mod watching;
 pub mod watching_queue;
 pub mod lsp;
 pub mod project_disambiguation;
+pub mod remote_monitor;
 pub mod startup_recovery;
 pub mod startup_reconciliation;
 
@@ -217,6 +218,7 @@ pub use crate::startup_reconciliation::{
     clean_stale_state, validate_watch_folders,
     StaleCleanupStats, WatchValidationStats,
 };
+pub use crate::remote_monitor::check_remote_url_changes;
 
 // ============================================================================
 // Stable Document ID Generation
