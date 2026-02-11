@@ -873,11 +873,13 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         let recovery_pool = unified_queue_processor.pool().clone();
         let recovery_qm = unified_queue_processor.queue_manager().clone();
         let recovery_ext = Arc::clone(&allowed_extensions);
+        let recovery_startup_config = daemon_config.startup.clone();
         tokio::spawn(async move {
             match workspace_qdrant_core::startup_recovery::run_startup_recovery(
                 &recovery_pool,
                 &recovery_qm,
                 &recovery_ext,
+                &recovery_startup_config,
             ).await {
                 Ok(stats) => {
                     let total = stats.total_queued();

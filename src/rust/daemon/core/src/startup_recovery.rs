@@ -14,6 +14,7 @@ use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
 use crate::allowed_extensions::{AllowedExtensions, FileRoute};
+use crate::config::StartupConfig;
 use crate::patterns::exclusion::{should_exclude_file, should_exclude_directory};
 use crate::queue_operations::QueueManager;
 use crate::tracked_files_schema;
@@ -64,8 +65,13 @@ pub async fn run_startup_recovery(
     pool: &SqlitePool,
     queue_manager: &QueueManager,
     allowed_extensions: &AllowedExtensions,
+    startup_config: &StartupConfig,
 ) -> Result<FullRecoveryStats, String> {
-    info!("Starting daemon startup recovery...");
+    info!(
+        "Starting daemon startup recovery (batch_size={}, batch_delay={}ms)...",
+        startup_config.startup_enqueue_batch_size,
+        startup_config.startup_enqueue_batch_delay_ms,
+    );
     let start = std::time::Instant::now();
 
     // Get all enabled watch_folders
@@ -88,7 +94,7 @@ pub async fn run_startup_recovery(
     for (watch_id, path, collection, tenant_id) in &watch_folders {
         let stats = recover_watch_folder(
             pool, queue_manager, watch_id, path, collection, tenant_id,
-            allowed_extensions,
+            allowed_extensions, startup_config,
         ).await;
 
         match stats {
@@ -134,6 +140,7 @@ async fn recover_watch_folder(
     collection: &str,
     tenant_id: &str,
     allowed_extensions: &AllowedExtensions,
+    startup_config: &StartupConfig,
 ) -> Result<RecoveryStats, String> {
     let root = Path::new(base_path);
     if !root.exists() || !root.is_dir() {
@@ -157,6 +164,11 @@ async fn recover_watch_folder(
     // Use filter_entry to skip excluded directories entirely (target/, node_modules/, .git/, etc.)
     // This avoids enumerating hundreds of thousands of files in build artifact directories.
     let mut disk_files: HashMap<String, ()> = HashMap::new();
+
+    // Batching: track enqueue operations and yield+sleep between batches (Task 579)
+    let batch_size = startup_config.startup_enqueue_batch_size;
+    let batch_delay = std::time::Duration::from_millis(startup_config.startup_enqueue_batch_delay_ms);
+    let mut enqueued_in_batch: usize = 0;
 
     for entry in WalkDir::new(root)
         .follow_links(false)
@@ -193,6 +205,7 @@ async fn recover_watch_folder(
                     stats.errors += 1;
                 } else {
                     stats.files_newly_excluded += 1;
+                    enqueued_in_batch += 1;
                 }
             }
             continue;
@@ -221,6 +234,7 @@ async fn recover_watch_folder(
                         stats.errors += 1;
                     } else {
                         stats.files_newly_excluded += 1;
+                        enqueued_in_batch += 1;
                     }
                 }
                 continue;
@@ -254,6 +268,7 @@ async fn recover_watch_folder(
                 } else {
                     stats.files_to_update += 1;
                     if is_library_routed { stats.files_routed_to_library += 1; }
+                    enqueued_in_batch += 1;
                 }
             } else {
                 stats.files_unchanged += 1;
@@ -269,13 +284,18 @@ async fn recover_watch_folder(
             } else {
                 stats.files_to_ingest += 1;
                 if is_library_routed { stats.files_routed_to_library += 1; }
+                enqueued_in_batch += 1;
             }
         }
 
-        // Yield periodically
-        let total_processed = stats.files_to_ingest + stats.files_to_update + stats.files_unchanged;
-        if total_processed % 500 == 0 && total_processed > 0 {
+        // Yield and sleep between batches to avoid overwhelming the queue (Task 579)
+        if batch_size > 0 && enqueued_in_batch >= batch_size {
+            debug!("Recovery batch of {} enqueued, yielding for {:?}", enqueued_in_batch, batch_delay);
             tokio::task::yield_now().await;
+            if !batch_delay.is_zero() {
+                tokio::time::sleep(batch_delay).await;
+            }
+            enqueued_in_batch = 0;
         }
     }
 
@@ -292,6 +312,17 @@ async fn recover_watch_folder(
                 stats.errors += 1;
             } else {
                 stats.files_to_delete += 1;
+                enqueued_in_batch += 1;
+            }
+
+            // Batch sleep for deletion phase too
+            if batch_size > 0 && enqueued_in_batch >= batch_size {
+                debug!("Recovery delete batch of {} enqueued, yielding for {:?}", enqueued_in_batch, batch_delay);
+                tokio::task::yield_now().await;
+                if !batch_delay.is_zero() {
+                    tokio::time::sleep(batch_delay).await;
+                }
+                enqueued_in_batch = 0;
             }
         }
     }
