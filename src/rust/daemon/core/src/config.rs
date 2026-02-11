@@ -680,6 +680,107 @@ impl GrammarConfig {
     }
 }
 
+/// Startup warmup configuration section (Task 577)
+///
+/// Controls the daemon's startup behavior to reduce initial CPU spike
+/// by throttling queue processing during the warmup window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StartupConfig {
+    /// Delay in seconds before queue processor starts consuming (default: 5)
+    #[serde(default = "default_warmup_delay_secs")]
+    pub warmup_delay_secs: u64,
+
+    /// Duration in seconds of the warmup window with reduced limits (default: 30)
+    #[serde(default = "default_warmup_window_secs")]
+    pub warmup_window_secs: u64,
+
+    /// Max concurrent embeddings during warmup (default: 1, normal: 2)
+    #[serde(default = "default_warmup_max_concurrent_embeddings")]
+    pub warmup_max_concurrent_embeddings: usize,
+
+    /// Inter-item delay in ms during warmup (default: 200, normal: 50)
+    #[serde(default = "default_warmup_inter_item_delay_ms")]
+    pub warmup_inter_item_delay_ms: u64,
+
+    /// Batch size for startup recovery enqueuing (default: 50)
+    #[serde(default = "default_startup_enqueue_batch_size")]
+    pub startup_enqueue_batch_size: usize,
+
+    /// Delay in ms between enqueue batches (default: 100)
+    #[serde(default = "default_startup_enqueue_batch_delay_ms")]
+    pub startup_enqueue_batch_delay_ms: u64,
+}
+
+fn default_warmup_delay_secs() -> u64 { 5 }
+fn default_warmup_window_secs() -> u64 { 30 }
+fn default_warmup_max_concurrent_embeddings() -> usize { 1 }
+fn default_warmup_inter_item_delay_ms() -> u64 { 200 }
+fn default_startup_enqueue_batch_size() -> usize { 50 }
+fn default_startup_enqueue_batch_delay_ms() -> u64 { 100 }
+
+impl Default for StartupConfig {
+    fn default() -> Self {
+        Self {
+            warmup_delay_secs: default_warmup_delay_secs(),
+            warmup_window_secs: default_warmup_window_secs(),
+            warmup_max_concurrent_embeddings: default_warmup_max_concurrent_embeddings(),
+            warmup_inter_item_delay_ms: default_warmup_inter_item_delay_ms(),
+            startup_enqueue_batch_size: default_startup_enqueue_batch_size(),
+            startup_enqueue_batch_delay_ms: default_startup_enqueue_batch_delay_ms(),
+        }
+    }
+}
+
+impl StartupConfig {
+    /// Apply environment variable overrides
+    pub fn apply_env_overrides(&mut self) {
+        use std::env;
+
+        if let Ok(val) = env::var("WQM_STARTUP_WARMUP_DELAY_SECS") {
+            if let Ok(parsed) = val.parse() {
+                self.warmup_delay_secs = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_STARTUP_WARMUP_WINDOW_SECS") {
+            if let Ok(parsed) = val.parse() {
+                self.warmup_window_secs = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_STARTUP_MAX_CONCURRENT_EMBEDDINGS") {
+            if let Ok(parsed) = val.parse() {
+                self.warmup_max_concurrent_embeddings = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_STARTUP_INTER_ITEM_DELAY_MS") {
+            if let Ok(parsed) = val.parse() {
+                self.warmup_inter_item_delay_ms = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_STARTUP_ENQUEUE_BATCH_SIZE") {
+            if let Ok(parsed) = val.parse() {
+                self.startup_enqueue_batch_size = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_STARTUP_ENQUEUE_BATCH_DELAY_MS") {
+            if let Ok(parsed) = val.parse() {
+                self.startup_enqueue_batch_delay_ms = parsed;
+            }
+        }
+    }
+
+    /// Create from environment variables only
+    pub fn from_env() -> Self {
+        let mut config = Self::default();
+        config.apply_env_overrides();
+        config
+    }
+}
+
 /// Resource limits configuration section
 ///
 /// Controls how the daemon manages system resources to be a good neighbor.
@@ -873,6 +974,9 @@ pub struct DaemonConfig {
     /// Resource limits configuration
     #[serde(default)]
     pub resource_limits: ResourceLimitsConfig,
+    /// Startup warmup configuration (Task 577)
+    #[serde(default)]
+    pub startup: StartupConfig,
     /// Daemon endpoint configuration for service discovery
     #[serde(default)]
     pub daemon_endpoint: DaemonEndpointConfig,
@@ -1008,6 +1112,7 @@ impl From<&YamlConfig> for DaemonConfig {
                 check_interval_hours: yaml.updates.check_interval_hours,
             },
             resource_limits: ResourceLimitsConfig::default(),
+            startup: StartupConfig::default(),
             daemon_endpoint: DaemonEndpointConfig {
                 host: yaml.grpc.host.clone(),
                 grpc_port: yaml.grpc.port,
@@ -1529,5 +1634,88 @@ mod tests {
         let deserialized: ResourceLimitsConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.nice_level, 5);
         assert_eq!(deserialized.max_memory_percent, 80);
+    }
+
+    #[test]
+    fn test_startup_config_defaults() {
+        let config = StartupConfig::default();
+        assert_eq!(config.warmup_delay_secs, 5);
+        assert_eq!(config.warmup_window_secs, 30);
+        assert_eq!(config.warmup_max_concurrent_embeddings, 1);
+        assert_eq!(config.warmup_inter_item_delay_ms, 200);
+        assert_eq!(config.startup_enqueue_batch_size, 50);
+        assert_eq!(config.startup_enqueue_batch_delay_ms, 100);
+    }
+
+    #[test]
+    fn test_startup_config_env_overrides() {
+        let mut config = StartupConfig::default();
+
+        // Set environment variables
+        std::env::set_var("WQM_STARTUP_WARMUP_DELAY_SECS", "10");
+        std::env::set_var("WQM_STARTUP_WARMUP_WINDOW_SECS", "60");
+        std::env::set_var("WQM_STARTUP_MAX_CONCURRENT_EMBEDDINGS", "2");
+        std::env::set_var("WQM_STARTUP_INTER_ITEM_DELAY_MS", "300");
+        std::env::set_var("WQM_STARTUP_ENQUEUE_BATCH_SIZE", "100");
+        std::env::set_var("WQM_STARTUP_ENQUEUE_BATCH_DELAY_MS", "200");
+
+        config.apply_env_overrides();
+
+        assert_eq!(config.warmup_delay_secs, 10);
+        assert_eq!(config.warmup_window_secs, 60);
+        assert_eq!(config.warmup_max_concurrent_embeddings, 2);
+        assert_eq!(config.warmup_inter_item_delay_ms, 300);
+        assert_eq!(config.startup_enqueue_batch_size, 100);
+        assert_eq!(config.startup_enqueue_batch_delay_ms, 200);
+
+        // Clean up
+        std::env::remove_var("WQM_STARTUP_WARMUP_DELAY_SECS");
+        std::env::remove_var("WQM_STARTUP_WARMUP_WINDOW_SECS");
+        std::env::remove_var("WQM_STARTUP_MAX_CONCURRENT_EMBEDDINGS");
+        std::env::remove_var("WQM_STARTUP_INTER_ITEM_DELAY_MS");
+        std::env::remove_var("WQM_STARTUP_ENQUEUE_BATCH_SIZE");
+        std::env::remove_var("WQM_STARTUP_ENQUEUE_BATCH_DELAY_MS");
+    }
+
+    #[test]
+    fn test_startup_config_from_env() {
+        std::env::set_var("WQM_STARTUP_WARMUP_DELAY_SECS", "3");
+        std::env::set_var("WQM_STARTUP_WARMUP_WINDOW_SECS", "15");
+
+        let config = StartupConfig::from_env();
+        assert_eq!(config.warmup_delay_secs, 3);
+        assert_eq!(config.warmup_window_secs, 15);
+        // Other fields should be defaults
+        assert_eq!(config.warmup_max_concurrent_embeddings, 1);
+
+        std::env::remove_var("WQM_STARTUP_WARMUP_DELAY_SECS");
+        std::env::remove_var("WQM_STARTUP_WARMUP_WINDOW_SECS");
+    }
+
+    #[test]
+    fn test_startup_config_serialization() {
+        let config = StartupConfig {
+            warmup_delay_secs: 8,
+            warmup_window_secs: 45,
+            warmup_max_concurrent_embeddings: 1,
+            warmup_inter_item_delay_ms: 250,
+            startup_enqueue_batch_size: 75,
+            startup_enqueue_batch_delay_ms: 150,
+        };
+
+        let json = serde_json::to_string(&config).unwrap();
+        assert!(json.contains("\"warmup_delay_secs\":8"));
+        assert!(json.contains("\"warmup_window_secs\":45"));
+
+        let deserialized: StartupConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(deserialized.warmup_delay_secs, 8);
+        assert_eq!(deserialized.warmup_window_secs, 45);
+    }
+
+    #[test]
+    fn test_daemon_config_includes_startup() {
+        let config = DaemonConfig::default();
+        assert_eq!(config.startup.warmup_delay_secs, 5);
+        assert_eq!(config.startup.warmup_window_secs, 30);
     }
 }

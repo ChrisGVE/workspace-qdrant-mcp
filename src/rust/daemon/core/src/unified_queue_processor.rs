@@ -8,7 +8,7 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use sqlx::SqlitePool;
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use thiserror::Error;
 use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
@@ -65,6 +65,37 @@ pub enum UnifiedProcessorError {
 /// Result type for unified processor operations
 pub type UnifiedProcessorResult<T> = Result<T, UnifiedProcessorError>;
 
+/// Warmup state tracker for startup throttling (Task 577)
+///
+/// Tracks whether the daemon is still in the warmup window after startup.
+/// During warmup, the queue processor uses reduced resource limits to avoid
+/// CPU spikes.
+#[derive(Debug, Clone)]
+pub struct WarmupState {
+    daemon_start: Instant,
+    warmup_window_secs: u64,
+}
+
+impl WarmupState {
+    /// Create a new warmup state tracker
+    pub fn new(warmup_window_secs: u64) -> Self {
+        Self {
+            daemon_start: Instant::now(),
+            warmup_window_secs,
+        }
+    }
+
+    /// Check if the daemon is still in the warmup window
+    pub fn is_in_warmup(&self) -> bool {
+        self.daemon_start.elapsed().as_secs() < self.warmup_window_secs
+    }
+
+    /// Get the elapsed time since daemon start
+    pub fn elapsed_secs(&self) -> u64 {
+        self.daemon_start.elapsed().as_secs()
+    }
+}
+
 /// Processing metrics for unified queue monitoring
 #[derive(Debug, Clone, Default)]
 pub struct UnifiedProcessingMetrics {
@@ -115,6 +146,14 @@ pub struct UnifiedProcessorConfig {
     pub max_concurrent_embeddings: usize,
     /// Pause processing when memory usage exceeds this percentage
     pub max_memory_percent: u8,
+
+    // Warmup throttling (Task 577)
+    /// Duration in seconds of the warmup window with reduced limits
+    pub warmup_window_secs: u64,
+    /// Max concurrent embeddings during warmup
+    pub warmup_max_concurrent_embeddings: usize,
+    /// Inter-item delay in ms during warmup
+    pub warmup_inter_item_delay_ms: u64,
 }
 
 impl Default for UnifiedProcessorConfig {
@@ -139,6 +178,10 @@ impl Default for UnifiedProcessorConfig {
             inter_item_delay_ms: 50,
             max_concurrent_embeddings: 2,
             max_memory_percent: 70,
+            // Warmup throttling defaults (Task 577)
+            warmup_window_secs: 30,
+            warmup_max_concurrent_embeddings: 1,
+            warmup_inter_item_delay_ms: 200,
         }
     }
 }
@@ -180,6 +223,9 @@ pub struct UnifiedQueueProcessor {
 
     /// File type allowlist for ingestion filtering (Task 511)
     allowed_extensions: Arc<AllowedExtensions>,
+
+    /// Warmup state for startup throttling (Task 577)
+    warmup_state: Arc<WarmupState>,
 }
 
 impl UnifiedQueueProcessor {
@@ -209,6 +255,7 @@ impl UnifiedQueueProcessor {
         ));
 
         let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_concurrent_embeddings));
+        let warmup_state = Arc::new(WarmupState::new(config.warmup_window_secs));
 
         Self {
             queue_manager,
@@ -223,6 +270,7 @@ impl UnifiedQueueProcessor {
             lsp_manager: None,
             embedding_semaphore,
             allowed_extensions: Arc::new(AllowedExtensions::default()),
+            warmup_state,
         }
     }
 
@@ -249,6 +297,7 @@ impl UnifiedQueueProcessor {
         ));
 
         let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_concurrent_embeddings));
+        let warmup_state = Arc::new(WarmupState::new(config.warmup_window_secs));
 
         Self {
             queue_manager,
@@ -263,6 +312,7 @@ impl UnifiedQueueProcessor {
             lsp_manager: None,
             embedding_semaphore,
             allowed_extensions: Arc::new(AllowedExtensions::default()),
+            warmup_state,
         }
     }
 
@@ -286,6 +336,24 @@ impl UnifiedQueueProcessor {
     /// Get a reference to the queue manager
     pub fn queue_manager(&self) -> &QueueManager {
         &self.queue_manager
+    }
+
+    /// Get effective inter-item delay based on warmup state (Task 577)
+    fn effective_inter_item_delay_ms(&self) -> u64 {
+        if self.warmup_state.is_in_warmup() {
+            self.config.warmup_inter_item_delay_ms
+        } else {
+            self.config.inter_item_delay_ms
+        }
+    }
+
+    /// Get effective max concurrent embeddings based on warmup state (Task 577)
+    fn effective_max_concurrent_embeddings(&self) -> usize {
+        if self.warmup_state.is_in_warmup() {
+            self.config.warmup_max_concurrent_embeddings
+        } else {
+            self.config.max_concurrent_embeddings
+        }
     }
 
     /// Recover stale leases at startup (Task 37.19)
@@ -325,6 +393,7 @@ impl UnifiedQueueProcessor {
         let lsp_manager = self.lsp_manager.clone();
         let embedding_semaphore = self.embedding_semaphore.clone();
         let allowed_extensions = self.allowed_extensions.clone();
+        let warmup_state = self.warmup_state.clone();
 
         let task_handle = tokio::spawn(async move {
             if let Err(e) = Self::processing_loop(
@@ -339,6 +408,7 @@ impl UnifiedQueueProcessor {
                 lsp_manager,
                 embedding_semaphore,
                 allowed_extensions,
+                warmup_state,
             )
             .await
             {
@@ -409,19 +479,33 @@ impl UnifiedQueueProcessor {
         lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
         embedding_semaphore: Arc<tokio::sync::Semaphore>,
         allowed_extensions: Arc<AllowedExtensions>,
+        warmup_state: Arc<WarmupState>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
-        let inter_item_delay = Duration::from_millis(config.inter_item_delay_ms);
         let mut last_metrics_log = Utc::now();
         let metrics_log_interval = ChronoDuration::minutes(1);
+        let mut warmup_logged = false;
 
         info!(
-            "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, inter_item_delay={}ms, max_embeddings={}, max_memory={}%)",
+            "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, warmup_window={}s)",
             config.batch_size, config.worker_id, config.fairness_enabled,
-            config.inter_item_delay_ms, config.max_concurrent_embeddings, config.max_memory_percent
+            config.warmup_window_secs
         );
 
         loop {
+            // Log warmup transition (Task 577)
+            if !warmup_logged && !warmup_state.is_in_warmup() {
+                info!(
+                    "Warmup period complete after {}s - switching to normal resource limits (delay: {}ms -> {}ms, max_embeddings: {} -> {})",
+                    warmup_state.elapsed_secs(),
+                    config.warmup_inter_item_delay_ms,
+                    config.inter_item_delay_ms,
+                    config.warmup_max_concurrent_embeddings,
+                    config.max_concurrent_embeddings
+                );
+                warmup_logged = true;
+            }
+
             // Check for shutdown signal
             if cancellation_token.is_cancelled() {
                 info!("Unified queue shutdown signal received");
@@ -529,9 +613,15 @@ impl UnifiedQueueProcessor {
                             }
                         }
 
-                        // Inter-item delay for resource breathing room (Task 504)
-                        if inter_item_delay > Duration::ZERO {
-                            tokio::time::sleep(inter_item_delay).await;
+                        // Inter-item delay for resource breathing room (Task 504 / Task 577)
+                        // Use warmup-aware delay that's higher during warmup window
+                        let effective_delay_ms = if warmup_state.is_in_warmup() {
+                            config.warmup_inter_item_delay_ms
+                        } else {
+                            config.inter_item_delay_ms
+                        };
+                        if effective_delay_ms > 0 {
+                            tokio::time::sleep(Duration::from_millis(effective_delay_ms)).await;
                         }
                     }
                 }

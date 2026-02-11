@@ -813,6 +813,10 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         inter_item_delay_ms: config.resource_limits.inter_item_delay_ms,
         max_concurrent_embeddings: config.resource_limits.max_concurrent_embeddings,
         max_memory_percent: config.resource_limits.max_memory_percent,
+        // Warmup throttling (Task 577)
+        warmup_window_secs: daemon_config.startup.warmup_window_secs,
+        warmup_max_concurrent_embeddings: daemon_config.startup.warmup_max_concurrent_embeddings,
+        warmup_inter_item_delay_ms: daemon_config.startup.warmup_inter_item_delay_ms,
         ..UnifiedProcessorConfig::default()
     };
 
@@ -841,8 +845,17 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         warn!("Failed to recover stale unified queue leases: {}", e);
     }
 
-    // Start the queue processor BEFORE startup recovery so existing pending
-    // items get processed immediately while recovery runs in the background
+    // Warmup delay before starting queue processor (Task 577)
+    // This prevents CPU spike at startup by delaying queue processing
+    // while startup recovery is enqueuing filesystem changes
+    let warmup_delay_secs = daemon_config.startup.warmup_delay_secs;
+    if warmup_delay_secs > 0 {
+        info!("Applying startup warmup delay of {}s before queue processing begins...", warmup_delay_secs);
+        tokio::time::sleep(tokio::time::Duration::from_secs(warmup_delay_secs)).await;
+    }
+
+    // Start the queue processor AFTER warmup delay
+    // Startup recovery will run in the background and queue items while processor is throttled
     unified_queue_processor.start()
         .map_err(|e| format!("Failed to start unified queue processor: {}", e))?;
 
