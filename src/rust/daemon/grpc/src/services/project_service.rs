@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
 
@@ -71,6 +71,8 @@ pub struct ProjectServiceImpl {
     deactivation_delay_secs: u64,
     /// Pending shutdowns: project_id -> (scheduled_time, was_queue_checked)
     pending_shutdowns: Arc<RwLock<HashMap<String, (Instant, bool)>>>,
+    /// Signal to trigger immediate WatchManager refresh when a new project is registered
+    watch_refresh_signal: Option<Arc<Notify>>,
 }
 
 /// Default deactivation delay in seconds (1 minute)
@@ -87,6 +89,7 @@ impl ProjectServiceImpl {
             language_detector: Arc::new(ProjectLanguageDetector::new()),
             deactivation_delay_secs: DEFAULT_DEACTIVATION_DELAY_SECS,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
+            watch_refresh_signal: None,
         }
     }
 
@@ -100,6 +103,7 @@ impl ProjectServiceImpl {
             language_detector: Arc::new(ProjectLanguageDetector::new()),
             deactivation_delay_secs: DEFAULT_DEACTIVATION_DELAY_SECS,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
+            watch_refresh_signal: None,
         }
     }
 
@@ -116,6 +120,7 @@ impl ProjectServiceImpl {
             language_detector: Arc::new(ProjectLanguageDetector::new()),
             deactivation_delay_secs: DEFAULT_DEACTIVATION_DELAY_SECS,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
+            watch_refresh_signal: None,
         }
     }
 
@@ -133,7 +138,14 @@ impl ProjectServiceImpl {
             language_detector: Arc::new(ProjectLanguageDetector::new()),
             deactivation_delay_secs,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
+            watch_refresh_signal: None,
         }
+    }
+
+    /// Set the watch refresh signal for triggering WatchManager refresh on new project registration
+    pub fn with_watch_refresh_signal(mut self, signal: Arc<Notify>) -> Self {
+        self.watch_refresh_signal = Some(signal);
+        self
     }
 
     /// Start the background task that monitors and executes deferred LSP shutdowns
@@ -626,6 +638,14 @@ impl ProjectService for ProjectServiceImpl {
                 project_id = %project_id,
                 "Cancelled pending deferred shutdown on project reactivation"
             );
+        }
+
+        // Signal WatchManager to pick up new project watch folder immediately
+        if created {
+            if let Some(ref signal) = self.watch_refresh_signal {
+                signal.notify_one();
+                info!("Notified WatchManager of new project registration: {}", project_id);
+            }
         }
 
         // Queue project scan for automatic ingestion (new projects only)
@@ -1506,6 +1526,7 @@ mod tests {
             language_detector: Arc::new(ProjectLanguageDetector::new()),
             deactivation_delay_secs: 30, // 30 second delay
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
+            watch_refresh_signal: None,
         };
 
         // Register and deprioritize (existing via create_test_watch_folder)
@@ -1543,6 +1564,7 @@ mod tests {
             language_detector: Arc::new(ProjectLanguageDetector::new()),
             deactivation_delay_secs: 60,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
+            watch_refresh_signal: None,
         };
 
         // Register project (existing via create_test_watch_folder)
@@ -1612,6 +1634,7 @@ mod tests {
             language_detector: Arc::new(ProjectLanguageDetector::new()),
             deactivation_delay_secs: 0, // No delay
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
+            watch_refresh_signal: None,
         };
 
         // Add pending queue item
@@ -1647,6 +1670,7 @@ mod tests {
             language_detector: Arc::new(ProjectLanguageDetector::new()),
             deactivation_delay_secs: 0,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
+            watch_refresh_signal: None,
         };
 
         // Start the background monitor - should not panic
@@ -1671,6 +1695,7 @@ mod tests {
             language_detector: Arc::new(ProjectLanguageDetector::new()),
             deactivation_delay_secs: 0,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
+            watch_refresh_signal: None,
         };
 
         // Schedule a deferred shutdown with immediate expiry

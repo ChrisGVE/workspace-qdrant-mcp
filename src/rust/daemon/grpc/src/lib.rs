@@ -8,7 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 use thiserror::Error;
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 use tonic::transport::{Server, ServerTlsConfig, Identity};
 use tonic::{Request, Status};
 use sqlx::SqlitePool;
@@ -286,6 +286,8 @@ pub struct GrpcServer {
     lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
     /// Shared pause flag for watcher pause/resume propagation
     pause_flag: Option<Arc<AtomicBool>>,
+    /// Signal to trigger immediate WatchManager refresh on config changes
+    watch_refresh_signal: Option<Arc<Notify>>,
 }
 
 /// Server metrics for monitoring
@@ -361,6 +363,7 @@ impl GrpcServer {
             enable_lsp: false,
             lsp_manager: None,
             pause_flag: None,
+            watch_refresh_signal: None,
         }
     }
 
@@ -406,6 +409,13 @@ impl GrpcServer {
         self
     }
 
+    /// Set the watch refresh signal for triggering WatchManager refresh
+    /// when gRPC calls modify watch_folders state.
+    pub fn with_watch_refresh_signal(mut self, signal: Arc<Notify>) -> Self {
+        self.watch_refresh_signal = Some(signal);
+        self
+    }
+
     pub async fn start(&mut self) -> Result<(), GrpcError> {
         // Debug: verify this code path is reached
         if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -443,6 +453,9 @@ impl GrpcServer {
         };
         if let Some(flag) = &self.pause_flag {
             system_service = system_service.with_pause_flag(Arc::clone(flag));
+        }
+        if let Some(ref signal) = self.watch_refresh_signal {
+            system_service = system_service.with_watch_refresh_signal(Arc::clone(signal));
         }
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
         let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));
@@ -482,6 +495,13 @@ impl GrpcServer {
             }
         } else {
             None
+        };
+
+        // Wire watch refresh signal into ProjectService
+        let project_service = if let Some(ref signal) = self.watch_refresh_signal {
+            project_service.map(|svc| svc.with_watch_refresh_signal(Arc::clone(signal)))
+        } else {
+            project_service
         };
 
         tracing::info!("Starting gRPC server on {}", self.config.bind_addr);

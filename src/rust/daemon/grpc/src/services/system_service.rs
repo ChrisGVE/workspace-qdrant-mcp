@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
 
@@ -135,6 +135,8 @@ pub struct SystemServiceImpl {
     /// When the gRPC endpoint pauses/resumes, this flag is toggled atomically
     /// so that any FileWatcher sharing this flag reacts immediately.
     pause_flag: Arc<AtomicBool>,
+    /// Signal to trigger immediate WatchManager refresh
+    watch_refresh_signal: Option<Arc<Notify>>,
 }
 
 impl SystemServiceImpl {
@@ -146,6 +148,7 @@ impl SystemServiceImpl {
             db_pool: None,
             status_store: Arc::new(RwLock::new(HashMap::new())),
             pause_flag: Arc::new(AtomicBool::new(false)),
+            watch_refresh_signal: None,
         }
     }
 
@@ -157,6 +160,7 @@ impl SystemServiceImpl {
             db_pool: None,
             status_store: Arc::new(RwLock::new(HashMap::new())),
             pause_flag: Arc::new(AtomicBool::new(false)),
+            watch_refresh_signal: None,
         }
     }
 
@@ -171,6 +175,12 @@ impl SystemServiceImpl {
     /// the gRPC endpoint and the watcher share the same atomic flag.
     pub fn with_pause_flag(mut self, flag: Arc<AtomicBool>) -> Self {
         self.pause_flag = flag;
+        self
+    }
+
+    /// Set the watch refresh signal for triggering WatchManager refresh
+    pub fn with_watch_refresh_signal(mut self, signal: Arc<Notify>) -> Self {
+        self.watch_refresh_signal = Some(signal);
         self
     }
 
@@ -562,6 +572,12 @@ impl SystemService for SystemServiceImpl {
                     "Refresh signal processed: {} watch folders found, {} scans queued",
                     folders.len(), scans_queued
                 );
+
+                // Signal WatchManager for immediate config refresh
+                if let Some(ref signal) = self.watch_refresh_signal {
+                    signal.notify_one();
+                    info!("Notified WatchManager to refresh watch configurations");
+                }
             }
             QueueType::ToolsAvailable => {
                 info!(
