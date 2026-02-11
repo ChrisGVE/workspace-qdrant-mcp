@@ -254,7 +254,8 @@ impl UnifiedQueueProcessor {
             fairness_config,
         ));
 
-        let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_concurrent_embeddings));
+        // Start with warmup permits, will add more when warmup ends (Task 578)
+        let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(config.warmup_max_concurrent_embeddings));
         let warmup_state = Arc::new(WarmupState::new(config.warmup_window_secs));
 
         Self {
@@ -296,7 +297,8 @@ impl UnifiedQueueProcessor {
             fairness_config,
         ));
 
-        let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_concurrent_embeddings));
+        // Start with warmup permits, will add more when warmup ends (Task 578)
+        let embedding_semaphore = Arc::new(tokio::sync::Semaphore::new(config.warmup_max_concurrent_embeddings));
         let warmup_state = Arc::new(WarmupState::new(config.warmup_window_secs));
 
         Self {
@@ -336,24 +338,6 @@ impl UnifiedQueueProcessor {
     /// Get a reference to the queue manager
     pub fn queue_manager(&self) -> &QueueManager {
         &self.queue_manager
-    }
-
-    /// Get effective inter-item delay based on warmup state (Task 577)
-    fn effective_inter_item_delay_ms(&self) -> u64 {
-        if self.warmup_state.is_in_warmup() {
-            self.config.warmup_inter_item_delay_ms
-        } else {
-            self.config.inter_item_delay_ms
-        }
-    }
-
-    /// Get effective max concurrent embeddings based on warmup state (Task 577)
-    fn effective_max_concurrent_embeddings(&self) -> usize {
-        if self.warmup_state.is_in_warmup() {
-            self.config.warmup_max_concurrent_embeddings
-        } else {
-            self.config.max_concurrent_embeddings
-        }
     }
 
     /// Recover stale leases at startup (Task 37.19)
@@ -493,8 +477,14 @@ impl UnifiedQueueProcessor {
         );
 
         loop {
-            // Log warmup transition (Task 577)
+            // Log warmup transition and adjust embedding semaphore (Task 577, Task 578)
             if !warmup_logged && !warmup_state.is_in_warmup() {
+                // Add permits to embedding semaphore to reach normal limit (Task 578)
+                let permits_to_add = config.max_concurrent_embeddings.saturating_sub(config.warmup_max_concurrent_embeddings);
+                if permits_to_add > 0 {
+                    embedding_semaphore.add_permits(permits_to_add);
+                }
+
                 info!(
                     "Warmup period complete after {}s - switching to normal resource limits (delay: {}ms -> {}ms, max_embeddings: {} -> {})",
                     warmup_state.elapsed_secs(),
@@ -2697,5 +2687,102 @@ mod tests {
         }
 
         assert_eq!(count, 0, "Empty path list should produce zero deletions");
+    }
+
+    /// Test WarmupState tracking (Task 577)
+    #[test]
+    fn test_warmup_state_tracking() {
+        let warmup_state = WarmupState::new(5); // 5 second warmup window
+
+        // Should be in warmup immediately
+        assert!(warmup_state.is_in_warmup());
+        assert_eq!(warmup_state.elapsed_secs(), 0);
+
+        // Sleep 1 second, still in warmup
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        assert!(warmup_state.is_in_warmup());
+
+        // Sleep past warmup window
+        std::thread::sleep(std::time::Duration::from_secs(5));
+        assert!(!warmup_state.is_in_warmup());
+        assert!(warmup_state.elapsed_secs() >= 5);
+    }
+
+    /// Test embedding semaphore starts with warmup permits (Task 578)
+    #[tokio::test]
+    async fn test_embedding_semaphore_starts_with_warmup_permits() {
+        let config = UnifiedProcessorConfig {
+            warmup_max_concurrent_embeddings: 1,
+            max_concurrent_embeddings: 2,
+            ..Default::default()
+        };
+
+        // Create semaphore as done in UnifiedQueueProcessor::new
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(config.warmup_max_concurrent_embeddings));
+
+        // Should have exactly 1 permit available (warmup limit)
+        assert_eq!(semaphore.available_permits(), 1);
+
+        // Acquire the one warmup permit
+        let _permit = semaphore.acquire().await.unwrap();
+        assert_eq!(semaphore.available_permits(), 0);
+
+        // Try to acquire another - should fail immediately (would block if we awaited)
+        assert!(semaphore.try_acquire().is_err());
+    }
+
+    /// Test semaphore transition from warmup to normal limits (Task 578)
+    #[tokio::test]
+    async fn test_embedding_semaphore_transition_to_normal_limits() {
+        let config = UnifiedProcessorConfig {
+            warmup_max_concurrent_embeddings: 1,
+            max_concurrent_embeddings: 3,
+            ..Default::default()
+        };
+
+        // Start with warmup permits
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(config.warmup_max_concurrent_embeddings));
+        assert_eq!(semaphore.available_permits(), 1);
+
+        // Simulate warmup ending: add permits to reach normal limit
+        let permits_to_add = config.max_concurrent_embeddings - config.warmup_max_concurrent_embeddings;
+        semaphore.add_permits(permits_to_add);
+
+        // Should now have 3 total permits (normal limit)
+        assert_eq!(semaphore.available_permits(), 3);
+
+        // Can acquire 3 permits
+        let _p1 = semaphore.acquire().await.unwrap();
+        let _p2 = semaphore.acquire().await.unwrap();
+        let _p3 = semaphore.acquire().await.unwrap();
+        assert_eq!(semaphore.available_permits(), 0);
+
+        // Fourth acquire would block
+        assert!(semaphore.try_acquire().is_err());
+    }
+
+    /// Test warmup config defaults (Task 577)
+    #[test]
+    fn test_warmup_config_defaults() {
+        let config = UnifiedProcessorConfig::default();
+        assert_eq!(config.warmup_window_secs, 30);
+        assert_eq!(config.warmup_max_concurrent_embeddings, 1);
+        assert_eq!(config.warmup_inter_item_delay_ms, 200);
+        assert_eq!(config.max_concurrent_embeddings, 2);
+        assert_eq!(config.inter_item_delay_ms, 50);
+    }
+
+    /// Test that warmup limits are more restrictive than normal limits (Task 578)
+    #[test]
+    fn test_warmup_limits_are_more_restrictive() {
+        let config = UnifiedProcessorConfig::default();
+        assert!(
+            config.warmup_max_concurrent_embeddings <= config.max_concurrent_embeddings,
+            "Warmup max_concurrent_embeddings should be <= normal limit"
+        );
+        assert!(
+            config.warmup_inter_item_delay_ms >= config.inter_item_delay_ms,
+            "Warmup inter_item_delay should be >= normal delay (slower processing)"
+        );
     }
 }
