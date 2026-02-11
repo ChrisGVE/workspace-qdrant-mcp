@@ -207,33 +207,33 @@ The system uses exactly **3 collections**:
 
 Projects and libraries are isolated via payload metadata filtering:
 
-```python
-# Project-scoped search (automatic in MCP)
-search(
-    collection="projects",
-    filter={"must": [{"key": "project_id", "match": {"value": "a1b2c3d4e5f6"}}]}
-)
+```typescript
+// Project-scoped search (automatic in MCP)
+search({
+    collection: "projects",
+    filter: { must: [{ key: "project_id", match: { value: "a1b2c3d4e5f6" } }] },
+});
 
-# Cross-project search (global scope)
-search(collection="projects")  # No project_id filter
+// Cross-project search (global scope)
+search({ collection: "projects" }); // No project_id filter
 
-# Library search
-search(
-    collection="libraries",
-    filter={"must": [{"key": "library_name", "match": {"value": "numpy"}}]}
-)
+// Library search
+search({
+    collection: "libraries",
+    filter: { must: [{ key: "library_name", match: { value: "numpy" } }] },
+});
 
-# Memory search (global rules only)
-search(
-    collection="memory",
-    filter={"must": [{"key": "scope", "match": {"value": "global"}}]}
-)
+// Memory search (global rules only)
+search({
+    collection: "memory",
+    filter: { must: [{ key: "scope", match: { value: "global" } }] },
+});
 
-# Memory search (project-specific rules)
-search(
-    collection="memory",
-    filter={"must": [{"key": "project_id", "match": {"value": "a1b2c3d4e5f6"}}]}
-)
+// Memory search (project-specific rules)
+search({
+    collection: "memory",
+    filter: { must: [{ key: "project_id", match: { value: "a1b2c3d4e5f6" } }] },
+});
 ```
 
 ### Project ID Generation
@@ -242,27 +242,29 @@ Project IDs (`project_id`) are 12-character hex hashes that uniquely identify a 
 
 #### Core Algorithm
 
-```python
-def calculate_project_id(project_root: Path, disambiguation_path: str = None) -> str:
-    """
-    Calculate project_id for a project.
+```rust
+fn calculate_project_id(project_root: &Path, disambiguation_path: Option<&str>) -> String {
+    use sha2::{Sha256, Digest};
 
-    Args:
-        project_root: Absolute path to project root
-        disambiguation_path: Optional path suffix for duplicate detection
-    """
-    git_remote = get_git_remote_url(project_root)
+    let git_remote = get_git_remote_url(project_root);
 
-    if git_remote:
-        # Normalize git remote URL
-        normalized = normalize_git_url(git_remote)
-        if disambiguation_path:
-            return hashlib.sha256(f"{normalized}|{disambiguation_path}".encode()).hexdigest()[:12]
-        return hashlib.sha256(normalized.encode()).hexdigest()[:12]
+    if let Some(remote) = git_remote {
+        // Normalize git remote URL
+        let normalized = normalize_git_url(&remote);
+        let input = match disambiguation_path {
+            Some(path) => format!("{}|{}", normalized, path),
+            None => normalized,
+        };
+        let hash = Sha256::digest(input.as_bytes());
+        return hex::encode(&hash[..6]) // 12 hex chars = 6 bytes
+    }
 
-    # Local project: use container folder name
-    container_folder = project_root.name
-    return hashlib.sha256(container_folder.encode()).hexdigest()[:12]
+    // Local project: use canonical path hash
+    let canonical = project_root.canonicalize().unwrap();
+    let input = format!("local_{}", canonical.display());
+    let hash = Sha256::digest(input.as_bytes());
+    hex::encode(&hash[..6])
+}
 ```
 
 #### Git Remote URL Normalization
@@ -274,31 +276,38 @@ All git remote URLs are normalized for consistency:
 3. Convert SSH format to HTTPS format
 4. Remove protocol prefix for hashing
 
-```python
-def normalize_git_url(url: str) -> str:
-    """
-    Normalize git URL for consistent hashing.
+```rust
+fn normalize_git_url(url: &str) -> String {
+    // Examples:
+    //   git@github.com:user/repo.git  → github.com/user/repo
+    //   https://github.com/User/Repo.git → github.com/user/repo
+    //   ssh://git@gitlab.com/user/repo → gitlab.com/user/repo
 
-    Examples:
-        git@github.com:user/repo.git  → github.com/user/repo
-        https://github.com/User/Repo.git → github.com/user/repo
-        ssh://git@gitlab.com/user/repo → gitlab.com/user/repo
-    """
-    # Remove .git suffix
-    url = url.removesuffix(".git")
+    let mut url = url.to_string();
 
-    # Convert SSH to HTTPS-like format
-    if url.startswith("git@"):
-        url = url.replace("git@", "").replace(":", "/")
-    elif url.startswith("ssh://git@"):
-        url = url.replace("ssh://git@", "")
+    // Remove .git suffix
+    if url.ends_with(".git") {
+        url.truncate(url.len() - 4);
+    }
 
-    # Remove protocol
-    for protocol in ["https://", "http://", "ssh://"]:
-        url = url.removeprefix(protocol)
+    // Convert SSH to HTTPS-like format
+    if url.starts_with("git@") {
+        url = url.replacen("git@", "", 1).replacen(':', "/", 1);
+    } else if url.starts_with("ssh://git@") {
+        url = url.replacen("ssh://git@", "", 1);
+    }
 
-    # Lowercase for consistency
-    return url.lower()
+    // Remove protocol
+    for protocol in &["https://", "http://", "ssh://"] {
+        if url.starts_with(protocol) {
+            url = url[protocol.len()..].to_string();
+            break;
+        }
+    }
+
+    // Lowercase for consistency
+    url.to_lowercase()
+}
 ```
 
 #### Duplicate Clone Handling
@@ -342,15 +351,31 @@ For projects without a git remote:
 #### Branch Handling
 
 - **Branch-agnostic project_id**: All branches share the same `project_id`
-- **Branch stored as metadata**: `branch` field in Qdrant payload
+- **Branch-scoped point IDs**: Each Qdrant point ID includes the branch, ensuring no collisions across branches
+- **Branch stored as metadata**: `branch` field in Qdrant payload (for filtering)
 - **Default search**: Returns results from all branches
 - **Filtered search**: Use `branch="main"` to scope to specific branch
 
+**Point ID formula:**
+
+```
+point_id = SHA256(tenant_id | branch | file_path | chunk_index)
+```
+
+All four components are always known at write time. This ensures each branch gets independent points with no collision risk.
+
 **Branch lifecycle:**
 
-- **New branch detected**: Auto-ingest during file watching
-- **Branch deleted**: Delete all documents with `branch="deleted_branch"` from Qdrant
+- **New branch detected**: For each file, check if identical `content_hash` exists on the source branch (via `tracked_files`/`qdrant_chunks`). If yes: create new point with branch-qualified ID and **copy the vector** from the existing point (no re-embedding). If no: embed and create new point normally.
+- **Branch deleted**: Delete all documents with `branch="deleted_branch"` from Qdrant (trivial — filter by branch in payload)
 - **Branch renamed**: Treat as delete + create (Git doesn't track renames)
+
+**Rationale for hybrid approach (branch-qualified IDs + vector copy):**
+- Clean mental model: each branch is self-contained, no reference counting
+- Trivial deletion and search scoping (filter by branch payload)
+- Eliminates embedding CPU cost for identical content (vector copy is a memcpy)
+- Storage is bounded: typically 3-5 active branches, not hundreds
+- Content hash lookup for vector reuse is a cheap SQLite query
 
 #### Local Project Gains Remote
 
@@ -359,18 +384,60 @@ When a local project (identified by container folder) gains a git remote:
 1. Daemon detects `.git/config` change during watching
 2. If project at same location:
    - Compute new `project_id` from normalized remote URL
-   - Update `watch_folders` table
-   - Bulk update Qdrant documents via `set_payload` API:
-     ```python
-     client.set_payload(
-         collection_name="projects",
-         payload={"project_id": new_project_id},
-         filter=Filter(must=[
-             FieldCondition(key="project_id", match=MatchValue(value=old_project_id))
-         ])
-     )
-     ```
+   - Execute queue-mediated cascade rename (see [Cascade Rename Mechanism](#cascade-rename-mechanism))
 3. No re-ingestion required
+
+#### Remote Rename Detection
+
+The daemon periodically checks whether a project's git remote URL has changed by comparing the current `git remote get-url origin` output with the stored `git_remote_url` in `watch_folders`. The stored value serves as the "previous" remote.
+
+**Detection triggers:**
+- During daemon polling cycle (periodic)
+- On `.git/config` file change events (if watching is active)
+
+**On detection of change:** Execute queue-mediated cascade rename (see below).
+
+#### Cascade Rename Mechanism
+
+When `tenant_id` must change (local project gains remote, remote URL renamed, project moved), the system uses a queue-mediated cascade to maintain integrity:
+
+1. **SQLite transaction** (atomic, source of truth):
+   - Update `watch_folders`: `tenant_id`, `git_remote_url`, `remote_hash`
+   - Update `tracked_files`: all rows for this `watch_folder_id`
+   - Update `qdrant_chunks`: inherits via FK relationship
+   - Enqueue a single `cascade_rename` queue item:
+     ```json
+     {
+       "item_type": "rename",
+       "op": "update",
+       "tenant_id": "<new_tenant_id>",
+       "payload_json": {
+         "old_tenant_id": "<old_tenant_id>",
+         "new_tenant_id": "<new_tenant_id>",
+         "collection": "projects"
+       }
+     }
+     ```
+   - Commit transaction
+
+2. **Queue processor** picks up `cascade_rename` item:
+   ```rust
+   // Qdrant set_payload with filter — updates all matching points atomically
+   client.set_payload(
+       "projects",
+       SetPayload {
+           payload: hashmap!{ "project_id" => new_tenant_id.into() },
+           filter: Some(Filter::must(vec![
+               FieldCondition::new_match("project_id", old_tenant_id.into()),
+           ])),
+           ..Default::default()
+       },
+   ).await?;
+   ```
+
+3. **On Qdrant failure**: Queue retries with existing backoff/retry logic. SQLite is already consistent (source of truth). Qdrant is eventually consistent.
+
+**This mechanism applies to all tenant_id changes:** local-gains-remote, remote rename, project move. It also cascades to the `memory` collection for project-scoped rules.
 
 #### Operation Timing
 
@@ -412,6 +479,9 @@ CREATE TABLE watch_folders (
     is_paused INTEGER DEFAULT 0,           -- 1 = file event processing paused
     pause_start_time TEXT,                 -- ISO 8601 timestamp when pause began (NULL if not paused)
 
+    -- Archive state
+    is_archived INTEGER DEFAULT 0,         -- 1 = archived (no watching/ingesting, still searchable)
+
     -- Shared
     follow_symlinks INTEGER DEFAULT 0,
     enabled INTEGER DEFAULT 1,
@@ -441,6 +511,7 @@ CREATE INDEX idx_watch_parent ON watch_folders(parent_watch_id);
 - `parent_watch_id`: Links submodules to their parent project
 - `is_active`: Activity flag - **inherited by all subprojects** (see below)
 - `last_activity_at`: Timestamp - **synced across parent and all subprojects**
+- `is_archived`: Archive flag. Archived projects stop watching/ingesting but remain **fully searchable** in Qdrant. No search exclusion — archived projects are fair game for code exploration. User can un-archive. Archiving preserves `parent_watch_id` links (historical fact, no detaching).
 - `library_mode`: Only for libraries (`sync` = full sync, `incremental` = no deletes)
 
 **Activity Inheritance for Subprojects:**
@@ -589,9 +660,9 @@ HNSW:
 {
   "project_id": "a1b2c3d4e5f6", // Required, indexed (is_tenant=true)
   "project_name": "my-project",
-  "file_path": "src/main.py", // Relative path
+  "file_path": "src/main.rs", // Relative path
   "file_type": "code", // code|doc|test|config|note|artifact
-  "language": "python",
+  "language": "rust",
   "branch": "main",
   "symbols": ["MyClass", "my_function"],
   "chunk_index": 0,
@@ -1187,8 +1258,8 @@ edited in a large file).
 
 ```json
 {
-  "file_path": "/absolute/path/to/file.py",
-  "relative_path": "src/main.py"
+  "file_path": "/absolute/path/to/file.rs",
+  "relative_path": "src/main.rs"
 }
 ```
 
@@ -1539,10 +1610,10 @@ wqm memory remove --label "prefer-uv" --global
 
 **Via MCP:**
 
-```python
-memory(action="list")                # List global + current project rules
-memory(action="add", label="...", content="...", scope="global|project")
-memory(action="remove", label="...", scope="global|project")
+```typescript
+memory({ action: "list" });                // List global + current project rules
+memory({ action: "add", label: "...", content: "...", scope: "project" });
+memory({ action: "remove", label: "...", scope: "global" });
 ```
 
 ### Conversational Updates
@@ -2012,6 +2083,20 @@ When a subfolder contains a `.git` directory (submodule):
 
 See [Watch Folders Table (Unified)](#watch-folders-table-unified) for the schema that handles both projects and submodules.
 
+**Submodule archive safety:**
+
+When archiving a project that has submodules, the system must check cross-references before archiving submodule data:
+
+1. Set `is_archived = 1` on the parent project's `watch_folders` entry
+2. For each submodule entry (linked via `parent_watch_id`):
+   a. Check if the same `remote_hash`/`git_remote_url` exists in any other **active** (non-archived) `watch_folders` entry
+   b. If yes: the submodule data stays fully active — another project still references it
+   c. If no: set `is_archived = 1` on the submodule entry (data remains searchable, watching stops)
+3. **Preserve `parent_watch_id` as-is** — it is historical fact. No detaching on archive.
+4. Qdrant data is **never deleted** on archive. Archived content remains fully searchable.
+
+**Un-archiving:** Set `is_archived = 0` on the project and its submodule entries. Daemon resumes watching/ingesting.
+
 ### Daemon Polling
 
 The daemon:
@@ -2201,16 +2286,16 @@ For each code file:
 ```json
 {
   "project_id": "abc123",
-  "file_path": "src/auth.py",
+  "file_path": "src/auth.rs",
   "chunk_type": "function",
   "symbol_name": "validate_token",
   "symbol_kind": "function",
   "parent_symbol": null,
-  "language": "python",
+  "language": "rust",
   "start_line": 42,
   "end_line": 67,
   "docstring": "Validates JWT token and returns claims.",
-  "signature": "def validate_token(token: str) -> bool",
+  "signature": "fn validate_token(token: &str) -> Result<bool>",
   "calls": ["decode_jwt", "check_expiry"],
   "is_fragment": false
 }
@@ -2221,10 +2306,10 @@ For each code file:
 ```json
 {
   "references": [
-    { "file": "src/api.py", "line": 23 },
-    { "file": "src/middleware.py", "line": 56 }
+    { "file": "src/api.rs", "line": 23 },
+    { "file": "src/middleware.rs", "line": 56 }
   ],
-  "type_info": "Callable[[str], bool]"
+  "type_info": "fn(&str) -> Result<bool>"
 }
 ```
 
@@ -2271,17 +2356,17 @@ The server provides exactly **4 tools**: `search`, `retrieve`, `memory`, and `st
 
 Semantic search with optional direct retrieval mode.
 
-```python
-search(
-    query: str,                      # Required: search query
-    collection: str = "projects",    # projects|libraries|memory
-    mode: str = "hybrid",            # hybrid|semantic|keyword|retrieve
-    limit: int = 10,                 # Max results
-    score_threshold: float = 0.3,    # Minimum similarity score (ignored in retrieve mode)
-    # Collection-specific scope filters (see below)
-    scope: str = "project",          # Scope within collection
-    branch: str = None,              # For projects: branch filter
-    project_id: str = None,          # For projects: specific project
+```typescript
+search({
+    query: string,                      // Required: search query
+    collection?: "projects" | "libraries" | "memory", // default: "projects"
+    mode?: "hybrid" | "semantic" | "keyword" | "retrieve", // default: "hybrid"
+    limit?: number,                     // default: 10
+    score_threshold?: number,           // default: 0.3 (ignored in retrieve mode)
+    // Collection-specific scope filters (see below)
+    scope?: string,                     // Scope within collection
+    branch?: string,                    // For projects: branch filter
+    project_id?: string,               // For projects: specific project
     library_name: str = None,        # For libraries: specific library
     # Content type filters
     file_type: str = None,           # Filter by document type (see below)
@@ -2324,18 +2409,18 @@ When `include_libraries=True`, search queries the `libraries` collection in addi
 
 **Project scope examples:**
 
-```python
-# Current project, current branch (default)
-search(query="auth", collection="projects", scope="current")
+```typescript
+// Current project, current branch (default)
+search({ query: "auth", collection: "projects", scope: "current" });
 
-# Current project, all branches
-search(query="auth", collection="projects", scope="current", branch="*")
+// Current project, all branches
+search({ query: "auth", collection: "projects", scope: "current", branch: "*" });
 
-# All projects
-search(query="auth", collection="projects", scope="all")
+// All projects
+search({ query: "auth", collection: "projects", scope: "all" });
 
-# Specific project
-search(query="auth", collection="projects", scope="other", project_id="abc123")
+// Specific project
+search({ query: "auth", collection: "projects", scope: "other", project_id: "abc123" });
 ```
 
 **project_id handling:** The MCP server FETCHES `project_id` from the daemon's state database (not calculated locally). This prevents drift between MCP and daemon. The fetch happens on first search operation to allow time for daemon to register the watch folder.
@@ -2344,14 +2429,14 @@ search(query="auth", collection="projects", scope="other", project_id="abc123")
 
 Direct document access for chunk-by-chunk retrieval.
 
-```python
-retrieve(
-    document_id: str = None,         # Specific document ID
-    collection: str = "projects",    # Target collection
-    metadata: dict = None,           # Metadata filters
-    limit: int = 10,                 # Max documents
-    offset: int = 0                  # For pagination
-)
+```typescript
+retrieve({
+    document_id?: string,              // Specific document ID
+    collection?: "projects" | "libraries" | "memory", // default: "projects"
+    metadata?: Record<string, unknown>, // Metadata filters
+    limit?: number,                    // default: 10
+    offset?: number,                   // default: 0, for pagination
+});
 ```
 
 **Use case:** Retrieving large documents chunk by chunk without overwhelming context. Use `search` with `mode="retrieve"` for metadata-based retrieval, or `retrieve` for ID-based access.
@@ -2360,14 +2445,14 @@ retrieve(
 
 Manage memory rules (behavioral preferences).
 
-```python
-memory(
-    action: str,                     # Required: add|update|remove|list
-    label: str = None,               # Rule label (unique per scope)
-    content: str = None,             # Rule content (for add/update)
-    scope: str = "global",           # global|project
-    project_id: str = None           # For project-scoped rules
-)
+```typescript
+memory({
+    action: "add" | "update" | "remove" | "list", // Required
+    label?: string,                    // Rule label (unique per scope)
+    content?: string,                  // Rule content (for add/update)
+    scope?: "project" | "global",      // default: "project"
+    project_id?: string,               // For project-scoped rules (auto-detected if omitted)
+});
 ```
 
 **Actions:**
@@ -2420,15 +2505,15 @@ User: "Actually, let me update that rule about testing"
 
 Store content to libraries collection only.
 
-```python
-store(
-    content: str,                    # Required: text content
-    library_name: str,               # Required: library identifier (acts as tag)
-    title: str = None,               # Document title
-    source: str = "user_input",      # Source type (user_input|web|file)
-    url: str = None,                 # Source URL (for web content)
-    metadata: dict = None            # Additional metadata
-)
+```typescript
+store({
+    content: string,                   // Required: text content
+    library_name: string,              // Required: library identifier (acts as tag)
+    title?: string,                    // Document title
+    source?: "user_input" | "web" | "file", // default: "user_input"
+    url?: string,                      // Source URL (for web content)
+    metadata?: Record<string, unknown>, // Additional metadata
+});
 ```
 
 **Note:** `store` is for adding reference documentation to the `libraries` collection (like adding books to a library). It is NOT for project content (handled by daemon file watching) or memory rules (use `memory` tool).
@@ -4299,6 +4384,47 @@ Tags are dynamic and must evolve as content changes. Tag updates piggyback on th
 
 **Tag drift:** A project that starts as `data-processing` and evolves toward `machine-learning` naturally reflects this because tags are re-derived from content on every re-ingestion, never manually pinned. Frequency-based aggregation means dominant topics surface automatically as the codebase evolves.
 
+#### Automated Affinity Grouping
+
+**Goal:** Automatically group related projects without user intervention, producing both cluster membership and human-readable group labels.
+
+**Embedding-based affinity pipeline (LLM-free):**
+
+1. **Per-project aggregate embedding**: Average all chunk embeddings for a project into a single vector. Chunk embeddings already exist from ingestion — no additional embedding cost.
+2. **Pairwise cosine similarity**: Compare aggregate embeddings between projects. Projects above a configurable threshold (e.g., 0.7) form an affinity group.
+3. **Group labeling via taxonomy matching**: Compare the group's centroid embedding against a predefined taxonomy (see below). Top-N matching taxonomy terms become the group's label.
+
+This pipeline is LLM-free, uses only the existing FastEmbed model, and runs as a background daemon task after ingestion.
+
+**Taxonomy source — package registry categories:**
+
+The taxonomy is sourced from community-curated package registry categories, not manually defined:
+- **crates.io**: ~70 categories (`algorithms`, `authentication`, `command-line-interface`, `concurrency`, `cryptography`, `database`, `network-programming`, `text-processing`, `web-programming`, etc.)
+- **npm**: similar keyword ecosystem
+- **PyPI**: detailed classifiers (`Topic :: Scientific/Engineering :: Artificial Intelligence`, etc.)
+
+Combined and deduplicated, these provide ~150-200 concept-level terms. They are embedded once at daemon startup using FastEmbed and cached.
+
+**Zero-shot taxonomy matching:**
+
+For each document or project, compare its aggregate embedding against all taxonomy embeddings via cosine similarity. Top-N matches above threshold become tags. This replaces manual tagging entirely for code projects.
+
+**Open questions and concerns (to be validated empirically):**
+
+1. **Embedding dimensionality mismatch**: 384-dim MiniLM embeddings of short taxonomy phrases (e.g., "cryptography") may not produce reliable cosine similarity against averaged code chunk embeddings. The semantic spaces may be too different. Empirical testing required.
+2. **Tier 1 heuristic quality**: Path-derived tags are unreliable (directory names are often structural, not conceptual — `src/`, `lib/`, `utils/`). Dependency-derived concepts require a concept dictionary to map library names to concepts (e.g., `tokio` → `async-runtime`, `serde` → `serialization`). Without this mapping, raw dependency names are not useful as tags. PDF/EPUB metadata is valuable when present but not universally available.
+3. **TF-IDF produces terms, not concepts**: TF-IDF (Term Frequency – Inverse Document Frequency) extracts distinctive keywords by scoring words that are frequent in a specific chunk but rare across all documents. For example, in an async runtime library, `async`, `executor`, `spawn` score high while `the`, `function`, `return` are filtered out. However, TF-IDF produces raw terms (`tokio`, `serde`, `reqwest`), not concept-level tags (`async-runtime`, `serialization`, `http-client`). A concept normalization step is still needed.
+4. **Concept labeling gap**: The fundamental challenge is turning raw signals (keywords, library names, embedding clusters) into meaningful human-readable concept tags. Without either an LLM or a curated mapping, embedding clustering gives groups but cannot name them. The registry-based taxonomy approach closes this gap for code projects but may be insufficient for non-code content (documents, research papers).
+5. **Fallback strategy**: If zero-shot taxonomy matching proves too noisy, the fallback is TF-IDF keywords matched against the `concept_normalization.yaml` dictionary (one-time LLM cost to generate the mapping, then static and periodically refreshed).
+
+**Implementation plan:**
+
+Phase 1 (current): Implement zero-shot taxonomy matching using registry categories as taxonomy source. Embed taxonomy terms at startup, compare against document/project aggregate embeddings during ingestion. Evaluate quality empirically.
+
+Phase 2 (if Phase 1 insufficient): Add TF-IDF keyword extraction + concept dictionary mapping. Generate `concept_normalization.yaml` once using LLM, store as static config.
+
+Phase 3 (optional): Enable Tier 3 LLM-assisted tagging for users who want higher quality and have API access configured.
+
 ### Knowledge Overlap and Complementary Sources
 
 **Challenge:** Multiple sources covering the same topic (e.g., physics textbooks with math prerequisite chapters) overlap and complement each other. The system should synthesize across sources rather than treating each in isolation.
@@ -4461,6 +4587,7 @@ Qdrant's Distance Matrix API can compute pairwise distances between points using
 **Last Updated:** 2026-02-07
 **Changes:**
 
+- v1.8.0: Branch-scoped point IDs with hybrid vector copy approach — new formula `SHA256(tenant_id | branch | file_path | chunk_index)`; added `is_archived` column to `watch_folders` with archive semantics (no watching/ingesting, fully searchable, no search exclusion); documented submodule archive safety with cross-reference checks; added cascade rename mechanism (queue-mediated `tenant_id` changes via SQLite-first + Qdrant eventual consistency); added remote rename detection (periodic git remote check vs stored URL); memory tool default scope changed from `global` to `project`; converted all Python code examples to Rust/TypeScript; added automated affinity grouping section (embedding-based pipeline, registry-sourced taxonomy, zero-shot classification, phased implementation plan)
 - v1.7.0: Added comprehensive file type allowlist as primary ingestion gate (400+ extensions across 21 categories, 30+ extension-less filenames, size-restricted extensions, mandatory excluded directories); updated MCP registration policy — MCP server no longer auto-registers new projects, only re-activates existing entries (`register_if_new` field added to `RegisterProject` gRPC); expanded daemon startup automation from simple recovery to 6-step sequence (schema check, config reconciliation with fingerprinting, Qdrant collection verification, path validation, filesystem recovery, crash recovery); updated configuration reference — dropped legacy `.wq_config.yaml` name, documented embedded defaults via `include_str!()`, added complete `watching` section with allowlist/exclusion/size-restriction keys; added Qdrant dashboard visualization guide for named vectors; documented Distance Matrix API for graph visualization
 - v1.6.7: Added comprehensive Deployment and Installation section documenting deployment architecture, platform support matrix (6 platforms), installation methods (binary, source, npm), Docker deployment modes, service management (macOS/Linux), CI/CD process, upgrade/migration procedures, and troubleshooting; renamed memory tool ruleId to label with LLM generation guidelines (max 15 chars, word-word-word format); added memory_limits config section; updated Docker compose files to reflect TypeScript/Rust architecture
 - v1.6.6: Corrected session lifecycle documentation - clarified that Claude Code's SessionStart/SessionEnd are external hooks (shell commands configured in settings.json), not SDK callbacks; removed incorrect @anthropic-ai/claude-agent-sdk dependency (not needed); documented actual MCP SDK callbacks (server.onclose, onsessioninitialized for HTTP transport); clarified memory injection is via memory tool, not automatic session hooks
