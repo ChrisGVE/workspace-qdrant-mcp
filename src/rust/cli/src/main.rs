@@ -99,6 +99,9 @@ enum Commands {
     /// Diagnostic tools (logs, errors, queue-errors, language)
     Debug(commands::debug::DebugArgs),
 
+    /// Claude Code hooks management (install, uninstall, status)
+    Hooks(commands::hooks::HooksArgs),
+
     /// Shell completion setup (bash, zsh, fish)
     Init(commands::init::InitArgs),
 }
@@ -160,6 +163,7 @@ async fn main() -> Result<()> {
         Commands::Watch(args) => commands::watch::execute(args).await,
 
         // Diagnostics & Setup
+        Commands::Hooks(args) => commands::hooks::execute(args).await,
         Commands::Debug(args) => commands::debug::execute(args).await,
         Commands::Init(args) => commands::init::execute(args).await,
     };
