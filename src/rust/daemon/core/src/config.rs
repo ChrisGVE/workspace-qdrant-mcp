@@ -1221,6 +1221,7 @@ impl Default for Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
 
     #[test]
     fn test_queue_processor_settings_defaults() {
@@ -1648,6 +1649,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_startup_config_env_overrides() {
         let mut config = StartupConfig::default();
 
@@ -1678,6 +1680,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_startup_config_from_env() {
         std::env::set_var("WQM_STARTUP_WARMUP_DELAY_SECS", "3");
         std::env::set_var("WQM_STARTUP_WARMUP_WINDOW_SECS", "15");
