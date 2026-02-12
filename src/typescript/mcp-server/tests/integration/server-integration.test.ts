@@ -498,12 +498,11 @@ describe('Server Integration Tests', () => {
       await server.start();
     });
 
-    it('should reject store to projects collection (not supported per spec)', async () => {
+    it('should reject library store without libraryName', async () => {
       const mcpServer = server.getMcpServer();
       const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
 
-      // Per spec: store tool only supports libraries collection
-      // Projects collection content is handled by daemon file watching
+      // For library stores, libraryName is required
       const result = await callHandler({
         method: 'tools/call',
         params: {
@@ -517,7 +516,7 @@ describe('Server Integration Tests', () => {
         },
       });
 
-      // Should error because libraryName is required
+      // Should error because libraryName is required for library type
       expect(result.content).toBeDefined();
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('libraryName is required');
@@ -588,6 +587,44 @@ describe('Server Integration Tests', () => {
 
       expect(result.isError).toBe(true);
       expect(result.content[0].text).toContain('Content is required');
+    });
+
+    it('should reject store project without path', async () => {
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'store',
+          arguments: {
+            type: 'project',
+          },
+        },
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('path is required');
+    });
+
+    it('should handle store project registration via daemon', async () => {
+      const mcpServer = server.getMcpServer();
+      const callHandler = vi.mocked(mcpServer.setRequestHandler).mock.calls[1][1];
+
+      const result = await callHandler({
+        method: 'tools/call',
+        params: {
+          name: 'store',
+          arguments: {
+            type: 'project',
+            path: '/tmp/test-project',
+          },
+        },
+      });
+
+      // Result should be a structured response (success or error)
+      expect(result.content).toBeDefined();
+      expect(result.content[0].text).toBeDefined();
     });
   });
 

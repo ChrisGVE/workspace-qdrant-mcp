@@ -332,21 +332,34 @@ export class WorkspaceQdrantMcpServer {
       },
       {
         name: 'store',
-        description: 'Store reference documentation to the libraries collection. For project content, use file watching (daemon handles this automatically).',
+        description: 'Store content or register a project. Use type "library" (default) to store reference documentation, or type "project" to register a project directory for file watching and ingestion.',
         inputSchema: {
           type: 'object' as const,
           properties: {
+            type: {
+              type: 'string',
+              enum: ['library', 'project'],
+              description: 'What to store: "library" for reference docs (default), "project" to register a project directory',
+            },
             content: {
               type: 'string',
-              description: 'Content to store',
+              description: 'Content to store (required for type "library")',
             },
             libraryName: {
               type: 'string',
-              description: 'Library name (required) - identifies which library to store to',
+              description: 'Library name (required for type "library")',
+            },
+            path: {
+              type: 'string',
+              description: 'Project directory path (required for type "project")',
+            },
+            name: {
+              type: 'string',
+              description: 'Project display name (optional for type "project", defaults to directory name)',
             },
             title: {
               type: 'string',
-              description: 'Content title',
+              description: 'Content title (for type "library")',
             },
             url: {
               type: 'string',
@@ -367,7 +380,6 @@ export class WorkspaceQdrantMcpServer {
               description: 'Additional metadata',
             },
           },
-          required: ['content', 'libraryName'],
         },
       },
     ];
@@ -409,7 +421,12 @@ export class WorkspaceQdrantMcpServer {
         }
 
         case 'store': {
-          result = await this.storeTool.store(this.buildStoreOptions(args));
+          const storeType = (args?.['type'] as string) ?? 'library';
+          if (storeType === 'project') {
+            result = await this.registerProjectFromTool(args);
+          } else {
+            result = await this.storeTool.store(this.buildStoreOptions(args));
+          }
           break;
         }
 
@@ -797,6 +814,59 @@ export class WorkspaceQdrantMcpServer {
         project_path: this.sessionState.projectPath,
       });
     }
+  }
+
+  /**
+   * Register a project via the store tool (type: "project")
+   *
+   * Unlike session-start registration (register_if_new: false), this explicitly
+   * registers new projects with register_if_new: true.
+   */
+  private async registerProjectFromTool(
+    args: Record<string, unknown> | undefined
+  ): Promise<{
+    success: boolean;
+    project_id: string;
+    created: boolean;
+    is_active: boolean;
+    message: string;
+  }> {
+    const path = args?.['path'] as string;
+    if (!path) {
+      throw new Error('path is required for store type "project"');
+    }
+
+    if (!this.sessionState.daemonConnected) {
+      throw new Error('Daemon is not connected — cannot register project');
+    }
+
+    const name = (args?.['name'] as string) ?? path.split('/').pop() ?? 'unknown';
+
+    const response = await this.daemonClient.registerProject({
+      path,
+      project_id: '',
+      name,
+      register_if_new: true,
+    });
+
+    logSessionEvent('register', {
+      project_id: response.project_id,
+      project_path: path,
+      created: response.created,
+      priority: response.priority,
+      is_active: response.is_active,
+      newly_registered: response.newly_registered,
+    });
+
+    return {
+      success: true,
+      project_id: response.project_id,
+      created: response.newly_registered,
+      is_active: response.is_active,
+      message: response.newly_registered
+        ? `Project registered and activated: ${path}`
+        : `Project already registered and activated: ${path}`,
+    };
   }
 
   /**
