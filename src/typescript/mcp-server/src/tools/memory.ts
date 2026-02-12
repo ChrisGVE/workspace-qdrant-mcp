@@ -16,8 +16,9 @@ import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 
-// Canonical memory collection name per ADR-001
-const MEMORY_COLLECTION = 'memory';
+// Canonical memory collection name from native bridge (single source of truth)
+import { COLLECTION_MEMORY } from '../common/native-bridge.js';
+const MEMORY_COLLECTION = COLLECTION_MEMORY;
 
 // Collection basename for daemon ingestion
 const MEMORY_BASENAME = 'memory';

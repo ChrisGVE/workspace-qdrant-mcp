@@ -12,10 +12,11 @@
 import { QdrantClient } from '@qdrant/js-client-rest';
 import type { ProjectDetector } from '../utils/project-detector.js';
 
-// Canonical collection names per ADR-001
-const PROJECTS_COLLECTION = 'projects';
-const LIBRARIES_COLLECTION = 'libraries';
-const MEMORY_COLLECTION = 'memory';
+// Canonical collection names from native bridge (single source of truth)
+import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY } from '../common/native-bridge.js';
+const PROJECTS_COLLECTION = COLLECTION_PROJECTS;
+const LIBRARIES_COLLECTION = COLLECTION_LIBRARIES;
+const MEMORY_COLLECTION = COLLECTION_MEMORY;
 
 export type RetrieveCollectionType = 'projects' | 'libraries' | 'memory';
 

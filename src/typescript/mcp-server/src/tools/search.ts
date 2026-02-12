@@ -14,9 +14,10 @@ import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 
-// Canonical collection names per ADR-001
-const PROJECTS_COLLECTION = 'projects';
-const LIBRARIES_COLLECTION = 'libraries';
+// Canonical collection names from native bridge (single source of truth)
+import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES } from '../common/native-bridge.js';
+const PROJECTS_COLLECTION = COLLECTION_PROJECTS;
+const LIBRARIES_COLLECTION = COLLECTION_LIBRARIES;
 
 // Vector names for hybrid search
 const DENSE_VECTOR_NAME = 'dense';

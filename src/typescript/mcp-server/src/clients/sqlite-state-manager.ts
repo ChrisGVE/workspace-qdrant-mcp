@@ -29,6 +29,7 @@ import type {
   MemoryPayload,
   LibraryPayload,
 } from '../types/state.js';
+import { COLLECTION_PROJECTS } from '../common/native-bridge.js';
 
 // Re-export types
 export type {
@@ -486,10 +487,10 @@ export class SqliteStateManager {
                disambiguation_path, is_active,
                created_at, updated_at, last_activity_at
         FROM watch_folders
-        WHERE path = ? AND collection = 'projects'
+        WHERE path = ? AND collection = ?
       `
         )
-        .get(projectPath) as
+        .get(projectPath, COLLECTION_PROJECTS) as
         | {
             tenant_id: string;
             path: string;
@@ -562,10 +563,10 @@ export class SqliteStateManager {
                disambiguation_path, is_active,
                created_at, updated_at, last_activity_at
         FROM watch_folders
-        WHERE tenant_id = ? AND collection = 'projects'
+        WHERE tenant_id = ? AND collection = ?
       `
         )
-        .get(projectId) as
+        .get(projectId, COLLECTION_PROJECTS) as
         | {
             tenant_id: string;
             path: string;
@@ -638,11 +639,11 @@ export class SqliteStateManager {
                disambiguation_path, is_active,
                created_at, updated_at, last_activity_at
         FROM watch_folders
-        WHERE is_active = 1 AND collection = 'projects'
+        WHERE is_active = 1 AND collection = ?
         ORDER BY last_activity_at DESC
       `
         )
-        .all() as Array<{
+        .all(COLLECTION_PROJECTS) as Array<{
         tenant_id: string;
         path: string;
         git_remote_url: string | null;
