@@ -3104,7 +3104,7 @@ grammars:
   # Custom sources: Change to internal mirror for corporate environments
   # Format: URL template string
   # Default reasoning: Official tree-sitter grammar release URLs
-  download_base_url: "https://github.com/tree-sitter/tree-sitter-{language}/releases/download"
+  download_base_url: "https://github.com/tree-sitter/tree-sitter-{language}/releases/download/v{version}/tree-sitter-{language}-{platform}.{ext}"
 
   # verify_checksums: Verify downloaded grammar checksums
   # Purpose: Ensures downloaded grammars are authentic and uncorrupted

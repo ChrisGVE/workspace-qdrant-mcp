@@ -436,7 +436,7 @@ impl Default for YamlGrammarsConfig {
             ],
             auto_download: true,
             tree_sitter_version: "0.24".to_string(),
-            download_base_url: "https://github.com/tree-sitter/tree-sitter-{language}/releases/download".to_string(),
+            download_base_url: "https://github.com/tree-sitter/tree-sitter-{language}/releases/download/v{version}/tree-sitter-{language}-{platform}.{ext}".to_string(),
             verify_checksums: true,
             lazy_loading: true,
             check_interval_hours: 168,
@@ -734,5 +734,17 @@ mod tests {
         assert_eq!(parse_size_to_bytes("1GB"), Some(1_073_741_824));
         assert_eq!(parse_size_to_bytes("1024B"), Some(1024));
         assert_eq!(parse_size_to_bytes(""), None);
+    }
+
+    #[test]
+    fn test_grammar_download_url_is_full_template() {
+        // Verify YAML defaults contain the complete URL template with all placeholders,
+        // not just a base URL prefix. This prevents grammar downloads from producing
+        // incomplete artifact URLs.
+        let defaults = YamlGrammarsConfig::default();
+        assert!(defaults.download_base_url.contains("{language}"), "Missing {{language}} placeholder");
+        assert!(defaults.download_base_url.contains("{version}"), "Missing {{version}} placeholder");
+        assert!(defaults.download_base_url.contains("{platform}"), "Missing {{platform}} placeholder");
+        assert!(defaults.download_base_url.contains("{ext}"), "Missing {{ext}} placeholder");
     }
 }

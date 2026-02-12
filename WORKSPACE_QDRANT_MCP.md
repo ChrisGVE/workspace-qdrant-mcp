@@ -3014,7 +3014,7 @@ grammars:
   required: [rust, python, javascript, typescript, go, java, c, cpp]
   auto_download: true
   tree_sitter_version: "0.24"
-  download_base_url: "https://github.com/tree-sitter/tree-sitter-{language}/releases/download"
+  download_base_url: "https://github.com/tree-sitter/tree-sitter-{language}/releases/download/v{version}/tree-sitter-{language}-{platform}.{ext}"
   verify_checksums: true
   lazy_loading: true
   check_interval_hours: 168            # Weekly grammar update check
