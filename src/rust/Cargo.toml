@@ -9,6 +9,7 @@
 resolver = "2"
 members = [
     "common",
+    "common-node",
     "cli",
     "daemon/core",
     "daemon/grpc",

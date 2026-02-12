@@ -1,0 +1,21 @@
+{
+  "name": "wqm-common-node",
+  "version": "0.1.0-beta1",
+  "description": "Native Node.js addon for wqm-common shared functions",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "binaryName": "wqm-common-node",
+    "targets": [
+      "aarch64-apple-darwin",
+      "x86_64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "aarch64-unknown-linux-gnu"
+    ]
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
+  "license": "MIT"
+}

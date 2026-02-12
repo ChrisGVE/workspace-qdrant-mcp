@@ -1,0 +1,19 @@
+[package]
+name = "wqm-common-node"
+version = "0.1.0-beta1"
+edition = "2021"
+description = "Node.js native addon exposing wqm-common functions via napi-rs"
+authors = ["Chris Van Eerden"]
+license = "MIT"
+repository = "https://github.com/ChrisGVE/workspace-qdrant-mcp"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wqm-common = { path = "../common" }
+napi = { version = "2", default-features = false, features = ["napi9"] }
+napi-derive = "2"
+
+[build-dependencies]
+napi-build = "2"
