@@ -1244,21 +1244,22 @@ impl UnifiedQueueProcessor {
             Ok(())
         }.await;
 
-        // Handle transaction failure: Qdrant has points but SQLite state is inconsistent
-        if let Err(e) = tx_result {
+        // Handle transaction failure: Qdrant has points but SQLite state is inconsistent.
+        // Propagate the error so the queue item enters retry instead of being deleted.
+        if let Err(ref e) = tx_result {
             warn!(
-                "SQLite transaction failed after Qdrant upsert for {}: {}. File will be reconciled on next startup.",
+                "SQLite transaction failed after Qdrant upsert for {}: {}. Queue item will be retried.",
                 relative_path, e
             );
-            // If the file was already tracked, mark it for reconciliation
+            // Mark for reconciliation as a safety net (startup recovery can fix if retries exhaust)
             if let Some(existing_file) = &existing {
                 let _ = tracked_files_schema::mark_needs_reconcile(
                     pool, existing_file.file_id,
                     &format!("ingest_tx_failed: {}", e),
                 ).await;
             }
-            // Don't propagate error - Qdrant has the data, startup recovery will fix SQLite
         }
+        tx_result?;
 
         info!(
             "Successfully processed file item {} ({})",
