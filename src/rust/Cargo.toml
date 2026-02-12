@@ -16,9 +16,6 @@ members = [
     "daemon/memexd",
     "daemon/shared-test-utils",
 ]
-# Exclude python-bindings by default (placeholder code, requires Python dev headers)
-# Build explicitly with: cargo build -p workspace-qdrant-python-bindings
-exclude = ["daemon/python-bindings"]
 
 # Release profile: optimized for size and performance
 [profile.release]
@@ -83,10 +80,6 @@ chrono = { version = "0.4", features = ["serde", "clock"] }
 thiserror = "1.0"
 anyhow = "1.0"
 tracing = { version = "0.1", features = ["log", "attributes", "std"] }
-
-# Python integration
-pyo3 = { version = "0.24", features = ["extension-module", "abi3"] }
-pyo3-asyncio = { version = "0.21", features = ["tokio-runtime"] }
 
 # Platform-specific file watching
 notify = { version = "6.1", features = ["serde"] }

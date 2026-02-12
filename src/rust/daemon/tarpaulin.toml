@@ -8,7 +8,6 @@ engine = "llvm"
 workspace = true
 exclude = [
     "shared-test-utils",  # Test utilities don't need coverage
-    "python-bindings",    # Python bindings have build complexity
 ]
 
 # Output configuration

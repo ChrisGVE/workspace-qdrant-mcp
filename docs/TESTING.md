@@ -371,9 +371,13 @@ Add to `Cargo.toml`:
 ```toml
 [workspace]
 members = [
-    "core",
-    "grpc",
-    "python-bindings",
+    "common",
+    "common-node",
+    "cli",
+    "daemon/core",
+    "daemon/grpc",
+    "daemon/memexd",
+    "daemon/shared-test-utils",
 ]
 ```
 

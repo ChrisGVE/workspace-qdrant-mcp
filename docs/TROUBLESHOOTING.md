@@ -121,7 +121,7 @@ cargo check
 
 # Verify workspace structure
 cat Cargo.toml | grep -A 10 "^\[workspace\]"
-# Should show members: core, grpc, python-bindings, shared-test-utils
+# Should show members: common, common-node, cli, daemon/core, daemon/grpc, daemon/memexd, daemon/shared-test-utils
 ```
 
 **Common causes:**
