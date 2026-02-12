@@ -173,10 +173,11 @@ fn parse_version_string(version: &str) -> Result<(u32, u32, Option<u32>), Versio
 }
 
 /// Get the tree-sitter version string from the crate.
+///
+/// Derived at compile time from Cargo.lock via build.rs — no manual
+/// synchronization needed when updating the tree-sitter dependency.
 pub fn tree_sitter_version_string() -> &'static str {
-    // Tree-sitter 0.24.x uses ABI 14
-    // This should match the version in Cargo.toml
-    "0.24"
+    env!("TREE_SITTER_VERSION")
 }
 
 /// Get the current tree-sitter ABI version.
@@ -249,9 +250,15 @@ mod tests {
     #[test]
     fn test_tree_sitter_version_string() {
         let version = tree_sitter_version_string();
-        assert!(version.starts_with("0."));
-        // Should parse successfully
-        assert!(parse_version_string(version).is_ok());
+        // Must not be the fallback value
+        assert_ne!(version, "unknown", "build.rs should extract version from Cargo.lock");
+        // Must start with expected major version
+        assert!(version.starts_with("0."), "Expected 0.x.y, got: {}", version);
+        // Must be a full semver triple (e.g., "0.24.7"), not just "0.24"
+        let (major, minor, patch) = parse_version_string(version).unwrap();
+        assert_eq!(major, 0);
+        assert!(minor > 0, "Minor version should be positive");
+        assert!(patch.is_some(), "Expected full semver triple from Cargo.lock");
     }
 
     #[test]
