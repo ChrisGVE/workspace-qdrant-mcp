@@ -23,6 +23,7 @@ pub mod language;
 
 // System Administration
 pub mod backup;
+pub mod collections;
 pub mod ingest;
 pub mod restore;
 pub mod update;

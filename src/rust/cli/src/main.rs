@@ -82,6 +82,9 @@ enum Commands {
     /// Update system from GitHub releases
     Update(commands::update::UpdateArgs),
 
+    /// Collection management (list, reset)
+    Collections(commands::collections::CollectionsArgs),
+
     /// Backup Qdrant collections (create snapshots)
     Backup(commands::backup::BackupArgs),
 
@@ -157,6 +160,7 @@ async fn main() -> Result<()> {
         Commands::Language(args) => commands::language::execute(args).await,
 
         // System Administration
+        Commands::Collections(args) => commands::collections::execute(args).await,
         Commands::Update(args) => commands::update::execute(args).await,
         Commands::Backup(args) => commands::backup::execute(args).await,
         Commands::Restore(args) => commands::restore::execute(args).await,
