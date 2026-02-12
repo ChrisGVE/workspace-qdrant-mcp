@@ -17,6 +17,7 @@ import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { utcNow } from '../utils/timestamps.js';
 
 import type {
   UnifiedQueueItem,
@@ -299,7 +300,7 @@ export class SqliteStateManager {
       // Generate idempotency key
       const idempotencyKey = generateIdempotencyKey(itemType, op, tenantId, collection, payload);
       const queueId = randomUUID();
-      const now = new Date().toISOString();
+      const now = utcNow();
       const payloadJson = JSON.stringify(payload, Object.keys(payload).sort());
       const metadataJson = metadata ? JSON.stringify(metadata) : '{}';
 
