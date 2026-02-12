@@ -19,6 +19,7 @@
   "scripts": {
     "generate:config": "tsx scripts/generate-config-defaults.ts",
     "generate:build-info": "tsx scripts/generate-build-info.ts",
+    "build:native": "cd ../../rust/common-node && napi build --release --platform",
     "build": "npm run clean && npm run generate:config && npm run generate:build-info && tsc && npm run copy:proto && npm run chmod:bin",
     "copy:proto": "mkdir -p dist/proto && cp src/proto/*.proto dist/proto/",
     "chmod:bin": "chmod +x dist/index.js dist/agent.js",
