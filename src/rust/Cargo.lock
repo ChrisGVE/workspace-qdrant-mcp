@@ -7465,6 +7465,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "workspace-qdrant-core",
+ "wqm-common",
 ]
 
 [[package]]
@@ -7503,7 +7504,9 @@ version = "0.1.0-beta1"
 dependencies = [
  "dirs 5.0.1",
  "serde",
+ "serde_json",
  "serde_yml",
+ "sha2",
  "shellexpand",
  "tempfile",
  "thiserror 2.0.18",

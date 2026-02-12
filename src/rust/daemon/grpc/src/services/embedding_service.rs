@@ -113,20 +113,7 @@ impl EmbeddingServiceImpl {
 
     /// Simple tokenization for BM25 sparse vector generation
     fn tokenize(text: &str) -> Vec<String> {
-        // Common English stopwords
-        const STOPWORDS: &[&str] = &[
-            "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
-            "has", "he", "in", "is", "it", "its", "of", "on", "or", "that",
-            "the", "to", "was", "were", "will", "with", "this", "but", "they",
-            "have", "had", "what", "when", "where", "who", "which", "why", "how"
-        ];
-
-        text.to_lowercase()
-            .split(|c: char| !c.is_alphanumeric() && c != '_')
-            .filter(|s| !s.is_empty() && s.len() > 1)
-            .filter(|s| !STOPWORDS.contains(s))
-            .map(|s| s.to_string())
-            .collect()
+        wqm_common::nlp::tokenize(text)
     }
 
     /// Generate dense embedding using FastEmbed

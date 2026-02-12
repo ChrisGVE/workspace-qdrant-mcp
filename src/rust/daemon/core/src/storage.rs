@@ -26,17 +26,12 @@ use tracing::{debug, info, warn, error};
 // They would be needed for advanced gRPC HTTP/2 configuration
 
 /// Multi-tenant collection names (unified architecture - canonical names)
+///
+/// Re-exported from `wqm_common::constants` for backward compatibility.
 pub mod collections {
-    /// Projects collection - stores code and documents from all projects
-    /// Filtered by project_id payload field
-    pub const PROJECTS: &str = "projects";
-
-    /// Libraries collection - stores library documentation
-    /// Filtered by library_name payload field
-    pub const LIBRARIES: &str = "libraries";
-
-    /// Memory collection - stores agent memory and cross-project notes
-    pub const MEMORY: &str = "memory";
+    pub use wqm_common::constants::COLLECTION_PROJECTS as PROJECTS;
+    pub use wqm_common::constants::COLLECTION_LIBRARIES as LIBRARIES;
+    pub use wqm_common::constants::COLLECTION_MEMORY as MEMORY;
 }
 
 /// Multi-tenant collection configuration

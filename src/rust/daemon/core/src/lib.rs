@@ -145,7 +145,7 @@ pub use crate::type_aware_processor::{
 };
 pub use crate::watching_queue::{
     FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats, WatchingQueueError,
-    calculate_tenant_id, sanitize_remote_url, generate_path_hash_tenant_id, get_current_branch,
+    calculate_tenant_id, get_current_branch,
     // Multi-tenant routing types and constants
     WatchType, UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION,
     // Queue depth monitoring types (Task 461.8)

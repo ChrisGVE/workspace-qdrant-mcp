@@ -281,9 +281,11 @@ pub const CREATE_RECONCILE_INDEX_SQL: &str =
 // Database operations
 // ---------------------------------------------------------------------------
 
-use sha2::{Sha256, Digest};
 use sqlx::{SqlitePool, Row, sqlite::SqliteRow};
 use std::path::Path;
+
+// Re-export hashing functions from wqm-common
+pub use wqm_common::hashing::{compute_file_hash, compute_content_hash};
 
 /// Build a TrackedFile from a SQLite row
 fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
@@ -311,29 +313,6 @@ fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }
-}
-
-/// Compute SHA256 hash of file content
-pub fn compute_file_hash(path: &Path) -> std::io::Result<String> {
-    use std::io::Read;
-    let mut file = std::fs::File::open(path)?;
-    let mut hasher = Sha256::new();
-    let mut buffer = [0u8; 8192];
-    loop {
-        let bytes_read = file.read(&mut buffer)?;
-        if bytes_read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..bytes_read]);
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
-/// Compute SHA256 hash of a byte slice (for chunk content)
-pub fn compute_content_hash(content: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(content.as_bytes());
-    format!("{:x}", hasher.finalize())
 }
 
 /// Get file modification time as ISO 8601 string

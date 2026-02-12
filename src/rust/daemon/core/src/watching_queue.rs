@@ -9,7 +9,6 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use git2::Repository;
 use notify::{Event, EventKind, RecursiveMode, Watcher as NotifyWatcher};
-use sha2::{Sha256, Digest};
 use sqlx::{Row, SqlitePool};
 use tokio::sync::{mpsc, Notify, RwLock, Mutex};
 use tokio::time::interval;
@@ -31,11 +30,9 @@ use serde::{Deserialize, Serialize};
 
 /// Unified collection names for multi-tenant architecture (canonical names)
 ///
-/// These are the canonical collection names used by both MCP server and daemon.
-/// All projects are stored in `projects` with tenant_id metadata filtering.
-/// All libraries are stored in `libraries` with library_name metadata filtering.
-pub const UNIFIED_PROJECTS_COLLECTION: &str = "projects";
-pub const UNIFIED_LIBRARIES_COLLECTION: &str = "libraries";
+/// Re-exported from `wqm_common::constants` for backward compatibility.
+pub use wqm_common::constants::COLLECTION_PROJECTS as UNIFIED_PROJECTS_COLLECTION;
+pub use wqm_common::constants::COLLECTION_LIBRARIES as UNIFIED_LIBRARIES_COLLECTION;
 
 /// Watch type distinguishing project vs library watches
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -143,100 +140,6 @@ pub fn calculate_tenant_id(project_root: &Path) -> String {
     );
 
     project_id
-}
-
-/// Sanitize a git remote URL to create a tenant ID
-///
-/// Removes protocols and replaces separators with underscores.
-///
-/// # Arguments
-/// * `remote_url` - Git remote URL (HTTPS or SSH format)
-///
-/// # Returns
-/// Sanitized tenant ID string
-///
-/// # Examples
-/// ```
-/// use workspace_qdrant_core::sanitize_remote_url;
-///
-/// assert_eq!(
-///     sanitize_remote_url("https://github.com/user/repo.git"),
-///     "github_com_user_repo"
-/// );
-/// assert_eq!(
-///     sanitize_remote_url("git@github.com:user/repo.git"),
-///     "github_com_user_repo"
-/// );
-/// ```
-pub fn sanitize_remote_url(remote_url: &str) -> String {
-    let mut url = remote_url.to_string();
-
-    // Remove common protocols
-    for protocol in &["https://", "http://", "ssh://", "git://"] {
-        if url.starts_with(protocol) {
-            url = url[protocol.len()..].to_string();
-            break;
-        }
-    }
-
-    // Remove git@ prefix (SSH format)
-    if url.starts_with("git@") {
-        url = url[4..].to_string();
-    }
-
-    // Remove .git suffix if present
-    if url.ends_with(".git") {
-        url = url[..url.len() - 4].to_string();
-    }
-
-    // Replace all separators with underscores
-    url = url.replace([':', '/', '.', '@'], "_");
-
-    // Remove any duplicate underscores
-    while url.contains("__") {
-        url = url.replace("__", "_");
-    }
-
-    // Remove leading/trailing underscores
-    url.trim_matches('_').to_string()
-}
-
-/// Generate a tenant ID from an absolute path using SHA256 hash
-///
-/// Creates a hash-based tenant ID with the format: path_{16_char_hash}
-///
-/// # Arguments
-/// * `project_root` - Path to the project directory
-///
-/// # Returns
-/// Tenant ID with path_ prefix and 16-character hash
-///
-/// # Examples
-/// ```
-/// use std::path::Path;
-/// use workspace_qdrant_core::generate_path_hash_tenant_id;
-///
-/// let tenant_id = generate_path_hash_tenant_id(Path::new("/home/user/project"));
-/// assert!(tenant_id.starts_with("path_"));
-/// assert_eq!(tenant_id.len(), 21); // "path_" + 16 chars
-/// ```
-pub fn generate_path_hash_tenant_id(project_root: &Path) -> String {
-    // Normalize and canonicalize path
-    let abs_path = project_root
-        .canonicalize()
-        .unwrap_or_else(|_| project_root.to_path_buf());
-
-    // Generate SHA256 hash
-    let mut hasher = Sha256::new();
-    hasher.update(abs_path.to_string_lossy().as_bytes());
-    let hash = hasher.finalize();
-
-    // Take first 16 characters of hex hash
-    let hash_hex = format!("{:x}", hash);
-    let hash_prefix = &hash_hex[..16];
-
-    // Return with path_ prefix
-    format!("path_{}", hash_prefix)
 }
 
 /// Get the current Git branch name for a repository
@@ -3318,33 +3221,6 @@ impl WatchManager {
 mod tests {
     use super::*;
     use tempfile::tempdir;
-
-    #[test]
-    fn test_sanitize_remote_url() {
-        assert_eq!(
-            sanitize_remote_url("https://github.com/user/repo.git"),
-            "github_com_user_repo"
-        );
-
-        assert_eq!(
-            sanitize_remote_url("git@github.com:user/repo.git"),
-            "github_com_user_repo"
-        );
-
-        assert_eq!(
-            sanitize_remote_url("ssh://git@gitlab.com:2222/user/project.git"),
-            "gitlab_com_2222_user_project"
-        );
-    }
-
-    #[test]
-    fn test_generate_path_hash_tenant_id() {
-        let path = Path::new("/home/user/project");
-        let tenant_id = generate_path_hash_tenant_id(path);
-
-        assert!(tenant_id.starts_with("path_"));
-        assert_eq!(tenant_id.len(), 21); // "path_" + 16 chars
-    }
 
     #[test]
     fn test_get_current_branch_non_git() {
