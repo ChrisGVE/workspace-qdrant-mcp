@@ -82,6 +82,9 @@ enum Commands {
     /// Update system from GitHub releases
     Update(commands::update::UpdateArgs),
 
+    /// Administrative operations (rename-tenant)
+    Admin(commands::admin::AdminArgs),
+
     /// Collection management (list, reset)
     Collections(commands::collections::CollectionsArgs),
 
@@ -160,6 +163,7 @@ async fn main() -> Result<()> {
         Commands::Language(args) => commands::language::execute(args).await,
 
         // System Administration
+        Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Collections(args) => commands::collections::execute(args).await,
         Commands::Update(args) => commands::update::execute(args).await,
         Commands::Backup(args) => commands::backup::execute(args).await,

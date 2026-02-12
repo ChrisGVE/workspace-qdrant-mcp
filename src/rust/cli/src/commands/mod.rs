@@ -22,6 +22,7 @@ pub mod search;
 pub mod language;
 
 // System Administration
+pub mod admin;
 pub mod backup;
 pub mod collections;
 pub mod ingest;
