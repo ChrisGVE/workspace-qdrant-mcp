@@ -211,8 +211,11 @@ pub trait PlatformWatcher: Send + Sync {
     /// Stop watching all paths
     async fn stop(&mut self) -> Result<(), PlatformWatchingError>;
 
-    /// Get the event receiver
-    fn event_receiver(&self) -> mpsc::UnboundedReceiver<FileEvent>;
+    /// Take ownership of the event receiver.
+    ///
+    /// Must be called before starting the watcher. Returns `Some` on the first
+    /// call and `None` on subsequent calls (the receiver can only be taken once).
+    fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<FileEvent>>;
 }
 
 /// Factory for creating platform-specific watchers
@@ -478,23 +481,12 @@ mod macos {
             Ok(())
         }
 
-        fn event_receiver(&self) -> mpsc::UnboundedReceiver<FileEvent> {
-            // Note: This returns a new empty receiver since we can't clone the original
-            // The actual receiver should be taken via take_event_receiver() before starting
-            let (_, rx) = mpsc::unbounded_channel();
-            rx
+        fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<FileEvent>> {
+            self.event_rx.take()
         }
     }
 
     impl MacOSWatcher {
-        /// Take ownership of the event receiver
-        ///
-        /// This should be called before starting the watcher to get the receiver
-        /// for processing events.
-        pub fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<FileEvent>> {
-            self.event_rx.take()
-        }
-
         /// Get the number of watched paths
         pub fn watched_path_count(&self) -> usize {
             self.watched_paths.len()
@@ -768,14 +760,6 @@ mod linux {
             Ok(())
         }
 
-        /// Take ownership of the event receiver
-        ///
-        /// This should be called before starting the watcher to get the receiver
-        /// for processing events.
-        pub fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<FileEvent>> {
-            self.event_rx.take()
-        }
-
         /// Get the number of watched paths
         pub fn watched_path_count(&self) -> usize {
             self.watched_paths.len()
@@ -852,11 +836,8 @@ mod linux {
             Ok(())
         }
 
-        fn event_receiver(&self) -> mpsc::UnboundedReceiver<FileEvent> {
-            // Note: This returns a new empty receiver since we can't clone the original
-            // The actual receiver should be taken via take_event_receiver() before starting
-            let (_, rx) = mpsc::unbounded_channel();
-            rx
+        fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<FileEvent>> {
+            self.event_rx.take()
         }
     }
 }
@@ -1100,23 +1081,12 @@ mod windows {
             Ok(())
         }
 
-        fn event_receiver(&self) -> mpsc::UnboundedReceiver<FileEvent> {
-            // Note: This returns a new empty receiver since we can't clone the original
-            // The actual receiver should be taken via take_event_receiver() before starting
-            let (_, rx) = mpsc::unbounded_channel();
-            rx
+        fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<FileEvent>> {
+            self.event_rx.take()
         }
     }
 
     impl WindowsWatcher {
-        /// Take ownership of the event receiver
-        ///
-        /// This should be called before starting the watcher to get the receiver
-        /// for processing events.
-        pub fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<FileEvent>> {
-            self.event_rx.take()
-        }
-
         /// Get the number of watched paths
         pub fn watched_path_count(&self) -> usize {
             self.watched_paths.len()
