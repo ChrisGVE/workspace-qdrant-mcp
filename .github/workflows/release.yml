@@ -1,5 +1,5 @@
 # Cross-platform release build workflow for workspace-qdrant-mcp
-# Builds memexd daemon and wqm CLI for 6 target platforms
+# Builds memexd daemon, wqm CLI, and wqm-common-node napi addon for 6 target platforms
 #
 # ONNX Runtime Static Linking:
 # - Most platforms: ort crate automatically downloads prebuilt static binaries
@@ -50,6 +50,8 @@ jobs:
             cross: false
             artifact_name: darwin-arm64
             needs_ort_download: false
+            build_napi: true
+            napi_node_name: darwin-arm64
 
           # macOS Intel - ort dropped support, needs manual ONNX Runtime
           - target: x86_64-apple-darwin
@@ -57,6 +59,8 @@ jobs:
             cross: false
             artifact_name: darwin-x64
             needs_ort_download: true
+            build_napi: true
+            napi_node_name: darwin-x64
 
           # Windows x64 - ort has prebuilt binaries
           - target: x86_64-pc-windows-msvc
@@ -64,6 +68,7 @@ jobs:
             cross: false
             artifact_name: windows-x64
             needs_ort_download: false
+            build_napi: false
 
           # Windows ARM64 - ort has prebuilt binaries
           - target: aarch64-pc-windows-msvc
@@ -71,6 +76,7 @@ jobs:
             cross: false  # Native ARM support on Windows runner
             artifact_name: windows-arm64
             needs_ort_download: false
+            build_napi: false
 
           # Linux x64 - ort has prebuilt binaries
           - target: x86_64-unknown-linux-gnu
@@ -78,6 +84,8 @@ jobs:
             cross: false
             artifact_name: linux-x64
             needs_ort_download: false
+            build_napi: true
+            napi_node_name: linux-x64-gnu
 
           # Linux ARM64 - ort has prebuilt binaries
           - target: aarch64-unknown-linux-gnu
@@ -85,6 +93,8 @@ jobs:
             cross: true  # Use cross for ARM compilation
             artifact_name: linux-arm64
             needs_ort_download: false
+            build_napi: true
+            napi_node_name: linux-arm64-gnu
 
     steps:
       - name: Checkout repository
@@ -174,6 +184,32 @@ jobs:
         working-directory: src/rust
         run: cross build --release --target ${{ matrix.target }}
 
+      # Build napi-rs native addon (wqm-common-node) for supported platforms
+      # The addon depends only on wqm-common (no ONNX), so no ORT_LIB_LOCATION needed
+      - name: Build napi addon (native)
+        if: matrix.build_napi && !matrix.cross
+        working-directory: src/rust
+        run: cargo build --release --target ${{ matrix.target }} --package wqm-common-node
+
+      - name: Build napi addon (cross)
+        if: matrix.build_napi && matrix.cross
+        working-directory: src/rust
+        run: cross build --release --target ${{ matrix.target }} --package wqm-common-node
+
+      - name: Prepare napi addon artifact
+        if: matrix.build_napi
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            SRC="src/rust/target/${{ matrix.target }}/release/libwqm_common_node.dylib"
+          else
+            SRC="src/rust/target/${{ matrix.target }}/release/libwqm_common_node.so"
+          fi
+          DST="wqm-common-node.${{ matrix.napi_node_name }}.node"
+          cp "$SRC" "$DST"
+          sha256sum "$DST" | awk '{print $1}' > "${DST}.sha256"
+          echo "Prepared napi addon: $DST ($(wc -c < "$DST") bytes)"
+
       # Prepare artifacts - all binaries are self-contained with ONNX Runtime statically linked
       - name: Prepare artifacts (Unix)
         if: runner.os != 'Windows'
@@ -184,6 +220,11 @@ jobs:
           cp src/rust/target/${{ matrix.target }}/release/wqm artifacts/
           cp THIRD-PARTY-LICENSES.md artifacts/
           cp LICENSE artifacts/
+
+          # Include napi addon in archive if built for this platform
+          if [ -f "wqm-common-node.${{ matrix.napi_node_name }}.node" ]; then
+            cp "wqm-common-node.${{ matrix.napi_node_name }}.node" artifacts/
+          fi
 
           # Create archive
           cd artifacts
@@ -279,6 +320,8 @@ jobs:
             memexd-${{ matrix.target }}.sha256
             wqm-${{ matrix.target }}
             wqm-${{ matrix.target }}.sha256
+            wqm-common-node.*.node
+            wqm-common-node.*.node.sha256
 
       - name: Upload artifact (Windows)
         if: runner.os == 'Windows'
@@ -322,6 +365,8 @@ jobs:
             artifacts/**/*.zip
             artifacts/**/memexd-*
             artifacts/**/wqm-*
+            artifacts/**/wqm-common-node.*.node
+            artifacts/**/wqm-common-node.*.node.sha256
             artifacts/checksums.txt
           draft: false
           prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}
@@ -350,5 +395,9 @@ jobs:
             - `linux-arm64` - Linux ARM64
             - `windows-x64` - Windows x86_64
             - `windows-arm64` - Windows ARM64
+
+            ### Native Node.js Addon
+            Pre-built `wqm-common-node` addons are included for macOS and Linux platforms.
+            Place the `.node` file in `src/rust/common-node/` for the MCP server to use.
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
