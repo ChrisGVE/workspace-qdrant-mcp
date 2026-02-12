@@ -1533,6 +1533,7 @@ WHERE updated_at > :last_poll_time OR enabled != :cached_enabled_state
 | --------- | ------------------- | --------------------------------------------- |
 | `memory`  | MCP `memory` tool   | `{label, content, scope, project_id}`         |
 | `library` | MCP `store` tool    | `{library_name, content, title, source, url}` |
+| `project` | MCP `store` tool    | `{path, name}` (registers via gRPC, not queue) |
 | `file`    | Daemon file watcher | `{file_path, ...}`                            |
 | `folder`  | Daemon folder scan  | `{folder_path, patterns, ...}`                |
 
@@ -2347,8 +2348,8 @@ The server provides exactly **4 tools**: `search`, `retrieve`, `memory`, and `st
 
 **Important design principles:**
 
-- The MCP server does NOT store to the `projects` collection. Project content is ingested by the daemon via file watching.
-- The MCP can only store to `memory` (rules) and `libraries` (reference documentation).
+- The MCP server does NOT store content to the `projects` collection. Project content is ingested by the daemon via file watching.
+- The MCP can store to `memory` (rules) and `libraries` (reference documentation), and can register new projects with the daemon via `store` with `type: "project"`.
 - Session management (activate/deactivate) is automated, not exposed as a tool.
 - Health monitoring is server-internal and affects search response metadata.
 
@@ -2503,10 +2504,13 @@ User: "Actually, let me update that rule about testing"
 
 #### store
 
-Store content to libraries collection only.
+Store content to libraries collection or register a project with the daemon. The `type` parameter determines the operation mode.
+
+**Type: `"library"` (default) — Store reference documentation:**
 
 ```typescript
 store({
+    type?: "library",                  // Default: "library"
     content: string,                   // Required: text content
     library_name: string,              // Required: library identifier (acts as tag)
     title?: string,                    // Document title
@@ -2516,7 +2520,19 @@ store({
 });
 ```
 
-**Note:** `store` is for adding reference documentation to the `libraries` collection (like adding books to a library). It is NOT for project content (handled by daemon file watching) or memory rules (use `memory` tool).
+**Type: `"project"` — Register a project directory:**
+
+```typescript
+store({
+    type: "project",                   // Required: must be "project"
+    path: string,                      // Required: absolute path to project directory
+    name?: string,                     // Optional: display name (defaults to directory name)
+});
+```
+
+Registers a new project with the daemon for file watching and ingestion. Uses `register_if_new: true` so the daemon will create the project in `watch_folders` if it doesn't already exist. Returns `{ success, project_id, created, is_active, message }`.
+
+**Note:** `store` with `type: "library"` is for adding reference documentation to the `libraries` collection (like adding books to a library). It is NOT for project content (handled by daemon file watching) or memory rules (use `memory` tool). Use `type: "project"` to register a new project directory with the daemon.
 
 **Libraries definition:** Libraries are collections of reference information (books, documentation, papers, websites) - NOT programming libraries (use context7 MCP for those).
 
@@ -2537,7 +2553,7 @@ When the MCP server connects to the transport (stdio or HTTP):
    - Server queries daemon via `GetProjectStatus` to check if project exists in `watch_folders`
    - **If registered:** Server sends `RegisterProject` (with `register_if_new=false`, the default)
      - Daemon sets `is_active = true` and updates `last_activity_at`
-   - **If not registered:** Server logs a warning ("Project not registered, use `wqm project add` to register") and continues without activation — search and memory tools still work, but file watching is not started
+   - **If not registered:** Server logs a warning ("Project not registered, use `wqm project add` or the `store` tool with `type: \"project\"` to register") and continues without activation — search and memory tools still work, but file watching is not started
 
 2. **Start heartbeat:**
    - Periodic heartbeat with daemon to prevent timeout-based deactivation
