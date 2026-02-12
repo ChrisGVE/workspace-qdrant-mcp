@@ -131,14 +131,31 @@ Add the following to your project's `CLAUDE.md` (or your global `~/.claude/CLAUD
 ````markdown
 ## workspace-qdrant
 
-Use the `workspace-qdrant` MCP server proactively as your project knowledge base:
+The `workspace-qdrant` MCP server provides codebase-aware search, library knowledge retrieval, and persistent behavioral rules. The tool schemas are self-describing; these instructions cover *when* and *how* to use them.
 
-- **`search`**: Search project code, library docs, or memory rules with hybrid semantic + keyword matching. Use `scope="project"` for current project, `scope="all"` to include libraries.
-- **`store`**: Register projects for file watching (`type="project"`, `path="/absolute/path"`) or store library reference docs (`type="library"`, `libraryName="...", content="..."`).
-- **`memory`**: Manage persistent behavioral rules that survive across sessions. Use `action="add"` with a short `label` (e.g., `"prefer-uv"`) and `content` describing the rule. Use `action="list"` to review existing rules.
-- **`retrieve`**: Fetch specific documents by ID or metadata filter from `projects`, `libraries`, or `memory` collections.
+### Project Registration
 
-When starting a session, search for relevant context. When discovering user preferences or project conventions, store them as memory rules.
+At session start, check whether the current project is registered with workspace-qdrant. If it is not, ask the user whether they want to register it (do not register silently). Once registered, the daemon handles file watching and ingestion automatically — no further action is needed.
+
+### Codebase Intelligence
+
+Use `search` as the primary tool for understanding project code:
+- Search for symbols, functions, classes, and structural patterns across the codebase
+- Understand project architecture and module relationships
+- Locate code relevant to the current task before making changes
+- Use `scope="project"` for the current project, `scope="all"` when library docs are also relevant
+
+### Library and Document Retrieval
+
+Use `retrieve` and `search` (on the `libraries` collection) to access stored reference documentation, file extracts, and knowledge base content. Use `store` with `type="library"` to add reference material the user provides.
+
+### Behavioral Rules
+
+The `memory` tool manages persistent rules that are injected into context across sessions. Rules are **user-initiated only** — add rules when the user explicitly instructs you to, never autonomously. Use `action="list"` at session start to load active rules.
+
+### Issue Reporting
+
+workspace-qdrant is under active development. If you encounter errors, unexpected behavior, or limitations with any workspace-qdrant tool, report them as GitHub issues at https://github.com/ChrisGVE/workspace-qdrant-mcp/issues using the `gh` CLI.
 ````
 
 ## MCP Tools
