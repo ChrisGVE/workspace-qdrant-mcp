@@ -2338,7 +2338,7 @@ impl UnifiedQueueProcessor {
         Ok(())
     }
 
-    /// Process delete document item - delete specific document
+    /// Process delete document item - delete specific document by document_id
     async fn process_delete_document_item(
         item: &UnifiedQueueItem,
         storage_client: &Arc<StorageClient>,
@@ -2348,14 +2348,15 @@ impl UnifiedQueueProcessor {
             item.queue_id
         );
 
-        // Parse payload to get document identifier
-        let payload: serde_json::Value = serde_json::from_str(&item.payload_json)
-            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse payload: {}", e)))?;
+        // Use typed payload deserialization (matches validation in queue_operations.rs)
+        let payload = item.parse_delete_document_payload()
+            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse DeleteDocumentPayload: {}", e)))?;
 
-        let doc_id = payload
-            .get("doc_id")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing doc_id in payload".to_string()))?;
+        if payload.document_id.trim().is_empty() {
+            return Err(UnifiedProcessorError::InvalidPayload(
+                "document_id must not be empty".to_string(),
+            ));
+        }
 
         if storage_client
             .collection_exists(&item.collection)
@@ -2363,14 +2364,14 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
         {
             storage_client
-                .delete_points_by_filter(&item.collection, doc_id, &item.tenant_id)
+                .delete_points_by_document_id(&item.collection, &payload.document_id)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
 
         info!(
             "Successfully deleted document {} from {} (tenant={})",
-            doc_id, item.collection, item.tenant_id
+            payload.document_id, item.collection, item.tenant_id
         );
 
         Ok(())
@@ -2570,6 +2571,7 @@ impl UnifiedQueueProcessor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::unified_queue_schema::QueueStatus;
 
     #[test]
     fn test_unified_processor_config_default() {
@@ -2827,5 +2829,76 @@ mod tests {
             config.warmup_inter_item_delay_ms >= config.inter_item_delay_ms,
             "Warmup inter_item_delay should be >= normal delay (slower processing)"
         );
+    }
+
+    // =========================================================================
+    // DeleteDocument payload contract tests
+    // =========================================================================
+
+    /// Helper to create a minimal UnifiedQueueItem for testing
+    fn make_delete_document_item(payload_json: &str) -> UnifiedQueueItem {
+        UnifiedQueueItem {
+            queue_id: "test-queue-id".to_string(),
+            idempotency_key: "test-idempotency".to_string(),
+            item_type: ItemType::DeleteDocument,
+            op: QueueOperation::Delete,
+            tenant_id: "test-tenant".to_string(),
+            collection: "projects".to_string(),
+            priority: 5,
+            status: QueueStatus::InProgress,
+            branch: "main".to_string(),
+            payload_json: payload_json.to_string(),
+            metadata: None,
+            created_at: "2026-01-01T00:00:00Z".to_string(),
+            updated_at: "2026-01-01T00:00:00Z".to_string(),
+            lease_until: None,
+            worker_id: None,
+            retry_count: 0,
+            max_retries: 3,
+            error_message: None,
+            last_error_at: None,
+            file_path: None,
+        }
+    }
+
+    #[test]
+    fn test_delete_document_payload_uses_document_id_key() {
+        // Validates that the payload field is "document_id" (not "doc_id")
+        // matching the validation contract in queue_operations.rs
+        let item = make_delete_document_item(r#"{"document_id":"doc-abc-123"}"#);
+        let payload = item.parse_delete_document_payload()
+            .expect("Should parse with document_id key");
+        assert_eq!(payload.document_id, "doc-abc-123");
+    }
+
+    #[test]
+    fn test_delete_document_payload_rejects_wrong_key() {
+        // The old code used "doc_id" which would never match the validated payload
+        let item = make_delete_document_item(r#"{"doc_id":"doc-abc-123"}"#);
+        let payload = item.parse_delete_document_payload();
+        // serde will deserialize but document_id will be missing/empty
+        // since DeleteDocumentPayload requires "document_id"
+        assert!(
+            payload.is_err() || payload.unwrap().document_id.is_empty(),
+            "Payload with 'doc_id' should fail or produce empty document_id"
+        );
+    }
+
+    #[test]
+    fn test_delete_document_payload_invalid_json() {
+        let item = make_delete_document_item("not valid json");
+        let result = item.parse_delete_document_payload();
+        assert!(result.is_err(), "Invalid JSON should fail deserialization");
+    }
+
+    #[test]
+    fn test_delete_document_payload_with_point_ids() {
+        let item = make_delete_document_item(
+            r#"{"document_id":"doc-xyz","point_ids":["p1","p2"]}"#
+        );
+        let payload = item.parse_delete_document_payload()
+            .expect("Should parse with point_ids");
+        assert_eq!(payload.document_id, "doc-xyz");
+        assert_eq!(payload.point_ids.len(), 2);
     }
 }
