@@ -21,5 +21,11 @@ shellexpand = "3.1"
 # Error handling
 thiserror = "2.0"
 
+# Crypto
+sha2 = "0.10"
+
+# JSON serialization (for payloads)
+serde_json = "1.0"
+
 [dev-dependencies]
 tempfile = "3.8"
