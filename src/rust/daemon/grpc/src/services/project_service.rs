@@ -27,6 +27,7 @@ use crate::proto::{
     GetProjectStatusRequest, GetProjectStatusResponse,
     ListProjectsRequest, ListProjectsResponse, ProjectInfo,
     HeartbeatRequest, HeartbeatResponse,
+    RenameTenantRequest, RenameTenantResponse,
 };
 
 use workspace_qdrant_core::{
@@ -1094,6 +1095,132 @@ impl ProjectService for ProjectServiceImpl {
                 Err(Status::internal(format!("Heartbeat failed: {}", e)))
             }
         }
+    }
+
+    /// Rename a tenant_id across SQLite tables
+    ///
+    /// Updates watch_folders and unified_queue tables in a single transaction.
+    /// Qdrant payload updates should be handled separately (e.g., via re-ingestion
+    /// or collection reset + re-scan).
+    async fn rename_tenant(
+        &self,
+        request: Request<RenameTenantRequest>,
+    ) -> Result<Response<RenameTenantResponse>, Status> {
+        let req = request.into_inner();
+
+        // Validate required fields
+        if req.old_tenant_id.is_empty() {
+            return Err(Status::invalid_argument("old_tenant_id cannot be empty"));
+        }
+        if req.new_tenant_id.is_empty() {
+            return Err(Status::invalid_argument("new_tenant_id cannot be empty"));
+        }
+        if req.old_tenant_id == req.new_tenant_id {
+            return Err(Status::invalid_argument("old and new tenant_id are the same"));
+        }
+
+        info!(
+            "RenameTenant: '{}' -> '{}'",
+            req.old_tenant_id, req.new_tenant_id
+        );
+
+        // Execute rename in a transaction
+        let mut total_rows = 0i32;
+
+        let result = sqlx::query("BEGIN IMMEDIATE")
+            .execute(&self.db_pool)
+            .await;
+
+        if let Err(e) = result {
+            error!("Failed to begin transaction: {}", e);
+            return Err(Status::internal(format!("Transaction failed: {}", e)));
+        }
+
+        // Update watch_folders
+        match sqlx::query(
+            "UPDATE watch_folders SET tenant_id = ?1 WHERE tenant_id = ?2"
+        )
+        .bind(&req.new_tenant_id)
+        .bind(&req.old_tenant_id)
+        .execute(&self.db_pool)
+        .await
+        {
+            Ok(result) => {
+                let rows = result.rows_affected() as i32;
+                info!("Updated {} watch_folders rows", rows);
+                total_rows += rows;
+            }
+            Err(e) => {
+                let _ = sqlx::query("ROLLBACK").execute(&self.db_pool).await;
+                error!("Failed to update watch_folders: {}", e);
+                return Err(Status::internal(format!(
+                    "Failed to update watch_folders: {}", e
+                )));
+            }
+        }
+
+        // Update unified_queue
+        match sqlx::query(
+            "UPDATE unified_queue SET tenant_id = ?1 WHERE tenant_id = ?2"
+        )
+        .bind(&req.new_tenant_id)
+        .bind(&req.old_tenant_id)
+        .execute(&self.db_pool)
+        .await
+        {
+            Ok(result) => {
+                let rows = result.rows_affected() as i32;
+                info!("Updated {} unified_queue rows", rows);
+                total_rows += rows;
+            }
+            Err(e) => {
+                let _ = sqlx::query("ROLLBACK").execute(&self.db_pool).await;
+                error!("Failed to update unified_queue: {}", e);
+                return Err(Status::internal(format!(
+                    "Failed to update unified_queue: {}", e
+                )));
+            }
+        }
+
+        // Update tracked_files
+        match sqlx::query(
+            "UPDATE tracked_files SET tenant_id = ?1 WHERE tenant_id = ?2"
+        )
+        .bind(&req.new_tenant_id)
+        .bind(&req.old_tenant_id)
+        .execute(&self.db_pool)
+        .await
+        {
+            Ok(result) => {
+                let rows = result.rows_affected() as i32;
+                info!("Updated {} tracked_files rows", rows);
+                total_rows += rows;
+            }
+            Err(e) => {
+                // tracked_files may not exist in all deployments, non-fatal
+                warn!("Failed to update tracked_files (non-fatal): {}", e);
+            }
+        }
+
+        // Commit transaction
+        if let Err(e) = sqlx::query("COMMIT").execute(&self.db_pool).await {
+            error!("Failed to commit rename transaction: {}", e);
+            return Err(Status::internal(format!(
+                "Failed to commit transaction: {}", e
+            )));
+        }
+
+        let message = format!(
+            "Renamed tenant '{}' -> '{}': {} SQLite rows updated",
+            req.old_tenant_id, req.new_tenant_id, total_rows
+        );
+        info!("{}", message);
+
+        Ok(Response::new(RenameTenantResponse {
+            success: true,
+            sqlite_rows_updated: total_rows,
+            message,
+        }))
     }
 }
 

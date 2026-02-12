@@ -150,6 +150,9 @@ service ProjectService {
     // Heartbeat to keep session alive (60s timeout)
     // Called periodically by MCP servers
     rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+    // Rename a tenant_id across SQLite and queue Qdrant payload updates
+    rpc RenameTenant(RenameTenantRequest) returns (RenameTenantResponse);
 }
 
 // =============================================================================
@@ -455,6 +458,19 @@ message HeartbeatRequest {
 message HeartbeatResponse {
     bool acknowledged = 1;                        // True if heartbeat was accepted
     google.protobuf.Timestamp next_heartbeat_by = 2;  // Deadline for next heartbeat
+}
+
+// RenameTenant Request/Response
+message RenameTenantRequest {
+    string old_tenant_id = 1;                     // Current tenant_id to rename
+    string new_tenant_id = 2;                     // New tenant_id value
+    repeated string collections = 3;              // Collections to update in Qdrant
+}
+
+message RenameTenantResponse {
+    bool success = 1;
+    int32 sqlite_rows_updated = 2;                // Number of SQLite rows affected
+    string message = 3;                           // Human-readable status message
 }
 
 // =============================================================================
