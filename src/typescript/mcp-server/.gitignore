@@ -32,6 +32,9 @@ coverage/
 # TypeScript cache
 *.tsbuildinfo
 
+# Generated build metadata
+src/build-info.ts
+
 # Temporary files
 tmp/
 temp/

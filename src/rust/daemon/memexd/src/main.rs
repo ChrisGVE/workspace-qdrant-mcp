@@ -86,7 +86,7 @@ fn parse_args() -> Result<DaemonArgs, Box<dyn std::error::Error>> {
     let is_daemon = detect_daemon_mode();
 
     let matches = Command::new("memexd")
-        .version(env!("CARGO_PKG_VERSION"))
+        .version(concat!(env!("CARGO_PKG_VERSION"), " (", env!("BUILD_NUMBER"), ")"))
         .author("Christian C. Berclaz <christian.berclaz@mac.com>")
         .about("Memory eXchange Daemon - Document processing and embedding generation service")
         .disable_help_flag(is_daemon)
@@ -470,7 +470,7 @@ fn set_process_nice_level(nice_level: i32) {
 /// Main daemon loop
 async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(), Box<dyn std::error::Error>> {
     let project_info = args.project_id.as_ref().map(|id| format!(" for project {}", id)).unwrap_or_default();
-    info!("Starting memexd daemon (version {}){}", env!("CARGO_PKG_VERSION"), project_info);
+    info!("Starting memexd daemon (version {} ({})){}", env!("CARGO_PKG_VERSION"), env!("BUILD_NUMBER"), project_info);
 
     check_existing_instance(&args.pid_file, args.project_id.as_ref())?;
     create_pid_file(&args.pid_file, args.project_id.as_ref())?;

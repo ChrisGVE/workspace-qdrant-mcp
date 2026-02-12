@@ -17,6 +17,7 @@ mod queue;
 #[derive(Parser)]
 #[command(name = "wqm")]
 #[command(author, version, about = "Workspace Qdrant MCP CLI", long_about = None)]
+#[command(long_version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("BUILD_NUMBER"), ")"))]
 #[command(propagate_version = true)]
 #[command(arg_required_else_help = true)]
 struct Cli {
