@@ -1124,17 +1124,14 @@ impl ProjectService for ProjectServiceImpl {
             req.old_tenant_id, req.new_tenant_id
         );
 
-        // Execute rename in a transaction
+        // Execute rename in a proper sqlx transaction
+        let mut tx = self.db_pool.begin().await
+            .map_err(|e| {
+                error!("Failed to begin transaction: {}", e);
+                Status::internal(format!("Transaction failed: {}", e))
+            })?;
+
         let mut total_rows = 0i32;
-
-        let result = sqlx::query("BEGIN IMMEDIATE")
-            .execute(&self.db_pool)
-            .await;
-
-        if let Err(e) = result {
-            error!("Failed to begin transaction: {}", e);
-            return Err(Status::internal(format!("Transaction failed: {}", e)));
-        }
 
         // Update watch_folders
         match sqlx::query(
@@ -1142,7 +1139,7 @@ impl ProjectService for ProjectServiceImpl {
         )
         .bind(&req.new_tenant_id)
         .bind(&req.old_tenant_id)
-        .execute(&self.db_pool)
+        .execute(&mut *tx)
         .await
         {
             Ok(result) => {
@@ -1151,7 +1148,6 @@ impl ProjectService for ProjectServiceImpl {
                 total_rows += rows;
             }
             Err(e) => {
-                let _ = sqlx::query("ROLLBACK").execute(&self.db_pool).await;
                 error!("Failed to update watch_folders: {}", e);
                 return Err(Status::internal(format!(
                     "Failed to update watch_folders: {}", e
@@ -1165,7 +1161,7 @@ impl ProjectService for ProjectServiceImpl {
         )
         .bind(&req.new_tenant_id)
         .bind(&req.old_tenant_id)
-        .execute(&self.db_pool)
+        .execute(&mut *tx)
         .await
         {
             Ok(result) => {
@@ -1174,7 +1170,6 @@ impl ProjectService for ProjectServiceImpl {
                 total_rows += rows;
             }
             Err(e) => {
-                let _ = sqlx::query("ROLLBACK").execute(&self.db_pool).await;
                 error!("Failed to update unified_queue: {}", e);
                 return Err(Status::internal(format!(
                     "Failed to update unified_queue: {}", e
@@ -1182,13 +1177,13 @@ impl ProjectService for ProjectServiceImpl {
             }
         }
 
-        // Update tracked_files
+        // Update tracked_files (may not exist in all deployments)
         match sqlx::query(
             "UPDATE tracked_files SET tenant_id = ?1 WHERE tenant_id = ?2"
         )
         .bind(&req.new_tenant_id)
         .bind(&req.old_tenant_id)
-        .execute(&self.db_pool)
+        .execute(&mut *tx)
         .await
         {
             Ok(result) => {
@@ -1203,12 +1198,10 @@ impl ProjectService for ProjectServiceImpl {
         }
 
         // Commit transaction
-        if let Err(e) = sqlx::query("COMMIT").execute(&self.db_pool).await {
+        tx.commit().await.map_err(|e| {
             error!("Failed to commit rename transaction: {}", e);
-            return Err(Status::internal(format!(
-                "Failed to commit transaction: {}", e
-            )));
-        }
+            Status::internal(format!("Failed to commit transaction: {}", e))
+        })?;
 
         let message = format!(
             "Renamed tenant '{}' -> '{}': {} SQLite rows updated",
