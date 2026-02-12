@@ -148,11 +148,8 @@ async fn project_status(path: Option<PathBuf>) -> Result<()> {
 
     output::section(format!("Project Status: {}", abs_path.display()));
 
-    // Generate project ID from path (simple hash for now)
-    let project_id = format!("{:x}", calculate_hash(&abs_path.display().to_string()))
-        .chars()
-        .take(12)
-        .collect::<String>();
+    // Generate project ID using the same algorithm as the daemon
+    let project_id = calculate_project_id(&abs_path);
 
     output::kv("Path", &abs_path.display().to_string());
     output::kv("Project ID", &project_id);
@@ -195,13 +192,16 @@ async fn project_status(path: Option<PathBuf>) -> Result<()> {
     Ok(())
 }
 
-fn calculate_hash(s: &str) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
+/// Calculate the canonical project ID using the same algorithm as the daemon.
+///
+/// Uses `wqm_common::project_id::ProjectIdCalculator` (SHA256 on normalized git
+/// remote URL, falling back to path hash) instead of the old SipHash approach.
+fn calculate_project_id(abs_path: &std::path::Path) -> String {
+    use wqm_common::project_id::{ProjectIdCalculator, detect_git_remote};
 
-    let mut hasher = DefaultHasher::new();
-    s.hash(&mut hasher);
-    hasher.finish()
+    let git_remote = detect_git_remote(abs_path);
+    let calculator = ProjectIdCalculator::new();
+    calculator.calculate(abs_path, git_remote.as_deref(), None)
 }
 
 async fn register_project(path: Option<PathBuf>, name: Option<String>) -> Result<()> {
@@ -219,29 +219,16 @@ async fn register_project(path: Option<PathBuf>, name: Option<String>) -> Result
 
     output::section(format!("Register Project: {}", project_name));
 
-    // Generate project ID
-    let project_id = format!("{:x}", calculate_hash(&abs_path.display().to_string()))
-        .chars()
-        .take(12)
-        .collect::<String>();
+    // Generate project ID using the same algorithm as the daemon
+    let project_id = calculate_project_id(&abs_path);
+
+    // Detect git remote (same function used by project ID calculation)
+    let git_remote = wqm_common::project_id::detect_git_remote(&abs_path);
 
     output::kv("Path", &abs_path.display().to_string());
     output::kv("Name", &project_name);
     output::kv("Project ID", &project_id);
     output::separator();
-
-    // Try to detect git remote
-    let git_remote = std::process::Command::new("git")
-        .args(["-C", &abs_path.display().to_string(), "remote", "get-url", "origin"])
-        .output()
-        .ok()
-        .and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
-        });
 
     if let Some(remote) = &git_remote {
         output::kv("Git Remote", remote);

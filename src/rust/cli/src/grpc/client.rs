@@ -26,8 +26,8 @@ use workspace_daemon::{
     system_service_client::SystemServiceClient,
 };
 
-/// Default gRPC port for memexd daemon
-pub const DEFAULT_GRPC_PORT: u16 = 50051;
+/// Default gRPC port for memexd daemon (canonical source: wqm_common::constants)
+pub use wqm_common::constants::DEFAULT_GRPC_PORT;
 
 /// Default connection timeout in seconds
 pub const DEFAULT_CONNECTION_TIMEOUT_SECS: u64 = 5;

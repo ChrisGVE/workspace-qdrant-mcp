@@ -11,12 +11,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::output;
 
-/// Default Qdrant URL
-const DEFAULT_QDRANT_URL: &str = "http://localhost:6333";
-
 /// Get Qdrant URL from environment or default
 fn qdrant_url() -> String {
-    std::env::var("QDRANT_URL").unwrap_or_else(|_| DEFAULT_QDRANT_URL.to_string())
+    std::env::var("QDRANT_URL")
+        .unwrap_or_else(|_| wqm_common::constants::DEFAULT_QDRANT_URL.to_string())
 }
 
 /// Get optional Qdrant API key

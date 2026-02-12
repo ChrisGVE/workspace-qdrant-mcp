@@ -12,98 +12,13 @@
 use anyhow::{Context, Result};
 use chrono::Utc;
 use rusqlite::Connection;
-use sha2::{Sha256, Digest};
 use uuid::Uuid;
 
 use crate::config::get_database_path;
 
-/// Item types that can be enqueued (mirrors daemon's ItemType)
-#[derive(Debug, Clone, Copy)]
-pub enum ItemType {
-    Content,
-    File,
-    Folder,
-    Project,
-    Library,
-    DeleteTenant,
-    DeleteDocument,
-    Rename,
-}
-
-impl ItemType {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            ItemType::Content => "content",
-            ItemType::File => "file",
-            ItemType::Folder => "folder",
-            ItemType::Project => "project",
-            ItemType::Library => "library",
-            ItemType::DeleteTenant => "delete_tenant",
-            ItemType::DeleteDocument => "delete_document",
-            ItemType::Rename => "rename",
-        }
-    }
-}
-
-/// Queue operations (mirrors daemon's QueueOperation)
-#[derive(Debug, Clone, Copy)]
-pub enum QueueOperation {
-    Ingest,
-    Update,
-    Delete,
-    Scan,
-}
-
-impl QueueOperation {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            QueueOperation::Ingest => "ingest",
-            QueueOperation::Update => "update",
-            QueueOperation::Delete => "delete",
-            QueueOperation::Scan => "scan",
-        }
-    }
-}
-
-/// Content payload for text ingestion
-#[derive(Debug)]
-pub struct ContentPayload {
-    pub content: String,
-    pub source_type: String,
-    pub main_tag: Option<String>,
-    pub full_tag: Option<String>,
-}
-
-impl ContentPayload {
-    /// Serialize to JSON for storage
-    pub fn to_json(&self) -> Result<String> {
-        let json = serde_json::json!({
-            "content": self.content,
-            "source_type": self.source_type,
-            "main_tag": self.main_tag,
-            "full_tag": self.full_tag,
-        });
-        serde_json::to_string(&json).context("Failed to serialize content payload")
-    }
-}
-
-/// File payload for file ingestion
-#[derive(Debug)]
-pub struct FilePayload {
-    pub file_path: String,
-    pub file_type: Option<String>,
-}
-
-impl FilePayload {
-    /// Serialize to JSON for storage
-    pub fn to_json(&self) -> Result<String> {
-        let json = serde_json::json!({
-            "file_path": self.file_path,
-            "file_type": self.file_type,
-        });
-        serde_json::to_string(&json).context("Failed to serialize file payload")
-    }
-}
+// Re-export canonical types from wqm-common
+pub use wqm_common::queue_types::{ItemType, QueueOperation};
+pub use wqm_common::payloads::{ContentPayload, FilePayload};
 
 /// Result of enqueue operation
 #[derive(Debug)]
@@ -159,7 +74,8 @@ impl UnifiedQueueClient {
         priority: i32,
         branch: &str,
     ) -> Result<EnqueueResult> {
-        let payload_json = payload.to_json()?;
+        let payload_json = serde_json::to_string(payload)
+            .context("Failed to serialize content payload")?;
 
         self.enqueue(
             ItemType::Content,
@@ -183,7 +99,8 @@ impl UnifiedQueueClient {
         priority: i32,
         branch: &str,
     ) -> Result<EnqueueResult> {
-        let payload_json = payload.to_json()?;
+        let payload_json = serde_json::to_string(payload)
+            .context("Failed to serialize file payload")?;
 
         self.enqueue(
             ItemType::File,
@@ -212,14 +129,18 @@ impl UnifiedQueueClient {
         let queue_id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
-        // Generate idempotency key (must match Python and daemon implementations)
-        let idempotency_key = generate_idempotency_key(
-            item_type.as_str(),
-            op.as_str(),
+        // Generate idempotency key using the canonical wqm-common implementation
+        // (must match daemon and Python implementations)
+        let idempotency_key = wqm_common::hashing::generate_idempotency_key(
+            item_type,
+            op,
             tenant_id,
             collection,
             payload_json,
-        );
+        ).context("Failed to generate idempotency key")?;
+
+        let item_type_str = item_type.to_string();
+        let op_str = op.to_string();
 
         // Try to insert, checking for duplicates via idempotency_key
         let result = self.conn.execute(
@@ -233,8 +154,8 @@ impl UnifiedQueueClient {
             rusqlite::params![
                 &queue_id,
                 &idempotency_key,
-                item_type.as_str(),
-                op.as_str(),
+                &item_type_str,
+                &op_str,
                 tenant_id,
                 collection,
                 priority,
@@ -338,58 +259,42 @@ pub struct QueueStats {
     pub failed: i64,
 }
 
-/// Generate idempotency key matching Python/daemon implementation
-/// Format: SHA256(item_type|op|tenant_id|collection|payload_json) truncated to 32 chars
-fn generate_idempotency_key(
-    item_type: &str,
-    op: &str,
-    tenant_id: &str,
-    collection: &str,
-    payload_json: &str,
-) -> String {
-    let input = format!("{}|{}|{}|{}|{}", item_type, op, tenant_id, collection, payload_json);
-    let mut hasher = Sha256::new();
-    hasher.update(input.as_bytes());
-    let hash = hasher.finalize();
-    // Convert to hex and take first 32 characters
-    format!("{:x}", hash)[..32].to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn test_idempotency_key_generation() {
-        let key = generate_idempotency_key(
-            "content",
-            "ingest",
+        // Use the canonical wqm-common implementation
+        let key = wqm_common::hashing::generate_idempotency_key(
+            ItemType::Content,
+            QueueOperation::Ingest,
             "test-tenant",
             "test-collection",
             r#"{"content":"hello"}"#,
-        );
+        ).unwrap();
 
         // Key should be 32 characters (hex)
         assert_eq!(key.len(), 32);
 
         // Same input should produce same key
-        let key2 = generate_idempotency_key(
-            "content",
-            "ingest",
+        let key2 = wqm_common::hashing::generate_idempotency_key(
+            ItemType::Content,
+            QueueOperation::Ingest,
             "test-tenant",
             "test-collection",
             r#"{"content":"hello"}"#,
-        );
+        ).unwrap();
         assert_eq!(key, key2);
 
         // Different input should produce different key
-        let key3 = generate_idempotency_key(
-            "content",
-            "ingest",
+        let key3 = wqm_common::hashing::generate_idempotency_key(
+            ItemType::Content,
+            QueueOperation::Ingest,
             "test-tenant",
             "test-collection",
             r#"{"content":"world"}"#,
-        );
+        ).unwrap();
         assert_ne!(key, key3);
     }
 
@@ -402,23 +307,23 @@ mod tests {
             full_tag: None,
         };
 
-        let json = payload.to_json().unwrap();
+        let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("test content"));
         assert!(json.contains("cli"));
         assert!(json.contains("tag1"));
     }
 
     #[test]
-    fn test_item_type_as_str() {
-        assert_eq!(ItemType::Content.as_str(), "content");
-        assert_eq!(ItemType::File.as_str(), "file");
-        assert_eq!(ItemType::Project.as_str(), "project");
+    fn test_item_type_display() {
+        assert_eq!(ItemType::Content.to_string(), "content");
+        assert_eq!(ItemType::File.to_string(), "file");
+        assert_eq!(ItemType::Project.to_string(), "project");
     }
 
     #[test]
-    fn test_queue_operation_as_str() {
-        assert_eq!(QueueOperation::Ingest.as_str(), "ingest");
-        assert_eq!(QueueOperation::Update.as_str(), "update");
-        assert_eq!(QueueOperation::Delete.as_str(), "delete");
+    fn test_queue_operation_display() {
+        assert_eq!(QueueOperation::Ingest.to_string(), "ingest");
+        assert_eq!(QueueOperation::Update.to_string(), "update");
+        assert_eq!(QueueOperation::Delete.to_string(), "delete");
     }
 }
