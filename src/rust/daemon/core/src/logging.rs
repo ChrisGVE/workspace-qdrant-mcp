@@ -72,59 +72,10 @@ impl Default for LoggingConfig {
 
 /// Returns the canonical OS-specific log directory for workspace-qdrant logs.
 ///
-/// Precedence:
-/// 1. `WQM_LOG_DIR` environment variable (explicit override)
-/// 2. Platform-specific default:
-///    - Linux: `$XDG_STATE_HOME/workspace-qdrant/logs/` (default: `~/.local/state/workspace-qdrant/logs/`)
-///    - macOS: `~/Library/Logs/workspace-qdrant/`
-///    - Windows: `%LOCALAPPDATA%\workspace-qdrant\logs\`
-///
-/// Falls back to a temp directory if home cannot be determined.
+/// Delegates to `wqm_common::paths::get_canonical_log_dir()` — the single
+/// source of truth for log directory resolution across all components.
 pub fn get_canonical_log_dir() -> PathBuf {
-    // WQM_LOG_DIR takes highest precedence
-    if let Ok(custom_dir) = env::var("WQM_LOG_DIR") {
-        return PathBuf::from(custom_dir);
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        env::var("XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                dirs::home_dir()
-                    .unwrap_or_else(|| env::temp_dir())
-                    .join(".local")
-                    .join("state")
-            })
-            .join("workspace-qdrant")
-            .join("logs")
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        dirs::home_dir()
-            .unwrap_or_else(|| env::temp_dir())
-            .join("Library")
-            .join("Logs")
-            .join("workspace-qdrant")
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        dirs::data_local_dir()
-            .unwrap_or_else(|| env::temp_dir())
-            .join("workspace-qdrant")
-            .join("logs")
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    {
-        // Fallback for other platforms
-        dirs::home_dir()
-            .unwrap_or_else(|| env::temp_dir())
-            .join(".workspace-qdrant")
-            .join("logs")
-    }
+    wqm_common::paths::get_canonical_log_dir()
 }
 
 impl LoggingConfig {

@@ -9,6 +9,7 @@
 //! 3. `$XDG_CONFIG_HOME/workspace-qdrant/config.yaml` (XDG; defaults to `~/.config`)
 //! 4. `~/Library/Application Support/workspace-qdrant/config.yaml` (macOS only)
 
+use std::env;
 use std::path::PathBuf;
 
 /// Error type for path resolution failures
@@ -113,6 +114,62 @@ pub fn get_database_path_checked() -> Result<PathBuf, ConfigPathError> {
     }
 
     Ok(path)
+}
+
+/// Returns the canonical OS-specific log directory for workspace-qdrant logs.
+///
+/// Precedence:
+/// 1. `WQM_LOG_DIR` environment variable (explicit override)
+/// 2. Platform-specific default:
+///    - Linux: `$XDG_STATE_HOME/workspace-qdrant/logs/` (default: `~/.local/state/workspace-qdrant/logs/`)
+///    - macOS: `~/Library/Logs/workspace-qdrant/`
+///    - Windows: `%LOCALAPPDATA%\workspace-qdrant\logs\`
+///
+/// Falls back to a temp directory if home cannot be determined.
+pub fn get_canonical_log_dir() -> PathBuf {
+    // WQM_LOG_DIR takes highest precedence
+    if let Ok(custom_dir) = env::var("WQM_LOG_DIR") {
+        return PathBuf::from(custom_dir);
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        env::var("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| env::temp_dir())
+                    .join(".local")
+                    .join("state")
+            })
+            .join("workspace-qdrant")
+            .join("logs")
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        dirs::home_dir()
+            .unwrap_or_else(|| env::temp_dir())
+            .join("Library")
+            .join("Logs")
+            .join("workspace-qdrant")
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        dirs::data_local_dir()
+            .unwrap_or_else(|| env::temp_dir())
+            .join("workspace-qdrant")
+            .join("logs")
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    {
+        dirs::home_dir()
+            .unwrap_or_else(|| env::temp_dir())
+            .join(".workspace-qdrant")
+            .join("logs")
+    }
 }
 
 #[cfg(test)]
@@ -269,5 +326,48 @@ mod tests {
             path: PathBuf::from("/test/state.db"),
         };
         assert!(err.to_string().contains("run daemon first"));
+    }
+
+    #[test]
+    fn test_get_canonical_log_dir_env_override() {
+        let prev = std::env::var("WQM_LOG_DIR").ok();
+        std::env::set_var("WQM_LOG_DIR", "/custom/log/dir");
+
+        let dir = get_canonical_log_dir();
+        assert_eq!(dir, PathBuf::from("/custom/log/dir"));
+
+        match prev {
+            Some(val) => std::env::set_var("WQM_LOG_DIR", val),
+            None => std::env::remove_var("WQM_LOG_DIR"),
+        }
+    }
+
+    #[test]
+    fn test_get_canonical_log_dir_default() {
+        let prev = std::env::var("WQM_LOG_DIR").ok();
+        std::env::remove_var("WQM_LOG_DIR");
+
+        let dir = get_canonical_log_dir();
+        let dir_str = dir.to_string_lossy();
+
+        // Should contain workspace-qdrant
+        assert!(
+            dir_str.contains("workspace-qdrant"),
+            "Log dir should contain workspace-qdrant: {:?}",
+            dir
+        );
+
+        // macOS specific check
+        #[cfg(target_os = "macos")]
+        assert!(
+            dir_str.contains("Library/Logs"),
+            "macOS log dir should be under Library/Logs: {:?}",
+            dir
+        );
+
+        match prev {
+            Some(val) => std::env::set_var("WQM_LOG_DIR", val),
+            None => std::env::remove_var("WQM_LOG_DIR"),
+        }
     }
 }

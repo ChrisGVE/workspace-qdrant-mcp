@@ -6,7 +6,6 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
 use clap::{Args, Subcommand, ValueEnum};
-use std::env;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -121,51 +120,9 @@ pub async fn execute(args: DebugArgs) -> Result<()> {
 
 /// Returns the canonical OS-specific log directory for workspace-qdrant logs.
 ///
-/// Precedence: `WQM_LOG_DIR` > platform-specific default.
+/// Delegates to `wqm_common::paths::get_canonical_log_dir()`.
 fn get_canonical_log_dir() -> PathBuf {
-    // WQM_LOG_DIR takes highest precedence
-    if let Ok(custom_dir) = env::var("WQM_LOG_DIR") {
-        return PathBuf::from(custom_dir);
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        env::var("XDG_STATE_HOME")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| {
-                dirs::home_dir()
-                    .unwrap_or_else(|| env::temp_dir())
-                    .join(".local")
-                    .join("state")
-            })
-            .join("workspace-qdrant")
-            .join("logs")
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        dirs::home_dir()
-            .unwrap_or_else(|| env::temp_dir())
-            .join("Library")
-            .join("Logs")
-            .join("workspace-qdrant")
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        dirs::data_local_dir()
-            .unwrap_or_else(|| env::temp_dir())
-            .join("workspace-qdrant")
-            .join("logs")
-    }
-
-    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
-    {
-        dirs::home_dir()
-            .unwrap_or_else(|| env::temp_dir())
-            .join(".workspace-qdrant")
-            .join("logs")
-    }
+    wqm_common::paths::get_canonical_log_dir()
 }
 
 /// Parse a relative time string (e.g. "1h", "30m", "2d", "10s") into a chrono Duration.
