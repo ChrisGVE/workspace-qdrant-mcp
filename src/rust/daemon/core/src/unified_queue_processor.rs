@@ -916,7 +916,7 @@ impl UnifiedQueueProcessor {
 
                 if let Err(e) = tx_result {
                     warn!(
-                        "SQLite transaction failed during file-not-found cleanup for {}: {}. Will be reconciled on next startup.",
+                        "SQLite transaction failed during file-not-found cleanup for {}: {}. Marked for reconciliation on next startup.",
                         relative_path, e
                     );
                     let _ = tracked_files_schema::mark_needs_reconcile(
@@ -1312,7 +1312,7 @@ impl UnifiedQueueProcessor {
 
             if let Err(e) = tx_result {
                 warn!(
-                    "SQLite transaction failed after Qdrant delete for {}: {}. Will be reconciled on next startup.",
+                    "SQLite transaction failed after Qdrant delete for {}: {}. Marked for reconciliation on next startup.",
                     relative_path, e
                 );
                 let _ = tracked_files_schema::mark_needs_reconcile(

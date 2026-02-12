@@ -9,6 +9,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use chrono::Utc;
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
@@ -47,6 +48,10 @@ pub struct FullRecoveryStats {
     pub per_folder: Vec<(String, RecoveryStats)>,
     /// Total folders processed
     pub folders_processed: u64,
+    /// Files re-queued from needs_reconcile markers
+    pub reconciled: u64,
+    /// Reconciliation errors
+    pub reconcile_errors: u64,
 }
 
 impl FullRecoveryStats {
@@ -121,14 +126,128 @@ pub async fn run_startup_recovery(
         full_stats.folders_processed += 1;
     }
 
+    // Phase 2: Reconcile files flagged with needs_reconcile=1.
+    // These were marked during previous runs when SQLite transactions failed
+    // after Qdrant writes, leaving potential state drift.
+    reconcile_flagged_files(pool, queue_manager, &mut full_stats).await;
+
     let elapsed = start.elapsed();
     let total = full_stats.total_queued();
     info!(
-        "Startup recovery complete: {} folders, {} items queued in {:?}",
-        full_stats.folders_processed, total, elapsed
+        "Startup recovery complete: {} folders, {} items queued, {} reconciled ({} reconcile errors) in {:?}",
+        full_stats.folders_processed, total, full_stats.reconciled, full_stats.reconcile_errors, elapsed
     );
 
     Ok(full_stats)
+}
+
+/// Process tracked_files flagged with needs_reconcile=1.
+///
+/// For each flagged file, look up its watch_folder to get routing info,
+/// then re-queue it for ingestion. The idempotent processing pipeline
+/// will re-verify content hashes and skip unchanged files.
+async fn reconcile_flagged_files(
+    pool: &SqlitePool,
+    queue_manager: &QueueManager,
+    stats: &mut FullRecoveryStats,
+) {
+    let flagged = match tracked_files_schema::get_files_needing_reconcile(pool).await {
+        Ok(files) => files,
+        Err(e) => {
+            warn!("Failed to query needs_reconcile files: {}", e);
+            stats.reconcile_errors += 1;
+            return;
+        }
+    };
+
+    if flagged.is_empty() {
+        debug!("No files need reconciliation");
+        return;
+    }
+
+    info!("Reconciling {} flagged files", flagged.len());
+
+    for file in &flagged {
+        // Look up the watch_folder to get tenant_id and base path
+        let wf = sqlx::query_as::<_, (String, String, String)>(
+            "SELECT path, collection, tenant_id FROM watch_folders WHERE watch_id = ?1"
+        )
+        .bind(&file.watch_folder_id)
+        .fetch_optional(pool)
+        .await;
+
+        let (base_path, collection, tenant_id) = match wf {
+            Ok(Some(row)) => row,
+            Ok(None) => {
+                warn!(
+                    "Watch folder {} not found for reconcile file_id={}, clearing flag",
+                    file.watch_folder_id, file.file_id
+                );
+                // Orphaned tracked_file: clear the flag since we can't re-queue
+                let _ = clear_reconcile_flag(pool, file.file_id).await;
+                stats.reconcile_errors += 1;
+                continue;
+            }
+            Err(e) => {
+                warn!("Failed to query watch_folder {}: {}", file.watch_folder_id, e);
+                stats.reconcile_errors += 1;
+                continue;
+            }
+        };
+
+        // Build absolute path from base_path + relative file_path
+        let abs_path = Path::new(&base_path).join(&file.file_path);
+
+        if abs_path.exists() {
+            // File still exists: re-queue for ingestion (idempotent — hash check in pipeline)
+            if let Err(e) = enqueue_file_op(
+                queue_manager, &tenant_id, &collection,
+                &abs_path.to_string_lossy(), QueueOperation::Update, None,
+            ).await {
+                warn!("Failed to re-queue reconcile file {}: {}", file.file_path, e);
+                stats.reconcile_errors += 1;
+                continue;
+            }
+        } else {
+            // File deleted: re-queue for deletion
+            if let Err(e) = enqueue_file_op(
+                queue_manager, &tenant_id, &collection,
+                &abs_path.to_string_lossy(), QueueOperation::Delete, None,
+            ).await {
+                warn!("Failed to queue reconcile deletion for {}: {}", file.file_path, e);
+                stats.reconcile_errors += 1;
+                continue;
+            }
+        }
+
+        // Clear the reconcile flag — the re-queued item will handle the rest
+        if let Err(e) = clear_reconcile_flag(pool, file.file_id).await {
+            warn!("Failed to clear reconcile flag for file_id={}: {}", file.file_id, e);
+            stats.reconcile_errors += 1;
+        } else {
+            info!(
+                "Reconciled file_id={} ({}): re-queued for {}",
+                file.file_id,
+                file.file_path,
+                if abs_path.exists() { "update" } else { "deletion" }
+            );
+            stats.reconciled += 1;
+        }
+    }
+}
+
+/// Clear the needs_reconcile flag for a tracked file (non-transactional)
+async fn clear_reconcile_flag(pool: &SqlitePool, file_id: i64) -> Result<(), sqlx::Error> {
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE tracked_files SET needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?1
+         WHERE file_id = ?2"
+    )
+    .bind(&now)
+    .bind(file_id)
+    .execute(pool)
+    .await?;
+    Ok(())
 }
 
 /// Recover a single watch_folder by comparing tracked_files with filesystem
@@ -439,5 +558,132 @@ mod tests {
         let abs = Path::new("/home/user/project/src/main.rs");
         let rel = abs.strip_prefix(root).unwrap().to_string_lossy().to_string();
         assert_eq!(rel, "src/main.rs");
+    }
+
+    use std::time::Duration;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use crate::tracked_files_schema::{self as tfs, CREATE_TRACKED_FILES_SQL, CREATE_TRACKED_FILES_INDEXES_SQL};
+    use crate::unified_queue_schema::{CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL};
+    use crate::watch_folders_schema;
+
+    async fn create_test_pool() -> SqlitePool {
+        SqlitePoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(5))
+            .connect("sqlite::memory:")
+            .await
+            .expect("Failed to create in-memory SQLite pool")
+    }
+
+    async fn setup_reconcile_tables(pool: &SqlitePool) {
+        sqlx::query("PRAGMA foreign_keys = ON").execute(pool).await.unwrap();
+        sqlx::query(watch_folders_schema::CREATE_WATCH_FOLDERS_SQL)
+            .execute(pool).await.unwrap();
+        sqlx::query(CREATE_TRACKED_FILES_SQL).execute(pool).await.unwrap();
+        for idx in CREATE_TRACKED_FILES_INDEXES_SQL {
+            sqlx::query(idx).execute(pool).await.unwrap();
+        }
+        sqlx::query(CREATE_UNIFIED_QUEUE_SQL).execute(pool).await.unwrap();
+        for idx in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
+            sqlx::query(idx).execute(pool).await.unwrap();
+        }
+    }
+
+    /// Insert a watch_folder and a tracked_file with needs_reconcile=1
+    async fn insert_reconcile_fixture(pool: &SqlitePool, base_path: &str, rel_path: &str) -> i64 {
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, enabled, is_archived, created_at, updated_at)
+             VALUES ('wf-rc', ?1, 'projects', 'tenant-rc', 1, 0, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        )
+        .bind(base_path)
+        .execute(pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO tracked_files (watch_folder_id, file_path, file_mtime, file_hash, chunk_count, collection, needs_reconcile, reconcile_reason, created_at, updated_at)
+             VALUES ('wf-rc', ?1, '2025-01-01T00:00:00Z', 'abc123', 3, 'projects', 1, 'ingest_tx_failed: test', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        )
+        .bind(rel_path)
+        .execute(pool).await.unwrap();
+
+        sqlx::query_scalar::<_, i64>("SELECT last_insert_rowid()").fetch_one(pool).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_flagged_files_requeues_existing() {
+        let pool = create_test_pool().await;
+        setup_reconcile_tables(&pool).await;
+
+        // Use a real temp dir so the file "exists"
+        let tmp = tempfile::tempdir().unwrap();
+        let base_path = tmp.path().to_string_lossy().to_string();
+        let rel_path = "src/main.rs";
+        std::fs::create_dir_all(tmp.path().join("src")).unwrap();
+        std::fs::write(tmp.path().join(rel_path), "fn main() {}").unwrap();
+
+        let file_id = insert_reconcile_fixture(&pool, &base_path, rel_path).await;
+
+        let queue_manager = QueueManager::new(pool.clone());
+        let mut stats = FullRecoveryStats::default();
+
+        reconcile_flagged_files(&pool, &queue_manager, &mut stats).await;
+
+        assert_eq!(stats.reconciled, 1);
+        assert_eq!(stats.reconcile_errors, 0);
+
+        // Verify flag was cleared
+        let flagged = tfs::get_files_needing_reconcile(&pool).await.unwrap();
+        assert!(flagged.is_empty(), "needs_reconcile should be cleared after reconciliation");
+
+        // Verify an item was enqueued
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM unified_queue WHERE tenant_id = 'tenant-rc'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 1, "Should have enqueued one update item");
+
+        // Verify the enqueued item is an update operation
+        let op: String = sqlx::query_scalar("SELECT op FROM unified_queue WHERE tenant_id = 'tenant-rc'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(op, "update");
+
+        drop(tmp);
+        let _ = file_id; // used for insert verification
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_flagged_files_deleted_file_queues_delete() {
+        let pool = create_test_pool().await;
+        setup_reconcile_tables(&pool).await;
+
+        // Use a path that does NOT exist on disk
+        let base_path = "/tmp/nonexistent_recovery_test_dir";
+        let rel_path = "gone.rs";
+
+        insert_reconcile_fixture(&pool, base_path, rel_path).await;
+
+        let queue_manager = QueueManager::new(pool.clone());
+        let mut stats = FullRecoveryStats::default();
+
+        reconcile_flagged_files(&pool, &queue_manager, &mut stats).await;
+
+        assert_eq!(stats.reconciled, 1);
+        assert_eq!(stats.reconcile_errors, 0);
+
+        // Verify the enqueued item is a delete operation
+        let op: String = sqlx::query_scalar("SELECT op FROM unified_queue WHERE tenant_id = 'tenant-rc'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(op, "delete");
+    }
+
+    #[tokio::test]
+    async fn test_reconcile_no_flagged_files_is_noop() {
+        let pool = create_test_pool().await;
+        setup_reconcile_tables(&pool).await;
+
+        let queue_manager = QueueManager::new(pool.clone());
+        let mut stats = FullRecoveryStats::default();
+
+        reconcile_flagged_files(&pool, &queue_manager, &mut stats).await;
+
+        assert_eq!(stats.reconciled, 0);
+        assert_eq!(stats.reconcile_errors, 0);
     }
 }
