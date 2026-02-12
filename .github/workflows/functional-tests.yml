@@ -1,0 +1,69 @@
+# Functional tests for the memexd daemon
+# Starts the daemon as a subprocess and tests via gRPC
+#
+# Requirements:
+# - Docker (for Qdrant testcontainers in future tests)
+# - ONNX Runtime (for daemon build)
+
+name: Functional Tests
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'src/rust/daemon/**'
+      - 'src/rust/common/**'
+      - '.github/workflows/functional-tests.yml'
+  pull_request:
+    branches: [main, develop]
+    paths:
+      - 'src/rust/daemon/**'
+      - 'src/rust/common/**'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  functional-tests:
+    name: Functional Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y protobuf-compiler libprotobuf-dev cmake
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src/rust/target
+          key: ubuntu-functional-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ubuntu-functional-cargo-
+
+      # Build the daemon binary first (tests need it as a subprocess)
+      - name: Build memexd daemon
+        working-directory: src/rust
+        run: cargo build --package memexd
+
+      # Run functional tests sequentially (each starts its own daemon)
+      - name: Run functional tests
+        working-directory: src/rust
+        run: |
+          cargo test --package workspace-qdrant-core \
+            --features functional_tests \
+            --test functional_daemon_tests \
+            -- --test-threads=1 --nocapture

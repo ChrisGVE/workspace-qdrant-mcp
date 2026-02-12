@@ -150,6 +150,7 @@ processing_engine = []
 queue_processor = []
 comprehensive_file_tests = []
 lsp_integration = []
+functional_tests = []
 
 [[bench]]
 name = "cross_platform_benchmarks"
@@ -174,6 +175,10 @@ harness = false
 [dev-dependencies]
 # Shared test utilities
 shared-test-utils = { path = "../shared-test-utils" }
+
+# gRPC client for functional tests (uses generated proto client stubs)
+workspace-qdrant-grpc = { path = "../grpc" }
+tonic = { version = "0.12" }
 
 # Testing framework
 tokio-test = { workspace = true }
