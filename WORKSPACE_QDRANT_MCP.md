@@ -3974,8 +3974,8 @@ Tag Push (vX.Y.Z)
 |----------|---------|---------|
 | `ci.yml` | Push, PR | Build and test |
 | `release.yml` | Tag push | Create release |
-| `update-grammars.yml` | Schedule | Update tree-sitter grammars |
-| `update-onnx.yml` | Schedule | Update ONNX Runtime |
+| `tree-sitter-version-bump.yml` | Schedule | Update tree-sitter grammars |
+| `onnx-runtime-version-bump.yml` | Schedule | Update ONNX Runtime |
 
 #### Automated Dependency Updates
 
