@@ -124,6 +124,23 @@ wqm --version
 wqm admin health
 ```
 
+### CLAUDE.md Integration
+
+Add the following to your project's `CLAUDE.md` (or your global `~/.claude/CLAUDE.md`) so Claude Code uses workspace-qdrant proactively:
+
+````markdown
+## workspace-qdrant
+
+Use the `workspace-qdrant` MCP server proactively as your project knowledge base:
+
+- **`search`**: Search project code, library docs, or memory rules with hybrid semantic + keyword matching. Use `scope="project"` for current project, `scope="all"` to include libraries.
+- **`store`**: Register projects for file watching (`type="project"`, `path="/absolute/path"`) or store library reference docs (`type="library"`, `libraryName="...", content="..."`).
+- **`memory`**: Manage persistent behavioral rules that survive across sessions. Use `action="add"` with a short `label` (e.g., `"prefer-uv"`) and `content` describing the rule. Use `action="list"` to review existing rules.
+- **`retrieve`**: Fetch specific documents by ID or metadata filter from `projects`, `libraries`, or `memory` collections.
+
+When starting a session, search for relevant context. When discovering user preferences or project conventions, store them as memory rules.
+````
+
 ## MCP Tools
 
 ### store
