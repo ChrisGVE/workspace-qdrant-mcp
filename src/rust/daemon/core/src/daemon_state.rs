@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use chrono::{DateTime, Utc};
+use wqm_common::timestamps;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use sqlx::{Row, SqlitePool, sqlite::{SqlitePoolOptions, SqliteConnectOptions}};
@@ -207,17 +208,17 @@ impl DaemonStateManager {
         .bind(&record.remote_hash)
         .bind(&record.disambiguation_path)
         .bind(record.is_active as i32)
-        .bind(record.last_activity_at.map(|dt| dt.to_rfc3339()))
+        .bind(wqm_common::timestamps::format_optional_utc(&record.last_activity_at))
         .bind(record.is_paused as i32)
-        .bind(record.pause_start_time.map(|dt| dt.to_rfc3339()))
+        .bind(wqm_common::timestamps::format_optional_utc(&record.pause_start_time))
         .bind(record.is_archived as i32)
         .bind(&record.library_mode)
         .bind(record.follow_symlinks as i32)
         .bind(record.enabled as i32)
         .bind(record.cleanup_on_disable as i32)
-        .bind(record.created_at.to_rfc3339())
-        .bind(record.updated_at.to_rfc3339())
-        .bind(record.last_scan.map(|dt| dt.to_rfc3339()))
+        .bind(timestamps::format_utc(&record.created_at))
+        .bind(timestamps::format_utc(&record.updated_at))
+        .bind(wqm_common::timestamps::format_optional_utc(&record.last_scan))
         .execute(&self.pool)
         .await?;
 

@@ -8,6 +8,7 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use rusqlite::Connection;
+use wqm_common::timestamps;
 
 use crate::config::get_database_path_checked;
 use crate::grpc::client::DaemonClient;
@@ -181,7 +182,7 @@ async fn history(range: &str) -> Result<()> {
     }
 
     let cutoff = chrono::Utc::now() - chrono::Duration::seconds(seconds);
-    let cutoff_str = cutoff.to_rfc3339();
+    let cutoff_str = timestamps::format_utc(&cutoff);
 
     // Get available metrics in the time range
     let mut stmt = conn.prepare(

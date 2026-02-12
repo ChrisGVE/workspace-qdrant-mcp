@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use chrono::Utc;
+use wqm_common::timestamps;
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
@@ -238,7 +238,7 @@ async fn reconcile_flagged_files(
 
 /// Clear the needs_reconcile flag for a tracked file (non-transactional)
 async fn clear_reconcile_flag(pool: &SqlitePool, file_id: i64) -> Result<(), sqlx::Error> {
-    let now = Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
     sqlx::query(
         "UPDATE tracked_files SET needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?1
          WHERE file_id = ?2"

@@ -12,7 +12,7 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use chrono::Utc;
+use wqm_common::timestamps;
 use clap::{Args, Subcommand, ValueEnum};
 use rusqlite::Connection;
 
@@ -284,7 +284,7 @@ async fn add(tag: &str, path: &PathBuf, mode: LibraryMode) -> Result<()> {
 
     let conn = open_db()?;
     let watch_id = format!("lib-{}", tag);
-    let now = Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
     let abs_path_str = abs_path.to_string_lossy().to_string();
 
     // Check for duplicate
@@ -362,7 +362,7 @@ async fn watch(tag: &str, path: &PathBuf, patterns: &[String], mode: LibraryMode
 
     let conn = open_db()?;
     let watch_id = format!("lib-{}", tag);
-    let now = Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
     let abs_path_str = abs_path.to_string_lossy().to_string();
 
     // Check if library already exists
@@ -460,7 +460,7 @@ async fn unwatch(tag: &str) -> Result<()> {
 
     let conn = open_db()?;
     let watch_id = format!("lib-{}", tag);
-    let now = Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
 
     // Verify library exists
     let exists: bool = conn.query_row(
@@ -882,7 +882,7 @@ async fn config(
 
     let conn = open_db()?;
     let watch_id = format!("lib-{}", tag);
-    let now = Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
 
     // Check if library exists
     let exists: bool = conn

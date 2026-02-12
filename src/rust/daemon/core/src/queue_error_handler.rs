@@ -547,7 +547,7 @@ impl ErrorHandler {
         );
         error_details.insert(
             "moved_to_dlq_at".to_string(),
-            serde_json::json!(chrono::Utc::now().to_rfc3339()),
+            serde_json::json!(wqm_common::timestamps::now_utc()),
         );
 
         // Record in messages table

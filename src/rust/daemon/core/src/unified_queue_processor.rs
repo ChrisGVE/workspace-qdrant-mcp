@@ -1162,7 +1162,7 @@ impl UnifiedQueueProcessor {
         let file_hash = tracked_files_schema::compute_file_hash(file_path)
             .unwrap_or_else(|_| "unknown".to_string());
         let file_mtime = tracked_files_schema::get_file_mtime(file_path)
-            .unwrap_or_else(|_| chrono::Utc::now().to_rfc3339());
+            .unwrap_or_else(|_| wqm_common::timestamps::now_utc());
         let language = chunk_records.first()
             .and_then(|_| document_content.metadata.get("language"))
             .cloned();

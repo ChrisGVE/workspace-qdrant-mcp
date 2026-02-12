@@ -53,14 +53,14 @@ impl GrammarMetadata {
             platform: platform.into(),
             checksum: checksum.into(),
             download_url: None,
-            cached_at: chrono::Utc::now().to_rfc3339(),
+            cached_at: wqm_common::timestamps::now_utc(),
             last_checked_at: None,
         }
     }
 
     /// Update the last_checked_at timestamp to now.
     pub fn mark_checked(&mut self) {
-        self.last_checked_at = Some(chrono::Utc::now().to_rfc3339());
+        self.last_checked_at = Some(wqm_common::timestamps::now_utc());
     }
 }
 

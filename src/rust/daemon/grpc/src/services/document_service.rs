@@ -28,6 +28,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
 use uuid::Uuid;
+use wqm_common::timestamps;
 use workspace_qdrant_core::storage::{StorageClient, DocumentPoint, StorageError};
 use workspace_qdrant_core::{UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION, BM25};
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
@@ -609,7 +610,7 @@ impl DocumentServiceImpl {
 
         // Process each chunk: generate embedding and create document point
         let mut document_points = Vec::new();
-        let created_at = chrono::Utc::now().to_rfc3339();
+        let created_at = timestamps::now_utc();
 
         for (chunk_content, chunk_index) in chunks {
             // Generate dense embedding using FastEmbed
@@ -798,7 +799,7 @@ impl DocumentService for DocumentServiceImpl {
 
         // Add updated_at to metadata
         let mut enriched_metadata = req.metadata.clone();
-        enriched_metadata.insert("updated_at".to_string(), chrono::Utc::now().to_rfc3339());
+        enriched_metadata.insert("updated_at".to_string(), timestamps::now_utc());
 
         // Re-ingest new content
         let response = self.ingest_text_internal(

@@ -3070,7 +3070,7 @@ impl WatchManager {
                     .map(|d| {
                         let secs = d.as_secs() as i64;
                         chrono::DateTime::from_timestamp(secs, 0)
-                            .map(|dt| dt.to_rfc3339())
+                            .as_ref().map(wqm_common::timestamps::format_utc)
                             .unwrap_or_default()
                     });
 
@@ -3079,7 +3079,7 @@ impl WatchManager {
                     .map(|d| {
                         let secs = d.as_secs() as i64;
                         chrono::DateTime::from_timestamp(secs, 0)
-                            .map(|dt| dt.to_rfc3339())
+                            .as_ref().map(wqm_common::timestamps::format_utc)
                             .unwrap_or_default()
                     });
 
@@ -3088,7 +3088,7 @@ impl WatchManager {
                     .map(|d| {
                         let secs = d.as_secs() as i64;
                         chrono::DateTime::from_timestamp(secs, 0)
-                            .map(|dt| dt.to_rfc3339())
+                            .as_ref().map(wqm_common::timestamps::format_utc)
                             .unwrap_or_default()
                     });
 

@@ -26,6 +26,7 @@
 
 use chrono::{DateTime, Utc, Duration as ChronoDuration};
 use sqlx::SqlitePool;
+use wqm_common::timestamps;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use thiserror::Error;
@@ -389,7 +390,7 @@ impl PriorityManager {
         "#;
 
         let result = sqlx::query(update_query)
-            .bind(now.to_rfc3339())
+            .bind(timestamps::format_utc(&now))
             .bind(tenant_id)
             .execute(&mut *tx)
             .await?;
@@ -538,7 +539,7 @@ impl PriorityManager {
               AND is_active = 1
             "#,
         )
-        .bind(now.to_rfc3339())
+        .bind(timestamps::format_utc(&now))
         .bind(tenant_id)
         .execute(&self.db_pool)
         .await?;
@@ -619,7 +620,7 @@ impl PriorityManager {
         timeout_secs: u64,
     ) -> PriorityResult<OrphanedSessionCleanup> {
         let cutoff = Utc::now() - ChronoDuration::seconds(timeout_secs as i64);
-        let cutoff_str = cutoff.to_rfc3339();
+        let cutoff_str = timestamps::format_utc(&cutoff);
 
         // Start transaction
         let mut tx = self.db_pool.begin().await?;

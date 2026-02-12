@@ -10,7 +10,7 @@
 #![allow(dead_code)]
 
 use anyhow::{Context, Result};
-use chrono::Utc;
+use wqm_common::timestamps;
 use rusqlite::Connection;
 use uuid::Uuid;
 
@@ -127,7 +127,7 @@ impl UnifiedQueueClient {
         metadata: Option<&str>,
     ) -> Result<EnqueueResult> {
         let queue_id = Uuid::new_v4().to_string();
-        let now = Utc::now().to_rfc3339();
+        let now = timestamps::now_utc();
 
         // Generate idempotency key using the canonical wqm-common implementation
         // (must match daemon and Python implementations)

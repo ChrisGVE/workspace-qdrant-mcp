@@ -198,7 +198,7 @@ async fn update_watch_folders_remote(
         .await
         .map_err(|e| format!("Failed to begin transaction: {}", e))?;
 
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = wqm_common::timestamps::now_utc();
 
     // Update parent watch_folder
     let parent_result = sqlx::query(

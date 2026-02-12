@@ -12,7 +12,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::Sqlite;
 use std::fmt;
-
+use wqm_common::timestamps;
 // ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
@@ -320,7 +320,7 @@ pub fn get_file_mtime(path: &Path) -> std::io::Result<String> {
     let metadata = std::fs::metadata(path)?;
     let mtime = metadata.modified()?;
     let datetime: chrono::DateTime<chrono::Utc> = mtime.into();
-    Ok(datetime.to_rfc3339())
+    Ok(timestamps::format_utc(&datetime))
 }
 
 /// Look up a watch_folder by tenant_id and collection, return (watch_id, path)
@@ -398,7 +398,7 @@ pub async fn insert_tracked_file(
     treesitter_status: ProcessingStatus,
     collection: Option<&str>,
 ) -> Result<i64, sqlx::Error> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
     let collection = collection.unwrap_or("projects");
     let result = sqlx::query(
         "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_type, language,
@@ -437,7 +437,7 @@ pub async fn update_tracked_file(
     lsp_status: ProcessingStatus,
     treesitter_status: ProcessingStatus,
 ) -> Result<(), sqlx::Error> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
     sqlx::query(
         "UPDATE tracked_files SET file_mtime = ?1, file_hash = ?2, chunk_count = ?3,
          chunking_method = ?4, lsp_status = ?5, treesitter_status = ?6,
@@ -484,7 +484,7 @@ pub async fn insert_qdrant_chunks(
     if chunks.is_empty() {
         return Ok(());
     }
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
     let mut tx = pool.begin().await?;
     for batch in chunks.chunks(CHUNK_INSERT_BATCH_SIZE) {
         execute_chunk_batch_insert(&mut tx, file_id, batch, &now).await?;
@@ -630,7 +630,7 @@ pub async fn insert_tracked_file_tx(
     treesitter_status: ProcessingStatus,
     collection: Option<&str>,
 ) -> Result<i64, sqlx::Error> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
     let collection = collection.unwrap_or("projects");
     let result = sqlx::query(
         "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_type, language,
@@ -669,7 +669,7 @@ pub async fn update_tracked_file_tx(
     lsp_status: ProcessingStatus,
     treesitter_status: ProcessingStatus,
 ) -> Result<(), sqlx::Error> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
     sqlx::query(
         "UPDATE tracked_files SET file_mtime = ?1, file_hash = ?2, chunk_count = ?3,
          chunking_method = ?4, lsp_status = ?5, treesitter_status = ?6,
@@ -711,7 +711,7 @@ pub async fn insert_qdrant_chunks_tx(
     if chunks.is_empty() {
         return Ok(());
     }
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
     for batch in chunks.chunks(CHUNK_INSERT_BATCH_SIZE) {
         execute_chunk_batch_insert(tx, file_id, batch, &now).await?;
     }
@@ -743,7 +743,7 @@ pub async fn mark_needs_reconcile(
     file_id: i64,
     reason: &str,
 ) -> Result<(), sqlx::Error> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
     sqlx::query(
         "UPDATE tracked_files SET needs_reconcile = 1, reconcile_reason = ?1, updated_at = ?2
          WHERE file_id = ?3"
@@ -780,7 +780,7 @@ pub async fn clear_reconcile_flag_tx(
     tx: &mut sqlx::Transaction<'_, Sqlite>,
     file_id: i64,
 ) -> Result<(), sqlx::Error> {
-    let now = chrono::Utc::now().to_rfc3339();
+    let now = timestamps::now_utc();
     sqlx::query(
         "UPDATE tracked_files SET needs_reconcile = 0, reconcile_reason = NULL, updated_at = ?1
          WHERE file_id = ?2"

@@ -12,6 +12,7 @@ use std::time::SystemTime;
 use tokio::sync::{Notify, RwLock};
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
+use wqm_common::timestamps;
 
 use crate::proto::{
     system_service_server::SystemService,
@@ -519,7 +520,7 @@ impl SystemService for SystemServiceImpl {
                 })?;
 
                 let mut scans_queued = 0u32;
-                let now = chrono::Utc::now().to_rfc3339();
+                let now = timestamps::now_utc();
 
                 for (watch_id, path, collection, tenant_id) in &folders {
                     let payload = serde_json::json!({
@@ -662,7 +663,7 @@ impl SystemService for SystemServiceImpl {
 
         // Update watch_folders activation status if we have a database pool
         if let (Some(pool), Some(project_root)) = (&self.db_pool, &req.project_root) {
-            let now = chrono::Utc::now().to_rfc3339();
+            let now = timestamps::now_utc();
             let is_active = matches!(state, ServerState::Up);
 
             let result = sqlx::query(
@@ -738,7 +739,7 @@ impl SystemService for SystemServiceImpl {
         info!("Paused {} watch folder(s)", affected);
 
         // Insert diagnostic entry into unified_queue for audit trail
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = timestamps::now_utc();
         let queue_id = format!("pause-{}", &now);
         let metadata = serde_json::json!({
             "action": "pause",
@@ -799,7 +800,7 @@ impl SystemService for SystemServiceImpl {
         info!("Resumed {} watch folder(s)", affected);
 
         // Insert diagnostic entry into unified_queue for audit trail
-        let now = chrono::Utc::now().to_rfc3339();
+        let now = timestamps::now_utc();
         let queue_id = format!("resume-{}", &now);
         let metadata = serde_json::json!({
             "action": "resume",

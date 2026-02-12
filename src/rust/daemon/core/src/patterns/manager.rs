@@ -256,7 +256,7 @@ fn convert_comprehensive_to_patterns(
 
     let project_indicators = ProjectIndicators {
         version: "1.0.0".to_string(),
-        last_updated: chrono::Utc::now().to_rfc3339(),
+        last_updated: wqm_common::timestamps::now_utc(),
         research_coverage: "500+ languages from comprehensive A-Z research".to_string(),
         ecosystems,
     };
@@ -313,7 +313,7 @@ fn convert_comprehensive_to_patterns(
 
     let include_patterns = IncludePatterns {
         version: "1.0.0".to_string(),
-        last_updated: chrono::Utc::now().to_rfc3339(),
+        last_updated: wqm_common::timestamps::now_utc(),
         research_coverage: "500+ languages from comprehensive A-Z research".to_string(),
         source_code: source_code_patterns,
         documentation: Vec::new(),

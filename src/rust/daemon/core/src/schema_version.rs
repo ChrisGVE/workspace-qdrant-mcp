@@ -34,7 +34,7 @@ pub enum SchemaError {
 pub const CREATE_SCHEMA_VERSION_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
-    applied_at TEXT DEFAULT (datetime('now'))
+    applied_at TEXT DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 )
 "#;
 

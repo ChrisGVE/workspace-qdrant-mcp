@@ -11,6 +11,7 @@
 //!   - Respects deactivation_delay_secs config before stopping
 
 use chrono::Utc;
+use wqm_common::timestamps;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -602,7 +603,7 @@ impl ProjectService for ProjectServiceImpl {
             return Ok(Response::new(response));
         } else {
             // New project with register_if_new=true - create watch_folder entry and activate
-            let now = Utc::now().to_rfc3339();
+            let now = timestamps::now_utc();
             let watch_id = uuid::Uuid::new_v4().to_string();
             let result = sqlx::query(
                 r#"

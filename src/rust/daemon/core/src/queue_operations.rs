@@ -9,6 +9,7 @@ use sqlx::{Row, SqlitePool};
 use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
+use wqm_common::timestamps;
 
 use crate::unified_queue_schema::{
     ItemType, QueueOperation as UnifiedOp, QueueStatus,
@@ -552,7 +553,7 @@ impl QueueManager {
                     "#;
 
                     sqlx::query(update_query)
-                        .bind(Utc::now().to_rfc3339())
+                        .bind(timestamps::now_utc())
                         .bind(queue_id)
                         .execute(&self.pool)
                         .await?;
@@ -870,8 +871,8 @@ impl QueueManager {
     ) -> QueueResult<Vec<UnifiedQueueItem>> {
         let lease_duration = lease_duration_secs.unwrap_or(300);
         let lease_until = Utc::now() + ChronoDuration::seconds(lease_duration);
-        let lease_until_str = lease_until.to_rfc3339();
-        let now_str = Utc::now().to_rfc3339();
+        let lease_until_str = timestamps::format_utc(&lease_until);
+        let now_str = timestamps::now_utc();
 
         // Task 21: Priority direction for anti-starvation alternation
         // When true (default): high priority first (DESC) - active projects prioritized
@@ -1179,7 +1180,7 @@ impl QueueManager {
                 let jitter = delay_secs * 0.1 * rand::random::<f64>();
                 let total_delay = delay_secs + jitter;
                 let retry_after = Utc::now() + ChronoDuration::seconds(total_delay as i64);
-                let retry_after_str = retry_after.to_rfc3339();
+                let retry_after_str = timestamps::format_utc(&retry_after);
 
                 let query = r#"
                     UPDATE unified_queue
@@ -1255,7 +1256,7 @@ impl QueueManager {
     ///
     /// Returns the number of recovered items.
     pub async fn recover_stale_unified_leases(&self) -> QueueResult<u64> {
-        let now_str = Utc::now().to_rfc3339();
+        let now_str = timestamps::now_utc();
 
         let query = r#"
             UPDATE unified_queue
@@ -1284,7 +1285,7 @@ impl QueueManager {
 
     /// Get statistics for the unified queue
     pub async fn get_unified_queue_stats(&self) -> QueueResult<UnifiedQueueStats> {
-        let now_str = Utc::now().to_rfc3339();
+        let now_str = timestamps::now_utc();
 
         // Get counts by status
         let status_query = r#"

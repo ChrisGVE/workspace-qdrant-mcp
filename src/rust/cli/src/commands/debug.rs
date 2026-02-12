@@ -5,6 +5,7 @@
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Duration, Utc};
+use wqm_common::timestamps;
 use clap::{Args, Subcommand, ValueEnum};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
@@ -502,7 +503,7 @@ async fn logs(
             output::kv("Level filter", "ERROR/WARN only");
         }
         if let Some(ref cutoff) = since_cutoff {
-            output::kv("Since", &cutoff.to_rfc3339());
+            output::kv("Since", &timestamps::format_utc(cutoff));
         }
         output::separator();
     }

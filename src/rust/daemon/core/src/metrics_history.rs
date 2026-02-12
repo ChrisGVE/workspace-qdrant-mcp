@@ -8,6 +8,7 @@
 
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use sqlx::{Row, SqlitePool};
+use wqm_common::timestamps;
 use tracing::{debug, warn};
 
 use crate::metrics_history_schema::{AggregationPeriod, MetricEntry};
@@ -41,7 +42,7 @@ pub async fn write_metrics_batch(
         .bind(&entry.metric_name)
         .bind(entry.metric_value)
         .bind(&entry.metric_labels)
-        .bind(entry.timestamp.to_rfc3339())
+        .bind(timestamps::format_utc(&entry.timestamp))
         .bind(entry.aggregation_period.as_str())
         .execute(&mut *tx)
         .await?;
@@ -193,10 +194,10 @@ pub async fn query_metrics(
     let mut q = sqlx::query(&sql).bind(&query.metric_name);
 
     if let Some(ref start) = query.start_time {
-        q = q.bind(start.to_rfc3339());
+        q = q.bind(timestamps::format_utc(start));
     }
     if let Some(ref end) = query.end_time {
-        q = q.bind(end.to_rfc3339());
+        q = q.bind(timestamps::format_utc(end));
     }
     if let Some(ref period) = query.aggregation_period {
         q = q.bind(period.as_str());
@@ -246,8 +247,8 @@ pub async fn query_aggregated(
          WHERE metric_name = ?1 AND timestamp >= ?2 AND timestamp <= ?3 AND aggregation_period = ?4"
     )
     .bind(metric_name)
-    .bind(start_time.to_rfc3339())
-    .bind(end_time.to_rfc3339())
+    .bind(timestamps::format_utc(&start_time))
+    .bind(timestamps::format_utc(&end_time))
     .bind(source_period.as_str())
     .fetch_optional(pool)
     .await?;
@@ -291,7 +292,7 @@ pub async fn cleanup_old_metrics(
         "DELETE FROM metrics_history WHERE aggregation_period = ?1 AND timestamp < ?2"
     )
     .bind(period.as_str())
-    .bind(before.to_rfc3339())
+    .bind(timestamps::format_utc(&before))
     .execute(pool)
     .await?;
 
@@ -359,8 +360,8 @@ pub async fn run_aggregation(
          WHERE aggregation_period = ?1 AND timestamp >= ?2 AND timestamp < ?3"
     )
     .bind(source_period.as_str())
-    .bind(start.to_rfc3339())
-    .bind(end.to_rfc3339())
+    .bind(timestamps::format_utc(&start))
+    .bind(timestamps::format_utc(&end))
     .fetch_all(pool)
     .await?;
 
@@ -380,8 +381,8 @@ pub async fn run_aggregation(
         )
         .bind(metric_name)
         .bind(source_period.as_str())
-        .bind(start.to_rfc3339())
-        .bind(end.to_rfc3339())
+        .bind(timestamps::format_utc(&start))
+        .bind(timestamps::format_utc(&end))
         .fetch_all(pool)
         .await?;
 
