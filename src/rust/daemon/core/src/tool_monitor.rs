@@ -136,7 +136,7 @@ impl ToolMonitor {
     /// **DEPRECATED**: This method creates the tool_availability table which
     /// violates 3-table SQLite compliance. Do not call this method.
     /// Tool availability should be tracked in-memory instead.
-    #[deprecated(since = "0.4.0", note = "Violates 3-table SQLite compliance. Use in-memory state instead.")]
+    #[deprecated(since = "0.1.0-beta1", note = "Violates 3-table SQLite compliance. Use in-memory state instead.")]
     pub async fn initialize_schema(&self) -> MonitoringResult<()> {
         warn!("initialize_schema() is deprecated - tool_availability table violates 3-table compliance");
         // Return Ok without creating the table to avoid schema violations

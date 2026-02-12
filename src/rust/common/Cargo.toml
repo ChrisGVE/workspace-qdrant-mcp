@@ -1,6 +1,6 @@
 [package]
 name = "wqm-common"
-version = "0.4.0"
+version = "0.1.0-beta1"
 edition = "2021"
 description = "Shared configuration and path resolution for workspace-qdrant-mcp"
 authors = ["Chris Van Eerden"]

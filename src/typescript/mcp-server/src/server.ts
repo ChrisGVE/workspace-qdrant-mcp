@@ -42,7 +42,7 @@ const HEARTBEAT_INTERVAL_MS = 3 * 60 * 60 * 1000;
 // Server name and version for MCP protocol
 import { BUILD_NUMBER } from './build-info.js';
 const SERVER_NAME = 'workspace-qdrant-mcp';
-const SERVER_VERSION = `0.1.0 (${BUILD_NUMBER})`;
+const SERVER_VERSION = `0.1.0-beta1 (${BUILD_NUMBER})`;
 
 export interface SessionState {
   sessionId: string;
