@@ -137,12 +137,12 @@ pub struct WatchListItemVerbose {
     pub is_active: String,
     #[tabled(rename = "Paused")]
     pub is_paused: String,
-    #[tabled(rename = "Recursive")]
-    pub recursive: String,
     #[tabled(rename = "Archived")]
     pub archived: String,
-    #[tabled(rename = "Patterns")]
-    pub patterns: String,
+    #[tabled(rename = "Git Remote")]
+    pub git_remote_url: String,
+    #[tabled(rename = "Library Mode")]
+    pub library_mode: String,
     #[tabled(rename = "Last Scan")]
     pub last_scan: String,
 }
@@ -159,22 +159,21 @@ pub struct WatchDetailItem {
     pub path: String,
     pub collection: String,
     pub tenant_id: String,
-    pub patterns: String,
-    pub ignore_patterns: String,
-    pub auto_ingest: bool,
-    pub recursive: bool,
-    pub recursive_depth: i32,
-    pub debounce_seconds: f64,
+    pub git_remote_url: Option<String>,
+    pub remote_hash: Option<String>,
+    pub disambiguation_path: Option<String>,
     pub enabled: bool,
     pub is_active: bool,
     pub is_paused: bool,
     pub is_archived: bool,
+    pub library_mode: Option<String>,
+    pub follow_symlinks: bool,
     pub created_at: String,
     pub updated_at: String,
     pub last_scan: Option<String>,
     pub last_activity_at: Option<String>,
     pub parent_watch_id: Option<String>,
-    pub metadata: Option<String>,
+    pub submodule_path: Option<String>,
 }
 
 /// Execute watch command
@@ -355,10 +354,11 @@ async fn list(
 
     let query = format!(
         r#"
-        SELECT watch_id, path, collection, tenant_id, patterns, ignore_patterns,
-               enabled, is_active, recursive, last_scan_at,
+        SELECT watch_id, path, collection, tenant_id,
+               enabled, is_active, last_scan, last_activity_at,
                COALESCE(is_paused, 0) as is_paused,
-               COALESCE(is_archived, 0) as is_archived
+               COALESCE(is_archived, 0) as is_archived,
+               git_remote_url, library_mode
         FROM watch_folders
         {}
         ORDER BY path ASC
@@ -371,18 +371,18 @@ async fn list(
     let mut stmt = conn.prepare(&query)?;
     let rows = stmt.query_map(params_slice.as_slice(), |row| {
         Ok((
-            row.get::<_, String>(0)?,  // watch_id
-            row.get::<_, String>(1)?,  // path
-            row.get::<_, String>(2)?,  // collection
-            row.get::<_, String>(3)?,  // tenant_id
-            row.get::<_, String>(4)?,  // patterns
-            row.get::<_, String>(5)?,  // ignore_patterns
-            row.get::<_, i32>(6)? != 0,  // enabled
-            row.get::<_, i32>(7)? != 0,  // is_active
-            row.get::<_, i32>(8)? != 0,  // recursive
-            row.get::<_, Option<String>>(9)?,  // last_scan_at
-            row.get::<_, i32>(10)? != 0,  // is_paused
-            row.get::<_, i32>(11)? != 0,  // is_archived
+            row.get::<_, String>(0)?,          // watch_id
+            row.get::<_, String>(1)?,          // path
+            row.get::<_, String>(2)?,          // collection
+            row.get::<_, String>(3)?,          // tenant_id
+            row.get::<_, i32>(4)? != 0,        // enabled
+            row.get::<_, i32>(5)? != 0,        // is_active
+            row.get::<_, Option<String>>(6)?,  // last_scan
+            row.get::<_, Option<String>>(7)?,  // last_activity_at
+            row.get::<_, i32>(8)? != 0,        // is_paused
+            row.get::<_, i32>(9)? != 0,        // is_archived
+            row.get::<_, Option<String>>(10)?, // git_remote_url
+            row.get::<_, Option<String>>(11)?, // library_mode
         ))
     })?;
 
@@ -401,7 +401,7 @@ async fn list(
     if verbose {
         let display_items: Vec<WatchListItemVerbose> = items
             .iter()
-            .map(|(watch_id, path, collection, tenant_id, patterns, _ignore_patterns, enabled, is_active, recursive, last_scan, is_paused, is_archived)| {
+            .map(|(watch_id, path, collection, tenant_id, enabled, is_active, last_scan, _last_activity_at, is_paused, is_archived, git_remote_url, library_mode)| {
                 WatchListItemVerbose {
                     watch_id: watch_id.clone(),
                     path: path.clone(),
@@ -411,8 +411,8 @@ async fn list(
                     is_active: format_bool(*is_active),
                     is_paused: format_bool_paused(*is_paused),
                     archived: format_bool_archived(*is_archived),
-                    recursive: if *recursive { "yes" } else { "no" }.to_string(),
-                    patterns: patterns.clone(),
+                    git_remote_url: git_remote_url.as_deref().unwrap_or("-").to_string(),
+                    library_mode: library_mode.as_deref().unwrap_or("-").to_string(),
                     last_scan: last_scan.as_ref().map(|s| format_relative_time(s)).unwrap_or_else(|| "never".to_string()),
                 }
             })
@@ -421,17 +421,13 @@ async fn list(
         if json {
             output::print_json(&display_items);
         } else {
-            // Verbose columns: WatchID(0), Path(1), Collection(2), TenantID(3),
-            //   Enabled(4), Active(5), Paused(6), Recursive(7), Archived(8),
-            //   Patterns(9), LastScan(10)
-            // Content: Path(1)
             output::print_table_auto(&display_items);
             output::info(format!("Showing {} watch configurations", display_items.len()));
         }
     } else {
         let display_items: Vec<WatchListItem> = items
             .iter()
-            .map(|(watch_id, path, collection, _tenant_id, _patterns, _ignore_patterns, enabled, is_active, _recursive, last_scan, is_paused, is_archived)| {
+            .map(|(watch_id, path, collection, _tenant_id, enabled, is_active, last_scan, _last_activity_at, is_paused, is_archived, _git_remote_url, _library_mode)| {
                 WatchListItem {
                     watch_id: watch_id.clone(),
                     path: path.clone(),
@@ -448,9 +444,6 @@ async fn list(
         if json {
             output::print_json(&display_items);
         } else {
-            // Columns: WatchID(0), Path(1), Collection(2), Enabled(3),
-            //   Active(4), Paused(5), Archived(6), LastScan(7)
-            // Content: Path(1)
             output::print_table_auto(&display_items);
             output::info(format!("Showing {} watch configurations", display_items.len()));
         }
@@ -518,10 +511,11 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
 
     // Try exact match first, then prefix match
     let query = r#"
-        SELECT watch_id, path, collection, tenant_id, patterns, ignore_patterns,
-               auto_ingest, recursive, recursive_depth, debounce_seconds,
-               enabled, is_active, created_at, updated_at, last_scan_at,
-               last_activity_at, parent_watch_id, metadata,
+        SELECT watch_id, path, collection, tenant_id,
+               git_remote_url, remote_hash, disambiguation_path,
+               enabled, is_active, library_mode, follow_symlinks,
+               created_at, updated_at, last_scan, last_activity_at,
+               parent_watch_id, submodule_path,
                COALESCE(is_paused, 0) as is_paused,
                COALESCE(is_archived, 0) as is_archived
         FROM watch_folders
@@ -537,22 +531,21 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
             path: row.get(1)?,
             collection: row.get(2)?,
             tenant_id: row.get(3)?,
-            patterns: row.get(4)?,
-            ignore_patterns: row.get(5)?,
-            auto_ingest: row.get::<_, i32>(6)? != 0,
-            recursive: row.get::<_, i32>(7)? != 0,
-            recursive_depth: row.get(8)?,
-            debounce_seconds: row.get(9)?,
-            enabled: row.get::<_, i32>(10)? != 0,
-            is_active: row.get::<_, i32>(11)? != 0,
-            created_at: row.get(12)?,
-            updated_at: row.get(13)?,
-            last_scan: row.get(14)?,
-            last_activity_at: row.get(15)?,
-            parent_watch_id: row.get(16)?,
-            metadata: row.get(17)?,
-            is_paused: row.get::<_, i32>(18)? != 0,
-            is_archived: row.get::<_, i32>(19)? != 0,
+            git_remote_url: row.get(4)?,
+            remote_hash: row.get(5)?,
+            disambiguation_path: row.get(6)?,
+            enabled: row.get::<_, i32>(7)? != 0,
+            is_active: row.get::<_, i32>(8)? != 0,
+            library_mode: row.get(9)?,
+            follow_symlinks: row.get::<_, i32>(10)? != 0,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+            last_scan: row.get(13)?,
+            last_activity_at: row.get(14)?,
+            parent_watch_id: row.get(15)?,
+            submodule_path: row.get(16)?,
+            is_paused: row.get::<_, i32>(17)? != 0,
+            is_archived: row.get::<_, i32>(18)? != 0,
         })
     });
 
@@ -567,20 +560,24 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
                 output::separator();
                 output::kv("Collection", &item.collection);
                 output::kv("Tenant ID", &item.tenant_id);
+                if let Some(ref url) = item.git_remote_url {
+                    output::kv("Git Remote", url);
+                }
+                if let Some(ref hash) = item.remote_hash {
+                    output::kv("Remote Hash", hash);
+                }
+                if let Some(ref dp) = item.disambiguation_path {
+                    output::kv("Disambiguation", dp);
+                }
                 output::separator();
                 output::kv("Enabled", &format_bool(item.enabled));
                 output::kv("Active", &format_bool(item.is_active));
                 output::kv("Paused", &format_bool_paused(item.is_paused));
                 output::kv("Archived", &format_bool_archived(item.is_archived));
-                output::kv("Auto-ingest", &format_bool(item.auto_ingest));
-                output::kv("Recursive", &format_bool(item.recursive));
-                if item.recursive {
-                    output::kv("Recursive Depth", &item.recursive_depth.to_string());
+                output::kv("Follow Symlinks", &format_bool(item.follow_symlinks));
+                if let Some(ref mode) = item.library_mode {
+                    output::kv("Library Mode", mode);
                 }
-                output::kv("Debounce", &format!("{:.1}s", item.debounce_seconds));
-                output::separator();
-                output::kv("Patterns", &item.patterns);
-                output::kv("Ignore Patterns", &item.ignore_patterns);
                 output::separator();
                 output::kv("Created At", &item.created_at);
                 output::kv("Updated At", &item.updated_at);
@@ -595,25 +592,10 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
                 if let Some(ref parent) = item.parent_watch_id {
                     output::separator();
                     output::kv("Parent Watch", parent);
-                    output::info("This is a submodule watch");
-                }
-
-                if let Some(ref meta) = item.metadata {
-                    if meta != "{}" {
-                        output::separator();
-                        println!("{}", "Metadata:".bold());
-                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(meta) {
-                            if let Ok(pretty) = serde_json::to_string_pretty(&parsed) {
-                                for line in pretty.lines() {
-                                    println!("  {}", line);
-                                }
-                            } else {
-                                println!("  {}", meta);
-                            }
-                        } else {
-                            println!("  {}", meta);
-                        }
+                    if let Some(ref sp) = item.submodule_path {
+                        output::kv("Submodule Path", sp);
                     }
+                    output::info("This is a submodule watch");
                 }
             }
         }
