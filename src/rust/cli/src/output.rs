@@ -51,10 +51,12 @@ pub fn print_json<T: Serialize + ?Sized>(data: &T) {
     }
 }
 
-/// Print data as a formatted table, wrapping content to fit terminal width.
+/// Print data as a formatted table that fills the full terminal width.
 ///
-/// Uses `PriorityMax` strategy: the widest column gets wrapped first,
-/// preserving shorter columns (labels, dates, etc.) at their natural width.
+/// 1. Wraps content to fit within terminal width (`PriorityMax` shrinks the
+///    widest column first, `keep_words` breaks at word/comma boundaries).
+/// 2. Stretches the table to fill the full terminal width, giving extra
+///    space to the widest columns (text/content) via `PriorityMax`.
 pub fn print_table<T: Tabled>(data: &[T]) {
     if data.is_empty() {
         info("No data to display");
@@ -65,6 +67,7 @@ pub fn print_table<T: Tabled>(data: &[T]) {
     let table = Table::new(data)
         .with(Style::rounded())
         .with(Width::wrap(width).priority::<PriorityMax>().keep_words())
+        .with(Width::increase(width).priority::<PriorityMax>())
         .to_string();
     println!("{}", table);
 }
