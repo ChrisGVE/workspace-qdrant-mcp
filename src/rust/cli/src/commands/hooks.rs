@@ -1,7 +1,8 @@
 //! Hooks command - Claude Code integration hook management
 //!
-//! Installs/uninstalls file change notification hooks into Claude Code's
-//! settings.json, enabling real-time ingestion during active coding sessions.
+//! Installs/uninstalls a SessionStart hook into Claude Code's settings.json
+//! that injects workspace-qdrant memory rules into context at session start,
+//! `/clear`, and compaction.
 //!
 //! Subcommands: install, uninstall, status
 
@@ -22,7 +23,7 @@ pub struct HooksArgs {
 /// Hooks subcommands
 #[derive(Subcommand)]
 enum HooksCommand {
-    /// Install Claude Code hooks for file change notifications
+    /// Install Claude Code SessionStart hook for memory rule injection
     Install,
 
     /// Remove wqm hooks from Claude Code settings
@@ -41,8 +42,8 @@ pub async fn execute(args: HooksArgs) -> Result<()> {
     }
 }
 
-/// Marker comment embedded in hook matcher to identify wqm-managed hooks
-const WQM_HOOK_MARKER: &str = "wqm-file-notify";
+/// The matcher pattern that triggers the hook
+const SESSION_START_MATCHER: &str = "startup|clear|compact";
 
 /// Get the path to Claude Code's settings.json
 fn get_claude_settings_path() -> Result<PathBuf> {
@@ -85,63 +86,92 @@ fn write_settings(path: &Path, config: &serde_json::Value) -> Result<()> {
     Ok(())
 }
 
-/// Build the wqm PostToolUse hook entry for file change notifications
-fn build_wqm_hook_entry() -> serde_json::Value {
+/// Build the wqm hook command entry
+fn build_wqm_hook_command() -> serde_json::Value {
     json!({
-        "matcher": WQM_HOOK_MARKER,
-        "hooks": [
-            {
-                "type": "command",
-                "command": "wqm notify file-changed"
-            }
-        ]
+        "type": "command",
+        "command": "wqm memory inject"
     })
 }
 
-/// Check if a hooks array already contains wqm-managed entries
-fn has_wqm_hooks(hooks_array: &[serde_json::Value]) -> bool {
-    hooks_array.iter().any(|entry| {
-        entry.get("matcher")
-            .and_then(|m| m.as_str())
-            .map(|m| m.contains(WQM_HOOK_MARKER))
-            .unwrap_or(false)
-    })
+/// Check if a hook command entry is a wqm command
+fn is_wqm_hook_command(hook: &serde_json::Value) -> bool {
+    hook.get("command")
+        .and_then(|c| c.as_str())
+        .map(|c| c.starts_with("wqm "))
+        .unwrap_or(false)
 }
 
-/// Install Claude Code hooks for file change notifications
+/// Check if a matcher group has our matcher pattern
+fn is_our_matcher(entry: &serde_json::Value) -> bool {
+    entry
+        .get("matcher")
+        .and_then(|m| m.as_str())
+        .map(|m| m == SESSION_START_MATCHER)
+        .unwrap_or(false)
+}
+
+/// Check if a matcher group's hooks array contains a wqm command
+fn group_has_wqm_command(entry: &serde_json::Value) -> bool {
+    entry
+        .get("hooks")
+        .and_then(|h| h.as_array())
+        .map(|hooks| hooks.iter().any(is_wqm_hook_command))
+        .unwrap_or(false)
+}
+
+/// Install Claude Code SessionStart hook for memory rule injection
 async fn install_hooks() -> Result<()> {
     let settings_path = get_claude_settings_path()?;
     output::kv("Settings path", settings_path.display());
 
     let mut config = read_settings(&settings_path)?;
 
-    // Ensure hooks object exists
+    // Ensure hooks.SessionStart array exists
     if config.get("hooks").is_none() {
         config["hooks"] = json!({});
     }
-
-    // Ensure PostToolUse array exists
     let hooks = config.get_mut("hooks").unwrap();
-    if hooks.get("PostToolUse").is_none() {
-        hooks["PostToolUse"] = json!([]);
+    if hooks.get("SessionStart").is_none() {
+        hooks["SessionStart"] = json!([]);
     }
 
-    let post_tool_use = hooks["PostToolUse"].as_array_mut()
-        .context("hooks.PostToolUse is not an array")?;
+    let session_start = hooks["SessionStart"]
+        .as_array_mut()
+        .context("hooks.SessionStart is not an array")?;
 
-    // Check if already installed
-    if has_wqm_hooks(post_tool_use) {
-        output::info("wqm hooks are already installed");
-        return Ok(());
+    // Find existing matcher group for our pattern
+    let existing_idx = session_start
+        .iter()
+        .position(is_our_matcher);
+
+    match existing_idx {
+        Some(idx) => {
+            // Matcher group exists — check if our command is already there
+            if group_has_wqm_command(&session_start[idx]) {
+                output::info("wqm hooks are already installed");
+                return Ok(());
+            }
+            // Append our command to the existing group's hooks array
+            session_start[idx]["hooks"]
+                .as_array_mut()
+                .context("Matcher group hooks is not an array")?
+                .push(build_wqm_hook_command());
+        }
+        None => {
+            // No matching group — add a new one
+            session_start.push(json!({
+                "matcher": SESSION_START_MATCHER,
+                "hooks": [build_wqm_hook_command()]
+            }));
+        }
     }
-
-    // Add wqm hook entry
-    post_tool_use.push(build_wqm_hook_entry());
 
     write_settings(&settings_path, &config)?;
-    output::success("Claude Code hooks installed");
-    output::kv("Hook event", "PostToolUse");
-    output::kv("Matcher", WQM_HOOK_MARKER);
+    output::success("Claude Code SessionStart hook installed");
+    output::kv("Hook event", "SessionStart");
+    output::kv("Matcher", SESSION_START_MATCHER);
+    output::kv("Command", "wqm memory inject");
 
     Ok(())
 }
@@ -166,34 +196,48 @@ async fn uninstall_hooks() -> Result<()> {
         }
     };
 
-    let post_tool_use = match hooks.get_mut("PostToolUse") {
+    let session_start = match hooks.get_mut("SessionStart") {
         Some(arr) => arr,
         None => {
-            output::info("No PostToolUse hooks found - nothing to uninstall");
+            output::info("No SessionStart hooks found - nothing to uninstall");
             return Ok(());
         }
     };
 
-    let arr = post_tool_use.as_array_mut()
-        .context("hooks.PostToolUse is not an array")?;
+    let arr = session_start
+        .as_array_mut()
+        .context("hooks.SessionStart is not an array")?;
 
-    let original_len = arr.len();
-    arr.retain(|entry| {
-        entry.get("matcher")
-            .and_then(|m| m.as_str())
-            .map(|m| !m.contains(WQM_HOOK_MARKER))
-            .unwrap_or(true) // Keep entries without matcher
-    });
+    let mut changed = false;
 
-    let removed = original_len - arr.len();
+    // For each matcher group, filter out wqm commands
+    let mut to_remove = Vec::new();
+    for (idx, entry) in arr.iter_mut().enumerate() {
+        if let Some(hooks_arr) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+            let before = hooks_arr.len();
+            hooks_arr.retain(|h| !is_wqm_hook_command(h));
+            if hooks_arr.len() < before {
+                changed = true;
+            }
+            // Mark empty groups for removal
+            if hooks_arr.is_empty() {
+                to_remove.push(idx);
+            }
+        }
+    }
 
-    if removed == 0 {
+    // Remove empty matcher groups (in reverse to preserve indices)
+    for idx in to_remove.into_iter().rev() {
+        arr.remove(idx);
+    }
+
+    if !changed {
         output::info("No wqm hooks found - nothing to uninstall");
         return Ok(());
     }
 
     write_settings(&settings_path, &config)?;
-    output::success(format!("Removed {} wqm hook(s) from Claude Code settings", removed));
+    output::success("Removed wqm hook(s) from Claude Code settings");
 
     Ok(())
 }
@@ -210,19 +254,21 @@ async fn status_hooks() -> Result<()> {
 
     let config = read_settings(&settings_path)?;
 
-    let installed = config.get("hooks")
-        .and_then(|h| h.get("PostToolUse"))
+    let installed = config
+        .get("hooks")
+        .and_then(|h| h.get("SessionStart"))
         .and_then(|arr| arr.as_array())
-        .map(|arr| has_wqm_hooks(arr))
+        .map(|arr| arr.iter().any(|e| is_our_matcher(e) && group_has_wqm_command(e)))
         .unwrap_or(false);
 
     if installed {
         output::success("wqm hooks are installed");
-        output::kv("Hook event", "PostToolUse");
-        output::kv("Matcher", WQM_HOOK_MARKER);
+        output::kv("Hook event", "SessionStart");
+        output::kv("Matcher", SESSION_START_MATCHER);
+        output::kv("Command", "wqm memory inject");
     } else {
         output::kv("Status", "Not installed");
-        output::info("Run 'wqm hooks install' to set up file change notifications");
+        output::info("Run 'wqm hooks install' to set up memory rule injection");
     }
 
     Ok(())
@@ -239,38 +285,46 @@ mod tests {
         settings_path
     }
 
+    // ─── Unit tests ─────────────────────────────────────────────────────
+
     #[test]
-    fn test_build_wqm_hook_entry() {
-        let entry = build_wqm_hook_entry();
-        assert_eq!(
-            entry["matcher"].as_str().unwrap(),
-            WQM_HOOK_MARKER
-        );
-        let hooks = entry["hooks"].as_array().unwrap();
-        assert_eq!(hooks.len(), 1);
-        assert_eq!(hooks[0]["type"].as_str().unwrap(), "command");
-        assert!(hooks[0]["command"].as_str().unwrap().contains("wqm notify"));
+    fn test_build_wqm_hook_command() {
+        let cmd = build_wqm_hook_command();
+        assert_eq!(cmd["type"].as_str().unwrap(), "command");
+        assert_eq!(cmd["command"].as_str().unwrap(), "wqm memory inject");
     }
 
     #[test]
-    fn test_has_wqm_hooks_empty() {
-        assert!(!has_wqm_hooks(&[]));
+    fn test_is_wqm_hook_command_true() {
+        let cmd = json!({"type": "command", "command": "wqm memory inject"});
+        assert!(is_wqm_hook_command(&cmd));
     }
 
     #[test]
-    fn test_has_wqm_hooks_present() {
-        let hooks = vec![build_wqm_hook_entry()];
-        assert!(has_wqm_hooks(&hooks));
+    fn test_is_wqm_hook_command_false() {
+        let cmd = json!({"type": "command", "command": "echo hello"});
+        assert!(!is_wqm_hook_command(&cmd));
     }
 
     #[test]
-    fn test_has_wqm_hooks_absent() {
-        let hooks = vec![json!({
-            "matcher": "other-hook",
-            "hooks": [{"type": "command", "command": "echo test"}]
-        })];
-        assert!(!has_wqm_hooks(&hooks));
+    fn test_is_wqm_hook_command_no_command_field() {
+        let cmd = json!({"type": "url", "url": "https://example.com"});
+        assert!(!is_wqm_hook_command(&cmd));
     }
+
+    #[test]
+    fn test_is_our_matcher() {
+        let entry = json!({"matcher": "startup|clear|compact", "hooks": []});
+        assert!(is_our_matcher(&entry));
+    }
+
+    #[test]
+    fn test_is_our_matcher_different() {
+        let entry = json!({"matcher": "Write|Edit", "hooks": []});
+        assert!(!is_our_matcher(&entry));
+    }
+
+    // ─── Settings I/O tests ─────────────────────────────────────────────
 
     #[test]
     fn test_read_settings_nonexistent() {
@@ -299,14 +353,12 @@ mod tests {
         let new_config = json!({"updated": true});
         write_settings(&path, &new_config).unwrap();
 
-        // Verify backup exists
         let backup = path.with_extension("json.backup");
         assert!(backup.exists());
         let backup_content: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&backup).unwrap()).unwrap();
         assert_eq!(backup_content["original"], json!(true));
 
-        // Verify new content
         let new_content: serde_json::Value =
             serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert_eq!(new_content["updated"], json!(true));
@@ -323,49 +375,321 @@ mod tests {
         assert!(path.exists());
     }
 
+    // ─── Install tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn test_install_empty() {
+        let dir = TempDir::new().unwrap();
+        let path = create_test_settings(dir.path(), r#"{}"#);
+
+        let mut config = read_settings(&path).unwrap();
+
+        // Simulate install logic
+        config["hooks"] = json!({});
+        config["hooks"]["SessionStart"] = json!([]);
+        config["hooks"]["SessionStart"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({
+                "matcher": SESSION_START_MATCHER,
+                "hooks": [build_wqm_hook_command()]
+            }));
+        write_settings(&path, &config).unwrap();
+
+        // Verify
+        let config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array().unwrap();
+        assert_eq!(ss.len(), 1);
+        assert!(is_our_matcher(&ss[0]));
+        assert!(group_has_wqm_command(&ss[0]));
+    }
+
+    #[test]
+    fn test_install_merge_existing_matcher() {
+        // Pre-existing matcher group with another hook
+        let dir = TempDir::new().unwrap();
+        let path = create_test_settings(
+            dir.path(),
+            &serde_json::to_string(&json!({
+                "hooks": {
+                    "SessionStart": [{
+                        "matcher": SESSION_START_MATCHER,
+                        "hooks": [{"type": "command", "command": "other-tool init"}]
+                    }]
+                }
+            }))
+            .unwrap(),
+        );
+
+        let mut config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array_mut().unwrap();
+
+        // Find our matcher and append
+        let idx = ss.iter().position(is_our_matcher).unwrap();
+        ss[idx]["hooks"]
+            .as_array_mut()
+            .unwrap()
+            .push(build_wqm_hook_command());
+
+        write_settings(&path, &config).unwrap();
+
+        // Verify: one matcher group, two hooks
+        let config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array().unwrap();
+        assert_eq!(ss.len(), 1);
+        let hooks = ss[0]["hooks"].as_array().unwrap();
+        assert_eq!(hooks.len(), 2);
+        assert_eq!(hooks[0]["command"].as_str().unwrap(), "other-tool init");
+        assert_eq!(hooks[1]["command"].as_str().unwrap(), "wqm memory inject");
+    }
+
+    #[test]
+    fn test_install_new_matcher_group() {
+        // Pre-existing different matcher group
+        let dir = TempDir::new().unwrap();
+        let path = create_test_settings(
+            dir.path(),
+            &serde_json::to_string(&json!({
+                "hooks": {
+                    "SessionStart": [{
+                        "matcher": "Write|Edit",
+                        "hooks": [{"type": "command", "command": "other-tool check"}]
+                    }]
+                }
+            }))
+            .unwrap(),
+        );
+
+        let mut config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array_mut().unwrap();
+
+        // No matching group → add new
+        assert!(ss.iter().position(is_our_matcher).is_none());
+        ss.push(json!({
+            "matcher": SESSION_START_MATCHER,
+            "hooks": [build_wqm_hook_command()]
+        }));
+
+        write_settings(&path, &config).unwrap();
+
+        // Verify: two matcher groups
+        let config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array().unwrap();
+        assert_eq!(ss.len(), 2);
+        assert_eq!(ss[0]["matcher"].as_str().unwrap(), "Write|Edit");
+        assert_eq!(ss[1]["matcher"].as_str().unwrap(), SESSION_START_MATCHER);
+    }
+
+    #[test]
+    fn test_install_idempotent() {
+        let dir = TempDir::new().unwrap();
+        let path = create_test_settings(
+            dir.path(),
+            &serde_json::to_string(&json!({
+                "hooks": {
+                    "SessionStart": [{
+                        "matcher": SESSION_START_MATCHER,
+                        "hooks": [build_wqm_hook_command()]
+                    }]
+                }
+            }))
+            .unwrap(),
+        );
+
+        let config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array().unwrap();
+        let idx = ss.iter().position(is_our_matcher).unwrap();
+        assert!(group_has_wqm_command(&ss[idx]));
+        // Already installed → no-op
+    }
+
+    // ─── Uninstall tests ────────────────────────────────────────────────
+
+    #[test]
+    fn test_uninstall_only_wqm_command() {
+        // Two hooks in the same group, only wqm should be removed
+        let dir = TempDir::new().unwrap();
+        let path = create_test_settings(
+            dir.path(),
+            &serde_json::to_string(&json!({
+                "hooks": {
+                    "SessionStart": [{
+                        "matcher": SESSION_START_MATCHER,
+                        "hooks": [
+                            {"type": "command", "command": "other-tool init"},
+                            build_wqm_hook_command()
+                        ]
+                    }]
+                }
+            }))
+            .unwrap(),
+        );
+
+        let mut config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array_mut().unwrap();
+
+        for entry in ss.iter_mut() {
+            if let Some(hooks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                hooks.retain(|h| !is_wqm_hook_command(h));
+            }
+        }
+
+        write_settings(&path, &config).unwrap();
+
+        // Verify: group preserved with one hook
+        let config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array().unwrap();
+        assert_eq!(ss.len(), 1);
+        let hooks = ss[0]["hooks"].as_array().unwrap();
+        assert_eq!(hooks.len(), 1);
+        assert_eq!(hooks[0]["command"].as_str().unwrap(), "other-tool init");
+    }
+
+    #[test]
+    fn test_uninstall_removes_empty_group() {
+        // Only wqm hook in the group → entire group should be removed
+        let dir = TempDir::new().unwrap();
+        let path = create_test_settings(
+            dir.path(),
+            &serde_json::to_string(&json!({
+                "hooks": {
+                    "SessionStart": [{
+                        "matcher": SESSION_START_MATCHER,
+                        "hooks": [build_wqm_hook_command()]
+                    }]
+                }
+            }))
+            .unwrap(),
+        );
+
+        let mut config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array_mut().unwrap();
+
+        let mut to_remove = Vec::new();
+        for (idx, entry) in ss.iter_mut().enumerate() {
+            if let Some(hooks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                hooks.retain(|h| !is_wqm_hook_command(h));
+                if hooks.is_empty() {
+                    to_remove.push(idx);
+                }
+            }
+        }
+        for idx in to_remove.into_iter().rev() {
+            ss.remove(idx);
+        }
+
+        write_settings(&path, &config).unwrap();
+
+        // Verify: SessionStart is now empty
+        let config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array().unwrap();
+        assert!(ss.is_empty());
+    }
+
+    #[test]
+    fn test_uninstall_preserves_other_hooks() {
+        // Two matcher groups, only the one with wqm should be affected
+        let dir = TempDir::new().unwrap();
+        let path = create_test_settings(
+            dir.path(),
+            &serde_json::to_string(&json!({
+                "hooks": {
+                    "SessionStart": [
+                        {
+                            "matcher": "Write|Edit",
+                            "hooks": [{"type": "command", "command": "other-tool check"}]
+                        },
+                        {
+                            "matcher": SESSION_START_MATCHER,
+                            "hooks": [build_wqm_hook_command()]
+                        }
+                    ],
+                    "PostToolUse": [
+                        {"matcher": "legacy", "hooks": []}
+                    ]
+                }
+            }))
+            .unwrap(),
+        );
+
+        let mut config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array_mut().unwrap();
+
+        let mut to_remove = Vec::new();
+        for (idx, entry) in ss.iter_mut().enumerate() {
+            if let Some(hooks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                hooks.retain(|h| !is_wqm_hook_command(h));
+                if hooks.is_empty() {
+                    to_remove.push(idx);
+                }
+            }
+        }
+        for idx in to_remove.into_iter().rev() {
+            ss.remove(idx);
+        }
+
+        write_settings(&path, &config).unwrap();
+
+        // Verify: Write|Edit group preserved, wqm group removed
+        let config = read_settings(&path).unwrap();
+        let ss = config["hooks"]["SessionStart"].as_array().unwrap();
+        assert_eq!(ss.len(), 1);
+        assert_eq!(ss[0]["matcher"].as_str().unwrap(), "Write|Edit");
+
+        // PostToolUse untouched
+        assert!(config["hooks"]["PostToolUse"].is_array());
+    }
+
+    // ─── Integration test ───────────────────────────────────────────────
+
     #[tokio::test]
     async fn test_install_uninstall_cycle() {
         let dir = TempDir::new().unwrap();
         let path = create_test_settings(
             dir.path(),
-            r#"{"hooks": {"SessionStart": [{"matcher": "startup", "hooks": []}]}}"#,
+            r#"{"hooks": {"PostToolUse": [{"matcher": "legacy", "hooks": []}]}}"#,
         );
 
-        // Install: add hooks
+        // Install: add SessionStart hook
         let mut config = read_settings(&path).unwrap();
-        config["hooks"]["PostToolUse"] = json!([]);
-        config["hooks"]["PostToolUse"]
-            .as_array_mut()
-            .unwrap()
-            .push(build_wqm_hook_entry());
+        config["hooks"]["SessionStart"] = json!([{
+            "matcher": SESSION_START_MATCHER,
+            "hooks": [build_wqm_hook_command()]
+        }]);
         write_settings(&path, &config).unwrap();
 
         // Verify installed
         let config = read_settings(&path).unwrap();
-        let post = config["hooks"]["PostToolUse"].as_array().unwrap();
-        assert!(has_wqm_hooks(post));
+        let ss = config["hooks"]["SessionStart"].as_array().unwrap();
+        assert!(ss.iter().any(|e| is_our_matcher(e) && group_has_wqm_command(e)));
 
-        // Verify other hooks preserved
-        assert!(config["hooks"]["SessionStart"].is_array());
+        // Verify PostToolUse preserved
+        assert!(config["hooks"]["PostToolUse"].is_array());
 
-        // Uninstall: remove wqm hooks
+        // Uninstall: remove wqm hooks from SessionStart
         let mut config = read_settings(&path).unwrap();
-        let arr = config["hooks"]["PostToolUse"].as_array_mut().unwrap();
-        arr.retain(|e| {
-            e.get("matcher")
-                .and_then(|m| m.as_str())
-                .map(|m| !m.contains(WQM_HOOK_MARKER))
-                .unwrap_or(true)
-        });
+        let ss = config["hooks"]["SessionStart"].as_array_mut().unwrap();
+        let mut to_remove = Vec::new();
+        for (idx, entry) in ss.iter_mut().enumerate() {
+            if let Some(hooks) = entry.get_mut("hooks").and_then(|h| h.as_array_mut()) {
+                hooks.retain(|h| !is_wqm_hook_command(h));
+                if hooks.is_empty() {
+                    to_remove.push(idx);
+                }
+            }
+        }
+        for idx in to_remove.into_iter().rev() {
+            ss.remove(idx);
+        }
         write_settings(&path, &config).unwrap();
 
         // Verify uninstalled
         let config = read_settings(&path).unwrap();
-        let post = config["hooks"]["PostToolUse"].as_array().unwrap();
-        assert!(!has_wqm_hooks(post));
+        let ss = config["hooks"]["SessionStart"].as_array().unwrap();
+        assert!(!ss.iter().any(|e| group_has_wqm_command(e)));
 
-        // Verify SessionStart hooks preserved
-        assert!(config["hooks"]["SessionStart"].is_array());
-        assert!(!config["hooks"]["SessionStart"].as_array().unwrap().is_empty());
+        // PostToolUse still preserved
+        assert!(config["hooks"]["PostToolUse"].is_array());
+        assert!(!config["hooks"]["PostToolUse"].as_array().unwrap().is_empty());
     }
 }
