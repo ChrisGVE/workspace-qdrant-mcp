@@ -23,6 +23,8 @@ use crate::config::OutputFormat;
 thread_local! {
     /// Content column indices for custom peakers.
     static CONTENT_COLUMNS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
+    /// Content-aware minimum widths per column (computed from data).
+    static COLUMN_MIN_WIDTHS: RefCell<Vec<usize>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Peaker for `Width::wrap`: shrinks categorical columns first.
@@ -38,24 +40,35 @@ impl Peaker for ShrinkCategoricalFirst {
         Self
     }
 
-    fn peak(&mut self, min_widths: &[usize], widths: &[usize]) -> Option<usize> {
+    fn peak(&mut self, _min_widths: &[usize], widths: &[usize]) -> Option<usize> {
         CONTENT_COLUMNS.with(|cc| {
-            let content_cols = cc.borrow();
+            COLUMN_MIN_WIDTHS.with(|cmw| {
+                let content_cols = cc.borrow();
+                let col_mins = cmw.borrow();
 
-            // First: shrink the widest categorical column
-            let cat = (0..widths.len())
-                .filter(|i| !content_cols.contains(i))
-                .filter(|&i| widths[i] > min_widths.get(i).copied().unwrap_or(0))
-                .max_by_key(|&i| widths[i]);
+                // Phase 1: shrink widest categorical column above its content minimum
+                let cat = (0..widths.len())
+                    .filter(|i| !content_cols.contains(i))
+                    .filter(|&i| widths[i] > col_mins.get(i).copied().unwrap_or(0))
+                    .max_by_key(|&i| widths[i]);
+                if cat.is_some() {
+                    return cat;
+                }
 
-            if cat.is_some() {
-                return cat;
-            }
+                // Phase 2: shrink widest content column above its minimum
+                let content = (0..widths.len())
+                    .filter(|i| content_cols.contains(i))
+                    .filter(|&i| widths[i] > col_mins.get(i).copied().unwrap_or(0))
+                    .max_by_key(|&i| widths[i]);
+                if content.is_some() {
+                    return content;
+                }
 
-            // Fallback: shrink the widest content column
-            (0..widths.len())
-                .filter(|&i| widths[i] > min_widths.get(i).copied().unwrap_or(0))
-                .max_by_key(|&i| widths[i])
+                // Phase 3: last resort — shrink any column above 1 char
+                (0..widths.len())
+                    .filter(|&i| widths[i] > 1)
+                    .max_by_key(|&i| widths[i])
+            })
         })
     }
 }
@@ -151,13 +164,61 @@ pub fn print_table<T: Tabled>(data: &[T]) {
     println!("{}", table);
 }
 
+/// Cell padding used by `Style::rounded()` (1 space each side).
+const CELL_PADDING: usize = 2;
+
+/// Compute content-aware minimum widths for each column.
+///
+/// For categorical columns: minimum = max(header width, widest word/segment)
+/// where words are split at commas and whitespace boundaries across all cells.
+/// This ensures categorical columns never shrink below their widest atomic value.
+///
+/// For content columns: minimum = header width (flexible, gets extra space).
+///
+/// The returned widths include `CELL_PADDING` to match tabled's internal
+/// column width representation (content + padding).
+fn compute_column_min_widths<T: Tabled>(data: &[T], content_columns: &[usize]) -> Vec<usize> {
+    let headers = T::headers();
+    let num_cols = headers.len();
+    let mut min_widths = vec![0usize; num_cols];
+
+    // Start with header widths for all columns
+    for (i, header) in headers.iter().enumerate() {
+        min_widths[i] = header.len();
+    }
+
+    // For categorical columns, find widest word/segment across all cells
+    for row in data {
+        let fields = row.fields();
+        for (i, field) in fields.iter().enumerate() {
+            if i >= num_cols || content_columns.contains(&i) {
+                continue; // Content columns keep header width as min
+            }
+            // Split on commas and whitespace, find widest segment
+            let widest = field
+                .split(|c: char| c == ',' || c.is_whitespace())
+                .map(|s| s.trim().len())
+                .max()
+                .unwrap_or(0);
+            min_widths[i] = min_widths[i].max(widest);
+        }
+    }
+
+    // Add cell padding — tabled's peaker widths include padding
+    for w in &mut min_widths {
+        *w += CELL_PADDING;
+    }
+
+    min_widths
+}
+
 /// Print a table with column layout hints for optimal width distribution.
 ///
 /// `content_columns` lists 0-based indices of columns that contain
 /// variable-length text (titles, descriptions, paths). These columns
 /// receive the most available width. All other columns are treated as
 /// categorical (IDs, dates, enums, comma-delimited tags) and are
-/// constrained first when the table exceeds terminal width.
+/// constrained to the width of their widest atomic value (word/segment).
 ///
 /// Extra space is distributed exclusively to content columns.
 pub fn print_table_with_hints<T: Tabled>(data: &[T], content_columns: &[usize]) {
@@ -168,9 +229,13 @@ pub fn print_table_with_hints<T: Tabled>(data: &[T], content_columns: &[usize]) 
 
     let width = terminal_width();
 
-    // Set content column indices for custom peakers
+    // Compute content-aware minimums and set thread-locals for peakers
+    let col_mins = compute_column_min_widths(data, content_columns);
     CONTENT_COLUMNS.with(|cc| {
         *cc.borrow_mut() = content_columns.to_vec();
+    });
+    COLUMN_MIN_WIDTHS.with(|cmw| {
+        *cmw.borrow_mut() = col_mins;
     });
 
     let table = Table::new(data)
@@ -183,8 +248,9 @@ pub fn print_table_with_hints<T: Tabled>(data: &[T], content_columns: &[usize]) 
         .with(Width::increase(width).priority::<ExpandContentOnly>())
         .to_string();
 
-    // Clean up thread-local
+    // Clean up thread-locals
     CONTENT_COLUMNS.with(|cc| cc.borrow_mut().clear());
+    COLUMN_MIN_WIDTHS.with(|cmw| cmw.borrow_mut().clear());
 
     println!("{}", table);
 }
@@ -373,5 +439,59 @@ mod tests {
         assert_eq!(ServiceStatus::from_proto(3), ServiceStatus::Unhealthy);
         assert_eq!(ServiceStatus::from_proto(0), ServiceStatus::Unknown);
         assert_eq!(ServiceStatus::from_proto(99), ServiceStatus::Unknown);
+    }
+
+    /// Test struct for column min width computation
+    #[derive(Tabled)]
+    struct TestRow {
+        #[tabled(rename = "ID")]
+        id: String,
+        #[tabled(rename = "Title")]
+        title: String,
+        #[tabled(rename = "Tags")]
+        tags: String,
+    }
+
+    #[test]
+    fn test_compute_column_min_widths_header_floor() {
+        // When cells are shorter than headers, header width + padding is the minimum
+        let data = vec![TestRow {
+            id: "1".into(),
+            title: "Hi".into(),
+            tags: "a".into(),
+        }];
+        // Title(1) is content column
+        let mins = compute_column_min_widths(&data, &[1]);
+        // All values include CELL_PADDING (2)
+        assert_eq!(mins[0], 2 + CELL_PADDING); // "ID" header = 2
+        assert_eq!(mins[1], 5 + CELL_PADDING); // "Title" header = 5 (content col)
+        assert_eq!(mins[2], 4 + CELL_PADDING); // "Tags" header = 4 > "a" = 1
+    }
+
+    #[test]
+    fn test_compute_column_min_widths_comma_split() {
+        // Comma-separated tags: widest segment determines min
+        let data = vec![TestRow {
+            id: "abc".into(),
+            title: "A long title".into(),
+            tags: "short, verylongtag, mid".into(),
+        }];
+        let mins = compute_column_min_widths(&data, &[1]);
+        assert_eq!(mins[0], 3 + CELL_PADDING); // "abc" > "ID"(2)
+        assert_eq!(mins[1], 5 + CELL_PADDING); // content column, stays at header width
+        assert_eq!(mins[2], 11 + CELL_PADDING); // "verylongtag" = 11 > "Tags"(4)
+    }
+
+    #[test]
+    fn test_compute_column_min_widths_across_rows() {
+        // Min width should be the max across all rows
+        let data = vec![
+            TestRow { id: "1".into(), title: "x".into(), tags: "a, b".into() },
+            TestRow { id: "42".into(), title: "y".into(), tags: "longvalue".into() },
+            TestRow { id: "7".into(), title: "z".into(), tags: "c".into() },
+        ];
+        let mins = compute_column_min_widths(&data, &[1]);
+        assert_eq!(mins[0], 2 + CELL_PADDING); // "42" = 2, "ID" = 2
+        assert_eq!(mins[2], 9 + CELL_PADDING); // "longvalue" = 9 > "Tags"(4)
     }
 }
