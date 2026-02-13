@@ -25,14 +25,7 @@ use tracing::{debug, info, warn, error};
 // Note: tonic, hyper, and url imports removed as they're not currently used
 // They would be needed for advanced gRPC HTTP/2 configuration
 
-/// Multi-tenant collection names (unified architecture - canonical names)
-///
-/// Re-exported from `wqm_common::constants` for backward compatibility.
-pub mod collections {
-    pub use wqm_common::constants::COLLECTION_PROJECTS as PROJECTS;
-    pub use wqm_common::constants::COLLECTION_LIBRARIES as LIBRARIES;
-    pub use wqm_common::constants::COLLECTION_MEMORY as MEMORY;
-}
+use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY};
 
 /// Multi-tenant collection configuration
 #[derive(Debug, Clone)]
@@ -1289,14 +1282,14 @@ impl StorageClient {
         let mut result = MultiTenantInitResult::default();
 
         // Create _projects collection
-        match self.create_multi_tenant_collection(collections::PROJECTS, &config).await {
+        match self.create_multi_tenant_collection(COLLECTION_PROJECTS, &config).await {
             Ok(()) => {
                 // Check if we actually created it (vs skipped)
-                if !self.collection_exists(collections::PROJECTS).await.unwrap_or(false) {
+                if !self.collection_exists(COLLECTION_PROJECTS).await.unwrap_or(false) {
                     result.projects_created = true;
                 }
                 // Create project_id index
-                match self.create_payload_index(collections::PROJECTS, "project_id").await {
+                match self.create_payload_index(COLLECTION_PROJECTS, "project_id").await {
                     Ok(()) => result.projects_indexed = true,
                     Err(e) => {
                         // Index might already exist, log but continue
@@ -1306,17 +1299,17 @@ impl StorageClient {
                 }
             }
             Err(e) => {
-                error!("Failed to create {} collection: {}", collections::PROJECTS, e);
+                error!("Failed to create {} collection: {}", COLLECTION_PROJECTS, e);
                 return Err(e);
             }
         }
         result.projects_created = true;
 
         // Create _libraries collection
-        match self.create_multi_tenant_collection(collections::LIBRARIES, &config).await {
+        match self.create_multi_tenant_collection(COLLECTION_LIBRARIES, &config).await {
             Ok(()) => {
                 // Create library_name index
-                match self.create_payload_index(collections::LIBRARIES, "library_name").await {
+                match self.create_payload_index(COLLECTION_LIBRARIES, "library_name").await {
                     Ok(()) => result.libraries_indexed = true,
                     Err(e) => {
                         warn!("Could not create library_name index (may already exist): {}", e);
@@ -1325,17 +1318,17 @@ impl StorageClient {
                 }
             }
             Err(e) => {
-                error!("Failed to create {} collection: {}", collections::LIBRARIES, e);
+                error!("Failed to create {} collection: {}", COLLECTION_LIBRARIES, e);
                 return Err(e);
             }
         }
         result.libraries_created = true;
 
         // Create _memory collection (no additional index needed)
-        match self.create_multi_tenant_collection(collections::MEMORY, &config).await {
+        match self.create_multi_tenant_collection(COLLECTION_MEMORY, &config).await {
             Ok(()) => {}
             Err(e) => {
-                error!("Failed to create {} collection: {}", collections::MEMORY, e);
+                error!("Failed to create {} collection: {}", COLLECTION_MEMORY, e);
                 return Err(e);
             }
         }
@@ -1944,9 +1937,9 @@ mod tests {
     #[test]
     fn test_collection_names() {
         // Canonical collection names (without underscore prefix)
-        assert_eq!(collections::PROJECTS, "projects");
-        assert_eq!(collections::LIBRARIES, "libraries");
-        assert_eq!(collections::MEMORY, "memory");
+        assert_eq!(COLLECTION_PROJECTS, "projects");
+        assert_eq!(COLLECTION_LIBRARIES, "libraries");
+        assert_eq!(COLLECTION_MEMORY, "memory");
     }
 
     #[test]

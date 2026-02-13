@@ -12,6 +12,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::Sqlite;
 use std::fmt;
+use wqm_common::constants::COLLECTION_PROJECTS;
 use wqm_common::timestamps;
 // ---------------------------------------------------------------------------
 // Enums
@@ -309,7 +310,7 @@ fn tracked_file_from_row(r: &SqliteRow) -> TrackedFile {
         last_error: r.get("last_error"),
         needs_reconcile: r.get::<i32, _>("needs_reconcile") != 0,
         reconcile_reason: r.get("reconcile_reason"),
-        collection: r.get::<Option<String>, _>("collection").unwrap_or_else(|| "projects".to_string()),
+        collection: r.get::<Option<String>, _>("collection").unwrap_or_else(|| COLLECTION_PROJECTS.to_string()),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
     }
@@ -399,7 +400,7 @@ pub async fn insert_tracked_file(
     collection: Option<&str>,
 ) -> Result<i64, sqlx::Error> {
     let now = timestamps::now_utc();
-    let collection = collection.unwrap_or("projects");
+    let collection = collection.unwrap_or(COLLECTION_PROJECTS);
     let result = sqlx::query(
         "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_type, language,
          file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,
@@ -631,7 +632,7 @@ pub async fn insert_tracked_file_tx(
     collection: Option<&str>,
 ) -> Result<i64, sqlx::Error> {
     let now = timestamps::now_utc();
-    let collection = collection.unwrap_or("projects");
+    let collection = collection.unwrap_or(COLLECTION_PROJECTS);
     let result = sqlx::query(
         "INSERT INTO tracked_files (watch_folder_id, file_path, branch, file_type, language,
          file_mtime, file_hash, chunk_count, chunking_method, lsp_status, treesitter_status,

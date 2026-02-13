@@ -16,6 +16,7 @@ use git2::Repository;
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 
+use wqm_common::constants::COLLECTION_PROJECTS;
 use crate::project_disambiguation::ProjectIdCalculator;
 use crate::queue_operations::QueueManager;
 
@@ -60,11 +61,12 @@ pub async fn check_remote_url_changes(
             FROM watch_folders
             WHERE is_active = 1
               AND COALESCE(is_archived, 0) = 0
-              AND collection = 'projects'
+              AND collection = ?1
               AND parent_watch_id IS NULL
               AND git_remote_url IS NOT NULL
             "#,
         )
+        .bind(COLLECTION_PROJECTS)
         .fetch_all(pool)
         .await
         .map_err(|e| format!("Failed to query watch_folders: {}", e))?;

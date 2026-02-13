@@ -30,7 +30,8 @@ use tracing::{debug, info, warn, error};
 use uuid::Uuid;
 use wqm_common::timestamps;
 use workspace_qdrant_core::storage::{StorageClient, DocumentPoint, StorageError};
-use workspace_qdrant_core::{UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION, BM25};
+use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
+use workspace_qdrant_core::BM25;
 use fastembed::{TextEmbedding, InitOptions, EmbeddingModel};
 use tokio::sync::Mutex as TokioMutex;
 use tokio::sync::RwLock as TokioRwLock;
@@ -281,14 +282,14 @@ impl DocumentServiceImpl {
         if Self::is_project_id(tenant_id) {
             // 12-char hex = project_id → route to canonical `projects` collection
             Ok((
-                UNIFIED_PROJECTS_COLLECTION.to_string(),
+                COLLECTION_PROJECTS.to_string(),
                 "project_id".to_string(),
                 tenant_id.to_string(),
             ))
         } else {
             // Non-hex = library_name → route to canonical `libraries` collection
             Ok((
-                UNIFIED_LIBRARIES_COLLECTION.to_string(),
+                COLLECTION_LIBRARIES.to_string(),
                 "library_name".to_string(),
                 tenant_id.to_string(),
             ))
@@ -836,8 +837,8 @@ impl DocumentService for DocumentServiceImpl {
         Self::validate_collection_name(&req.collection_name)?;
 
         // Log if targeting a unified collection
-        if req.collection_name == UNIFIED_PROJECTS_COLLECTION
-            || req.collection_name == UNIFIED_LIBRARIES_COLLECTION
+        if req.collection_name == COLLECTION_PROJECTS
+            || req.collection_name == COLLECTION_LIBRARIES
         {
             debug!(
                 "Deleting from unified collection '{}' - document_id filter will be used",

@@ -35,6 +35,7 @@ import { RetrieveTool } from './tools/retrieve.js';
 import { MemoryTool } from './tools/memory.js';
 import { StoreTool } from './tools/store.js';
 import type { ServerConfig } from './types/index.js';
+import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY } from './common/native-bridge.js';
 
 // Heartbeat interval: 3 hours (in milliseconds)
 const HEARTBEAT_INTERVAL_MS = 3 * 60 * 60 * 1000;
@@ -201,7 +202,7 @@ export class WorkspaceQdrantMcpServer {
             },
             collection: {
               type: 'string',
-              enum: ['projects', 'libraries', 'memory'],
+              enum: [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY],
               description: 'Specific collection to search',
             },
             mode: {
@@ -254,7 +255,7 @@ export class WorkspaceQdrantMcpServer {
             },
             collection: {
               type: 'string',
-              enum: ['projects', 'libraries', 'memory'],
+              enum: [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY],
               description: 'Collection to retrieve from (default: projects)',
             },
             filter: {

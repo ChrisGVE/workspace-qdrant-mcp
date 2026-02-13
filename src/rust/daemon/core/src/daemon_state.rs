@@ -16,6 +16,7 @@ use serde_json::Value as JsonValue;
 use sqlx::{Row, SqlitePool, sqlite::{SqlitePoolOptions, SqliteConnectOptions}};
 use tracing::{info, warn};
 
+use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
 use crate::schema_version::{SchemaManager, SchemaError};
 
 /// Daemon state management errors
@@ -111,12 +112,12 @@ impl WatchFolderRecord {
 
     /// Check if this is a library watch
     pub fn is_library(&self) -> bool {
-        self.collection == "libraries"
+        self.collection == COLLECTION_LIBRARIES
     }
 
     /// Check if this is a project watch
     pub fn is_project(&self) -> bool {
-        self.collection == "projects"
+        self.collection == COLLECTION_PROJECTS
     }
 }
 
@@ -301,10 +302,11 @@ impl DaemonStateManager {
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
             FROM watch_folders
-            WHERE collection = 'projects' AND is_active = 1 AND enabled = 1
+            WHERE collection = ?1 AND is_active = 1 AND enabled = 1
             ORDER BY last_activity_at DESC
             "#,
         )
+        .bind(COLLECTION_PROJECTS)
         .fetch_all(&self.pool)
         .await?;
 
@@ -405,7 +407,7 @@ impl DaemonStateManager {
         tenant_id: &str,
     ) -> DaemonStateResult<(u64, Option<String>)> {
         // Find the main watch folder for this tenant
-        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, "projects").await?;
+        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, COLLECTION_PROJECTS).await?;
 
         match watch_folder {
             Some(folder) => {
@@ -424,7 +426,7 @@ impl DaemonStateManager {
         tenant_id: &str,
     ) -> DaemonStateResult<(u64, Option<String>)> {
         // Find the main watch folder for this tenant
-        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, "projects").await?;
+        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, COLLECTION_PROJECTS).await?;
 
         match watch_folder {
             Some(folder) => {
@@ -467,7 +469,7 @@ impl DaemonStateManager {
         tenant_id: &str,
     ) -> DaemonStateResult<(u64, Option<String>)> {
         // Find the main watch folder for this tenant
-        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, "projects").await?;
+        let watch_folder = self.get_watch_folder_by_tenant_id(tenant_id, COLLECTION_PROJECTS).await?;
 
         match watch_folder {
             Some(folder) => {
@@ -491,12 +493,13 @@ impl DaemonStateManager {
             r#"
             SELECT watch_id FROM watch_folders
             WHERE is_active = 1
-              AND collection = 'projects'
+              AND collection = ?1
               AND parent_watch_id IS NULL
               AND last_activity_at IS NOT NULL
-              AND (julianday('now') - julianday(last_activity_at)) * 86400 > ?1
+              AND (julianday('now') - julianday(last_activity_at)) * 86400 > ?2
             "#,
         )
+        .bind(COLLECTION_PROJECTS)
         .bind(timeout_secs)
         .fetch_all(&self.pool)
         .await?;
@@ -797,11 +800,12 @@ impl DaemonStateManager {
                    follow_symlinks, enabled, cleanup_on_disable,
                    created_at, updated_at, last_scan
             FROM watch_folders
-            WHERE remote_hash = ?1 AND parent_watch_id IS NULL AND collection = 'projects'
+            WHERE remote_hash = ?1 AND parent_watch_id IS NULL AND collection = ?2
             ORDER BY created_at ASC
             "#,
         )
         .bind(remote_hash)
+        .bind(COLLECTION_PROJECTS)
         .fetch_all(&self.pool)
         .await?;
 
@@ -938,9 +942,10 @@ impl DaemonStateManager {
     /// Check if a path is already registered as a project
     pub async fn is_path_registered(&self, path: &str) -> DaemonStateResult<bool> {
         let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM watch_folders WHERE path = ?1 AND collection = 'projects'"
+            "SELECT COUNT(*) FROM watch_folders WHERE path = ?1 AND collection = ?2"
         )
         .bind(path)
+        .bind(COLLECTION_PROJECTS)
         .fetch_one(&self.pool)
         .await?;
 
@@ -1022,8 +1027,9 @@ impl DaemonStateManager {
 
         // Active projects count
         let active_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM watch_folders WHERE is_active = 1 AND collection = 'projects'"
+            "SELECT COUNT(*) FROM watch_folders WHERE is_active = 1 AND collection = ?1"
         )
+        .bind(COLLECTION_PROJECTS)
             .fetch_one(&self.pool)
             .await
             .unwrap_or(0);

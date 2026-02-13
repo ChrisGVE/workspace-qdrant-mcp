@@ -14,6 +14,7 @@ use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
 use walkdir::WalkDir;
 
+use wqm_common::constants::COLLECTION_LIBRARIES;
 use crate::allowed_extensions::{AllowedExtensions, FileRoute};
 use crate::config::StartupConfig;
 use crate::patterns::exclusion::{should_exclude_file, should_exclude_directory};
@@ -340,7 +341,7 @@ async fn recover_watch_folder(
                 let meta = source_project_id.as_ref().map(|pid| {
                     serde_json::json!({"source_project_id": pid}).to_string()
                 });
-                ("libraries".to_string(), tenant_id.to_string(), meta)
+                (COLLECTION_LIBRARIES.to_string(), tenant_id.to_string(), meta)
             }
             FileRoute::Excluded => {
                 // File extension not in any allowlist - queue delete if previously tracked
@@ -361,7 +362,7 @@ async fn recover_watch_folder(
         };
 
         let is_library_routed = matches!(route, FileRoute::LibraryCollection { .. })
-            && collection != "libraries";
+            && collection != COLLECTION_LIBRARIES;
 
         disk_files.insert(rel_path.clone(), ());
 

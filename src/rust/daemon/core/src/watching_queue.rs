@@ -28,11 +28,7 @@ use serde::{Deserialize, Serialize};
 // ========== MULTI-TENANT TYPES ==========
 //
 
-/// Unified collection names for multi-tenant architecture (canonical names)
-///
-/// Re-exported from `wqm_common::constants` for backward compatibility.
-pub use wqm_common::constants::COLLECTION_PROJECTS as UNIFIED_PROJECTS_COLLECTION;
-pub use wqm_common::constants::COLLECTION_LIBRARIES as UNIFIED_LIBRARIES_COLLECTION;
+use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
 
 /// Watch type distinguishing project vs library watches
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -878,7 +874,7 @@ impl FileWatcherQueue {
         match watch_type {
             WatchType::Project => {
                 let project_id = calculate_tenant_id(project_root);
-                (UNIFIED_PROJECTS_COLLECTION.to_string(), project_id)
+                (COLLECTION_PROJECTS.to_string(), project_id)
             }
             WatchType::Library => {
                 let tenant = library_name
@@ -894,7 +890,7 @@ impl FileWatcherQueue {
                                 .to_string()
                         }
                     });
-                (UNIFIED_LIBRARIES_COLLECTION.to_string(), tenant)
+                (COLLECTION_LIBRARIES.to_string(), tenant)
             }
         }
     }
@@ -994,7 +990,7 @@ impl FileWatcherQueue {
             (collection.clone(), None)
         } else {
             match allowed_extensions.route_file(&file_absolute_path, &collection, &tenant_id) {
-                FileRoute::LibraryCollection { source_project_id } if collection != UNIFIED_LIBRARIES_COLLECTION => {
+                FileRoute::LibraryCollection { source_project_id } if collection != COLLECTION_LIBRARIES => {
                     let meta = source_project_id.as_ref().map(|pid| {
                         serde_json::json!({"source_project_id": pid}).to_string()
                     });
@@ -1002,7 +998,7 @@ impl FileWatcherQueue {
                         "Format-based routing override: {} -> libraries (source_project={})",
                         file_absolute_path, tenant_id
                     );
-                    (UNIFIED_LIBRARIES_COLLECTION.to_string(), meta)
+                    (COLLECTION_LIBRARIES.to_string(), meta)
                 }
                 _ => (collection.clone(), None),
             }
@@ -3253,8 +3249,8 @@ mod tests {
     #[test]
     fn test_unified_collection_constants() {
         // Canonical collection names (without underscore prefix)
-        assert_eq!(UNIFIED_PROJECTS_COLLECTION, "projects");
-        assert_eq!(UNIFIED_LIBRARIES_COLLECTION, "libraries");
+        assert_eq!(COLLECTION_PROJECTS, "projects");
+        assert_eq!(COLLECTION_LIBRARIES, "libraries");
     }
 
     #[test]
@@ -3267,7 +3263,7 @@ mod tests {
             "_old_collection",
         );
 
-        assert_eq!(collection, UNIFIED_PROJECTS_COLLECTION);
+        assert_eq!(collection, COLLECTION_PROJECTS);
         // Tenant ID should be local_ prefixed since temp_dir is not a git repo
         assert!(tenant_id.starts_with("local_"));
     }
@@ -3282,7 +3278,7 @@ mod tests {
             "_old_collection",
         );
 
-        assert_eq!(collection, UNIFIED_LIBRARIES_COLLECTION);
+        assert_eq!(collection, COLLECTION_LIBRARIES);
         assert_eq!(tenant_id, "my_library");
     }
 
@@ -3296,7 +3292,7 @@ mod tests {
             "_langchain", // Legacy collection
         );
 
-        assert_eq!(collection, UNIFIED_LIBRARIES_COLLECTION);
+        assert_eq!(collection, COLLECTION_LIBRARIES);
         // Should extract "langchain" from "_langchain"
         assert_eq!(tenant_id, "langchain");
     }
@@ -3311,7 +3307,7 @@ mod tests {
             "some_collection", // No underscore prefix
         );
 
-        assert_eq!(collection, UNIFIED_LIBRARIES_COLLECTION);
+        assert_eq!(collection, COLLECTION_LIBRARIES);
         // Should use directory name from path
         assert!(!tenant_id.is_empty());
     }

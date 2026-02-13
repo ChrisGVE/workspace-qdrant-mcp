@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 use wqm_common::timestamps;
+use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY};
 
 use crate::unified_queue_schema::{
     ItemType, QueueOperation as UnifiedOp, QueueStatus,
@@ -898,7 +899,7 @@ impl QueueManager {
                     FROM unified_queue q
                     LEFT JOIN watch_folders w
                         ON q.tenant_id = w.tenant_id
-                        AND q.collection = 'projects'
+                        AND q.collection = '{coll_projects}'
                         AND w.parent_watch_id IS NULL
                     WHERE (
                         (q.status = 'pending' AND (q.lease_until IS NULL OR q.lease_until < ?1))
@@ -908,15 +909,18 @@ impl QueueManager {
                     AND q.item_type = ?3
                     ORDER BY
                         CASE
-                            WHEN q.collection = 'memory' THEN 1
-                            WHEN q.collection = 'libraries' THEN 0
+                            WHEN q.collection = '{coll_memory}' THEN 1
+                            WHEN q.collection = '{coll_libraries}' THEN 0
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
-                        END {},
+                        END {priority_order},
                         q.created_at ASC
                     LIMIT ?4
                     "#,
-                    priority_order
+                    coll_projects = COLLECTION_PROJECTS,
+                    coll_libraries = COLLECTION_LIBRARIES,
+                    coll_memory = COLLECTION_MEMORY,
+                    priority_order = priority_order,
                 );
                 sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)
@@ -934,7 +938,7 @@ impl QueueManager {
                     FROM unified_queue q
                     LEFT JOIN watch_folders w
                         ON q.tenant_id = w.tenant_id
-                        AND q.collection = 'projects'
+                        AND q.collection = '{coll_projects}'
                         AND w.parent_watch_id IS NULL
                     WHERE (
                         (q.status = 'pending' AND (q.lease_until IS NULL OR q.lease_until < ?1))
@@ -943,15 +947,18 @@ impl QueueManager {
                     AND q.tenant_id = ?2
                     ORDER BY
                         CASE
-                            WHEN q.collection = 'memory' THEN 1
-                            WHEN q.collection = 'libraries' THEN 0
+                            WHEN q.collection = '{coll_memory}' THEN 1
+                            WHEN q.collection = '{coll_libraries}' THEN 0
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
-                        END {},
+                        END {priority_order},
                         q.created_at ASC
                     LIMIT ?3
                     "#,
-                    priority_order
+                    coll_projects = COLLECTION_PROJECTS,
+                    coll_libraries = COLLECTION_LIBRARIES,
+                    coll_memory = COLLECTION_MEMORY,
+                    priority_order = priority_order,
                 );
                 sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)
@@ -968,7 +975,7 @@ impl QueueManager {
                     FROM unified_queue q
                     LEFT JOIN watch_folders w
                         ON q.tenant_id = w.tenant_id
-                        AND q.collection = 'projects'
+                        AND q.collection = '{coll_projects}'
                         AND w.parent_watch_id IS NULL
                     WHERE (
                         (q.status = 'pending' AND (q.lease_until IS NULL OR q.lease_until < ?1))
@@ -977,15 +984,18 @@ impl QueueManager {
                     AND q.item_type = ?2
                     ORDER BY
                         CASE
-                            WHEN q.collection = 'memory' THEN 1
-                            WHEN q.collection = 'libraries' THEN 0
+                            WHEN q.collection = '{coll_memory}' THEN 1
+                            WHEN q.collection = '{coll_libraries}' THEN 0
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
-                        END {},
+                        END {priority_order},
                         q.created_at ASC
                     LIMIT ?3
                     "#,
-                    priority_order
+                    coll_projects = COLLECTION_PROJECTS,
+                    coll_libraries = COLLECTION_LIBRARIES,
+                    coll_memory = COLLECTION_MEMORY,
+                    priority_order = priority_order,
                 );
                 sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)
@@ -1002,7 +1012,7 @@ impl QueueManager {
                     FROM unified_queue q
                     LEFT JOIN watch_folders w
                         ON q.tenant_id = w.tenant_id
-                        AND q.collection = 'projects'
+                        AND q.collection = '{coll_projects}'
                         AND w.parent_watch_id IS NULL
                     WHERE (
                         (q.status = 'pending' AND (q.lease_until IS NULL OR q.lease_until < ?1))
@@ -1010,15 +1020,18 @@ impl QueueManager {
                     )
                     ORDER BY
                         CASE
-                            WHEN q.collection = 'memory' THEN 1
-                            WHEN q.collection = 'libraries' THEN 0
+                            WHEN q.collection = '{coll_memory}' THEN 1
+                            WHEN q.collection = '{coll_libraries}' THEN 0
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
-                        END {},
+                        END {priority_order},
                         q.created_at ASC
                     LIMIT ?2
                     "#,
-                    priority_order
+                    coll_projects = COLLECTION_PROJECTS,
+                    coll_libraries = COLLECTION_LIBRARIES,
+                    coll_memory = COLLECTION_MEMORY,
+                    priority_order = priority_order,
                 );
                 sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)

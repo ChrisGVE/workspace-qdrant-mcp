@@ -16,6 +16,7 @@ use wqm_common::timestamps;
 use clap::{Args, Subcommand, ValueEnum};
 use rusqlite::Connection;
 
+use wqm_common::constants::COLLECTION_LIBRARIES;
 use crate::config::get_database_path;
 use crate::grpc::client::DaemonClient;
 use crate::queue::{UnifiedQueueClient, ItemType, QueueOperation};
@@ -219,8 +220,8 @@ async fn list(verbose: bool) -> Result<()> {
     };
 
     let mut stmt = conn.prepare(
-        "SELECT watch_id, tenant_id, path, library_mode, enabled, is_active, created_at, last_activity_at
-         FROM watch_folders WHERE collection = 'libraries' ORDER BY tenant_id"
+        &format!("SELECT watch_id, tenant_id, path, library_mode, enabled, is_active, created_at, last_activity_at
+         FROM watch_folders WHERE collection = '{}' ORDER BY tenant_id", COLLECTION_LIBRARIES)
     ).context("Failed to query watch_folders")?;
 
     let libraries: Vec<(String, String, String, Option<String>, bool, bool, String, Option<String>)> = stmt
@@ -414,8 +415,8 @@ async fn watch(tag: &str, path: &PathBuf, patterns: &[String], mode: LibraryMode
             match client.enqueue(
                 ItemType::Folder,
                 QueueOperation::Scan,
-                tag,            // tenant_id
-                "libraries",    // collection
+                tag,                    // tenant_id
+                COLLECTION_LIBRARIES,   // collection
                 &payload_json,
                 0,              // priority
                 "",             // branch (not applicable)
@@ -464,7 +465,7 @@ async fn unwatch(tag: &str) -> Result<()> {
 
     // Verify library exists
     let exists: bool = conn.query_row(
-        "SELECT 1 FROM watch_folders WHERE watch_id = ? AND collection = 'libraries'",
+        &format!("SELECT 1 FROM watch_folders WHERE watch_id = ? AND collection = '{}'", COLLECTION_LIBRARIES),
         [&watch_id],
         |_| Ok(true),
     ).unwrap_or(false);
@@ -552,8 +553,8 @@ async fn remove(tag: &str, skip_confirm: bool) -> Result<()> {
     // Step 2: Enqueue deletion of vectors from Qdrant
     output::info("Queueing vector deletion...");
 
-    // Libraries are stored in the unified 'libraries' collection
-    let collection = "libraries";
+    // Libraries are stored in the unified libraries collection
+    let collection = COLLECTION_LIBRARIES;
 
     // Build delete tenant payload
     let payload_json = serde_json::json!({
@@ -669,8 +670,8 @@ async fn rescan(tag: &str, force: bool) -> Result<()> {
             match client.enqueue(
                 ItemType::Folder,
                 QueueOperation::Scan,
-                tag,            // tenant_id
-                "libraries",    // collection
+                tag,                    // tenant_id
+                COLLECTION_LIBRARIES,   // collection
                 &payload_json,
                 0,              // high priority
                 "",             // branch
@@ -748,7 +749,7 @@ async fn info(tag: Option<&str>) -> Result<()> {
                     output::kv("Path", &path);
                     output::kv("Status", status);
                     output::kv("Mode", mode.as_deref().unwrap_or("incremental"));
-                    output::kv("Collection", "libraries");
+                    output::kv("Collection", COLLECTION_LIBRARIES);
                     output::kv("Created", &created_at);
                     if let Some(updated) = updated_at {
                         output::kv("Updated", &updated);

@@ -35,6 +35,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, info, warn, error};
 
+use wqm_common::constants::COLLECTION_PROJECTS;
 use crate::metrics::METRICS;
 
 /// Priority levels for the queue system
@@ -386,12 +387,13 @@ impl PriorityManager {
                 last_activity_at = ?1,
                 updated_at = ?1
             WHERE tenant_id = ?2
-              AND collection = 'projects'
+              AND collection = ?3
         "#;
 
         let result = sqlx::query(update_query)
             .bind(timestamps::format_utc(&now))
             .bind(tenant_id)
+            .bind(COLLECTION_PROJECTS)
             .execute(&mut *tx)
             .await?;
 
@@ -454,9 +456,10 @@ impl PriorityManager {
 
         // Check if project exists
         let exists: Option<i32> = sqlx::query_scalar(
-            "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 AND collection = 'projects' LIMIT 1"
+            "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1"
         )
             .bind(tenant_id)
+            .bind(COLLECTION_PROJECTS)
             .fetch_optional(&mut *tx)
             .await?;
 
@@ -472,10 +475,11 @@ impl PriorityManager {
             SET is_active = 0,
                 updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
             WHERE tenant_id = ?1
-              AND collection = 'projects'
+              AND collection = ?2
             "#,
         )
         .bind(tenant_id)
+        .bind(COLLECTION_PROJECTS)
         .execute(&mut *tx)
         .await?;
 
@@ -535,12 +539,13 @@ impl PriorityManager {
             SET last_activity_at = ?1,
                 updated_at = ?1
             WHERE tenant_id = ?2
-              AND collection = 'projects'
+              AND collection = ?3
               AND is_active = 1
             "#,
         )
         .bind(timestamps::format_utc(&now))
         .bind(tenant_id)
+        .bind(COLLECTION_PROJECTS)
         .execute(&self.db_pool)
         .await?;
 
@@ -573,12 +578,13 @@ impl PriorityManager {
             SELECT watch_id, tenant_id, is_active, last_activity_at
             FROM watch_folders
             WHERE tenant_id = ?1
-              AND collection = 'projects'
+              AND collection = ?2
             LIMIT 1
         "#;
 
         let row = sqlx::query(query)
             .bind(tenant_id)
+            .bind(COLLECTION_PROJECTS)
             .fetch_optional(&self.db_pool)
             .await?;
 
@@ -630,12 +636,13 @@ impl PriorityManager {
             SELECT tenant_id
             FROM watch_folders
             WHERE is_active = 1
-              AND collection = 'projects'
+              AND collection = ?1
               AND last_activity_at IS NOT NULL
-              AND last_activity_at < ?1
+              AND last_activity_at < ?2
         "#;
 
         let rows = sqlx::query(orphaned_query)
+            .bind(COLLECTION_PROJECTS)
             .bind(&cutoff_str)
             .fetch_all(&mut *tx)
             .await?;
@@ -657,10 +664,11 @@ impl PriorityManager {
                 SET is_active = 0,
                     updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
                 WHERE tenant_id = ?1
-                  AND collection = 'projects'
+                  AND collection = ?2
                 "#,
             )
             .bind(&tenant_id)
+            .bind(COLLECTION_PROJECTS)
             .execute(&mut *tx)
             .await?;
 
@@ -709,11 +717,12 @@ impl PriorityManager {
             SELECT watch_id, tenant_id, is_active, last_activity_at
             FROM watch_folders
             WHERE is_active = 1
-              AND collection = 'projects'
+              AND collection = ?1
             ORDER BY last_activity_at DESC
         "#;
 
         let rows = sqlx::query(query)
+            .bind(COLLECTION_PROJECTS)
             .fetch_all(&self.db_pool)
             .await?;
 

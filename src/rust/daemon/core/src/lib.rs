@@ -146,8 +146,8 @@ pub use crate::type_aware_processor::{
 pub use crate::watching_queue::{
     FileWatcherQueue, WatchManager, WatchConfig, WatchingQueueStats, WatchingQueueError,
     calculate_tenant_id, get_current_branch,
-    // Multi-tenant routing types and constants
-    WatchType, UNIFIED_PROJECTS_COLLECTION, UNIFIED_LIBRARIES_COLLECTION,
+    // Multi-tenant routing types
+    WatchType,
     // Queue depth monitoring types (Task 461.8)
     QueueLoadLevel, QueueThrottleConfig, QueueThrottleState, QueueThrottleSummary,
     // Watch-queue coordination types (Task 461.9)
@@ -179,7 +179,6 @@ pub use crate::storage::{
     StorageClient, StorageConfig, StorageError,
     MultiTenantConfig, MultiTenantInitResult,
     DocumentPoint, SearchResult, SearchParams, HybridSearchMode, BatchStats,
-    collections
 };
 pub use crate::tree_sitter::{
     // Core types

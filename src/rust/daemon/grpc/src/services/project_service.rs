@@ -31,6 +31,7 @@ use crate::proto::{
     RenameTenantRequest, RenameTenantResponse,
 };
 
+use wqm_common::constants::COLLECTION_PROJECTS;
 use workspace_qdrant_core::{
     PriorityManager,
     LanguageServerManager, Language,
@@ -568,9 +569,10 @@ impl ProjectService for ProjectServiceImpl {
 
         // Check if project exists in watch_folders
         let existing: Option<(i32,)> = sqlx::query_as(
-            "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 AND collection = 'projects' LIMIT 1"
+            "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1"
         )
             .bind(&project_id)
+            .bind(COLLECTION_PROJECTS)
             .fetch_optional(&self.db_pool)
             .await
             .map_err(|e| {
@@ -870,12 +872,13 @@ impl ProjectService for ProjectServiceImpl {
         let query = r#"
             SELECT tenant_id, path, is_active, last_activity_at, created_at, git_remote_url
             FROM watch_folders
-            WHERE tenant_id = ?1 AND collection = 'projects'
+            WHERE tenant_id = ?1 AND collection = ?2
             LIMIT 1
         "#;
 
         let row = sqlx::query(query)
             .bind(&req.project_id)
+            .bind(COLLECTION_PROJECTS)
             .fetch_optional(&self.db_pool)
             .await
             .map_err(|e| {
@@ -958,12 +961,13 @@ impl ProjectService for ProjectServiceImpl {
         );
 
         // Build query using watch_folders table (spec-compliant schema)
-        let mut query = String::from(
+        let mut query = format!(
             r#"
             SELECT tenant_id, path, is_active, last_activity_at
             FROM watch_folders
-            WHERE collection = 'projects'
-            "#
+            WHERE collection = '{}'
+            "#,
+            COLLECTION_PROJECTS
         );
 
         // Add priority filter if specified (priority derived from is_active)

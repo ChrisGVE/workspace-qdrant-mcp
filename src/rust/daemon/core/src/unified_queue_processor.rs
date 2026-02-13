@@ -28,6 +28,7 @@ use crate::unified_queue_schema::{
     MemoryPayload, RenamePayload, RenameType,
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
+use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
 use crate::patterns::exclusion::{should_exclude_file, should_exclude_directory};
 use crate::file_classification::classify_file_type;
@@ -937,10 +938,10 @@ impl UnifiedQueueProcessor {
         // looking up by "projects" when the primary lookup fails.
         let (watch_folder_id, base_path) = match watch_info {
             Some((wid, bp)) => (wid, bp),
-            None if item.collection == "libraries" => {
+            None if item.collection == COLLECTION_LIBRARIES => {
                 // Try fallback: file may originate from a project watch folder
                 let fallback = tracked_files_schema::lookup_watch_folder(
-                    pool, &item.tenant_id, "projects",
+                    pool, &item.tenant_id, COLLECTION_PROJECTS,
                 ).await
                 .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Fallback watch_folder lookup failed: {}", e)))?;
 
@@ -1731,9 +1732,10 @@ impl UnifiedQueueProcessor {
 
                 // Update last_scan timestamp for this project's watch_folder
                 let update_result = sqlx::query(
-                    "UPDATE watch_folders SET last_scan = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE tenant_id = ?1 AND collection = 'projects'"
+                    "UPDATE watch_folders SET last_scan = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE tenant_id = ?1 AND collection = ?2"
                 )
                     .bind(&item.tenant_id)
+                    .bind(COLLECTION_PROJECTS)
                     .execute(queue_manager.pool())
                     .await;
 
@@ -2108,9 +2110,10 @@ impl UnifiedQueueProcessor {
 
         // Update last_scan timestamp for this library's watch_folder
         let update_result = sqlx::query(
-            "UPDATE watch_folders SET last_scan = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE tenant_id = ?1 AND collection = 'libraries'"
+            "UPDATE watch_folders SET last_scan = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE tenant_id = ?1 AND collection = ?2"
         )
             .bind(&item.tenant_id)
+            .bind(COLLECTION_LIBRARIES)
             .execute(queue_manager.pool())
             .await;
 
@@ -2387,9 +2390,10 @@ impl UnifiedQueueProcessor {
                 // Scan library directory - look up path from watch_folders
                 let pool = queue_manager.pool();
                 let folder_path: Option<String> = sqlx::query_scalar(
-                    "SELECT path FROM watch_folders WHERE tenant_id = ?1 AND collection = 'libraries'"
+                    "SELECT path FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2"
                 )
                     .bind(&item.tenant_id)
+                    .bind(COLLECTION_LIBRARIES)
                     .fetch_optional(pool)
                     .await
                     .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Failed to lookup library path: {}", e)))?;
