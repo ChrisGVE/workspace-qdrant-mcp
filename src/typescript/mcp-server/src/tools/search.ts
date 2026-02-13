@@ -287,8 +287,8 @@ export class SearchTool {
     const mustConditions: Record<string, unknown>[] = [];
     const mustNotConditions: Record<string, unknown>[] = [];
 
-    // Project filter for project scope
-    if (params.collection === PROJECTS_COLLECTION && params.scope === 'project' && params.projectId) {
+    // Project filter for project scope (applies to both projects and libraries collections)
+    if (params.scope === 'project' && params.projectId) {
       mustConditions.push({
         key: 'tenant_id',
         match: { value: params.projectId },
