@@ -25,7 +25,7 @@ use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{
     ItemType, QueueOperation, UnifiedQueueItem,
     ContentPayload, FilePayload, FolderPayload, ProjectPayload, LibraryPayload,
-    RenamePayload, RenameType,
+    MemoryPayload, RenamePayload, RenameType,
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
@@ -683,6 +683,10 @@ impl UnifiedQueueProcessor {
     }
 
     /// Process content item (Task 37.27) - direct text ingestion
+    ///
+    /// When the target collection is "memory", deserializes as MemoryPayload
+    /// and carries through all memory-specific fields (label, scope, title,
+    /// tags, priority) into the Qdrant point payload.
     async fn process_content_item(
         item: &UnifiedQueueItem,
         embedding_generator: &Arc<EmbeddingGenerator>,
@@ -693,10 +697,6 @@ impl UnifiedQueueProcessor {
             "Processing content item: {} -> collection: {}",
             item.queue_id, item.collection
         );
-
-        // Parse the content payload
-        let payload: ContentPayload = serde_json::from_str(&item.payload_json)
-            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse ContentPayload: {}", e)))?;
 
         // Ensure collection exists
         if !storage_client
@@ -711,7 +711,44 @@ impl UnifiedQueueProcessor {
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
 
-        // Generate embedding for the content (semaphore-gated, Task 504)
+        // Route to memory-specific or generic content processing
+        if item.collection == wqm_common::constants::COLLECTION_MEMORY {
+            Self::process_memory_item(item, embedding_generator, storage_client, embedding_semaphore).await
+        } else {
+            Self::process_generic_content_item(item, embedding_generator, storage_client, embedding_semaphore).await
+        }
+    }
+
+    /// Process a memory rule item — preserves all memory-specific metadata
+    async fn process_memory_item(
+        item: &UnifiedQueueItem,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
+        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
+    ) -> UnifiedProcessorResult<()> {
+        let payload: MemoryPayload = serde_json::from_str(&item.payload_json)
+            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse MemoryPayload: {}", e)))?;
+
+        let action = payload.action.as_deref().unwrap_or("add");
+        let now = wqm_common::timestamps::now_utc();
+
+        // For remove action, delete by label filter and return
+        if action == "remove" {
+            if let Some(label) = &payload.label {
+                info!("Removing memory rule with label: {}", label);
+                storage_client
+                    .delete_points_by_payload_field(
+                        wqm_common::constants::COLLECTION_MEMORY,
+                        "label",
+                        label,
+                    )
+                    .await
+                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+            }
+            return Ok(());
+        }
+
+        // Generate embedding (semaphore-gated)
         let _permit = embedding_semaphore.acquire().await
             .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
         let embedding_result = embedding_generator
@@ -720,7 +757,97 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
         drop(_permit);
 
-        // Generate stable document_id for content (deterministic from tenant + content)
+        // For update action, delete existing point by label first
+        if action == "update" {
+            if let Some(label) = &payload.label {
+                info!("Updating memory rule with label: {} (delete + re-insert)", label);
+                let _ = storage_client
+                    .delete_points_by_payload_field(
+                        wqm_common::constants::COLLECTION_MEMORY,
+                        "label",
+                        label,
+                    )
+                    .await;
+            }
+        }
+
+        let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
+
+        // Build point payload with ALL memory-specific fields
+        let mut point_payload = std::collections::HashMap::new();
+        point_payload.insert("content".to_string(), serde_json::json!(payload.content));
+        point_payload.insert("document_id".to_string(), serde_json::json!(content_doc_id));
+        point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
+        point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
+        point_payload.insert("item_type".to_string(), serde_json::json!("content"));
+        point_payload.insert("source_type".to_string(), serde_json::json!(payload.source_type));
+
+        // Memory-specific fields
+        if let Some(label) = &payload.label {
+            point_payload.insert("label".to_string(), serde_json::json!(label));
+        }
+        if let Some(scope) = &payload.scope {
+            point_payload.insert("scope".to_string(), serde_json::json!(scope));
+        }
+        if let Some(project_id) = &payload.project_id {
+            point_payload.insert("project_id".to_string(), serde_json::json!(project_id));
+        }
+        if let Some(title) = &payload.title {
+            point_payload.insert("title".to_string(), serde_json::json!(title));
+        }
+        if let Some(tags) = &payload.tags {
+            // Store as comma-separated string for Qdrant keyword matching
+            point_payload.insert("tags".to_string(), serde_json::json!(tags.join(",")));
+        }
+        if let Some(priority) = payload.priority {
+            point_payload.insert("priority".to_string(), serde_json::json!(priority));
+        }
+
+        // Timestamps
+        if action == "add" {
+            point_payload.insert("created_at".to_string(), serde_json::json!(&now));
+        }
+        point_payload.insert("updated_at".to_string(), serde_json::json!(&now));
+
+        let point = DocumentPoint {
+            id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
+            dense_vector: embedding_result.dense.vector,
+            sparse_vector: Self::sparse_embedding_to_map(&embedding_result.sparse),
+            payload: point_payload,
+        };
+
+        storage_client
+            .insert_points_batch(&item.collection, vec![point], Some(1))
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+        info!(
+            "Successfully processed memory item {} (action={}, label={:?}) -> {}",
+            item.queue_id, action, payload.label, item.collection
+        );
+
+        Ok(())
+    }
+
+    /// Process a generic content item (non-memory)
+    async fn process_generic_content_item(
+        item: &UnifiedQueueItem,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
+        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
+    ) -> UnifiedProcessorResult<()> {
+        let payload: ContentPayload = serde_json::from_str(&item.payload_json)
+            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse ContentPayload: {}", e)))?;
+
+        // Generate embedding (semaphore-gated, Task 504)
+        let _permit = embedding_semaphore.acquire().await
+            .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
+        let embedding_result = embedding_generator
+            .generate_embedding(&payload.content, "bge-small-en-v1.5")
+            .await
+            .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
+        drop(_permit);
+
         let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
 
         // Build payload with metadata
@@ -732,7 +859,6 @@ impl UnifiedQueueProcessor {
         point_payload.insert("item_type".to_string(), serde_json::json!("content"));
         point_payload.insert("source_type".to_string(), serde_json::json!(payload.source_type));
 
-        // Add tag metadata from payload
         if let Some(main_tag) = &payload.main_tag {
             point_payload.insert("main_tag".to_string(), serde_json::json!(main_tag));
         }
@@ -740,7 +866,6 @@ impl UnifiedQueueProcessor {
             point_payload.insert("full_tag".to_string(), serde_json::json!(full_tag));
         }
 
-        // Create document point with stable point ID and sparse vector for hybrid search
         let point = DocumentPoint {
             id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
             dense_vector: embedding_result.dense.vector,
@@ -748,7 +873,6 @@ impl UnifiedQueueProcessor {
             payload: point_payload,
         };
 
-        // Insert point
         storage_client
             .insert_points_batch(&item.collection, vec![point], Some(1))
             .await

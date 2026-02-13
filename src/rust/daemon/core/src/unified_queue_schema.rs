@@ -14,7 +14,7 @@ pub use wqm_common::queue_types::{ItemType, QueueOperation, QueueStatus};
 pub use wqm_common::payloads::{
     ContentPayload, FilePayload, FolderPayload, ProjectPayload,
     LibraryPayload, DeleteTenantPayload, DeleteDocumentPayload,
-    RenamePayload, RenameType,
+    MemoryPayload, RenamePayload, RenameType,
 };
 
 /// Complete unified queue item representation
