@@ -3,11 +3,15 @@
 //! Manages LLM memory rules stored in the `memory` collection.
 //! Subcommands: list, add, remove, search, scope
 
+use std::collections::HashMap;
+use std::path::Path;
+
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
+use crate::config::get_database_path_checked;
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{DeleteDocumentRequest, IngestTextRequest};
 use crate::output::{self, ServiceStatus};
@@ -292,17 +296,88 @@ fn payload_u32(payload: &serde_json::Value, key: &str) -> Option<u32> {
 
 /// Format a title with optional project name for project-scoped rules.
 ///
-/// For rules with scope "project", appends the project_id in parenthesis
-/// on a new line below the title.
-fn format_title_with_project(payload: &serde_json::Value) -> String {
+/// For rules with scope "project", appends project info in parenthesis
+/// after the title text. Non-verbose shows just the project name;
+/// verbose includes the tenant_id. Uses same-line format so tabled's
+/// word wrapping handles layout naturally.
+fn format_title_with_project(
+    payload: &serde_json::Value,
+    project_names: &HashMap<String, String>,
+    verbose: bool,
+) -> String {
     let title = payload_str(payload, "title");
     let scope = payload_str(payload, "scope");
     if scope == "project" {
         if let Some(pid) = payload.get("project_id").and_then(|v| v.as_str()) {
-            return format!("{}\n({})", title, pid);
+            let name = project_names.get(pid);
+            return match (name, verbose) {
+                (Some(name), false) => format!("{} ({})", title, name),
+                (Some(name), true) => format!("{} ({} / {})", title, name, pid),
+                (None, _) => format!("{} ({})", title, pid),
+            };
         }
     }
     title
+}
+
+/// Build a tenant_id → project name mapping from watch_folders.
+///
+/// Extracts the last path component as the project name. Returns an
+/// empty map if the database is unavailable.
+fn load_project_names() -> HashMap<String, String> {
+    let mut map = HashMap::new();
+    let db_path = match get_database_path_checked() {
+        Ok(p) => p,
+        Err(_) => return map,
+    };
+    let conn = match rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ) {
+        Ok(c) => c,
+        Err(_) => return map,
+    };
+    let mut stmt = match conn.prepare(
+        "SELECT tenant_id, path FROM watch_folders WHERE collection = 'projects'",
+    ) {
+        Ok(s) => s,
+        Err(_) => return map,
+    };
+    let rows = stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+        ))
+    });
+    if let Ok(rows) = rows {
+        for row in rows.flatten() {
+            let (tenant_id, path) = row;
+            let name = Path::new(&path)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| path.clone());
+            map.insert(tenant_id, name);
+        }
+    }
+    map
+}
+
+/// Normalize comma-separated values for table display.
+///
+/// Ensures a space after each comma so `keep_words()` can wrap at
+/// word boundaries instead of breaking mid-word.
+fn normalize_commas(s: &str) -> String {
+    let mut result = String::with_capacity(s.len() + 10);
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        result.push(c);
+        if c == ',' {
+            if chars.peek() != Some(&' ') {
+                result.push(' ');
+            }
+        }
+    }
+    result
 }
 
 // ─── List implementation ───────────────────────────────────────────────────
@@ -390,6 +465,8 @@ async fn list_rules(
     }
     output::separator();
 
+    let project_names = load_project_names();
+
     if verbose {
         // Verbose columns: Label(0), Title(1), Scope(2), Priority(3),
         //                   Tags(4), Content(5), Created(6)
@@ -399,12 +476,12 @@ async fn list_rules(
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| MemoryRuleRowVerbose {
                 label: payload_str(payload, "label"),
-                title: format_title_with_project(payload),
+                title: format_title_with_project(payload, &project_names, true),
                 scope: payload_str(payload, "scope"),
                 priority: payload_u32(payload, "priority")
                     .map(|p| p.to_string())
                     .unwrap_or_else(|| "-".to_string()),
-                tags: payload_str(payload, "tags"),
+                tags: normalize_commas(&payload_str(payload, "tags")),
                 content: payload_str(payload, "content"),
                 created_at: output::format_date(&payload_str(payload, "created_at")),
             })
@@ -418,7 +495,7 @@ async fn list_rules(
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| MemoryRuleRow {
                 label: payload_str(payload, "label"),
-                title: format_title_with_project(payload),
+                title: format_title_with_project(payload, &project_names, false),
                 scope: payload_str(payload, "scope"),
                 priority: payload_u32(payload, "priority")
                     .map(|p| p.to_string())
@@ -848,5 +925,73 @@ mod tests {
         assert!(json.contains("\"label\":\"test\""));
         assert!(json.contains("\"priority\":5"));
         assert!(json.contains("tag1"));
+    }
+
+    #[test]
+    fn test_normalize_commas_adds_spaces() {
+        assert_eq!(normalize_commas("a,b,c"), "a, b, c");
+        assert_eq!(normalize_commas("one,two,three"), "one, two, three");
+    }
+
+    #[test]
+    fn test_normalize_commas_preserves_existing_spaces() {
+        assert_eq!(normalize_commas("a, b, c"), "a, b, c");
+        assert_eq!(normalize_commas("a,b, c"), "a, b, c");
+    }
+
+    #[test]
+    fn test_normalize_commas_empty() {
+        assert_eq!(normalize_commas(""), "");
+        assert_eq!(normalize_commas("no-commas"), "no-commas");
+    }
+
+    #[test]
+    fn test_format_title_global_scope() {
+        let payload = serde_json::json!({
+            "title": "Some Rule",
+            "scope": "global",
+        });
+        let names = HashMap::new();
+        assert_eq!(format_title_with_project(&payload, &names, false), "Some Rule");
+        assert_eq!(format_title_with_project(&payload, &names, true), "Some Rule");
+    }
+
+    #[test]
+    fn test_format_title_project_scope_with_name() {
+        let payload = serde_json::json!({
+            "title": "My Rule",
+            "scope": "project",
+            "project_id": "abc123",
+        });
+        let mut names = HashMap::new();
+        names.insert("abc123".to_string(), "my-project".to_string());
+
+        assert_eq!(
+            format_title_with_project(&payload, &names, false),
+            "My Rule (my-project)"
+        );
+        assert_eq!(
+            format_title_with_project(&payload, &names, true),
+            "My Rule (my-project / abc123)"
+        );
+    }
+
+    #[test]
+    fn test_format_title_project_scope_unknown_id() {
+        let payload = serde_json::json!({
+            "title": "My Rule",
+            "scope": "project",
+            "project_id": "unknown999",
+        });
+        let names = HashMap::new();
+        // Falls back to showing just the tenant_id
+        assert_eq!(
+            format_title_with_project(&payload, &names, false),
+            "My Rule (unknown999)"
+        );
+        assert_eq!(
+            format_title_with_project(&payload, &names, true),
+            "My Rule (unknown999)"
+        );
     }
 }
