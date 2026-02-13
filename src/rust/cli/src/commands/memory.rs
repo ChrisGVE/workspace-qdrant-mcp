@@ -3,8 +3,10 @@
 //! Manages LLM memory rules stored in the `memory` collection.
 //! Subcommands: list, add, remove, search, scope
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
+use serde::{Deserialize, Serialize};
+use tabled::Tabled;
 
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{DeleteDocumentRequest, IngestTextRequest};
@@ -35,9 +37,13 @@ enum MemoryCommand {
         #[arg(short = 't', long)]
         rule_type: Option<String>,
 
-        /// Show detailed information
+        /// Show detailed information including full content
         #[arg(short, long)]
         verbose: bool,
+
+        /// Output format: table (default) or json
+        #[arg(short, long, default_value = "table")]
+        format: String,
     },
 
     /// Add a new memory rule
@@ -124,9 +130,10 @@ pub async fn execute(args: MemoryArgs) -> Result<()> {
             project,
             rule_type,
             verbose,
+            format,
         } => {
             let scope = resolve_scope(global, project);
-            list_rules(scope, rule_type, verbose).await
+            list_rules(scope, rule_type, verbose, &format).await
         }
         MemoryCommand::Add {
             label,
@@ -173,42 +180,287 @@ fn resolve_scope(global: bool, project: Option<String>) -> Option<String> {
     }
 }
 
+// ─── Qdrant REST helpers ────────────────────────────────────────────────────
+
+/// Get Qdrant URL from environment or default
+fn qdrant_url() -> String {
+    std::env::var("QDRANT_URL")
+        .unwrap_or_else(|_| wqm_common::constants::DEFAULT_QDRANT_URL.to_string())
+}
+
+/// Build a reqwest client with optional Qdrant API key header
+fn build_qdrant_client() -> Result<reqwest::Client> {
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Ok(key) = std::env::var("QDRANT_API_KEY") {
+        headers.insert(
+            "api-key",
+            reqwest::header::HeaderValue::from_str(&key)
+                .context("Invalid QDRANT_API_KEY value")?,
+        );
+    }
+    reqwest::Client::builder()
+        .default_headers(headers)
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .context("Failed to build HTTP client")
+}
+
+// ─── Qdrant scroll response types ──────────────────────────────────────────
+
+#[derive(Deserialize)]
+struct ScrollResponse {
+    result: ScrollResult,
+}
+
+#[derive(Deserialize)]
+struct ScrollResult {
+    points: Vec<QdrantPoint>,
+}
+
+#[derive(Deserialize)]
+struct QdrantPoint {
+    #[allow(dead_code)]
+    id: serde_json::Value,
+    payload: Option<serde_json::Value>,
+}
+
+// ─── Display types ─────────────────────────────────────────────────────────
+
+/// Compact table row for default display
+#[derive(Tabled)]
+struct MemoryRuleRow {
+    #[tabled(rename = "Label")]
+    label: String,
+    #[tabled(rename = "Title")]
+    title: String,
+    #[tabled(rename = "Scope")]
+    scope: String,
+    #[tabled(rename = "Priority")]
+    priority: String,
+    #[tabled(rename = "Created")]
+    created_at: String,
+}
+
+/// Verbose table row with content
+#[derive(Tabled)]
+struct MemoryRuleRowVerbose {
+    #[tabled(rename = "Label")]
+    label: String,
+    #[tabled(rename = "Title")]
+    title: String,
+    #[tabled(rename = "Scope")]
+    scope: String,
+    #[tabled(rename = "Priority")]
+    priority: String,
+    #[tabled(rename = "Tags")]
+    tags: String,
+    #[tabled(rename = "Content")]
+    content: String,
+    #[tabled(rename = "Created")]
+    created_at: String,
+}
+
+/// Full rule data for JSON output
+#[derive(Serialize)]
+struct MemoryRuleJson {
+    label: String,
+    title: String,
+    content: String,
+    scope: String,
+    project_id: Option<String>,
+    source_type: String,
+    priority: Option<u32>,
+    tags: Vec<String>,
+    created_at: String,
+    updated_at: String,
+}
+
+/// Helper to extract a string from a JSON payload field
+fn payload_str(payload: &serde_json::Value, key: &str) -> String {
+    payload.get(key)
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Helper to extract an optional u32 from a JSON payload field
+fn payload_u32(payload: &serde_json::Value, key: &str) -> Option<u32> {
+    payload.get(key).and_then(|v| {
+        v.as_u64().map(|n| n as u32)
+    })
+}
+
+/// Truncate a string to a maximum display width, appending "..." if truncated
+fn truncate(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        let target = max_len.saturating_sub(3);
+        // Find a valid char boundary at or before target
+        let mut boundary = target;
+        while boundary > 0 && !s.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        format!("{}...", &s[..boundary])
+    }
+}
+
+/// Format a timestamp for table display (date only)
+fn format_date(ts: &str) -> String {
+    // Extract date portion from ISO-8601 timestamp (YYYY-MM-DD)
+    if ts.len() >= 10 {
+        ts[..10].to_string()
+    } else {
+        ts.to_string()
+    }
+}
+
+// ─── List implementation ───────────────────────────────────────────────────
+
 async fn list_rules(
     scope: Option<String>,
-    rule_type: Option<String>,
+    _rule_type: Option<String>,
     verbose: bool,
+    format: &str,
 ) -> Result<()> {
+    let client = build_qdrant_client()?;
+    let collection = wqm_common::constants::COLLECTION_MEMORY;
+    let url = format!("{}/collections/{}/points/scroll", qdrant_url(), collection);
+
+    // Build scroll request with optional scope filter
+    let mut body = serde_json::json!({
+        "limit": 100,
+        "with_payload": true,
+    });
+
+    if let Some(ref scope_str) = scope {
+        let filter = build_scope_filter(scope_str);
+        body["filter"] = filter;
+    }
+
+    let response = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .await
+        .context("Failed to connect to Qdrant")?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let text = response.text().await.unwrap_or_default();
+        if status.as_u16() == 404 {
+            output::info("Memory collection does not exist yet. No rules stored.");
+            return Ok(());
+        }
+        anyhow::bail!("Qdrant scroll failed ({}): {}", status, text);
+    }
+
+    let scroll: ScrollResponse = response
+        .json()
+        .await
+        .context("Failed to parse Qdrant scroll response")?;
+
+    let points = &scroll.result.points;
+
+    if points.is_empty() {
+        output::info("No memory rules found.");
+        return Ok(());
+    }
+
+    // JSON output
+    if format == "json" {
+        let rules: Vec<MemoryRuleJson> = points
+            .iter()
+            .filter_map(|p| p.payload.as_ref())
+            .map(|payload| MemoryRuleJson {
+                label: payload_str(payload, "label"),
+                title: payload_str(payload, "title"),
+                content: payload_str(payload, "content"),
+                scope: payload_str(payload, "scope"),
+                project_id: payload.get("project_id").and_then(|v| v.as_str()).map(String::from),
+                source_type: payload_str(payload, "source_type"),
+                priority: payload_u32(payload, "priority"),
+                tags: payload.get("tags")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.split(',').map(String::from).collect())
+                    .unwrap_or_default(),
+                created_at: payload_str(payload, "created_at"),
+                updated_at: payload_str(payload, "updated_at"),
+            })
+            .collect();
+        output::print_json(&rules);
+        return Ok(());
+    }
+
+    // Table output
     output::section("Memory Rules");
-
+    output::kv("Total", &points.len().to_string());
     if let Some(s) = &scope {
-        output::kv("Scope", s);
-    } else {
-        output::kv("Scope", "all (no filter)");
-    }
-    if let Some(t) = &rule_type {
-        output::kv("Type Filter", t);
+        output::kv("Filter", s);
     }
     output::separator();
-
-    // Memory rules are stored in canonical `memory` collection
-    output::info("Memory rules stored in memory collection.");
-    output::info("Query via MCP:");
-    output::info("  mcp__workspace_qdrant__memory(action=\"list\")");
-    output::separator();
-
-    output::info("Direct Qdrant query:");
-    output::info("  curl 'http://localhost:6333/collections/memory/points/scroll' \\");
-    output::info("    -H 'Content-Type: application/json' \\");
-    output::info("    -d '{\"limit\": 100}'");
 
     if verbose {
-        output::separator();
-        output::info("Rule types: preference, behavior, constraint, pattern");
-        output::info("Scopes: global (--global), project (--project <path>)");
+        let rows: Vec<MemoryRuleRowVerbose> = points
+            .iter()
+            .filter_map(|p| p.payload.as_ref())
+            .map(|payload| MemoryRuleRowVerbose {
+                label: payload_str(payload, "label"),
+                title: truncate(&payload_str(payload, "title"), 30),
+                scope: payload_str(payload, "scope"),
+                priority: payload_u32(payload, "priority")
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                tags: payload_str(payload, "tags"),
+                content: payload_str(payload, "content"),
+                created_at: format_date(&payload_str(payload, "created_at")),
+            })
+            .collect();
+        output::print_table(&rows);
+    } else {
+        let rows: Vec<MemoryRuleRow> = points
+            .iter()
+            .filter_map(|p| p.payload.as_ref())
+            .map(|payload| MemoryRuleRow {
+                label: payload_str(payload, "label"),
+                title: truncate(&payload_str(payload, "title"), 40),
+                scope: payload_str(payload, "scope"),
+                priority: payload_u32(payload, "priority")
+                    .map(|p| p.to_string())
+                    .unwrap_or_else(|| "-".to_string()),
+                created_at: format_date(&payload_str(payload, "created_at")),
+            })
+            .collect();
+        output::print_table(&rows);
     }
 
     Ok(())
 }
+
+/// Build a Qdrant filter from scope string
+fn build_scope_filter(scope_str: &str) -> serde_json::Value {
+    let mut must = Vec::new();
+
+    if scope_str == "global" {
+        must.push(serde_json::json!({
+            "key": "scope",
+            "match": { "value": "global" }
+        }));
+    } else if let Some(project_id) = scope_str.strip_prefix("project:") {
+        must.push(serde_json::json!({
+            "key": "scope",
+            "match": { "value": "project" }
+        }));
+        must.push(serde_json::json!({
+            "key": "project_id",
+            "match": { "value": project_id }
+        }));
+    }
+
+    serde_json::json!({ "must": must })
+}
+
+// ─── Add rule ──────────────────────────────────────────────────────────────
 
 async fn add_rule(label: &str, content: &str, rule_type: &str, scope: &Option<String>, priority: u32) -> Result<()> {
     output::section("Add Memory Rule");
@@ -332,6 +584,8 @@ fn try_queue_fallback_memory(
     Ok(())
 }
 
+// ─── Remove rule ───────────────────────────────────────────────────────────
+
 async fn remove_rule(label: &str, scope: &Option<String>) -> Result<()> {
     output::section("Remove Memory Rule");
 
@@ -367,6 +621,8 @@ async fn remove_rule(label: &str, scope: &Option<String>) -> Result<()> {
     Ok(())
 }
 
+// ─── Search rules ──────────────────────────────────────────────────────────
+
 async fn search_rules(query: &str, scope: Option<String>, limit: usize) -> Result<()> {
     output::section("Search Memory Rules");
 
@@ -398,6 +654,8 @@ async fn search_rules(query: &str, scope: Option<String>, limit: usize) -> Resul
 
     Ok(())
 }
+
+// ─── Scope management ─────────────────────────────────────────────────────
 
 async fn manage_scopes(list: bool, show: Option<String>, verbose: bool) -> Result<()> {
     output::section("Memory Rule Scopes");
@@ -477,4 +735,140 @@ async fn manage_scopes(list: bool, show: Option<String>, verbose: bool) -> Resul
     }
 
     Ok(())
+}
+
+// ─── Tests ─────────────────────────────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_scope_global() {
+        let scope = resolve_scope(true, None);
+        assert_eq!(scope, Some("global".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_scope_project() {
+        let scope = resolve_scope(false, Some("abc123".to_string()));
+        assert_eq!(scope, Some("project:abc123".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_scope_none() {
+        let scope = resolve_scope(false, None);
+        assert_eq!(scope, None);
+    }
+
+    #[test]
+    fn test_build_scope_filter_global() {
+        let filter = build_scope_filter("global");
+        let must = filter["must"].as_array().unwrap();
+        assert_eq!(must.len(), 1);
+        assert_eq!(must[0]["key"], "scope");
+        assert_eq!(must[0]["match"]["value"], "global");
+    }
+
+    #[test]
+    fn test_build_scope_filter_project() {
+        let filter = build_scope_filter("project:abc123");
+        let must = filter["must"].as_array().unwrap();
+        assert_eq!(must.len(), 2);
+        assert_eq!(must[0]["key"], "scope");
+        assert_eq!(must[0]["match"]["value"], "project");
+        assert_eq!(must[1]["key"], "project_id");
+        assert_eq!(must[1]["match"]["value"], "abc123");
+    }
+
+    #[test]
+    fn test_payload_str() {
+        let payload = serde_json::json!({
+            "label": "test-label",
+            "missing": null,
+        });
+        assert_eq!(payload_str(&payload, "label"), "test-label");
+        assert_eq!(payload_str(&payload, "nonexistent"), "");
+        assert_eq!(payload_str(&payload, "missing"), "");
+    }
+
+    #[test]
+    fn test_payload_u32() {
+        let payload = serde_json::json!({
+            "priority": 8,
+            "zero": 0,
+        });
+        assert_eq!(payload_u32(&payload, "priority"), Some(8));
+        assert_eq!(payload_u32(&payload, "zero"), Some(0));
+        assert_eq!(payload_u32(&payload, "missing"), None);
+    }
+
+    #[test]
+    fn test_truncate() {
+        assert_eq!(truncate("short", 10), "short");
+        assert_eq!(truncate("exactly ten", 11), "exactly ten");
+        let long = "this is a long string that should be truncated";
+        let result = truncate(long, 20);
+        assert!(result.len() <= 20);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_format_date() {
+        assert_eq!(format_date("2026-02-12T10:30:00.000Z"), "2026-02-12");
+        assert_eq!(format_date("short"), "short");
+        assert_eq!(format_date(""), "");
+    }
+
+    #[test]
+    fn test_scroll_response_deserialization() {
+        let json = r#"{
+            "result": {
+                "points": [
+                    {
+                        "id": "abc-123",
+                        "payload": {
+                            "content": "test rule",
+                            "label": "test-label",
+                            "scope": "global",
+                            "priority": 5,
+                            "source_type": "memory_rule",
+                            "created_at": "2026-02-12T10:00:00.000Z"
+                        }
+                    }
+                ],
+                "next_page_offset": null
+            },
+            "status": "ok",
+            "time": 0.001
+        }"#;
+
+        let response: ScrollResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(response.result.points.len(), 1);
+
+        let payload = response.result.points[0].payload.as_ref().unwrap();
+        assert_eq!(payload_str(payload, "label"), "test-label");
+        assert_eq!(payload_str(payload, "content"), "test rule");
+        assert_eq!(payload_u32(payload, "priority"), Some(5));
+    }
+
+    #[test]
+    fn test_memory_rule_json_serialization() {
+        let rule = MemoryRuleJson {
+            label: "test".to_string(),
+            title: "Test Rule".to_string(),
+            content: "test content".to_string(),
+            scope: "global".to_string(),
+            project_id: None,
+            source_type: "memory_rule".to_string(),
+            priority: Some(5),
+            tags: vec!["tag1".to_string(), "tag2".to_string()],
+            created_at: "2026-02-12T10:00:00.000Z".to_string(),
+            updated_at: "2026-02-12T10:00:00.000Z".to_string(),
+        };
+        let json = serde_json::to_string(&rule).unwrap();
+        assert!(json.contains("\"label\":\"test\""));
+        assert!(json.contains("\"priority\":5"));
+        assert!(json.contains("tag1"));
+    }
 }
