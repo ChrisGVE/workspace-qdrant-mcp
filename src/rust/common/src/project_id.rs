@@ -240,6 +240,45 @@ pub fn calculate_tenant_id(project_root: &Path) -> String {
     calculator.calculate(project_root, git_remote.as_deref(), None)
 }
 
+/// Resolve a working directory to a registered project.
+///
+/// Looks up the `watch_folders` table for the longest matching path where
+/// `cwd` equals or is a subdirectory of a registered project. Returns
+/// `(tenant_id, path)` on success, or `None` if no match or on any error.
+///
+/// Opens the database read-only. Any failure (missing db, missing table,
+/// query error) returns `None` silently — callers should degrade gracefully.
+#[cfg(feature = "sqlite")]
+pub fn resolve_path_to_project(db_path: &Path, cwd: &Path) -> Option<(String, String)> {
+    use crate::schema::sqlite::watch_folders as wf;
+
+    let cwd_str = cwd.to_str()?;
+
+    let conn = rusqlite::Connection::open_with_flags(
+        db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .ok()?;
+
+    let sql = format!(
+        "SELECT {tenant}, {path} FROM {table} \
+         WHERE {collection} = 'projects' \
+           AND (?1 = {path} OR ?1 LIKE {path} || '/' || '%') \
+         ORDER BY length({path}) DESC \
+         LIMIT 1",
+        tenant = wf::TENANT_ID.name,
+        path = wf::PATH.name,
+        table = wf::TABLE.name,
+        collection = wf::COLLECTION.name,
+    );
+
+    let mut stmt = conn.prepare(&sql).ok()?;
+    stmt.query_row(rusqlite::params![cwd_str], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+    })
+    .ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -382,5 +421,93 @@ mod tests {
 
         assert_eq!(hash1, hash2);
         assert_eq!(hash2, hash3);
+    }
+
+    // ─── resolve_path_to_project tests ──────────────────────────────────
+
+    /// Helper: create a SQLite database with watch_folders table and rows
+    #[cfg(feature = "sqlite")]
+    fn setup_test_db(rows: &[(&str, &str)]) -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db_path = dir.path().join("state.db");
+        let conn = rusqlite::Connection::open(&db_path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE watch_folders (
+                tenant_id TEXT NOT NULL,
+                path TEXT NOT NULL,
+                collection TEXT NOT NULL DEFAULT 'projects'
+            )",
+        )
+        .unwrap();
+        for (tenant, path) in rows {
+            conn.execute(
+                "INSERT INTO watch_folders (tenant_id, path, collection) VALUES (?1, ?2, 'projects')",
+                rusqlite::params![tenant, path],
+            )
+            .unwrap();
+        }
+        (dir, db_path)
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_resolve_path_exact() {
+        let (_dir, db_path) = setup_test_db(&[
+            ("tid_abc", "/home/user/project-a"),
+        ]);
+        let result = resolve_path_to_project(&db_path, Path::new("/home/user/project-a"));
+        assert_eq!(result, Some(("tid_abc".into(), "/home/user/project-a".into())));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_resolve_path_subdirectory() {
+        let (_dir, db_path) = setup_test_db(&[
+            ("tid_abc", "/home/user/project-a"),
+        ]);
+        let result = resolve_path_to_project(&db_path, Path::new("/home/user/project-a/src/lib"));
+        assert_eq!(result, Some(("tid_abc".into(), "/home/user/project-a".into())));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_resolve_path_longest_wins() {
+        let (_dir, db_path) = setup_test_db(&[
+            ("tid_parent", "/home/user"),
+            ("tid_child", "/home/user/project-a"),
+        ]);
+        let result = resolve_path_to_project(&db_path, Path::new("/home/user/project-a/src"));
+        assert_eq!(result, Some(("tid_child".into(), "/home/user/project-a".into())));
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_resolve_path_no_match() {
+        let (_dir, db_path) = setup_test_db(&[
+            ("tid_abc", "/home/user/project-a"),
+        ]);
+        let result = resolve_path_to_project(&db_path, Path::new("/other/dir"));
+        assert_eq!(result, None);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_resolve_path_no_false_prefix() {
+        let (_dir, db_path) = setup_test_db(&[
+            ("tid_abc", "/home/user/project"),
+        ]);
+        // "/home/user/project-extra" should NOT match "/home/user/project"
+        let result = resolve_path_to_project(&db_path, Path::new("/home/user/project-extra"));
+        assert_eq!(result, None);
+    }
+
+    #[cfg(feature = "sqlite")]
+    #[test]
+    fn test_resolve_path_missing_db() {
+        let result = resolve_path_to_project(
+            Path::new("/nonexistent/state.db"),
+            Path::new("/home/user/project"),
+        );
+        assert_eq!(result, None);
     }
 }

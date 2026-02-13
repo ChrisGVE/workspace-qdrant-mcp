@@ -30,6 +30,14 @@ sha2 = "0.10"
 # JSON serialization (for payloads)
 serde_json = "1.0"
 
+# SQLite (optional, for resolve_path_to_project)
+# Using 0.31 for libsqlite3-sys compatibility with sqlx 0.8
+rusqlite = { version = "0.31", features = ["bundled"], optional = true }
+
+[features]
+sqlite = ["rusqlite"]
+
 [dev-dependencies]
 regex-lite = "0.1"
 tempfile = "3.8"
+rusqlite = { version = "0.31", features = ["bundled"] }
