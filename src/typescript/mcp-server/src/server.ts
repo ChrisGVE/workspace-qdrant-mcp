@@ -727,20 +727,17 @@ export class WorkspaceQdrantMcpServer {
 
     logSessionEvent('start', { session_id: this.sessionState.sessionId });
 
-    // Detect current project
+    // Detect current project via longest-prefix matching in daemon's database
     const cwd = process.cwd();
-    const projectRoot = this.projectDetector.findProjectRoot(cwd);
+    const projectInfo = await this.projectDetector.getProjectInfo(cwd, true);
 
-    if (projectRoot) {
-      this.sessionState.projectPath = projectRoot;
-      logDebug('Project detected', { project_path: projectRoot });
-
-      // Try to get project info from daemon's database
-      const projectInfo = await this.projectDetector.getProjectInfo(projectRoot, true);
-      if (projectInfo) {
-        this.sessionState.projectId = projectInfo.projectId;
-        logDebug('Project ID resolved', { project_id: projectInfo.projectId });
-      }
+    if (projectInfo) {
+      this.sessionState.projectPath = projectInfo.projectPath;
+      this.sessionState.projectId = projectInfo.projectId;
+      logDebug('Project detected', {
+        project_path: projectInfo.projectPath,
+        project_id: projectInfo.projectId,
+      });
     } else {
       logDebug('No project detected from cwd', { cwd });
     }

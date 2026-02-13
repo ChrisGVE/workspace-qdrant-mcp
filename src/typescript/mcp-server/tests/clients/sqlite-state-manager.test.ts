@@ -398,6 +398,44 @@ describe('SqliteStateManager', () => {
       expect(result.data).toBeNull();
     });
 
+    it('should match subdirectory via longest-prefix', () => {
+      const result = manager.getProjectByPath('/test/project/src/lib');
+
+      expect(result.status).toBe('ok');
+      expect(result.data).not.toBeNull();
+      expect(result.data!.project_id).toBe('abc123456789');
+      expect(result.data!.project_path).toBe('/test/project');
+    });
+
+    it('should return longest match when multiple projects match', () => {
+      // Insert a parent project
+      const db2 = new Database(dbPath);
+      db2.prepare(
+        `
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-parent', '/test', 'projects', 'parent000000', 1, datetime('now'), datetime('now'))
+      `
+      ).run();
+      db2.close();
+
+      const result = manager.getProjectByPath('/test/project/src');
+
+      expect(result.status).toBe('ok');
+      expect(result.data).not.toBeNull();
+      // Should match the deeper /test/project, not /test
+      expect(result.data!.project_id).toBe('abc123456789');
+      expect(result.data!.project_path).toBe('/test/project');
+    });
+
+    it('should not match false prefix', () => {
+      // /test/project-extra should NOT match /test/project
+      const result = manager.getProjectByPath('/test/project-extra');
+
+      expect(result.status).toBe('ok');
+      expect(result.data).toBeNull();
+    });
+
     it('should get project by ID', () => {
       const result = manager.getProjectById('abc123456789');
 

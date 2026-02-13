@@ -165,13 +165,21 @@ describe('WorkspaceQdrantMcpServer', () => {
     });
 
     it('should detect project from cwd', async () => {
-      // Create a project directory with .git
+      // Create a project directory
       const projectPath = join(tempDir, 'my-project');
       mkdirSync(projectPath);
-      mkdirSync(join(projectPath, '.git'));
 
       // Resolve real path (handles macOS /private symlink)
       const realProjectPath = realpathSync(projectPath);
+
+      // Register project in database (initializeSession now queries DB, not filesystem)
+      const db = new Database(dbPath);
+      db.prepare(
+        `INSERT INTO watch_folders
+         (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+         VALUES ('watch-test', ?, 'projects', 'test_tenant_id', 1, datetime('now'), datetime('now'))`
+      ).run(realProjectPath);
+      db.close();
 
       // Change cwd to project
       const originalCwd = process.cwd();
@@ -182,7 +190,6 @@ describe('WorkspaceQdrantMcpServer', () => {
         await server.start();
 
         const state = server.getSessionState();
-        // Use realpath for comparison since path.resolve may return symlinked path
         expect(state.projectPath).toBe(realProjectPath);
 
         await server.stop();

@@ -210,19 +210,15 @@ const sessionStartHook: HookCallback = async (
   try {
     const config = loadConfig();
 
-    // Detect current project
+    // Detect current project via longest-prefix matching in daemon's database
     const cwd = process.cwd();
     const projectDetector = new ProjectDetector();
-    const projectRoot = projectDetector.findProjectRoot(cwd);
+    const projectInfo = await projectDetector.getProjectInfo(cwd);
 
-    if (projectRoot) {
-      sessionState.projectPath = projectRoot;
-      // Get project ID via async method
-      const projectInfo = await projectDetector.getProjectInfo(projectRoot);
-      if (projectInfo) {
-        sessionState.projectId = projectInfo.projectId;
-        console.log(`[Agent] Project detected: ${projectRoot} (tenant_id: ${projectInfo.projectId})`);
-      }
+    if (projectInfo) {
+      sessionState.projectPath = projectInfo.projectPath;
+      sessionState.projectId = projectInfo.projectId;
+      console.log(`[Agent] Project detected: ${projectInfo.projectPath} (tenant_id: ${projectInfo.projectId})`);
     }
 
     // Fetch memory rules

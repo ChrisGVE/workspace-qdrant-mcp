@@ -246,12 +246,42 @@ describe('ProjectDetector', () => {
       expect(info!.projectId).toBe('current12345');
     });
 
-    it('should return null when no project root found', async () => {
-      const emptyPath = join(tempDir, 'no-markers');
-      mkdirSync(emptyPath);
+    it('should resolve subdirectory without project markers', async () => {
+      // No .git or other markers — database longest-prefix matching handles resolution
+      const projectPath = join(tempDir, 'markerless-project');
+      mkdirSync(projectPath);
+      const deepPath = join(projectPath, 'src', 'deep', 'nested');
+      mkdirSync(deepPath, { recursive: true });
 
-      const detector = new ProjectDetector({ stateManager, maxSearchDepth: 1 });
-      const info = await detector.getCurrentProject(emptyPath);
+      // Register project
+      const db = new Database(dbPath);
+      db.prepare(
+        `
+        INSERT INTO watch_folders
+        (watch_id, path, collection, tenant_id, is_active, created_at, updated_at)
+        VALUES ('watch-5', ?, 'projects', 'markerless123', 1, datetime('now'), datetime('now'))
+      `
+      ).run(projectPath);
+      db.close();
+
+      stateManager.close();
+      stateManager = new SqliteStateManager({ dbPath });
+      stateManager.initialize();
+
+      const detector = new ProjectDetector({ stateManager });
+      const info = await detector.getCurrentProject(deepPath);
+
+      expect(info).not.toBeNull();
+      expect(info!.projectId).toBe('markerless123');
+      expect(info!.projectPath).toBe(projectPath);
+    });
+
+    it('should return null when path not registered', async () => {
+      const unregisteredPath = join(tempDir, 'not-registered');
+      mkdirSync(unregisteredPath);
+
+      const detector = new ProjectDetector({ stateManager });
+      const info = await detector.getCurrentProject(unregisteredPath);
 
       expect(info).toBeNull();
     });

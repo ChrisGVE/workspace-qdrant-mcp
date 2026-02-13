@@ -191,12 +191,9 @@ export class ProjectDetector {
     cwd: string = process.cwd(),
     waitForRegistration = false
   ): Promise<ProjectInfo | null> {
-    const projectRoot = this.findProjectRoot(cwd);
-    if (!projectRoot) {
-      return null;
-    }
-
-    return this.getProjectInfo(projectRoot, waitForRegistration);
+    // Pass cwd directly — the database query uses longest-prefix matching
+    // to resolve subdirectories to their registered project root.
+    return this.getProjectInfo(cwd, waitForRegistration);
   }
 
   /**

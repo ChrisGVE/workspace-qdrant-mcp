@@ -488,10 +488,12 @@ export class SqliteStateManager {
                disambiguation_path, is_active,
                created_at, updated_at, last_activity_at
         FROM watch_folders
-        WHERE path = ? AND collection = ?
+        WHERE collection = ? AND (? = path OR ? LIKE path || '/' || '%')
+        ORDER BY length(path) DESC
+        LIMIT 1
       `
         )
-        .get(projectPath, COLLECTION_PROJECTS) as
+        .get(COLLECTION_PROJECTS, projectPath, projectPath) as
         | {
             tenant_id: string;
             path: string;
