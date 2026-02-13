@@ -14,7 +14,7 @@ use serde::Serialize;
 use tabled::Tabled;
 
 use crate::config::get_database_path_checked;
-use crate::output;
+use crate::output::{self, ColumnHints};
 
 /// Watch command arguments
 #[derive(Args)]
@@ -115,6 +115,11 @@ pub struct WatchListItem {
     pub last_scan: String,
 }
 
+impl ColumnHints for WatchListItem {
+    // Path(1) is content
+    fn content_columns() -> &'static [usize] { &[1] }
+}
+
 /// Watch item for verbose list display
 #[derive(Debug, Tabled, Serialize)]
 pub struct WatchListItemVerbose {
@@ -140,6 +145,11 @@ pub struct WatchListItemVerbose {
     pub patterns: String,
     #[tabled(rename = "Last Scan")]
     pub last_scan: String,
+}
+
+impl ColumnHints for WatchListItemVerbose {
+    // Path(1) is content
+    fn content_columns() -> &'static [usize] { &[1] }
 }
 
 /// Watch item detail view
@@ -415,7 +425,7 @@ async fn list(
             //   Enabled(4), Active(5), Paused(6), Recursive(7), Archived(8),
             //   Patterns(9), LastScan(10)
             // Content: Path(1)
-            output::print_table_with_hints(&display_items, &[1]);
+            output::print_table_auto(&display_items);
             output::info(format!("Showing {} watch configurations", display_items.len()));
         }
     } else {
@@ -441,7 +451,7 @@ async fn list(
             // Columns: WatchID(0), Path(1), Collection(2), Enabled(3),
             //   Active(4), Paused(5), Archived(6), LastScan(7)
             // Content: Path(1)
-            output::print_table_with_hints(&display_items, &[1]);
+            output::print_table_auto(&display_items);
             output::info(format!("Showing {} watch configurations", display_items.len()));
         }
     }

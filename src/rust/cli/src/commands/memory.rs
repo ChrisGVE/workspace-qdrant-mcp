@@ -11,10 +11,13 @@ use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
+use wqm_common::schema::qdrant::memory as mem_schema;
+use wqm_common::schema::sqlite::watch_folders as wf_schema;
+
 use crate::config::get_database_path_checked;
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{DeleteDocumentRequest, IngestTextRequest};
-use crate::output::{self, ServiceStatus};
+use crate::output::{self, ColumnHints, ServiceStatus};
 use crate::queue::{ContentPayload as QueueContentPayload, UnifiedQueueClient};
 
 /// Memory command arguments
@@ -245,6 +248,11 @@ struct MemoryRuleRow {
     created_at: String,
 }
 
+impl ColumnHints for MemoryRuleRow {
+    // Title(1) is content
+    fn content_columns() -> &'static [usize] { &[1] }
+}
+
 /// Verbose table row with content
 #[derive(Tabled)]
 struct MemoryRuleRowVerbose {
@@ -262,6 +270,11 @@ struct MemoryRuleRowVerbose {
     content: String,
     #[tabled(rename = "Created")]
     created_at: String,
+}
+
+impl ColumnHints for MemoryRuleRowVerbose {
+    // Title(1), Content(5) are content
+    fn content_columns() -> &'static [usize] { &[1, 5] }
 }
 
 /// Full rule data for JSON output
@@ -305,10 +318,10 @@ fn format_title_with_project(
     project_names: &HashMap<String, String>,
     verbose: bool,
 ) -> String {
-    let title = payload_str(payload, "title");
-    let scope = payload_str(payload, "scope");
+    let title = payload_str(payload, mem_schema::TITLE.name);
+    let scope = payload_str(payload, mem_schema::SCOPE.name);
     if scope == "project" {
-        if let Some(pid) = payload.get("project_id").and_then(|v| v.as_str()) {
+        if let Some(pid) = payload.get(mem_schema::PROJECT_ID.name).and_then(|v| v.as_str()) {
             let name = project_names.get(pid);
             return match (name, verbose) {
                 (Some(name), false) => format!("{} (project: {})", title, name),
@@ -337,9 +350,14 @@ fn load_project_names() -> HashMap<String, String> {
         Ok(c) => c,
         Err(_) => return map,
     };
-    let mut stmt = match conn.prepare(
-        "SELECT tenant_id, path FROM watch_folders WHERE collection = 'projects'",
-    ) {
+    let sql = format!(
+        "SELECT {}, {} FROM {} WHERE {} = 'projects'",
+        wf_schema::TENANT_ID.name,
+        wf_schema::PATH.name,
+        wf_schema::TABLE.name,
+        wf_schema::COLLECTION.name,
+    );
+    let mut stmt = match conn.prepare(&sql) {
         Ok(s) => s,
         Err(_) => return map,
     };
@@ -438,19 +456,19 @@ async fn list_rules(
             .iter()
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| MemoryRuleJson {
-                label: payload_str(payload, "label"),
-                title: payload_str(payload, "title"),
-                content: payload_str(payload, "content"),
-                scope: payload_str(payload, "scope"),
-                project_id: payload.get("project_id").and_then(|v| v.as_str()).map(String::from),
-                source_type: payload_str(payload, "source_type"),
-                priority: payload_u32(payload, "priority"),
-                tags: payload.get("tags")
+                label: payload_str(payload, mem_schema::LABEL.name),
+                title: payload_str(payload, mem_schema::TITLE.name),
+                content: payload_str(payload, mem_schema::CONTENT.name),
+                scope: payload_str(payload, mem_schema::SCOPE.name),
+                project_id: payload.get(mem_schema::PROJECT_ID.name).and_then(|v| v.as_str()).map(String::from),
+                source_type: payload_str(payload, mem_schema::SOURCE_TYPE.name),
+                priority: payload_u32(payload, mem_schema::PRIORITY.name),
+                tags: payload.get(mem_schema::TAGS.name)
                     .and_then(|v| v.as_str())
                     .map(|s| s.split(',').map(String::from).collect())
                     .unwrap_or_default(),
-                created_at: payload_str(payload, "created_at"),
-                updated_at: payload_str(payload, "updated_at"),
+                created_at: payload_str(payload, mem_schema::CREATED_AT.name),
+                updated_at: payload_str(payload, mem_schema::UPDATED_AT.name),
             })
             .collect();
         output::print_json(&rules);
@@ -475,18 +493,18 @@ async fn list_rules(
             .iter()
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| MemoryRuleRowVerbose {
-                label: payload_str(payload, "label"),
+                label: payload_str(payload, mem_schema::LABEL.name),
                 title: format_title_with_project(payload, &project_names, true),
-                scope: payload_str(payload, "scope"),
-                priority: payload_u32(payload, "priority")
+                scope: payload_str(payload, mem_schema::SCOPE.name),
+                priority: payload_u32(payload, mem_schema::PRIORITY.name)
                     .map(|p| p.to_string())
                     .unwrap_or_else(|| "-".to_string()),
-                tags: normalize_commas(&payload_str(payload, "tags")),
-                content: payload_str(payload, "content"),
-                created_at: output::format_date(&payload_str(payload, "created_at")),
+                tags: normalize_commas(&payload_str(payload, mem_schema::TAGS.name)),
+                content: payload_str(payload, mem_schema::CONTENT.name),
+                created_at: output::format_date(&payload_str(payload, mem_schema::CREATED_AT.name)),
             })
             .collect();
-        output::print_table_with_hints(&rows, &[1, 5]);
+        output::print_table_auto(&rows);
     } else {
         // Columns: Label(0), Title(1), Scope(2), Priority(3), Created(4)
         // Content columns: Title(1)
@@ -494,16 +512,16 @@ async fn list_rules(
             .iter()
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| MemoryRuleRow {
-                label: payload_str(payload, "label"),
+                label: payload_str(payload, mem_schema::LABEL.name),
                 title: format_title_with_project(payload, &project_names, false),
-                scope: payload_str(payload, "scope"),
-                priority: payload_u32(payload, "priority")
+                scope: payload_str(payload, mem_schema::SCOPE.name),
+                priority: payload_u32(payload, mem_schema::PRIORITY.name)
                     .map(|p| p.to_string())
                     .unwrap_or_else(|| "-".to_string()),
-                created_at: output::format_date(&payload_str(payload, "created_at")),
+                created_at: output::format_date(&payload_str(payload, mem_schema::CREATED_AT.name)),
             })
             .collect();
-        output::print_table_with_hints(&rows, &[1]);
+        output::print_table_auto(&rows);
     }
 
     Ok(())
@@ -515,16 +533,16 @@ fn build_scope_filter(scope_str: &str) -> serde_json::Value {
 
     if scope_str == "global" {
         must.push(serde_json::json!({
-            "key": "scope",
+            "key": mem_schema::SCOPE.name,
             "match": { "value": "global" }
         }));
     } else if let Some(project_id) = scope_str.strip_prefix("project:") {
         must.push(serde_json::json!({
-            "key": "scope",
+            "key": mem_schema::SCOPE.name,
             "match": { "value": "project" }
         }));
         must.push(serde_json::json!({
-            "key": "project_id",
+            "key": mem_schema::PROJECT_ID.name,
             "match": { "value": project_id }
         }));
     }

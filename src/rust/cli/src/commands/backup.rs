@@ -13,7 +13,7 @@ use clap::{Args, Subcommand};
 use serde::Deserialize;
 use tabled::Tabled;
 
-use crate::output;
+use crate::output::{self, ColumnHints};
 
 /// Get Qdrant URL from environment or default
 fn qdrant_url() -> String {
@@ -73,6 +73,11 @@ struct SnapshotRow {
     created: String,
     #[tabled(rename = "Checksum")]
     checksum: String,
+}
+
+impl ColumnHints for SnapshotRow {
+    // All categorical
+    fn content_columns() -> &'static [usize] { &[] }
 }
 
 impl From<&SnapshotInfo> for SnapshotRow {
@@ -311,7 +316,7 @@ async fn list_backups(collection: Option<String>, verbose: bool) -> Result<()> {
             } else {
                 output::info(&format!("Found {} snapshot(s):", snapshots.len()));
                 let rows: Vec<SnapshotRow> = snapshots.iter().map(SnapshotRow::from).collect();
-                output::print_table(&rows);
+                output::print_table_auto(&rows);
 
                 if verbose {
                     output::separator();
@@ -344,7 +349,7 @@ async fn list_backups(collection: Option<String>, verbose: bool) -> Result<()> {
                 } else {
                     let rows: Vec<SnapshotRow> =
                         api_resp.result.iter().map(SnapshotRow::from).collect();
-                    output::print_table(&rows);
+                    output::print_table_auto(&rows);
                 }
             }
 
@@ -388,7 +393,7 @@ async fn list_backups(collection: Option<String>, verbose: bool) -> Result<()> {
                                             .iter()
                                             .map(SnapshotRow::from)
                                             .collect();
-                                        output::print_table(&rows);
+                                        output::print_table_auto(&rows);
                                     }
                                 }
                             }

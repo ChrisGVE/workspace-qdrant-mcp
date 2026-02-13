@@ -257,6 +257,29 @@ pub fn print_table_with_hints<T: Tabled>(data: &[T], content_columns: &[usize]) 
     println!("{}", table);
 }
 
+/// Trait for structs that know which of their columns are content columns.
+///
+/// Implement this on `Tabled` structs to enable automatic layout hints
+/// via [`print_table_auto`].
+pub trait ColumnHints {
+    /// Returns 0-based indices of content columns (variable-length text).
+    /// Empty slice means all columns are categorical (no special treatment).
+    fn content_columns() -> &'static [usize];
+}
+
+/// Print a table with layout hints derived from the `ColumnHints` trait.
+///
+/// Delegates to [`print_table_with_hints`] when content columns exist,
+/// or [`print_table`] when all columns are categorical.
+pub fn print_table_auto<T: Tabled + ColumnHints>(data: &[T]) {
+    let hints = T::content_columns();
+    if hints.is_empty() {
+        print_table(data);
+    } else {
+        print_table_with_hints(data, hints);
+    }
+}
+
 /// Get the current terminal width, falling back to 120 columns
 pub fn terminal_width() -> usize {
     terminal_size::terminal_size()

@@ -12,7 +12,7 @@ use serde::Serialize;
 use tabled::Tabled;
 
 use crate::config::get_database_path_checked;
-use crate::output;
+use crate::output::{self, ColumnHints};
 
 /// Queue command arguments
 #[derive(Args)]
@@ -139,6 +139,11 @@ pub struct QueueListItem {
     pub retry_count: i32,
 }
 
+impl ColumnHints for QueueListItem {
+    // All categorical
+    fn content_columns() -> &'static [usize] { &[] }
+}
+
 /// Queue item for verbose list display
 #[derive(Debug, Tabled, Serialize)]
 pub struct QueueListItemVerbose {
@@ -162,6 +167,11 @@ pub struct QueueListItemVerbose {
     pub retry_count: i32,
     #[tabled(rename = "Worker")]
     pub worker_id: String,
+}
+
+impl ColumnHints for QueueListItemVerbose {
+    // All categorical
+    fn content_columns() -> &'static [usize] { &[] }
 }
 
 /// Queue item detail view
@@ -390,7 +400,7 @@ async fn list(
         if json {
             output::print_json(&display_items);
         } else {
-            output::print_table(&display_items);
+            output::print_table_auto(&display_items);
             output::info(format!("Showing {} items", display_items.len()));
         }
     } else {
@@ -413,7 +423,7 @@ async fn list(
         if json {
             output::print_json(&display_items);
         } else {
-            output::print_table(&display_items);
+            output::print_table_auto(&display_items);
             output::info(format!("Showing {} items", display_items.len()));
         }
     }
