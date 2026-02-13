@@ -348,7 +348,11 @@ export class WorkspaceQdrantMcpServer {
             },
             libraryName: {
               type: 'string',
-              description: 'Library name (required for type "library")',
+              description: 'Library name (required for type "library" unless forProject is true)',
+            },
+            forProject: {
+              type: 'boolean',
+              description: 'When true, store to libraries collection scoped to the current project. libraryName becomes optional (defaults to "project-refs").',
             },
             path: {
               type: 'string',
@@ -634,7 +638,9 @@ export class WorkspaceQdrantMcpServer {
    */
   private buildStoreOptions(args: Record<string, unknown> | undefined): {
     content: string;
-    libraryName: string;
+    libraryName?: string;
+    forProject?: boolean;
+    projectId?: string;
     title?: string;
     url?: string;
     filePath?: string;
@@ -646,20 +652,32 @@ export class WorkspaceQdrantMcpServer {
       throw new Error('Content is required for store operation');
     }
 
-    const libraryName = args?.['libraryName'] as string;
-    if (!libraryName) {
-      throw new Error('libraryName is required - store tool is for libraries collection only');
+    const forProject = args?.['forProject'] as boolean | undefined;
+    const libraryName = args?.['libraryName'] as string | undefined;
+
+    if (!forProject && !libraryName) {
+      throw new Error('libraryName is required - store tool is for libraries collection only. Use forProject: true to store to the current project\'s library.');
     }
 
     const options: {
       content: string;
-      libraryName: string;
+      libraryName?: string;
+      forProject?: boolean;
+      projectId?: string;
       title?: string;
       url?: string;
       filePath?: string;
       sourceType?: 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
       metadata?: Record<string, string>;
-    } = { content, libraryName };
+    } = { content };
+
+    if (libraryName) options.libraryName = libraryName;
+    if (forProject) {
+      options.forProject = true;
+      if (this.sessionState.projectId) {
+        options.projectId = this.sessionState.projectId;
+      }
+    }
 
     const title = args?.['title'] as string | undefined;
     if (title) options.title = title;

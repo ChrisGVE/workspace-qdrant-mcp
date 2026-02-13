@@ -26,7 +26,9 @@ export type SourceType = 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
 
 export interface StoreOptions {
   content: string;
-  libraryName: string;          // Required - library to store to
+  libraryName?: string;         // Required unless forProject is true
+  forProject?: boolean;         // When true, store to libraries scoped to current project
+  projectId?: string;           // Project tenant_id (required when forProject is true)
   title?: string;
   url?: string;
   filePath?: string;
@@ -80,6 +82,8 @@ export class StoreTool {
     const {
       content,
       libraryName,
+      forProject = false,
+      projectId,
       title,
       url,
       filePath,
@@ -97,17 +101,35 @@ export class StoreTool {
       };
     }
 
-    // Validate libraryName (required for libraries collection)
-    if (!libraryName?.trim()) {
-      return {
-        success: false,
-        collection: LIBRARIES_COLLECTION,
-        message: 'libraryName is required - this tool stores to the libraries collection only. For project content, use file watching (daemon handles this automatically).',
-        fallback_mode: 'unified_queue',
-      };
-    }
+    // Determine tenant_id and library_name based on mode
+    let tenantId: string;
+    let libraryLabel: string;
 
-    const tenantId = libraryName.trim();
+    if (forProject) {
+      // Project-scoped library: tenant_id = projectId, library_name = explicit or generated
+      if (!projectId?.trim()) {
+        return {
+          success: false,
+          collection: LIBRARIES_COLLECTION,
+          message: 'No active project detected. forProject requires an active project session.',
+          fallback_mode: 'unified_queue',
+        };
+      }
+      tenantId = projectId.trim();
+      libraryLabel = libraryName?.trim() || 'project-refs';
+    } else {
+      // Standalone library: tenant_id = libraryName (required)
+      if (!libraryName?.trim()) {
+        return {
+          success: false,
+          collection: LIBRARIES_COLLECTION,
+          message: 'libraryName is required - this tool stores to the libraries collection only. For project content, use file watching (daemon handles this automatically).',
+          fallback_mode: 'unified_queue',
+        };
+      }
+      tenantId = libraryName.trim();
+      libraryLabel = tenantId;
+    }
 
     // Generate document ID using content hash for idempotency
     const documentId = this.generateDocumentId(content, tenantId);
@@ -127,6 +149,7 @@ export class StoreTool {
       const queueResult = await this.queueStoreOperation({
         content,
         tenantId,
+        libraryName: libraryLabel,
         documentId,
         metadata: fullMetadata,
         sourceType,
@@ -170,6 +193,7 @@ export class StoreTool {
   private async queueStoreOperation(params: {
     content: string;
     tenantId: string;
+    libraryName: string;
     documentId: string;
     metadata: Record<string, string>;
     sourceType: SourceType;
@@ -179,7 +203,7 @@ export class StoreTool {
       document_id: params.documentId,
       source_type: params.sourceType,
       metadata: params.metadata,
-      library_name: params.tenantId,
+      library_name: params.libraryName,
     };
 
     // Use state manager to enqueue to libraries collection
