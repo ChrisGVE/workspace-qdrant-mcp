@@ -311,9 +311,9 @@ fn format_title_with_project(
         if let Some(pid) = payload.get("project_id").and_then(|v| v.as_str()) {
             let name = project_names.get(pid);
             return match (name, verbose) {
-                (Some(name), false) => format!("{} ({})", title, name),
-                (Some(name), true) => format!("{} ({} / {})", title, name, pid),
-                (None, _) => format!("{} ({})", title, pid),
+                (Some(name), false) => format!("{} (project: {})", title, name),
+                (Some(name), true) => format!("{} (project: {} / {})", title, name, pid),
+                (None, _) => format!("{} (project: {})", title, pid),
             };
         }
     }
@@ -968,11 +968,11 @@ mod tests {
 
         assert_eq!(
             format_title_with_project(&payload, &names, false),
-            "My Rule (my-project)"
+            "My Rule (project: my-project)"
         );
         assert_eq!(
             format_title_with_project(&payload, &names, true),
-            "My Rule (my-project / abc123)"
+            "My Rule (project: my-project / abc123)"
         );
     }
 
@@ -987,11 +987,11 @@ mod tests {
         // Falls back to showing just the tenant_id
         assert_eq!(
             format_title_with_project(&payload, &names, false),
-            "My Rule (unknown999)"
+            "My Rule (project: unknown999)"
         );
         assert_eq!(
             format_title_with_project(&payload, &names, true),
-            "My Rule (unknown999)"
+            "My Rule (project: unknown999)"
         );
     }
 }

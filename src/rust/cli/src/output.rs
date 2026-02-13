@@ -187,17 +187,19 @@ fn compute_column_min_widths<T: Tabled>(data: &[T], content_columns: &[usize]) -
         min_widths[i] = header.len();
     }
 
-    // For categorical columns, find widest word/segment across all cells
+    // For categorical columns, find widest word/segment across all cells.
+    // Split on whitespace only — this matches how tabled's `split_keeping_words`
+    // processes text, so trailing punctuation (commas, semicolons) is included
+    // in the word width measurement.
     for row in data {
         let fields = row.fields();
         for (i, field) in fields.iter().enumerate() {
             if i >= num_cols || content_columns.contains(&i) {
                 continue; // Content columns keep header width as min
             }
-            // Split on commas and whitespace, find widest segment
             let widest = field
-                .split(|c: char| c == ',' || c.is_whitespace())
-                .map(|s| s.trim().len())
+                .split_whitespace()
+                .map(|s| s.len())
                 .max()
                 .unwrap_or(0);
             min_widths[i] = min_widths[i].max(widest);
@@ -469,8 +471,8 @@ mod tests {
     }
 
     #[test]
-    fn test_compute_column_min_widths_comma_split() {
-        // Comma-separated tags: widest segment determines min
+    fn test_compute_column_min_widths_whitespace_split() {
+        // Splits on whitespace only — trailing punctuation stays with the word
         let data = vec![TestRow {
             id: "abc".into(),
             title: "A long title".into(),
@@ -479,7 +481,8 @@ mod tests {
         let mins = compute_column_min_widths(&data, &[1]);
         assert_eq!(mins[0], 3 + CELL_PADDING); // "abc" > "ID"(2)
         assert_eq!(mins[1], 5 + CELL_PADDING); // content column, stays at header width
-        assert_eq!(mins[2], 11 + CELL_PADDING); // "verylongtag" = 11 > "Tags"(4)
+        // "verylongtag," (with trailing comma) = 12 > "Tags"(4)
+        assert_eq!(mins[2], 12 + CELL_PADDING);
     }
 
     #[test]
@@ -487,11 +490,12 @@ mod tests {
         // Min width should be the max across all rows
         let data = vec![
             TestRow { id: "1".into(), title: "x".into(), tags: "a, b".into() },
-            TestRow { id: "42".into(), title: "y".into(), tags: "longvalue".into() },
+            TestRow { id: "42".into(), title: "y".into(), tags: "longvalue,".into() },
             TestRow { id: "7".into(), title: "z".into(), tags: "c".into() },
         ];
         let mins = compute_column_min_widths(&data, &[1]);
         assert_eq!(mins[0], 2 + CELL_PADDING); // "42" = 2, "ID" = 2
-        assert_eq!(mins[2], 9 + CELL_PADDING); // "longvalue" = 9 > "Tags"(4)
+        // "longvalue," = 10 (no whitespace, so entire string is one word)
+        assert_eq!(mins[2], 10 + CELL_PADDING);
     }
 }
