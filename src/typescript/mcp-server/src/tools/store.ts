@@ -179,6 +179,7 @@ export class StoreTool {
       document_id: params.documentId,
       source_type: params.sourceType,
       metadata: params.metadata,
+      library_name: params.tenantId,
     };
 
     // Use state manager to enqueue to libraries collection
