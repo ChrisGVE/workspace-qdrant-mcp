@@ -290,6 +290,21 @@ fn payload_u32(payload: &serde_json::Value, key: &str) -> Option<u32> {
     })
 }
 
+/// Format a title with optional project name for project-scoped rules.
+///
+/// For rules with scope "project", appends the project_id in parenthesis
+/// on a new line below the title.
+fn format_title_with_project(payload: &serde_json::Value) -> String {
+    let title = payload_str(payload, "title");
+    let scope = payload_str(payload, "scope");
+    if scope == "project" {
+        if let Some(pid) = payload.get("project_id").and_then(|v| v.as_str()) {
+            return format!("{}\n({})", title, pid);
+        }
+    }
+    title
+}
+
 // ─── List implementation ───────────────────────────────────────────────────
 
 async fn list_rules(
@@ -376,12 +391,15 @@ async fn list_rules(
     output::separator();
 
     if verbose {
+        // Verbose columns: Label(0), Title(1), Scope(2), Priority(3),
+        //                   Tags(4), Content(5), Created(6)
+        // Content columns: Title(1), Content(5)
         let rows: Vec<MemoryRuleRowVerbose> = points
             .iter()
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| MemoryRuleRowVerbose {
                 label: payload_str(payload, "label"),
-                title: payload_str(payload, "title"),
+                title: format_title_with_project(payload),
                 scope: payload_str(payload, "scope"),
                 priority: payload_u32(payload, "priority")
                     .map(|p| p.to_string())
@@ -391,14 +409,16 @@ async fn list_rules(
                 created_at: output::format_date(&payload_str(payload, "created_at")),
             })
             .collect();
-        output::print_table(&rows);
+        output::print_table_with_hints(&rows, &[1, 5]);
     } else {
+        // Columns: Label(0), Title(1), Scope(2), Priority(3), Created(4)
+        // Content columns: Title(1)
         let rows: Vec<MemoryRuleRow> = points
             .iter()
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| MemoryRuleRow {
                 label: payload_str(payload, "label"),
-                title: payload_str(payload, "title"),
+                title: format_title_with_project(payload),
                 scope: payload_str(payload, "scope"),
                 priority: payload_u32(payload, "priority")
                     .map(|p| p.to_string())
@@ -406,7 +426,7 @@ async fn list_rules(
                 created_at: output::format_date(&payload_str(payload, "created_at")),
             })
             .collect();
-        output::print_table(&rows);
+        output::print_table_with_hints(&rows, &[1]);
     }
 
     Ok(())

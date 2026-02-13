@@ -411,7 +411,11 @@ async fn list(
         if json {
             output::print_json(&display_items);
         } else {
-            output::print_table(&display_items);
+            // Verbose columns: WatchID(0), Path(1), Collection(2), TenantID(3),
+            //   Enabled(4), Active(5), Paused(6), Recursive(7), Archived(8),
+            //   Patterns(9), LastScan(10)
+            // Content: Path(1)
+            output::print_table_with_hints(&display_items, &[1]);
             output::info(format!("Showing {} watch configurations", display_items.len()));
         }
     } else {
@@ -434,7 +438,10 @@ async fn list(
         if json {
             output::print_json(&display_items);
         } else {
-            output::print_table(&display_items);
+            // Columns: WatchID(0), Path(1), Collection(2), Enabled(3),
+            //   Active(4), Paused(5), Archived(6), LastScan(7)
+            // Content: Path(1)
+            output::print_table_with_hints(&display_items, &[1]);
             output::info(format!("Showing {} watch configurations", display_items.len()));
         }
     }
