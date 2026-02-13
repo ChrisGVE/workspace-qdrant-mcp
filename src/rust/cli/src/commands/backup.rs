@@ -83,14 +83,7 @@ impl From<&SnapshotInfo> for SnapshotRow {
             created: s.creation_time.clone().unwrap_or_else(|| "unknown".into()),
             checksum: s
                 .checksum
-                .as_deref()
-                .map(|c| {
-                    if c.len() > 12 {
-                        format!("{}...", &c[..12])
-                    } else {
-                        c.to_string()
-                    }
-                })
+                .clone()
                 .unwrap_or_else(|| "none".into()),
         }
     }

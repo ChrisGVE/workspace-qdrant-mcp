@@ -9,7 +9,7 @@ use clap::{Args, Subcommand};
 use colored::Colorize;
 use rusqlite::{Connection, params};
 use serde::Serialize;
-use tabled::{settings::Style, Table, Tabled};
+use tabled::Tabled;
 
 use crate::config::get_database_path_checked;
 use crate::output;
@@ -281,15 +281,6 @@ fn format_status(status: &str) -> String {
     }
 }
 
-/// Truncate string for display
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len - 3])
-    }
-}
-
 async fn list(
     status: Option<String>,
     collection: Option<String>,
@@ -382,11 +373,11 @@ async fn list(
             .iter()
             .map(|(queue_id, idempotency_key, item_type, op, collection, status, priority, created_at, retry_count, worker_id)| {
                 QueueListItemVerbose {
-                    queue_id: truncate(queue_id, 12),
-                    idempotency_key: truncate(idempotency_key, 12),
+                    queue_id: queue_id.clone(),
+                    idempotency_key: idempotency_key.clone(),
                     item_type: item_type.clone(),
                     op: op.clone(),
-                    collection: truncate(collection, 20),
+                    collection: collection.clone(),
                     status: status.clone(),
                     priority: *priority,
                     created_at: created_at.clone(),
@@ -399,8 +390,7 @@ async fn list(
         if json {
             output::print_json(&display_items);
         } else {
-            let table = Table::new(&display_items).with(Style::rounded()).to_string();
-            println!("{}", table);
+            output::print_table(&display_items);
             output::info(format!("Showing {} items", display_items.len()));
         }
     } else {
@@ -408,10 +398,10 @@ async fn list(
             .iter()
             .map(|(queue_id, _idempotency_key, item_type, op, collection, status, priority, created_at, retry_count, _worker_id)| {
                 QueueListItem {
-                    queue_id: truncate(queue_id, 12),
+                    queue_id: queue_id.clone(),
                     item_type: item_type.clone(),
                     op: op.clone(),
-                    collection: truncate(collection, 20),
+                    collection: collection.clone(),
                     status: format_status(status),
                     priority: *priority,
                     age: format_relative_time(created_at),
@@ -423,8 +413,7 @@ async fn list(
         if json {
             output::print_json(&display_items);
         } else {
-            let table = Table::new(&display_items).with(Style::rounded()).to_string();
-            println!("{}", table);
+            output::print_table(&display_items);
             output::info(format!("Showing {} items", display_items.len()));
         }
     }
@@ -654,7 +643,7 @@ async fn stats(json: bool, by_type: bool, by_op: bool, by_collection: bool) -> R
             output::separator();
             output::kv("Oldest Pending Age", &output::format_duration(age as u64));
             if let Some(ref id) = summary.oldest_pending_id {
-                output::kv("Oldest Pending ID", &truncate(id, 20));
+                output::kv("Oldest Pending ID", id);
             }
         }
 
@@ -715,7 +704,7 @@ fn print_breakdown(conn: &Connection, column: &str, title: &str) -> Result<()> {
         let total = stats.pending + stats.in_progress + stats.done + stats.failed;
         println!(
             "  {}: {} (pending={}, in_progress={}, done={}, failed={})",
-            truncate(key, 30),
+            key,
             total,
             stats.pending,
             stats.in_progress,
@@ -792,7 +781,7 @@ async fn retry(queue_id: Option<String>, all: bool) -> Result<()> {
                 if status != "failed" {
                     output::warning(format!(
                         "Item {} has status '{}', not 'failed'. Use --status filter with list to find failed items.",
-                        truncate(&found_id, 20), status
+                        found_id, status
                     ));
                     return Ok(());
                 }
@@ -814,7 +803,7 @@ async fn retry(queue_id: Option<String>, all: bool) -> Result<()> {
 
                 output::success(format!(
                     "Reset item {} to pending (was retry {}/{})",
-                    truncate(&found_id, 20), retry_count, max_retries
+                    found_id, retry_count, max_retries
                 ));
             }
             Err(rusqlite::Error::QueryReturnedNoRows) => {
@@ -901,13 +890,6 @@ mod tests {
         // Test with invalid timestamp
         let result = format_relative_time("invalid");
         assert_eq!(result, "unknown");
-    }
-
-    #[test]
-    fn test_truncate() {
-        assert_eq!(truncate("short", 10), "short");
-        assert_eq!(truncate("this is a long string", 10), "this is...");
-        assert_eq!(truncate("abc", 3), "abc");
     }
 
     #[test]

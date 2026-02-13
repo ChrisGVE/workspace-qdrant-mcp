@@ -51,29 +51,11 @@ pub fn print_json<T: Serialize + ?Sized>(data: &T) {
     }
 }
 
-/// Print data as a formatted table
-pub fn print_table<T: Tabled>(data: &[T]) {
-    if data.is_empty() {
-        info("No data to display");
-        return;
-    }
-
-    let table = Table::new(data).with(Style::rounded()).to_string();
-    println!("{}", table);
-}
-
-/// Get the current terminal width, falling back to 120 columns
-pub fn terminal_width() -> usize {
-    terminal_size::terminal_size()
-        .map(|(w, _)| w.0 as usize)
-        .unwrap_or(120)
-}
-
 /// Print data as a formatted table, wrapping content to fit terminal width.
 ///
 /// Uses `PriorityMax` strategy: the widest column gets wrapped first,
 /// preserving shorter columns (labels, dates, etc.) at their natural width.
-pub fn print_table_wrapped<T: Tabled>(data: &[T]) {
+pub fn print_table<T: Tabled>(data: &[T]) {
     if data.is_empty() {
         info("No data to display");
         return;
@@ -85,6 +67,41 @@ pub fn print_table_wrapped<T: Tabled>(data: &[T]) {
         .with(Width::wrap(width).priority::<PriorityMax>().keep_words())
         .to_string();
     println!("{}", table);
+}
+
+/// Get the current terminal width, falling back to 120 columns
+pub fn terminal_width() -> usize {
+    terminal_size::terminal_size()
+        .map(|(w, _)| w.0 as usize)
+        .unwrap_or(120)
+}
+
+/// Truncate a string to a maximum display width, appending "..." if truncated.
+///
+/// UTF-8 safe: finds valid char boundaries before slicing.
+pub fn truncate(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        let target = max_len.saturating_sub(3);
+        // Find a valid char boundary at or before target
+        let mut boundary = target;
+        while boundary > 0 && !s.is_char_boundary(boundary) {
+            boundary -= 1;
+        }
+        format!("{}...", &s[..boundary])
+    }
+}
+
+/// Format a timestamp for table display (date only).
+///
+/// Extracts the date portion (YYYY-MM-DD) from an ISO-8601 timestamp.
+pub fn format_date(ts: &str) -> String {
+    if ts.len() >= 10 {
+        ts[..10].to_string()
+    } else {
+        ts.to_string()
+    }
 }
 
 /// Print data as plain text (one item per line)
@@ -194,6 +211,39 @@ mod tests {
         assert_eq!(format_duration(90), "1m 30s");
         assert_eq!(format_duration(3700), "1h 1m");
         assert_eq!(format_duration(90000), "1d 1h");
+    }
+
+    #[test]
+    fn test_truncate_short_string() {
+        assert_eq!(truncate("short", 10), "short");
+        assert_eq!(truncate("exactly ten", 11), "exactly ten");
+    }
+
+    #[test]
+    fn test_truncate_long_string() {
+        let long = "this is a long string that should be truncated";
+        let result = truncate(long, 20);
+        assert!(result.len() <= 20);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_truncate_multibyte() {
+        // Emoji are multi-byte; ensure no panic
+        let emoji = "Hello 🌍🌎🌏 world";
+        let result = truncate(emoji, 10);
+        assert!(result.ends_with("..."));
+    }
+
+    #[test]
+    fn test_format_date_iso() {
+        assert_eq!(format_date("2026-02-12T10:30:00.000Z"), "2026-02-12");
+    }
+
+    #[test]
+    fn test_format_date_short() {
+        assert_eq!(format_date("short"), "short");
+        assert_eq!(format_date(""), "");
     }
 
     #[test]

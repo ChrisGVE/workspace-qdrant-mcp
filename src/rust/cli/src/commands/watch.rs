@@ -11,7 +11,7 @@ use clap::{Args, Subcommand};
 use colored::Colorize;
 use rusqlite::{Connection, params};
 use serde::Serialize;
-use tabled::{settings::Style, Table, Tabled};
+use tabled::Tabled;
 
 use crate::config::get_database_path_checked;
 use crate::output;
@@ -242,15 +242,6 @@ fn format_relative_time(timestamp_str: &str) -> String {
     }
 }
 
-/// Truncate string for display
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len - 3])
-    }
-}
-
 /// Format enabled/active status with color
 fn format_bool(value: bool) -> String {
     if value {
@@ -402,16 +393,16 @@ async fn list(
             .iter()
             .map(|(watch_id, path, collection, tenant_id, patterns, _ignore_patterns, enabled, is_active, recursive, last_scan, is_paused, is_archived)| {
                 WatchListItemVerbose {
-                    watch_id: truncate(watch_id, 20),
-                    path: truncate(path, 40),
-                    collection: truncate(collection, 20),
-                    tenant_id: truncate(tenant_id, 20),
+                    watch_id: watch_id.clone(),
+                    path: path.clone(),
+                    collection: collection.clone(),
+                    tenant_id: tenant_id.clone(),
                     enabled: format_bool(*enabled),
                     is_active: format_bool(*is_active),
                     is_paused: format_bool_paused(*is_paused),
                     archived: format_bool_archived(*is_archived),
                     recursive: if *recursive { "yes" } else { "no" }.to_string(),
-                    patterns: truncate(patterns, 20),
+                    patterns: patterns.clone(),
                     last_scan: last_scan.as_ref().map(|s| format_relative_time(s)).unwrap_or_else(|| "never".to_string()),
                 }
             })
@@ -420,8 +411,7 @@ async fn list(
         if json {
             output::print_json(&display_items);
         } else {
-            let table = Table::new(&display_items).with(Style::rounded()).to_string();
-            println!("{}", table);
+            output::print_table(&display_items);
             output::info(format!("Showing {} watch configurations", display_items.len()));
         }
     } else {
@@ -429,9 +419,9 @@ async fn list(
             .iter()
             .map(|(watch_id, path, collection, _tenant_id, _patterns, _ignore_patterns, enabled, is_active, _recursive, last_scan, is_paused, is_archived)| {
                 WatchListItem {
-                    watch_id: truncate(watch_id, 20),
-                    path: truncate(path, 50),
-                    collection: truncate(collection, 20),
+                    watch_id: watch_id.clone(),
+                    path: path.clone(),
+                    collection: collection.clone(),
                     enabled: format_bool(*enabled),
                     is_active: format_bool(*is_active),
                     is_paused: format_bool_paused(*is_paused),
@@ -444,8 +434,7 @@ async fn list(
         if json {
             output::print_json(&display_items);
         } else {
-            let table = Table::new(&display_items).with(Style::rounded()).to_string();
-            println!("{}", table);
+            output::print_table(&display_items);
             output::info(format!("Showing {} watch configurations", display_items.len()));
         }
     }
@@ -848,12 +837,6 @@ mod tests {
 
         let result = format_relative_time("invalid");
         assert_eq!(result, "never");
-    }
-
-    #[test]
-    fn test_truncate() {
-        assert_eq!(truncate("short", 10), "short");
-        assert_eq!(truncate("this is a long string", 10), "this is...");
     }
 
     #[test]

@@ -290,31 +290,6 @@ fn payload_u32(payload: &serde_json::Value, key: &str) -> Option<u32> {
     })
 }
 
-/// Truncate a string to a maximum display width, appending "..." if truncated
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        let target = max_len.saturating_sub(3);
-        // Find a valid char boundary at or before target
-        let mut boundary = target;
-        while boundary > 0 && !s.is_char_boundary(boundary) {
-            boundary -= 1;
-        }
-        format!("{}...", &s[..boundary])
-    }
-}
-
-/// Format a timestamp for table display (date only)
-fn format_date(ts: &str) -> String {
-    // Extract date portion from ISO-8601 timestamp (YYYY-MM-DD)
-    if ts.len() >= 10 {
-        ts[..10].to_string()
-    } else {
-        ts.to_string()
-    }
-}
-
 // ─── List implementation ───────────────────────────────────────────────────
 
 async fn list_rules(
@@ -406,32 +381,32 @@ async fn list_rules(
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| MemoryRuleRowVerbose {
                 label: payload_str(payload, "label"),
-                title: truncate(&payload_str(payload, "title"), 30),
+                title: payload_str(payload, "title"),
                 scope: payload_str(payload, "scope"),
                 priority: payload_u32(payload, "priority")
                     .map(|p| p.to_string())
                     .unwrap_or_else(|| "-".to_string()),
                 tags: payload_str(payload, "tags"),
                 content: payload_str(payload, "content"),
-                created_at: format_date(&payload_str(payload, "created_at")),
+                created_at: output::format_date(&payload_str(payload, "created_at")),
             })
             .collect();
-        output::print_table_wrapped(&rows);
+        output::print_table(&rows);
     } else {
         let rows: Vec<MemoryRuleRow> = points
             .iter()
             .filter_map(|p| p.payload.as_ref())
             .map(|payload| MemoryRuleRow {
                 label: payload_str(payload, "label"),
-                title: truncate(&payload_str(payload, "title"), 40),
+                title: payload_str(payload, "title"),
                 scope: payload_str(payload, "scope"),
                 priority: payload_u32(payload, "priority")
                     .map(|p| p.to_string())
                     .unwrap_or_else(|| "-".to_string()),
-                created_at: format_date(&payload_str(payload, "created_at")),
+                created_at: output::format_date(&payload_str(payload, "created_at")),
             })
             .collect();
-        output::print_table_wrapped(&rows);
+        output::print_table(&rows);
     }
 
     Ok(())
@@ -801,23 +776,6 @@ mod tests {
         assert_eq!(payload_u32(&payload, "priority"), Some(8));
         assert_eq!(payload_u32(&payload, "zero"), Some(0));
         assert_eq!(payload_u32(&payload, "missing"), None);
-    }
-
-    #[test]
-    fn test_truncate() {
-        assert_eq!(truncate("short", 10), "short");
-        assert_eq!(truncate("exactly ten", 11), "exactly ten");
-        let long = "this is a long string that should be truncated";
-        let result = truncate(long, 20);
-        assert!(result.len() <= 20);
-        assert!(result.ends_with("..."));
-    }
-
-    #[test]
-    fn test_format_date() {
-        assert_eq!(format_date("2026-02-12T10:30:00.000Z"), "2026-02-12");
-        assert_eq!(format_date("short"), "short");
-        assert_eq!(format_date(""), "");
     }
 
     #[test]
