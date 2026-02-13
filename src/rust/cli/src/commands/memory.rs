@@ -416,7 +416,7 @@ async fn list_rules(
                 created_at: format_date(&payload_str(payload, "created_at")),
             })
             .collect();
-        output::print_table(&rows);
+        output::print_table_wrapped(&rows);
     } else {
         let rows: Vec<MemoryRuleRow> = points
             .iter()
@@ -431,7 +431,7 @@ async fn list_rules(
                 created_at: format_date(&payload_str(payload, "created_at")),
             })
             .collect();
-        output::print_table(&rows);
+        output::print_table_wrapped(&rows);
     }
 
     Ok(())

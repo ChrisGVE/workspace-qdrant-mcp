@@ -10,7 +10,7 @@
 use colored::Colorize;
 use serde::Serialize;
 use std::fmt::Display;
-use tabled::{settings::Style, Table, Tabled};
+use tabled::{settings::{peaker::PriorityMax, Style, Width}, Table, Tabled};
 
 use crate::config::OutputFormat;
 
@@ -59,6 +59,31 @@ pub fn print_table<T: Tabled>(data: &[T]) {
     }
 
     let table = Table::new(data).with(Style::rounded()).to_string();
+    println!("{}", table);
+}
+
+/// Get the current terminal width, falling back to 120 columns
+pub fn terminal_width() -> usize {
+    terminal_size::terminal_size()
+        .map(|(w, _)| w.0 as usize)
+        .unwrap_or(120)
+}
+
+/// Print data as a formatted table, wrapping content to fit terminal width.
+///
+/// Uses `PriorityMax` strategy: the widest column gets wrapped first,
+/// preserving shorter columns (labels, dates, etc.) at their natural width.
+pub fn print_table_wrapped<T: Tabled>(data: &[T]) {
+    if data.is_empty() {
+        info("No data to display");
+        return;
+    }
+
+    let width = terminal_width();
+    let table = Table::new(data)
+        .with(Style::rounded())
+        .with(Width::wrap(width).priority::<PriorityMax>().keep_words())
+        .to_string();
     println!("{}", table);
 }
 

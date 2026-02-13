@@ -7585,6 +7585,7 @@ dependencies = [
  "sha2",
  "tabled",
  "tempfile",
+ "terminal_size",
  "thiserror 2.0.18",
  "tokio",
  "tonic 0.12.3",
