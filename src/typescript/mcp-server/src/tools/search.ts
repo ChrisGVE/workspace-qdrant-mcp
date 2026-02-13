@@ -290,7 +290,7 @@ export class SearchTool {
     // Project filter for project scope
     if (params.collection === PROJECTS_COLLECTION && params.scope === 'project' && params.projectId) {
       mustConditions.push({
-        key: 'project_id',
+        key: 'tenant_id',
         match: { value: params.projectId },
       });
     }
