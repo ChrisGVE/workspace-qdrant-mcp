@@ -513,6 +513,102 @@ impl PriorityManager {
         Ok(0)
     }
 
+    /// Set project priority explicitly
+    ///
+    /// Maps a priority string ("high"/"normal") to numeric values and updates
+    /// both watch_folders (is_active) and pending queue items.
+    ///
+    /// # Arguments
+    /// * `tenant_id` - Tenant identifier (project_id)
+    /// * `priority_str` - "high" or "normal"
+    ///
+    /// # Returns
+    /// (previous_priority_string, queue_items_updated)
+    pub async fn set_priority(
+        &self,
+        tenant_id: &str,
+        priority_str: &str,
+    ) -> PriorityResult<(String, i32)> {
+        if tenant_id.is_empty() {
+            return Err(PriorityError::EmptyParameter);
+        }
+
+        let (new_numeric, new_is_active) = match priority_str {
+            "high" => (priority::HIGH, 1),
+            "normal" => (priority::NORMAL, 0),
+            other => return Err(PriorityError::InvalidPriority(
+                other.parse::<i32>().unwrap_or(-1)
+            )),
+        };
+
+        // Start transaction
+        let mut tx = self.db_pool.begin().await?;
+
+        // Get current state
+        let current_active: Option<i32> = sqlx::query_scalar(
+            "SELECT is_active FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1"
+        )
+            .bind(tenant_id)
+            .bind(COLLECTION_PROJECTS)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        let current_active = match current_active {
+            Some(v) => v,
+            None => {
+                tx.rollback().await?;
+                return Err(PriorityError::ProjectNotFound(tenant_id.to_string()));
+            }
+        };
+
+        let previous_priority = if current_active == 1 { "high" } else { "normal" };
+
+        // Update watch_folders
+        let now = timestamps::format_utc(&chrono::Utc::now());
+        sqlx::query(
+            r#"
+            UPDATE watch_folders
+            SET is_active = ?1,
+                last_activity_at = ?2,
+                updated_at = ?2
+            WHERE tenant_id = ?3
+              AND collection = ?4
+            "#,
+        )
+        .bind(new_is_active)
+        .bind(&now)
+        .bind(tenant_id)
+        .bind(COLLECTION_PROJECTS)
+        .execute(&mut *tx)
+        .await?;
+
+        // Update pending queue items to new priority level
+        let queue_result = sqlx::query(
+            r#"
+            UPDATE unified_queue
+            SET priority = ?1,
+                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+            WHERE tenant_id = ?2
+              AND status = 'pending'
+            "#,
+        )
+        .bind(new_numeric as i32)
+        .bind(tenant_id)
+        .execute(&mut *tx)
+        .await?;
+
+        let queue_items_updated = queue_result.rows_affected() as i32;
+
+        tx.commit().await?;
+
+        info!(
+            "Set priority for project {}: {} -> {} ({} queue items updated)",
+            tenant_id, previous_priority, priority_str, queue_items_updated
+        );
+
+        Ok((previous_priority.to_string(), queue_items_updated))
+    }
+
     /// Update heartbeat timestamp for a project
     ///
     /// Called periodically by MCP servers to indicate they're still alive.
@@ -1299,5 +1395,74 @@ mod tests {
         assert_eq!(priority::HIGH, 1);
         assert_eq!(priority::NORMAL, 3);
         assert_eq!(priority::LOW, 5);
+    }
+
+    #[tokio::test]
+    async fn test_set_priority_normal_to_high() {
+        let (pool, _temp_dir) = setup_test_db().await;
+        let priority_manager = PriorityManager::new(pool.clone());
+
+        // Create test project (starts inactive/normal)
+        create_test_project(&pool, "abcd12345678", "/test/project").await;
+
+        // Enqueue items with normal priority
+        enqueue_test_item(&pool, "abcd12345678", "main", priority::NORMAL as i32).await;
+
+        // Set priority to high
+        let (previous, queue_updated) = priority_manager
+            .set_priority("abcd12345678", "high")
+            .await
+            .unwrap();
+
+        assert_eq!(previous, "normal");
+        assert_eq!(queue_updated, 1);
+
+        // Verify project is now active
+        let info = priority_manager.get_session_info("abcd12345678").await.unwrap().unwrap();
+        assert!(info.is_active);
+        assert_eq!(info.priority, "high");
+
+        // Verify queue items bumped to HIGH
+        let count = priority_manager
+            .count_items_with_priority("abcd12345678", "main", priority::HIGH)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_set_priority_high_to_normal() {
+        let (pool, _temp_dir) = setup_test_db().await;
+        let priority_manager = PriorityManager::new(pool.clone());
+
+        // Create test project and activate it
+        create_test_project(&pool, "abcd12345678", "/test/project").await;
+        priority_manager.register_session("abcd12345678", "main").await.unwrap();
+
+        // Enqueue items with high priority
+        enqueue_test_item(&pool, "abcd12345678", "main", priority::HIGH as i32).await;
+
+        // Set priority to normal
+        let (previous, queue_updated) = priority_manager
+            .set_priority("abcd12345678", "normal")
+            .await
+            .unwrap();
+
+        assert_eq!(previous, "high");
+        assert_eq!(queue_updated, 1);
+
+        // Verify project is now inactive
+        let info = priority_manager.get_session_info("abcd12345678").await.unwrap().unwrap();
+        assert!(!info.is_active);
+        assert_eq!(info.priority, "normal");
+    }
+
+    #[tokio::test]
+    async fn test_set_priority_nonexistent_project() {
+        let (pool, _temp_dir) = setup_test_db().await;
+        let priority_manager = PriorityManager::new(pool);
+
+        let result = priority_manager.set_priority("nonexistent12", "high").await;
+        assert!(matches!(result, Err(PriorityError::ProjectNotFound(_))));
     }
 }
