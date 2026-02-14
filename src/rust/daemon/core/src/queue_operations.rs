@@ -868,7 +868,8 @@ impl QueueManager {
     /// * `lease_duration_secs` - How long to hold the lease (default: 300 seconds)
     /// * `tenant_id` - Optional filter by tenant
     /// * `item_type` - Optional filter by item type
-    /// * `priority_descending` - If true, high priority first (DESC); if false, low priority first (ASC)
+    /// * `priority_descending` - If true, high priority first (DESC) with FIFO tiebreaker;
+    ///   if false, low priority first (ASC) with LIFO tiebreaker.
     ///   Used for anti-starvation alternation. Defaults to true if None.
     pub async fn dequeue_unified(
         &self,
@@ -887,11 +888,15 @@ impl QueueManager {
         // Task 21: Priority direction for anti-starvation alternation
         // When true (default): high priority first (DESC) - active projects prioritized
         // When false: low priority first (ASC) - inactive projects get a turn
-        let priority_order = if priority_descending.unwrap_or(true) {
-            "DESC"
-        } else {
-            "ASC"
-        };
+        let is_descending = priority_descending.unwrap_or(true);
+        let priority_order = if is_descending { "DESC" } else { "ASC" };
+
+        // Task 9: FIFO/LIFO alternation for idle processing
+        // DESC phase (active first): FIFO tiebreaker (created_at ASC) — clear old backlog
+        // ASC phase (anti-starvation): LIFO tiebreaker (created_at DESC) — recent changes first
+        // When all projects are idle, the priority CASE is equal for all items,
+        // so this effectively alternates between FIFO and LIFO batches.
+        let created_at_order = if is_descending { "ASC" } else { "DESC" };
 
         // First, select the queue_ids to process with calculated priority (Task 20)
         // Priority is computed at query time via JOIN with watch_folders:
@@ -923,13 +928,14 @@ impl QueueManager {
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
                         END {priority_order},
-                        q.created_at ASC
+                        q.created_at {created_at_order}
                     LIMIT ?4
                     "#,
                     coll_projects = COLLECTION_PROJECTS,
                     coll_libraries = COLLECTION_LIBRARIES,
                     coll_memory = COLLECTION_MEMORY,
                     priority_order = priority_order,
+                    created_at_order = created_at_order,
                 );
                 sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)
@@ -961,13 +967,14 @@ impl QueueManager {
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
                         END {priority_order},
-                        q.created_at ASC
+                        q.created_at {created_at_order}
                     LIMIT ?3
                     "#,
                     coll_projects = COLLECTION_PROJECTS,
                     coll_libraries = COLLECTION_LIBRARIES,
                     coll_memory = COLLECTION_MEMORY,
                     priority_order = priority_order,
+                    created_at_order = created_at_order,
                 );
                 sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)
@@ -998,13 +1005,14 @@ impl QueueManager {
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
                         END {priority_order},
-                        q.created_at ASC
+                        q.created_at {created_at_order}
                     LIMIT ?3
                     "#,
                     coll_projects = COLLECTION_PROJECTS,
                     coll_libraries = COLLECTION_LIBRARIES,
                     coll_memory = COLLECTION_MEMORY,
                     priority_order = priority_order,
+                    created_at_order = created_at_order,
                 );
                 sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)
@@ -1034,13 +1042,14 @@ impl QueueManager {
                             WHEN w.is_active = 1 THEN 1
                             ELSE 0
                         END {priority_order},
-                        q.created_at ASC
+                        q.created_at {created_at_order}
                     LIMIT ?2
                     "#,
                     coll_projects = COLLECTION_PROJECTS,
                     coll_libraries = COLLECTION_LIBRARIES,
                     coll_memory = COLLECTION_MEMORY,
                     priority_order = priority_order,
+                    created_at_order = created_at_order,
                 );
                 sqlx::query_scalar::<_, String>(&query)
                     .bind(&now_str)
@@ -1096,7 +1105,7 @@ impl QueueManager {
 
         let rows = fetch_builder.fetch_all(&self.pool).await?;
 
-        let mut items = Vec::new();
+        let mut items = Vec::with_capacity(rows.len());
         for row in rows {
             let item_type_str: String = row.try_get("item_type")?;
             let op_str: String = row.try_get("op")?;
@@ -1127,6 +1136,17 @@ impl QueueManager {
                 last_error_at: row.try_get("last_error_at")?,
                 file_path: row.try_get("file_path")?, // Task 22
             });
+        }
+
+        // Preserve the ordering from the initial SELECT (which has ORDER BY).
+        // The fetch query uses WHERE IN (...) which returns rows in arbitrary order.
+        {
+            let id_positions: std::collections::HashMap<&str, usize> = queue_ids
+                .iter()
+                .enumerate()
+                .map(|(i, id)| (id.as_str(), i))
+                .collect();
+            items.sort_by_key(|item| *id_positions.get(item.queue_id.as_str()).unwrap_or(&usize::MAX));
         }
 
         debug!(
@@ -2791,5 +2811,107 @@ mod tests {
             QueueError::MissingPayloadField { item_type, field }
             if item_type == "file" && field == "file_path"
         ));
+    }
+
+    /// Test FIFO ordering: priority_descending=true → created_at ASC (oldest first)
+    #[tokio::test]
+    async fn test_dequeue_fifo_ordering() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_fifo.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        apply_sql_script(&pool, include_str!("schema/watch_folders_schema.sql"))
+            .await.unwrap();
+
+        let manager = QueueManager::new(pool.clone());
+        manager.init_unified_queue().await.unwrap();
+
+        // Create an inactive project watch_folder
+        sqlx::query(
+            r#"INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active,
+               created_at, updated_at)
+               VALUES ('w1', '/test', 'projects', 'tenant-a', 0,
+               '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')"#,
+        ).execute(&pool).await.unwrap();
+
+        // Enqueue 3 items with staggered timestamps (old → new)
+        for i in 1..=3 {
+            let ts = format!("2026-01-0{}T00:00:00.000Z", i);
+            sqlx::query(
+                r#"INSERT INTO unified_queue
+                   (queue_id, item_type, op, tenant_id, collection, priority, status,
+                    branch, idempotency_key, payload_json, created_at, updated_at)
+                   VALUES (?1, 'file', 'ingest', 'tenant-a', 'projects', 0, 'pending',
+                    'main', ?2, ?3, ?4, ?4)"#,
+            )
+            .bind(format!("fifo-q{}", i))
+            .bind(format!("key-fifo-{}", i))
+            .bind(format!(r#"{{"file_path":"/test/file{}.rs"}}"#, i))
+            .bind(&ts)
+            .execute(&pool).await.unwrap();
+        }
+
+        // DESC direction → FIFO (oldest first)
+        let items = manager
+            .dequeue_unified(3, "test-worker", Some(300), None, None, Some(true))
+            .await.unwrap();
+
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].queue_id, "fifo-q1"); // oldest
+        assert_eq!(items[1].queue_id, "fifo-q2");
+        assert_eq!(items[2].queue_id, "fifo-q3"); // newest
+    }
+
+    /// Test LIFO ordering: priority_descending=false → created_at DESC (newest first)
+    #[tokio::test]
+    async fn test_dequeue_lifo_ordering() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_lifo.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        apply_sql_script(&pool, include_str!("schema/watch_folders_schema.sql"))
+            .await.unwrap();
+
+        let manager = QueueManager::new(pool.clone());
+        manager.init_unified_queue().await.unwrap();
+
+        // Create an inactive project watch_folder
+        sqlx::query(
+            r#"INSERT INTO watch_folders (watch_id, path, collection, tenant_id, is_active,
+               created_at, updated_at)
+               VALUES ('w1', '/test', 'projects', 'tenant-a', 0,
+               '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')"#,
+        ).execute(&pool).await.unwrap();
+
+        // Enqueue 3 items with staggered timestamps (old → new)
+        for i in 1..=3 {
+            let ts = format!("2026-01-0{}T00:00:00.000Z", i);
+            sqlx::query(
+                r#"INSERT INTO unified_queue
+                   (queue_id, item_type, op, tenant_id, collection, priority, status,
+                    branch, idempotency_key, payload_json, created_at, updated_at)
+                   VALUES (?1, 'file', 'ingest', 'tenant-a', 'projects', 0, 'pending',
+                    'main', ?2, ?3, ?4, ?4)"#,
+            )
+            .bind(format!("lifo-q{}", i))
+            .bind(format!("key-lifo-{}", i))
+            .bind(format!(r#"{{"file_path":"/test/lifo{}.rs"}}"#, i))
+            .bind(&ts)
+            .execute(&pool).await.unwrap();
+        }
+
+        // ASC direction → LIFO (newest first)
+        let items = manager
+            .dequeue_unified(3, "test-worker", Some(300), None, None, Some(false))
+            .await.unwrap();
+
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].queue_id, "lifo-q3"); // newest
+        assert_eq!(items[1].queue_id, "lifo-q2");
+        assert_eq!(items[2].queue_id, "lifo-q1"); // oldest
     }
 }
