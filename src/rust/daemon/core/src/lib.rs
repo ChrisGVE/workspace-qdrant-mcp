@@ -122,7 +122,7 @@ pub use crate::patterns::{
     Ecosystem, ProjectIndicator, ConfidenceLevel, LanguageGroup, CommentSyntax
 };
 pub use crate::priority_manager::{
-    PriorityManager, PriorityError, PriorityResult, PriorityTransition,
+    PriorityManager, PriorityError, PriorityResult,
     SessionMonitor, SessionMonitorConfig, SessionInfo, OrphanedSessionCleanup,
     priority
 };

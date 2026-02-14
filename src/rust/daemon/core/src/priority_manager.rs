@@ -1,28 +1,21 @@
 //! Priority Manager Module
 //!
-//! Manages dynamic priority adjustments for queue items based on server lifecycle events.
-//! When an MCP server starts for a project, related files are bumped to high priority (1).
-//! When a server stops, related files are demoted to normal priority (3).
+//! Manages project activation state based on MCP server lifecycle events.
+//! Priority ordering is computed at dequeue time by JOINing `watch_folders.is_active`
+//! and collection type — the stored `priority` column in `unified_queue` is NOT used
+//! for dequeue ordering (see `queue_operations::dequeue_unified`).
 //!
-//! ## Session Tracking
-//!
-//! Session tracking uses the `watch_folders` table with `is_active` and `last_activity_at`:
-//! - `activate_project`: Sets is_active=1, updates last_activity_at, bumps priority to HIGH
+//! This module manages only `watch_folders.is_active` and `last_activity_at`:
+//! - `register_session`: Sets is_active=1, updates last_activity_at
 //! - `heartbeat`: Updates last_activity_at timestamp for active projects
-//! - `deactivate_project`: Sets is_active=0, demotes priority when deactivated
-//! - `cleanup_orphaned_sessions`: Detects projects without heartbeat for >60s (configurable)
-//!
-//! ## Priority Levels
-//!
-//! - HIGH (1): Active agent sessions - items processed first
-//! - NORMAL (3): Registered projects without active sessions
-//! - LOW (5): Background/inactive projects
+//! - `unregister_session`: Sets is_active=0
+//! - `set_priority`: Maps "high"/"normal" to is_active=1/0
+//! - `cleanup_orphaned_sessions`: Detects stale active projects (>60s without heartbeat)
 //!
 //! ## Schema Compliance (WORKSPACE_QDRANT_MCP.md v1.6.7)
 //!
-//! This module uses only the spec-defined tables:
-//! - `watch_folders`: For activity tracking via `is_active` and `last_activity_at`
-//! - `unified_queue`: For queue priority management
+//! This module uses only the `watch_folders` table for activity state.
+//! Queue ordering is computed at dequeue time, not stored.
 
 use chrono::{DateTime, Utc, Duration as ChronoDuration};
 use sqlx::SqlitePool;
@@ -84,40 +77,6 @@ pub enum PriorityError {
 /// Result type for priority operations
 pub type PriorityResult<T> = Result<T, PriorityError>;
 
-/// Priority transition information
-#[derive(Debug, Clone)]
-pub struct PriorityTransition {
-    /// Priority before transition
-    pub from_priority: i32,
-
-    /// Priority after transition
-    pub to_priority: i32,
-
-    /// Number of items affected in unified_queue
-    pub unified_queue_affected: usize,
-
-    /// Total items affected (same as unified_queue_affected)
-    pub total_affected: usize,
-}
-
-impl PriorityTransition {
-    /// Create a new transition record
-    pub fn new(from_priority: i32, to_priority: i32) -> Self {
-        Self {
-            from_priority,
-            to_priority,
-            unified_queue_affected: 0,
-            total_affected: 0,
-        }
-    }
-
-    /// Add count from queue update
-    pub fn set_count(&mut self, count: usize) {
-        self.unified_queue_affected = count;
-        self.total_affected = count;
-    }
-}
-
 /// Session information for tracking active MCP server connections
 ///
 /// Uses `watch_folders.is_active` for activity state per spec.
@@ -162,188 +121,6 @@ impl PriorityManager {
         Self { db_pool }
     }
 
-    /// Handle server start event - bump priority from 3 to 1 (urgent)
-    ///
-    /// When an MCP server starts for a project, all pending items for that project
-    /// should be processed urgently to provide fresh context.
-    ///
-    /// # Arguments
-    /// * `tenant_id` - Project/tenant identifier
-    /// * `branch` - Git branch name
-    ///
-    /// # Returns
-    /// PriorityTransition with count of affected items
-    pub async fn on_server_start(
-        &self,
-        tenant_id: &str,
-        branch: &str,
-    ) -> PriorityResult<PriorityTransition> {
-        // Validate inputs
-        if tenant_id.is_empty() || branch.is_empty() {
-            warn!(
-                "Empty tenant_id or branch in on_server_start: tenant_id='{}', branch='{}'",
-                tenant_id, branch
-            );
-            return Err(PriorityError::EmptyParameter);
-        }
-
-        let from_priority = priority::NORMAL;
-        let to_priority = priority::HIGH;
-
-        info!(
-            "Server START: Bumping priority {} → {} for tenant_id='{}', branch='{}'",
-            from_priority, to_priority, tenant_id, branch
-        );
-
-        self.bulk_update_priority(tenant_id, branch, from_priority, to_priority)
-            .await
-    }
-
-    /// Handle server stop event - demote priority from 1 to 3 (normal)
-    ///
-    /// When an MCP server stops, pending items can be deprioritized as they're
-    /// no longer urgently needed for active development.
-    ///
-    /// # Arguments
-    /// * `tenant_id` - Project/tenant identifier
-    /// * `branch` - Git branch name
-    ///
-    /// # Returns
-    /// PriorityTransition with count of affected items
-    pub async fn on_server_stop(
-        &self,
-        tenant_id: &str,
-        branch: &str,
-    ) -> PriorityResult<PriorityTransition> {
-        // Validate inputs
-        if tenant_id.is_empty() || branch.is_empty() {
-            warn!(
-                "Empty tenant_id or branch in on_server_stop: tenant_id='{}', branch='{}'",
-                tenant_id, branch
-            );
-            return Err(PriorityError::EmptyParameter);
-        }
-
-        let from_priority = priority::HIGH;
-        let to_priority = priority::NORMAL;
-
-        info!(
-            "Server STOP: Demoting priority {} → {} for tenant_id='{}', branch='{}'",
-            from_priority, to_priority, tenant_id, branch
-        );
-
-        self.bulk_update_priority(tenant_id, branch, from_priority, to_priority)
-            .await
-    }
-
-    /// Bulk update priorities for all matching queue items
-    ///
-    /// Updates unified_queue in a single transaction.
-    /// Only items with the exact from_priority are affected, preventing unintended changes.
-    ///
-    /// # Arguments
-    /// * `tenant_id` - Filter by tenant/project
-    /// * `branch` - Filter by git branch
-    /// * `from_priority` - Only update items with this priority
-    /// * `to_priority` - Set priority to this value
-    ///
-    /// # Returns
-    /// PriorityTransition with counts of affected items
-    async fn bulk_update_priority(
-        &self,
-        tenant_id: &str,
-        branch: &str,
-        from_priority: i32,
-        to_priority: i32,
-    ) -> PriorityResult<PriorityTransition> {
-        // Validate priority range
-        if from_priority > 10 || from_priority < 0 {
-            return Err(PriorityError::InvalidPriority(from_priority));
-        }
-        if to_priority > 10 || to_priority < 0 {
-            return Err(PriorityError::InvalidPriority(to_priority));
-        }
-
-        // Update unified_queue (the only queue table per spec)
-        let query = r#"
-            UPDATE unified_queue
-            SET priority = ?1,
-                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE tenant_id = ?2
-              AND branch = ?3
-              AND priority = ?4
-              AND status = 'pending'
-        "#;
-
-        let result = sqlx::query(query)
-            .bind(to_priority)
-            .bind(tenant_id)
-            .bind(branch)
-            .bind(from_priority)
-            .execute(&self.db_pool)
-            .await?;
-
-        let affected = result.rows_affected() as usize;
-
-        // Create transition record
-        let mut transition = PriorityTransition::new(from_priority, to_priority);
-        transition.set_count(affected);
-
-        // Log results
-        if transition.total_affected == 0 {
-            debug!(
-                "No items found with priority {} for tenant_id='{}', branch='{}'",
-                from_priority, tenant_id, branch
-            );
-        } else {
-            info!(
-                "Priority transition complete: {} items updated in unified_queue",
-                transition.total_affected
-            );
-
-            // Warn if unusually large batch
-            if transition.total_affected > 1000 {
-                warn!(
-                    "Large priority update: {} items affected for tenant_id='{}', branch='{}'",
-                    transition.total_affected, tenant_id, branch
-                );
-            }
-        }
-
-        Ok(transition)
-    }
-
-    /// Get count of items with specific priority for a tenant/branch
-    ///
-    /// Utility method for testing and monitoring.
-    pub async fn count_items_with_priority(
-        &self,
-        tenant_id: &str,
-        branch: &str,
-        priority: i32,
-    ) -> PriorityResult<usize> {
-        if priority > 10 || priority < 0 {
-            return Err(PriorityError::InvalidPriority(priority));
-        }
-
-        let query = r#"
-            SELECT COUNT(*) as total
-            FROM unified_queue
-            WHERE tenant_id = ?1
-              AND branch = ?2
-              AND priority = ?3
-        "#;
-
-        let count: i64 = sqlx::query_scalar(query)
-            .bind(tenant_id)
-            .bind(branch)
-            .bind(priority)
-            .fetch_one(&self.db_pool)
-            .await?;
-
-        Ok(count as usize)
-    }
-
     // =========================================================================
     // Session Tracking Methods (using watch_folders.is_active)
     // =========================================================================
@@ -351,14 +128,15 @@ impl PriorityManager {
     /// Activate a project (mark as having active sessions)
     ///
     /// Sets is_active=1 and updates last_activity_at timestamp.
-    /// Also bumps queue priority to HIGH for this project.
+    /// Queue ordering is computed at dequeue time based on is_active,
+    /// so no queue updates are needed here.
     ///
     /// # Arguments
     /// * `tenant_id` - Tenant identifier (project_id)
-    /// * `_branch` - Git branch name (for queue priority updates)
+    /// * `_branch` - Git branch name (unused, kept for API compatibility)
     ///
     /// # Returns
-    /// true if project was activated, false if not found
+    /// 1 if project was activated, error if not found
     pub async fn register_session(
         &self,
         tenant_id: &str,
@@ -369,9 +147,6 @@ impl PriorityManager {
         }
 
         let now = Utc::now();
-
-        // Start transaction
-        let mut tx = self.db_pool.begin().await?;
 
         // Update watch_folders to mark as active
         let update_query = r#"
@@ -387,31 +162,12 @@ impl PriorityManager {
             .bind(timestamps::format_utc(&now))
             .bind(tenant_id)
             .bind(COLLECTION_PROJECTS)
-            .execute(&mut *tx)
+            .execute(&self.db_pool)
             .await?;
 
         if result.rows_affected() == 0 {
-            tx.rollback().await?;
             return Err(PriorityError::ProjectNotFound(tenant_id.to_string()));
         }
-
-        // Bump queue priorities for this project
-        sqlx::query(
-            r#"
-            UPDATE unified_queue
-            SET priority = ?1,
-                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE tenant_id = ?2
-              AND priority > ?1
-              AND status = 'pending'
-            "#,
-        )
-        .bind(priority::HIGH)
-        .bind(tenant_id)
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
 
         // Record session metrics
         METRICS.session_started(tenant_id, "high");
@@ -427,11 +183,12 @@ impl PriorityManager {
 
     /// Deactivate a project (mark as no active sessions)
     ///
-    /// Sets is_active=0 and demotes queue priority from HIGH to NORMAL.
+    /// Sets is_active=0. Queue ordering is computed at dequeue time based on
+    /// is_active, so no queue updates are needed here.
     ///
     /// # Arguments
     /// * `tenant_id` - Tenant identifier (project_id)
-    /// * `_branch` - Git branch name (for queue priority updates)
+    /// * `_branch` - Git branch name (unused, kept for API compatibility)
     ///
     /// # Returns
     /// 0 to indicate no active sessions
@@ -444,20 +201,16 @@ impl PriorityManager {
             return Err(PriorityError::EmptyParameter);
         }
 
-        // Start transaction
-        let mut tx = self.db_pool.begin().await?;
-
         // Check if project exists
         let exists: Option<i32> = sqlx::query_scalar(
             "SELECT 1 FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1"
         )
             .bind(tenant_id)
             .bind(COLLECTION_PROJECTS)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&self.db_pool)
             .await?;
 
         if exists.is_none() {
-            tx.rollback().await?;
             return Err(PriorityError::ProjectNotFound(tenant_id.to_string()));
         }
 
@@ -473,27 +226,8 @@ impl PriorityManager {
         )
         .bind(tenant_id)
         .bind(COLLECTION_PROJECTS)
-        .execute(&mut *tx)
+        .execute(&self.db_pool)
         .await?;
-
-        // Demote queue priorities from HIGH to NORMAL
-        sqlx::query(
-            r#"
-            UPDATE unified_queue
-            SET priority = ?1,
-                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE tenant_id = ?2
-              AND priority = ?3
-              AND status = 'pending'
-            "#,
-        )
-        .bind(priority::NORMAL)
-        .bind(tenant_id)
-        .bind(priority::HIGH)
-        .execute(&mut *tx)
-        .await?;
-
-        tx.commit().await?;
 
         // Record session end metrics
         METRICS.session_ended(tenant_id, "normal", 0.0);
@@ -508,15 +242,16 @@ impl PriorityManager {
 
     /// Set project priority explicitly
     ///
-    /// Maps a priority string ("high"/"normal") to numeric values and updates
-    /// both watch_folders (is_active) and pending queue items.
+    /// Maps a priority string ("high"/"normal") to watch_folders.is_active (1/0).
+    /// Queue ordering is computed at dequeue time based on is_active.
     ///
     /// # Arguments
     /// * `tenant_id` - Tenant identifier (project_id)
     /// * `priority_str` - "high" or "normal"
     ///
     /// # Returns
-    /// (previous_priority_string, queue_items_updated)
+    /// (previous_priority_string, 0) — queue_items_updated is always 0 since
+    /// queue ordering is computed at dequeue time, not stored.
     pub async fn set_priority(
         &self,
         tenant_id: &str,
@@ -526,16 +261,13 @@ impl PriorityManager {
             return Err(PriorityError::EmptyParameter);
         }
 
-        let (new_numeric, new_is_active) = match priority_str {
-            "high" => (priority::HIGH, 1),
-            "normal" => (priority::NORMAL, 0),
+        let new_is_active = match priority_str {
+            "high" => 1,
+            "normal" => 0,
             other => return Err(PriorityError::InvalidPriority(
                 other.parse::<i32>().unwrap_or(-1)
             )),
         };
-
-        // Start transaction
-        let mut tx = self.db_pool.begin().await?;
 
         // Get current state
         let current_active: Option<i32> = sqlx::query_scalar(
@@ -543,13 +275,12 @@ impl PriorityManager {
         )
             .bind(tenant_id)
             .bind(COLLECTION_PROJECTS)
-            .fetch_optional(&mut *tx)
+            .fetch_optional(&self.db_pool)
             .await?;
 
         let current_active = match current_active {
             Some(v) => v,
             None => {
-                tx.rollback().await?;
                 return Err(PriorityError::ProjectNotFound(tenant_id.to_string()));
             }
         };
@@ -572,34 +303,15 @@ impl PriorityManager {
         .bind(&now)
         .bind(tenant_id)
         .bind(COLLECTION_PROJECTS)
-        .execute(&mut *tx)
+        .execute(&self.db_pool)
         .await?;
-
-        // Update pending queue items to new priority level
-        let queue_result = sqlx::query(
-            r#"
-            UPDATE unified_queue
-            SET priority = ?1,
-                updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-            WHERE tenant_id = ?2
-              AND status = 'pending'
-            "#,
-        )
-        .bind(new_numeric as i32)
-        .bind(tenant_id)
-        .execute(&mut *tx)
-        .await?;
-
-        let queue_items_updated = queue_result.rows_affected() as i32;
-
-        tx.commit().await?;
 
         info!(
-            "Set priority for project {}: {} -> {} ({} queue items updated)",
-            tenant_id, previous_priority, priority_str, queue_items_updated
+            "Set priority for project {}: {} -> {}",
+            tenant_id, previous_priority, priority_str
         );
 
-        Ok((previous_priority.to_string(), queue_items_updated))
+        Ok((previous_priority.to_string(), 0))
     }
 
     /// Update heartbeat timestamp for a project
@@ -746,7 +458,7 @@ impl PriorityManager {
             // Record orphaned session cleanup metrics
             METRICS.session_ended(&tenant_id, "high", 0.0);
 
-            // Reset is_active to 0
+            // Reset is_active to 0 (dequeue ordering is computed at query time)
             sqlx::query(
                 r#"
                 UPDATE watch_folders
@@ -758,23 +470,6 @@ impl PriorityManager {
             )
             .bind(&tenant_id)
             .bind(COLLECTION_PROJECTS)
-            .execute(&mut *tx)
-            .await?;
-
-            // Demote queue priorities for this project
-            sqlx::query(
-                r#"
-                UPDATE unified_queue
-                SET priority = ?1,
-                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
-                WHERE tenant_id = ?2
-                  AND priority = ?3
-                  AND status = 'pending'
-                "#,
-            )
-            .bind(priority::NORMAL)
-            .bind(&tenant_id)
-            .bind(priority::HIGH)
             .execute(&mut *tx)
             .await?;
         }
@@ -998,139 +693,14 @@ mod tests {
         .unwrap();
     }
 
-    /// Helper to enqueue a test item
-    async fn enqueue_test_item(pool: &SqlitePool, tenant_id: &str, branch: &str, priority: i32) {
-        let queue_id = uuid::Uuid::new_v4().to_string();
-        let idempotency_key = format!("test_{}_{}", tenant_id, queue_id);
-        sqlx::query(
-            r#"
-            INSERT INTO unified_queue (
-                queue_id, item_type, op, tenant_id, collection, priority, status, branch, idempotency_key, payload_json
-            ) VALUES (?1, 'file', 'ingest', ?2, 'projects', ?3, 'pending', ?4, ?5, '{}')
-            "#,
-        )
-        .bind(&queue_id)
-        .bind(tenant_id)
-        .bind(priority)
-        .bind(branch)
-        .bind(&idempotency_key)
-        .execute(pool)
-        .await
-        .unwrap();
-    }
-
-    #[tokio::test]
-    async fn test_server_start_bumps_priority() {
-        let (pool, _temp_dir) = setup_test_db().await;
-        let priority_manager = PriorityManager::new(pool.clone());
-
-        // Enqueue items with normal priority
-        enqueue_test_item(&pool, "test-tenant", "main", priority::NORMAL).await;
-        enqueue_test_item(&pool, "test-tenant", "main", priority::NORMAL).await;
-
-        // Trigger server start - should bump priority to HIGH
-        let transition = priority_manager
-            .on_server_start("test-tenant", "main")
-            .await
-            .unwrap();
-
-        assert_eq!(transition.from_priority, priority::NORMAL);
-        assert_eq!(transition.to_priority, priority::HIGH);
-        assert_eq!(transition.unified_queue_affected, 2);
-        assert_eq!(transition.total_affected, 2);
-
-        // Verify items now have HIGH priority
-        let count = priority_manager
-            .count_items_with_priority("test-tenant", "main", priority::HIGH)
-            .await
-            .unwrap();
-        assert_eq!(count, 2);
-    }
-
-    #[tokio::test]
-    async fn test_server_stop_demotes_priority() {
-        let (pool, _temp_dir) = setup_test_db().await;
-        let priority_manager = PriorityManager::new(pool.clone());
-
-        // Enqueue items with HIGH priority
-        enqueue_test_item(&pool, "test-tenant", "main", priority::HIGH).await;
-
-        // Trigger server stop - should demote priority to NORMAL
-        let transition = priority_manager
-            .on_server_stop("test-tenant", "main")
-            .await
-            .unwrap();
-
-        assert_eq!(transition.from_priority, priority::HIGH);
-        assert_eq!(transition.to_priority, priority::NORMAL);
-        assert_eq!(transition.total_affected, 1);
-
-        // Verify item now has NORMAL priority
-        let count = priority_manager
-            .count_items_with_priority("test-tenant", "main", priority::NORMAL)
-            .await
-            .unwrap();
-        assert_eq!(count, 1);
-    }
-
-    #[tokio::test]
-    async fn test_branch_isolation() {
-        let (pool, _temp_dir) = setup_test_db().await;
-        let priority_manager = PriorityManager::new(pool.clone());
-
-        // Enqueue items on different branches
-        enqueue_test_item(&pool, "test-tenant", "main", 3).await;
-        enqueue_test_item(&pool, "test-tenant", "feature-branch", 3).await;
-
-        // Trigger server start for main branch only
-        let transition = priority_manager
-            .on_server_start("test-tenant", "main")
-            .await
-            .unwrap();
-
-        assert_eq!(transition.total_affected, 1);
-
-        // Verify main branch item has priority 1
-        let count = priority_manager
-            .count_items_with_priority("test-tenant", "main", 1)
-            .await
-            .unwrap();
-        assert_eq!(count, 1);
-
-        // Verify feature branch item still has priority 3
-        let count = priority_manager
-            .count_items_with_priority("test-tenant", "feature-branch", 3)
-            .await
-            .unwrap();
-        assert_eq!(count, 1);
-    }
-
     #[tokio::test]
     async fn test_empty_parameters_error() {
         let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool);
 
         // Empty tenant_id
-        let result = priority_manager.on_server_start("", "main").await;
+        let result = priority_manager.register_session("", "main").await;
         assert!(matches!(result, Err(PriorityError::EmptyParameter)));
-
-        // Empty branch
-        let result = priority_manager.on_server_start("test-tenant", "").await;
-        assert!(matches!(result, Err(PriorityError::EmptyParameter)));
-    }
-
-    #[tokio::test]
-    async fn test_no_matching_items() {
-        let (pool, _temp_dir) = setup_test_db().await;
-        let priority_manager = PriorityManager::new(pool);
-
-        // No items in queue - should succeed with 0 affected
-        let transition = priority_manager
-            .on_server_start("nonexistent-tenant", "main")
-            .await
-            .unwrap();
-
-        assert_eq!(transition.total_affected, 0);
     }
 
     // =========================================================================
@@ -1189,7 +759,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_register_session_bumps_queue_priority() {
+    async fn test_register_session_does_not_modify_queue_priority() {
         let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool.clone());
 
@@ -1197,20 +767,31 @@ mod tests {
         create_test_project(&pool, "abcd12345678", "/test/project").await;
 
         // Enqueue items with normal priority
-        enqueue_test_item(&pool, "abcd12345678", "main", priority::NORMAL).await;
+        let queue_id = uuid::Uuid::new_v4().to_string();
+        sqlx::query(
+            r#"INSERT INTO unified_queue (
+                queue_id, item_type, op, tenant_id, collection, priority, status, branch, idempotency_key, payload_json
+            ) VALUES (?1, 'file', 'ingest', 'abcd12345678', 'projects', ?2, 'pending', 'main', ?3, '{}')"#,
+        )
+        .bind(&queue_id)
+        .bind(priority::NORMAL)
+        .bind(format!("test_{}", queue_id))
+        .execute(&pool)
+        .await
+        .unwrap();
 
-        // Register session - should bump queue priority
-        priority_manager
-            .register_session("abcd12345678", "main")
-            .await
-            .unwrap();
+        // Register session — should NOT modify stored queue priority
+        priority_manager.register_session("abcd12345678", "main").await.unwrap();
 
-        // Verify queue items now have HIGH priority
-        let count = priority_manager
-            .count_items_with_priority("abcd12345678", "main", priority::HIGH)
-            .await
-            .unwrap();
-        assert_eq!(count, 1);
+        // Verify queue item still has its original stored priority (unchanged)
+        let stored_priority: i32 = sqlx::query_scalar(
+            "SELECT priority FROM unified_queue WHERE queue_id = ?1"
+        )
+        .bind(&queue_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(stored_priority, priority::NORMAL);
     }
 
     #[tokio::test]
@@ -1398,9 +979,6 @@ mod tests {
         // Create test project (starts inactive/normal)
         create_test_project(&pool, "abcd12345678", "/test/project").await;
 
-        // Enqueue items with normal priority
-        enqueue_test_item(&pool, "abcd12345678", "main", priority::NORMAL).await;
-
         // Set priority to high
         let (previous, queue_updated) = priority_manager
             .set_priority("abcd12345678", "high")
@@ -1408,19 +986,13 @@ mod tests {
             .unwrap();
 
         assert_eq!(previous, "normal");
-        assert_eq!(queue_updated, 1);
+        // Queue items are not updated — ordering is computed at dequeue time
+        assert_eq!(queue_updated, 0);
 
         // Verify project is now active
         let info = priority_manager.get_session_info("abcd12345678").await.unwrap().unwrap();
         assert!(info.is_active);
         assert_eq!(info.priority, "high");
-
-        // Verify queue items bumped to HIGH
-        let count = priority_manager
-            .count_items_with_priority("abcd12345678", "main", priority::HIGH)
-            .await
-            .unwrap();
-        assert_eq!(count, 1);
     }
 
     #[tokio::test]
@@ -1432,9 +1004,6 @@ mod tests {
         create_test_project(&pool, "abcd12345678", "/test/project").await;
         priority_manager.register_session("abcd12345678", "main").await.unwrap();
 
-        // Enqueue items with high priority
-        enqueue_test_item(&pool, "abcd12345678", "main", priority::HIGH).await;
-
         // Set priority to normal
         let (previous, queue_updated) = priority_manager
             .set_priority("abcd12345678", "normal")
@@ -1442,7 +1011,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(previous, "high");
-        assert_eq!(queue_updated, 1);
+        // Queue items are not updated — ordering is computed at dequeue time
+        assert_eq!(queue_updated, 0);
 
         // Verify project is now inactive
         let info = priority_manager.get_session_info("abcd12345678").await.unwrap().unwrap();
