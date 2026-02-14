@@ -815,7 +815,7 @@ pub struct ResourceLimitsConfig {
 
 fn default_nice_level() -> i32 { 10 }
 fn default_inter_item_delay_ms() -> u64 { 50 }
-fn default_max_concurrent_embeddings() -> usize { 1 }
+fn default_max_concurrent_embeddings() -> usize { 2 }
 fn default_max_memory_percent() -> u8 { 70 }
 fn default_onnx_intra_threads() -> usize { 2 }
 
@@ -1532,7 +1532,7 @@ mod tests {
         let config = ResourceLimitsConfig::default();
         assert_eq!(config.nice_level, 10);
         assert_eq!(config.inter_item_delay_ms, 50);
-        assert_eq!(config.max_concurrent_embeddings, 1);
+        assert_eq!(config.max_concurrent_embeddings, 2);
         assert_eq!(config.max_memory_percent, 70);
         assert_eq!(config.onnx_intra_threads, 2);
     }
@@ -1632,7 +1632,7 @@ mod tests {
         let config = DaemonConfig::default();
         assert_eq!(config.resource_limits.nice_level, 10);
         assert_eq!(config.resource_limits.inter_item_delay_ms, 50);
-        assert_eq!(config.resource_limits.max_concurrent_embeddings, 1);
+        assert_eq!(config.resource_limits.max_concurrent_embeddings, 2);
         assert_eq!(config.resource_limits.max_memory_percent, 70);
         assert_eq!(config.resource_limits.onnx_intra_threads, 2);
     }
