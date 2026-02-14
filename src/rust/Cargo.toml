@@ -117,3 +117,10 @@ testcontainers-modules = { version = "0.13" }
 [workspace.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+# Patch fastembed to expose ONNX intra-op thread count control.
+# Upstream hardcodes available_parallelism() which uses ALL CPU cores per session.
+# This patch adds InitOptions.num_threads: Option<usize> (None = upstream behavior).
+# Remove when fastembed upstream adds thread count support.
+[patch.crates-io]
+fastembed = { path = "patches/fastembed" }

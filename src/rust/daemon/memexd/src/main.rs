@@ -790,6 +790,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     let embedding_config = EmbeddingConfig {
         max_cache_size: daemon_config.embedding.cache_max_entries,
         model_cache_dir: daemon_config.embedding.model_cache_dir.clone(),
+        num_threads: Some(config.resource_limits.onnx_intra_threads),
         ..EmbeddingConfig::default()
     };
 
@@ -847,6 +848,8 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         warmup_window_secs: daemon_config.startup.warmup_window_secs,
         warmup_max_concurrent_embeddings: daemon_config.startup.warmup_max_concurrent_embeddings,
         warmup_inter_item_delay_ms: daemon_config.startup.warmup_inter_item_delay_ms,
+        // ONNX thread tuning
+        onnx_intra_threads: config.resource_limits.onnx_intra_threads,
         ..UnifiedProcessorConfig::default()
     };
 

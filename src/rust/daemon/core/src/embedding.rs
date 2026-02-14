@@ -39,6 +39,10 @@ pub struct EmbeddingConfig {
     /// Default: Uses system-appropriate cache directory (~/.cache/fastembed/)
     #[serde(default)]
     pub model_cache_dir: Option<PathBuf>,
+    /// Number of ONNX intra-op threads per embedding session.
+    /// Default: 2 (sufficient for all-MiniLM-L6-v2, leaves CPU for other work)
+    #[serde(default)]
+    pub num_threads: Option<usize>,
 }
 
 impl Default for EmbeddingConfig {
@@ -50,6 +54,7 @@ impl Default for EmbeddingConfig {
             enable_preprocessing: true,
             bm25_k1: 1.2,
             model_cache_dir: None,
+            num_threads: Some(2),
         }
     }
 }
@@ -188,9 +193,14 @@ impl EmbeddingGenerator {
             return Ok(());
         }
 
-        // Build InitOptions with optional cache directory
+        // Build InitOptions with optional cache directory and thread count
         let mut init_options = InitOptions::new(EmbeddingModel::AllMiniLML6V2)
             .with_show_download_progress(true);
+
+        if let Some(threads) = self.config.num_threads {
+            info!("ONNX intra-op threads: {}", threads);
+            init_options = init_options.with_num_threads(threads);
+        }
 
         if let Some(ref cache_dir) = self.model_cache_dir {
             info!("Initializing FastEmbed model (all-MiniLM-L6-v2) with cache dir: {}", cache_dir.display());

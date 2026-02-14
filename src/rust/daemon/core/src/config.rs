@@ -806,12 +806,18 @@ pub struct ResourceLimitsConfig {
     /// Default: 70
     #[serde(default = "default_max_memory_percent")]
     pub max_memory_percent: u8,
+
+    /// Number of ONNX intra-op threads per embedding session.
+    /// Default: 2 (sufficient for all-MiniLM-L6-v2, leaves CPU for other work)
+    #[serde(default = "default_onnx_intra_threads")]
+    pub onnx_intra_threads: usize,
 }
 
 fn default_nice_level() -> i32 { 10 }
 fn default_inter_item_delay_ms() -> u64 { 50 }
-fn default_max_concurrent_embeddings() -> usize { 2 }
+fn default_max_concurrent_embeddings() -> usize { 1 }
 fn default_max_memory_percent() -> u8 { 70 }
+fn default_onnx_intra_threads() -> usize { 2 }
 
 impl Default for ResourceLimitsConfig {
     fn default() -> Self {
@@ -820,6 +826,7 @@ impl Default for ResourceLimitsConfig {
             inter_item_delay_ms: default_inter_item_delay_ms(),
             max_concurrent_embeddings: default_max_concurrent_embeddings(),
             max_memory_percent: default_max_memory_percent(),
+            onnx_intra_threads: default_onnx_intra_threads(),
         }
     }
 }
@@ -838,6 +845,9 @@ impl ResourceLimitsConfig {
         }
         if self.max_memory_percent < 20 || self.max_memory_percent > 95 {
             return Err("max_memory_percent must be between 20 and 95".to_string());
+        }
+        if self.onnx_intra_threads == 0 || self.onnx_intra_threads > 16 {
+            return Err("onnx_intra_threads must be between 1 and 16".to_string());
         }
         Ok(())
     }
@@ -867,6 +877,12 @@ impl ResourceLimitsConfig {
         if let Ok(val) = env::var("WQM_RESOURCE_MAX_MEMORY_PERCENT") {
             if let Ok(parsed) = val.parse() {
                 self.max_memory_percent = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_ONNX_INTRA_THREADS") {
+            if let Ok(parsed) = val.parse() {
+                self.onnx_intra_threads = parsed;
             }
         }
     }
@@ -1516,8 +1532,9 @@ mod tests {
         let config = ResourceLimitsConfig::default();
         assert_eq!(config.nice_level, 10);
         assert_eq!(config.inter_item_delay_ms, 50);
-        assert_eq!(config.max_concurrent_embeddings, 2);
+        assert_eq!(config.max_concurrent_embeddings, 1);
         assert_eq!(config.max_memory_percent, 70);
+        assert_eq!(config.onnx_intra_threads, 2);
     }
 
     #[test]
@@ -1615,8 +1632,9 @@ mod tests {
         let config = DaemonConfig::default();
         assert_eq!(config.resource_limits.nice_level, 10);
         assert_eq!(config.resource_limits.inter_item_delay_ms, 50);
-        assert_eq!(config.resource_limits.max_concurrent_embeddings, 2);
+        assert_eq!(config.resource_limits.max_concurrent_embeddings, 1);
         assert_eq!(config.resource_limits.max_memory_percent, 70);
+        assert_eq!(config.resource_limits.onnx_intra_threads, 2);
     }
 
     #[test]
@@ -1626,6 +1644,7 @@ mod tests {
             inter_item_delay_ms: 100,
             max_concurrent_embeddings: 4,
             max_memory_percent: 80,
+            onnx_intra_threads: 2,
         };
 
         let json = serde_json::to_string(&config).unwrap();

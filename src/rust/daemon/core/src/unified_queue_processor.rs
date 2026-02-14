@@ -156,6 +156,10 @@ pub struct UnifiedProcessorConfig {
     pub warmup_max_concurrent_embeddings: usize,
     /// Inter-item delay in ms during warmup
     pub warmup_inter_item_delay_ms: u64,
+
+    // ONNX thread tuning
+    /// Number of ONNX intra-op threads per embedding session (default: 2)
+    pub onnx_intra_threads: usize,
 }
 
 impl Default for UnifiedProcessorConfig {
@@ -184,6 +188,8 @@ impl Default for UnifiedProcessorConfig {
             warmup_window_secs: 30,
             warmup_max_concurrent_embeddings: 1,
             warmup_inter_item_delay_ms: 200,
+            // ONNX thread tuning
+            onnx_intra_threads: 2,
         }
     }
 }
@@ -234,7 +240,10 @@ impl UnifiedQueueProcessor {
     /// Create a new unified queue processor
     pub fn new(pool: SqlitePool, config: UnifiedProcessorConfig) -> Self {
         let document_processor = Arc::new(DocumentProcessor::new());
-        let embedding_config = EmbeddingConfig::default();
+        let embedding_config = EmbeddingConfig {
+            num_threads: Some(config.onnx_intra_threads),
+            ..EmbeddingConfig::default()
+        };
         let embedding_generator = Arc::new(
             EmbeddingGenerator::new(embedding_config)
                 .expect("Failed to create embedding generator")

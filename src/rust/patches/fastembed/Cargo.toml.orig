@@ -1,0 +1,66 @@
+[package]
+name = "fastembed"
+version = "5.8.1"
+edition = "2021"
+description = "Library for generating vector embeddings, reranking locally."
+license = "Apache-2.0"
+authors = [
+  "Anush008 <anushshetty90@gmail.com>",
+  "Josh Niemelä <josh@jniemela.dk>",
+  "GrisiaEvy <a115020115@gmail.com>",
+  "George MacKerron <georgemackerron@neon.tech>",
+  "Timon Vonk <mail@timonv.nl>",
+  "Luya Wang <luya.wang@qq.com>",
+  "Tri <tri@triandco.com>",
+  "Denny Wong <denwong47@hotmail.com>",
+  "Alex Rozgo <alex.rozgo@gmail.com>",
+]
+documentation = "https://docs.rs/fastembed"
+repository = "https://github.com/Anush008/fastembed-rs"
+homepage = "https://crates.io/crates/fastembed"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+anyhow = { version = "1" }
+hf-hub = { version = "0.4.1", default-features = false, optional = true }
+image = { version = "0.25.2", optional = true }
+ndarray = { version = "0.17", default-features = false }
+ort = { version = "=2.0.0-rc.11", default-features = false, features = [
+  "ndarray", "std"
+] }
+safetensors = { version = "0.7" }
+serde_json = { version = "1" }
+serde = { version = "1", features = ["derive"] }
+tokenizers = { version = "0.22.0", default-features = false, features = ["onig"] }
+candle-nn = { version = "0.9.1", optional = true }
+candle-core = { version = "0.9.1", optional = true }
+
+intel-mkl-src = { version = "0.8.1", optional = true }
+accelerate-src = { version = "0.3.2", optional = true }
+
+[features]
+default = ["ort-download-binaries", "hf-hub-native-tls", "image-models"]
+
+hf-hub = ["dep:hf-hub", "hf-hub?/ureq"]
+hf-hub-native-tls = ["hf-hub", "hf-hub?/native-tls"]
+hf-hub-rustls-tls = ["hf-hub", "hf-hub?/rustls-tls"]
+
+ort-download-binaries = ["ort/download-binaries", "ort/tls-native"]
+ort-load-dynamic = ["ort/load-dynamic"]
+
+qwen3 = ["dep:candle-core", "dep:candle-nn", "hf-hub"]
+
+image-models = ["image"]
+mkl = ["qwen3","dep:intel-mkl-src", "candle-nn/mkl", "candle-core/mkl"]
+accelerate = ["qwen3", "dep:accelerate-src", "candle-core/accelerate", "candle-nn/accelerate"]
+cuda = ["qwen3", "candle-core/cuda", "candle-nn/cuda"]
+cudnn = ["qwen3", "candle-core/cudnn", "candle-nn/cudnn", "cuda"]
+metal = ["qwen3", "candle-core/metal", "candle-nn/metal"]
+
+# This feature does not change any code, but is used to limit tests if
+# the user does not have `optimum-cli` or even python installed.
+optimum-cli = []
+
+# For compatibility recommend using hf-hub-native-tls
+online = ["hf-hub-native-tls"]
