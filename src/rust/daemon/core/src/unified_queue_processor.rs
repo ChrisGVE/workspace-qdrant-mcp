@@ -1350,6 +1350,29 @@ impl UnifiedQueueProcessor {
                 point_payload.insert("file_type".to_string(), serde_json::json!(file_type.to_lowercase()));
             }
 
+            // Build tags array from static metadata for filtering/aggregation
+            {
+                let mut tags = Vec::new();
+                if let Some(ft) = &payload.file_type {
+                    tags.push(ft.to_lowercase());
+                }
+                if let Some(lang) = document_content.document_type.language() {
+                    tags.push(lang.to_string());
+                }
+                if let Some(ext) = std::path::Path::new(&payload.file_path)
+                    .extension()
+                    .and_then(|e| e.to_str())
+                {
+                    tags.push(ext.to_lowercase());
+                }
+                if is_test_file(file_path) {
+                    tags.push("test".to_string());
+                }
+                if !tags.is_empty() {
+                    point_payload.insert("tags".to_string(), serde_json::json!(tags));
+                }
+            }
+
             // Extract chunk metadata for tracked record
             let symbol_name = chunk.metadata.get("symbol_name").cloned();
             let start_line = chunk.metadata.get("start_line").and_then(|s| s.parse::<i32>().ok());
@@ -3388,5 +3411,64 @@ mod tests {
         UnifiedQueueProcessor::add_lsp_enrichment_to_payload(&mut payload2, &enrichment2);
         let status2 = payload2.get("lsp_enrichment_status").unwrap().as_str().unwrap();
         assert_eq!(status2, "failed", "lsp_enrichment_status must be lowercase");
+    }
+
+    #[test]
+    fn test_file_chunk_tags_construction() {
+        use crate::DocumentType;
+        use crate::file_classification::is_test_file;
+
+        // Simulate tag construction logic from process_file_item
+        let build_tags = |file_type: Option<&str>, doc_type: &DocumentType, file_path: &str| -> Vec<String> {
+            let mut tags = Vec::new();
+            if let Some(ft) = file_type {
+                tags.push(ft.to_lowercase());
+            }
+            if let Some(lang) = doc_type.language() {
+                tags.push(lang.to_string());
+            }
+            if let Some(ext) = std::path::Path::new(file_path)
+                .extension()
+                .and_then(|e| e.to_str())
+            {
+                tags.push(ext.to_lowercase());
+            }
+            if is_test_file(std::path::Path::new(file_path)) {
+                tags.push("test".to_string());
+            }
+            tags
+        };
+
+        // Rust test file
+        let tags = build_tags(
+            Some("code"),
+            &DocumentType::Code("rust".to_string()),
+            "/project/src/test_utils.rs",
+        );
+        assert_eq!(tags, vec!["code", "rust", "rs", "test"]);
+
+        // Python non-test file
+        let tags = build_tags(
+            Some("code"),
+            &DocumentType::Code("python".to_string()),
+            "/project/src/main.py",
+        );
+        assert_eq!(tags, vec!["code", "python", "py"]);
+
+        // Markdown file (no language)
+        let tags = build_tags(
+            Some("docs"),
+            &DocumentType::Markdown,
+            "/project/README.md",
+        );
+        assert_eq!(tags, vec!["docs", "md"]);
+
+        // File with uppercase extension
+        let tags = build_tags(
+            Some("code"),
+            &DocumentType::Code("cpp".to_string()),
+            "/project/main.CPP",
+        );
+        assert_eq!(tags, vec!["code", "cpp", "cpp"]);
     }
 }
