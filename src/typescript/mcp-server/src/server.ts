@@ -333,14 +333,14 @@ export class WorkspaceQdrantMcpServer {
       },
       {
         name: 'store',
-        description: 'Store content or register a project. Use type "library" (default) to store reference documentation, or type "project" to register a project directory for file watching and ingestion.',
+        description: 'Store content or register a project. Use type "library" (default) to store reference documentation, type "url" to fetch and ingest a web page, or type "project" to register a project directory for file watching and ingestion.',
         inputSchema: {
           type: 'object' as const,
           properties: {
             type: {
               type: 'string',
-              enum: ['library', 'project'],
-              description: 'What to store: "library" for reference docs (default), "project" to register a project directory',
+              enum: ['library', 'url', 'project'],
+              description: 'What to store: "library" for reference docs (default), "url" to fetch and ingest a web page, "project" to register a project directory',
             },
             content: {
               type: 'string',
@@ -429,6 +429,8 @@ export class WorkspaceQdrantMcpServer {
           const storeType = (args?.['type'] as string) ?? 'library';
           if (storeType === 'project') {
             result = await this.registerProjectFromTool(args);
+          } else if (storeType === 'url') {
+            result = await this.storeUrl(args);
           } else {
             result = await this.storeTool.store(this.buildStoreOptions(args));
           }
@@ -697,6 +699,90 @@ export class WorkspaceQdrantMcpServer {
     if (metadata) options.metadata = metadata;
 
     return options;
+  }
+
+  /**
+   * Store a URL for daemon-side fetch and ingestion
+   *
+   * Queues the URL as item_type 'url' in the unified queue.
+   * The daemon will fetch the page, extract text, generate embeddings,
+   * and store in Qdrant.
+   */
+  private async storeUrl(args: Record<string, unknown> | undefined): Promise<{
+    success: boolean;
+    message: string;
+    queue_id?: string;
+    collection: string;
+  }> {
+    const url = args?.['url'] as string;
+    if (!url?.trim()) {
+      return {
+        success: false,
+        message: 'url is required when type is "url"',
+        collection: '',
+      };
+    }
+
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      return {
+        success: false,
+        message: 'url must start with http:// or https://',
+        collection: '',
+      };
+    }
+
+    const libraryName = args?.['libraryName'] as string | undefined;
+    const title = args?.['title'] as string | undefined;
+    const collection = libraryName
+      ? 'libraries'
+      : 'projects';
+    const tenantId = libraryName?.trim()
+      || this.sessionState.projectId
+      || 'default';
+
+    const payload: Record<string, unknown> = {
+      url: url.trim(),
+      crawl: false,
+      max_depth: 0,
+      max_pages: 1,
+    };
+    if (libraryName) payload['library_name'] = libraryName.trim();
+    if (title) payload['title'] = title;
+
+    try {
+      const result = this.stateManager.enqueueUnified(
+        'url',
+        'ingest',
+        tenantId,
+        collection,
+        payload,
+        0,
+        'main',
+        { source: 'mcp_store_url' },
+      );
+
+      if (result.status !== 'ok' || !result.data) {
+        return {
+          success: false,
+          message: result.message ?? 'Failed to enqueue URL',
+          collection,
+        };
+      }
+
+      return {
+        success: true,
+        message: `URL queued for fetch and ingestion (${collection}/${tenantId})`,
+        queue_id: result.data.queueId,
+        collection,
+      };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        message: `Failed to queue URL: ${msg}`,
+        collection,
+      };
+    }
   }
 
   /**

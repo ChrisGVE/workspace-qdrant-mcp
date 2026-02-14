@@ -7,7 +7,7 @@
 // Unified Queue Types
 // ============================================================================
 
-export type QueueItemType = 'content' | 'file' | 'folder' | 'project' | 'library' | 'memory';
+export type QueueItemType = 'content' | 'file' | 'folder' | 'project' | 'library' | 'memory' | 'url';
 export type QueueOperation = 'ingest' | 'update' | 'delete' | 'scan';
 export type QueueStatus = 'pending' | 'in_progress' | 'done' | 'failed';
 
@@ -104,6 +104,16 @@ export interface FilePayload {
 export interface FolderPayload {
   folder_path: string;
   relative_path?: string | undefined;
+}
+
+export interface UrlPayload {
+  url: string;
+  crawl?: boolean;
+  max_depth?: number;
+  max_pages?: number;
+  content_type?: string | undefined;
+  library_name?: string | undefined;
+  title?: string | undefined;
 }
 
 export interface LibraryPayload {

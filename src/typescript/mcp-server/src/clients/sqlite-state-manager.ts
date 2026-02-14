@@ -56,6 +56,7 @@ const VALID_ITEM_TYPES: QueueItemType[] = [
   'project',
   'library',
   'memory',
+  'url',
 ];
 
 // Valid operations per item type
@@ -66,6 +67,7 @@ const VALID_OPERATIONS: Record<QueueItemType, QueueOperation[]> = {
   project: ['ingest', 'update', 'delete'],
   library: ['ingest', 'update', 'delete'],
   memory: ['ingest', 'update', 'delete'],
+  url: ['ingest', 'update', 'delete', 'scan'],
 };
 
 export interface SqliteStateManagerConfig {
