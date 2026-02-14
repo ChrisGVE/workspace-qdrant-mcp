@@ -466,6 +466,10 @@ fn extract_pdf(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<Str
     let mut metadata = HashMap::new();
     metadata.insert("source_format".to_string(), "pdf".to_string());
 
+    // Count images (Tier 1: metadata only)
+    let image_count = count_pdf_images(file_path);
+    metadata.insert("images_detected".to_string(), image_count.to_string());
+
     let path_buf = file_path.to_path_buf();
     let result = std::panic::catch_unwind(|| pdf_extract::extract_text(&path_buf));
 
@@ -498,6 +502,10 @@ fn extract_epub(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<St
         metadata.insert("author".to_string(), author.value.clone());
     }
 
+    // Count images (Tier 1: metadata only)
+    let image_count = count_epub_images(&doc);
+    metadata.insert("images_detected".to_string(), image_count.to_string());
+
     // Extract text from all chapters
     let mut all_text = String::new();
     let mut chapter_count = 0;
@@ -527,6 +535,10 @@ fn extract_docx(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<St
     let file = File::open(file_path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| DocumentProcessorError::DocxExtraction(e.to_string()))?;
+
+    // Count images (Tier 1: metadata only)
+    let image_count = count_docx_images(&archive);
+    metadata.insert("images_detected".to_string(), image_count.to_string());
 
     let mut text = String::new();
 
@@ -579,6 +591,71 @@ fn extract_text_from_docx_xml(xml_content: &str) -> String {
     }
 
     text
+}
+
+// ─── Image counting helpers (Tier 1: metadata only, no content extraction) ───
+
+/// Count images in a PDF by scanning for image XObjects in page resources.
+fn count_pdf_images(file_path: &Path) -> usize {
+    let doc = match lopdf::Document::load(file_path) {
+        Ok(d) => d,
+        Err(_) => return 0,
+    };
+
+    let mut count = 0;
+    for (_page_num, page_id) in doc.get_pages() {
+        if let Ok(page) = doc.get_object(page_id) {
+            if let Ok(resources) = page.as_dict()
+                .and_then(|d| d.get(b"Resources"))
+                .and_then(|r| doc.dereference(r).map(|(_, obj)| obj))
+                .and_then(|obj| obj.as_dict())
+            {
+                if let Ok(xobjects) = resources.get(b"XObject")
+                    .and_then(|x| doc.dereference(x).map(|(_, obj)| obj))
+                    .and_then(|obj| obj.as_dict())
+                {
+                    for (_name, xobj_ref) in xobjects.iter() {
+                        if let Ok((_, xobj)) = doc.dereference(xobj_ref) {
+                            if let Ok(stream) = xobj.as_stream() {
+                                if stream.dict.get(b"Subtype")
+                                    .ok()
+                                    .and_then(|v| v.as_name_str().ok())
+                                    == Some("Image")
+                                {
+                                    count += 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    count
+}
+
+/// Count images in a DOCX by scanning the word/media/ directory in the ZIP.
+fn count_docx_images(archive: &zip::ZipArchive<File>) -> usize {
+    let image_extensions = [
+        "png", "jpg", "jpeg", "gif", "bmp", "tiff", "tif", "svg", "emf", "wmf",
+    ];
+
+    (0..archive.len())
+        .filter_map(|i| archive.name_for_index(i))
+        .filter(|name| {
+            name.starts_with("word/media/")
+                && image_extensions.iter().any(|ext| {
+                    name.to_lowercase().ends_with(ext)
+                })
+        })
+        .count()
+}
+
+/// Count images in an EPUB by scanning resources with image MIME types.
+fn count_epub_images(doc: &epub::doc::EpubDoc<std::io::BufReader<File>>) -> usize {
+    doc.resources.values()
+        .filter(|item| item.mime.starts_with("image/"))
+        .count()
 }
 
 /// Extract text from PowerPoint PPTX file (ZIP-based, slides in ppt/slides/slide*.xml)
@@ -1803,5 +1880,60 @@ mod tests {
         // Library extensions
         assert!(ae.is_allowed("report.xlsx", "libraries"));
         assert!(ae.is_allowed("legacy.xls", "libraries"));
+    }
+
+    // --- Image counting tests ---
+
+    #[test]
+    fn test_count_docx_images_with_media() {
+        // Build a minimal DOCX ZIP with images in word/media/
+        let temp = NamedTempFile::new().unwrap();
+        {
+            let mut zip = zip::ZipWriter::new(&temp);
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("word/document.xml", options).unwrap();
+            zip.write_all(b"<w:document/>").unwrap();
+            zip.start_file("word/media/image1.png", options).unwrap();
+            zip.write_all(b"PNG_DATA").unwrap();
+            zip.start_file("word/media/image2.jpeg", options).unwrap();
+            zip.write_all(b"JPEG_DATA").unwrap();
+            zip.start_file("word/media/chart1.xml", options).unwrap();
+            zip.write_all(b"<chart/>").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let file = File::open(temp.path()).unwrap();
+        let archive = zip::ZipArchive::new(file).unwrap();
+        assert_eq!(count_docx_images(&archive), 2);
+    }
+
+    #[test]
+    fn test_count_docx_images_no_media() {
+        let temp = NamedTempFile::new().unwrap();
+        {
+            let mut zip = zip::ZipWriter::new(&temp);
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("word/document.xml", options).unwrap();
+            zip.write_all(b"<w:document/>").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let file = File::open(temp.path()).unwrap();
+        let archive = zip::ZipArchive::new(file).unwrap();
+        assert_eq!(count_docx_images(&archive), 0);
+    }
+
+    #[test]
+    fn test_count_pdf_images_nonexistent_file() {
+        // Gracefully returns 0 for non-existent files
+        assert_eq!(count_pdf_images(Path::new("/tmp/nonexistent.pdf")), 0);
+    }
+
+    #[test]
+    fn test_count_pdf_images_invalid_file() {
+        // Gracefully returns 0 for invalid PDF files
+        let temp = NamedTempFile::with_suffix(".pdf").unwrap();
+        std::fs::write(temp.path(), b"not a pdf").unwrap();
+        assert_eq!(count_pdf_images(temp.path()), 0);
     }
 }
