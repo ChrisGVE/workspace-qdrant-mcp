@@ -620,6 +620,9 @@ impl UnifiedQueueProcessor {
                         return Ok(());
                     }
 
+                    // Track tenant_ids with successful processing for activity update
+                    let mut processed_tenants = std::collections::HashSet::new();
+
                     // Process items sequentially
                     for item in items {
                         if cancellation_token.is_cancelled() {
@@ -665,6 +668,9 @@ impl UnifiedQueueProcessor {
                                     h.record_success(processing_time);
                                 }
 
+                                // Track tenant for implicit activity update
+                                processed_tenants.insert(item.tenant_id.clone());
+
                                 info!(
                                     "Successfully processed unified item {} (type={:?}, op={:?}) in {}ms",
                                     item.queue_id, item.item_type, item.op, processing_time
@@ -705,6 +711,25 @@ impl UnifiedQueueProcessor {
                         };
                         if effective_delay_ms > 0 {
                             tokio::time::sleep(Duration::from_millis(effective_delay_ms)).await;
+                        }
+                    }
+
+                    // Implicit activity update: refresh last_activity_at for active projects
+                    // that had items processed in this batch. Prevents mid-processing deactivation
+                    // by the orphan cleanup without requiring explicit heartbeats.
+                    if !processed_tenants.is_empty() {
+                        let now_str = wqm_common::timestamps::now_utc();
+                        for tenant_id in &processed_tenants {
+                            if let Err(e) = sqlx::query(
+                                "UPDATE watch_folders SET last_activity_at = ?1, updated_at = ?1 \
+                                 WHERE tenant_id = ?2 AND collection = 'projects' AND is_active = 1"
+                            )
+                            .bind(&now_str)
+                            .bind(tenant_id)
+                            .execute(queue_manager.pool())
+                            .await {
+                                debug!("Failed to update activity for tenant {}: {}", tenant_id, e);
+                            }
                         }
                     }
                 }
