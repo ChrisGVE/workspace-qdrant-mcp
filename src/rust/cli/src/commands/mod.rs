@@ -13,6 +13,7 @@ pub mod debug;
 pub mod library;
 pub mod memory;
 pub mod project;
+pub mod scratch;
 
 // Search & Queue
 pub mod queue;

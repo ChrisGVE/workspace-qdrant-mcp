@@ -18,7 +18,7 @@ use crate::config::get_database_path;
 
 // Re-export canonical types from wqm-common
 pub use wqm_common::queue_types::{ItemType, QueueOperation};
-pub use wqm_common::payloads::{ContentPayload, FilePayload, UrlPayload};
+pub use wqm_common::payloads::{ContentPayload, FilePayload, ScratchpadPayload, UrlPayload};
 
 /// Result of enqueue operation
 #[derive(Debug)]
@@ -134,6 +134,28 @@ impl UnifiedQueueClient {
             &payload_json,
             priority,
             branch,
+            None,
+        )
+    }
+
+    /// Enqueue a scratchpad item
+    pub fn enqueue_scratchpad(
+        &self,
+        tenant_id: &str,
+        payload: &ScratchpadPayload,
+        priority: i32,
+    ) -> Result<EnqueueResult> {
+        let payload_json = serde_json::to_string(payload)
+            .context("Failed to serialize scratchpad payload")?;
+
+        self.enqueue(
+            ItemType::Content,
+            QueueOperation::Ingest,
+            tenant_id,
+            wqm_common::constants::COLLECTION_SCRATCHPAD,
+            &payload_json,
+            priority,
+            "main",
             None,
         )
     }

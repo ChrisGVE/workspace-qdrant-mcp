@@ -61,6 +61,9 @@ enum Commands {
     /// Memory rules management (list, add, remove, update, search, scope)
     Memory(commands::memory::MemoryArgs),
 
+    /// Scratchpad entries (add, list)
+    Scratch(commands::scratch::ScratchArgs),
+
     // =========================================================================
     // Search & Queue
     // =========================================================================
@@ -154,6 +157,7 @@ async fn main() -> Result<()> {
         Commands::Library(args) => commands::library::execute(args).await,
         Commands::Project(args) => commands::project::execute(args).await,
         Commands::Memory(args) => commands::memory::execute(args).await,
+        Commands::Scratch(args) => commands::scratch::execute(args).await,
 
         // Search & Queue
         Commands::Search(args) => commands::search::execute(args).await,
