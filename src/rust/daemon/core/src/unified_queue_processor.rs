@@ -905,7 +905,7 @@ impl UnifiedQueueProcessor {
         point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
         point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
         point_payload.insert("item_type".to_string(), serde_json::json!("content"));
-        point_payload.insert("source_type".to_string(), serde_json::json!(payload.source_type));
+        point_payload.insert("source_type".to_string(), serde_json::json!(payload.source_type.to_lowercase()));
 
         // Memory-specific fields
         if let Some(label) = &payload.label {
@@ -1044,7 +1044,7 @@ impl UnifiedQueueProcessor {
         point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
         point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
         point_payload.insert("item_type".to_string(), serde_json::json!("content"));
-        point_payload.insert("source_type".to_string(), serde_json::json!(payload.source_type));
+        point_payload.insert("source_type".to_string(), serde_json::json!(payload.source_type.to_lowercase()));
 
         if let Some(main_tag) = &payload.main_tag {
             point_payload.insert("main_tag".to_string(), serde_json::json!(main_tag));
@@ -1337,17 +1337,17 @@ impl UnifiedQueueProcessor {
             if let Some(lang) = document_content.document_type.language() {
                 point_payload.insert("language".to_string(), serde_json::json!(lang));
             }
-            // Add file extension as metadata (e.g., "rs", "py", "md")
+            // Add file extension as metadata (e.g., "rs", "py", "md") — lowercase for consistency
             if let Some(ext) = std::path::Path::new(&payload.file_path)
                 .extension()
                 .and_then(|e| e.to_str())
             {
-                point_payload.insert("file_extension".to_string(), serde_json::json!(ext));
+                point_payload.insert("file_extension".to_string(), serde_json::json!(ext.to_lowercase()));
             }
             point_payload.insert("item_type".to_string(), serde_json::json!("file"));
 
             if let Some(file_type) = &payload.file_type {
-                point_payload.insert("file_type".to_string(), serde_json::json!(file_type));
+                point_payload.insert("file_type".to_string(), serde_json::json!(file_type.to_lowercase()));
             }
 
             // Extract chunk metadata for tracked record
@@ -1678,10 +1678,10 @@ impl UnifiedQueueProcessor {
         payload: &mut std::collections::HashMap<String, serde_json::Value>,
         enrichment: &LspEnrichment,
     ) {
-        // Add enrichment status
+        // Add enrichment status (lowercase for consistent metadata filtering)
         payload.insert(
             "lsp_enrichment_status".to_string(),
-            serde_json::json!(format!("{:?}", enrichment.enrichment_status)),
+            serde_json::json!(enrichment.enrichment_status.as_str()),
         );
 
         // Skip adding empty data for non-success status
@@ -3355,5 +3355,38 @@ mod tests {
             .expect("Should parse with point_ids");
         assert_eq!(payload.document_id, "doc-xyz");
         assert_eq!(payload.point_ids.len(), 2);
+    }
+
+    #[test]
+    fn test_lsp_enrichment_status_lowercase_in_payload() {
+        use crate::lsp::project_manager::{EnrichmentStatus, LspEnrichment};
+
+        let mut payload = std::collections::HashMap::new();
+        let enrichment = LspEnrichment {
+            enrichment_status: EnrichmentStatus::Success,
+            references: vec![],
+            type_info: None,
+            resolved_imports: vec![],
+            definition: None,
+            error_message: None,
+        };
+
+        UnifiedQueueProcessor::add_lsp_enrichment_to_payload(&mut payload, &enrichment);
+        let status = payload.get("lsp_enrichment_status").unwrap().as_str().unwrap();
+        assert_eq!(status, "success", "lsp_enrichment_status must be lowercase");
+
+        let mut payload2 = std::collections::HashMap::new();
+        let enrichment2 = LspEnrichment {
+            enrichment_status: EnrichmentStatus::Failed,
+            references: vec![],
+            type_info: None,
+            resolved_imports: vec![],
+            definition: None,
+            error_message: Some("test error".to_string()),
+        };
+
+        UnifiedQueueProcessor::add_lsp_enrichment_to_payload(&mut payload2, &enrichment2);
+        let status2 = payload2.get("lsp_enrichment_status").unwrap().as_str().unwrap();
+        assert_eq!(status2, "failed", "lsp_enrichment_status must be lowercase");
     }
 }

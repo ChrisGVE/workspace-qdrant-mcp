@@ -289,6 +289,18 @@ pub enum EnrichmentStatus {
     Skipped,
 }
 
+impl EnrichmentStatus {
+    /// Return a clean lowercase string for storage in Qdrant payloads.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Success => "success",
+            Self::Partial => "partial",
+            Self::Failed => "failed",
+            Self::Skipped => "skipped",
+        }
+    }
+}
+
 /// LSP usage metrics tracking (Task 1.17)
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct LspMetrics {
@@ -2795,5 +2807,13 @@ mod tests {
         assert_eq!(state.status, ServerStatus::Failed);
         assert!(state.last_error.is_some());
         assert!(state.last_error.as_ref().unwrap().contains("crashed"));
+    }
+
+    #[test]
+    fn test_enrichment_status_as_str_lowercase() {
+        assert_eq!(EnrichmentStatus::Success.as_str(), "success");
+        assert_eq!(EnrichmentStatus::Partial.as_str(), "partial");
+        assert_eq!(EnrichmentStatus::Failed.as_str(), "failed");
+        assert_eq!(EnrichmentStatus::Skipped.as_str(), "skipped");
     }
 }
