@@ -178,6 +178,34 @@ pub struct RenamePayload {
     pub reason: Option<String>,
 }
 
+/// Payload for URL fetch and ingestion items
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UrlPayload {
+    /// The URL to fetch
+    pub url: String,
+    /// Whether to crawl linked pages (same domain only)
+    #[serde(default)]
+    pub crawl: bool,
+    /// Maximum crawl depth (0 = single page, default: 2)
+    #[serde(default = "default_crawl_depth")]
+    pub max_depth: u32,
+    /// Maximum pages to crawl (default: 50)
+    #[serde(default = "default_max_pages")]
+    pub max_pages: u32,
+    /// Content type hint from HTTP HEAD (populated by fetcher)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_type: Option<String>,
+    /// Library name (when storing to libraries collection)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library_name: Option<String>,
+    /// Title extracted from the page
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+fn default_crawl_depth() -> u32 { 2 }
+fn default_max_pages() -> u32 { 50 }
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -275,5 +303,40 @@ mod tests {
         assert_eq!(payload.scope, Some("project".to_string()));
         assert_eq!(payload.project_id, Some("abc123".to_string()));
         assert_eq!(payload.priority, Some(9));
+    }
+
+    #[test]
+    fn test_url_payload_full_serde() {
+        let payload = UrlPayload {
+            url: "https://example.com/docs".to_string(),
+            crawl: true,
+            max_depth: 3,
+            max_pages: 100,
+            content_type: Some("text/html".to_string()),
+            library_name: Some("example-docs".to_string()),
+            title: Some("Example Documentation".to_string()),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("https://example.com/docs"));
+        assert!(json.contains("\"crawl\":true"));
+        assert!(json.contains("\"max_depth\":3"));
+
+        let back: UrlPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.url, "https://example.com/docs");
+        assert!(back.crawl);
+        assert_eq!(back.max_depth, 3);
+        assert_eq!(back.library_name, Some("example-docs".to_string()));
+    }
+
+    #[test]
+    fn test_url_payload_minimal_serde() {
+        let json = r#"{"url":"https://example.com"}"#;
+        let payload: UrlPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.url, "https://example.com");
+        assert!(!payload.crawl);
+        assert_eq!(payload.max_depth, 2);
+        assert_eq!(payload.max_pages, 50);
+        assert_eq!(payload.content_type, None);
+        assert_eq!(payload.library_name, None);
     }
 }

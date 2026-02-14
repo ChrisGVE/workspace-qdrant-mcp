@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 8;
+pub const CURRENT_SCHEMA_VERSION: i32 = 9;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -158,6 +158,7 @@ impl SchemaManager {
             6 => self.migrate_v6().await,
             7 => self.migrate_v7().await,
             8 => self.migrate_v8().await,
+            9 => self.migrate_v9().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -440,6 +441,52 @@ impl SchemaManager {
         }
 
         info!("Migration v8 complete");
+        Ok(())
+    }
+
+    /// Migration v9: Add 'url' to unified_queue item_type CHECK constraint
+    ///
+    /// SQLite does not support ALTER TABLE to modify CHECK constraints,
+    /// so we recreate the table preserving all existing data.
+    async fn migrate_v9(&self) -> Result<(), SchemaError> {
+        info!("Migration v9: Adding 'url' item_type to unified_queue CHECK constraint");
+
+        use super::unified_queue_schema::{CREATE_UNIFIED_QUEUE_SQL, CREATE_UNIFIED_QUEUE_INDEXES_SQL};
+
+        // Recreate using canonical schema (which now includes 'url')
+        sqlx::query("ALTER TABLE unified_queue RENAME TO unified_queue_old")
+            .execute(&self.pool).await?;
+
+        sqlx::query(CREATE_UNIFIED_QUEUE_SQL)
+            .execute(&self.pool).await?;
+
+        // Copy all existing data
+        sqlx::query(
+            "INSERT INTO unified_queue (
+                queue_id, item_type, op, tenant_id, collection, priority,
+                status, created_at, updated_at, lease_until, worker_id,
+                idempotency_key, payload_json, retry_count, max_retries,
+                error_message, last_error_at, branch, metadata, file_path
+            )
+            SELECT
+                queue_id, item_type, op, tenant_id, collection, priority,
+                status, created_at, updated_at, lease_until, worker_id,
+                idempotency_key, payload_json, retry_count, max_retries,
+                error_message, last_error_at, branch, metadata, file_path
+            FROM unified_queue_old"
+        )
+        .execute(&self.pool).await?;
+
+        sqlx::query("DROP TABLE unified_queue_old")
+            .execute(&self.pool).await?;
+
+        // Recreate indexes
+        for index_sql in CREATE_UNIFIED_QUEUE_INDEXES_SQL {
+            sqlx::query(index_sql)
+                .execute(&self.pool).await?;
+        }
+
+        info!("Migration v9 complete");
         Ok(())
     }
 }

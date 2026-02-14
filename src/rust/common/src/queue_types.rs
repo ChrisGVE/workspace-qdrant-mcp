@@ -26,6 +26,8 @@ pub enum ItemType {
     DeleteDocument,
     /// File/folder rename tracking
     Rename,
+    /// URL fetch and ingestion (web pages, documents at URLs)
+    Url,
 }
 
 impl fmt::Display for ItemType {
@@ -39,6 +41,7 @@ impl fmt::Display for ItemType {
             ItemType::DeleteTenant => write!(f, "delete_tenant"),
             ItemType::DeleteDocument => write!(f, "delete_document"),
             ItemType::Rename => write!(f, "rename"),
+            ItemType::Url => write!(f, "url"),
         }
     }
 }
@@ -55,6 +58,7 @@ impl ItemType {
             "delete_tenant" => Some(ItemType::DeleteTenant),
             "delete_document" => Some(ItemType::DeleteDocument),
             "rename" => Some(ItemType::Rename),
+            "url" => Some(ItemType::Url),
             _ => None,
         }
     }
@@ -70,6 +74,7 @@ impl ItemType {
             ItemType::DeleteTenant,
             ItemType::DeleteDocument,
             ItemType::Rename,
+            ItemType::Url,
         ]
     }
 
@@ -84,6 +89,7 @@ impl ItemType {
             ItemType::DeleteTenant => "delete_tenant",
             ItemType::DeleteDocument => "delete_document",
             ItemType::Rename => "rename",
+            ItemType::Url => "url",
         }
     }
 }
@@ -169,6 +175,12 @@ impl QueueOperation {
             // Rename: only update
             (ItemType::Rename, QueueOperation::Update) => true,
             (ItemType::Rename, _) => false,
+
+            // Url: ingest, update, delete
+            (ItemType::Url, QueueOperation::Ingest) => true,
+            (ItemType::Url, QueueOperation::Update) => true,
+            (ItemType::Url, QueueOperation::Delete) => true,
+            (ItemType::Url, QueueOperation::Scan) => true, // Crawl operation
         }
     }
 

@@ -14,7 +14,7 @@ pub use wqm_common::queue_types::{ItemType, QueueOperation, QueueStatus};
 pub use wqm_common::payloads::{
     ContentPayload, FilePayload, FolderPayload, ProjectPayload,
     LibraryPayload, DeleteTenantPayload, DeleteDocumentPayload,
-    MemoryPayload, RenamePayload, RenameType,
+    MemoryPayload, RenamePayload, RenameType, UrlPayload,
 };
 
 /// Complete unified queue item representation
@@ -117,6 +117,11 @@ impl UnifiedQueueItem {
         serde_json::from_str(&self.payload_json)
     }
 
+    /// Parse the payload JSON into a UrlPayload
+    pub fn parse_url_payload(&self) -> Result<UrlPayload, serde_json::Error> {
+        serde_json::from_str(&self.payload_json)
+    }
+
     /// Check if the item can be retried
     pub fn can_retry(&self) -> bool {
         self.retry_count < self.max_retries
@@ -201,7 +206,7 @@ CREATE TABLE IF NOT EXISTS unified_queue (
     queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
     item_type TEXT NOT NULL CHECK (item_type IN (
         'content', 'file', 'folder', 'project', 'library',
-        'delete_tenant', 'delete_document', 'rename'
+        'delete_tenant', 'delete_document', 'rename', 'url'
     )),
     op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
     tenant_id TEXT NOT NULL,

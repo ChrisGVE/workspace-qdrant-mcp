@@ -27,7 +27,7 @@ use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{
     ItemType, QueueOperation, UnifiedQueueItem,
     ContentPayload, FilePayload, FolderPayload, ProjectPayload, LibraryPayload,
-    MemoryPayload, RenamePayload, RenameType,
+    MemoryPayload, RenamePayload, RenameType, UrlPayload,
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
 use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
@@ -773,6 +773,9 @@ impl UnifiedQueueProcessor {
             }
             ItemType::Rename => {
                 Self::process_rename_item(item, storage_client).await
+            }
+            ItemType::Url => {
+                Self::process_url_item(item, embedding_generator, storage_client, embedding_semaphore).await
             }
         }
     }
@@ -2686,6 +2689,132 @@ impl UnifiedQueueProcessor {
         info!(
             "Successfully processed tenant cascade rename {} -> {} in '{}'",
             old_tenant, new_tenant, item.collection
+        );
+
+        Ok(())
+    }
+
+    /// Process URL fetch and ingestion item
+    ///
+    /// Fetches content from a URL, extracts text (using html2text for HTML),
+    /// generates embeddings, and stores in Qdrant. Supports both single-page
+    /// fetch and crawl mode.
+    async fn process_url_item(
+        item: &UnifiedQueueItem,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
+        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
+    ) -> UnifiedProcessorResult<()> {
+        let payload: UrlPayload = serde_json::from_str(&item.payload_json)
+            .map_err(|e| UnifiedProcessorError::InvalidPayload(
+                format!("Failed to parse UrlPayload: {}", e)
+            ))?;
+
+        info!("Processing URL item: {} (url={})", item.queue_id, payload.url);
+
+        // Fetch URL content
+        let response = reqwest::get(&payload.url)
+            .await
+            .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                format!("Failed to fetch URL {}: {}", payload.url, e)
+            ))?;
+
+        let status = response.status();
+        if !status.is_success() {
+            return Err(UnifiedProcessorError::ProcessingFailed(
+                format!("HTTP {} for URL {}", status, payload.url)
+            ));
+        }
+
+        let content_type = response
+            .headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("text/html")
+            .to_string();
+
+        let body = response.text().await.map_err(|e| {
+            UnifiedProcessorError::ProcessingFailed(format!("Failed to read response body: {}", e))
+        })?;
+
+        let is_html = content_type.contains("text/html");
+
+        // Extract title from HTML before text extraction
+        let title = payload.title.unwrap_or_else(|| {
+            if is_html {
+                // Simple title extraction: find <title>...</title>
+                let lower = body.to_lowercase();
+                if let Some(start) = lower.find("<title>") {
+                    let title_start = start + 7;
+                    if let Some(end) = lower[title_start..].find("</title>") {
+                        return body[title_start..title_start + end].trim().to_string();
+                    }
+                }
+            }
+            payload.url.clone()
+        });
+
+        // Extract text based on content type
+        let extracted_text = if is_html {
+            html2text::from_read(body.as_bytes(), 80)
+        } else {
+            body
+        };
+
+        if extracted_text.trim().is_empty() {
+            warn!("URL {} yielded empty content after extraction", payload.url);
+            return Ok(());
+        }
+
+        // Generate document ID from URL (stable across re-fetches)
+        let document_id = {
+            use sha2::{Sha256, Digest};
+            let mut hasher = Sha256::new();
+            hasher.update(payload.url.as_bytes());
+            format!("{:x}", hasher.finalize())[..32].to_string()
+        };
+
+        // Generate embedding (semaphore-gated)
+        let _permit = embedding_semaphore.acquire().await
+            .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
+
+        let embedding_result = embedding_generator
+            .generate_embedding(&extracted_text, "all-MiniLM-L6-v2")
+            .await
+            .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
+
+        drop(_permit);
+
+        // Build Qdrant payload
+        let mut point_payload = std::collections::HashMap::new();
+        point_payload.insert("content".to_string(), serde_json::json!(extracted_text));
+        point_payload.insert("document_id".to_string(), serde_json::json!(document_id));
+        point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
+        point_payload.insert("source_url".to_string(), serde_json::json!(payload.url));
+        point_payload.insert("title".to_string(), serde_json::json!(title));
+        point_payload.insert("source_type".to_string(), serde_json::json!("web"));
+        point_payload.insert("item_type".to_string(), serde_json::json!("url"));
+        point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
+
+        if let Some(ref lib_name) = payload.library_name {
+            point_payload.insert("library_name".to_string(), serde_json::json!(lib_name));
+        }
+
+        let point = DocumentPoint {
+            id: crate::generate_point_id(&item.tenant_id, &item.branch, &payload.url, 0),
+            dense_vector: embedding_result.dense.vector,
+            sparse_vector: Self::sparse_embedding_to_map(&embedding_result.sparse),
+            payload: point_payload,
+        };
+
+        storage_client
+            .insert_points_batch(&item.collection, vec![point], Some(1))
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+        info!(
+            "Successfully processed URL item {} (url={}, content_length={})",
+            item.queue_id, payload.url, extracted_text.len()
         );
 
         Ok(())

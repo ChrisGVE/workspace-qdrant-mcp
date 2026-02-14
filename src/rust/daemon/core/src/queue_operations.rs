@@ -302,6 +302,15 @@ impl QueueManager {
                     });
                 }
             }
+            ItemType::Url => {
+                if !payload.get("url").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                    error!("Queue validation failed: url item missing 'url' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "url".to_string(),
+                        field: "url".to_string(),
+                    });
+                }
+            }
         }
         Ok(())
     }

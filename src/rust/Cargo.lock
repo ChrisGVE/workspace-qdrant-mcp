@@ -3060,6 +3060,7 @@ dependencies = [
  "libc",
  "scopeguard",
  "tokio",
+ "tokio-util",
  "tracing",
  "winapi",
  "windows-service",
