@@ -363,6 +363,18 @@ impl ServiceStatus {
     }
 }
 
+/// Prompt user for yes/no confirmation, defaulting to No.
+///
+/// Returns true only if the user types "y" or "yes" (case-insensitive).
+pub fn confirm(message: &str) -> bool {
+    use std::io::{self, Write};
+    print!("{} [y/N] ", message);
+    io::stdout().flush().unwrap_or(());
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).unwrap_or(0);
+    matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
+}
+
 /// Print a horizontal separator
 pub fn separator() {
     println!("{}", "─".repeat(60).dimmed());
