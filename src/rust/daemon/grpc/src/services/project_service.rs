@@ -1402,8 +1402,8 @@ impl ProjectService for ProjectServiceImpl {
 
     /// Set project priority level (high/normal)
     ///
-    /// Delegates to PriorityManager::set_priority which updates both
-    /// watch_folders.is_active and pending queue item priorities.
+    /// Delegates to PriorityManager::set_priority which updates
+    /// watch_folders.is_active. Queue ordering is computed at dequeue time.
     async fn set_project_priority(
         &self,
         request: Request<SetProjectPriorityRequest>,
