@@ -1,0 +1,32 @@
+# YAML Configuration Test File
+# Expected: file_type=config, language=yaml
+
+server:
+  host: 0.0.0.0
+  port: 8080
+  workers: 4
+  timeout_ms: 30000
+
+database:
+  url: postgresql://localhost:5432/myapp
+  pool_size: 10
+  max_connections: 50
+  ssl: true
+
+logging:
+  level: info
+  format: json
+  outputs:
+    - type: stdout
+    - type: file
+      path: /var/log/app.log
+      rotation: daily
+
+features:
+  cache_enabled: true
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 100
+  auth:
+    provider: jwt
+    token_expiry: 3600

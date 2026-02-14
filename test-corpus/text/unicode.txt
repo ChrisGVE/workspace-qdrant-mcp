@@ -1,0 +1,19 @@
+Unicode Test File - Multi-script Content
+
+Chinese: 你好世界 (Hello World)
+Japanese: こんにちは世界
+Korean: 안녕하세요 세계
+Arabic: مرحبا بالعالم
+Hindi: नमस्ते दुनिया
+Russian: Привет мир
+Thai: สวัสดีชาวโลก
+
+Box-drawing characters: ┌──────┐
+                        │ test │
+                        └──────┘
+
+Emoji: 🚀 🎉 💻 🔧 ✅ ❌ 📝
+
+Mathematical: ∀x ∈ ℝ: x² ≥ 0, ∑(n=1..∞) 1/n² = π²/6
+
+This file tests UTF-8 encoding detection and multi-byte character handling.

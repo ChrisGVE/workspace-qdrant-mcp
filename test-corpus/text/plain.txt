@@ -1,0 +1,7 @@
+This is a plain text file for format validation testing.
+
+It contains multiple paragraphs with ASCII-only characters.
+The document processor should classify this as file_type=text, language=plaintext.
+
+Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod
+tempor incididunt ut labore et dolore magna aliqua.

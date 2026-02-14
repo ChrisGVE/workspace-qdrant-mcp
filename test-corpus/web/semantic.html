@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Semantic HTML5 Test File</title>
+    <!-- Expected: file_type=web, language=html -->
+</head>
+<body>
+    <header>
+        <h1>Semantic HTML5 Elements</h1>
+        <nav aria-label="Main navigation">
+            <ul>
+                <li><a href="#intro">Introduction</a></li>
+                <li><a href="#content">Content</a></li>
+                <li><a href="#aside">Sidebar</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <article id="intro">
+            <header>
+                <h2>Introduction Section</h2>
+                <time datetime="2024-01-15">January 15, 2024</time>
+            </header>
+            <section>
+                <p>This file tests HTML5 semantic elements for correct parsing.</p>
+                <figure>
+                    <figcaption>Figure 1: A placeholder description</figcaption>
+                </figure>
+            </section>
+        </article>
+
+        <article id="content">
+            <h2>Main Content</h2>
+            <details>
+                <summary>Expandable section</summary>
+                <p>This is hidden content inside a details element.</p>
+            </details>
+            <blockquote cite="https://example.com">
+                <p>A sample blockquote for testing.</p>
+            </blockquote>
+            <address>
+                Contact: <a href="mailto:test@example.com">test@example.com</a>
+            </address>
+        </article>
+
+        <aside id="aside">
+            <h3>Related Information</h3>
+            <p>This aside tests sidebar content extraction.</p>
+        </aside>
+    </main>
+
+    <footer>
+        <p><small>Test file for workspace-qdrant format validation.</small></p>
+    </footer>
+</body>
+</html>
