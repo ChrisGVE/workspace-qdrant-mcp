@@ -27,6 +27,7 @@ pub mod patterns;
 pub mod priority_manager;
 pub mod processing;
 pub mod queue_config;
+pub mod queue_health;
 pub mod queue_operations;
 pub mod queue_types;
 // Note: queue_processor module removed per Task 21 - use unified_queue_processor
@@ -124,6 +125,7 @@ pub use crate::priority_manager::{
     SessionMonitor, SessionMonitorConfig, SessionInfo, OrphanedSessionCleanup,
     priority
 };
+pub use crate::queue_health::QueueProcessorHealth;
 pub use crate::queue_operations::{
     QueueManager, QueueError,
     // Queue depth monitoring types (Task 461.8)

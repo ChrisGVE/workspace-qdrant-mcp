@@ -22,7 +22,7 @@ use workspace_qdrant_core::{
     // Note: Legacy QueueProcessor removed - all processing via unified_queue
     // ProcessorConfig still used for configuration extraction
     ProcessorConfig,
-    UnifiedQueueProcessor, UnifiedProcessorConfig,
+    UnifiedQueueProcessor, UnifiedProcessorConfig, QueueProcessorHealth,
     DocumentProcessor, EmbeddingGenerator, EmbeddingConfig,
     StorageClient, StorageConfig,
     queue_config::QueueConnectionConfig,
@@ -619,6 +619,10 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     // Shared between gRPC services (producers) and WatchManager (consumer)
     let watch_refresh_signal = Arc::new(Notify::new());
 
+    // Create shared queue processor health state for monitoring
+    // Shared between gRPC SystemService (reader) and UnifiedQueueProcessor (writer)
+    let queue_health = Arc::new(QueueProcessorHealth::new());
+
     // Start gRPC server for MCP server and CLI communication (Task 421)
     let grpc_port = args.grpc_port;
     let grpc_addr = format!("127.0.0.1:{}", grpc_port).parse()
@@ -628,11 +632,13 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     info!("Starting gRPC server on port {}", grpc_port);
     let grpc_pause_flag = Arc::clone(&pause_flag);
     let grpc_watch_signal = Arc::clone(&watch_refresh_signal);
+    let grpc_queue_health = Arc::clone(&queue_health);
     let grpc_handle = tokio::spawn(async move {
         let mut grpc_server = GrpcServer::new(grpc_config)
             .with_database_pool(grpc_db_pool)
             .with_pause_flag(grpc_pause_flag)
-            .with_watch_refresh_signal(grpc_watch_signal);
+            .with_watch_refresh_signal(grpc_watch_signal)
+            .with_queue_health(grpc_queue_health);
 
         // Enable LSP if manager was created successfully
         if let Some(lsp_manager) = grpc_lsp_manager {
@@ -872,6 +878,9 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     // Attach file type allowlist (Task 511)
     unified_queue_processor = unified_queue_processor.with_allowed_extensions(Arc::clone(&allowed_extensions));
+
+    // Attach queue health state for gRPC monitoring
+    unified_queue_processor = unified_queue_processor.with_queue_health(Arc::clone(&queue_health));
 
     // Recover stale leases from previous daemon crashes (Task 37.19)
     if let Err(e) = unified_queue_processor.recover_stale_leases().await {

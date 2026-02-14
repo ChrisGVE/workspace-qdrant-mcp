@@ -288,6 +288,8 @@ pub struct GrpcServer {
     pause_flag: Option<Arc<AtomicBool>>,
     /// Signal to trigger immediate WatchManager refresh on config changes
     watch_refresh_signal: Option<Arc<Notify>>,
+    /// Queue processor health state for monitoring
+    queue_health: Option<Arc<workspace_qdrant_core::QueueProcessorHealth>>,
 }
 
 /// Server metrics for monitoring
@@ -364,6 +366,7 @@ impl GrpcServer {
             lsp_manager: None,
             pause_flag: None,
             watch_refresh_signal: None,
+            queue_health: None,
         }
     }
 
@@ -416,6 +419,13 @@ impl GrpcServer {
         self
     }
 
+    /// Set shared queue processor health state for health monitoring.
+    /// This is the same `Arc` passed to `UnifiedQueueProcessor`.
+    pub fn with_queue_health(mut self, health: Arc<workspace_qdrant_core::QueueProcessorHealth>) -> Self {
+        self.queue_health = Some(health);
+        self
+    }
+
     pub async fn start(&mut self) -> Result<(), GrpcError> {
         // Debug: verify this code path is reached
         if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -456,6 +466,9 @@ impl GrpcServer {
         }
         if let Some(ref signal) = self.watch_refresh_signal {
             system_service = system_service.with_watch_refresh_signal(Arc::clone(signal));
+        }
+        if let Some(ref health) = self.queue_health {
+            system_service = system_service.with_queue_health(Arc::clone(health));
         }
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
         let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));

@@ -18,6 +18,7 @@ use walkdir::WalkDir;
 
 use crate::allowed_extensions::AllowedExtensions;
 use crate::fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig};
+use crate::queue_health::QueueProcessorHealth;
 use crate::lsp::{
     LanguageServerManager, LspEnrichment, EnrichmentStatus,
 };
@@ -234,6 +235,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Warmup state for startup throttling (Task 577)
     warmup_state: Arc<WarmupState>,
+
+    /// Shared health state for gRPC monitoring
+    queue_health: Option<Arc<QueueProcessorHealth>>,
 }
 
 impl UnifiedQueueProcessor {
@@ -283,6 +287,7 @@ impl UnifiedQueueProcessor {
             embedding_semaphore,
             allowed_extensions: Arc::new(AllowedExtensions::default()),
             warmup_state,
+            queue_health: None,
         }
     }
 
@@ -326,7 +331,14 @@ impl UnifiedQueueProcessor {
             embedding_semaphore,
             allowed_extensions: Arc::new(AllowedExtensions::default()),
             warmup_state,
+            queue_health: None,
         }
+    }
+
+    /// Set shared queue processor health state for gRPC monitoring
+    pub fn with_queue_health(mut self, health: Arc<QueueProcessorHealth>) -> Self {
+        self.queue_health = Some(health);
+        self
     }
 
     /// Set the LSP manager for code intelligence enrichment
@@ -389,6 +401,12 @@ impl UnifiedQueueProcessor {
         let embedding_semaphore = self.embedding_semaphore.clone();
         let allowed_extensions = self.allowed_extensions.clone();
         let warmup_state = self.warmup_state.clone();
+        let queue_health = self.queue_health.clone();
+
+        // Mark as running in health state
+        if let Some(ref h) = queue_health {
+            h.set_running(true);
+        }
 
         let task_handle = tokio::spawn(async move {
             if let Err(e) = Self::processing_loop(
@@ -404,12 +422,17 @@ impl UnifiedQueueProcessor {
                 embedding_semaphore,
                 allowed_extensions,
                 warmup_state,
+                queue_health.clone(),
             )
             .await
             {
                 error!("Unified processing loop failed: {}", e);
             }
 
+            // Mark as stopped in health state
+            if let Some(ref h) = queue_health {
+                h.set_running(false);
+            }
             info!("Unified queue processor stopped");
         });
 
@@ -475,6 +498,7 @@ impl UnifiedQueueProcessor {
         embedding_semaphore: Arc<tokio::sync::Semaphore>,
         allowed_extensions: Arc<AllowedExtensions>,
         warmup_state: Arc<WarmupState>,
+        queue_health: Option<Arc<QueueProcessorHealth>>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let mut last_metrics_log = Utc::now();
@@ -513,6 +537,11 @@ impl UnifiedQueueProcessor {
                 break;
             }
 
+            // Record poll for health monitoring
+            if let Some(ref h) = queue_health {
+                h.record_poll();
+            }
+
             // Check memory pressure before dequeuing (Task 504)
             if Self::check_memory_pressure(config.max_memory_percent).await {
                 info!("Memory pressure detected (>{}%), pausing processing for 5s", config.max_memory_percent);
@@ -524,6 +553,9 @@ impl UnifiedQueueProcessor {
             if let Ok(depth) = queue_manager.get_unified_queue_depth(None, None).await {
                 let mut m = metrics.write().await;
                 m.queue_depth = depth;
+                if let Some(ref h) = queue_health {
+                    h.set_queue_depth(depth as u64);
+                }
             }
 
             // Dequeue batch of items using fairness scheduler (Task 34)
@@ -588,6 +620,10 @@ impl UnifiedQueueProcessor {
                                     processing_time,
                                 ).await;
 
+                                if let Some(ref h) = queue_health {
+                                    h.record_success(processing_time);
+                                }
+
                                 info!(
                                     "Successfully processed unified item {} (type={:?}, op={:?}) in {}ms",
                                     item.queue_id, item.item_type, item.op, processing_time
@@ -611,6 +647,9 @@ impl UnifiedQueueProcessor {
                                 }
 
                                 Self::update_metrics_failure(&metrics, &e).await;
+                                if let Some(ref h) = queue_health {
+                                    h.record_failure();
+                                }
                             }
                         }
 
@@ -628,6 +667,9 @@ impl UnifiedQueueProcessor {
                 }
                 Err(e) => {
                     error!("Failed to dequeue unified batch: {}", e);
+                    if let Some(ref h) = queue_health {
+                        h.record_error();
+                    }
                     tokio::time::sleep(poll_interval).await;
                 }
             }

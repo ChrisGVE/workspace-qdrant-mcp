@@ -6,13 +6,14 @@
 //! SendRefreshSignal, NotifyServerStatus, PauseAllWatchers, ResumeAllWatchers
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::SystemTime;
 use tokio::sync::{Notify, RwLock};
 use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
 use wqm_common::timestamps;
+use workspace_qdrant_core::QueueProcessorHealth;
 
 use crate::proto::{
     system_service_server::SystemService,
@@ -21,87 +22,6 @@ use crate::proto::{
     ComponentHealth, SystemMetrics, Metric,
     ServiceStatus, QueueType, ServerState,
 };
-
-/// Queue processor health state for monitoring
-#[derive(Debug, Default)]
-pub struct QueueProcessorHealth {
-    /// Whether the processor is currently running
-    pub is_running: AtomicBool,
-    /// Last poll timestamp (Unix millis)
-    pub last_poll_time: AtomicU64,
-    /// Total error count
-    pub error_count: AtomicU64,
-    /// Items processed total
-    pub items_processed: AtomicU64,
-    /// Items failed total
-    pub items_failed: AtomicU64,
-    /// Current queue depth
-    pub queue_depth: AtomicU64,
-    /// Average processing time in milliseconds
-    pub avg_processing_time_ms: AtomicU64,
-}
-
-impl QueueProcessorHealth {
-    /// Create new health state
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Update running status
-    pub fn set_running(&self, running: bool) {
-        self.is_running.store(running, Ordering::SeqCst);
-    }
-
-    /// Update last poll time to now
-    pub fn record_poll(&self) {
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        self.last_poll_time.store(now, Ordering::SeqCst);
-    }
-
-    /// Increment error count
-    pub fn record_error(&self) {
-        self.error_count.fetch_add(1, Ordering::SeqCst);
-    }
-
-    /// Record successful processing
-    pub fn record_success(&self, processing_time_ms: u64) {
-        let prev_count = self.items_processed.fetch_add(1, Ordering::SeqCst);
-        let prev_avg = self.avg_processing_time_ms.load(Ordering::SeqCst);
-        // Running average calculation
-        let new_avg = if prev_count == 0 {
-            processing_time_ms
-        } else {
-            (prev_avg * prev_count + processing_time_ms) / (prev_count + 1)
-        };
-        self.avg_processing_time_ms.store(new_avg, Ordering::SeqCst);
-    }
-
-    /// Record failed processing
-    pub fn record_failure(&self) {
-        self.items_failed.fetch_add(1, Ordering::SeqCst);
-    }
-
-    /// Update queue depth
-    pub fn set_queue_depth(&self, depth: u64) {
-        self.queue_depth.store(depth, Ordering::SeqCst);
-    }
-
-    /// Get seconds since last poll
-    pub fn seconds_since_last_poll(&self) -> u64 {
-        let last = self.last_poll_time.load(Ordering::SeqCst);
-        if last == 0 {
-            return u64::MAX; // Never polled
-        }
-        let now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64;
-        (now.saturating_sub(last)) / 1000
-    }
-}
 
 /// Tracks the status of a server component (MCP server, CLI, etc.)
 #[derive(Debug, Clone)]
@@ -153,16 +73,10 @@ impl SystemServiceImpl {
         }
     }
 
-    /// Create with queue processor health monitoring
-    pub fn with_queue_health(queue_health: Arc<QueueProcessorHealth>) -> Self {
-        Self {
-            start_time: SystemTime::now(),
-            queue_health: Some(queue_health),
-            db_pool: None,
-            status_store: Arc::new(RwLock::new(HashMap::new())),
-            pause_flag: Arc::new(AtomicBool::new(false)),
-            watch_refresh_signal: None,
-        }
+    /// Set queue processor health state for monitoring
+    pub fn with_queue_health(mut self, queue_health: Arc<QueueProcessorHealth>) -> Self {
+        self.queue_health = Some(queue_health);
+        self
     }
 
     /// Set the database pool for refresh signal operations
@@ -846,7 +760,7 @@ mod tests {
         health.set_running(true);
         health.set_queue_depth(42);
 
-        let service = SystemServiceImpl::with_queue_health(health.clone());
+        let service = SystemServiceImpl::new().with_queue_health(health.clone());
         assert!(service.queue_health.is_some());
 
         // Test health check includes queue processor
@@ -910,7 +824,7 @@ mod tests {
         health.set_queue_depth(10);
         health.record_success(50);
 
-        let service = SystemServiceImpl::with_queue_health(health);
+        let service = SystemServiceImpl::new().with_queue_health(health);
         let response = service.get_metrics(Request::new(())).await.unwrap();
         let metrics = response.into_inner().metrics;
 
@@ -934,7 +848,7 @@ mod tests {
         let health = Arc::new(QueueProcessorHealth::new());
         health.set_queue_depth(25);
 
-        let service = SystemServiceImpl::with_queue_health(health);
+        let service = SystemServiceImpl::new().with_queue_health(health);
         let response = service.get_status(Request::new(())).await.unwrap();
         let status = response.into_inner();
 
@@ -952,7 +866,7 @@ mod tests {
             health.record_error();
         }
 
-        let service = SystemServiceImpl::with_queue_health(health);
+        let service = SystemServiceImpl::new().with_queue_health(health);
         let response = service.health(Request::new(())).await.unwrap();
         let health_response = response.into_inner();
 
@@ -967,7 +881,7 @@ mod tests {
         let health = Arc::new(QueueProcessorHealth::new());
         health.set_running(false);
 
-        let service = SystemServiceImpl::with_queue_health(health);
+        let service = SystemServiceImpl::new().with_queue_health(health);
         let response = service.health(Request::new(())).await.unwrap();
         let health_response = response.into_inner();
 
@@ -985,7 +899,7 @@ mod tests {
         health.record_success(200);
         health.record_failure();
 
-        let service = SystemServiceImpl::with_queue_health(health);
+        let service = SystemServiceImpl::new().with_queue_health(health);
         let response = service.get_queue_stats(Request::new(())).await.unwrap();
         let stats = response.into_inner();
 
