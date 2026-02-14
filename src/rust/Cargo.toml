@@ -18,10 +18,12 @@ members = [
 ]
 
 # Release profile: optimized for size and performance
+# panic = "unwind" allows catch_unwind to trap panics from buggy dependencies
+# (e.g. type1-encoding-parser panicking on malformed PDF fonts).
 [profile.release]
 lto = true
 codegen-units = 1
-panic = "abort"
+panic = "unwind"
 strip = true
 
 # Release-small profile: maximum size optimization

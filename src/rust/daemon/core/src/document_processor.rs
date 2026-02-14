@@ -430,17 +430,26 @@ fn detect_document_type(file_path: &Path) -> DocumentType {
 }
 
 /// Extract text from PDF using pdf-extract
+///
+/// Wrapped in `catch_unwind` because `pdf-extract` (via `type1-encoding-parser`)
+/// panics on certain malformed Type 1 font encodings instead of returning an error.
 fn extract_pdf(file_path: &Path) -> DocumentProcessorResult<(String, HashMap<String, String>)> {
     let mut metadata = HashMap::new();
     metadata.insert("source_format".to_string(), "pdf".to_string());
 
-    match pdf_extract::extract_text(file_path) {
-        Ok(text) => {
+    let path_buf = file_path.to_path_buf();
+    let result = std::panic::catch_unwind(|| pdf_extract::extract_text(&path_buf));
+
+    match result {
+        Ok(Ok(text)) => {
             let cleaned_text = clean_extracted_text(&text);
             metadata.insert("page_count".to_string(), "unknown".to_string());
             Ok((cleaned_text, metadata))
         }
-        Err(e) => Err(DocumentProcessorError::PdfExtraction(e.to_string())),
+        Ok(Err(e)) => Err(DocumentProcessorError::PdfExtraction(e.to_string())),
+        Err(_panic) => Err(DocumentProcessorError::PdfExtraction(
+            format!("PDF parsing panicked (likely malformed font encoding): {}", file_path.display()),
+        )),
     }
 }
 
