@@ -126,15 +126,15 @@ service EmbeddingService {
 }
 
 // -----------------------------------------------------------------------------
-// 5. ProjectService (5 RPCs)
+// 5. ProjectService (8 RPCs)
 // -----------------------------------------------------------------------------
 // Purpose: Multi-tenant project lifecycle and session management.
 // Use case: MCP servers register active projects, daemon prioritizes their
 //           ingestion. Heartbeat mechanism detects orphaned sessions.
 
 service ProjectService {
-    // Register a project for high-priority processing
-    // Called when MCP server starts for a project
+    // Register a project for tracking/processing
+    // Called by MCP server (with priority="high") or CLI (default priority="normal")
     rpc RegisterProject(RegisterProjectRequest) returns (RegisterProjectResponse);
 
     // Deprioritize a project (decrement session count)
@@ -153,6 +153,12 @@ service ProjectService {
 
     // Rename a tenant_id across SQLite and queue Qdrant payload updates
     rpc RenameTenant(RenameTenantRequest) returns (RenameTenantResponse);
+
+    // Delete a project and optionally its Qdrant data
+    rpc DeleteProject(DeleteProjectRequest) returns (DeleteProjectResponse);
+
+    // Set project priority level (high/normal)
+    rpc SetProjectPriority(SetProjectPriorityRequest) returns (SetProjectPriorityResponse);
 }
 
 // =============================================================================
@@ -392,6 +398,7 @@ message RegisterProjectRequest {
     optional string name = 3;                     // Human-readable project name
     optional string git_remote = 4;               // Git remote URL (for normalization)
     bool register_if_new = 5;                     // If false, only activate existing projects
+    optional string priority = 6;                 // "high" or "normal"; defaults to "normal" if absent
 }
 
 message RegisterProjectResponse {
@@ -471,6 +478,34 @@ message RenameTenantResponse {
     bool success = 1;
     int32 sqlite_rows_updated = 2;                // Number of SQLite rows affected
     string message = 3;                           // Human-readable status message
+}
+
+// DeleteProject Request/Response
+message DeleteProjectRequest {
+    string project_id = 1;                        // 12-char hex identifier
+    bool delete_qdrant_data = 2;                  // Whether to delete vectors from Qdrant
+}
+
+message DeleteProjectResponse {
+    bool success = 1;
+    int32 watch_folders_deleted = 2;
+    int32 tracked_files_deleted = 3;
+    int32 qdrant_points_deleted = 4;
+    int32 queue_items_deleted = 5;
+    string message = 6;
+}
+
+// SetProjectPriority Request/Response
+message SetProjectPriorityRequest {
+    string project_id = 1;                        // 12-char hex identifier
+    string priority = 2;                          // "high" or "normal"
+}
+
+message SetProjectPriorityResponse {
+    bool success = 1;
+    string previous_priority = 2;
+    string new_priority = 3;
+    int32 queue_items_updated = 4;
 }
 
 // =============================================================================
