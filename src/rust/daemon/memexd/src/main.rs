@@ -479,7 +479,10 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     check_stale_legacy_directory();
 
     // Convert DaemonConfig to Config for queue processor settings
-    let config = Config::from(daemon_config.clone());
+    let mut config = Config::from(daemon_config.clone());
+
+    // Resolve auto-detected resource limits (0 = auto-detect from hardware)
+    config.resource_limits.resolve_auto_values();
 
     // Apply OS-level resource limits (Task 504)
     set_process_nice_level(config.resource_limits.nice_level);

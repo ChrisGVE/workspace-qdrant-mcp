@@ -785,6 +785,16 @@ impl StartupConfig {
 ///
 /// Controls how the daemon manages system resources to be a good neighbor.
 /// Four levels: OS priority, processing pacing, embedding concurrency, memory pressure.
+///
+/// `max_concurrent_embeddings` and `onnx_intra_threads` support auto-detection:
+/// set to `0` (the default) and the daemon computes optimal values at startup
+/// based on the machine's CPU core count:
+///   - `max_concurrent_embeddings` = max(1, physical_cores / 4)
+///   - `onnx_intra_threads` = 2 (optimal for all-MiniLM-L6-v2 regardless of core count)
+///
+/// Total embedding CPU budget = max_concurrent_embeddings × onnx_intra_threads,
+/// which is roughly half a quarter of the machine — leaving headroom for file watching,
+/// tree-sitter, gRPC, LSP, and the user's own work.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResourceLimitsConfig {
     /// Unix nice level for the daemon process (-20 highest priority, 19 lowest)
@@ -797,8 +807,8 @@ pub struct ResourceLimitsConfig {
     #[serde(default = "default_inter_item_delay_ms")]
     pub inter_item_delay_ms: u64,
 
-    /// Maximum concurrent embedding operations (semaphore on ONNX ops)
-    /// Default: 2
+    /// Maximum concurrent embedding operations (semaphore on ONNX ops).
+    /// 0 = auto-detect from CPU core count (physical_cores / 4, minimum 1).
     #[serde(default = "default_max_concurrent_embeddings")]
     pub max_concurrent_embeddings: usize,
 
@@ -808,16 +818,17 @@ pub struct ResourceLimitsConfig {
     pub max_memory_percent: u8,
 
     /// Number of ONNX intra-op threads per embedding session.
-    /// Default: 2 (sufficient for all-MiniLM-L6-v2, leaves CPU for other work)
+    /// 0 = auto-detect (always resolves to 2; the all-MiniLM-L6-v2 model
+    /// is too small to benefit from more intra-op parallelism).
     #[serde(default = "default_onnx_intra_threads")]
     pub onnx_intra_threads: usize,
 }
 
 fn default_nice_level() -> i32 { 10 }
 fn default_inter_item_delay_ms() -> u64 { 50 }
-fn default_max_concurrent_embeddings() -> usize { 2 }
+fn default_max_concurrent_embeddings() -> usize { 0 } // 0 = auto-detect
 fn default_max_memory_percent() -> u8 { 70 }
-fn default_onnx_intra_threads() -> usize { 2 }
+fn default_onnx_intra_threads() -> usize { 0 } // 0 = auto-detect
 
 impl Default for ResourceLimitsConfig {
     fn default() -> Self {
@@ -832,7 +843,44 @@ impl Default for ResourceLimitsConfig {
 }
 
 impl ResourceLimitsConfig {
-    /// Validate configuration settings
+    /// Resolve auto-detected values (0 = auto) based on hardware.
+    ///
+    /// Call this after loading config and applying env overrides, before validation.
+    /// Values that are already non-zero (explicitly set) are left unchanged.
+    ///
+    /// Formula:
+    ///   - `max_concurrent_embeddings`: max(1, physical_cores / 4)
+    ///   - `onnx_intra_threads`: 2 (all-MiniLM-L6-v2 is too small to benefit from more)
+    pub fn resolve_auto_values(&mut self) {
+        let physical_cores = detect_physical_cores();
+
+        if self.max_concurrent_embeddings == 0 {
+            self.max_concurrent_embeddings = std::cmp::max(1, physical_cores / 4);
+            tracing::info!(
+                "Auto-detected max_concurrent_embeddings = {} (physical_cores={}, formula: cores/4)",
+                self.max_concurrent_embeddings, physical_cores
+            );
+        }
+
+        if self.onnx_intra_threads == 0 {
+            // 2 is optimal for the small all-MiniLM-L6-v2 model regardless of core count.
+            // The ONNX graph is narrow enough that additional threads yield diminishing returns.
+            self.onnx_intra_threads = 2;
+            tracing::info!(
+                "Auto-detected onnx_intra_threads = 2 (optimal for all-MiniLM-L6-v2)"
+            );
+        }
+
+        tracing::info!(
+            "Embedding resource budget: {} workers × {} threads/worker = {} total threads (physical_cores={})",
+            self.max_concurrent_embeddings, self.onnx_intra_threads,
+            self.max_concurrent_embeddings * self.onnx_intra_threads, physical_cores
+        );
+    }
+
+    /// Validate configuration settings.
+    ///
+    /// Must be called AFTER `resolve_auto_values()` — 0 is not valid post-resolution.
     pub fn validate(&self) -> Result<(), String> {
         if self.nice_level < -20 || self.nice_level > 19 {
             return Err("nice_level must be between -20 and 19".to_string());
@@ -841,13 +889,13 @@ impl ResourceLimitsConfig {
             return Err("inter_item_delay_ms should not exceed 5000".to_string());
         }
         if self.max_concurrent_embeddings == 0 || self.max_concurrent_embeddings > 8 {
-            return Err("max_concurrent_embeddings must be between 1 and 8".to_string());
+            return Err("max_concurrent_embeddings must be between 1 and 8 (0 should have been auto-resolved)".to_string());
         }
         if self.max_memory_percent < 20 || self.max_memory_percent > 95 {
             return Err("max_memory_percent must be between 20 and 95".to_string());
         }
         if self.onnx_intra_threads == 0 || self.onnx_intra_threads > 16 {
-            return Err("onnx_intra_threads must be between 1 and 16".to_string());
+            return Err("onnx_intra_threads must be between 1 and 16 (0 should have been auto-resolved)".to_string());
         }
         Ok(())
     }
@@ -886,6 +934,28 @@ impl ResourceLimitsConfig {
             }
         }
     }
+}
+
+/// Detect the number of physical CPU cores on the current machine.
+///
+/// Uses `sysinfo::System::physical_core_count()` with a fallback to
+/// `std::thread::available_parallelism()` (which returns logical cores).
+/// Returns 4 as a safe fallback if both methods fail.
+fn detect_physical_cores() -> usize {
+    use sysinfo::System;
+
+    let sys = System::new();
+    if let Some(physical) = sys.physical_core_count() {
+        return physical;
+    }
+
+    // Fallback: logical cores (includes hyperthreading)
+    if let Ok(logical) = std::thread::available_parallelism() {
+        return logical.get();
+    }
+
+    // Ultimate fallback
+    4
 }
 
 /// Update channel for daemon self-updates
@@ -1532,16 +1602,47 @@ mod tests {
         let config = ResourceLimitsConfig::default();
         assert_eq!(config.nice_level, 10);
         assert_eq!(config.inter_item_delay_ms, 50);
-        assert_eq!(config.max_concurrent_embeddings, 2);
+        assert_eq!(config.max_concurrent_embeddings, 0, "default should be 0 (auto-detect)");
         assert_eq!(config.max_memory_percent, 70);
-        assert_eq!(config.onnx_intra_threads, 2);
+        assert_eq!(config.onnx_intra_threads, 0, "default should be 0 (auto-detect)");
+    }
+
+    #[test]
+    fn test_resource_limits_auto_detection() {
+        let mut config = ResourceLimitsConfig::default();
+        assert_eq!(config.max_concurrent_embeddings, 0);
+        assert_eq!(config.onnx_intra_threads, 0);
+
+        config.resolve_auto_values();
+
+        // After resolution, values should be non-zero
+        assert!(config.max_concurrent_embeddings >= 1, "auto-detected embeddings should be >= 1");
+        assert!(config.max_concurrent_embeddings <= 8, "auto-detected embeddings should be <= 8");
+        assert_eq!(config.onnx_intra_threads, 2, "onnx_intra_threads always resolves to 2");
+
+        // Validation should pass after resolution
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_resource_limits_explicit_values_not_overridden() {
+        let mut config = ResourceLimitsConfig::default();
+        config.max_concurrent_embeddings = 3;
+        config.onnx_intra_threads = 4;
+
+        config.resolve_auto_values();
+
+        // Explicitly set values should not be changed
+        assert_eq!(config.max_concurrent_embeddings, 3);
+        assert_eq!(config.onnx_intra_threads, 4);
     }
 
     #[test]
     fn test_resource_limits_config_validation() {
         let mut config = ResourceLimitsConfig::default();
+        config.resolve_auto_values(); // Must resolve before validation
 
-        // Valid settings
+        // Valid settings after resolution
         assert!(config.validate().is_ok());
 
         // Invalid nice_level (too low)
@@ -1557,7 +1658,7 @@ mod tests {
         assert!(config.validate().is_err());
         config.inter_item_delay_ms = 50;
 
-        // Invalid max_concurrent_embeddings (zero)
+        // Invalid max_concurrent_embeddings (zero = unresolved auto-detect)
         config.max_concurrent_embeddings = 0;
         assert!(config.validate().is_err());
         // Invalid max_concurrent_embeddings (too high)
@@ -1573,6 +1674,14 @@ mod tests {
         assert!(config.validate().is_err());
         config.max_memory_percent = 70;
 
+        // Invalid onnx_intra_threads (zero = unresolved)
+        config.onnx_intra_threads = 0;
+        assert!(config.validate().is_err());
+        // Invalid onnx_intra_threads (too high)
+        config.onnx_intra_threads = 17;
+        assert!(config.validate().is_err());
+        config.onnx_intra_threads = 2;
+
         // Valid again
         assert!(config.validate().is_ok());
     }
@@ -1581,6 +1690,7 @@ mod tests {
     fn test_resource_limits_config_boundary_values() {
         // Test boundary values are accepted
         let mut config = ResourceLimitsConfig::default();
+        config.resolve_auto_values(); // Must resolve before validation
 
         config.nice_level = -20;
         assert!(config.validate().is_ok());
@@ -1595,6 +1705,11 @@ mod tests {
         config.max_concurrent_embeddings = 1;
         assert!(config.validate().is_ok());
         config.max_concurrent_embeddings = 8;
+        assert!(config.validate().is_ok());
+
+        config.onnx_intra_threads = 1;
+        assert!(config.validate().is_ok());
+        config.onnx_intra_threads = 16;
         assert!(config.validate().is_ok());
 
         config.max_memory_percent = 20;
@@ -1632,9 +1747,9 @@ mod tests {
         let config = DaemonConfig::default();
         assert_eq!(config.resource_limits.nice_level, 10);
         assert_eq!(config.resource_limits.inter_item_delay_ms, 50);
-        assert_eq!(config.resource_limits.max_concurrent_embeddings, 2);
+        assert_eq!(config.resource_limits.max_concurrent_embeddings, 0, "default is 0 (auto-detect)");
         assert_eq!(config.resource_limits.max_memory_percent, 70);
-        assert_eq!(config.resource_limits.onnx_intra_threads, 2);
+        assert_eq!(config.resource_limits.onnx_intra_threads, 0, "default is 0 (auto-detect)");
     }
 
     #[test]
