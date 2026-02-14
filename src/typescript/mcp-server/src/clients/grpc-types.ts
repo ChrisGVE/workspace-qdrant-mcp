@@ -185,6 +185,7 @@ export interface RegisterProjectRequest {
   name?: string;
   git_remote?: string;
   register_if_new?: boolean;
+  priority?: string; // "high" or "normal"; defaults to "normal" if absent
 }
 
 export interface RegisterProjectResponse {

@@ -381,6 +381,7 @@ describe('Session lifecycle with connected daemon', () => {
         project_id: 'abc123456789',
         name: 'test-project',
         register_if_new: false,
+        priority: 'high',
       });
 
       await server.stop();

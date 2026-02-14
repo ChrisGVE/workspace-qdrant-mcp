@@ -799,6 +799,7 @@ export class WorkspaceQdrantMcpServer {
         project_id: this.sessionState.projectId ?? '', // Empty for new projects
         name: this.sessionState.projectPath.split('/').pop() ?? 'unknown',
         register_if_new: false, // Never auto-register new projects on session start
+        priority: 'high', // MCP sessions get HIGH priority for active development
       });
 
       // If the project was not registered (not found and register_if_new=false),
@@ -863,6 +864,7 @@ export class WorkspaceQdrantMcpServer {
       project_id: '',
       name,
       register_if_new: true,
+      priority: 'high', // MCP sessions get HIGH priority for active development
     });
 
     logSessionEvent('register', {
