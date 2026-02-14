@@ -90,10 +90,15 @@ export interface ContentPayload {
 }
 
 export interface MemoryPayload {
-  label: string;
   content: string;
-  scope: 'global' | 'project';
+  source_type: string;
+  label?: string | undefined;
+  action?: string | undefined;
+  scope?: string | undefined;
   project_id?: string | undefined;
+  title?: string | undefined;
+  tags?: string[] | undefined;
+  priority?: number | undefined;
 }
 
 export interface FilePayload {

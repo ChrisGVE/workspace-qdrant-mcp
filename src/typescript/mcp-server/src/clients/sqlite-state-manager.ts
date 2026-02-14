@@ -138,8 +138,9 @@ export function buildMemoryPayload(
   projectId?: string
 ): MemoryPayload {
   return {
-    label,
     content,
+    source_type: 'memory_rule',
+    label,
     scope,
     project_id: projectId,
   };

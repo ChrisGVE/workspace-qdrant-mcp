@@ -144,8 +144,9 @@ describe('payload builders', () => {
       const payload = buildMemoryPayload('prefer-uv', 'Use uv for Python packages', 'global');
 
       expect(payload).toEqual({
-        label: 'prefer-uv',
         content: 'Use uv for Python packages',
+        source_type: 'memory_rule',
+        label: 'prefer-uv',
         scope: 'global',
         project_id: undefined,
       });
@@ -155,8 +156,9 @@ describe('payload builders', () => {
       const payload = buildMemoryPayload('use-pytest', 'Use pytest', 'project', 'abc123');
 
       expect(payload).toEqual({
-        label: 'use-pytest',
         content: 'Use pytest',
+        source_type: 'memory_rule',
+        label: 'use-pytest',
         scope: 'project',
         project_id: 'abc123',
       });

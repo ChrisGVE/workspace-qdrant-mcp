@@ -381,6 +381,9 @@ export class MemoryTool {
           scope: (point.payload?.['scope'] as MemoryScope) ?? 'global',
         };
 
+        const label = point.payload?.['label'] as string | undefined;
+        if (label) rule.label = label;
+
         const projectId = point.payload?.['project_id'] as string | undefined;
         if (projectId) rule.projectId = projectId;
 
@@ -390,8 +393,11 @@ export class MemoryTool {
         const tagsStr = point.payload?.['tags'] as string | undefined;
         if (tagsStr) rule.tags = tagsStr.split(',');
 
-        const priorityStr = point.payload?.['priority'] as string | undefined;
-        if (priorityStr) rule.priority = Number(priorityStr);
+        // priority may be stored as number (queue path) or string (gRPC path)
+        const priorityRaw = point.payload?.['priority'];
+        if (priorityRaw !== undefined && priorityRaw !== null) {
+          rule.priority = Number(priorityRaw);
+        }
 
         const createdAt = point.payload?.['created_at'] as string | undefined;
         if (createdAt) rule.createdAt = createdAt;
