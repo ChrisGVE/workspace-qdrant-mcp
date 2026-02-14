@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 7;
+pub const CURRENT_SCHEMA_VERSION: i32 = 8;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -157,6 +157,7 @@ impl SchemaManager {
             5 => self.migrate_v5().await,
             6 => self.migrate_v6().await,
             7 => self.migrate_v7().await,
+            8 => self.migrate_v8().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -384,6 +385,34 @@ impl SchemaManager {
         }
 
         info!("Migration v7 complete");
+        Ok(())
+    }
+
+    /// Migration v8: Add extension and is_test columns to tracked_files
+    async fn migrate_v8(&self) -> Result<(), SchemaError> {
+        info!("Migration v8: Adding extension and is_test columns to tracked_files");
+
+        use super::tracked_files_schema::MIGRATE_V8_SQL;
+
+        // Check if columns already exist (handles fresh installs that include them in CREATE TABLE)
+        let has_extension: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('tracked_files') WHERE name = 'extension'"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        if !has_extension {
+            for alter_sql in MIGRATE_V8_SQL {
+                debug!("Running ALTER TABLE: {}", alter_sql);
+                sqlx::query(alter_sql)
+                    .execute(&self.pool)
+                    .await?;
+            }
+        } else {
+            debug!("extension column already exists, skipping ALTER TABLE");
+        }
+
+        info!("Migration v8 complete");
         Ok(())
     }
 }

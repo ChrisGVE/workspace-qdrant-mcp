@@ -32,7 +32,7 @@ use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedd
 use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
 use crate::patterns::exclusion::{should_exclude_file, should_exclude_directory};
-use crate::file_classification::classify_file_type;
+use crate::file_classification::{classify_file_type, is_test_file, get_extension_for_storage};
 use crate::tracked_files_schema::{
     self, ProcessingStatus, ChunkType as TrackedChunkType,
 };
@@ -1347,6 +1347,8 @@ impl UnifiedQueueProcessor {
         } else {
             Some("text")
         };
+        let extension = get_extension_for_storage(file_path);
+        let is_test = is_test_file(file_path);
 
         // Check if file is already tracked (read outside transaction)
         let existing = tracked_files_schema::lookup_tracked_file(
@@ -1397,6 +1399,8 @@ impl UnifiedQueueProcessor {
                         lsp_status,
                         treesitter_status,
                         Some(&item.collection),
+                        extension.as_deref(),
+                        is_test,
                     )
                     .await
                     .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files insert failed: {}", e)))?
