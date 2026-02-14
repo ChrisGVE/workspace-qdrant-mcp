@@ -58,6 +58,9 @@ uuid = { version = "1.10", features = ["v4"] }
 # Crypto for idempotency key generation
 sha2 = "0.10"
 
+# Filesystem traversal
+walkdir = "2.5"
+
 # Time handling
 chrono = { version = "0.4", features = ["serde"] }
 
