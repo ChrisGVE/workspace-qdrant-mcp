@@ -9,7 +9,7 @@ use std::io::Write as _;
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::grpc::client::DaemonClient;
 use crate::output;
@@ -60,7 +60,11 @@ pub struct CollectionsArgs {
 #[derive(Subcommand)]
 enum CollectionsCommand {
     /// List Qdrant collections
-    List,
+    List {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 
     /// Reset (delete and recreate) specific collection(s)
     Reset {
@@ -82,7 +86,7 @@ enum CollectionsCommand {
 /// Execute collections command
 pub async fn execute(args: CollectionsArgs) -> Result<()> {
     match args.command {
-        CollectionsCommand::List => list_collections().await,
+        CollectionsCommand::List { json } => list_collections(json).await,
         CollectionsCommand::Reset {
             names,
             include_queue,
@@ -92,7 +96,7 @@ pub async fn execute(args: CollectionsArgs) -> Result<()> {
 }
 
 /// Qdrant collection info from list endpoint
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 struct CollectionDescription {
     name: String,
 }
@@ -111,8 +115,10 @@ struct QdrantResponse<T> {
     result: T,
 }
 
-async fn list_collections() -> Result<()> {
-    output::section("Qdrant Collections");
+async fn list_collections(json: bool) -> Result<()> {
+    if !json {
+        output::section("Qdrant Collections");
+    }
 
     let client = build_client()?;
     let url = format!("{}/collections", qdrant_url());
@@ -123,6 +129,11 @@ async fn list_collections() -> Result<()> {
                 .json()
                 .await
                 .context("Failed to parse Qdrant response")?;
+
+            if json {
+                output::print_json(&body.result.collections);
+                return Ok(());
+            }
 
             if body.result.collections.is_empty() {
                 output::info("No collections found");

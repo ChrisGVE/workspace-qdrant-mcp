@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tabled::Tabled;
 
 use crate::output::{self, ColumnHints};
@@ -54,7 +54,7 @@ struct QdrantResponse<T> {
 }
 
 /// Snapshot metadata from Qdrant
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 struct SnapshotInfo {
     name: String,
     size: i64,
@@ -129,6 +129,10 @@ enum BackupCommand {
         /// Add description/label to the snapshot
         #[arg(short, long)]
         description: Option<String>,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// List existing snapshots
@@ -139,6 +143,10 @@ enum BackupCommand {
         /// Show detailed information
         #[arg(short, long)]
         verbose: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 
     /// Delete a snapshot
@@ -153,6 +161,10 @@ enum BackupCommand {
         /// Force deletion without confirmation
         #[arg(short, long)]
         force: bool,
+
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
     },
 }
 
@@ -163,13 +175,15 @@ pub async fn execute(args: BackupArgs) -> Result<()> {
             collection,
             output,
             description,
-        } => create_backup(&collection, output, description).await,
-        BackupCommand::List { collection, verbose } => list_backups(collection, verbose).await,
+            json,
+        } => create_backup(&collection, output, description, json).await,
+        BackupCommand::List { collection, verbose, json } => list_backups(collection, verbose, json).await,
         BackupCommand::Delete {
             snapshot,
             collection,
             force,
-        } => delete_backup(&snapshot, &collection, force).await,
+            json,
+        } => delete_backup(&snapshot, &collection, force, json).await,
     }
 }
 
@@ -177,18 +191,25 @@ async fn create_backup(
     collection: &str,
     output_dir: Option<PathBuf>,
     _description: Option<String>,
+    json: bool,
 ) -> Result<()> {
-    output::section("Create Backup");
+    if !json {
+        output::section("Create Backup");
+    }
 
     let base = qdrant_url();
     let client = build_client()?;
 
-    output::kv("Qdrant", &base);
-    output::kv("Collection", collection);
-    output::separator();
+    if !json {
+        output::kv("Qdrant", &base);
+        output::kv("Collection", collection);
+        output::separator();
+    }
 
     let snapshot: SnapshotInfo = if collection == "all" {
-        output::info("Creating full Qdrant snapshot (all collections)...");
+        if !json {
+            output::info("Creating full Qdrant snapshot (all collections)...");
+        }
         let url = format!("{}/snapshots", base);
         let resp = client
             .post(&url)
@@ -207,7 +228,9 @@ async fn create_backup(
             .context("Failed to parse Qdrant response")?;
         api_resp.result
     } else {
-        output::info(&format!("Creating snapshot for collection '{}'...", collection));
+        if !json {
+            output::info(&format!("Creating snapshot for collection '{}'...", collection));
+        }
         let url = format!("{}/collections/{}/snapshots", base, collection);
         let resp = client
             .post(&url)
@@ -227,20 +250,27 @@ async fn create_backup(
         api_resp.result
     };
 
-    output::separator();
-    output::success(format!("Snapshot created: {}", snapshot.name));
-    output::kv("Size", output::format_bytes(snapshot.size));
-    if let Some(ref t) = snapshot.creation_time {
-        output::kv("Created", t);
-    }
-    if let Some(ref c) = snapshot.checksum {
-        output::kv("Checksum", c);
+    if json {
+        output::print_json(&snapshot);
+        // Still download if requested, but skip human output
+    } else {
+        output::separator();
+        output::success(format!("Snapshot created: {}", snapshot.name));
+        output::kv("Size", output::format_bytes(snapshot.size));
+        if let Some(ref t) = snapshot.creation_time {
+            output::kv("Created", t);
+        }
+        if let Some(ref c) = snapshot.checksum {
+            output::kv("Checksum", c);
+        }
     }
 
     // Download snapshot if output directory specified
     if let Some(dir) = output_dir {
-        output::separator();
-        output::info(&format!("Downloading snapshot to {}...", dir.display()));
+        if !json {
+            output::separator();
+            output::info(&format!("Downloading snapshot to {}...", dir.display()));
+        }
 
         std::fs::create_dir_all(&dir)
             .with_context(|| format!("Failed to create output directory: {}", dir.display()))?;
@@ -272,25 +302,33 @@ async fn create_backup(
         file.write_all(&bytes)
             .context("Failed to write snapshot file")?;
 
-        output::success(format!("Downloaded to: {}", dest.display()));
+        if !json {
+            output::success(format!("Downloaded to: {}", dest.display()));
+        }
     }
 
-    output::separator();
-    output::info("To restore: wqm restore snapshot <name> --collection <collection>");
+    if !json {
+        output::separator();
+        output::info("To restore: wqm restore snapshot <name> --collection <collection>");
+    }
 
     Ok(())
 }
 
-async fn list_backups(collection: Option<String>, verbose: bool) -> Result<()> {
-    output::section("List Backups");
+async fn list_backups(collection: Option<String>, verbose: bool, json: bool) -> Result<()> {
+    if !json {
+        output::section("List Backups");
+    }
 
     let base = qdrant_url();
     let client = build_client()?;
 
     match &collection {
         Some(coll) => {
-            output::kv("Collection", coll);
-            output::separator();
+            if !json {
+                output::kv("Collection", coll);
+                output::separator();
+            }
 
             let url = format!("{}/collections/{}/snapshots", base, coll);
             let resp = client
@@ -311,7 +349,9 @@ async fn list_backups(collection: Option<String>, verbose: bool) -> Result<()> {
                 .context("Failed to parse Qdrant response")?;
 
             let snapshots = api_resp.result;
-            if snapshots.is_empty() {
+            if json {
+                output::print_json(&snapshots);
+            } else if snapshots.is_empty() {
                 output::info("No snapshots found for this collection.");
             } else {
                 output::info(&format!("Found {} snapshot(s):", snapshots.len()));
@@ -329,8 +369,13 @@ async fn list_backups(collection: Option<String>, verbose: bool) -> Result<()> {
             }
         }
         None => {
-            // List full snapshots
-            output::info("Full snapshots (all collections):");
+            if !json {
+                // List full snapshots
+                output::info("Full snapshots (all collections):");
+            }
+            // Collect all snapshots for JSON output
+            let mut all_snapshots: Vec<SnapshotInfo> = Vec::new();
+
             let url = format!("{}/snapshots", base);
             let resp = client
                 .get(&url)
@@ -344,7 +389,9 @@ async fn list_backups(collection: Option<String>, verbose: bool) -> Result<()> {
                     .await
                     .context("Failed to parse full snapshot response")?;
 
-                if api_resp.result.is_empty() {
+                if json {
+                    all_snapshots.extend(api_resp.result.iter().cloned());
+                } else if api_resp.result.is_empty() {
                     output::info("  No full snapshots found.");
                 } else {
                     let rows: Vec<SnapshotRow> =
@@ -353,10 +400,12 @@ async fn list_backups(collection: Option<String>, verbose: bool) -> Result<()> {
                 }
             }
 
-            output::separator();
+            if !json {
+                output::separator();
 
-            // List per-collection snapshots
-            output::info("Per-collection snapshots:");
+                // List per-collection snapshots
+                output::info("Per-collection snapshots:");
+            }
             let coll_url = format!("{}/collections", base);
             let coll_resp = client
                 .get(&coll_url)
@@ -379,7 +428,9 @@ async fn list_backups(collection: Option<String>, verbose: bool) -> Result<()> {
                             if let Ok(snap_result) =
                                 resp.json::<QdrantResponse<Vec<SnapshotInfo>>>().await
                             {
-                                if snap_result.result.is_empty() {
+                                if json {
+                                    all_snapshots.extend(snap_result.result.iter().cloned());
+                                } else if snap_result.result.is_empty() {
                                     output::info(&format!("  {}: no snapshots", entry.name));
                                 } else {
                                     output::info(&format!(
@@ -401,20 +452,26 @@ async fn list_backups(collection: Option<String>, verbose: bool) -> Result<()> {
                     }
                 }
             }
+
+            if json {
+                output::print_json(&all_snapshots);
+            }
         }
     }
 
     Ok(())
 }
 
-async fn delete_backup(snapshot: &str, collection: &str, force: bool) -> Result<()> {
-    output::section("Delete Backup");
+async fn delete_backup(snapshot: &str, collection: &str, force: bool, json: bool) -> Result<()> {
+    if !json {
+        output::section("Delete Backup");
 
-    output::kv("Snapshot", snapshot);
-    output::kv("Collection", collection);
-    output::separator();
+        output::kv("Snapshot", snapshot);
+        output::kv("Collection", collection);
+        output::separator();
+    }
 
-    if !force {
+    if !force && !json {
         output::warning("This will permanently delete the snapshot!");
         output::warning("Use --force to skip this warning.");
         output::separator();
@@ -444,7 +501,9 @@ async fn delete_backup(snapshot: &str, collection: &str, force: bool) -> Result<
         )
     };
 
-    output::info(&format!("Deleting snapshot '{}'...", snapshot));
+    if !json {
+        output::info(&format!("Deleting snapshot '{}'...", snapshot));
+    }
 
     let resp = client
         .delete(&url)
@@ -459,7 +518,15 @@ async fn delete_backup(snapshot: &str, collection: &str, force: bool) -> Result<
         anyhow::bail!("Qdrant returned {}: {}", status, body);
     }
 
-    output::success(format!("Snapshot '{}' deleted successfully.", snapshot));
+    if json {
+        output::print_json(&serde_json::json!({
+            "deleted": true,
+            "snapshot": snapshot,
+            "collection": collection,
+        }));
+    } else {
+        output::success(format!("Snapshot '{}' deleted successfully.", snapshot));
+    }
 
     Ok(())
 }

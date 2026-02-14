@@ -8,6 +8,7 @@
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 use rusqlite::Connection;
+use serde::Serialize;
 use wqm_common::timestamps;
 
 use crate::config::get_database_path_checked;
@@ -31,6 +32,10 @@ pub struct StatusArgs {
     /// Show performance metrics
     #[arg(long)]
     performance: bool,
+
+    /// Output as JSON
+    #[arg(long)]
+    json: bool,
 }
 
 /// Status subcommands
@@ -77,7 +82,11 @@ enum StatusCommand {
     },
 
     /// Show system health
-    Health,
+    Health {
+        /// Output as JSON
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 /// Message subcommands
@@ -91,14 +100,16 @@ enum MessageAction {
 
 /// Execute status command
 pub async fn execute(args: StatusArgs) -> Result<()> {
+    let json = args.json;
+
     // Handle flags for default status
     if args.queue || args.watch || args.performance {
-        return default_status(args.queue, args.watch, args.performance).await;
+        return default_status(args.queue, args.watch, args.performance, json).await;
     }
 
     // Handle subcommands
     match args.command {
-        None => default_status(false, false, false).await,
+        None => default_status(false, false, false, json).await,
         Some(StatusCommand::History { range }) => history(&range).await,
         Some(StatusCommand::Queue { verbose }) => queue(verbose).await,
         Some(StatusCommand::Watch) => watch().await,
@@ -106,22 +117,79 @@ pub async fn execute(args: StatusArgs) -> Result<()> {
         Some(StatusCommand::Live { interval }) => live(interval).await,
         Some(StatusCommand::Messages { action }) => messages(action).await,
         Some(StatusCommand::Errors { limit }) => errors(limit).await,
-        Some(StatusCommand::Health) => health().await,
+        Some(StatusCommand::Health { json: sub_json }) => health(json || sub_json).await,
     }
 }
 
-async fn default_status(show_queue: bool, show_watch: bool, show_performance: bool) -> Result<()> {
-    output::section("System Status");
+/// JSON-serializable system status
+#[derive(Serialize)]
+struct SystemStatusJson {
+    connected: bool,
+    status: String,
+    collections: i32,
+    documents: i32,
+    active_projects: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pending_operations: Option<i32>,
+}
+
+/// JSON-serializable health status
+#[derive(Serialize)]
+struct HealthStatusJson {
+    connected: bool,
+    health: String,
+    components: Vec<HealthComponentJson>,
+}
+
+/// JSON-serializable health component
+#[derive(Serialize)]
+struct HealthComponentJson {
+    name: String,
+    status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+fn status_label(s: ServiceStatus) -> &'static str {
+    match s {
+        ServiceStatus::Healthy => "healthy",
+        ServiceStatus::Degraded => "degraded",
+        ServiceStatus::Unhealthy => "unhealthy",
+        ServiceStatus::Unknown => "unknown",
+    }
+}
+
+async fn default_status(show_queue: bool, show_watch: bool, show_performance: bool, json: bool) -> Result<()> {
+    if !json {
+        output::section("System Status");
+    }
 
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
-            output::status_line("Daemon", ServiceStatus::Healthy);
+            if !json {
+                output::status_line("Daemon", ServiceStatus::Healthy);
+            }
 
             // Get comprehensive status
             match client.system().get_status(()).await {
                 Ok(response) => {
                     let status = response.into_inner();
                     let overall = ServiceStatus::from_proto(status.status);
+
+                    if json {
+                        let pending = status.metrics.as_ref().map(|m| m.pending_operations);
+                        let json_out = SystemStatusJson {
+                            connected: true,
+                            status: status_label(overall).to_string(),
+                            collections: status.total_collections,
+                            documents: status.total_documents,
+                            active_projects: status.active_projects,
+                            pending_operations: pending,
+                        };
+                        output::print_json(&json_out);
+                        return Ok(());
+                    }
+
                     output::status_line("Overall", overall);
 
                     output::separator();
@@ -134,11 +202,35 @@ async fn default_status(show_queue: bool, show_watch: bool, show_performance: bo
                     }
                 }
                 Err(e) => {
+                    if json {
+                        let json_out = SystemStatusJson {
+                            connected: true,
+                            status: "unknown".to_string(),
+                            collections: 0,
+                            documents: 0,
+                            active_projects: Vec::new(),
+                            pending_operations: None,
+                        };
+                        output::print_json(&json_out);
+                        return Ok(());
+                    }
                     output::warning(format!("Could not get status: {}", e));
                 }
             }
         }
         Err(_) => {
+            if json {
+                let json_out = SystemStatusJson {
+                    connected: false,
+                    status: "unhealthy".to_string(),
+                    collections: 0,
+                    documents: 0,
+                    active_projects: Vec::new(),
+                    pending_operations: None,
+                };
+                output::print_json(&json_out);
+                return Ok(());
+            }
             output::status_line("Daemon", ServiceStatus::Unhealthy);
             output::error("Daemon not running. Start with: wqm service start");
         }
@@ -502,40 +594,86 @@ async fn errors(limit: usize) -> Result<()> {
     Ok(())
 }
 
-async fn health() -> Result<()> {
-    output::section("System Health");
+async fn health(json: bool) -> Result<()> {
+    if !json {
+        output::section("System Health");
+    }
 
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
-            output::status_line("Daemon Connection", ServiceStatus::Healthy);
+            if !json {
+                output::status_line("Daemon Connection", ServiceStatus::Healthy);
+            }
 
             match client.system().health(()).await {
                 Ok(response) => {
                     let health = response.into_inner();
-                    let status = ServiceStatus::from_proto(health.status);
-                    output::status_line("Overall Health", status);
+                    let overall = ServiceStatus::from_proto(health.status);
 
-                    if !health.components.is_empty() {
-                        output::separator();
-                        for comp in health.components {
-                            let comp_status = ServiceStatus::from_proto(comp.status);
-                            output::status_line(&comp.component_name, comp_status);
-                            if !comp.message.is_empty() {
-                                output::kv("  Message", &comp.message);
+                    if json {
+                        let components: Vec<HealthComponentJson> = health
+                            .components
+                            .iter()
+                            .map(|c| HealthComponentJson {
+                                name: c.component_name.clone(),
+                                status: status_label(ServiceStatus::from_proto(c.status))
+                                    .to_string(),
+                                message: if c.message.is_empty() {
+                                    None
+                                } else {
+                                    Some(c.message.clone())
+                                },
+                            })
+                            .collect();
+                        let json_out = HealthStatusJson {
+                            connected: true,
+                            health: status_label(overall).to_string(),
+                            components,
+                        };
+                        output::print_json(&json_out);
+                    } else {
+                        output::status_line("Overall Health", overall);
+
+                        if !health.components.is_empty() {
+                            output::separator();
+                            for comp in health.components {
+                                let comp_status = ServiceStatus::from_proto(comp.status);
+                                output::status_line(&comp.component_name, comp_status);
+                                if !comp.message.is_empty() {
+                                    output::kv("  Message", &comp.message);
+                                }
                             }
                         }
                     }
                 }
                 Err(e) => {
-                    output::status_line("Health Check", ServiceStatus::Unknown);
-                    output::warning(format!("Could not get health: {}", e));
+                    if json {
+                        let json_out = HealthStatusJson {
+                            connected: true,
+                            health: "unknown".to_string(),
+                            components: Vec::new(),
+                        };
+                        output::print_json(&json_out);
+                    } else {
+                        output::status_line("Health Check", ServiceStatus::Unknown);
+                        output::warning(format!("Could not get health: {}", e));
+                    }
                 }
             }
         }
         Err(_) => {
-            output::status_line("Daemon Connection", ServiceStatus::Unhealthy);
-            output::error("Daemon not running");
-            output::info("Start with: wqm service start");
+            if json {
+                let json_out = HealthStatusJson {
+                    connected: false,
+                    health: "unhealthy".to_string(),
+                    components: Vec::new(),
+                };
+                output::print_json(&json_out);
+            } else {
+                output::status_line("Daemon Connection", ServiceStatus::Unhealthy);
+                output::error("Daemon not running");
+                output::info("Start with: wqm service start");
+            }
         }
     }
 
