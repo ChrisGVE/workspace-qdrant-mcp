@@ -504,6 +504,9 @@ impl GrpcServer {
             project_service
         };
 
+        // Wire storage client into ProjectService for DeleteProject
+        let project_service = project_service.map(|svc| svc.with_storage(Arc::clone(&storage_client)));
+
         tracing::info!("Starting gRPC server on {}", self.config.bind_addr);
         tracing::info!("gRPC server configuration: TLS={}, Auth={}, Timeouts={:?}",
             self.config.tls_config.is_some(),

@@ -29,6 +29,8 @@ use crate::proto::{
     ListProjectsRequest, ListProjectsResponse, ProjectInfo,
     HeartbeatRequest, HeartbeatResponse,
     RenameTenantRequest, RenameTenantResponse,
+    DeleteProjectRequest, DeleteProjectResponse,
+    SetProjectPriorityRequest, SetProjectPriorityResponse,
 };
 
 use wqm_common::constants::COLLECTION_PROJECTS;
@@ -40,6 +42,7 @@ use workspace_qdrant_core::{
     project_disambiguation::ProjectIdCalculator,
     QueueManager,
     ItemType, UnifiedQueueOp, ProjectPayload,
+    StorageClient,
 };
 
 /// Default heartbeat timeout in seconds
@@ -76,6 +79,8 @@ pub struct ProjectServiceImpl {
     pending_shutdowns: Arc<RwLock<HashMap<String, (Instant, bool)>>>,
     /// Signal to trigger immediate WatchManager refresh when a new project is registered
     watch_refresh_signal: Option<Arc<Notify>>,
+    /// Storage client for Qdrant operations (needed for DeleteProject)
+    storage: Option<Arc<StorageClient>>,
 }
 
 /// Default deactivation delay in seconds (1 minute)
@@ -93,6 +98,7 @@ impl ProjectServiceImpl {
             deactivation_delay_secs: DEFAULT_DEACTIVATION_DELAY_SECS,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
             watch_refresh_signal: None,
+            storage: None,
         }
     }
 
@@ -107,6 +113,7 @@ impl ProjectServiceImpl {
             deactivation_delay_secs: DEFAULT_DEACTIVATION_DELAY_SECS,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
             watch_refresh_signal: None,
+            storage: None,
         }
     }
 
@@ -124,6 +131,7 @@ impl ProjectServiceImpl {
             deactivation_delay_secs: DEFAULT_DEACTIVATION_DELAY_SECS,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
             watch_refresh_signal: None,
+            storage: None,
         }
     }
 
@@ -142,12 +150,19 @@ impl ProjectServiceImpl {
             deactivation_delay_secs,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
             watch_refresh_signal: None,
+            storage: None,
         }
     }
 
     /// Set the watch refresh signal for triggering WatchManager refresh on new project registration
     pub fn with_watch_refresh_signal(mut self, signal: Arc<Notify>) -> Self {
         self.watch_refresh_signal = Some(signal);
+        self
+    }
+
+    /// Set the storage client for Qdrant operations (needed for DeleteProject)
+    pub fn with_storage(mut self, storage: Arc<StorageClient>) -> Self {
+        self.storage = Some(storage);
         self
     }
 
@@ -527,10 +542,12 @@ impl ProjectServiceImpl {
 
 #[tonic::async_trait]
 impl ProjectService for ProjectServiceImpl {
-    /// Register a project for high-priority processing
+    /// Register a project for tracking/processing
     ///
-    /// Called when MCP server starts for a project. Creates the project if new,
-    /// sets is_active to true, and bumps priority to HIGH.
+    /// Priority-aware: MCP server sends priority="high" for full activation
+    /// (LSP, activity inheritance, HIGH queue priority). CLI omits priority
+    /// or sends "normal" for lightweight registration (just creates watch folder
+    /// and queues scan without activating the project).
     async fn register_project(
         &self,
         request: Request<RegisterProjectRequest>,
@@ -541,6 +558,13 @@ impl ProjectService for ProjectServiceImpl {
         if req.path.is_empty() {
             return Err(Status::invalid_argument("path cannot be empty"));
         }
+
+        // Resolve effective priority: absent/empty → "normal"
+        let effective_priority = req.priority
+            .as_deref()
+            .filter(|p| !p.is_empty())
+            .unwrap_or("normal");
+        let is_high_priority = effective_priority == "high";
 
         // Generate project_id if not provided (MCP server may not know it for new projects)
         let project_id = if req.project_id.is_empty() {
@@ -563,8 +587,8 @@ impl ProjectService for ProjectServiceImpl {
         };
 
         info!(
-            "Registering project: id={}, path={}, name={:?}",
-            project_id, req.path, req.name
+            "Registering project: id={}, path={}, name={:?}, priority={}",
+            project_id, req.path, req.name, effective_priority
         );
 
         // Check if project exists in watch_folders
@@ -581,13 +605,18 @@ impl ProjectService for ProjectServiceImpl {
             })?;
 
         let (created, is_active, newly_registered) = if existing.is_some() {
-            // Existing project - register session (activates project)
-            match self.priority_manager.register_session(&project_id, "main").await {
-                Ok(_) => (false, true, false),
-                Err(e) => {
-                    error!("Failed to register session: {}", e);
-                    return Err(Status::internal(format!("Failed to register session: {}", e)));
+            if is_high_priority {
+                // Existing project + HIGH priority → full activation (MCP server path)
+                match self.priority_manager.register_session(&project_id, "main").await {
+                    Ok(_) => (false, true, false),
+                    Err(e) => {
+                        error!("Failed to register session: {}", e);
+                        return Err(Status::internal(format!("Failed to register session: {}", e)));
+                    }
                 }
+            } else {
+                // Existing project + NORMAL priority → no activation change (CLI path)
+                (false, false, false)
             }
         } else if !req.register_if_new {
             // Project not found and caller did not request auto-registration
@@ -604,21 +633,23 @@ impl ProjectService for ProjectServiceImpl {
             };
             return Ok(Response::new(response));
         } else {
-            // New project with register_if_new=true - create watch_folder entry and activate
+            // New project with register_if_new=true - create watch_folder entry
             let now = timestamps::now_utc();
             let watch_id = uuid::Uuid::new_v4().to_string();
+            let initial_is_active: i32 = if is_high_priority { 1 } else { 0 };
             let result = sqlx::query(
                 r#"
                 INSERT INTO watch_folders (
                     watch_id, path, collection, tenant_id, is_active,
                     git_remote_url, last_activity_at, follow_symlinks, enabled,
                     cleanup_on_disable, created_at, updated_at
-                ) VALUES (?1, ?2, 'projects', ?3, 1, ?4, ?5, 0, 1, 0, ?5, ?5)
+                ) VALUES (?1, ?2, 'projects', ?3, ?4, ?5, ?6, 0, 1, 0, ?6, ?6)
                 "#,
             )
             .bind(&watch_id)
             .bind(&req.path)
             .bind(&project_id)
+            .bind(initial_is_active)
             .bind(&req.git_remote)
             .bind(&now)
             .execute(&self.db_pool)
@@ -626,8 +657,8 @@ impl ProjectService for ProjectServiceImpl {
 
             match result {
                 Ok(_) => {
-                    info!("Created new project watch folder: {}", project_id);
-                    (true, true, true)
+                    info!("Created new project watch folder: {} (active={})", project_id, is_high_priority);
+                    (true, is_high_priority, true)
                 }
                 Err(e) => {
                     error!("Failed to create project: {}", e);
@@ -636,12 +667,14 @@ impl ProjectService for ProjectServiceImpl {
             }
         };
 
-        // Cancel any pending deferred shutdown for this project
-        if self.cancel_deferred_shutdown(&project_id).await {
-            debug!(
-                project_id = %project_id,
-                "Cancelled pending deferred shutdown on project reactivation"
-            );
+        // Cancel any pending deferred shutdown for this project (only for high priority)
+        if is_high_priority {
+            if self.cancel_deferred_shutdown(&project_id).await {
+                debug!(
+                    project_id = %project_id,
+                    "Cancelled pending deferred shutdown on project reactivation"
+                );
+            }
         }
 
         // Signal WatchManager to pick up new project watch folder immediately
@@ -700,48 +733,49 @@ impl ProjectService for ProjectServiceImpl {
             }
         }
 
-        // Start LSP servers for the project (non-blocking, best-effort)
-        let project_root = PathBuf::from(&req.path);
-        if let Err(e) = self.start_project_lsp_servers(&project_id, &project_root).await {
-            warn!(
-                project_id = %project_id,
-                error = %e,
-                "Failed to start LSP servers (non-critical)"
-            );
-        }
-
-        // Activity inheritance: Set is_active=true for project and all submodules
-        // This updates watch_folders table per Task 19 specification
-        match self.state_manager.activate_project_by_tenant_id(&project_id).await {
-            Ok((affected, watch_id)) => {
-                if affected > 0 {
-                    info!(
-                        project_id = %project_id,
-                        watch_id = ?watch_id,
-                        affected_folders = affected,
-                        "Activated project watch folders (activity inheritance)"
-                    );
-                } else {
-                    debug!(
-                        project_id = %project_id,
-                        "No watch folders found for activity inheritance (project may not be watched yet)"
-                    );
-                }
-            }
-            Err(e) => {
-                // Activity inheritance is best-effort, don't fail registration
+        // HIGH priority only: Start LSP servers and activate watch folders
+        if is_high_priority {
+            // Start LSP servers for the project (non-blocking, best-effort)
+            let project_root = PathBuf::from(&req.path);
+            if let Err(e) = self.start_project_lsp_servers(&project_id, &project_root).await {
                 warn!(
                     project_id = %project_id,
                     error = %e,
-                    "Failed to activate project watch folders (non-critical)"
+                    "Failed to start LSP servers (non-critical)"
                 );
+            }
+
+            // Activity inheritance: Set is_active=true for project and all submodules
+            match self.state_manager.activate_project_by_tenant_id(&project_id).await {
+                Ok((affected, watch_id)) => {
+                    if affected > 0 {
+                        info!(
+                            project_id = %project_id,
+                            watch_id = ?watch_id,
+                            affected_folders = affected,
+                            "Activated project watch folders (activity inheritance)"
+                        );
+                    } else {
+                        debug!(
+                            project_id = %project_id,
+                            "No watch folders found for activity inheritance (project may not be watched yet)"
+                        );
+                    }
+                }
+                Err(e) => {
+                    warn!(
+                        project_id = %project_id,
+                        error = %e,
+                        "Failed to activate project watch folders (non-critical)"
+                    );
+                }
             }
         }
 
         let response = RegisterProjectResponse {
             created,
-            project_id,  // Return the (possibly generated) project_id
-            priority: "high".to_string(),
+            project_id,
+            priority: effective_priority.to_string(),
             is_active,
             newly_registered,
         };
@@ -1220,6 +1254,189 @@ impl ProjectService for ProjectServiceImpl {
             message,
         }))
     }
+
+    /// Delete a project and optionally its Qdrant data
+    ///
+    /// Removes all project state from SQLite (watch_folders, tracked_files,
+    /// qdrant_chunks, unified_queue) and optionally deletes vectors from Qdrant.
+    async fn delete_project(
+        &self,
+        request: Request<DeleteProjectRequest>,
+    ) -> Result<Response<DeleteProjectResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.project_id.is_empty() {
+            return Err(Status::invalid_argument("project_id cannot be empty"));
+        }
+
+        info!("Deleting project: {} (delete_qdrant_data={})", req.project_id, req.delete_qdrant_data);
+
+        // Verify project exists
+        let exists: Option<(String,)> = sqlx::query_as(
+            "SELECT watch_id FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1"
+        )
+            .bind(&req.project_id)
+            .bind(COLLECTION_PROJECTS)
+            .fetch_optional(&self.db_pool)
+            .await
+            .map_err(|e| {
+                error!("Database error checking project: {}", e);
+                Status::internal(format!("Database error: {}", e))
+            })?;
+
+        if exists.is_none() {
+            return Err(Status::not_found(format!("Project not found: {}", req.project_id)));
+        }
+
+        // SQLite transaction: delete in order (child tables first)
+        let mut tx = self.db_pool.begin().await
+            .map_err(|e| Status::internal(format!("Transaction failed: {}", e)))?;
+
+        // 1. Delete qdrant_chunks (child of tracked_files)
+        match sqlx::query(
+            r#"DELETE FROM qdrant_chunks WHERE file_id IN (
+                SELECT file_id FROM tracked_files WHERE tenant_id = ?1
+            )"#
+        )
+            .bind(&req.project_id)
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(result) => {
+                debug!("Deleted {} qdrant_chunks rows", result.rows_affected());
+            }
+            Err(e) => {
+                // Table may not exist, non-fatal
+                debug!("qdrant_chunks delete: {}", e);
+            }
+        };
+
+        // 2. Delete tracked_files
+        let files_deleted: i64 = match sqlx::query_scalar(
+            "SELECT COUNT(*) FROM tracked_files WHERE tenant_id = ?1"
+        )
+            .bind(&req.project_id)
+            .fetch_one(&mut *tx)
+            .await
+        {
+            Ok(count) => {
+                if count > 0 {
+                    sqlx::query("DELETE FROM tracked_files WHERE tenant_id = ?1")
+                        .bind(&req.project_id)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| Status::internal(format!("Failed to delete tracked_files: {}", e)))?;
+                }
+                count
+            }
+            Err(e) => {
+                debug!("tracked_files count: {}", e);
+                0
+            }
+        };
+
+        // 3. Delete unified_queue items
+        let queue_result = sqlx::query("DELETE FROM unified_queue WHERE tenant_id = ?1")
+            .bind(&req.project_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to delete queue items: {}", e)))?;
+        let queue_deleted = queue_result.rows_affected() as i32;
+
+        // 4. Delete watch_folders
+        let watch_result = sqlx::query("DELETE FROM watch_folders WHERE tenant_id = ?1")
+            .bind(&req.project_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to delete watch_folders: {}", e)))?;
+        let watch_deleted = watch_result.rows_affected() as i32;
+
+        tx.commit().await
+            .map_err(|e| Status::internal(format!("Failed to commit delete: {}", e)))?;
+
+        // Delete Qdrant data if requested (outside SQLite transaction)
+        let mut qdrant_deleted = 0i32;
+        if req.delete_qdrant_data {
+            if let Some(ref storage) = self.storage {
+                match storage.delete_points_by_tenant("projects", &req.project_id).await {
+                    Ok(count) => {
+                        qdrant_deleted = count as i32;
+                        info!(
+                            "Deleted {} Qdrant points for project {}",
+                            qdrant_deleted, req.project_id
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to delete Qdrant data for project {}: {}",
+                            req.project_id, e
+                        );
+                    }
+                }
+            } else {
+                warn!("Storage client not configured, skipping Qdrant data deletion");
+            }
+        }
+
+        // Stop LSP servers and cancel pending shutdowns
+        self.cancel_deferred_shutdown(&req.project_id).await;
+        if let Err(e) = self.stop_project_lsp_servers(&req.project_id).await {
+            debug!("LSP cleanup for deleted project: {}", e);
+        }
+
+        let message = format!(
+            "Deleted project {}: {} watch folders, {} tracked files, {} queue items, {} qdrant points",
+            req.project_id, watch_deleted, files_deleted, queue_deleted, qdrant_deleted
+        );
+        info!("{}", message);
+
+        Ok(Response::new(DeleteProjectResponse {
+            success: true,
+            watch_folders_deleted: watch_deleted,
+            tracked_files_deleted: files_deleted as i32,
+            qdrant_points_deleted: qdrant_deleted,
+            queue_items_deleted: queue_deleted,
+            message,
+        }))
+    }
+
+    /// Set project priority level (high/normal)
+    ///
+    /// Delegates to PriorityManager::set_priority which updates both
+    /// watch_folders.is_active and pending queue item priorities.
+    async fn set_project_priority(
+        &self,
+        request: Request<SetProjectPriorityRequest>,
+    ) -> Result<Response<SetProjectPriorityResponse>, Status> {
+        let req = request.into_inner();
+
+        if req.project_id.is_empty() {
+            return Err(Status::invalid_argument("project_id cannot be empty"));
+        }
+        if req.priority != "high" && req.priority != "normal" {
+            return Err(Status::invalid_argument("priority must be 'high' or 'normal'"));
+        }
+
+        info!("Setting project priority: {} -> {}", req.project_id, req.priority);
+
+        match self.priority_manager.set_priority(&req.project_id, &req.priority).await {
+            Ok((previous, queue_updated)) => {
+                Ok(Response::new(SetProjectPriorityResponse {
+                    success: true,
+                    previous_priority: previous,
+                    new_priority: req.priority,
+                    queue_items_updated: queue_updated,
+                }))
+            }
+            Err(workspace_qdrant_core::PriorityError::ProjectNotFound(id)) => {
+                Err(Status::not_found(format!("Project not found: {}", id)))
+            }
+            Err(e) => {
+                error!("Failed to set project priority: {}", e);
+                Err(Status::internal(format!("Failed to set priority: {}", e)))
+            }
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1280,6 +1497,7 @@ mod tests {
             name: Some("Test Project".to_string()),
             git_remote: None,
             register_if_new: true,
+            priority: Some("high".to_string()),
         });
 
         let response = service.register_project(request).await.unwrap();
@@ -1304,6 +1522,7 @@ mod tests {
             name: Some("Test Project".to_string()),
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
 
         let response = service.register_project(request).await.unwrap();
@@ -1332,6 +1551,7 @@ mod tests {
             name: Some("Test Project".to_string()),
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
         service.register_project(request).await.unwrap();
 
@@ -1342,6 +1562,7 @@ mod tests {
             name: Some("Test Project".to_string()),
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
 
         let response = service.register_project(request).await.unwrap();
@@ -1369,6 +1590,7 @@ mod tests {
             name: None,
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
         service.register_project(request).await.unwrap();
 
@@ -1397,6 +1619,7 @@ mod tests {
             name: Some("My Project".to_string()),
             git_remote: Some("https://github.com/user/repo.git".to_string()),
             register_if_new: true,
+            priority: Some("high".to_string()),
         });
         service.register_project(request).await.unwrap();
 
@@ -1447,6 +1670,7 @@ mod tests {
                 name: Some(format!("Project {}", i)),
                 git_remote: None,
                 register_if_new: true,
+                priority: Some("high".to_string()),
             });
             service.register_project(request).await.unwrap();
         }
@@ -1480,6 +1704,7 @@ mod tests {
             name: None,
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
         service.register_project(request).await.unwrap();
 
@@ -1518,6 +1743,7 @@ mod tests {
             name: None,
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
         service.register_project(request).await.unwrap();
 
@@ -1545,6 +1771,7 @@ mod tests {
             name: None,
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
 
         let result = service.register_project(request).await;
@@ -1565,6 +1792,7 @@ mod tests {
             name: None,
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
 
         let response = service.register_project(request).await.unwrap();
@@ -1588,6 +1816,7 @@ mod tests {
             name: None,
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
 
         let result = service.register_project(request).await;
@@ -1652,6 +1881,7 @@ mod tests {
             deactivation_delay_secs: 30, // 30 second delay
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
             watch_refresh_signal: None,
+            storage: None,
         };
 
         // Register and deprioritize (existing via create_test_watch_folder)
@@ -1661,6 +1891,7 @@ mod tests {
             name: None,
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
         service.register_project(request).await.unwrap();
 
@@ -1690,6 +1921,7 @@ mod tests {
             deactivation_delay_secs: 60,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
             watch_refresh_signal: None,
+            storage: None,
         };
 
         // Register project (existing via create_test_watch_folder)
@@ -1699,6 +1931,7 @@ mod tests {
             name: None,
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
         service.register_project(request).await.unwrap();
 
@@ -1718,6 +1951,7 @@ mod tests {
             name: None,
             git_remote: None,
             register_if_new: false,
+            priority: Some("high".to_string()),
         });
         service.register_project(request).await.unwrap();
 
@@ -1760,6 +1994,7 @@ mod tests {
             deactivation_delay_secs: 0, // No delay
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
             watch_refresh_signal: None,
+            storage: None,
         };
 
         // Add pending queue item
@@ -1796,6 +2031,7 @@ mod tests {
             deactivation_delay_secs: 0,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
             watch_refresh_signal: None,
+            storage: None,
         };
 
         // Start the background monitor - should not panic
@@ -1821,6 +2057,7 @@ mod tests {
             deactivation_delay_secs: 0,
             pending_shutdowns: Arc::new(RwLock::new(HashMap::new())),
             watch_refresh_signal: None,
+            storage: None,
         };
 
         // Schedule a deferred shutdown with immediate expiry
