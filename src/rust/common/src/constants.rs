@@ -13,6 +13,10 @@ pub const COLLECTION_LIBRARIES: &str = "libraries";
 /// Memory collection - stores agent memory and cross-project notes
 pub const COLLECTION_MEMORY: &str = "memory";
 
+/// Scratchpad collection - persistent LLM scratch space
+/// Filtered by tenant_id payload field (_global_ or project_id)
+pub const COLLECTION_SCRATCHPAD: &str = "scratchpad";
+
 /// Default Qdrant server URL
 pub const DEFAULT_QDRANT_URL: &str = "http://localhost:6333";
 
@@ -31,6 +35,7 @@ mod tests {
         assert_eq!(COLLECTION_PROJECTS, "projects");
         assert_eq!(COLLECTION_LIBRARIES, "libraries");
         assert_eq!(COLLECTION_MEMORY, "memory");
+        assert_eq!(COLLECTION_SCRATCHPAD, "scratchpad");
     }
 
     #[test]

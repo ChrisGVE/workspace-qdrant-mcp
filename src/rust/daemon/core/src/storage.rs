@@ -25,7 +25,7 @@ use tracing::{debug, info, warn, error};
 // Note: tonic, hyper, and url imports removed as they're not currently used
 // They would be needed for advanced gRPC HTTP/2 configuration
 
-use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY};
+use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD};
 
 /// Multi-tenant collection configuration
 #[derive(Debug, Clone)]
@@ -64,6 +64,8 @@ pub struct MultiTenantInitResult {
     pub libraries_indexed: bool,
     /// Whether _memory collection was created
     pub memory_created: bool,
+    /// Whether scratchpad collection was created
+    pub scratchpad_created: bool,
 }
 
 impl MultiTenantInitResult {
@@ -74,6 +76,7 @@ impl MultiTenantInitResult {
             && self.libraries_created
             && self.libraries_indexed
             && self.memory_created
+            && self.scratchpad_created
     }
 }
 
@@ -1334,6 +1337,23 @@ impl StorageClient {
         }
         result.memory_created = true;
 
+        // Create scratchpad collection with tenant_id index
+        match self.create_multi_tenant_collection(COLLECTION_SCRATCHPAD, &config).await {
+            Ok(()) => {
+                match self.create_payload_index(COLLECTION_SCRATCHPAD, "tenant_id").await {
+                    Ok(()) => {}
+                    Err(e) => {
+                        warn!("Could not create tenant_id index on scratchpad (may already exist): {}", e);
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Failed to create {} collection: {}", COLLECTION_SCRATCHPAD, e);
+                return Err(e);
+            }
+        }
+        result.scratchpad_created = true;
+
         info!("Multi-tenant collections initialized: {:?}", result);
         Ok(result)
     }
@@ -1940,6 +1960,7 @@ mod tests {
         assert_eq!(COLLECTION_PROJECTS, "projects");
         assert_eq!(COLLECTION_LIBRARIES, "libraries");
         assert_eq!(COLLECTION_MEMORY, "memory");
+        assert_eq!(COLLECTION_SCRATCHPAD, "scratchpad");
     }
 
     #[test]
@@ -1984,6 +2005,7 @@ mod tests {
             libraries_created: true,
             libraries_indexed: true,
             memory_created: true,
+            scratchpad_created: true,
         };
         assert!(result.is_complete());
     }
@@ -1996,6 +2018,7 @@ mod tests {
             libraries_created: true,
             libraries_indexed: false, // Missing index
             memory_created: true,
+            scratchpad_created: true,
         };
         assert!(!result.is_complete());
     }

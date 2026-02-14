@@ -27,7 +27,7 @@ use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{
     ItemType, QueueOperation, UnifiedQueueItem,
     ContentPayload, FilePayload, FolderPayload, ProjectPayload, LibraryPayload,
-    MemoryPayload, RenamePayload, RenameType, UrlPayload,
+    MemoryPayload, RenamePayload, RenameType, UrlPayload, ScratchpadPayload,
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
 use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
@@ -809,9 +809,11 @@ impl UnifiedQueueProcessor {
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
         }
 
-        // Route to memory-specific or generic content processing
+        // Route to collection-specific or generic content processing
         if item.collection == wqm_common::constants::COLLECTION_MEMORY {
             Self::process_memory_item(item, embedding_generator, storage_client, embedding_semaphore).await
+        } else if item.collection == wqm_common::constants::COLLECTION_SCRATCHPAD {
+            Self::process_scratchpad_item(item, embedding_generator, storage_client, embedding_semaphore).await
         } else {
             Self::process_generic_content_item(item, embedding_generator, storage_client, embedding_semaphore).await
         }
@@ -922,6 +924,68 @@ impl UnifiedQueueProcessor {
         info!(
             "Successfully processed memory item {} (action={}, label={:?}) -> {}",
             item.queue_id, action, payload.label, item.collection
+        );
+
+        Ok(())
+    }
+
+    /// Process a scratchpad item — persistent LLM scratch space
+    async fn process_scratchpad_item(
+        item: &UnifiedQueueItem,
+        embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
+        embedding_semaphore: &Arc<tokio::sync::Semaphore>,
+    ) -> UnifiedProcessorResult<()> {
+        let payload: ScratchpadPayload = serde_json::from_str(&item.payload_json)
+            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse ScratchpadPayload: {}", e)))?;
+
+        let now = wqm_common::timestamps::now_utc();
+
+        // Generate document ID from content hash (for idempotent updates)
+        let content_doc_id = crate::generate_content_document_id(&item.tenant_id, &payload.content);
+
+        // Generate embedding (semaphore-gated)
+        let _permit = embedding_semaphore.acquire().await
+            .map_err(|e| UnifiedProcessorError::Embedding(format!("Semaphore closed: {}", e)))?;
+        let embedding_result = embedding_generator
+            .generate_embedding(&payload.content, "all-MiniLM-L6-v2")
+            .await
+            .map_err(|e| UnifiedProcessorError::Embedding(e.to_string()))?;
+        drop(_permit);
+
+        // Build Qdrant payload
+        let mut point_payload = std::collections::HashMap::new();
+        point_payload.insert("content".to_string(), serde_json::json!(payload.content));
+        point_payload.insert("document_id".to_string(), serde_json::json!(content_doc_id));
+        point_payload.insert("tenant_id".to_string(), serde_json::json!(item.tenant_id));
+        point_payload.insert("source_type".to_string(), serde_json::json!("scratchpad"));
+        point_payload.insert("item_type".to_string(), serde_json::json!("content"));
+        point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
+        point_payload.insert("created_at".to_string(), serde_json::json!(&now));
+        point_payload.insert("updated_at".to_string(), serde_json::json!(&now));
+
+        if let Some(ref title) = payload.title {
+            point_payload.insert("title".to_string(), serde_json::json!(title));
+        }
+        if !payload.tags.is_empty() {
+            point_payload.insert("tags".to_string(), serde_json::json!(payload.tags));
+        }
+
+        let point = DocumentPoint {
+            id: crate::generate_point_id(&item.tenant_id, &item.branch, &content_doc_id, 0),
+            dense_vector: embedding_result.dense.vector,
+            sparse_vector: Self::sparse_embedding_to_map(&embedding_result.sparse),
+            payload: point_payload,
+        };
+
+        storage_client
+            .insert_points_batch(&item.collection, vec![point], Some(1))
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+        info!(
+            "Successfully processed scratchpad item {} (tenant={}, title={:?}) -> {}",
+            item.queue_id, item.tenant_id, payload.title, item.collection
         );
 
         Ok(())

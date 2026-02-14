@@ -178,6 +178,24 @@ pub struct RenamePayload {
     pub reason: Option<String>,
 }
 
+/// Payload for scratchpad items (persistent LLM scratch space)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScratchpadPayload {
+    /// The text content
+    pub content: String,
+    /// Optional title for the entry
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// Tags for categorization
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Source type (always "scratchpad")
+    #[serde(default = "default_scratchpad_source")]
+    pub source_type: String,
+}
+
+fn default_scratchpad_source() -> String { "scratchpad".to_string() }
+
 /// Payload for URL fetch and ingestion items
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UrlPayload {
@@ -338,5 +356,34 @@ mod tests {
         assert_eq!(payload.max_pages, 50);
         assert_eq!(payload.content_type, None);
         assert_eq!(payload.library_name, None);
+    }
+
+    #[test]
+    fn test_scratchpad_payload_full_serde() {
+        let payload = ScratchpadPayload {
+            content: "design decision: use RRF for fusion".to_string(),
+            title: Some("Search Architecture".to_string()),
+            tags: vec!["architecture".to_string(), "search".to_string()],
+            source_type: "scratchpad".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("design decision"));
+        assert!(json.contains("Search Architecture"));
+        assert!(json.contains("architecture"));
+
+        let back: ScratchpadPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.content, "design decision: use RRF for fusion");
+        assert_eq!(back.title, Some("Search Architecture".to_string()));
+        assert_eq!(back.tags, vec!["architecture", "search"]);
+    }
+
+    #[test]
+    fn test_scratchpad_payload_minimal_serde() {
+        let json = r#"{"content":"quick note"}"#;
+        let payload: ScratchpadPayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.content, "quick note");
+        assert_eq!(payload.title, None);
+        assert!(payload.tags.is_empty());
+        assert_eq!(payload.source_type, "scratchpad");
     }
 }
