@@ -978,7 +978,7 @@ async fn test_markdown_document_classification_and_processing() -> TestResult {
 
     // Verify file classification
     let file_type = classify_file_type(&file_path);
-    assert_eq!(file_type, FileType::Docs, "Markdown files should be classified as docs");
+    assert_eq!(file_type, FileType::Text, "Markdown files should be classified as text");
 
     // Submit through pipeline
     let handle = submitter
@@ -1199,8 +1199,8 @@ async fn test_xml_data_classification_and_processing() -> TestResult {
     // Verify file classification
     let file_type = classify_file_type(&file_path);
     assert_eq!(
-        file_type, FileType::Data,
-        "XML files outside config directories should be classified as data"
+        file_type, FileType::Web,
+        "XML files should be classified as web content"
     );
 
     // Submit through pipeline
@@ -1352,11 +1352,11 @@ async fn test_multiple_document_formats_concurrent() -> TestResult {
 
     // Create files of different formats
     let formats = vec![
-        ("README.md", "# Documentation", FileType::Docs),
+        ("README.md", "# Documentation", FileType::Text),
         ("data.csv", "col1,col2\n1,2", FileType::Data),
         ("config.yaml", "key: value", FileType::Config),
         ("script.py", "print('hello')", FileType::Code),
-        ("notes.txt", "Plain text notes", FileType::Docs),
+        ("notes.txt", "Plain text notes", FileType::Text),
         ("export.json", r#"{"data": true}"#, FileType::Data),
     ];
 
@@ -1968,7 +1968,7 @@ async fn test_file_extension_metadata_extraction() -> TestResult {
 
     // Test multiple file extensions
     let extensions = vec![
-        ("md", FileType::Docs),
+        ("md", FileType::Text),
         ("json", FileType::Data),
         ("py", FileType::Code),
         ("yaml", FileType::Config),

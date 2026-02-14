@@ -354,6 +354,21 @@ fn convert_semantic_chunks_to_text_chunks(
 
 /// Detect document type from file extension
 fn detect_document_type(file_path: &Path) -> DocumentType {
+    // Check compound extensions first (before standard Path::extension())
+    let filename = file_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("");
+    let lower_filename = filename.to_lowercase();
+
+    // Handle .d.ts / .d.mts / .d.cts (TypeScript declaration files)
+    if lower_filename.ends_with(".d.ts")
+        || lower_filename.ends_with(".d.mts")
+        || lower_filename.ends_with(".d.cts")
+    {
+        return DocumentType::Code("typescript".to_string());
+    }
+
     let extension = file_path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -381,12 +396,19 @@ fn detect_document_type(file_path: &Path) -> DocumentType {
 
         // Markup and text
         "md" | "markdown" => DocumentType::Markdown,
-        "txt" | "text" => DocumentType::Text,
-        "html" | "htm" => DocumentType::Text,
-        "xml" => DocumentType::Text,
+        "txt" | "text" | "rst" | "org" | "adoc" => DocumentType::Text,
+
+        // Web content (with language for metadata)
+        "html" | "htm" | "xhtml" => DocumentType::Code("html".to_string()),
+        "xml" | "xsl" | "xslt" | "svg" => DocumentType::Code("xml".to_string()),
+        "css" | "scss" | "sass" | "less" => DocumentType::Code("css".to_string()),
+
+        // Config/data formats
         "json" => DocumentType::Code("json".to_string()),
         "yaml" | "yml" => DocumentType::Code("yaml".to_string()),
         "toml" => DocumentType::Code("toml".to_string()),
+        "ini" | "cfg" | "conf" => DocumentType::Code("ini".to_string()),
+        "env" => DocumentType::Code("env".to_string()),
 
         // Programming languages
         "rs" => DocumentType::Code("rust".to_string()),
@@ -404,8 +426,9 @@ fn detect_document_type(file_path: &Path) -> DocumentType {
         "rb" => DocumentType::Code("ruby".to_string()),
         "php" => DocumentType::Code("php".to_string()),
         "sh" | "bash" | "zsh" => DocumentType::Code("shell".to_string()),
+        "ps1" | "psm1" | "psd1" => DocumentType::Code("powershell".to_string()),
         "sql" => DocumentType::Code("sql".to_string()),
-        "r" | "R" => DocumentType::Code("r".to_string()),
+        "r" => DocumentType::Code("r".to_string()),
         "lua" => DocumentType::Code("lua".to_string()),
         "pl" | "pm" => DocumentType::Code("perl".to_string()),
         "scala" => DocumentType::Code("scala".to_string()),
@@ -415,15 +438,21 @@ fn detect_document_type(file_path: &Path) -> DocumentType {
         "clj" | "cljs" | "cljc" => DocumentType::Code("clojure".to_string()),
         "ml" | "mli" => DocumentType::Code("ocaml".to_string()),
         "fs" | "fsx" | "fsi" => DocumentType::Code("fsharp".to_string()),
+        "d" => DocumentType::Code("d".to_string()),
+        "zig" => DocumentType::Code("zig".to_string()),
+        "dart" => DocumentType::Code("dart".to_string()),
+        "nim" => DocumentType::Code("nim".to_string()),
+        "v" => DocumentType::Code("v".to_string()),
+        "proto" => DocumentType::Code("protobuf".to_string()),
+        "graphql" | "gql" => DocumentType::Code("graphql".to_string()),
         "vue" => DocumentType::Code("vue".to_string()),
         "svelte" => DocumentType::Code("svelte".to_string()),
-        "css" | "scss" | "sass" | "less" => DocumentType::Code("css".to_string()),
+        "astro" => DocumentType::Code("astro".to_string()),
+        "nix" => DocumentType::Code("nix".to_string()),
+        "lean" => DocumentType::Code("lean".to_string()),
         "dockerfile" => DocumentType::Code("dockerfile".to_string()),
         "makefile" => DocumentType::Code("makefile".to_string()),
-
-        // Config files
-        "ini" | "cfg" | "conf" => DocumentType::Code("ini".to_string()),
-        "env" => DocumentType::Code("env".to_string()),
+        "cmake" => DocumentType::Code("cmake".to_string()),
 
         _ => DocumentType::Unknown,
     }
@@ -1537,6 +1566,108 @@ mod tests {
     fn test_detect_document_type_jupyter() {
         assert_eq!(detect_document_type(Path::new("notebook.ipynb")), DocumentType::Jupyter);
         assert_eq!(detect_document_type(Path::new("analysis.IPYNB")), DocumentType::Jupyter);
+    }
+
+    #[test]
+    fn test_detect_document_type_web_content() {
+        // HTML files now get language metadata instead of being treated as plain text
+        assert_eq!(
+            detect_document_type(Path::new("index.html")),
+            DocumentType::Code("html".to_string())
+        );
+        assert_eq!(
+            detect_document_type(Path::new("page.htm")),
+            DocumentType::Code("html".to_string())
+        );
+        assert_eq!(
+            detect_document_type(Path::new("doc.xhtml")),
+            DocumentType::Code("html".to_string())
+        );
+        assert_eq!(
+            detect_document_type(Path::new("data.xml")),
+            DocumentType::Code("xml".to_string())
+        );
+        assert_eq!(
+            detect_document_type(Path::new("icon.svg")),
+            DocumentType::Code("xml".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_document_type_new_languages() {
+        // PowerShell
+        assert_eq!(
+            detect_document_type(Path::new("script.ps1")),
+            DocumentType::Code("powershell".to_string())
+        );
+        assert_eq!(
+            detect_document_type(Path::new("module.psm1")),
+            DocumentType::Code("powershell".to_string())
+        );
+        // D language
+        assert_eq!(
+            detect_document_type(Path::new("main.d")),
+            DocumentType::Code("d".to_string())
+        );
+        // Zig
+        assert_eq!(
+            detect_document_type(Path::new("build.zig")),
+            DocumentType::Code("zig".to_string())
+        );
+        // Dart
+        assert_eq!(
+            detect_document_type(Path::new("app.dart")),
+            DocumentType::Code("dart".to_string())
+        );
+        // Protocol Buffers
+        assert_eq!(
+            detect_document_type(Path::new("service.proto")),
+            DocumentType::Code("protobuf".to_string())
+        );
+        // GraphQL
+        assert_eq!(
+            detect_document_type(Path::new("schema.graphql")),
+            DocumentType::Code("graphql".to_string())
+        );
+        assert_eq!(
+            detect_document_type(Path::new("query.gql")),
+            DocumentType::Code("graphql".to_string())
+        );
+        // Astro
+        assert_eq!(
+            detect_document_type(Path::new("page.astro")),
+            DocumentType::Code("astro".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_document_type_compound_extensions() {
+        // .d.ts should be TypeScript, not D language
+        assert_eq!(
+            detect_document_type(Path::new("types.d.ts")),
+            DocumentType::Code("typescript".to_string())
+        );
+        assert_eq!(
+            detect_document_type(Path::new("module.d.mts")),
+            DocumentType::Code("typescript".to_string())
+        );
+        assert_eq!(
+            detect_document_type(Path::new("common.d.cts")),
+            DocumentType::Code("typescript".to_string())
+        );
+        // But plain .d should be D language
+        assert_eq!(
+            detect_document_type(Path::new("main.d")),
+            DocumentType::Code("d".to_string())
+        );
+    }
+
+    #[test]
+    fn test_detect_document_type_text_extensions() {
+        // rst, org, adoc are plain text
+        assert_eq!(detect_document_type(Path::new("doc.rst")), DocumentType::Text);
+        assert_eq!(detect_document_type(Path::new("notes.org")), DocumentType::Text);
+        assert_eq!(detect_document_type(Path::new("guide.adoc")), DocumentType::Text);
     }
 
     // --- CSV extraction tests ---
