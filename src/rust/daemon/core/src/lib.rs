@@ -163,7 +163,7 @@ pub use crate::tool_monitor::{
     ToolMonitor, MonitoringError, MonitoringResult, RequeueStats
 };
 pub use crate::file_classification::{
-    classify_file_type, is_test_directory, FileType
+    classify_file_type, is_test_file, is_test_directory, get_extension_for_storage, FileType
 };
 pub use crate::metadata_enrichment::{
     enrich_metadata, CollectionType

@@ -573,11 +573,14 @@ enum ProcessingStatus {
 enum FileType {
     FILE_TYPE_UNSPECIFIED = 0;
     FILE_TYPE_CODE = 1;
-    FILE_TYPE_DOC = 2;
-    FILE_TYPE_TEST = 3;
-    FILE_TYPE_CONFIG = 4;
-    FILE_TYPE_NOTE = 5;
-    FILE_TYPE_ARTIFACT = 6;
+    FILE_TYPE_TEXT = 2;     // Plain text and lightweight markup (.txt, .md, .rst)
+    FILE_TYPE_DOCS = 3;     // Binary/rich document formats (.pdf, .docx, .epub)
+    FILE_TYPE_WEB = 4;      // Web content (.html, .css, .xml)
+    FILE_TYPE_SLIDES = 5;   // Presentations (.ppt, .pptx, .key, .odp)
+    FILE_TYPE_CONFIG = 6;
+    FILE_TYPE_DATA = 7;
+    FILE_TYPE_BUILD = 8;
+    FILE_TYPE_OTHER = 9;
 }
 
 // File type for library documents

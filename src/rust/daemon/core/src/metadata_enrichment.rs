@@ -492,17 +492,17 @@ mod tests {
         let metadata = enrich_metadata("_abc123def456", &py_file, None, None);
         assert_eq!(metadata.get("file_type"), Some(&"code".to_string()));
 
-        // Test test file
+        // Test file is still classified as "code" (test detection is separate)
         let test_file = temp_dir.path().join("test_main.py");
         fs::write(&test_file, "").unwrap();
         let metadata = enrich_metadata("_abc123def456", &test_file, None, None);
-        assert_eq!(metadata.get("file_type"), Some(&"test".to_string()));
+        assert_eq!(metadata.get("file_type"), Some(&"code".to_string()));
 
-        // Test docs file
+        // Test text file (was "docs", now "text" for lightweight markup)
         let md_file = temp_dir.path().join("README.md");
         fs::write(&md_file, "").unwrap();
         let metadata = enrich_metadata("_abc123def456", &md_file, None, None);
-        assert_eq!(metadata.get("file_type"), Some(&"docs".to_string()));
+        assert_eq!(metadata.get("file_type"), Some(&"text".to_string()));
     }
 
     #[test]
