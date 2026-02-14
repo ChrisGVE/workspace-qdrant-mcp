@@ -35,7 +35,7 @@ import { RetrieveTool } from './tools/retrieve.js';
 import { MemoryTool } from './tools/memory.js';
 import { StoreTool } from './tools/store.js';
 import type { ServerConfig } from './types/index.js';
-import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY } from './common/native-bridge.js';
+import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD } from './common/native-bridge.js';
 
 // Heartbeat interval: 3 hours (in milliseconds)
 const HEARTBEAT_INTERVAL_MS = 3 * 60 * 60 * 1000;
@@ -202,7 +202,7 @@ export class WorkspaceQdrantMcpServer {
             },
             collection: {
               type: 'string',
-              enum: [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY],
+              enum: [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD],
               description: 'Specific collection to search',
             },
             mode: {
@@ -255,7 +255,7 @@ export class WorkspaceQdrantMcpServer {
             },
             collection: {
               type: 'string',
-              enum: [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY],
+              enum: [COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD],
               description: 'Collection to retrieve from (default: projects)',
             },
             filter: {
@@ -333,14 +333,14 @@ export class WorkspaceQdrantMcpServer {
       },
       {
         name: 'store',
-        description: 'Store content or register a project. Use type "library" (default) to store reference documentation, type "url" to fetch and ingest a web page, or type "project" to register a project directory for file watching and ingestion.',
+        description: 'Store content or register a project. Use type "library" (default) to store reference documentation, type "url" to fetch and ingest a web page, type "scratchpad" to save persistent notes/scratch space, or type "project" to register a project directory for file watching and ingestion.',
         inputSchema: {
           type: 'object' as const,
           properties: {
             type: {
               type: 'string',
-              enum: ['library', 'url', 'project'],
-              description: 'What to store: "library" for reference docs (default), "url" to fetch and ingest a web page, "project" to register a project directory',
+              enum: ['library', 'url', 'scratchpad', 'project'],
+              description: 'What to store: "library" for reference docs (default), "url" to fetch and ingest a web page, "scratchpad" for persistent notes, "project" to register a project directory',
             },
             content: {
               type: 'string',
@@ -373,6 +373,11 @@ export class WorkspaceQdrantMcpServer {
             filePath: {
               type: 'string',
               description: 'Source file path',
+            },
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Tags for scratchpad entries',
             },
             sourceType: {
               type: 'string',
@@ -431,6 +436,8 @@ export class WorkspaceQdrantMcpServer {
             result = await this.registerProjectFromTool(args);
           } else if (storeType === 'url') {
             result = await this.storeUrl(args);
+          } else if (storeType === 'scratchpad') {
+            result = await this.storeScratchpad(args);
           } else {
             result = await this.storeTool.store(this.buildStoreOptions(args));
           }
@@ -781,6 +788,71 @@ export class WorkspaceQdrantMcpServer {
         success: false,
         message: `Failed to queue URL: ${msg}`,
         collection,
+      };
+    }
+  }
+
+  /**
+   * Store content to scratchpad collection
+   */
+  private async storeScratchpad(args: Record<string, unknown> | undefined): Promise<{
+    success: boolean;
+    message: string;
+    queue_id?: string;
+    collection: string;
+  }> {
+    const content = args?.['content'] as string;
+    if (!content?.trim()) {
+      return {
+        success: false,
+        message: 'content is required when type is "scratchpad"',
+        collection: COLLECTION_SCRATCHPAD,
+      };
+    }
+
+    const title = args?.['title'] as string | undefined;
+    const tags = (args?.['tags'] as string[] | undefined) ?? [];
+    const tenantId = this.sessionState.projectId || '_global_';
+
+    const payload: Record<string, unknown> = {
+      content: content.trim(),
+      source_type: 'scratchpad',
+    };
+    if (title?.trim()) payload['title'] = title.trim();
+    if (tags.length > 0) payload['tags'] = tags;
+
+    try {
+      const result = this.stateManager.enqueueUnified(
+        'content',
+        'ingest',
+        tenantId,
+        COLLECTION_SCRATCHPAD,
+        payload,
+        0,
+        'main',
+        { source: 'mcp_store_scratchpad' },
+      );
+
+      if (result.status !== 'ok' || !result.data) {
+        return {
+          success: false,
+          message: result.message ?? 'Failed to enqueue scratchpad entry',
+          collection: COLLECTION_SCRATCHPAD,
+        };
+      }
+
+      return {
+        success: true,
+        message: `Scratchpad entry queued for processing (${tenantId})`,
+        queue_id: result.data.queueId,
+        collection: COLLECTION_SCRATCHPAD,
+      };
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        message: `Failed to queue scratchpad entry: ${msg}`,
+        collection: COLLECTION_SCRATCHPAD,
       };
     }
   }

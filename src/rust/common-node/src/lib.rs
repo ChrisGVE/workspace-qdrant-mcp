@@ -140,6 +140,12 @@ pub fn collection_memory() -> String {
     wqm_common::constants::COLLECTION_MEMORY.to_string()
 }
 
+/// Get the canonical scratchpad collection name ("scratchpad")
+#[napi]
+pub fn collection_scratchpad() -> String {
+    wqm_common::constants::COLLECTION_SCRATCHPAD.to_string()
+}
+
 /// Get the default Qdrant URL ("http://localhost:6333")
 #[napi]
 pub fn default_qdrant_url() -> String {

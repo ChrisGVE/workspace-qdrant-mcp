@@ -15,9 +15,10 @@ import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 
 // Canonical collection names from native bridge (single source of truth)
-import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES } from '../common/native-bridge.js';
+import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_SCRATCHPAD } from '../common/native-bridge.js';
 const PROJECTS_COLLECTION = COLLECTION_PROJECTS;
 const LIBRARIES_COLLECTION = COLLECTION_LIBRARIES;
+const SCRATCHPAD_COLLECTION = COLLECTION_SCRATCHPAD;
 
 // Vector names for hybrid search
 const DENSE_VECTOR_NAME = 'dense';
@@ -274,7 +275,7 @@ export class SearchTool {
       case 'global':
         return [PROJECTS_COLLECTION];
       case 'all':
-        return [PROJECTS_COLLECTION, LIBRARIES_COLLECTION];
+        return [PROJECTS_COLLECTION, LIBRARIES_COLLECTION, SCRATCHPAD_COLLECTION];
       default:
         return [PROJECTS_COLLECTION];
     }

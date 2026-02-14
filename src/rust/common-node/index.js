@@ -135,6 +135,7 @@ module.exports.tokenize = nativeBinding.tokenize
 module.exports.collectionProjects = nativeBinding.collectionProjects
 module.exports.collectionLibraries = nativeBinding.collectionLibraries
 module.exports.collectionMemory = nativeBinding.collectionMemory
+module.exports.collectionScratchpad = nativeBinding.collectionScratchpad
 module.exports.defaultQdrantUrl = nativeBinding.defaultQdrantUrl
 module.exports.defaultGrpcPort = nativeBinding.defaultGrpcPort
 module.exports.defaultBranch = nativeBinding.defaultBranch
