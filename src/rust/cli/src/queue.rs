@@ -18,7 +18,7 @@ use crate::config::get_database_path;
 
 // Re-export canonical types from wqm-common
 pub use wqm_common::queue_types::{ItemType, QueueOperation};
-pub use wqm_common::payloads::{ContentPayload, FilePayload};
+pub use wqm_common::payloads::{ContentPayload, FilePayload, UrlPayload};
 
 /// Result of enqueue operation
 #[derive(Debug)]
@@ -105,6 +105,30 @@ impl UnifiedQueueClient {
         self.enqueue(
             ItemType::File,
             op,
+            tenant_id,
+            collection,
+            &payload_json,
+            priority,
+            branch,
+            None,
+        )
+    }
+
+    /// Enqueue a URL item
+    pub fn enqueue_url(
+        &self,
+        tenant_id: &str,
+        collection: &str,
+        payload: &UrlPayload,
+        priority: i32,
+        branch: &str,
+    ) -> Result<EnqueueResult> {
+        let payload_json = serde_json::to_string(payload)
+            .context("Failed to serialize URL payload")?;
+
+        self.enqueue(
+            ItemType::Url,
+            QueueOperation::Ingest,
             tenant_id,
             collection,
             &payload_json,
