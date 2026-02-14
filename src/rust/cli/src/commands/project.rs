@@ -1,7 +1,6 @@
 //! Project command - project and branch management
 //!
-//! Phase 2 MEDIUM priority command for project management.
-//! Subcommands: list, status, register, info, branch
+//! Subcommands: list, status, register, info, delete, priority, activate, deactivate, branch
 
 use std::path::PathBuf;
 
@@ -10,7 +9,8 @@ use clap::{Args, Subcommand};
 
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{
-    GetProjectStatusRequest, ListProjectsRequest, RegisterProjectRequest,
+    DeleteProjectRequest, DeprioritizeProjectRequest, GetProjectStatusRequest,
+    ListProjectsRequest, RegisterProjectRequest, SetProjectPriorityRequest,
 };
 use crate::output::{self, ServiceStatus};
 
@@ -49,10 +49,50 @@ enum ProjectCommand {
         /// Human-readable project name
         #[arg(short, long)]
         name: Option<String>,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
     },
 
     /// Show detailed project info
     Info {
+        /// Project ID or path
+        project: String,
+    },
+
+    /// Delete a project and its data
+    Delete {
+        /// Project ID or path
+        project: String,
+
+        /// Skip confirmation prompt
+        #[arg(short = 'y', long)]
+        yes: bool,
+
+        /// Keep Qdrant vector data (only remove from SQLite)
+        #[arg(long)]
+        keep_data: bool,
+    },
+
+    /// Set project priority level
+    Priority {
+        /// Project ID or path
+        project: String,
+
+        /// Priority level
+        #[arg(value_parser = ["high", "normal"])]
+        level: String,
+    },
+
+    /// Activate a project (set to high priority with LSP)
+    Activate {
+        /// Project ID or path
+        project: String,
+    },
+
+    /// Deactivate a project (set to normal priority)
+    Deactivate {
         /// Project ID or path
         project: String,
     },
@@ -85,9 +125,31 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
     match args.command {
         ProjectCommand::List { active, priority } => list_projects(active, priority).await,
         ProjectCommand::Status { path } => project_status(path).await,
-        ProjectCommand::Register { path, name } => register_project(path, name).await,
+        ProjectCommand::Register { path, name, yes } => register_project(path, name, yes).await,
         ProjectCommand::Info { project } => project_info(&project).await,
+        ProjectCommand::Delete { project, yes, keep_data } => {
+            delete_project(&project, yes, !keep_data).await
+        }
+        ProjectCommand::Priority { project, level } => set_priority(&project, &level).await,
+        ProjectCommand::Activate { project } => activate_project(&project).await,
+        ProjectCommand::Deactivate { project } => deactivate_project(&project).await,
         ProjectCommand::Branch { action } => branch_command(action).await,
+    }
+}
+
+/// Resolve a project argument to a project_id.
+///
+/// If the argument looks like a path (contains `/` or `.`), resolve it to an
+/// absolute path and compute the project_id. Otherwise use it as a direct ID.
+fn resolve_project_id(project: &str) -> String {
+    if project.contains('/') || project.contains('.') || project == "~" {
+        let path = PathBuf::from(project);
+        match path.canonicalize() {
+            Ok(abs_path) => calculate_project_id(&abs_path),
+            Err(_) => project.to_string(),
+        }
+    } else {
+        project.to_string()
     }
 }
 
@@ -193,9 +255,6 @@ async fn project_status(path: Option<PathBuf>) -> Result<()> {
 }
 
 /// Calculate the canonical project ID using the same algorithm as the daemon.
-///
-/// Uses `wqm_common::project_id::ProjectIdCalculator` (SHA256 on normalized git
-/// remote URL, falling back to path hash) instead of the old SipHash approach.
 fn calculate_project_id(abs_path: &std::path::Path) -> String {
     use wqm_common::project_id::{ProjectIdCalculator, detect_git_remote};
 
@@ -204,7 +263,7 @@ fn calculate_project_id(abs_path: &std::path::Path) -> String {
     calculator.calculate(abs_path, git_remote.as_deref(), None)
 }
 
-async fn register_project(path: Option<PathBuf>, name: Option<String>) -> Result<()> {
+async fn register_project(path: Option<PathBuf>, name: Option<String>, yes: bool) -> Result<()> {
     let project_path = path.unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
     let abs_path = project_path
         .canonicalize()
@@ -217,21 +276,26 @@ async fn register_project(path: Option<PathBuf>, name: Option<String>) -> Result
             .unwrap_or_else(|| "unknown".to_string())
     });
 
-    output::section(format!("Register Project: {}", project_name));
-
     // Generate project ID using the same algorithm as the daemon
     let project_id = calculate_project_id(&abs_path);
 
     // Detect git remote (same function used by project ID calculation)
     let git_remote = wqm_common::project_id::detect_git_remote(&abs_path);
 
+    // Display summary
+    output::section("Register Project");
     output::kv("Path", &abs_path.display().to_string());
     output::kv("Name", &project_name);
     output::kv("Project ID", &project_id);
-    output::separator();
-
     if let Some(remote) = &git_remote {
         output::kv("Git Remote", remote);
+    }
+    output::separator();
+
+    // Confirm unless --yes
+    if !yes && !output::confirm("Register this project?") {
+        output::info("Aborted");
+        return Ok(());
     }
 
     match DaemonClient::connect_default().await {
@@ -241,7 +305,8 @@ async fn register_project(path: Option<PathBuf>, name: Option<String>) -> Result
                 project_id: project_id.clone(),
                 name: Some(project_name),
                 git_remote,
-                register_if_new: true, // CLI explicitly registers new projects
+                register_if_new: true,
+                priority: None, // CLI registers at NORMAL priority
             };
 
             match client.project().register_project(request).await {
@@ -268,13 +333,170 @@ async fn register_project(path: Option<PathBuf>, name: Option<String>) -> Result
     Ok(())
 }
 
+async fn delete_project(project: &str, yes: bool, delete_qdrant_data: bool) -> Result<()> {
+    let project_id = resolve_project_id(project);
+
+    output::section("Delete Project");
+    output::kv("Project ID", &project_id);
+    output::kv("Delete Qdrant data", if delete_qdrant_data { "Yes" } else { "No" });
+    output::separator();
+
+    if !yes && !output::confirm("Delete this project? This cannot be undone.") {
+        output::info("Aborted");
+        return Ok(());
+    }
+
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            let request = DeleteProjectRequest {
+                project_id: project_id.clone(),
+                delete_qdrant_data,
+            };
+
+            match client.project().delete_project(request).await {
+                Ok(response) => {
+                    let result = response.into_inner();
+                    output::success(&result.message);
+                }
+                Err(e) => {
+                    let msg = e.message();
+                    if msg.contains("not found") {
+                        output::error(format!("Project not found: {}", project_id));
+                    } else {
+                        output::error(format!("Failed to delete project: {}", msg));
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            output::error("Daemon not running. Start with: wqm service start");
+        }
+    }
+
+    Ok(())
+}
+
+async fn set_priority(project: &str, level: &str) -> Result<()> {
+    let project_id = resolve_project_id(project);
+
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            let request = SetProjectPriorityRequest {
+                project_id: project_id.clone(),
+                priority: level.to_string(),
+            };
+
+            match client.project().set_project_priority(request).await {
+                Ok(response) => {
+                    let result = response.into_inner();
+                    output::success(format!(
+                        "Priority: {} -> {} ({} queue items updated)",
+                        result.previous_priority, result.new_priority, result.queue_items_updated
+                    ));
+                }
+                Err(e) => {
+                    let msg = e.message();
+                    if msg.contains("not found") {
+                        output::error(format!("Project not found: {}", project_id));
+                    } else {
+                        output::error(format!("Failed to set priority: {}", msg));
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            output::error("Daemon not running. Start with: wqm service start");
+        }
+    }
+
+    Ok(())
+}
+
+async fn activate_project(project: &str) -> Result<()> {
+    let project_id = resolve_project_id(project);
+
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            // Use RegisterProject with priority="high" and register_if_new=false
+            let request = RegisterProjectRequest {
+                path: String::new(), // Not needed for existing projects
+                project_id: project_id.clone(),
+                name: None,
+                git_remote: None,
+                register_if_new: false,
+                priority: Some("high".to_string()),
+            };
+
+            match client.project().register_project(request).await {
+                Ok(response) => {
+                    let result = response.into_inner();
+                    if result.priority == "none" {
+                        output::error(format!("Project not found: {}", project_id));
+                        output::info("Register first with: wqm project register");
+                    } else {
+                        output::success(format!(
+                            "Project {} activated (priority: {})",
+                            project_id, result.priority
+                        ));
+                    }
+                }
+                Err(e) => {
+                    output::error(format!("Failed to activate: {}", e.message()));
+                }
+            }
+        }
+        Err(_) => {
+            output::error("Daemon not running. Start with: wqm service start");
+        }
+    }
+
+    Ok(())
+}
+
+async fn deactivate_project(project: &str) -> Result<()> {
+    let project_id = resolve_project_id(project);
+
+    match DaemonClient::connect_default().await {
+        Ok(mut client) => {
+            let request = DeprioritizeProjectRequest {
+                project_id: project_id.clone(),
+            };
+
+            match client.project().deprioritize_project(request).await {
+                Ok(response) => {
+                    let result = response.into_inner();
+                    output::success(format!(
+                        "Project {} deactivated (priority: {})",
+                        project_id, result.new_priority
+                    ));
+                }
+                Err(e) => {
+                    let msg = e.message();
+                    if msg.contains("not found") {
+                        output::error(format!("Project not found: {}", project_id));
+                    } else {
+                        output::error(format!("Failed to deactivate: {}", msg));
+                    }
+                }
+            }
+        }
+        Err(_) => {
+            output::error("Daemon not running. Start with: wqm service start");
+        }
+    }
+
+    Ok(())
+}
+
 async fn project_info(project: &str) -> Result<()> {
     output::section(format!("Project Info: {}", project));
+
+    let project_id = resolve_project_id(project);
 
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
             let request = GetProjectStatusRequest {
-                project_id: project.to_string(),
+                project_id: project_id.clone(),
             };
 
             match client.project().get_project_status(request).await {
