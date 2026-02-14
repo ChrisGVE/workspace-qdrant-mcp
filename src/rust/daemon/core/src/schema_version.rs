@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 9;
+pub const CURRENT_SCHEMA_VERSION: i32 = 10;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -159,6 +159,7 @@ impl SchemaManager {
             7 => self.migrate_v7().await,
             8 => self.migrate_v8().await,
             9 => self.migrate_v9().await,
+            10 => self.migrate_v10().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -487,6 +488,47 @@ impl SchemaManager {
         }
 
         info!("Migration v9 complete");
+        Ok(())
+    }
+
+    /// Migration v10: Fix stale file_type='test' rows in tracked_files
+    ///
+    /// Before v8, some code paths wrote file_type='test' instead of using
+    /// classify_file_type() + is_test. Reclassify these rows using the
+    /// canonical file_classification logic.
+    async fn migrate_v10(&self) -> Result<(), SchemaError> {
+        info!("Migration v10: Fixing stale file_type='test' rows in tracked_files");
+
+        use crate::file_classification::{classify_file_type, is_test_file};
+        use std::path::Path;
+
+        let rows: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT rowid, file_path FROM tracked_files WHERE file_type = 'test'"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        if rows.is_empty() {
+            info!("No stale file_type='test' rows found");
+        } else {
+            info!("Reclassifying {} rows with file_type='test'", rows.len());
+            for (rowid, file_path) in &rows {
+                let path = Path::new(file_path);
+                let file_type = classify_file_type(path);
+                let is_test = is_test_file(path);
+                sqlx::query(
+                    "UPDATE tracked_files SET file_type = ?1, is_test = ?2 WHERE rowid = ?3"
+                )
+                .bind(file_type.as_str())
+                .bind(is_test as i32)
+                .bind(rowid)
+                .execute(&self.pool)
+                .await?;
+            }
+            info!("Reclassification complete");
+        }
+
+        info!("Migration v10 complete");
         Ok(())
     }
 }
