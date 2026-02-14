@@ -3,7 +3,7 @@
 > **DEPRECATED**: This documentation describes the legacy collection architecture which has been superseded by [ADR-001: Canonical Collection Architecture](../adr/ADR-001-canonical-collection-architecture.md).
 >
 > **Current Architecture (ADR-001):**
-> - Exactly 3 collections: `projects`, `libraries`, `memory`
+> - Exactly 4 collections: `projects`, `libraries`, `memory`, `scratchpad`
 > - Multi-tenant isolation via `project_id` (projects) and `library_name` (libraries) payload fields
 > - No underscore prefixes, no per-project collections, no SYSTEM/GLOBAL types
 >

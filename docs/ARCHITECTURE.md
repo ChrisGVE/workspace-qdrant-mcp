@@ -423,7 +423,7 @@ graph TB
 - Branch-scoped queries by default (configurable with `branch="*"`)
 
 **Benefits:**
-- Only 3 collections regardless of project count (scalable)
+- Only 4 collections regardless of project count (scalable)
 - Single HNSW index per collection type (efficient)
 - Cross-project semantic search (powerful)
 - Hard tenant filtering prevents data leakage (secure)
@@ -578,8 +578,8 @@ graph TB
 
 **Collection Operations (Daemon Internal):**
 - `create_collection_v2`, `delete_collection_v2` are daemon internal operations
-- Daemon creates the 3 canonical collections (`projects`, `libraries`, `memory`) on startup
-- MCP/CLI cannot create or delete collections (ADR-001: fixed 3-collection model)
+- Daemon creates the 4 canonical collections (`projects`, `libraries`, `memory`, `scratchpad`) on startup
+- MCP/CLI cannot create or delete collections (ADR-001: fixed 4-collection model)
 
 **Validation (Task 375.6):**
 - ✅ 18 comprehensive tests

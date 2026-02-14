@@ -78,9 +78,9 @@ Only session lifecycle messages bypass the queue and go directly to daemon:
 
 ### Collection Ownership
 
-- **Daemon owns all collections**: Creates `projects`, `libraries`, `memory` on startup
-- **Fixed 3-collection model**: No collection creation/deletion via MCP or CLI
-- **No user collections**: Only the 3 canonical collections exist (per ADR-001)
+- **Daemon owns all collections**: Creates `projects`, `libraries`, `memory`, `scratchpad` on startup
+- **Fixed 4-collection model**: No collection creation/deletion via MCP or CLI
+- **No user collections**: Only the 4 canonical collections exist (per ADR-001)
 
 ### gRPC Content Methods (Reserved)
 

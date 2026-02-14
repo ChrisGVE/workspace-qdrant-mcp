@@ -50,7 +50,7 @@ See [FIRST-PRINCIPLES.md](./FIRST-PRINCIPLES.md) for the complete architectural 
 - **Memory-Driven Behavioral Persistence**: Rules stored in memory collection
 - **Project-Scoped Semantic Context**: Automatic project detection and filtering
 - **Daemon-Only Writes**: Single writer to Qdrant for consistency (see [ADR-002](./docs/adr/ADR-002-daemon-only-write-policy.md))
-- **Three Collections Only**: Exactly `projects`, `libraries`, `memory` (see [ADR-001](./docs/adr/ADR-001-canonical-collection-architecture.md))
+- **Four Collections Only**: Exactly `projects`, `libraries`, `memory`, `scratchpad` (see [ADR-001](./docs/adr/ADR-001-canonical-collection-architecture.md))
 
 ---
 
@@ -191,13 +191,14 @@ Example degraded response:
 
 ### Canonical Collections
 
-The system uses exactly **3 collections**:
+The system uses exactly **4 collections**:
 
-| Collection  | Purpose                 | Multi-Tenant Key        | Example                      |
-| ----------- | ----------------------- | ----------------------- | ---------------------------- |
-| `projects`  | All project content     | `project_id`            | Code, docs, tests, configs   |
-| `libraries` | Reference documentation | `library_name`          | Books, papers, API docs      |
-| `memory`    | Behavioral rules        | `project_id` (nullable) | LLM preferences, constraints |
+| Collection    | Purpose                 | Multi-Tenant Key        | Example                      |
+| ------------- | ----------------------- | ----------------------- | ---------------------------- |
+| `projects`    | All project content     | `project_id`            | Code, docs, tests, configs   |
+| `libraries`   | Reference documentation | `library_name`          | Books, papers, API docs      |
+| `memory`      | Behavioral rules        | `project_id` (nullable) | LLM preferences, constraints |
+| `scratchpad`  | Temporary working storage | `project_id`          | Scratch notes, intermediate results |
 
 **Memory collection multi-tenancy:** Rules with `scope="global"` have `project_id=null` and apply to all projects. Rules with `scope="project"` have a specific `project_id` and apply only to that project.
 
@@ -766,9 +767,9 @@ Only session lifecycle messages go directly to daemon via gRPC:
 
 ### Collection Ownership
 
-- **Daemon owns all collections**: Creates the 3 canonical collections on startup
-- **No collection creation via MCP/CLI**: Only `projects`, `libraries`, `memory` exist
-- **No user-created collections**: The 3-collection model is fixed
+- **Daemon owns all collections**: Creates the 4 canonical collections on startup
+- **No collection creation via MCP/CLI**: Only `projects`, `libraries`, `memory`, `scratchpad` exist
+- **No user-created collections**: The 4-collection model is fixed
 
 ### gRPC Methods (Reserved)
 
@@ -1408,7 +1409,7 @@ Step 2: Configuration Change Reconciliation
    - NOTE: Newly-allowed files are discovered during Step 5 filesystem walk
 
 Step 3: Qdrant Collection Verification
-   - Ensure 3 canonical collections exist: projects, libraries, memory
+   - Ensure 4 canonical collections exist: projects, libraries, memory, scratchpad
    - Create any missing collections with correct vector configuration
    - Verify named vector configuration (dense + sparse) matches expectations
 
@@ -2670,7 +2671,7 @@ Collection CRUD and alias management. Most methods are daemon-internal.
 | Method                  | Status              | Notes                                 |
 | ----------------------- | ------------------- | ------------------------------------- |
 | `CreateCollection`      | **Daemon internal** | Daemon creates collections on startup |
-| `DeleteCollection`      | **Not used**        | Fixed 3-collection model              |
+| `DeleteCollection`      | **Not used**        | Fixed 4-collection model              |
 | `ListCollections`       | Read-only           | Can be exposed to MCP/CLI             |
 | `GetCollection`         | Read-only           | Can be exposed to MCP/CLI             |
 | `CreateCollectionAlias` | **Daemon internal** | For tenant_id changes                 |
@@ -3703,7 +3704,7 @@ wqm admin health --component database
 ```
 Component       Status    Latency   Details
 ─────────────────────────────────────────────
-Qdrant          healthy   12ms      v1.7.3, 3 collections
+Qdrant          healthy   12ms      v1.7.3, 4 collections
 Daemon          healthy   2ms       pid=12345, uptime=2h15m
 Database        healthy   1ms       23 watch folders, 156 queue items
 ```

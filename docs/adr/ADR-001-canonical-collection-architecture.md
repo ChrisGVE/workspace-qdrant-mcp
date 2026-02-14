@@ -28,6 +28,7 @@ Adopt **canonical collection names without underscore prefix**:
 | Projects | `projects` | All project code, docs, tests, configs |
 | Libraries | `libraries` | External library/framework documentation |
 | Memory | `memory` | LLM behavioral rules and preferences |
+| Scratchpad | `scratchpad` | Temporary working storage |
 
 ### Key Architectural Decisions
 
