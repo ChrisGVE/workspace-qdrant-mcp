@@ -677,17 +677,22 @@ impl UnifiedQueueProcessor {
                                 );
                             }
                             Err(e) => {
+                                // Classify error into 5 categories for observability
+                                let error_category = Self::classify_error(&e);
+                                let is_permanent = Self::is_permanent_category(error_category);
+
                                 error!(
+                                    error_category = error_category,
+                                    permanent = is_permanent,
                                     "Failed to process unified item {} (type={:?}): {}",
                                     item.queue_id, item.item_type, e
                                 );
 
-                                // Classify error: permanent errors skip retry
-                                let is_permanent = Self::is_permanent_error(&e);
-
                                 // Mark item as failed (with exponential backoff for transient errors)
+                                // Prefix error message with category for observability
+                                let categorized_msg = format!("[{}] {}", error_category, e);
                                 if let Err(mark_err) = queue_manager
-                                    .mark_unified_failed(&item.queue_id, &e.to_string(), is_permanent)
+                                    .mark_unified_failed(&item.queue_id, &categorized_msg, is_permanent)
                                     .await
                                 {
                                     error!("Failed to mark item {} as failed: {}", item.queue_id, mark_err);
@@ -2974,32 +2979,56 @@ impl UnifiedQueueProcessor {
     /// Permanent errors: file not found, invalid payload, validation failures.
     /// Transient errors (retryable): storage/Qdrant issues, embedding failures,
     /// queue operation failures (DB locked, etc).
-    fn is_permanent_error(error: &UnifiedProcessorError) -> bool {
+    /// Classify a processing error into one of 5 categories:
+    /// - `permanent_data`: invalid payload, unsupported format — no retry
+    /// - `permanent_gone`: file deleted, permission denied — no retry
+    /// - `transient_infrastructure`: Qdrant down, network error — retry with standard backoff
+    /// - `transient_resource`: OOM, embedding failure — retry with longer backoff
+    /// - `partial`: partial enrichment — retry enrichment only
+    fn classify_error(error: &UnifiedProcessorError) -> &'static str {
         match error {
-            // File doesn't exist - retrying won't help
-            UnifiedProcessorError::FileNotFound(_) => true,
-            // Malformed payload - retrying won't fix the data
-            UnifiedProcessorError::InvalidPayload(_) => true,
-            // Check error message for permanent patterns
+            // File doesn't exist or was deleted
+            UnifiedProcessorError::FileNotFound(_) => "permanent_gone",
+            // Malformed payload — retrying won't fix the data
+            UnifiedProcessorError::InvalidPayload(_) => "permanent_data",
+            // Queue operation errors — check message
             UnifiedProcessorError::QueueOperation(msg) => {
                 let lower = msg.to_lowercase();
-                lower.contains("no watch_folder found")
+                if lower.contains("no watch_folder found")
                     || lower.contains("validation")
                     || lower.contains("invalid")
+                {
+                    "permanent_data"
+                } else {
+                    "transient_infrastructure"
+                }
             }
+            // Processing errors — check message for permanent vs transient
             UnifiedProcessorError::ProcessingFailed(msg) => {
                 let lower = msg.to_lowercase();
-                lower.contains("permission denied")
-                    || lower.contains("invalid format")
+                if lower.contains("permission denied") || lower.contains("access denied") {
+                    "permanent_gone"
+                } else if lower.contains("invalid format")
                     || lower.contains("malformed")
                     || lower.contains("unsupported")
+                {
+                    "permanent_data"
+                } else {
+                    "transient_infrastructure"
+                }
             }
-            // Storage and embedding errors are transient (Qdrant may be temporarily down)
-            UnifiedProcessorError::Storage(_) => false,
-            UnifiedProcessorError::Embedding(_) => false,
-            // Default: treat as transient (retry)
-            _ => false,
+            // Qdrant storage errors — transient infrastructure
+            UnifiedProcessorError::Storage(_) => "transient_infrastructure",
+            // Embedding errors — transient resource (model/memory)
+            UnifiedProcessorError::Embedding(_) => "transient_resource",
+            // Default: treat as transient infrastructure (retry)
+            _ => "transient_infrastructure",
         }
+    }
+
+    /// Check if an error category is permanent (should not be retried).
+    fn is_permanent_category(category: &str) -> bool {
+        category.starts_with("permanent")
     }
 
     /// Update metrics after processing failure
@@ -3470,5 +3499,56 @@ mod tests {
             "/project/main.CPP",
         );
         assert_eq!(tags, vec!["code", "cpp", "cpp"]);
+    }
+
+    #[test]
+    fn test_classify_error_permanent_categories() {
+        // FileNotFound → permanent_gone
+        let err = UnifiedProcessorError::FileNotFound("/missing.rs".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "permanent_gone");
+
+        // InvalidPayload → permanent_data
+        let err = UnifiedProcessorError::InvalidPayload("bad json".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "permanent_data");
+
+        // QueueOperation with validation → permanent_data
+        let err = UnifiedProcessorError::QueueOperation("no watch_folder found".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "permanent_data");
+
+        // ProcessingFailed with permission denied → permanent_gone
+        let err = UnifiedProcessorError::ProcessingFailed("Permission denied".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "permanent_gone");
+
+        // ProcessingFailed with unsupported → permanent_data
+        let err = UnifiedProcessorError::ProcessingFailed("Unsupported file format".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "permanent_data");
+    }
+
+    #[test]
+    fn test_classify_error_transient_categories() {
+        // Storage → transient_infrastructure
+        let err = UnifiedProcessorError::Storage("connection refused".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "transient_infrastructure");
+
+        // Embedding → transient_resource
+        let err = UnifiedProcessorError::Embedding("out of memory".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "transient_resource");
+
+        // Generic ProcessingFailed → transient_infrastructure
+        let err = UnifiedProcessorError::ProcessingFailed("timeout".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "transient_infrastructure");
+
+        // Generic QueueOperation → transient_infrastructure
+        let err = UnifiedProcessorError::QueueOperation("database locked".into());
+        assert_eq!(UnifiedQueueProcessor::classify_error(&err), "transient_infrastructure");
+    }
+
+    #[test]
+    fn test_is_permanent_category() {
+        assert!(UnifiedQueueProcessor::is_permanent_category("permanent_gone"));
+        assert!(UnifiedQueueProcessor::is_permanent_category("permanent_data"));
+        assert!(!UnifiedQueueProcessor::is_permanent_category("transient_infrastructure"));
+        assert!(!UnifiedQueueProcessor::is_permanent_category("transient_resource"));
+        assert!(!UnifiedQueueProcessor::is_permanent_category("partial"));
     }
 }
