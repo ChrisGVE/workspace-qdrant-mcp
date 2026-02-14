@@ -38,15 +38,8 @@ use tracing::{debug, info, warn, error};
 use wqm_common::constants::COLLECTION_PROJECTS;
 use crate::metrics::METRICS;
 
-/// Priority levels for the queue system
-pub mod priority {
-    /// HIGH priority: Active agent sessions - items processed first
-    pub const HIGH: u8 = 1;
-    /// NORMAL priority: Registered projects without active sessions
-    pub const NORMAL: u8 = 3;
-    /// LOW priority: Background/inactive projects
-    pub const LOW: u8 = 5;
-}
+/// Priority levels for the queue system — re-exported from wqm_common
+pub use wqm_common::constants::priority;
 
 /// Session monitoring configuration
 #[derive(Debug, Clone)]
@@ -95,10 +88,10 @@ pub type PriorityResult<T> = Result<T, PriorityError>;
 #[derive(Debug, Clone)]
 pub struct PriorityTransition {
     /// Priority before transition
-    pub from_priority: u8,
+    pub from_priority: i32,
 
     /// Priority after transition
-    pub to_priority: u8,
+    pub to_priority: i32,
 
     /// Number of items affected in unified_queue
     pub unified_queue_affected: usize,
@@ -109,7 +102,7 @@ pub struct PriorityTransition {
 
 impl PriorityTransition {
     /// Create a new transition record
-    pub fn new(from_priority: u8, to_priority: u8) -> Self {
+    pub fn new(from_priority: i32, to_priority: i32) -> Self {
         Self {
             from_priority,
             to_priority,
@@ -194,15 +187,15 @@ impl PriorityManager {
             return Err(PriorityError::EmptyParameter);
         }
 
-        const FROM_PRIORITY: u8 = 3; // Normal priority
-        const TO_PRIORITY: u8 = 1; // Urgent priority
+        let from_priority = priority::NORMAL;
+        let to_priority = priority::HIGH;
 
         info!(
             "Server START: Bumping priority {} → {} for tenant_id='{}', branch='{}'",
-            FROM_PRIORITY, TO_PRIORITY, tenant_id, branch
+            from_priority, to_priority, tenant_id, branch
         );
 
-        self.bulk_update_priority(tenant_id, branch, FROM_PRIORITY, TO_PRIORITY)
+        self.bulk_update_priority(tenant_id, branch, from_priority, to_priority)
             .await
     }
 
@@ -231,15 +224,15 @@ impl PriorityManager {
             return Err(PriorityError::EmptyParameter);
         }
 
-        const FROM_PRIORITY: u8 = 1; // Urgent priority
-        const TO_PRIORITY: u8 = 3; // Normal priority
+        let from_priority = priority::HIGH;
+        let to_priority = priority::NORMAL;
 
         info!(
             "Server STOP: Demoting priority {} → {} for tenant_id='{}', branch='{}'",
-            FROM_PRIORITY, TO_PRIORITY, tenant_id, branch
+            from_priority, to_priority, tenant_id, branch
         );
 
-        self.bulk_update_priority(tenant_id, branch, FROM_PRIORITY, TO_PRIORITY)
+        self.bulk_update_priority(tenant_id, branch, from_priority, to_priority)
             .await
     }
 
@@ -260,15 +253,15 @@ impl PriorityManager {
         &self,
         tenant_id: &str,
         branch: &str,
-        from_priority: u8,
-        to_priority: u8,
+        from_priority: i32,
+        to_priority: i32,
     ) -> PriorityResult<PriorityTransition> {
         // Validate priority range
-        if from_priority > 10 {
-            return Err(PriorityError::InvalidPriority(from_priority as i32));
+        if from_priority > 10 || from_priority < 0 {
+            return Err(PriorityError::InvalidPriority(from_priority));
         }
-        if to_priority > 10 {
-            return Err(PriorityError::InvalidPriority(to_priority as i32));
+        if to_priority > 10 || to_priority < 0 {
+            return Err(PriorityError::InvalidPriority(to_priority));
         }
 
         // Update unified_queue (the only queue table per spec)
@@ -283,10 +276,10 @@ impl PriorityManager {
         "#;
 
         let result = sqlx::query(query)
-            .bind(to_priority as i32)
+            .bind(to_priority)
             .bind(tenant_id)
             .bind(branch)
-            .bind(from_priority as i32)
+            .bind(from_priority)
             .execute(&self.db_pool)
             .await?;
 
@@ -327,10 +320,10 @@ impl PriorityManager {
         &self,
         tenant_id: &str,
         branch: &str,
-        priority: u8,
+        priority: i32,
     ) -> PriorityResult<usize> {
-        if priority > 10 {
-            return Err(PriorityError::InvalidPriority(priority as i32));
+        if priority > 10 || priority < 0 {
+            return Err(PriorityError::InvalidPriority(priority));
         }
 
         let query = r#"
@@ -344,7 +337,7 @@ impl PriorityManager {
         let count: i64 = sqlx::query_scalar(query)
             .bind(tenant_id)
             .bind(branch)
-            .bind(priority as i32)
+            .bind(priority)
             .fetch_one(&self.db_pool)
             .await?;
 
@@ -413,7 +406,7 @@ impl PriorityManager {
               AND status = 'pending'
             "#,
         )
-        .bind(priority::HIGH as i32)
+        .bind(priority::HIGH)
         .bind(tenant_id)
         .execute(&mut *tx)
         .await?;
@@ -494,9 +487,9 @@ impl PriorityManager {
               AND status = 'pending'
             "#,
         )
-        .bind(priority::NORMAL as i32)
+        .bind(priority::NORMAL)
         .bind(tenant_id)
-        .bind(priority::HIGH as i32)
+        .bind(priority::HIGH)
         .execute(&mut *tx)
         .await?;
 
@@ -779,9 +772,9 @@ impl PriorityManager {
                   AND status = 'pending'
                 "#,
             )
-            .bind(priority::NORMAL as i32)
+            .bind(priority::NORMAL)
             .bind(&tenant_id)
-            .bind(priority::HIGH as i32)
+            .bind(priority::HIGH)
             .execute(&mut *tx)
             .await?;
         }
@@ -1031,24 +1024,24 @@ mod tests {
         let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool.clone());
 
-        // Enqueue items with normal priority (3)
-        enqueue_test_item(&pool, "test-tenant", "main", 3).await;
-        enqueue_test_item(&pool, "test-tenant", "main", 3).await;
+        // Enqueue items with normal priority
+        enqueue_test_item(&pool, "test-tenant", "main", priority::NORMAL).await;
+        enqueue_test_item(&pool, "test-tenant", "main", priority::NORMAL).await;
 
-        // Trigger server start - should bump priority to 1
+        // Trigger server start - should bump priority to HIGH
         let transition = priority_manager
             .on_server_start("test-tenant", "main")
             .await
             .unwrap();
 
-        assert_eq!(transition.from_priority, 3);
-        assert_eq!(transition.to_priority, 1);
+        assert_eq!(transition.from_priority, priority::NORMAL);
+        assert_eq!(transition.to_priority, priority::HIGH);
         assert_eq!(transition.unified_queue_affected, 2);
         assert_eq!(transition.total_affected, 2);
 
-        // Verify items now have priority 1
+        // Verify items now have HIGH priority
         let count = priority_manager
-            .count_items_with_priority("test-tenant", "main", 1)
+            .count_items_with_priority("test-tenant", "main", priority::HIGH)
             .await
             .unwrap();
         assert_eq!(count, 2);
@@ -1059,22 +1052,22 @@ mod tests {
         let (pool, _temp_dir) = setup_test_db().await;
         let priority_manager = PriorityManager::new(pool.clone());
 
-        // Enqueue items with urgent priority (1)
-        enqueue_test_item(&pool, "test-tenant", "main", 1).await;
+        // Enqueue items with HIGH priority
+        enqueue_test_item(&pool, "test-tenant", "main", priority::HIGH).await;
 
-        // Trigger server stop - should demote priority to 3
+        // Trigger server stop - should demote priority to NORMAL
         let transition = priority_manager
             .on_server_stop("test-tenant", "main")
             .await
             .unwrap();
 
-        assert_eq!(transition.from_priority, 1);
-        assert_eq!(transition.to_priority, 3);
+        assert_eq!(transition.from_priority, priority::HIGH);
+        assert_eq!(transition.to_priority, priority::NORMAL);
         assert_eq!(transition.total_affected, 1);
 
-        // Verify item now has priority 3
+        // Verify item now has NORMAL priority
         let count = priority_manager
-            .count_items_with_priority("test-tenant", "main", 3)
+            .count_items_with_priority("test-tenant", "main", priority::NORMAL)
             .await
             .unwrap();
         assert_eq!(count, 1);
@@ -1204,7 +1197,7 @@ mod tests {
         create_test_project(&pool, "abcd12345678", "/test/project").await;
 
         // Enqueue items with normal priority
-        enqueue_test_item(&pool, "abcd12345678", "main", priority::NORMAL as i32).await;
+        enqueue_test_item(&pool, "abcd12345678", "main", priority::NORMAL).await;
 
         // Register session - should bump queue priority
         priority_manager
@@ -1406,7 +1399,7 @@ mod tests {
         create_test_project(&pool, "abcd12345678", "/test/project").await;
 
         // Enqueue items with normal priority
-        enqueue_test_item(&pool, "abcd12345678", "main", priority::NORMAL as i32).await;
+        enqueue_test_item(&pool, "abcd12345678", "main", priority::NORMAL).await;
 
         // Set priority to high
         let (previous, queue_updated) = priority_manager
@@ -1440,7 +1433,7 @@ mod tests {
         priority_manager.register_session("abcd12345678", "main").await.unwrap();
 
         // Enqueue items with high priority
-        enqueue_test_item(&pool, "abcd12345678", "main", priority::HIGH as i32).await;
+        enqueue_test_item(&pool, "abcd12345678", "main", priority::HIGH).await;
 
         // Set priority to normal
         let (previous, queue_updated) = priority_manager

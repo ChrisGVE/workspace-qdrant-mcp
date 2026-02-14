@@ -17,7 +17,7 @@ import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 import type { ProjectDetector } from '../utils/project-detector.js';
 
 // Canonical memory collection name from native bridge (single source of truth)
-import { COLLECTION_MEMORY } from '../common/native-bridge.js';
+import { COLLECTION_MEMORY, PRIORITY_HIGH } from '../common/native-bridge.js';
 const MEMORY_COLLECTION = COLLECTION_MEMORY;
 
 // Collection basename for daemon ingestion
@@ -521,7 +521,7 @@ export class MemoryTool {
       operation.projectId ?? 'global',
       MEMORY_COLLECTION,
       payload,
-      8, // High priority for memory operations
+      PRIORITY_HIGH, // Memory operations are always high priority
       'main',
       { source: 'mcp_memory_tool' }
     );

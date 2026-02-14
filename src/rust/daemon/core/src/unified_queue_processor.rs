@@ -3264,7 +3264,7 @@ mod tests {
             op: QueueOperation::Delete,
             tenant_id: "test-tenant".to_string(),
             collection: "projects".to_string(),
-            priority: 5,
+            priority: wqm_common::constants::priority::LOW,
             status: QueueStatus::InProgress,
             branch: "main".to_string(),
             payload_json: payload_json.to_string(),

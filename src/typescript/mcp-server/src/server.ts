@@ -35,7 +35,7 @@ import { RetrieveTool } from './tools/retrieve.js';
 import { MemoryTool } from './tools/memory.js';
 import { StoreTool } from './tools/store.js';
 import type { ServerConfig } from './types/index.js';
-import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD } from './common/native-bridge.js';
+import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD, PRIORITY_HIGH } from './common/native-bridge.js';
 
 // Heartbeat interval: 3 hours (in milliseconds)
 const HEARTBEAT_INTERVAL_MS = 3 * 60 * 60 * 1000;
@@ -763,7 +763,7 @@ export class WorkspaceQdrantMcpServer {
         tenantId,
         collection,
         payload,
-        0,
+        PRIORITY_HIGH,
         'main',
         { source: 'mcp_store_url' },
       );
@@ -828,7 +828,7 @@ export class WorkspaceQdrantMcpServer {
         tenantId,
         COLLECTION_SCRATCHPAD,
         payload,
-        0,
+        PRIORITY_HIGH,
         'main',
         { source: 'mcp_store_scratchpad' },
       );

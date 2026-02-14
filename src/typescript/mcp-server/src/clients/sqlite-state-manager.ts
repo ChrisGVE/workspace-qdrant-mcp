@@ -30,7 +30,7 @@ import type {
   MemoryPayload,
   LibraryPayload,
 } from '../types/state.js';
-import { COLLECTION_PROJECTS } from '../common/native-bridge.js';
+import { COLLECTION_PROJECTS, PRIORITY_LOW } from '../common/native-bridge.js';
 
 // Re-export types
 export type {
@@ -266,7 +266,7 @@ export class SqliteStateManager {
     tenantId: string,
     collection: string,
     payload: Record<string, unknown>,
-    priority = 5,
+    priority = PRIORITY_LOW,
     branch = 'main',
     metadata?: Record<string, unknown>
   ): DegradedQueryResult<EnqueueResult | null> {

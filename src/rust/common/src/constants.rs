@@ -26,6 +26,17 @@ pub const DEFAULT_GRPC_PORT: u16 = 50051;
 /// Default Git branch name
 pub const DEFAULT_BRANCH: &str = "main";
 
+/// Queue priority constants
+/// Lower number = higher priority in processing order
+pub mod priority {
+    /// HIGH priority: Active agent sessions - items processed first
+    pub const HIGH: i32 = 1;
+    /// NORMAL priority: Registered projects without active sessions
+    pub const NORMAL: i32 = 3;
+    /// LOW priority: Background/inactive projects
+    pub const LOW: i32 = 5;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -43,5 +54,11 @@ mod tests {
         assert_eq!(DEFAULT_QDRANT_URL, "http://localhost:6333");
         assert_eq!(DEFAULT_GRPC_PORT, 50051);
         assert_eq!(DEFAULT_BRANCH, "main");
+    }
+
+    #[test]
+    fn test_priority_ordering() {
+        assert!(priority::HIGH < priority::NORMAL);
+        assert!(priority::NORMAL < priority::LOW);
     }
 }

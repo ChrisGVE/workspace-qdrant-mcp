@@ -164,6 +164,24 @@ pub fn default_branch() -> String {
     wqm_common::constants::DEFAULT_BRANCH.to_string()
 }
 
+/// Get the HIGH queue priority value (1 - processed first)
+#[napi]
+pub fn priority_high() -> i32 {
+    wqm_common::constants::priority::HIGH
+}
+
+/// Get the NORMAL queue priority value (3 - default for registered projects)
+#[napi]
+pub fn priority_normal() -> i32 {
+    wqm_common::constants::priority::NORMAL
+}
+
+/// Get the LOW queue priority value (5 - background processing)
+#[napi]
+pub fn priority_low() -> i32 {
+    wqm_common::constants::priority::LOW
+}
+
 // ============================================================================
 // Queue type validation
 // ============================================================================

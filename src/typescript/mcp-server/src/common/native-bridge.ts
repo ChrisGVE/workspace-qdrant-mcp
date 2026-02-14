@@ -33,6 +33,9 @@ interface NativeAddon {
   defaultQdrantUrl(): string;
   defaultGrpcPort(): number;
   defaultBranch(): string;
+  priorityHigh(): number;
+  priorityNormal(): number;
+  priorityLow(): number;
   isValidItemType(s: string): boolean;
   isValidQueueOperation(s: string): boolean;
   isValidQueueStatus(s: string): boolean;
@@ -122,3 +125,6 @@ export const COLLECTION_SCRATCHPAD = loadAddon().collectionScratchpad();
 export const DEFAULT_QDRANT_URL = loadAddon().defaultQdrantUrl();
 export const DEFAULT_GRPC_PORT = loadAddon().defaultGrpcPort();
 export const DEFAULT_BRANCH = loadAddon().defaultBranch();
+export const PRIORITY_HIGH = loadAddon().priorityHigh();
+export const PRIORITY_NORMAL = loadAddon().priorityNormal();
+export const PRIORITY_LOW = loadAddon().priorityLow();

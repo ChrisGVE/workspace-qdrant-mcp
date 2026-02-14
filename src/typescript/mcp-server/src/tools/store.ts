@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
 
 // Canonical collection name from native bridge (single source of truth)
-import { COLLECTION_LIBRARIES } from '../common/native-bridge.js';
+import { COLLECTION_LIBRARIES, PRIORITY_HIGH } from '../common/native-bridge.js';
 const LIBRARIES_COLLECTION = COLLECTION_LIBRARIES;
 
 export type SourceType = 'user_input' | 'web' | 'file' | 'scratchbook' | 'note';
@@ -213,7 +213,7 @@ export class StoreTool {
       params.tenantId,
       LIBRARIES_COLLECTION,
       payload,
-      8, // Priority 8 for MCP content (same as other MCP operations)
+      PRIORITY_HIGH, // MCP-initiated content is high priority
       undefined, // No branch for library content
       { source: 'mcp_store_tool' }
     );
