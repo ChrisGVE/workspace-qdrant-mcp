@@ -941,7 +941,7 @@ impl ResourceLimitsConfig {
 /// Uses `sysinfo::System::physical_core_count()` with a fallback to
 /// `std::thread::available_parallelism()` (which returns logical cores).
 /// Returns 4 as a safe fallback if both methods fail.
-fn detect_physical_cores() -> usize {
+pub fn detect_physical_cores() -> usize {
     use sysinfo::System;
 
     let sys = System::new();

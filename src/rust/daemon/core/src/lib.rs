@@ -9,6 +9,7 @@ use std::time::Instant;
 use std::collections::HashMap;
 use thiserror::Error;
 
+pub mod adaptive_resources;
 pub mod allowed_extensions;
 pub mod config;
 pub mod document_processor;

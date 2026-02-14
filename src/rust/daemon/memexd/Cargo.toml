@@ -26,6 +26,7 @@ tracing = { version = "0.1", features = ["log", "attributes", "std"] }
 
 # Utilities
 scopeguard = "1.2"
+tokio-util = "0.7"
 
 # Platform-specific dependencies
 [target.'cfg(unix)'.dependencies]

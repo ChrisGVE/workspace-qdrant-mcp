@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 use walkdir::WalkDir;
 
+use crate::adaptive_resources::ResourceProfile;
 use crate::allowed_extensions::AllowedExtensions;
 use crate::fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig};
 use crate::queue_health::QueueProcessorHealth;
@@ -238,6 +239,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Shared health state for gRPC monitoring
     queue_health: Option<Arc<QueueProcessorHealth>>,
+
+    /// Receiver for adaptive resource profile changes (idle/burst mode)
+    resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
 }
 
 impl UnifiedQueueProcessor {
@@ -288,6 +292,7 @@ impl UnifiedQueueProcessor {
             allowed_extensions: Arc::new(AllowedExtensions::default()),
             warmup_state,
             queue_health: None,
+            resource_profile_rx: None,
         }
     }
 
@@ -332,6 +337,7 @@ impl UnifiedQueueProcessor {
             allowed_extensions: Arc::new(AllowedExtensions::default()),
             warmup_state,
             queue_health: None,
+            resource_profile_rx: None,
         }
     }
 
@@ -350,6 +356,12 @@ impl UnifiedQueueProcessor {
     /// Set a custom file type allowlist (Task 511)
     pub fn with_allowed_extensions(mut self, allowed_extensions: Arc<AllowedExtensions>) -> Self {
         self.allowed_extensions = allowed_extensions;
+        self
+    }
+
+    /// Set the adaptive resource profile receiver for dynamic CPU scaling
+    pub fn with_adaptive_resources(mut self, rx: tokio::sync::watch::Receiver<ResourceProfile>) -> Self {
+        self.resource_profile_rx = Some(rx);
         self
     }
 
@@ -402,6 +414,7 @@ impl UnifiedQueueProcessor {
         let allowed_extensions = self.allowed_extensions.clone();
         let warmup_state = self.warmup_state.clone();
         let queue_health = self.queue_health.clone();
+        let resource_profile_rx = self.resource_profile_rx.clone();
 
         // Mark as running in health state
         if let Some(ref h) = queue_health {
@@ -423,6 +436,7 @@ impl UnifiedQueueProcessor {
                 allowed_extensions,
                 warmup_state,
                 queue_health.clone(),
+                resource_profile_rx,
             )
             .await
             {
@@ -499,9 +513,13 @@ impl UnifiedQueueProcessor {
         allowed_extensions: Arc<AllowedExtensions>,
         warmup_state: Arc<WarmupState>,
         queue_health: Option<Arc<QueueProcessorHealth>>,
+        resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let mut last_metrics_log = Utc::now();
+        let mut resource_profile_rx = resource_profile_rx;
+        // Track current adaptive target to detect changes
+        let mut adaptive_target_permits: Option<usize> = None;
         let metrics_log_interval = ChronoDuration::minutes(1);
         let mut warmup_logged = false;
 
@@ -535,6 +553,29 @@ impl UnifiedQueueProcessor {
             if cancellation_token.is_cancelled() {
                 info!("Unified queue shutdown signal received");
                 break;
+            }
+
+            // Adaptive resource scaling: adjust semaphore permits on profile change
+            if let Some(ref mut rx) = resource_profile_rx {
+                if rx.has_changed().unwrap_or(false) {
+                    let profile = *rx.borrow_and_update();
+                    let target = profile.max_concurrent_embeddings;
+
+                    // Only adjust after warmup is complete
+                    if warmup_logged {
+                        let current_target = adaptive_target_permits.unwrap_or(config.max_concurrent_embeddings);
+                        if target > current_target {
+                            let permits_to_add = target - current_target;
+                            embedding_semaphore.add_permits(permits_to_add);
+                            debug!("Adaptive: added {} semaphore permits (target: {})", permits_to_add, target);
+                        }
+                        // Note: tokio::sync::Semaphore doesn't support shrinking permits.
+                        // When scaling down, in-flight operations keep their permits and
+                        // new acquires will block once available permits drop below the
+                        // new target. We track the target so subsequent transitions are correct.
+                        adaptive_target_permits = Some(target);
+                    }
+                }
             }
 
             // Record poll for health monitoring
@@ -654,9 +695,11 @@ impl UnifiedQueueProcessor {
                         }
 
                         // Inter-item delay for resource breathing room (Task 504 / Task 577)
-                        // Use warmup-aware delay that's higher during warmup window
+                        // Priority: warmup > adaptive profile > config default
                         let effective_delay_ms = if warmup_state.is_in_warmup() {
                             config.warmup_inter_item_delay_ms
+                        } else if let Some(ref rx) = resource_profile_rx {
+                            rx.borrow().inter_item_delay_ms
                         } else {
                             config.inter_item_delay_ms
                         };

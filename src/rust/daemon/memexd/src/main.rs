@@ -13,7 +13,7 @@ use tokio::sync::{Notify, RwLock};
 use tracing::{debug, error, info, warn};
 
 use workspace_qdrant_core::{
-    config::{Config, DaemonConfig},
+    config::{Config, DaemonConfig, detect_physical_cores},
     LoggingConfig, initialize_logging,
     unified_config::{UnifiedConfigManager, UnifiedConfigError},
     ipc::IpcServer,
@@ -40,6 +40,8 @@ use workspace_qdrant_core::{
     metrics_history,
     // Remote URL change detection (Task 584)
     check_remote_url_changes,
+    // Adaptive resource management (idle/burst mode)
+    adaptive_resources::{AdaptiveResourceManager, AdaptiveResourceConfig},
 };
 
 // gRPC server for Python MCP server and CLI communication (Task 421)
@@ -882,6 +884,19 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     // Attach file type allowlist (Task 511)
     unified_queue_processor = unified_queue_processor.with_allowed_extensions(Arc::clone(&allowed_extensions));
 
+    // Start adaptive resource manager for dynamic CPU scaling (idle/burst mode)
+    let adaptive_shutdown_token = tokio_util::sync::CancellationToken::new();
+    let adaptive_config = AdaptiveResourceConfig::from_resource_limits(
+        config.resource_limits.max_concurrent_embeddings,
+        config.resource_limits.inter_item_delay_ms,
+        detect_physical_cores(),
+    );
+    let adaptive_manager = AdaptiveResourceManager::start(
+        adaptive_config,
+        adaptive_shutdown_token.clone(),
+    );
+    unified_queue_processor = unified_queue_processor.with_adaptive_resources(adaptive_manager.subscribe());
+
     // Attach queue health state for gRPC monitoring
     unified_queue_processor = unified_queue_processor.with_queue_health(Arc::clone(&queue_health));
 
@@ -972,6 +987,9 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     } else {
         info!("File watchers stopped");
     }
+
+    // Stop adaptive resource manager
+    adaptive_shutdown_token.cancel();
 
     // Stop unified queue processor for graceful shutdown
     // Note: Legacy QueueProcessor removed per Task 21 - all processing via unified_queue
