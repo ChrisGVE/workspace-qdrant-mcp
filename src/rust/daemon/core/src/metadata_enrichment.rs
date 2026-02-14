@@ -11,7 +11,7 @@
 //! - MEMORY: exact match "memory"
 //!
 //! Metadata Enrichment Rules:
-//! - PROJECT: project_id, branch, file_type
+//! - PROJECT: project_id, branch, file_type, extension, is_test
 //! - USER: project_id only (no branch)
 //! - LIBRARY: library_name (no project_id or branch)
 //! - MEMORY: global metadata only (no project_id or branch)
@@ -21,7 +21,7 @@ use std::path::{Path, PathBuf};
 use git2::Repository;
 use tracing::{debug, warn};
 
-use crate::file_classification::{classify_file_type};
+use crate::file_classification::{classify_file_type, get_extension_for_storage, is_test_file};
 use crate::watching_queue::{calculate_tenant_id, get_current_branch};
 
 /// Collection type enumeration for metadata enrichment
@@ -203,7 +203,7 @@ pub fn enrich_metadata(
 
     match collection_type {
         CollectionType::Project { project_id } => {
-            // PROJECT collections get: project_id, branch, file_type
+            // PROJECT collections get: project_id, branch, file_type, extension, is_test
             let project_root = find_project_root(file_path);
 
             // Add project_id (from collection name)
@@ -217,11 +217,20 @@ pub fn enrich_metadata(
             let file_type = classify_file_type(file_path);
             metadata.insert("file_type".to_string(), file_type.as_str().to_string());
 
+            // Add extension
+            if let Some(ext) = get_extension_for_storage(file_path) {
+                metadata.insert("extension".to_string(), ext);
+            }
+
+            // Add is_test
+            metadata.insert("is_test".to_string(), is_test_file(file_path).to_string());
+
             debug!(
-                "PROJECT collection metadata: project_id={}, branch={}, file_type={}",
+                "PROJECT collection metadata: project_id={}, branch={}, file_type={}, is_test={}",
                 metadata.get("project_id").unwrap(),
                 metadata.get("branch").unwrap(),
-                metadata.get("file_type").unwrap()
+                metadata.get("file_type").unwrap(),
+                metadata.get("is_test").unwrap()
             );
         }
 
@@ -386,6 +395,8 @@ mod tests {
         assert!(metadata.contains_key("branch"));
         assert_eq!(metadata.get("branch"), Some(&"main".to_string())); // No git repo
         assert_eq!(metadata.get("file_type"), Some(&"code".to_string()));
+        assert_eq!(metadata.get("extension"), Some(&"py".to_string()));
+        assert_eq!(metadata.get("is_test"), Some(&"false".to_string()));
     }
 
     #[test]
@@ -491,18 +502,23 @@ mod tests {
         fs::write(&py_file, "").unwrap();
         let metadata = enrich_metadata("_abc123def456", &py_file, None, None);
         assert_eq!(metadata.get("file_type"), Some(&"code".to_string()));
+        assert_eq!(metadata.get("extension"), Some(&"py".to_string()));
+        assert_eq!(metadata.get("is_test"), Some(&"false".to_string()));
 
         // Test file is still classified as "code" (test detection is separate)
         let test_file = temp_dir.path().join("test_main.py");
         fs::write(&test_file, "").unwrap();
         let metadata = enrich_metadata("_abc123def456", &test_file, None, None);
         assert_eq!(metadata.get("file_type"), Some(&"code".to_string()));
+        assert_eq!(metadata.get("is_test"), Some(&"true".to_string()));
 
         // Test text file (was "docs", now "text" for lightweight markup)
         let md_file = temp_dir.path().join("README.md");
         fs::write(&md_file, "").unwrap();
         let metadata = enrich_metadata("_abc123def456", &md_file, None, None);
         assert_eq!(metadata.get("file_type"), Some(&"text".to_string()));
+        assert_eq!(metadata.get("extension"), Some(&"md".to_string()));
+        assert_eq!(metadata.get("is_test"), Some(&"false".to_string()));
     }
 
     #[test]

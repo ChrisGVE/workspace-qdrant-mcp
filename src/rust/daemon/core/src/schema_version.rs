@@ -392,7 +392,9 @@ impl SchemaManager {
     async fn migrate_v8(&self) -> Result<(), SchemaError> {
         info!("Migration v8: Adding extension and is_test columns to tracked_files");
 
-        use super::tracked_files_schema::MIGRATE_V8_SQL;
+        use super::tracked_files_schema::MIGRATE_V8_ADD_COLUMNS_SQL;
+        use crate::file_classification::{get_extension_for_storage, is_test_file};
+        use std::path::Path;
 
         // Check if columns already exist (handles fresh installs that include them in CREATE TABLE)
         let has_extension: bool = sqlx::query_scalar(
@@ -402,7 +404,7 @@ impl SchemaManager {
         .await?;
 
         if !has_extension {
-            for alter_sql in MIGRATE_V8_SQL {
+            for alter_sql in MIGRATE_V8_ADD_COLUMNS_SQL {
                 debug!("Running ALTER TABLE: {}", alter_sql);
                 sqlx::query(alter_sql)
                     .execute(&self.pool)
@@ -410,6 +412,31 @@ impl SchemaManager {
             }
         } else {
             debug!("extension column already exists, skipping ALTER TABLE");
+        }
+
+        // Backfill extension and is_test for existing rows using Rust classification logic
+        let rows: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT rowid, file_path FROM tracked_files WHERE extension IS NULL"
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        if !rows.is_empty() {
+            info!("Backfilling extension and is_test for {} existing rows", rows.len());
+            for (rowid, file_path) in &rows {
+                let path = Path::new(file_path);
+                let extension = get_extension_for_storage(path);
+                let is_test = is_test_file(path);
+                sqlx::query(
+                    "UPDATE tracked_files SET extension = ?1, is_test = ?2 WHERE rowid = ?3"
+                )
+                .bind(extension.as_deref())
+                .bind(is_test as i32)
+                .bind(rowid)
+                .execute(&self.pool)
+                .await?;
+            }
+            info!("Backfill complete");
         }
 
         info!("Migration v8 complete");

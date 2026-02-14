@@ -284,7 +284,7 @@ pub const MIGRATE_V6_SQL: &str =
 // ---------------------------------------------------------------------------
 
 /// SQL statements for migration v8: add extension and is_test columns to tracked_files
-pub const MIGRATE_V8_SQL: &[&str] = &[
+pub const MIGRATE_V8_ADD_COLUMNS_SQL: &[&str] = &[
     "ALTER TABLE tracked_files ADD COLUMN extension TEXT",
     "ALTER TABLE tracked_files ADD COLUMN is_test INTEGER DEFAULT 0",
 ];

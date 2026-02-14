@@ -34,7 +34,7 @@ pub enum FileRoute {
 /// (e.g., `.md`, `.txt`, `.html`) stay in `projects` because they are typically
 /// project documentation meant to be searched alongside code.
 const LIBRARY_ROUTED_EXTENSIONS: &[&str] = &[
-    ".pdf", ".epub", ".djvu", ".docx", ".doc", ".rtf", ".odt",
+    ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt",
     ".mobi",
     ".pptx", ".ppt", ".pages", ".key", ".odp",
     ".xlsx", ".xls", ".ods", ".parquet",
@@ -136,7 +136,7 @@ impl Default for AllowedExtensions {
         // library_extensions = project_extensions ∪ library_only_extensions
         let library_only: HashSet<String> = [
             // Documents
-            ".pdf", ".epub", ".djvu", ".docx", ".doc", ".rtf", ".odt",
+            ".pdf", ".epub", ".docx", ".doc", ".rtf", ".odt",
             // Ebooks
             ".mobi",
             // Presentations
@@ -264,7 +264,7 @@ mod tests {
     fn test_default_has_common_library_extensions() {
         let ae = AllowedExtensions::default();
         // Library-only document formats
-        for ext in &[".pdf", ".epub", ".docx", ".djvu", ".mobi", ".parquet"] {
+        for ext in &[".pdf", ".epub", ".docx", ".mobi", ".parquet"] {
             assert!(
                 ae.library_extensions.contains(*ext),
                 "Expected library-only extension {} to be present",
@@ -410,7 +410,7 @@ mod tests {
     fn test_library_only_extensions_rejected_for_projects() {
         let ae = AllowedExtensions::default();
         // Document/reference formats should not be allowed in projects
-        for path in &["doc.pdf", "book.epub", "thesis.djvu", "report.docx",
+        for path in &["doc.pdf", "book.epub", "report.docx",
                        "novel.mobi", "slides.pptx", "data.parquet", "budget.xlsx"] {
             assert!(
                 !ae.is_allowed(path, "projects"),
