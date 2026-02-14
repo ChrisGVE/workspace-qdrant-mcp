@@ -348,6 +348,43 @@ pub enum DocumentType {
     Unknown,
 }
 
+impl DocumentType {
+    /// Return a clean lowercase string for storage in Qdrant payloads.
+    /// Unlike Debug format which produces `Code("rust")`, this returns `"code"`.
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::Pdf => "pdf",
+            Self::Epub => "epub",
+            Self::Docx => "docx",
+            Self::Pptx => "pptx",
+            Self::Odt => "odt",
+            Self::Odp => "odp",
+            Self::Ods => "ods",
+            Self::Rtf => "rtf",
+            Self::Doc => "doc",
+            Self::Ppt => "ppt",
+            Self::Xlsx => "xlsx",
+            Self::Xls => "xls",
+            Self::Csv => "csv",
+            Self::Jupyter => "jupyter",
+            Self::Pages => "pages",
+            Self::Key => "key",
+            Self::Text => "text",
+            Self::Markdown => "markdown",
+            Self::Code(_) => "code",
+            Self::Unknown => "unknown",
+        }
+    }
+
+    /// Return the language name for Code documents, None for other types.
+    pub fn language(&self) -> Option<&str> {
+        match self {
+            Self::Code(lang) => Some(lang.as_str()),
+            _ => None,
+        }
+    }
+}
+
 /// Text chunk with metadata
 #[derive(Debug, Clone)]
 pub struct TextChunk {
@@ -479,7 +516,16 @@ impl IngestionEngine {
             payload.insert("file_path".to_string(), serde_json::json!(path_str));
             payload.insert("document_id".to_string(), serde_json::json!(document_id));
             payload.insert("tenant_id".to_string(), serde_json::json!(collection));
-            payload.insert("document_type".to_string(), serde_json::json!(format!("{:?}", content.document_type)));
+            payload.insert("document_type".to_string(), serde_json::json!(content.document_type.as_str()));
+            if let Some(lang) = content.document_type.language() {
+                payload.insert("language".to_string(), serde_json::json!(lang));
+            }
+            if let Some(ext) = std::path::Path::new(&*path_str)
+                .extension()
+                .and_then(|e| e.to_str())
+            {
+                payload.insert("file_extension".to_string(), serde_json::json!(ext));
+            }
             payload.insert("item_type".to_string(), serde_json::json!("file"));
 
             // Include chunk metadata (symbol_name, start_line, etc.)
@@ -681,5 +727,39 @@ mod tests {
         let id1 = generate_document_id("tenant", "/home/user/dir");
         let id2 = generate_document_id("tenant", "/home/user/dir/");
         assert_eq!(id1, id2, "Trailing slash should not affect document_id");
+    }
+
+    #[test]
+    fn test_document_type_as_str() {
+        assert_eq!(DocumentType::Pdf.as_str(), "pdf");
+        assert_eq!(DocumentType::Epub.as_str(), "epub");
+        assert_eq!(DocumentType::Docx.as_str(), "docx");
+        assert_eq!(DocumentType::Pptx.as_str(), "pptx");
+        assert_eq!(DocumentType::Odt.as_str(), "odt");
+        assert_eq!(DocumentType::Odp.as_str(), "odp");
+        assert_eq!(DocumentType::Ods.as_str(), "ods");
+        assert_eq!(DocumentType::Rtf.as_str(), "rtf");
+        assert_eq!(DocumentType::Doc.as_str(), "doc");
+        assert_eq!(DocumentType::Ppt.as_str(), "ppt");
+        assert_eq!(DocumentType::Xlsx.as_str(), "xlsx");
+        assert_eq!(DocumentType::Xls.as_str(), "xls");
+        assert_eq!(DocumentType::Csv.as_str(), "csv");
+        assert_eq!(DocumentType::Jupyter.as_str(), "jupyter");
+        assert_eq!(DocumentType::Pages.as_str(), "pages");
+        assert_eq!(DocumentType::Key.as_str(), "key");
+        assert_eq!(DocumentType::Text.as_str(), "text");
+        assert_eq!(DocumentType::Markdown.as_str(), "markdown");
+        assert_eq!(DocumentType::Code("rust".to_string()).as_str(), "code");
+        assert_eq!(DocumentType::Unknown.as_str(), "unknown");
+    }
+
+    #[test]
+    fn test_document_type_language() {
+        assert_eq!(DocumentType::Code("rust".to_string()).language(), Some("rust"));
+        assert_eq!(DocumentType::Code("python".to_string()).language(), Some("python"));
+        assert_eq!(DocumentType::Pdf.language(), None);
+        assert_eq!(DocumentType::Text.language(), None);
+        assert_eq!(DocumentType::Markdown.language(), None);
+        assert_eq!(DocumentType::Unknown.language(), None);
     }
 }

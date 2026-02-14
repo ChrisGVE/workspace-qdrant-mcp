@@ -1307,8 +1307,18 @@ impl UnifiedQueueProcessor {
             point_payload.insert("branch".to_string(), serde_json::json!(item.branch));
             point_payload.insert(
                 "document_type".to_string(),
-                serde_json::json!(format!("{:?}", document_content.document_type)),
+                serde_json::json!(document_content.document_type.as_str()),
             );
+            if let Some(lang) = document_content.document_type.language() {
+                point_payload.insert("language".to_string(), serde_json::json!(lang));
+            }
+            // Add file extension as metadata (e.g., "rs", "py", "md")
+            if let Some(ext) = std::path::Path::new(&payload.file_path)
+                .extension()
+                .and_then(|e| e.to_str())
+            {
+                point_payload.insert("file_extension".to_string(), serde_json::json!(ext));
+            }
             point_payload.insert("item_type".to_string(), serde_json::json!("file"));
 
             if let Some(file_type) = &payload.file_type {
