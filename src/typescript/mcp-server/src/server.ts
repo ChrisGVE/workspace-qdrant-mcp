@@ -37,8 +37,8 @@ import { StoreTool } from './tools/store.js';
 import type { ServerConfig } from './types/index.js';
 import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD, PRIORITY_HIGH } from './common/native-bridge.js';
 
-// Heartbeat interval: 3 hours (in milliseconds)
-const HEARTBEAT_INTERVAL_MS = 3 * 60 * 60 * 1000;
+// Heartbeat interval: 1 hour (in milliseconds)
+const HEARTBEAT_INTERVAL_MS = 1 * 60 * 60 * 1000;
 
 // Server name and version for MCP protocol
 import { BUILD_NUMBER } from './build-info.js';
@@ -403,6 +403,11 @@ export class WorkspaceQdrantMcpServer {
     args: Record<string, unknown> | undefined
   ): Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }> {
     const startTime = Date.now();
+
+    // Implicit heartbeat on every tool invocation — keeps the project active
+    // while the LLM is actively using tools, without waiting for the interval.
+    // Fire-and-forget to avoid adding latency to tool calls.
+    this.sendHeartbeat();
 
     try {
       let result: unknown;
