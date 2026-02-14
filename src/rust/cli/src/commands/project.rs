@@ -55,16 +55,16 @@ enum ProjectCommand {
         yes: bool,
     },
 
-    /// Show detailed project info
+    /// Show detailed project info (auto-detects from CWD if project omitted)
     Info {
-        /// Project ID or path
-        project: String,
+        /// Project ID or path (auto-detected from current directory if omitted)
+        project: Option<String>,
     },
 
-    /// Delete a project and its data
+    /// Delete a project and its data (auto-detects from CWD if project omitted)
     Delete {
-        /// Project ID or path
-        project: String,
+        /// Project ID or path (auto-detected from current directory if omitted)
+        project: Option<String>,
 
         /// Skip confirmation prompt
         #[arg(short = 'y', long)]
@@ -75,26 +75,26 @@ enum ProjectCommand {
         keep_data: bool,
     },
 
-    /// Set project priority level
+    /// Set project priority level (auto-detects from CWD if project omitted)
     Priority {
-        /// Project ID or path
-        project: String,
+        /// Project ID or path (auto-detected from current directory if omitted)
+        project: Option<String>,
 
         /// Priority level
         #[arg(value_parser = ["high", "normal"])]
         level: String,
     },
 
-    /// Activate a project (set to high priority with LSP)
+    /// Activate a project (auto-detects from CWD if project omitted)
     Activate {
-        /// Project ID or path
-        project: String,
+        /// Project ID or path (auto-detected from current directory if omitted)
+        project: Option<String>,
     },
 
-    /// Deactivate a project (set to normal priority)
+    /// Deactivate a project (auto-detects from CWD if project omitted)
     Deactivate {
-        /// Project ID or path
-        project: String,
+        /// Project ID or path (auto-detected from current directory if omitted)
+        project: Option<String>,
     },
 
     /// Branch management
@@ -126,13 +126,13 @@ pub async fn execute(args: ProjectArgs) -> Result<()> {
         ProjectCommand::List { active, priority } => list_projects(active, priority).await,
         ProjectCommand::Status { path } => project_status(path).await,
         ProjectCommand::Register { path, name, yes } => register_project(path, name, yes).await,
-        ProjectCommand::Info { project } => project_info(&project).await,
+        ProjectCommand::Info { project } => project_info(project.as_deref()).await,
         ProjectCommand::Delete { project, yes, keep_data } => {
-            delete_project(&project, yes, !keep_data).await
+            delete_project(project.as_deref(), yes, !keep_data).await
         }
-        ProjectCommand::Priority { project, level } => set_priority(&project, &level).await,
-        ProjectCommand::Activate { project } => activate_project(&project).await,
-        ProjectCommand::Deactivate { project } => deactivate_project(&project).await,
+        ProjectCommand::Priority { project, level } => set_priority(project.as_deref(), &level).await,
+        ProjectCommand::Activate { project } => activate_project(project.as_deref()).await,
+        ProjectCommand::Deactivate { project } => deactivate_project(project.as_deref()).await,
         ProjectCommand::Branch { action } => branch_command(action).await,
     }
 }
@@ -150,6 +150,37 @@ fn resolve_project_id(project: &str) -> String {
         }
     } else {
         project.to_string()
+    }
+}
+
+/// Resolve an optional project argument to a project_id.
+///
+/// If `project` is Some, delegates to `resolve_project_id`. If None,
+/// auto-detects the project from the current working directory by looking up
+/// registered projects in SQLite.
+fn resolve_project_id_or_cwd(project: Option<&str>) -> Result<String> {
+    if let Some(p) = project {
+        return Ok(resolve_project_id(p));
+    }
+
+    // Auto-detect from CWD
+    let cwd = std::env::current_dir()
+        .context("Could not determine current directory")?;
+
+    let db_path = crate::config::get_database_path_checked()
+        .map_err(|e| anyhow::anyhow!("Database not found: {}", e))?;
+
+    match wqm_common::project_id::resolve_path_to_project(&db_path, &cwd) {
+        Some((tenant_id, _path)) => {
+            output::info(format!("Auto-detected project: {}", tenant_id));
+            Ok(tenant_id)
+        }
+        None => {
+            anyhow::bail!(
+                "Could not detect project from current directory.\n\
+                 Run from within a registered project directory, or pass a project ID explicitly."
+            );
+        }
     }
 }
 
@@ -333,8 +364,8 @@ async fn register_project(path: Option<PathBuf>, name: Option<String>, yes: bool
     Ok(())
 }
 
-async fn delete_project(project: &str, yes: bool, delete_qdrant_data: bool) -> Result<()> {
-    let project_id = resolve_project_id(project);
+async fn delete_project(project: Option<&str>, yes: bool, delete_qdrant_data: bool) -> Result<()> {
+    let project_id = resolve_project_id_or_cwd(project)?;
 
     output::section("Delete Project");
     output::kv("Project ID", &project_id);
@@ -376,8 +407,8 @@ async fn delete_project(project: &str, yes: bool, delete_qdrant_data: bool) -> R
     Ok(())
 }
 
-async fn set_priority(project: &str, level: &str) -> Result<()> {
-    let project_id = resolve_project_id(project);
+async fn set_priority(project: Option<&str>, level: &str) -> Result<()> {
+    let project_id = resolve_project_id_or_cwd(project)?;
 
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
@@ -412,8 +443,8 @@ async fn set_priority(project: &str, level: &str) -> Result<()> {
     Ok(())
 }
 
-async fn activate_project(project: &str) -> Result<()> {
-    let project_id = resolve_project_id(project);
+async fn activate_project(project: Option<&str>) -> Result<()> {
+    let project_id = resolve_project_id_or_cwd(project)?;
 
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
@@ -453,8 +484,8 @@ async fn activate_project(project: &str) -> Result<()> {
     Ok(())
 }
 
-async fn deactivate_project(project: &str) -> Result<()> {
-    let project_id = resolve_project_id(project);
+async fn deactivate_project(project: Option<&str>) -> Result<()> {
+    let project_id = resolve_project_id_or_cwd(project)?;
 
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
@@ -488,10 +519,10 @@ async fn deactivate_project(project: &str) -> Result<()> {
     Ok(())
 }
 
-async fn project_info(project: &str) -> Result<()> {
-    output::section(format!("Project Info: {}", project));
+async fn project_info(project: Option<&str>) -> Result<()> {
+    let project_id = resolve_project_id_or_cwd(project)?;
 
-    let project_id = resolve_project_id(project);
+    output::section(format!("Project Info: {}", project_id));
 
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
