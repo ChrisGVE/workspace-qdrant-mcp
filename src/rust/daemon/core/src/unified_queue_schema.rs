@@ -14,7 +14,7 @@ pub use wqm_common::queue_types::{ItemType, QueueOperation, QueueStatus};
 pub use wqm_common::payloads::{
     ContentPayload, FilePayload, FolderPayload, ProjectPayload,
     LibraryPayload, DeleteTenantPayload, DeleteDocumentPayload,
-    MemoryPayload, RenamePayload, RenameType, UrlPayload, ScratchpadPayload,
+    MemoryPayload, UrlPayload, ScratchpadPayload, WebsitePayload, CollectionPayload,
 };
 
 /// Complete unified queue item representation
@@ -112,13 +112,18 @@ impl UnifiedQueueItem {
         serde_json::from_str(&self.payload_json)
     }
 
-    /// Parse the payload JSON into a RenamePayload
-    pub fn parse_rename_payload(&self) -> Result<RenamePayload, serde_json::Error> {
+    /// Parse the payload JSON into a UrlPayload
+    pub fn parse_url_payload(&self) -> Result<UrlPayload, serde_json::Error> {
         serde_json::from_str(&self.payload_json)
     }
 
-    /// Parse the payload JSON into a UrlPayload
-    pub fn parse_url_payload(&self) -> Result<UrlPayload, serde_json::Error> {
+    /// Parse the payload JSON into a WebsitePayload
+    pub fn parse_website_payload(&self) -> Result<WebsitePayload, serde_json::Error> {
+        serde_json::from_str(&self.payload_json)
+    }
+
+    /// Parse the payload JSON into a CollectionPayload
+    pub fn parse_collection_payload(&self) -> Result<CollectionPayload, serde_json::Error> {
         serde_json::from_str(&self.payload_json)
     }
 
@@ -205,10 +210,9 @@ pub const CREATE_UNIFIED_QUEUE_SQL: &str = r#"
 CREATE TABLE IF NOT EXISTS unified_queue (
     queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
     item_type TEXT NOT NULL CHECK (item_type IN (
-        'content', 'file', 'folder', 'project', 'library',
-        'delete_tenant', 'delete_document', 'rename', 'url'
+        'text', 'file', 'url', 'website', 'doc', 'folder', 'tenant', 'collection'
     )),
-    op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
+    op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
     tenant_id TEXT NOT NULL,
     collection TEXT NOT NULL,
     -- UNUSED: priority is computed at dequeue time, not stored. Always set to 0.
@@ -264,36 +268,39 @@ mod tests {
 
     #[test]
     fn test_item_type_display() {
-        assert_eq!(ItemType::Content.to_string(), "content");
-        assert_eq!(ItemType::DeleteTenant.to_string(), "delete_tenant");
+        assert_eq!(ItemType::Text.to_string(), "text");
+        assert_eq!(ItemType::Tenant.to_string(), "tenant");
     }
 
     #[test]
     fn test_item_type_from_str() {
-        assert_eq!(ItemType::from_str("content"), Some(ItemType::Content));
-        assert_eq!(ItemType::from_str("delete_tenant"), Some(ItemType::DeleteTenant));
+        assert_eq!(ItemType::from_str("text"), Some(ItemType::Text));
+        assert_eq!(ItemType::from_str("tenant"), Some(ItemType::Tenant));
+        // Legacy values still work
+        assert_eq!(ItemType::from_str("content"), Some(ItemType::Text));
+        assert_eq!(ItemType::from_str("delete_tenant"), Some(ItemType::Tenant));
         assert_eq!(ItemType::from_str("invalid"), None);
     }
 
     #[test]
     fn test_operation_validity() {
-        // Content can be ingested, updated, deleted
-        assert!(QueueOperation::Ingest.is_valid_for(ItemType::Content));
-        assert!(QueueOperation::Update.is_valid_for(ItemType::Content));
-        assert!(QueueOperation::Delete.is_valid_for(ItemType::Content));
-        assert!(!QueueOperation::Scan.is_valid_for(ItemType::Content));
+        // Text: add, update, delete, uplift
+        assert!(QueueOperation::Add.is_valid_for(ItemType::Text));
+        assert!(QueueOperation::Update.is_valid_for(ItemType::Text));
+        assert!(QueueOperation::Delete.is_valid_for(ItemType::Text));
+        assert!(!QueueOperation::Scan.is_valid_for(ItemType::Text));
 
-        // Folder cannot be updated
+        // Folder: delete, scan, rename
         assert!(!QueueOperation::Update.is_valid_for(ItemType::Folder));
         assert!(QueueOperation::Scan.is_valid_for(ItemType::Folder));
 
-        // DeleteTenant can only delete
-        assert!(!QueueOperation::Ingest.is_valid_for(ItemType::DeleteTenant));
-        assert!(QueueOperation::Delete.is_valid_for(ItemType::DeleteTenant));
+        // Tenant: add, update, delete, scan, rename, uplift
+        assert!(QueueOperation::Add.is_valid_for(ItemType::Tenant));
+        assert!(QueueOperation::Delete.is_valid_for(ItemType::Tenant));
 
-        // Rename can only update
-        assert!(QueueOperation::Update.is_valid_for(ItemType::Rename));
-        assert!(!QueueOperation::Ingest.is_valid_for(ItemType::Rename));
+        // File: add, update, delete, rename, uplift
+        assert!(QueueOperation::Rename.is_valid_for(ItemType::File));
+        assert!(!QueueOperation::Rename.is_valid_for(ItemType::Text));
     }
 
     #[test]
@@ -328,36 +335,32 @@ mod tests {
     fn test_unified_idempotency_key_generation() {
         let key1 = generate_unified_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             "proj_abc123",
             "my-project-code",
             r#"{"file_path":"/path/to/file.rs"}"#,
         ).unwrap();
 
-        // Key should be exactly 32 hex characters
         assert_eq!(key1.len(), 32);
 
-        // Same inputs should produce same key
         let key2 = generate_unified_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             "proj_abc123",
             "my-project-code",
             r#"{"file_path":"/path/to/file.rs"}"#,
         ).unwrap();
         assert_eq!(key1, key2);
 
-        // Different inputs should produce different key
         let key3 = generate_unified_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             "proj_abc123",
             "my-project-code",
             r#"{"file_path":"/path/to/other.rs"}"#,
         ).unwrap();
         assert_ne!(key1, key3);
 
-        // Different operation should produce different key
         let key4 = generate_unified_idempotency_key(
             ItemType::File,
             QueueOperation::Update,
@@ -370,30 +373,27 @@ mod tests {
 
     #[test]
     fn test_unified_idempotency_key_validation() {
-        // Empty tenant_id should fail
         let result = generate_unified_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
-            "",  // Empty tenant_id
+            QueueOperation::Add,
+            "",
             "my-collection",
             "{}",
         );
         assert_eq!(result, Err(IdempotencyKeyError::EmptyTenantId));
 
-        // Empty collection should fail
         let result = generate_unified_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             "proj_abc123",
-            "",  // Empty collection
+            "",
             "{}",
         );
         assert_eq!(result, Err(IdempotencyKeyError::EmptyCollection));
 
-        // Invalid operation for type should fail
         let result = generate_unified_idempotency_key(
-            ItemType::DeleteTenant,
-            QueueOperation::Ingest,  // DeleteTenant only supports Delete
+            ItemType::Collection,
+            QueueOperation::Add,
             "proj_abc123",
             "my-collection",
             "{}",
@@ -403,24 +403,15 @@ mod tests {
 
     #[test]
     fn test_unified_idempotency_key_cross_language_compatibility() {
-        // This test vector should produce the same hash in both Rust and Python
-        // Input: "file|ingest|proj_abc123|my-project-code|{}"
         let key = generate_unified_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             "proj_abc123",
             "my-project-code",
             "{}",
         ).unwrap();
 
-        // Verify the key is valid hex
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
         assert_eq!(key.len(), 32);
-
-        // The actual hash value for cross-language testing
-        // Python should produce the same result with:
-        // hashlib.sha256(b"file|ingest|proj_abc123|my-project-code|{}").hexdigest()[:32]
-        // Expected: "0e6c3a8f7b8e4f2c9a1d5e7f3b6c8d9e" (placeholder - actual value computed at runtime)
-        println!("Cross-language test key: {}", key);
     }
 }

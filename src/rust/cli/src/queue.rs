@@ -78,8 +78,8 @@ impl UnifiedQueueClient {
             .context("Failed to serialize content payload")?;
 
         self.enqueue(
-            ItemType::Content,
-            QueueOperation::Ingest,
+            ItemType::Text,
+            QueueOperation::Add,
             tenant_id,
             collection,
             &payload_json,
@@ -128,7 +128,7 @@ impl UnifiedQueueClient {
 
         self.enqueue(
             ItemType::Url,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             tenant_id,
             collection,
             &payload_json,
@@ -149,8 +149,8 @@ impl UnifiedQueueClient {
             .context("Failed to serialize scratchpad payload")?;
 
         self.enqueue(
-            ItemType::Content,
-            QueueOperation::Ingest,
+            ItemType::Text,
+            QueueOperation::Add,
             tenant_id,
             wqm_common::constants::COLLECTION_SCRATCHPAD,
             &payload_json,
@@ -313,8 +313,8 @@ mod tests {
     fn test_idempotency_key_generation() {
         // Use the canonical wqm-common implementation
         let key = wqm_common::hashing::generate_idempotency_key(
-            ItemType::Content,
-            QueueOperation::Ingest,
+            ItemType::Text,
+            QueueOperation::Add,
             "test-tenant",
             "test-collection",
             r#"{"content":"hello"}"#,
@@ -325,8 +325,8 @@ mod tests {
 
         // Same input should produce same key
         let key2 = wqm_common::hashing::generate_idempotency_key(
-            ItemType::Content,
-            QueueOperation::Ingest,
+            ItemType::Text,
+            QueueOperation::Add,
             "test-tenant",
             "test-collection",
             r#"{"content":"hello"}"#,
@@ -335,8 +335,8 @@ mod tests {
 
         // Different input should produce different key
         let key3 = wqm_common::hashing::generate_idempotency_key(
-            ItemType::Content,
-            QueueOperation::Ingest,
+            ItemType::Text,
+            QueueOperation::Add,
             "test-tenant",
             "test-collection",
             r#"{"content":"world"}"#,
@@ -361,14 +361,14 @@ mod tests {
 
     #[test]
     fn test_item_type_display() {
-        assert_eq!(ItemType::Content.to_string(), "content");
+        assert_eq!(ItemType::Text.to_string(), "text");
         assert_eq!(ItemType::File.to_string(), "file");
-        assert_eq!(ItemType::Project.to_string(), "project");
+        assert_eq!(ItemType::Tenant.to_string(), "tenant");
     }
 
     #[test]
     fn test_queue_operation_display() {
-        assert_eq!(QueueOperation::Ingest.to_string(), "ingest");
+        assert_eq!(QueueOperation::Add.to_string(), "add");
         assert_eq!(QueueOperation::Update.to_string(), "update");
         assert_eq!(QueueOperation::Delete.to_string(), "delete");
     }

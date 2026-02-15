@@ -276,15 +276,14 @@ fn test_item_types_are_distinct() {
 
     // Verify all item types are distinct
     let types: Vec<ItemType> = vec![
-        ItemType::Content,
+        ItemType::Text,
         ItemType::File,
-        ItemType::Folder,
-        ItemType::Project,
-        ItemType::Library,
         ItemType::Url,
-        ItemType::DeleteTenant,
-        ItemType::DeleteDocument,
-        ItemType::Rename,
+        ItemType::Website,
+        ItemType::Doc,
+        ItemType::Folder,
+        ItemType::Tenant,
+        ItemType::Collection,
     ];
 
     for (i, t1) in types.iter().enumerate() {

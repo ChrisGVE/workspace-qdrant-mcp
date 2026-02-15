@@ -693,12 +693,13 @@ impl ProjectService for ProjectServiceImpl {
                 project_root: req.path.clone(),
                 git_remote: req.git_remote.clone(),
                 project_type: None,
+                old_tenant_id: None,
             };
             let payload_json = serde_json::to_string(&payload)
                 .unwrap_or_else(|_| format!(r#"{{"project_root":"{}"}}"#, req.path));
 
             match queue_manager.enqueue_unified(
-                ItemType::Project,
+                ItemType::Tenant,
                 UnifiedQueueOp::Scan,
                 &project_id,
                 "projects",
@@ -1847,10 +1848,10 @@ mod tests {
         // Insert some pending queue items
         sqlx::query(r#"
             INSERT INTO unified_queue (queue_id, idempotency_key, item_type, op, tenant_id, collection, status, created_at, updated_at)
-            VALUES ('q1', 'key1', 'file', 'ingest', 'test123456ab', 'test-code', 'pending', ?1, ?1),
-                   ('q2', 'key2', 'file', 'ingest', 'test123456ab', 'test-code', 'pending', ?1, ?1),
-                   ('q3', 'key3', 'file', 'ingest', 'other1234567', 'test-code', 'pending', ?1, ?1),
-                   ('q4', 'key4', 'file', 'ingest', 'test123456ab', 'test-code', 'done', ?1, ?1)
+            VALUES ('q1', 'key1', 'file', 'add', 'test123456ab', 'test-code', 'pending', ?1, ?1),
+                   ('q2', 'key2', 'file', 'add', 'test123456ab', 'test-code', 'pending', ?1, ?1),
+                   ('q3', 'key3', 'file', 'add', 'other1234567', 'test-code', 'pending', ?1, ?1),
+                   ('q4', 'key4', 'file', 'add', 'test123456ab', 'test-code', 'done', ?1, ?1)
         "#)
             .bind(&now)
             .execute(&pool)
@@ -2000,7 +2001,7 @@ mod tests {
         // Add pending queue item
         sqlx::query(r#"
             INSERT INTO unified_queue (queue_id, idempotency_key, item_type, op, tenant_id, collection, status, created_at, updated_at)
-            VALUES ('q1', 'key1', 'file', 'ingest', 'abcd12345678', 'test-code', 'pending', ?1, ?1)
+            VALUES ('q1', 'key1', 'file', 'add', 'abcd12345678', 'test-code', 'pending', ?1, ?1)
         "#)
             .bind(&now)
             .execute(&pool)

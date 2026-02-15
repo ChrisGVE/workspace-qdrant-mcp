@@ -771,7 +771,7 @@ mod tests {
         sqlx::query(
             r#"INSERT INTO unified_queue (
                 queue_id, item_type, op, tenant_id, collection, priority, status, branch, idempotency_key, payload_json
-            ) VALUES (?1, 'file', 'ingest', 'abcd12345678', 'projects', ?2, 'pending', 'main', ?3, '{}')"#,
+            ) VALUES (?1, 'file', 'add', 'abcd12345678', 'projects', ?2, 'pending', 'main', ?3, '{}')"#,
         )
         .bind(&queue_id)
         .bind(priority::NORMAL)

@@ -564,7 +564,7 @@ async fn remove(tag: &str, skip_confirm: bool) -> Result<()> {
     match UnifiedQueueClient::connect() {
         Ok(client) => {
             match client.enqueue(
-                ItemType::DeleteTenant,
+                ItemType::Tenant,
                 QueueOperation::Delete,
                 tag,            // tenant_id
                 collection,     // collection

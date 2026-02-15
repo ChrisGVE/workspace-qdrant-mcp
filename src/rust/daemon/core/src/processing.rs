@@ -1865,6 +1865,7 @@ impl TaskSubmitter {
                     file_type: None,
                     file_hash: None,
                     size_bytes: None,
+                    old_path: None,
                 };
 
                 let payload_json = serde_json::to_string(&file_payload)
@@ -1880,7 +1881,7 @@ impl TaskSubmitter {
 
                 queue_manager.enqueue_unified(
                     ItemType::File,
-                    UnifiedOp::Ingest,
+                    UnifiedOp::Add,
                     &tenant_id,
                     collection,
                     &payload_json,
@@ -3683,7 +3684,7 @@ mod tests {
         .expect("Should have one spilled item");
 
         assert_eq!(row.0, "file");
-        assert_eq!(row.1, "ingest");
+        assert_eq!(row.1, "add");
         assert_eq!(row.2, "projects");
         assert_eq!(row.3, "pending");
 

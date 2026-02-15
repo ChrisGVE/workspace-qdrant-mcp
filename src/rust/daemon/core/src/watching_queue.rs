@@ -830,7 +830,7 @@ impl FileWatcherQueue {
     /// Determine operation type based on event and file state
     fn determine_operation_type(event_kind: EventKind, file_path: &Path) -> UnifiedOp {
         match event_kind {
-            EventKind::Create(_) => UnifiedOp::Ingest,
+            EventKind::Create(_) => UnifiedOp::Add,
             EventKind::Remove(_) => UnifiedOp::Delete,
             EventKind::Modify(_) => {
                 // Check if file still exists
@@ -1016,6 +1016,7 @@ impl FileWatcherQueue {
             file_type: Some(file_type.as_str().to_string()),
             file_hash: None,  // Hash computed during processing if needed
             size_bytes: event.path.metadata().ok().map(|m| m.len()),
+            old_path: None,
         };
         let payload_json = serde_json::to_string(&file_payload).unwrap_or_else(|_| "{}".to_string());
 

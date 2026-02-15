@@ -26,10 +26,9 @@ async fn create_test_database() -> SqlitePool {
         CREATE TABLE unified_queue (
             queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
             item_type TEXT NOT NULL CHECK (item_type IN (
-                'content', 'file', 'folder', 'project', 'library',
-                'delete_tenant', 'delete_document', 'rename'
+                'text', 'file', 'url', 'website', 'doc', 'folder', 'tenant', 'collection'
             )),
-            op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
+            op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
             tenant_id TEXT NOT NULL,
             collection TEXT NOT NULL,
             priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
@@ -191,13 +190,14 @@ async fn test_unified_queue_enqueue_operation() {
         file_type: Some("text".to_string()),
         file_hash: None,
         size_bytes: Some(100),
+        old_path: None,
     };
     let payload_json = serde_json::to_string(&payload).unwrap();
 
     // Test unified queue operations
     let result = queue_manager.enqueue_unified(
         ItemType::File,
-        UnifiedOp::Ingest,
+        UnifiedOp::Add,
         "test-tenant",
         "projects",
         &payload_json,
@@ -232,7 +232,7 @@ async fn test_unified_queue_enqueue_operation() {
     let tenant_id: String = row.try_get("tenant_id").expect("Failed to get tenant_id");
 
     assert_eq!(item_type, "file");
-    assert_eq!(op, "ingest");
+    assert_eq!(op, "add");
     assert_eq!(priority, 0);  // Priority is always 0 (computed dynamically at dequeue time)
     assert_eq!(tenant_id, "test-tenant");
 }
@@ -249,10 +249,11 @@ async fn test_unified_queue_priority_always_zero() {
         file_type: Some("text".to_string()),
         file_hash: None,
         size_bytes: None,
+        old_path: None,
     };
     queue_manager.enqueue_unified(
         ItemType::File,
-        UnifiedOp::Ingest,
+        UnifiedOp::Add,
         "tenant",
         "projects",
         &serde_json::to_string(&payload1).unwrap(),
@@ -266,6 +267,7 @@ async fn test_unified_queue_priority_always_zero() {
         file_type: Some("text".to_string()),
         file_hash: None,
         size_bytes: None,
+        old_path: None,
     };
     queue_manager.enqueue_unified(
         ItemType::File,
@@ -283,6 +285,7 @@ async fn test_unified_queue_priority_always_zero() {
         file_type: Some("text".to_string()),
         file_hash: None,
         size_bytes: None,
+        old_path: None,
     };
     queue_manager.enqueue_unified(
         ItemType::File,
@@ -320,13 +323,14 @@ async fn test_unified_queue_idempotency() {
         file_type: Some("text".to_string()),
         file_hash: None,
         size_bytes: None,
+        old_path: None,
     };
     let payload_json = serde_json::to_string(&payload).unwrap();
 
     // First enqueue
     let (queue_id1, is_new1) = queue_manager.enqueue_unified(
         ItemType::File,
-        UnifiedOp::Ingest,
+        UnifiedOp::Add,
         "tenant",
         "projects",
         &payload_json,
@@ -340,7 +344,7 @@ async fn test_unified_queue_idempotency() {
     // Second enqueue with same payload (should be idempotent)
     let (queue_id2, is_new2) = queue_manager.enqueue_unified(
         ItemType::File,
-        UnifiedOp::Ingest,
+        UnifiedOp::Add,
         "tenant",
         "projects",
         &payload_json,

@@ -164,10 +164,9 @@ async fn setup_test_db() -> (sqlx::SqlitePool, TempDir) {
         CREATE TABLE IF NOT EXISTS unified_queue (
             queue_id TEXT PRIMARY KEY NOT NULL DEFAULT (lower(hex(randomblob(16)))),
             item_type TEXT NOT NULL CHECK (item_type IN (
-                'content', 'file', 'folder', 'project', 'library',
-                'delete_tenant', 'delete_document', 'rename'
+                'text', 'file', 'url', 'website', 'doc', 'folder', 'tenant', 'collection'
             )),
-            op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
+            op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
             tenant_id TEXT NOT NULL,
             collection TEXT NOT NULL,
             priority INTEGER NOT NULL DEFAULT 5 CHECK (priority >= 0 AND priority <= 10),
@@ -319,13 +318,14 @@ async fn stress_test_high_volume_ingestion() -> TestResult {
             file_type: Some("text".to_string()),
             file_hash: None,
             size_bytes: file_size,
+            old_path: None,
         };
         let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
 
         queue_manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "stress_tenant",
                 "stress_test_collection",
                 &payload_json,
@@ -806,13 +806,14 @@ async fn stress_test_queue_depth() -> TestResult {
             file_type: Some("text".to_string()),
             file_hash: None,
             size_bytes: Some(5 * 1024),
+            old_path: None,
         };
         let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
 
         queue_manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "tenant",
                 "queue_depth_test",
                 &payload_json,

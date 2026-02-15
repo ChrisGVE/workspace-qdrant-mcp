@@ -258,7 +258,7 @@ mod tests {
         sqlx::query(
             "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
              idempotency_key, worker_id, lease_until) \
-             VALUES ('q1', 'file', 'ingest', 't1', 'projects', 'in_progress', \
+             VALUES ('q1', 'file', 'add', 't1', 'projects', 'in_progress', \
              'key1', 'worker-old', '2025-01-01T00:00:00Z')"
         )
         .execute(&pool)
@@ -268,7 +268,7 @@ mod tests {
         sqlx::query(
             "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
              idempotency_key, worker_id, lease_until) \
-             VALUES ('q2', 'file', 'ingest', 't1', 'projects', 'in_progress', \
+             VALUES ('q2', 'file', 'add', 't1', 'projects', 'in_progress', \
              'key2', 'worker-old', '2025-01-01T00:00:00Z')"
         )
         .execute(&pool)
@@ -279,7 +279,7 @@ mod tests {
         sqlx::query(
             "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
              idempotency_key) \
-             VALUES ('q3', 'file', 'ingest', 't1', 'projects', 'pending', 'key3')"
+             VALUES ('q3', 'file', 'add', 't1', 'projects', 'pending', 'key3')"
         )
         .execute(&pool)
         .await
@@ -321,7 +321,7 @@ mod tests {
         sqlx::query(
             "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
              idempotency_key, updated_at) \
-             VALUES ('q_old_done', 'file', 'ingest', 't1', 'projects', 'done', \
+             VALUES ('q_old_done', 'file', 'add', 't1', 'projects', 'done', \
              'key_old_done', '2020-01-01T00:00:00Z')"
         )
         .execute(&pool)
@@ -332,7 +332,7 @@ mod tests {
         sqlx::query(
             "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
              idempotency_key, updated_at) \
-             VALUES ('q_old_fail', 'file', 'ingest', 't1', 'projects', 'failed', \
+             VALUES ('q_old_fail', 'file', 'add', 't1', 'projects', 'failed', \
              'key_old_fail', '2020-01-01T00:00:00Z')"
         )
         .execute(&pool)
@@ -343,7 +343,7 @@ mod tests {
         sqlx::query(
             "INSERT INTO unified_queue (queue_id, item_type, op, tenant_id, collection, status, \
              idempotency_key) \
-             VALUES ('q_recent_done', 'file', 'ingest', 't1', 'projects', 'done', 'key_recent')"
+             VALUES ('q_recent_done', 'file', 'add', 't1', 'projects', 'done', 'key_recent')"
         )
         .execute(&pool)
         .await

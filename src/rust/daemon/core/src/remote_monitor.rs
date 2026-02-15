@@ -519,7 +519,7 @@ mod tests {
 
         // Verify cascade rename was enqueued
         let count: i32 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM unified_queue WHERE item_type = 'rename'"
+            "SELECT COUNT(*) FROM unified_queue WHERE item_type = 'tenant' AND op = 'rename'"
         )
         .fetch_one(&pool)
         .await

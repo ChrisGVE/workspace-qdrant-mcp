@@ -397,7 +397,7 @@ async fn recover_watch_folder(
             // File on disk but not in tracked_files → queue ingest
             if let Err(e) = enqueue_file_op(
                 queue_manager, &target_tenant, &target_collection,
-                &abs_path_str, QueueOperation::Ingest, metadata.as_deref(),
+                &abs_path_str, QueueOperation::Add, metadata.as_deref(),
             ).await {
                 warn!("Failed to queue file ingest: {}: {}", rel_path, e);
                 stats.errors += 1;
@@ -489,6 +489,7 @@ async fn enqueue_file_op(
         file_type,
         file_hash: None,
         size_bytes: None,
+        old_path: None,
     };
 
     let payload_json = serde_json::to_string(&file_payload)

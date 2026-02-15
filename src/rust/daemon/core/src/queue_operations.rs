@@ -197,7 +197,7 @@ impl QueueManager {
     /// Validate payload contains required fields for the given item type (Task 46)
     ///
     /// Returns Ok(()) if valid, or an error describing the missing field.
-    fn validate_payload_for_type(item_type: ItemType, payload: &serde_json::Value) -> QueueResult<()> {
+    fn validate_payload_for_type(item_type: ItemType, op: UnifiedOp, payload: &serde_json::Value) -> QueueResult<()> {
         match item_type {
             ItemType::File => {
                 if !payload.get("file_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
@@ -206,6 +206,15 @@ impl QueueManager {
                         item_type: "file".to_string(),
                         field: "file_path".to_string(),
                     });
+                }
+                if op == UnifiedOp::Rename {
+                    if !payload.get("old_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                        error!("Queue validation failed: file rename missing 'old_path' in payload");
+                        return Err(QueueError::MissingPayloadField {
+                            item_type: "file".to_string(),
+                            field: "old_path".to_string(),
+                        });
+                    }
                 }
             }
             ItemType::Folder => {
@@ -216,89 +225,68 @@ impl QueueManager {
                         field: "folder_path".to_string(),
                     });
                 }
-            }
-            ItemType::Project => {
-                if !payload.get("project_root").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
-                    error!("Queue validation failed: project item missing 'project_root' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "project".to_string(),
-                        field: "project_root".to_string(),
-                    });
+                if op == UnifiedOp::Rename {
+                    if !payload.get("old_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                        error!("Queue validation failed: folder rename missing 'old_path' in payload");
+                        return Err(QueueError::MissingPayloadField {
+                            item_type: "folder".to_string(),
+                            field: "old_path".to_string(),
+                        });
+                    }
                 }
             }
-            ItemType::Library => {
-                if !payload.get("library_name").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
-                    error!("Queue validation failed: library item missing 'library_name' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "library".to_string(),
-                        field: "library_name".to_string(),
-                    });
+            ItemType::Tenant => {
+                // Tenant validation depends on collection context
+                // Projects need project_root, libraries need library_name
+                // For delete ops, tenant_id is sufficient (already in queue item)
+                // For rename ops, need old_tenant_id
+                if op == UnifiedOp::Rename {
+                    if !payload.get("old_tenant_id").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                        error!("Queue validation failed: tenant rename missing 'old_tenant_id'");
+                        return Err(QueueError::MissingPayloadField {
+                            item_type: "tenant".to_string(),
+                            field: "old_tenant_id".to_string(),
+                        });
+                    }
                 }
+                // For add/scan ops on projects, project_root is needed
+                // For add ops on libraries, library_name is needed
+                // These are validated contextually in the processor
             }
-            ItemType::DeleteTenant => {
-                if !payload.get("tenant_id_to_delete").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
-                    error!("Queue validation failed: delete_tenant item missing 'tenant_id_to_delete' in payload");
-                    return Err(QueueError::MissingPayloadField {
-                        item_type: "delete_tenant".to_string(),
-                        field: "tenant_id_to_delete".to_string(),
-                    });
-                }
-            }
-            ItemType::DeleteDocument => {
+            ItemType::Doc => {
                 if !payload.get("document_id").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
-                    error!("Queue validation failed: delete_document item missing 'document_id' in payload");
+                    error!("Queue validation failed: doc item missing 'document_id' in payload");
                     return Err(QueueError::MissingPayloadField {
-                        item_type: "delete_document".to_string(),
+                        item_type: "doc".to_string(),
                         field: "document_id".to_string(),
                     });
                 }
             }
-            ItemType::Rename => {
-                // Validate based on rename_type discriminator
-                let rename_type = payload.get("rename_type").and_then(|v| v.as_str()).unwrap_or("PathRename");
-                match rename_type {
-                    "TenantIdRename" => {
-                        if !payload.get("old_tenant_id").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
-                            error!("Queue validation failed: TenantIdRename missing 'old_tenant_id'");
-                            return Err(QueueError::MissingPayloadField {
-                                item_type: "rename".to_string(),
-                                field: "old_tenant_id".to_string(),
-                            });
-                        }
-                        if !payload.get("new_tenant_id").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
-                            error!("Queue validation failed: TenantIdRename missing 'new_tenant_id'");
-                            return Err(QueueError::MissingPayloadField {
-                                item_type: "rename".to_string(),
-                                field: "new_tenant_id".to_string(),
-                            });
-                        }
-                    }
-                    _ => {
-                        // PathRename (default)
-                        if !payload.get("old_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
-                            error!("Queue validation failed: rename item missing 'old_path' in payload");
-                            return Err(QueueError::MissingPayloadField {
-                                item_type: "rename".to_string(),
-                                field: "old_path".to_string(),
-                            });
-                        }
-                        if !payload.get("new_path").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
-                            error!("Queue validation failed: rename item missing 'new_path' in payload");
-                            return Err(QueueError::MissingPayloadField {
-                                item_type: "rename".to_string(),
-                                field: "new_path".to_string(),
-                            });
-                        }
-                    }
+            ItemType::Text => {
+                // Text items must have a 'content' field (can be empty string for some operations)
+                if !payload.get("content").map_or(false, |v| v.is_string()) {
+                    error!("Queue validation failed: text item missing 'content' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "text".to_string(),
+                        field: "content".to_string(),
+                    });
                 }
             }
-            ItemType::Content => {
-                // Content items must have a 'content' field (can be empty string for some operations)
-                if !payload.get("content").map_or(false, |v| v.is_string()) {
-                    error!("Queue validation failed: content item missing 'content' in payload");
+            ItemType::Website => {
+                if !payload.get("url").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                    error!("Queue validation failed: website item missing 'url' in payload");
                     return Err(QueueError::MissingPayloadField {
-                        item_type: "content".to_string(),
-                        field: "content".to_string(),
+                        item_type: "website".to_string(),
+                        field: "url".to_string(),
+                    });
+                }
+            }
+            ItemType::Collection => {
+                if !payload.get("collection_name").map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                    error!("Queue validation failed: collection item missing 'collection_name' in payload");
+                    return Err(QueueError::MissingPayloadField {
+                        item_type: "collection".to_string(),
+                        field: "collection_name".to_string(),
                     });
                 }
             }
@@ -449,7 +437,7 @@ impl QueueManager {
         for row in rows {
             let operation_str: String = row.try_get("operation")?;
             let operation = UnifiedOp::from_str(&operation_str)
-                .unwrap_or(UnifiedOp::Ingest);
+                .unwrap_or(UnifiedOp::Add);
 
             let missing_tools_json: String = row.try_get("missing_tools")?;
             let missing_tools: Vec<MissingTool> = serde_json::from_str(&missing_tools_json)?;
@@ -525,10 +513,10 @@ impl QueueManager {
 
             // Map legacy operation to unified operation
             let unified_op = match operation_str.as_str() {
-                "ingest" => UnifiedOp::Ingest,
+                "ingest" | "add" => UnifiedOp::Add,
                 "update" => UnifiedOp::Update,
                 "delete" => UnifiedOp::Delete,
-                _ => UnifiedOp::Ingest, // Default to ingest
+                _ => UnifiedOp::Add, // Default to add
             };
 
             // Create file payload
@@ -537,6 +525,7 @@ impl QueueManager {
                 file_type: None,
                 file_hash: None,
                 size_bytes: None,
+                old_path: None,
             };
             let payload_json = serde_json::to_string(&payload).unwrap_or_else(|_| "{}".to_string());
 
@@ -744,7 +733,7 @@ impl QueueManager {
             })?;
 
         // Type-specific payload validation
-        Self::validate_payload_for_type(item_type, &payload)?;
+        Self::validate_payload_for_type(item_type, op, &payload)?;
 
         // Generate idempotency key
         let idempotency_key = generate_unified_idempotency_key(
@@ -1529,33 +1518,34 @@ impl QueueManager {
         collections: &[&str],
         reason: &str,
     ) -> QueueResult<Vec<String>> {
-        use crate::unified_queue_schema::{RenamePayload, RenameType};
+        use crate::unified_queue_schema::ProjectPayload;
 
         let mut queue_ids = Vec::new();
 
         for collection in collections {
-            let payload = RenamePayload {
-                rename_type: RenameType::TenantIdRename,
-                old_path: None,
-                new_path: None,
-                is_folder: false,
+            let payload = ProjectPayload {
+                project_root: String::new(), // Not needed for rename
+                git_remote: None,
+                project_type: None,
                 old_tenant_id: Some(old_tenant_id.to_string()),
-                new_tenant_id: Some(new_tenant_id.to_string()),
-                reason: Some(reason.to_string()),
             };
 
             let payload_json = serde_json::to_string(&payload)
                 .map_err(|e| QueueError::InvalidPayloadJson(e.to_string()))?;
 
+            let metadata = serde_json::json!({
+                "reason": reason,
+            }).to_string();
+
             let (queue_id, _is_new) = self.enqueue_unified(
-                ItemType::Rename,
-                UnifiedOp::Update,
+                ItemType::Tenant,
+                UnifiedOp::Rename,
                 new_tenant_id,
                 collection,
                 &payload_json,
-                0, // High priority
+                0,
                 None,
-                None,
+                Some(&metadata),
             ).await?;
 
             queue_ids.push(queue_id);
@@ -1667,7 +1657,7 @@ mod tests {
         let (queue_id, is_new) = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
@@ -1685,7 +1675,7 @@ mod tests {
         let (queue_id2, is_new2) = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
@@ -1733,8 +1723,8 @@ mod tests {
         // Enqueue and dequeue
         let (queue_id, _) = manager
             .enqueue_unified(
-                ItemType::Content,
-                UnifiedOp::Ingest,
+                ItemType::Text,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"content":"test"}"#,
@@ -1788,7 +1778,7 @@ mod tests {
         let (queue_id, _) = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
@@ -1876,7 +1866,7 @@ mod tests {
         let (queue_id, _) = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
@@ -1929,7 +1919,7 @@ mod tests {
         let (queue_id, _) = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
@@ -1989,7 +1979,7 @@ mod tests {
         manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
@@ -2034,7 +2024,7 @@ mod tests {
         manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file1.rs"}"#,
@@ -2047,8 +2037,8 @@ mod tests {
 
         manager
             .enqueue_unified(
-                ItemType::Content,
-                UnifiedOp::Ingest,
+                ItemType::Text,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"content":"test content"}"#,
@@ -2078,8 +2068,8 @@ mod tests {
         assert_eq!(stats.total_items, 3);
         assert_eq!(stats.pending_items, 3);
         assert_eq!(stats.by_item_type.get("file"), Some(&2));
-        assert_eq!(stats.by_item_type.get("content"), Some(&1));
-        assert_eq!(stats.by_operation.get("ingest"), Some(&2));
+        assert_eq!(stats.by_item_type.get("text"), Some(&1));
+        assert_eq!(stats.by_operation.get("add"), Some(&2));
         assert_eq!(stats.by_operation.get("delete"), Some(&1));
     }
 
@@ -2105,8 +2095,8 @@ mod tests {
         // Enqueue and dequeue an item
         let (queue_id, _) = manager
             .enqueue_unified(
-                ItemType::Content,
-                UnifiedOp::Ingest,
+                ItemType::Text,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"content":"test"}"#,
@@ -2154,7 +2144,7 @@ mod tests {
             manager
                 .enqueue_unified(
                     ItemType::File,
-                    UnifiedOp::Ingest,
+                    UnifiedOp::Add,
                     "test-tenant",
                     "test-collection",
                     &format!(r#"{{"file_path":"/test/file{}.rs"}}"#, i),
@@ -2178,7 +2168,7 @@ mod tests {
         assert_eq!(depth_file, 5);
 
         let depth_content = manager
-            .get_unified_queue_depth(Some(ItemType::Content), None)
+            .get_unified_queue_depth(Some(ItemType::Text), None)
             .await
             .unwrap();
         assert_eq!(depth_content, 0);
@@ -2205,7 +2195,7 @@ mod tests {
                 tokio::spawn(async move {
                     mgr.enqueue_unified(
                         ItemType::File,
-                        UnifiedOp::Ingest,
+                        UnifiedOp::Add,
                         "test-tenant",
                         "test-collection",
                         r#"{"file_path":"/test/concurrent_file.rs"}"#,
@@ -2265,7 +2255,7 @@ mod tests {
                 tokio::spawn(async move {
                     mgr.enqueue_unified(
                         ItemType::File,
-                        UnifiedOp::Ingest,
+                        UnifiedOp::Add,
                         "test-tenant",
                         "test-collection",
                         &format!(r#"{{"file_path":"/test/file_{}.rs"}}"#, i),
@@ -2314,9 +2304,9 @@ mod tests {
         manager.init_unified_queue().await.unwrap();
 
         // Enqueue the same content with different operations (each should be unique)
-        // Note: Uses ItemType::Content (not File) to avoid per-file UNIQUE constraint (Task 22)
+        // Note: Uses ItemType::Text (not File) to avoid per-file UNIQUE constraint (Task 22)
         let ops = vec![
-            (UnifiedOp::Ingest, "ingest"),
+            (UnifiedOp::Add, "ingest"),
             (UnifiedOp::Update, "update"),
             (UnifiedOp::Delete, "delete"),
         ];
@@ -2327,7 +2317,7 @@ mod tests {
                 let mgr = Arc::clone(&manager);
                 tokio::spawn(async move {
                     mgr.enqueue_unified(
-                        ItemType::Content,
+                        ItemType::Text,
                         op,
                         "test-tenant",
                         "test-collection",
@@ -2388,7 +2378,7 @@ mod tests {
         let (queue_id1, is_new1) = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/worker_test.rs"}"#,
@@ -2413,7 +2403,7 @@ mod tests {
         let (queue_id2, is_new2) = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/worker_test.rs"}"#,
@@ -2454,7 +2444,7 @@ mod tests {
         let result = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
@@ -2483,7 +2473,7 @@ mod tests {
         let result = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "   ",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
@@ -2512,7 +2502,7 @@ mod tests {
         let result = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "",
                 r#"{"file_path":"/test/file.rs"}"#,
@@ -2541,7 +2531,7 @@ mod tests {
         let result = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 "not valid json",
@@ -2570,7 +2560,7 @@ mod tests {
         let result = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"other_field":"value"}"#,
@@ -2602,8 +2592,8 @@ mod tests {
         // Content item without content field should fail
         let result = manager
             .enqueue_unified(
-                ItemType::Content,
-                UnifiedOp::Ingest,
+                ItemType::Text,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"source_type":"mcp"}"#,
@@ -2617,7 +2607,7 @@ mod tests {
         assert!(matches!(
             result.unwrap_err(),
             QueueError::MissingPayloadField { item_type, field }
-            if item_type == "content" && field == "content"
+            if item_type == "text" && field == "content"
         ));
     }
 
@@ -2635,7 +2625,7 @@ mod tests {
         // DeleteDocument without document_id should fail
         let result = manager
             .enqueue_unified(
-                ItemType::DeleteDocument,
+                ItemType::Doc,
                 UnifiedOp::Delete,
                 "test-tenant",
                 "test-collection",
@@ -2650,12 +2640,12 @@ mod tests {
         assert!(matches!(
             result.unwrap_err(),
             QueueError::MissingPayloadField { item_type, field }
-            if item_type == "delete_document" && field == "document_id"
+            if item_type == "doc" && field == "document_id"
         ));
     }
 
     #[tokio::test]
-    async fn test_validation_rename_missing_paths() {
+    async fn test_validation_file_rename_missing_old_path() {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test_validation_rename.db");
 
@@ -2665,14 +2655,14 @@ mod tests {
         let manager = QueueManager::new(pool);
         manager.init_unified_queue().await.unwrap();
 
-        // Rename without old_path should fail
+        // File rename without old_path should fail
         let result = manager
             .enqueue_unified(
-                ItemType::Rename,
-                UnifiedOp::Update,
+                ItemType::File,
+                UnifiedOp::Rename,
                 "test-tenant",
                 "test-collection",
-                r#"{"new_path":"/test/new.rs"}"#,
+                r#"{"file_path":"/test/new.rs"}"#,
                 0,
                 None,
                 None,
@@ -2683,28 +2673,7 @@ mod tests {
         assert!(matches!(
             result.unwrap_err(),
             QueueError::MissingPayloadField { item_type, field }
-            if item_type == "rename" && field == "old_path"
-        ));
-
-        // Rename without new_path should also fail
-        let result = manager
-            .enqueue_unified(
-                ItemType::Rename,
-                UnifiedOp::Update,
-                "test-tenant",
-                "test-collection",
-                r#"{"old_path":"/test/old.rs"}"#,
-                0,
-                None,
-                None,
-            )
-            .await;
-
-        assert!(result.is_err());
-        assert!(matches!(
-            result.unwrap_err(),
-            QueueError::MissingPayloadField { item_type, field }
-            if item_type == "rename" && field == "new_path"
+            if item_type == "file" && field == "old_path"
         ));
     }
 
@@ -2723,7 +2692,7 @@ mod tests {
         let result = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":"/test/file.rs"}"#,
@@ -2737,8 +2706,8 @@ mod tests {
         // Valid content item should succeed
         let result = manager
             .enqueue_unified(
-                ItemType::Content,
-                UnifiedOp::Ingest,
+                ItemType::Text,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"content":"test content","source_type":"mcp"}"#,
@@ -2749,14 +2718,14 @@ mod tests {
             .await;
         assert!(result.is_ok());
 
-        // Valid rename item should succeed
+        // Valid file rename item should succeed
         let result = manager
             .enqueue_unified(
-                ItemType::Rename,
-                UnifiedOp::Update,
+                ItemType::File,
+                UnifiedOp::Rename,
                 "test-tenant",
                 "test-collection",
-                r#"{"old_path":"/test/old.rs","new_path":"/test/new.rs"}"#,
+                r#"{"file_path":"/test/new.rs","old_path":"/test/old.rs"}"#,
                 0,
                 None,
                 None,
@@ -2764,10 +2733,10 @@ mod tests {
             .await;
         assert!(result.is_ok());
 
-        // Valid delete_document item should succeed
+        // Valid doc delete item should succeed
         let result = manager
             .enqueue_unified(
-                ItemType::DeleteDocument,
+                ItemType::Doc,
                 UnifiedOp::Delete,
                 "test-tenant",
                 "test-collection",
@@ -2795,7 +2764,7 @@ mod tests {
         let result = manager
             .enqueue_unified(
                 ItemType::File,
-                UnifiedOp::Ingest,
+                UnifiedOp::Add,
                 "test-tenant",
                 "test-collection",
                 r#"{"file_path":""}"#,
@@ -2843,7 +2812,7 @@ mod tests {
                 r#"INSERT INTO unified_queue
                    (queue_id, item_type, op, tenant_id, collection, priority, status,
                     branch, idempotency_key, payload_json, created_at, updated_at)
-                   VALUES (?1, 'file', 'ingest', 'tenant-a', 'projects', 0, 'pending',
+                   VALUES (?1, 'file', 'add', 'tenant-a', 'projects', 0, 'pending',
                     'main', ?2, ?3, ?4, ?4)"#,
             )
             .bind(format!("fifo-q{}", i))
@@ -2894,7 +2863,7 @@ mod tests {
                 r#"INSERT INTO unified_queue
                    (queue_id, item_type, op, tenant_id, collection, priority, status,
                     branch, idempotency_key, payload_json, created_at, updated_at)
-                   VALUES (?1, 'file', 'ingest', 'tenant-a', 'projects', 0, 'pending',
+                   VALUES (?1, 'file', 'add', 'tenant-a', 'projects', 0, 'pending',
                     'main', ?2, ?3, ?4, ?4)"#,
             )
             .bind(format!("lifo-q{}", i))

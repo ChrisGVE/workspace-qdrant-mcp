@@ -27,7 +27,7 @@ use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{
     ItemType, QueueOperation, UnifiedQueueItem,
     ContentPayload, FilePayload, FolderPayload, ProjectPayload, LibraryPayload,
-    MemoryPayload, RenamePayload, RenameType, UrlPayload, ScratchpadPayload,
+    MemoryPayload, UrlPayload, ScratchpadPayload,
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
 use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
@@ -780,7 +780,7 @@ impl UnifiedQueueProcessor {
         );
 
         match item.item_type {
-            ItemType::Content => {
+            ItemType::Text => {
                 Self::process_content_item(item, embedding_generator, storage_client, embedding_semaphore).await
             }
             ItemType::File => {
@@ -789,23 +789,39 @@ impl UnifiedQueueProcessor {
             ItemType::Folder => {
                 Self::process_folder_item(item, queue_manager, storage_client, allowed_extensions).await
             }
-            ItemType::Project => {
-                Self::process_project_item(item, queue_manager, storage_client, allowed_extensions).await
+            ItemType::Tenant => {
+                // Tenant consolidates old Project, Library, and DeleteTenant
+                match item.op {
+                    QueueOperation::Delete => {
+                        Self::process_delete_tenant_item(item, storage_client).await
+                    }
+                    QueueOperation::Rename => {
+                        Self::process_tenant_rename_item(item, storage_client).await
+                    }
+                    _ => {
+                        // Add, Scan, Update — route by collection
+                        match item.collection.as_str() {
+                            "libraries" => Self::process_library_item(item, queue_manager, storage_client, allowed_extensions).await,
+                            _ => Self::process_project_item(item, queue_manager, storage_client, allowed_extensions).await,
+                        }
+                    }
+                }
             }
-            ItemType::Library => {
-                Self::process_library_item(item, queue_manager, storage_client, allowed_extensions).await
-            }
-            ItemType::DeleteTenant => {
-                Self::process_delete_tenant_item(item, storage_client).await
-            }
-            ItemType::DeleteDocument => {
+            ItemType::Doc => {
                 Self::process_delete_document_item(item, storage_client).await
-            }
-            ItemType::Rename => {
-                Self::process_rename_item(item, storage_client).await
             }
             ItemType::Url => {
                 Self::process_url_item(item, embedding_generator, storage_client, embedding_semaphore).await
+            }
+            ItemType::Website => {
+                // Website processing — placeholder: log and mark done
+                info!("Website processing not yet implemented for queue_id={}", item.queue_id);
+                Ok(())
+            }
+            ItemType::Collection => {
+                // Collection processing — placeholder: log and mark done
+                info!("Collection processing not yet implemented for queue_id={}", item.queue_id);
+                Ok(())
             }
         }
     }
@@ -1798,13 +1814,23 @@ impl UnifiedQueueProcessor {
             QueueOperation::Delete => {
                 Self::process_folder_delete(item, &payload, queue_manager).await
             }
-            QueueOperation::Update | QueueOperation::Ingest => {
-                // Folder update/ingest is equivalent to a rescan
+            QueueOperation::Update | QueueOperation::Add => {
+                // Folder update/add is equivalent to a rescan
                 info!(
                     "Folder {:?} operation treated as rescan for: {}",
                     item.op, payload.folder_path
                 );
                 Self::scan_library_directory(item, &payload.folder_path, queue_manager, storage_client, allowed_extensions).await
+            }
+            QueueOperation::Rename => {
+                // Folder rename: not yet implemented
+                info!("Folder rename not yet implemented for queue_id={}", item.queue_id);
+                Ok(())
+            }
+            _ => {
+                // Uplift, Reset not valid for folders
+                warn!("Unsupported operation {:?} for folder item {}", item.op, item.queue_id);
+                Ok(())
             }
         }
     }
@@ -1876,6 +1902,7 @@ impl UnifiedQueueProcessor {
                 file_type: None,
                 file_hash: None,
                 size_bytes: None,
+                old_path: None,
             };
 
             let payload_json = serde_json::to_string(&file_payload)
@@ -1938,7 +1965,7 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse ProjectPayload: {}", e)))?;
 
         match item.op {
-            QueueOperation::Ingest => {
+            QueueOperation::Add => {
                 // Create collection for the project
                 if !storage_client
                     .collection_exists(&item.collection)
@@ -2013,7 +2040,7 @@ impl UnifiedQueueProcessor {
     /// Scan a project directory and queue file ingestion items
     ///
     /// Walks the project directory recursively, filters files using exclusion rules
-    /// and the file type allowlist (Task 511), and queues (File, Ingest) items for
+    /// and the file type allowlist (Task 511), and queues (File, Add) items for
     /// each eligible file.
     async fn scan_project_directory(
         item: &UnifiedQueueItem,
@@ -2134,6 +2161,7 @@ impl UnifiedQueueProcessor {
                 file_type: Some(file_type.as_str().to_string()),
                 file_hash: None,  // Hash will be computed during processing
                 size_bytes: Some(metadata.len()),
+                old_path: None,
             };
 
             let payload_json = serde_json::to_string(&file_payload)
@@ -2143,7 +2171,7 @@ impl UnifiedQueueProcessor {
             // Priority is computed at dequeue time via CASE/JOIN, not stored
             match queue_manager.enqueue_unified(
                 ItemType::File,
-                QueueOperation::Ingest,
+                QueueOperation::Add,
                 &item.tenant_id,
                 &item.collection,
                 &payload_json,
@@ -2302,6 +2330,7 @@ impl UnifiedQueueProcessor {
                 file_type: Some(file_type.as_str().to_string()),
                 file_hash: None,
                 size_bytes: Some(metadata.len()),
+                old_path: None,
             };
 
             let payload_json = serde_json::to_string(&file_payload)
@@ -2309,7 +2338,7 @@ impl UnifiedQueueProcessor {
 
             match queue_manager.enqueue_unified(
                 ItemType::File,
-                QueueOperation::Ingest,
+                QueueOperation::Add,
                 &item.tenant_id,
                 &item.collection,
                 &payload_json,
@@ -2434,6 +2463,7 @@ impl UnifiedQueueProcessor {
                 file_type: None,
                 file_hash: None,
                 size_bytes: None,
+                old_path: None,
             };
 
             let payload_json = serde_json::to_string(&file_payload).map_err(|e| {
@@ -2541,6 +2571,7 @@ impl UnifiedQueueProcessor {
                 file_type: None,
                 file_hash: None,
                 size_bytes: None,
+                old_path: None,
             };
 
             let payload_json = serde_json::to_string(&file_payload).map_err(|e| {
@@ -2600,7 +2631,7 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse LibraryPayload: {}", e)))?;
 
         match item.op {
-            QueueOperation::Ingest => {
+            QueueOperation::Add => {
                 // Create collection for the library
                 if !storage_client
                     .collection_exists(&item.collection)
@@ -2734,69 +2765,28 @@ impl UnifiedQueueProcessor {
         Ok(())
     }
 
-    /// Process rename item - update file paths in metadata
-    async fn process_rename_item(
+    /// Process tenant rename item - update tenant_id on all matching Qdrant points.
+    ///
+    /// Uses ProjectPayload with old_tenant_id field.
+    async fn process_tenant_rename_item(
         item: &UnifiedQueueItem,
         storage_client: &Arc<StorageClient>,
     ) -> UnifiedProcessorResult<()> {
-        let payload: RenamePayload = item.parse_rename_payload()
-            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse rename payload: {}", e)))?;
+        let payload: ProjectPayload = serde_json::from_str(&item.payload_json)
+            .map_err(|e| UnifiedProcessorError::InvalidPayload(format!("Failed to parse ProjectPayload for rename: {}", e)))?;
 
-        match payload.rename_type {
-            RenameType::PathRename => {
-                Self::process_path_rename(item, storage_client, &payload).await
-            }
-            RenameType::TenantIdRename => {
-                Self::process_tenant_cascade_rename(item, storage_client, &payload).await
-            }
-        }
-    }
-
-    /// Handle file/folder path rename: delete old path from Qdrant.
-    /// The file watcher will detect the new file and enqueue ingestion.
-    async fn process_path_rename(
-        item: &UnifiedQueueItem,
-        storage_client: &Arc<StorageClient>,
-        payload: &RenamePayload,
-    ) -> UnifiedProcessorResult<()> {
-        let old_path = payload.old_path.as_deref()
-            .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing old_path in PathRename payload".to_string()))?;
-
-        info!("Processing path rename item: {} (old_path: {})", item.queue_id, old_path);
-
-        if storage_client
-            .collection_exists(&item.collection)
-            .await
-            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
-        {
-            storage_client
-                .delete_points_by_filter(&item.collection, old_path, &item.tenant_id)
-                .await
-                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-        }
-
-        info!(
-            "Successfully processed path rename {} (deleted old path: {})",
-            item.queue_id, old_path
-        );
-
-        Ok(())
-    }
-
-    /// Handle tenant_id cascade rename: update tenant_id payload on all matching Qdrant points.
-    async fn process_tenant_cascade_rename(
-        item: &UnifiedQueueItem,
-        storage_client: &Arc<StorageClient>,
-        payload: &RenamePayload,
-    ) -> UnifiedProcessorResult<()> {
         let old_tenant = payload.old_tenant_id.as_deref()
-            .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing old_tenant_id in TenantIdRename payload".to_string()))?;
-        let new_tenant = payload.new_tenant_id.as_deref()
-            .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing new_tenant_id in TenantIdRename payload".to_string()))?;
+            .ok_or_else(|| UnifiedProcessorError::InvalidPayload("Missing old_tenant_id in tenant rename payload".to_string()))?;
+        let new_tenant = &item.tenant_id;
 
-        let reason = payload.reason.as_deref().unwrap_or("unknown");
+        // Extract reason from metadata if available
+        let reason = item.metadata.as_deref()
+            .and_then(|m| serde_json::from_str::<serde_json::Value>(m).ok())
+            .and_then(|v| v.get("reason").and_then(|r| r.as_str().map(String::from)))
+            .unwrap_or_else(|| "unknown".to_string());
+
         info!(
-            "Processing tenant cascade rename: {} -> {} in collection '{}' (reason: {})",
+            "Processing tenant rename: {} -> {} in collection '{}' (reason: {})",
             old_tenant, new_tenant, item.collection, reason
         );
 
@@ -2814,7 +2804,7 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
 
         info!(
-            "Successfully processed tenant cascade rename {} -> {} in '{}'",
+            "Successfully processed tenant rename {} -> {} in '{}'",
             old_tenant, new_tenant, item.collection
         );
 
@@ -3347,7 +3337,7 @@ mod tests {
         UnifiedQueueItem {
             queue_id: "test-queue-id".to_string(),
             idempotency_key: "test-idempotency".to_string(),
-            item_type: ItemType::DeleteDocument,
+            item_type: ItemType::Doc,
             op: QueueOperation::Delete,
             tenant_id: "test-tenant".to_string(),
             collection: "projects".to_string(),
