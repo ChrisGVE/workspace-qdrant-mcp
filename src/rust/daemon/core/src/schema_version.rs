@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 13;
+pub const CURRENT_SCHEMA_VERSION: i32 = 14;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -163,6 +163,7 @@ impl SchemaManager {
             11 => self.migrate_v11().await,
             12 => self.migrate_v12().await,
             13 => self.migrate_v13().await,
+            14 => self.migrate_v14().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -682,6 +683,50 @@ impl SchemaManager {
         info!("Migration v13 complete");
         Ok(())
     }
+
+    /// Migration v14: Create search_behavior view for bypass/success/fallback classification
+    async fn migrate_v14(&self) -> Result<(), SchemaError> {
+        info!("Migration v14: Creating search_behavior view");
+
+        sqlx::query(
+            r#"
+            CREATE VIEW IF NOT EXISTS search_behavior AS
+            WITH windowed_events AS (
+                SELECT
+                    session_id,
+                    tool,
+                    op,
+                    ts,
+                    LAG(tool) OVER (PARTITION BY session_id ORDER BY ts) AS prev_tool,
+                    LAG(ts) OVER (PARTITION BY session_id ORDER BY ts) AS prev_ts,
+                    LEAD(op) OVER (PARTITION BY session_id ORDER BY ts) AS next_op,
+                    (julianday(ts) - julianday(LAG(ts) OVER (PARTITION BY session_id ORDER BY ts))) AS time_since_prev
+                FROM search_events
+                WHERE session_id IS NOT NULL
+            )
+            SELECT
+                session_id,
+                tool,
+                op,
+                ts,
+                prev_tool,
+                next_op,
+                CASE
+                    WHEN tool IN ('rg', 'grep') AND prev_tool IS NULL THEN 'bypass'
+                    WHEN tool = 'mcp_qdrant' AND (next_op = 'open' OR next_op = 'expand') THEN 'success'
+                    WHEN tool = 'mcp_qdrant' AND time_since_prev < 0.00139
+                         AND prev_tool IN ('rg', 'grep', 'mcp_qdrant') THEN 'fallback'
+                    ELSE 'unknown'
+                END AS behavior
+            FROM windowed_events
+            "#
+        )
+        .execute(&self.pool)
+        .await?;
+
+        info!("Migration v14 complete");
+        Ok(())
+    }
 }
 
 /// Check if schema is initialized (for graceful degradation by MCP/CLI)
@@ -1181,5 +1226,57 @@ mod tests {
         .await
         .unwrap();
         assert!(has_collection, "collection column should exist after v6 migration");
+    }
+
+    #[tokio::test]
+    async fn test_search_behavior_view_classification() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.initialize().await.unwrap();
+        manager.run_migrations().await.unwrap();
+
+        // Insert synthetic search events for different behavior patterns
+        // Session A: bypass (rg first with no prior event)
+        sqlx::query(
+            "INSERT INTO search_events (id, session_id, actor, tool, op, ts) VALUES ('e1', 'sess-a', 'claude', 'rg', 'search', '2025-01-01T00:00:00.000Z')"
+        ).execute(&pool).await.unwrap();
+
+        // Session B: success (mcp_qdrant followed by open)
+        sqlx::query(
+            "INSERT INTO search_events (id, session_id, actor, tool, op, ts) VALUES ('e2', 'sess-b', 'claude', 'mcp_qdrant', 'search', '2025-01-01T00:01:00.000Z')"
+        ).execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO search_events (id, session_id, actor, tool, op, ts) VALUES ('e3', 'sess-b', 'claude', 'mcp_qdrant', 'open', '2025-01-01T00:01:30.000Z')"
+        ).execute(&pool).await.unwrap();
+
+        // Session C: fallback (rg then mcp_qdrant within 2 minutes — user falls back to qdrant)
+        sqlx::query(
+            "INSERT INTO search_events (id, session_id, actor, tool, op, ts) VALUES ('e4', 'sess-c', 'claude', 'rg', 'search', '2025-01-01T00:02:00.000Z')"
+        ).execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO search_events (id, session_id, actor, tool, op, ts) VALUES ('e5', 'sess-c', 'claude', 'mcp_qdrant', 'search', '2025-01-01T00:02:30.000Z')"
+        ).execute(&pool).await.unwrap();
+
+        // Query the view
+        let rows: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT session_id, tool, behavior FROM search_behavior ORDER BY ts"
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+
+        assert!(!rows.is_empty(), "search_behavior view should return rows");
+
+        // Check bypass: first rg event in sess-a (no prior event)
+        let bypass = rows.iter().find(|(s, _, b)| s == "sess-a" && b == "bypass");
+        assert!(bypass.is_some(), "Should detect bypass pattern (rg as first event)");
+
+        // Check success: mcp_qdrant in sess-b where next_op = 'open'
+        let success = rows.iter().find(|(s, _, b)| s == "sess-b" && b == "success");
+        assert!(success.is_some(), "Should detect success pattern (mcp_qdrant followed by open)");
+
+        // Check fallback: mcp_qdrant in sess-c following rg within 2 min
+        let fallback = rows.iter().find(|(s, t, b)| s == "sess-c" && t == "mcp_qdrant" && b == "fallback");
+        assert!(fallback.is_some(), "Should detect fallback pattern (mcp_qdrant after rg within 2 min)");
     }
 }
