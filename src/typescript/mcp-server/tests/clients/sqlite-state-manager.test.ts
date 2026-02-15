@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS watch_folders (
 
 describe('generateIdempotencyKey', () => {
   it('should generate consistent 32-character hex key', () => {
-    const key = generateIdempotencyKey('content', 'ingest', 'tenant1', 'collection1', {
+    const key = generateIdempotencyKey('text', 'add', 'tenant1', 'collection1', {
       content: 'test',
     });
 
@@ -74,17 +74,17 @@ describe('generateIdempotencyKey', () => {
   it('should generate same key for same inputs', () => {
     const payload = { content: 'test', source: 'user' };
 
-    const key1 = generateIdempotencyKey('content', 'ingest', 'tenant1', 'collection1', payload);
-    const key2 = generateIdempotencyKey('content', 'ingest', 'tenant1', 'collection1', payload);
+    const key1 = generateIdempotencyKey('text', 'add', 'tenant1', 'collection1', payload);
+    const key2 = generateIdempotencyKey('text', 'add', 'tenant1', 'collection1', payload);
 
     expect(key1).toBe(key2);
   });
 
   it('should generate different keys for different inputs', () => {
-    const key1 = generateIdempotencyKey('content', 'ingest', 'tenant1', 'collection1', {
+    const key1 = generateIdempotencyKey('text', 'add', 'tenant1', 'collection1', {
       a: 1,
     });
-    const key2 = generateIdempotencyKey('content', 'ingest', 'tenant1', 'collection1', {
+    const key2 = generateIdempotencyKey('text', 'add', 'tenant1', 'collection1', {
       a: 2,
     });
 
@@ -94,18 +94,18 @@ describe('generateIdempotencyKey', () => {
   it('should generate different keys for different operations', () => {
     const payload = { content: 'test' };
 
-    const key1 = generateIdempotencyKey('content', 'ingest', 'tenant1', 'collection1', payload);
-    const key2 = generateIdempotencyKey('content', 'update', 'tenant1', 'collection1', payload);
+    const key1 = generateIdempotencyKey('text', 'add', 'tenant1', 'collection1', payload);
+    const key2 = generateIdempotencyKey('text', 'update', 'tenant1', 'collection1', payload);
 
     expect(key1).not.toBe(key2);
   });
 
   it('should sort payload keys for consistency', () => {
-    const key1 = generateIdempotencyKey('content', 'ingest', 'tenant1', 'collection1', {
+    const key1 = generateIdempotencyKey('text', 'add', 'tenant1', 'collection1', {
       b: 2,
       a: 1,
     });
-    const key2 = generateIdempotencyKey('content', 'ingest', 'tenant1', 'collection1', {
+    const key2 = generateIdempotencyKey('text', 'add', 'tenant1', 'collection1', {
       a: 1,
       b: 2,
     });
@@ -244,8 +244,8 @@ describe('SqliteStateManager', () => {
 
     it('should enqueue new item successfully', () => {
       const result = manager.enqueueUnified(
-        'content',
-        'ingest',
+        'text',
+        'add',
         'tenant1',
         'collection1',
         { content: 'test' },
@@ -264,15 +264,15 @@ describe('SqliteStateManager', () => {
       const payload = { content: 'test' };
 
       const result1 = manager.enqueueUnified(
-        'content',
-        'ingest',
+        'text',
+        'add',
         'tenant1',
         'collection1',
         payload
       );
       const result2 = manager.enqueueUnified(
-        'content',
-        'ingest',
+        'text',
+        'add',
         'tenant1',
         'collection1',
         payload
@@ -286,8 +286,8 @@ describe('SqliteStateManager', () => {
     it('should throw for invalid item type', () => {
       expect(() => {
         manager.enqueueUnified(
-          'invalid' as 'content',
-          'ingest',
+          'invalid' as 'text',
+          'add',
           'tenant1',
           'collection1',
           {}
@@ -298,8 +298,8 @@ describe('SqliteStateManager', () => {
     it('should throw for invalid operation', () => {
       expect(() => {
         manager.enqueueUnified(
-          'content',
-          'invalid' as 'ingest',
+          'text',
+          'invalid' as 'add',
           'tenant1',
           'collection1',
           {}
@@ -309,20 +309,20 @@ describe('SqliteStateManager', () => {
 
     it('should throw for invalid operation/item type combination', () => {
       expect(() => {
-        // scan is not valid for content type
-        manager.enqueueUnified('content', 'scan', 'tenant1', 'collection1', {});
-      }).toThrow("Invalid operation 'scan' for item type 'content'");
+        // scan is not valid for text type
+        manager.enqueueUnified('text', 'scan', 'tenant1', 'collection1', {});
+      }).toThrow("Invalid operation 'scan' for item type 'text'");
     });
 
     it('should throw for empty tenant_id', () => {
       expect(() => {
-        manager.enqueueUnified('content', 'ingest', '', 'collection1', {});
+        manager.enqueueUnified('text', 'add', '', 'collection1', {});
       }).toThrow('tenant_id cannot be empty');
     });
 
     it('should throw for invalid priority', () => {
       expect(() => {
-        manager.enqueueUnified('content', 'ingest', 'tenant1', 'collection1', {}, 11);
+        manager.enqueueUnified('text', 'add', 'tenant1', 'collection1', {}, 11);
       }).toThrow('Priority must be between 0 and 10');
     });
   });
@@ -348,14 +348,14 @@ describe('SqliteStateManager', () => {
     });
 
     it('should return correct stats after enqueueing', () => {
-      manager.enqueueUnified('content', 'ingest', 'tenant1', 'collection1', { a: 1 });
-      manager.enqueueUnified('file', 'ingest', 'tenant1', 'collection1', { b: 2 });
+      manager.enqueueUnified('text', 'add', 'tenant1', 'collection1', { a: 1 });
+      manager.enqueueUnified('file', 'add', 'tenant1', 'collection1', { b: 2 });
 
       const result = manager.getQueueStats();
 
       expect(result.status).toBe('ok');
       expect(result.data!.total_pending).toBe(2);
-      expect(result.data!.by_item_type.content).toBe(1);
+      expect(result.data!.by_item_type.text).toBe(1);
       expect(result.data!.by_item_type.file).toBe(1);
     });
   });
@@ -465,7 +465,7 @@ describe('SqliteStateManager', () => {
       const manager = new SqliteStateManager({ dbPath });
       manager.initialize();
 
-      const result = manager.enqueueUnified('content', 'ingest', 'tenant1', 'collection1', {});
+      const result = manager.enqueueUnified('text', 'add', 'tenant1', 'collection1', {});
 
       expect(result.status).toBe('degraded');
       expect(result.reason).toBe('table_not_found');
@@ -494,7 +494,7 @@ describe('SqliteStateManager', () => {
       const manager = new SqliteStateManager({ dbPath: '/nonexistent/db.db' });
       // Don't initialize
 
-      const result = manager.enqueueUnified('content', 'ingest', 'tenant1', 'collection1', {});
+      const result = manager.enqueueUnified('text', 'add', 'tenant1', 'collection1', {});
 
       expect(result.status).toBe('degraded');
       expect(result.reason).toBe('database_not_found');

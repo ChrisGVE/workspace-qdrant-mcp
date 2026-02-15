@@ -7,8 +7,8 @@
 // Unified Queue Types
 // ============================================================================
 
-export type QueueItemType = 'content' | 'file' | 'folder' | 'project' | 'library' | 'memory' | 'url';
-export type QueueOperation = 'ingest' | 'update' | 'delete' | 'scan';
+export type QueueItemType = 'text' | 'file' | 'url' | 'website' | 'doc' | 'folder' | 'tenant' | 'collection';
+export type QueueOperation = 'add' | 'update' | 'delete' | 'scan' | 'rename' | 'uplift' | 'reset';
 export type QueueStatus = 'pending' | 'in_progress' | 'done' | 'failed';
 
 export interface UnifiedQueueItem {

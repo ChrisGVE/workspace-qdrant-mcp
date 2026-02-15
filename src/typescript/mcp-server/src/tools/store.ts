@@ -208,8 +208,8 @@ export class StoreTool {
 
     // Use state manager to enqueue to libraries collection
     const result = await this.stateManager.enqueueUnified(
-      'library',  // item_type per spec line 1147
-      'ingest',
+      'tenant',
+      'add',
       params.tenantId,
       LIBRARIES_COLLECTION,
       payload,

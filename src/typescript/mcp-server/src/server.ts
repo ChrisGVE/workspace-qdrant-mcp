@@ -764,7 +764,7 @@ export class WorkspaceQdrantMcpServer {
     try {
       const result = this.stateManager.enqueueUnified(
         'url',
-        'ingest',
+        'add',
         tenantId,
         collection,
         payload,
@@ -828,8 +828,8 @@ export class WorkspaceQdrantMcpServer {
 
     try {
       const result = this.stateManager.enqueueUnified(
-        'content',
-        'ingest',
+        'text',
+        'add',
         tenantId,
         COLLECTION_SCRATCHPAD,
         payload,

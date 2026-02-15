@@ -66,12 +66,12 @@ describe('StoreTool', () => {
       await storeTool.store(options);
 
       expect(mockStateManager.enqueueUnified).toHaveBeenCalledWith(
-        'library',  // item_type per spec line 1147
-        'ingest',
+        'tenant',
+        'add',
         'react', // tenant_id = libraryName
         'libraries',
         expect.any(Object),
-        8, // MCP content priority
+        1, // PRIORITY_HIGH from native-bridge
         undefined, // No branch for libraries
         expect.objectContaining({ source: 'mcp_store_tool' })
       );
@@ -94,8 +94,8 @@ describe('StoreTool', () => {
       const call = vi.mocked(mockStateManager.enqueueUnified).mock.calls[0];
 
       // Check basic args
-      expect(call[0]).toBe('library');  // item_type per spec line 1147
-      expect(call[1]).toBe('ingest');
+      expect(call[0]).toBe('tenant');
+      expect(call[1]).toBe('add');
       expect(call[2]).toBe('lodash');
       expect(call[3]).toBe('libraries');
 
@@ -112,7 +112,7 @@ describe('StoreTool', () => {
       expect(metadata.version).toBe('4.17.21');
 
       // Check priority and branch
-      expect(call[5]).toBe(8);
+      expect(call[5]).toBe(1); // PRIORITY_HIGH
       expect(call[6]).toBeUndefined();
     });
 
@@ -152,8 +152,8 @@ describe('StoreTool', () => {
       // Check first two args (item_type, op)
       expect(mockStateManager.enqueueUnified).toHaveBeenCalled();
       const call = vi.mocked(mockStateManager.enqueueUnified).mock.calls[0];
-      expect(call[0]).toBe('library');  // item_type per spec line 1147
-      expect(call[1]).toBe('ingest');
+      expect(call[0]).toBe('tenant');
+      expect(call[1]).toBe('add');
       expect(call[2]).toBe('react'); // Trimmed tenant_id
       expect(call[3]).toBe('libraries');
     });
@@ -207,12 +207,12 @@ describe('StoreTool', () => {
       await storeTool.store(options);
 
       expect(mockStateManager.enqueueUnified).toHaveBeenCalledWith(
-        'library',  // item_type per spec line 1147
-        'ingest', // operation
+        'tenant',
+        'add', // operation
         expect.any(String),
         'libraries',
         expect.any(Object),
-        8, // Priority 8 for MCP content
+        1, // PRIORITY_HIGH
         undefined, // No branch for libraries
         expect.objectContaining({ source: 'mcp_store_tool' })
       );

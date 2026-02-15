@@ -499,10 +499,10 @@ export class MemoryTool {
     }
 
     // Determine operation type for queue
-    let op: 'ingest' | 'update' | 'delete';
+    let op: 'add' | 'update' | 'delete';
     switch (operation.action) {
       case 'add':
-        op = 'ingest';
+        op = 'add';
         break;
       case 'update':
         op = 'update';
@@ -511,12 +511,12 @@ export class MemoryTool {
         op = 'delete';
         break;
       default:
-        op = 'ingest';
+        op = 'add';
     }
 
     // Use state manager to enqueue
     const result = this.stateManager.enqueueUnified(
-      'content',
+      'text',
       op,
       operation.projectId ?? 'global',
       MEMORY_COLLECTION,

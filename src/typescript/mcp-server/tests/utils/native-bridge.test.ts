@@ -99,32 +99,32 @@ describe('native-bridge: project ID calculation', () => {
 
 describe('native-bridge: idempotency key generation', () => {
   it('should produce 32-char hex key', () => {
-    const key = generateIdempotencyKey('file', 'ingest', 'proj_abc123', 'my-project-code', '{}');
+    const key = generateIdempotencyKey('file', 'add', 'proj_abc123', 'my-project-code', '{}');
     expect(key).not.toBeNull();
     expect(key!).toHaveLength(32);
     expect(key!).toMatch(/^[0-9a-f]+$/);
   });
 
   it('should be deterministic (same input -> same output)', () => {
-    const key1 = generateIdempotencyKey('file', 'ingest', 'proj_abc123', 'projects', '{"file_path":"/path/to/file.rs"}');
-    const key2 = generateIdempotencyKey('file', 'ingest', 'proj_abc123', 'projects', '{"file_path":"/path/to/file.rs"}');
+    const key1 = generateIdempotencyKey('file', 'add', 'proj_abc123', 'projects', '{"file_path":"/path/to/file.rs"}');
+    const key2 = generateIdempotencyKey('file', 'add', 'proj_abc123', 'projects', '{"file_path":"/path/to/file.rs"}');
     expect(key1).toBe(key2);
   });
 
   it('should produce different keys for different payloads', () => {
-    const key1 = generateIdempotencyKey('file', 'ingest', 'proj', 'projects', '{"file_path":"/a.rs"}');
-    const key2 = generateIdempotencyKey('file', 'ingest', 'proj', 'projects', '{"file_path":"/b.rs"}');
+    const key1 = generateIdempotencyKey('file', 'add', 'proj', 'projects', '{"file_path":"/a.rs"}');
+    const key2 = generateIdempotencyKey('file', 'add', 'proj', 'projects', '{"file_path":"/b.rs"}');
     expect(key1).not.toBe(key2);
   });
 
   it('should return null for invalid type/op combinations', () => {
-    // delete_tenant only supports delete, not ingest
-    const key = generateIdempotencyKey('delete_tenant', 'ingest', 'proj', 'projects', '{}');
+    // doc only supports delete and uplift, not add
+    const key = generateIdempotencyKey('doc', 'add', 'proj', 'projects', '{}');
     expect(key).toBeNull();
   });
 
   it('should return null for invalid item type', () => {
-    const key = generateIdempotencyKey('nonexistent', 'ingest', 'proj', 'projects', '{}');
+    const key = generateIdempotencyKey('nonexistent', 'add', 'proj', 'projects', '{}');
     expect(key).toBeNull();
   });
 });
@@ -189,23 +189,26 @@ describe('native-bridge: tokenization', () => {
 
 describe('native-bridge: queue type validation', () => {
   it('should validate item types', () => {
+    expect(isValidItemType('text')).toBe(true);
     expect(isValidItemType('file')).toBe(true);
-    expect(isValidItemType('content')).toBe(true);
+    expect(isValidItemType('url')).toBe(true);
+    expect(isValidItemType('website')).toBe(true);
+    expect(isValidItemType('doc')).toBe(true);
     expect(isValidItemType('folder')).toBe(true);
-    expect(isValidItemType('project')).toBe(true);
-    expect(isValidItemType('library')).toBe(true);
-    expect(isValidItemType('delete_tenant')).toBe(true);
-    expect(isValidItemType('delete_document')).toBe(true);
-    expect(isValidItemType('rename')).toBe(true);
+    expect(isValidItemType('tenant')).toBe(true);
+    expect(isValidItemType('collection')).toBe(true);
     expect(isValidItemType('invalid')).toBe(false);
     expect(isValidItemType('')).toBe(false);
   });
 
   it('should validate queue operations', () => {
-    expect(isValidQueueOperation('ingest')).toBe(true);
+    expect(isValidQueueOperation('add')).toBe(true);
     expect(isValidQueueOperation('update')).toBe(true);
     expect(isValidQueueOperation('delete')).toBe(true);
     expect(isValidQueueOperation('scan')).toBe(true);
+    expect(isValidQueueOperation('rename')).toBe(true);
+    expect(isValidQueueOperation('uplift')).toBe(true);
+    expect(isValidQueueOperation('reset')).toBe(true);
     expect(isValidQueueOperation('invalid')).toBe(false);
   });
 
@@ -219,17 +222,18 @@ describe('native-bridge: queue type validation', () => {
 
   it('should validate operation+type combinations', () => {
     // Valid combinations
-    expect(isValidOperationForType('file', 'ingest')).toBe(true);
+    expect(isValidOperationForType('file', 'add')).toBe(true);
     expect(isValidOperationForType('file', 'update')).toBe(true);
     expect(isValidOperationForType('file', 'delete')).toBe(true);
+    expect(isValidOperationForType('file', 'rename')).toBe(true);
     expect(isValidOperationForType('folder', 'scan')).toBe(true);
-    expect(isValidOperationForType('delete_tenant', 'delete')).toBe(true);
-    expect(isValidOperationForType('rename', 'update')).toBe(true);
+    expect(isValidOperationForType('tenant', 'delete')).toBe(true);
+    expect(isValidOperationForType('collection', 'uplift')).toBe(true);
 
     // Invalid combinations
     expect(isValidOperationForType('file', 'scan')).toBe(false);
-    expect(isValidOperationForType('delete_tenant', 'ingest')).toBe(false);
-    expect(isValidOperationForType('rename', 'ingest')).toBe(false);
+    expect(isValidOperationForType('doc', 'add')).toBe(false);
+    expect(isValidOperationForType('collection', 'add')).toBe(false);
     expect(isValidOperationForType('folder', 'update')).toBe(false);
   });
 });

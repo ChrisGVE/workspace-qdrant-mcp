@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 10;
+pub const CURRENT_SCHEMA_VERSION: i32 = 11;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -160,6 +160,7 @@ impl SchemaManager {
             8 => self.migrate_v8().await,
             9 => self.migrate_v9().await,
             10 => self.migrate_v10().await,
+            11 => self.migrate_v11().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -529,6 +530,34 @@ impl SchemaManager {
         }
 
         info!("Migration v10 complete");
+        Ok(())
+    }
+
+    /// Migration v11: Queue taxonomy overhaul
+    ///
+    /// Migrates item_type and op values in unified_queue to the new taxonomy:
+    /// - ItemType: content→text, project/library/delete_tenant→tenant, delete_document→doc
+    /// - QueueOperation: ingest→add
+    /// - Rename items: item_type='rename' becomes item_type='file', op='rename'
+    async fn migrate_v11(&self) -> Result<(), SchemaError> {
+        info!("Migration v11: Queue taxonomy overhaul (item_type + op values)");
+
+        // Migrate item_type values
+        sqlx::query("UPDATE unified_queue SET item_type = 'text' WHERE item_type = 'content'")
+            .execute(&self.pool).await?;
+        sqlx::query("UPDATE unified_queue SET item_type = 'tenant' WHERE item_type IN ('project', 'library', 'delete_tenant')")
+            .execute(&self.pool).await?;
+        sqlx::query("UPDATE unified_queue SET item_type = 'doc' WHERE item_type = 'delete_document'")
+            .execute(&self.pool).await?;
+        // Rename was an item_type masquerading as an action — convert to file+rename
+        sqlx::query("UPDATE unified_queue SET item_type = 'file', op = 'rename' WHERE item_type = 'rename'")
+            .execute(&self.pool).await?;
+
+        // Migrate op values
+        sqlx::query("UPDATE unified_queue SET op = 'add' WHERE op = 'ingest'")
+            .execute(&self.pool).await?;
+
+        info!("Migration v11 complete");
         Ok(())
     }
 }

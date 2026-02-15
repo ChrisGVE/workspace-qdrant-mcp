@@ -278,7 +278,7 @@ describe('MemoryTool', () => {
       expect(result.action).toBe('remove');
       expect(result.fallback_mode).toBe('unified_queue');
       expect(mockStateManager.enqueueUnified).toHaveBeenCalledWith(
-        'content',
+        'text',
         'delete',
         'global',
         'memory',
@@ -286,7 +286,7 @@ describe('MemoryTool', () => {
           label: 'rule-to-remove',
           action: 'remove',
         }),
-        8,
+        1, // PRIORITY_HIGH
         'main',
         expect.any(Object)
       );
@@ -421,8 +421,8 @@ describe('MemoryTool queue integration', () => {
     });
 
     expect(mockStateManager.enqueueUnified).toHaveBeenCalledWith(
-      'content',
-      'ingest',
+      'text',
+      'add',
       'my-project',
       'memory',
       expect.objectContaining({
@@ -433,7 +433,7 @@ describe('MemoryTool queue integration', () => {
         tags: ['tag1', 'tag2'],
         priority: 5,
       }),
-      8,
+      1, // PRIORITY_HIGH
       'main',
       expect.objectContaining({ source: 'mcp_memory_tool' })
     );

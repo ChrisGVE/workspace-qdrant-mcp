@@ -50,24 +50,26 @@ const DEFAULT_DB_PATH = join(homedir(), '.workspace-qdrant', 'state.db');
 
 // Valid item types
 const VALID_ITEM_TYPES: QueueItemType[] = [
-  'content',
+  'text',
   'file',
-  'folder',
-  'project',
-  'library',
-  'memory',
   'url',
+  'website',
+  'doc',
+  'folder',
+  'tenant',
+  'collection',
 ];
 
 // Valid operations per item type
 const VALID_OPERATIONS: Record<QueueItemType, QueueOperation[]> = {
-  content: ['ingest', 'update', 'delete'],
-  file: ['ingest', 'update', 'delete'],
-  folder: ['ingest', 'delete', 'scan'],
-  project: ['ingest', 'update', 'delete'],
-  library: ['ingest', 'update', 'delete'],
-  memory: ['ingest', 'update', 'delete'],
-  url: ['ingest', 'update', 'delete', 'scan'],
+  text: ['add', 'update', 'delete', 'uplift'],
+  file: ['add', 'update', 'delete', 'rename', 'uplift'],
+  url: ['add', 'update', 'delete', 'uplift'],
+  website: ['add', 'update', 'delete', 'scan', 'uplift'],
+  doc: ['delete', 'uplift'],
+  folder: ['delete', 'scan', 'rename'],
+  tenant: ['add', 'update', 'delete', 'scan', 'rename', 'uplift'],
+  collection: ['uplift', 'reset'],
 };
 
 export interface SqliteStateManagerConfig {
