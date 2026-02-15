@@ -5,7 +5,7 @@
 //! - Idempotency key and content hashing
 //! - NLP tokenization
 //! - Constants (collection names, URLs, ports)
-//! - Queue type validation
+//! - Queue type and operation constants and validation
 
 use napi_derive::napi;
 
@@ -119,7 +119,7 @@ pub fn tokenize(text: String) -> Vec<String> {
 }
 
 // ============================================================================
-// Constants
+// Constants — Collections
 // ============================================================================
 
 /// Get the canonical projects collection name ("projects")
@@ -180,6 +180,122 @@ pub fn priority_normal() -> i32 {
 #[napi]
 pub fn priority_low() -> i32 {
     wqm_common::constants::priority::LOW
+}
+
+// ============================================================================
+// Constants — Item types
+// ============================================================================
+
+/// Get the "text" item type constant
+#[napi]
+pub fn item_type_text() -> String {
+    wqm_common::constants::item_type::TEXT.to_string()
+}
+
+/// Get the "file" item type constant
+#[napi]
+pub fn item_type_file() -> String {
+    wqm_common::constants::item_type::FILE.to_string()
+}
+
+/// Get the "url" item type constant
+#[napi]
+pub fn item_type_url() -> String {
+    wqm_common::constants::item_type::URL.to_string()
+}
+
+/// Get the "website" item type constant
+#[napi]
+pub fn item_type_website() -> String {
+    wqm_common::constants::item_type::WEBSITE.to_string()
+}
+
+/// Get the "doc" item type constant
+#[napi]
+pub fn item_type_doc() -> String {
+    wqm_common::constants::item_type::DOC.to_string()
+}
+
+/// Get the "folder" item type constant
+#[napi]
+pub fn item_type_folder() -> String {
+    wqm_common::constants::item_type::FOLDER.to_string()
+}
+
+/// Get the "tenant" item type constant
+#[napi]
+pub fn item_type_tenant() -> String {
+    wqm_common::constants::item_type::TENANT.to_string()
+}
+
+/// Get the "collection" item type constant
+#[napi]
+pub fn item_type_collection() -> String {
+    wqm_common::constants::item_type::COLLECTION.to_string()
+}
+
+/// Get all valid item type strings
+#[napi]
+pub fn all_item_types() -> Vec<String> {
+    wqm_common::queue_types::ItemType::all()
+        .iter()
+        .map(|it| it.as_str().to_string())
+        .collect()
+}
+
+// ============================================================================
+// Constants — Operations
+// ============================================================================
+
+/// Get the "add" operation constant
+#[napi]
+pub fn operation_add() -> String {
+    wqm_common::constants::operation::ADD.to_string()
+}
+
+/// Get the "update" operation constant
+#[napi]
+pub fn operation_update() -> String {
+    wqm_common::constants::operation::UPDATE.to_string()
+}
+
+/// Get the "delete" operation constant
+#[napi]
+pub fn operation_delete() -> String {
+    wqm_common::constants::operation::DELETE.to_string()
+}
+
+/// Get the "scan" operation constant
+#[napi]
+pub fn operation_scan() -> String {
+    wqm_common::constants::operation::SCAN.to_string()
+}
+
+/// Get the "rename" operation constant
+#[napi]
+pub fn operation_rename() -> String {
+    wqm_common::constants::operation::RENAME.to_string()
+}
+
+/// Get the "uplift" operation constant
+#[napi]
+pub fn operation_uplift() -> String {
+    wqm_common::constants::operation::UPLIFT.to_string()
+}
+
+/// Get the "reset" operation constant
+#[napi]
+pub fn operation_reset() -> String {
+    wqm_common::constants::operation::RESET.to_string()
+}
+
+/// Get all valid operation strings
+#[napi]
+pub fn all_operations() -> Vec<String> {
+    wqm_common::queue_types::QueueOperation::all()
+        .iter()
+        .map(|op| op.as_str().to_string())
+        .collect()
 }
 
 // ============================================================================

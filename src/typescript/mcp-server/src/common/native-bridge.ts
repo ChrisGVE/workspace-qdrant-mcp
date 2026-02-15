@@ -36,6 +36,26 @@ interface NativeAddon {
   priorityHigh(): number;
   priorityNormal(): number;
   priorityLow(): number;
+  // Item type constants
+  itemTypeText(): string;
+  itemTypeFile(): string;
+  itemTypeUrl(): string;
+  itemTypeWebsite(): string;
+  itemTypeDoc(): string;
+  itemTypeFolder(): string;
+  itemTypeTenant(): string;
+  itemTypeCollection(): string;
+  allItemTypes(): string[];
+  // Operation constants
+  operationAdd(): string;
+  operationUpdate(): string;
+  operationDelete(): string;
+  operationScan(): string;
+  operationRename(): string;
+  operationUplift(): string;
+  operationReset(): string;
+  allOperations(): string[];
+  // Validation
   isValidItemType(s: string): boolean;
   isValidQueueOperation(s: string): boolean;
   isValidQueueStatus(s: string): boolean;
@@ -128,3 +148,24 @@ export const DEFAULT_BRANCH = loadAddon().defaultBranch();
 export const PRIORITY_HIGH = loadAddon().priorityHigh();
 export const PRIORITY_NORMAL = loadAddon().priorityNormal();
 export const PRIORITY_LOW = loadAddon().priorityLow();
+
+// Item type constants
+export const ITEM_TYPE_TEXT = loadAddon().itemTypeText();
+export const ITEM_TYPE_FILE = loadAddon().itemTypeFile();
+export const ITEM_TYPE_URL = loadAddon().itemTypeUrl();
+export const ITEM_TYPE_WEBSITE = loadAddon().itemTypeWebsite();
+export const ITEM_TYPE_DOC = loadAddon().itemTypeDoc();
+export const ITEM_TYPE_FOLDER = loadAddon().itemTypeFolder();
+export const ITEM_TYPE_TENANT = loadAddon().itemTypeTenant();
+export const ITEM_TYPE_COLLECTION = loadAddon().itemTypeCollection();
+export const ALL_ITEM_TYPES = loadAddon().allItemTypes();
+
+// Operation constants
+export const OPERATION_ADD = loadAddon().operationAdd();
+export const OPERATION_UPDATE = loadAddon().operationUpdate();
+export const OPERATION_DELETE = loadAddon().operationDelete();
+export const OPERATION_SCAN = loadAddon().operationScan();
+export const OPERATION_RENAME = loadAddon().operationRename();
+export const OPERATION_UPLIFT = loadAddon().operationUplift();
+export const OPERATION_RESET = loadAddon().operationReset();
+export const ALL_OPERATIONS = loadAddon().allOperations();
