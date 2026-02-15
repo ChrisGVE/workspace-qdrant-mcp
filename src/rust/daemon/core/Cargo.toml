@@ -98,6 +98,7 @@ dirs = "5.0"
 # See: https://ort.pyke.io/setup/linking
 # See: WORKSPACE_QDRANT_MCP.md section "ONNX Runtime Static Linking"
 fastembed = { version = "5", features = ["hf-hub"] }
+tokenizers = { version = "0.22", default-features = false, features = ["onig"] }
 
 # Code parsing (semantic chunking)
 tree-sitter = "0.24"

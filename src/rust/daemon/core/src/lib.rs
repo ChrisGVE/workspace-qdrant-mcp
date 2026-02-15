@@ -46,6 +46,7 @@ pub mod metrics_history_schema;
 pub mod metrics_history;
 pub mod search_events_schema;
 pub mod schema_version;
+pub mod tokenizer;
 pub mod tree_sitter;
 pub mod watching;
 pub mod watching_queue;
