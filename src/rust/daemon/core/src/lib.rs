@@ -50,6 +50,7 @@ pub mod tokenizer;
 pub mod parent_unit;
 pub mod title_extraction;
 pub mod resolution_events_schema;
+pub mod library_document;
 pub mod tree_sitter;
 pub mod watching;
 pub mod watching_queue;
