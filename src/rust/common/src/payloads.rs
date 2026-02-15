@@ -126,6 +126,40 @@ pub struct LibraryPayload {
     pub source_url: Option<String>,
 }
 
+/// Payload for library document ingestion queue items.
+///
+/// Used when a library document (PDF, EPUB, DOCX, etc.) is enqueued for
+/// processing by the daemon. The daemon uses `document_type` to select the
+/// extraction pipeline and `source_format` to select the specific extractor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LibraryDocumentPayload {
+    /// Absolute path to the library document
+    pub document_path: String,
+    /// Library name (tenant_id for libraries collection)
+    pub library_name: String,
+    /// Processing family: "page_based" or "stream_based"
+    pub document_type: String,
+    /// Actual file format: "pdf", "docx", "pptx", "odt", "epub", "mobi", "html", "markdown", "text"
+    pub source_format: String,
+    /// Unique document identifier (UUID v5 from library_name + path)
+    pub doc_id: String,
+    /// SHA256 hash of file bytes for change detection and idempotency
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc_fingerprint: Option<String>,
+    /// Chunking configuration override
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chunking_config: Option<ChunkingConfigPayload>,
+}
+
+/// Chunking configuration for library document ingestion
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChunkingConfigPayload {
+    /// Target tokens per chunk (default: 105, range 90-120)
+    pub chunk_target_tokens: usize,
+    /// Overlap tokens between chunks (default: 12, ~10-15%)
+    pub chunk_overlap_tokens: usize,
+}
+
 /// Payload for tenant delete operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteTenantPayload {
@@ -456,5 +490,72 @@ mod tests {
 
         let back: CollectionPayload = serde_json::from_str(&json).unwrap();
         assert_eq!(back.collection_name, "projects");
+    }
+
+    #[test]
+    fn test_library_document_payload_page_based() {
+        let payload = LibraryDocumentPayload {
+            document_path: "/docs/report.pdf".to_string(),
+            library_name: "internal-docs".to_string(),
+            document_type: "page_based".to_string(),
+            source_format: "pdf".to_string(),
+            doc_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+            doc_fingerprint: Some("abc123def456".to_string()),
+            chunking_config: Some(ChunkingConfigPayload {
+                chunk_target_tokens: 105,
+                chunk_overlap_tokens: 12,
+            }),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("page_based"));
+        assert!(json.contains("pdf"));
+        assert!(json.contains("internal-docs"));
+        assert!(json.contains("chunk_target_tokens"));
+
+        let back: LibraryDocumentPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.document_type, "page_based");
+        assert_eq!(back.source_format, "pdf");
+        assert_eq!(back.chunking_config.unwrap().chunk_target_tokens, 105);
+    }
+
+    #[test]
+    fn test_library_document_payload_stream_based() {
+        let payload = LibraryDocumentPayload {
+            document_path: "/docs/book.epub".to_string(),
+            library_name: "reference-books".to_string(),
+            document_type: "stream_based".to_string(),
+            source_format: "epub".to_string(),
+            doc_id: "661e8400-e29b-41d4-a716-446655440001".to_string(),
+            doc_fingerprint: None,
+            chunking_config: None,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("stream_based"));
+        assert!(json.contains("epub"));
+        assert!(!json.contains("doc_fingerprint"));
+        assert!(!json.contains("chunking_config"));
+
+        let back: LibraryDocumentPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.document_type, "stream_based");
+        assert_eq!(back.source_format, "epub");
+        assert_eq!(back.doc_fingerprint, None);
+    }
+
+    #[test]
+    fn test_library_document_payload_docx() {
+        let payload = LibraryDocumentPayload {
+            document_path: "/docs/proposal.docx".to_string(),
+            library_name: "team-docs".to_string(),
+            document_type: "page_based".to_string(),
+            source_format: "docx".to_string(),
+            doc_id: "771e8400-e29b-41d4-a716-446655440002".to_string(),
+            doc_fingerprint: Some("deadbeef".to_string()),
+            chunking_config: None,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+
+        let back: LibraryDocumentPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.source_format, "docx");
+        assert_eq!(back.document_type, "page_based");
     }
 }
