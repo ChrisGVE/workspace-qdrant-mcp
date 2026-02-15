@@ -40,7 +40,6 @@ git2 = "0.19"
 
 # Hashing and collections
 sha2 = "0.10"
-phf = { version = "0.11", features = ["macros"] }
 md5 = "0.7"
 lru = "0.12"
 

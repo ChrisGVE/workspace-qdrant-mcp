@@ -12,6 +12,7 @@
 //! - Queue payload structs
 //! - NLP tokenization utilities
 
+pub mod classification;
 pub mod constants;
 pub mod env_expand;
 pub mod hashing;

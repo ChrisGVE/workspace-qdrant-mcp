@@ -1,7 +1,8 @@
 //! File type classification for metadata-based routing
 //!
 //! This module provides file type classification to replace collection-based routing
-//! with metadata-based differentiation.
+//! with metadata-based differentiation. All extension mappings are derived from the
+//! unified YAML reference in `wqm_common::classification`.
 //!
 //! File Types:
 //! - code: Source code files (.py, .rs, .js, etc.)
@@ -18,151 +19,7 @@
 //! A file can be both `code` and a test file.
 
 use std::path::Path;
-use phf::phf_set;
-
-/// Code file extensions
-static CODE_EXTENSIONS: phf::Set<&'static str> = phf_set! {
-    ".py", ".pyx", ".pyi",  // Python
-    ".rs",  // Rust
-    ".js", ".jsx", ".mjs", ".cjs",  // JavaScript
-    ".ts", ".tsx", ".mts", ".cts",  // TypeScript
-    ".d.ts", ".d.mts", ".d.cts",  // TypeScript declarations (compound extensions)
-    ".go",  // Go
-    ".java", ".kt", ".kts", ".scala",  // JVM languages
-    ".c", ".cpp", ".cxx", ".cc", ".h", ".hpp", ".hxx",  // C/C++
-    ".cs", ".fs", ".fsx", ".fsi", ".vb",  // .NET languages
-    ".rb", ".erb",  // Ruby
-    ".php", ".phtml",  // PHP
-    ".swift",  // Swift
-    ".m", ".mm",  // Objective-C
-    ".sh", ".bash", ".zsh", ".fish",  // Shell scripts
-    ".ps1",  // PowerShell
-    ".sql", ".ddl", ".dml",  // SQL
-    ".r",  // R (lowercase only — uppercase handled in detect_document_type)
-    ".jl",  // Julia
-    ".hs", ".lhs",  // Haskell
-    ".erl", ".hrl", ".ex", ".exs",  // Erlang/Elixir
-    ".clj", ".cljs", ".cljc",  // Clojure
-    ".ml", ".mli",  // OCaml
-    ".lua",  // Lua
-    ".d",  // D language
-    ".vim",  // Vimscript
-    ".el",  // Emacs Lisp
-    ".zig",  // Zig
-    ".nim",  // Nim
-    ".dart",  // Dart
-    ".pl", ".pm",  // Perl
-    ".proto",  // Protocol Buffers
-    ".graphql", ".gql",  // GraphQL
-    ".nix",  // Nix
-    ".lean",  // Lean
-    ".v",  // V / Coq
-    ".odin",  // Odin
-    ".f90", ".f95",  // Fortran
-    ".pas",  // Pascal
-    ".cob", ".cbl",  // COBOL
-    ".vue",  // Vue
-    ".svelte",  // Svelte
-    ".astro",  // Astro
-};
-
-/// Text file extensions (plain text and lightweight markup)
-static TEXT_EXTENSIONS: phf::Set<&'static str> = phf_set! {
-    ".txt", ".text",  // Plain text
-    ".md", ".markdown",  // Markdown
-    ".rst", ".rest",  // reStructuredText
-    ".adoc", ".asciidoc",  // AsciiDoc
-    ".org",  // Org mode
-    ".tex", ".latex",  // LaTeX
-};
-
-/// Documentation file extensions (binary/rich formats)
-static DOCS_EXTENSIONS: phf::Set<&'static str> = phf_set! {
-    ".pdf",  // PDF
-    ".epub",  // EPUB
-    ".mobi",  // Kindle
-    ".docx", ".doc",  // Word
-    ".odt",  // OpenDocument Text
-    ".rtf",  // Rich Text Format
-    ".pages",  // Apple Pages
-};
-
-/// Web content file extensions
-static WEB_EXTENSIONS: phf::Set<&'static str> = phf_set! {
-    ".html", ".htm", ".xhtml",  // HTML
-    ".css", ".scss", ".sass", ".less",  // Stylesheets
-    ".xml", ".xsl", ".xslt",  // XML
-};
-
-/// Slides / presentation file extensions
-static SLIDES_EXTENSIONS: phf::Set<&'static str> = phf_set! {
-    ".ppt", ".pptx",  // PowerPoint
-    ".key",  // Keynote
-    ".odp",  // OpenDocument Presentation
-};
-
-/// Configuration file extensions
-static CONFIG_EXTENSIONS: phf::Set<&'static str> = phf_set! {
-    ".yaml", ".yml",  // YAML
-    ".json", ".jsonc", ".json5",  // JSON
-    ".toml",  // TOML
-    ".ini",  // INI
-    ".conf", ".cfg", ".config",  // Generic config
-    ".env",  // Environment files
-    ".properties",  // Java properties
-    ".plist",  // macOS property list
-    ".editorconfig",  // EditorConfig
-    ".gitconfig", ".gitignore", ".gitattributes",  // Git config
-};
-
-/// Configuration file names without extensions
-static CONFIG_FILENAMES: phf::Set<&'static str> = phf_set! {
-    ".env", ".env.local", ".env.example",
-    ".editorconfig",
-    ".gitconfig", ".gitignore", ".gitattributes",
-    ".npmrc", ".dockerignore",
-};
-
-/// Data file extensions
-static DATA_EXTENSIONS: phf::Set<&'static str> = phf_set! {
-    ".csv", ".tsv",  // CSV/TSV
-    ".xlsx", ".xls",  // Excel spreadsheets
-    ".ods",  // OpenDocument Spreadsheet
-    ".ipynb",  // Jupyter notebooks
-    ".parquet",  // Parquet
-    ".json", ".jsonl", ".ndjson",  // JSON data (overlaps with config, intent-based)
-    ".arrow",  // Apache Arrow
-    ".feather",  // Feather format
-    ".hdf5", ".h5",  // HDF5
-    ".db", ".sqlite", ".sqlite3",  // SQLite
-    ".pkl", ".pickle",  // Python pickle
-    ".npy", ".npz",  // NumPy arrays
-    ".mat",  // MATLAB data
-    ".rds", ".rdata",  // R data
-};
-
-/// Build artifact extensions
-static BUILD_EXTENSIONS: phf::Set<&'static str> = phf_set! {
-    ".whl",  // Python wheel
-    ".tar.gz", ".tgz", ".tar.bz2", ".tbz2", ".tar.xz", ".txz",  // Tarballs
-    ".zip",  // ZIP
-    ".jar", ".war", ".ear",  // Java archives
-    ".so", ".dylib", ".dll",  // Shared libraries
-    ".a", ".lib",  // Static libraries
-    ".o", ".obj",  // Object files
-    ".exe", ".app",  // Executables
-    ".deb", ".rpm",  // Package formats
-    ".dmg",  // macOS disk image
-    ".iso",  // ISO image
-    ".dockerfile",  // Dockerfile
-    ".makefile",  // Makefile
-    ".cmake",  // CMake
-    ".mk",  // Make include
-    ".sbt",  // SBT build
-    ".gradle",  // Gradle build
-    ".bat", ".cmd",  // Windows batch
-    ".awk", ".sed",  // Text processing scripts
-};
+use wqm_common::classification;
 
 /// File type classification result
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,6 +59,22 @@ impl FileType {
             FileType::Other => "other",
         }
     }
+
+    /// Parse from string representation
+    fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "code" => Some(FileType::Code),
+            "text" => Some(FileType::Text),
+            "docs" => Some(FileType::Docs),
+            "web" => Some(FileType::Web),
+            "slides" => Some(FileType::Slides),
+            "config" => Some(FileType::Config),
+            "data" => Some(FileType::Data),
+            "build" => Some(FileType::Build),
+            "other" => Some(FileType::Other),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for FileType {
@@ -214,15 +87,10 @@ impl std::fmt::Display for FileType {
 ///
 /// Classification priority:
 /// 1. Configuration dotfiles (by filename)
-/// 2. Text / lightweight markup
-/// 3. Documentation (rich formats)
-/// 4. Web content
-/// 5. Slides / presentations
-/// 6. Code files
-/// 7. Configuration (by extension)
-/// 8. Data files
-/// 9. Build artifacts
-/// 10. Other (fallback)
+/// 2. Extension-based lookup from unified YAML reference
+/// 3. Special handling for JSON (config vs data based on path)
+/// 4. Tarball compound extensions
+/// 5. Other (fallback)
 ///
 /// Test detection is **not** part of file_type — use [`is_test_file`] separately.
 ///
@@ -250,64 +118,32 @@ pub fn classify_file_type(file_path: &Path) -> FileType {
         .to_lowercase();
 
     // Priority 1: Configuration dotfiles without extensions
-    if CONFIG_FILENAMES.contains(filename.as_str()) {
+    if classification::is_config_filename(&filename) {
         return FileType::Config;
     }
 
-    // Priority 2: Text / lightweight markup
-    if TEXT_EXTENSIONS.contains(extension.as_str()) {
-        return FileType::Text;
-    }
-
-    // Priority 3: Documentation (rich/binary formats)
-    if DOCS_EXTENSIONS.contains(extension.as_str()) {
-        return FileType::Docs;
-    }
-
-    // Priority 4: Web content
-    if WEB_EXTENSIONS.contains(extension.as_str()) {
-        return FileType::Web;
-    }
-
-    // Priority 5: Slides / presentations
-    if SLIDES_EXTENSIONS.contains(extension.as_str()) {
-        return FileType::Slides;
-    }
-
-    // Priority 6: Code files
-    if CODE_EXTENSIONS.contains(extension.as_str()) {
-        return FileType::Code;
-    }
-
-    // Priority 7: Configuration (by extension)
-    // Special handling for JSON which can be data or config
-    if CONFIG_EXTENSIONS.contains(extension.as_str()) {
+    // Priority 2: Extension-based lookup from YAML reference
+    if let Some(file_type_str) = classification::extension_to_file_type(&extension) {
+        // Special handling for JSON: context-aware (config path → config, else → data)
         if extension == ".json" {
-            if is_config_location(file_path) {
+            if classification::is_config_path(&file_path.to_string_lossy().to_lowercase()) {
                 return FileType::Config;
             }
             return FileType::Data;
         }
-        return FileType::Config;
+
+        if let Some(ft) = FileType::from_str(file_type_str) {
+            return ft;
+        }
     }
 
-    // Priority 8: Data files
-    if DATA_EXTENSIONS.contains(extension.as_str()) {
-        return FileType::Data;
-    }
-
-    // Priority 9: Build artifacts
-    if BUILD_EXTENSIONS.contains(extension.as_str()) {
-        return FileType::Build;
-    }
-
-    // Handle compound extensions like .tar.gz
+    // Priority 3: Tarball compound extensions
     let path_str = file_path.to_string_lossy().to_lowercase();
-    if path_str.ends_with(".tar.gz") || path_str.ends_with(".tar.bz2") || path_str.ends_with(".tar.xz") {
+    if classification::is_tarball(&path_str) {
         return FileType::Build;
     }
 
-    // Priority 10: Fallback to "other"
+    // Fallback
     FileType::Other
 }
 
@@ -325,7 +161,7 @@ pub fn is_test_file(file_path: &Path) -> bool {
     let extension = get_extension(file_path);
 
     // Must be a code file to be a test
-    if !CODE_EXTENSIONS.contains(extension.as_str()) {
+    if !classification::is_file_type(&extension, "code") {
         return false;
     }
 
@@ -431,36 +267,10 @@ fn is_in_test_directory(file_path: &Path) -> bool {
             .unwrap_or("")
             .to_lowercase();
 
-        if matches!(
-            dir_name.as_str(),
-            "tests" | "test" | "__tests__" | "__test__"
-            | "spec" | "specs" | "__spec__" | "__specs__"
-        ) {
+        if classification::is_test_directory_name(&dir_name) {
             return true;
         }
     }
-    false
-}
-
-/// Check if a path is in a typical configuration location
-fn is_config_location(file_path: &Path) -> bool {
-    let path_str = file_path.to_string_lossy().to_lowercase();
-
-    let config_indicators = [
-        "/config/",
-        "/conf/",
-        "/settings/",
-        "/.github/",
-        "/.vscode/",
-        "/etc/",
-    ];
-
-    for indicator in &config_indicators {
-        if path_str.contains(indicator) {
-            return true;
-        }
-    }
-
     false
 }
 
@@ -477,10 +287,7 @@ pub fn is_test_directory(directory_path: &Path) -> bool {
         .unwrap_or("")
         .to_lowercase();
 
-    matches!(
-        dir_name.as_str(),
-        "tests" | "test" | "__tests__" | "spec" | "specs" | "integration" | "e2e" | "unit" | "functional" | "acceptance"
-    )
+    classification::is_test_directory_name(&dir_name)
 }
 
 #[cfg(test)]

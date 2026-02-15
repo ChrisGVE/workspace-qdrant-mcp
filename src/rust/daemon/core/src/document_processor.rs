@@ -354,6 +354,8 @@ fn convert_semantic_chunks_to_text_chunks(
 
 /// Detect document type from file extension
 fn detect_document_type(file_path: &Path) -> DocumentType {
+    use wqm_common::classification;
+
     // Check compound extensions first (before standard Path::extension())
     let filename = file_path
         .file_name()
@@ -361,12 +363,13 @@ fn detect_document_type(file_path: &Path) -> DocumentType {
         .unwrap_or("");
     let lower_filename = filename.to_lowercase();
 
-    // Handle .d.ts / .d.mts / .d.cts (TypeScript declaration files)
-    if lower_filename.ends_with(".d.ts")
-        || lower_filename.ends_with(".d.mts")
-        || lower_filename.ends_with(".d.cts")
-    {
-        return DocumentType::Code("typescript".to_string());
+    // Handle compound extensions (.d.ts, .d.mts, .d.cts)
+    for (suffix, _) in classification::compound_extensions() {
+        if lower_filename.ends_with(&format!(".{suffix}")) {
+            if let Some(lang) = classification::compound_extension_language(suffix) {
+                return DocumentType::Code(lang.to_string());
+            }
+        }
     }
 
     let extension = file_path
@@ -375,87 +378,38 @@ fn detect_document_type(file_path: &Path) -> DocumentType {
         .map(|s| s.to_lowercase())
         .unwrap_or_default();
 
-    match extension.as_str() {
-        // Document formats
-        "pdf" => DocumentType::Pdf,
-        "epub" => DocumentType::Epub,
-        "docx" => DocumentType::Docx,
-        "pptx" => DocumentType::Pptx,
-        "ppt" => DocumentType::Ppt,
-        "odt" => DocumentType::Odt,
-        "odp" => DocumentType::Odp,
-        "ods" => DocumentType::Ods,
-        "rtf" => DocumentType::Rtf,
-        "doc" => DocumentType::Doc,
-        "xlsx" => DocumentType::Xlsx,
-        "xls" => DocumentType::Xls,
-        "csv" | "tsv" => DocumentType::Csv,
-        "ipynb" => DocumentType::Jupyter,
-        "pages" => DocumentType::Pages,
-        "key" => DocumentType::Key,
-
-        // Markup and text
-        "md" | "markdown" => DocumentType::Markdown,
-        "txt" | "text" | "rst" | "org" | "adoc" => DocumentType::Text,
-
-        // Web content (with language for metadata)
-        "html" | "htm" | "xhtml" => DocumentType::Code("html".to_string()),
-        "xml" | "xsl" | "xslt" | "svg" => DocumentType::Code("xml".to_string()),
-        "css" | "scss" | "sass" | "less" => DocumentType::Code("css".to_string()),
-
-        // Config/data formats
-        "json" => DocumentType::Code("json".to_string()),
-        "yaml" | "yml" => DocumentType::Code("yaml".to_string()),
-        "toml" => DocumentType::Code("toml".to_string()),
-        "ini" | "cfg" | "conf" => DocumentType::Code("ini".to_string()),
-        "env" => DocumentType::Code("env".to_string()),
-
-        // Programming languages
-        "rs" => DocumentType::Code("rust".to_string()),
-        "py" | "pyw" => DocumentType::Code("python".to_string()),
-        "js" | "mjs" | "cjs" => DocumentType::Code("javascript".to_string()),
-        "ts" | "mts" | "cts" => DocumentType::Code("typescript".to_string()),
-        "jsx" | "tsx" => DocumentType::Code("typescript".to_string()),
-        "java" => DocumentType::Code("java".to_string()),
-        "kt" | "kts" => DocumentType::Code("kotlin".to_string()),
-        "swift" => DocumentType::Code("swift".to_string()),
-        "go" => DocumentType::Code("go".to_string()),
-        "c" | "h" => DocumentType::Code("c".to_string()),
-        "cpp" | "cc" | "cxx" | "hpp" | "hxx" => DocumentType::Code("cpp".to_string()),
-        "cs" => DocumentType::Code("csharp".to_string()),
-        "rb" => DocumentType::Code("ruby".to_string()),
-        "php" => DocumentType::Code("php".to_string()),
-        "sh" | "bash" | "zsh" => DocumentType::Code("shell".to_string()),
-        "ps1" | "psm1" | "psd1" => DocumentType::Code("powershell".to_string()),
-        "sql" => DocumentType::Code("sql".to_string()),
-        "r" => DocumentType::Code("r".to_string()),
-        "lua" => DocumentType::Code("lua".to_string()),
-        "pl" | "pm" => DocumentType::Code("perl".to_string()),
-        "scala" => DocumentType::Code("scala".to_string()),
-        "hs" | "lhs" => DocumentType::Code("haskell".to_string()),
-        "ex" | "exs" => DocumentType::Code("elixir".to_string()),
-        "erl" | "hrl" => DocumentType::Code("erlang".to_string()),
-        "clj" | "cljs" | "cljc" => DocumentType::Code("clojure".to_string()),
-        "ml" | "mli" => DocumentType::Code("ocaml".to_string()),
-        "fs" | "fsx" | "fsi" => DocumentType::Code("fsharp".to_string()),
-        "d" => DocumentType::Code("d".to_string()),
-        "zig" => DocumentType::Code("zig".to_string()),
-        "dart" => DocumentType::Code("dart".to_string()),
-        "nim" => DocumentType::Code("nim".to_string()),
-        "v" => DocumentType::Code("v".to_string()),
-        "proto" => DocumentType::Code("protobuf".to_string()),
-        "graphql" | "gql" => DocumentType::Code("graphql".to_string()),
-        "vue" => DocumentType::Code("vue".to_string()),
-        "svelte" => DocumentType::Code("svelte".to_string()),
-        "astro" => DocumentType::Code("astro".to_string()),
-        "nix" => DocumentType::Code("nix".to_string()),
-        "lean" => DocumentType::Code("lean".to_string()),
-        "dockerfile" => DocumentType::Code("dockerfile".to_string()),
-        "makefile" => DocumentType::Code("makefile".to_string()),
-        "cmake" => DocumentType::Code("cmake".to_string()),
-
-        _ => DocumentType::Unknown,
+    // Check for document_type override first (pdf, markdown, csv, etc.)
+    if let Some(doc_type) = classification::extension_to_document_type(&extension) {
+        return match doc_type {
+            "pdf" => DocumentType::Pdf,
+            "epub" => DocumentType::Epub,
+            "docx" => DocumentType::Docx,
+            "pptx" => DocumentType::Pptx,
+            "ppt" => DocumentType::Ppt,
+            "odt" => DocumentType::Odt,
+            "odp" => DocumentType::Odp,
+            "ods" => DocumentType::Ods,
+            "rtf" => DocumentType::Rtf,
+            "doc" => DocumentType::Doc,
+            "xlsx" => DocumentType::Xlsx,
+            "xls" => DocumentType::Xls,
+            "csv" => DocumentType::Csv,
+            "jupyter" => DocumentType::Jupyter,
+            "pages" => DocumentType::Pages,
+            "key" => DocumentType::Key,
+            "markdown" => DocumentType::Markdown,
+            "text" => DocumentType::Text,
+            "unknown" => DocumentType::Unknown,
+            _ => DocumentType::Unknown,
+        };
     }
+
+    // Check for language mapping (→ DocumentType::Code)
+    if let Some(lang) = classification::extension_to_language(&extension) {
+        return DocumentType::Code(lang.to_string());
+    }
+
+    DocumentType::Unknown
 }
 
 /// Extract text from PDF using pdf-extract

@@ -1,0 +1,605 @@
+# Content Classification Reference
+#
+# Single source of truth for extension-to-language and extension-to-file_type
+# mappings. Embedded at compile time via include_str!().
+#
+# Adding a new language/format: add the extension entry with both `language`
+# and `file_type` fields. Both file_classification.rs and document_processor.rs
+# will pick it up automatically.
+
+# Compound extensions checked before regular extension lookup.
+# Key is the compound suffix (without leading dot), value is the language.
+compound_extensions:
+  "d.ts": typescript
+  "d.mts": typescript
+  "d.cts": typescript
+
+# Extension mappings.
+# - `language`: used for DocumentType::Code(language) and tree-sitter grammar selection
+# - `file_type`: used for FileType classification in Qdrant metadata
+# - `document_type`: optional override for non-Code DocumentType variants (pdf, epub, etc.)
+#
+# file_type values: code, text, docs, web, slides, config, data, build, other
+extensions:
+  # ── Programming Languages ──────────────────────────────────────────────
+  py:
+    language: python
+    file_type: code
+  pyw:
+    language: python
+    file_type: code
+  pyx:
+    language: python
+    file_type: code
+  pyi:
+    language: python
+    file_type: code
+  rs:
+    language: rust
+    file_type: code
+  js:
+    language: javascript
+    file_type: code
+  jsx:
+    language: typescript
+    file_type: code
+  mjs:
+    language: javascript
+    file_type: code
+  cjs:
+    language: javascript
+    file_type: code
+  ts:
+    language: typescript
+    file_type: code
+  tsx:
+    language: typescript
+    file_type: code
+  mts:
+    language: typescript
+    file_type: code
+  cts:
+    language: typescript
+    file_type: code
+  go:
+    language: go
+    file_type: code
+  java:
+    language: java
+    file_type: code
+  kt:
+    language: kotlin
+    file_type: code
+  kts:
+    language: kotlin
+    file_type: code
+  scala:
+    language: scala
+    file_type: code
+  c:
+    language: c
+    file_type: code
+  h:
+    language: c
+    file_type: code
+  cpp:
+    language: cpp
+    file_type: code
+  cc:
+    language: cpp
+    file_type: code
+  cxx:
+    language: cpp
+    file_type: code
+  hpp:
+    language: cpp
+    file_type: code
+  hxx:
+    language: cpp
+    file_type: code
+  cs:
+    language: csharp
+    file_type: code
+  fs:
+    language: fsharp
+    file_type: code
+  fsx:
+    language: fsharp
+    file_type: code
+  fsi:
+    language: fsharp
+    file_type: code
+  vb:
+    language: vb
+    file_type: code
+  rb:
+    language: ruby
+    file_type: code
+  erb:
+    language: ruby
+    file_type: code
+  php:
+    language: php
+    file_type: code
+  phtml:
+    language: php
+    file_type: code
+  swift:
+    language: swift
+    file_type: code
+  m:
+    language: objc
+    file_type: code
+  mm:
+    language: objc
+    file_type: code
+  sh:
+    language: shell
+    file_type: code
+  bash:
+    language: shell
+    file_type: code
+  zsh:
+    language: shell
+    file_type: code
+  fish:
+    language: shell
+    file_type: code
+  ps1:
+    language: powershell
+    file_type: code
+  psm1:
+    language: powershell
+    file_type: code
+  psd1:
+    language: powershell
+    file_type: code
+  sql:
+    language: sql
+    file_type: code
+  ddl:
+    language: sql
+    file_type: code
+  dml:
+    language: sql
+    file_type: code
+  r:
+    language: r
+    file_type: code
+  jl:
+    language: julia
+    file_type: code
+  hs:
+    language: haskell
+    file_type: code
+  lhs:
+    language: haskell
+    file_type: code
+  erl:
+    language: erlang
+    file_type: code
+  hrl:
+    language: erlang
+    file_type: code
+  ex:
+    language: elixir
+    file_type: code
+  exs:
+    language: elixir
+    file_type: code
+  clj:
+    language: clojure
+    file_type: code
+  cljs:
+    language: clojure
+    file_type: code
+  cljc:
+    language: clojure
+    file_type: code
+  ml:
+    language: ocaml
+    file_type: code
+  mli:
+    language: ocaml
+    file_type: code
+  lua:
+    language: lua
+    file_type: code
+  d:
+    language: d
+    file_type: code
+  vim:
+    language: vim
+    file_type: code
+  el:
+    language: elisp
+    file_type: code
+  zig:
+    language: zig
+    file_type: code
+  nim:
+    language: nim
+    file_type: code
+  dart:
+    language: dart
+    file_type: code
+  pl:
+    language: perl
+    file_type: code
+  pm:
+    language: perl
+    file_type: code
+  proto:
+    language: protobuf
+    file_type: code
+  graphql:
+    language: graphql
+    file_type: code
+  gql:
+    language: graphql
+    file_type: code
+  nix:
+    language: nix
+    file_type: code
+  lean:
+    language: lean
+    file_type: code
+  v:
+    language: v
+    file_type: code
+  odin:
+    language: odin
+    file_type: code
+  f90:
+    language: fortran
+    file_type: code
+  f95:
+    language: fortran
+    file_type: code
+  pas:
+    language: pascal
+    file_type: code
+  cob:
+    language: cobol
+    file_type: code
+  cbl:
+    language: cobol
+    file_type: code
+  vue:
+    language: vue
+    file_type: code
+  svelte:
+    language: svelte
+    file_type: code
+  astro:
+    language: astro
+    file_type: code
+  # Compound extensions (also in compound_extensions section for language lookup)
+  d.ts:
+    language: typescript
+    file_type: code
+  d.mts:
+    language: typescript
+    file_type: code
+  d.cts:
+    language: typescript
+    file_type: code
+
+  # ── Text / Lightweight Markup ──────────────────────────────────────────
+  txt:
+    file_type: text
+    document_type: text
+  text:
+    file_type: text
+    document_type: text
+  md:
+    file_type: text
+    document_type: markdown
+  markdown:
+    file_type: text
+    document_type: markdown
+  rst:
+    file_type: text
+    document_type: text
+  rest:
+    file_type: text
+    document_type: text
+  adoc:
+    file_type: text
+    document_type: text
+  asciidoc:
+    file_type: text
+    document_type: text
+  org:
+    file_type: text
+    document_type: text
+  tex:
+    file_type: text
+    document_type: text
+  latex:
+    file_type: text
+    document_type: text
+
+  # ── Document Formats (binary/rich) ─────────────────────────────────────
+  pdf:
+    file_type: docs
+    document_type: pdf
+  epub:
+    file_type: docs
+    document_type: epub
+  mobi:
+    file_type: docs
+    document_type: unknown
+  docx:
+    file_type: docs
+    document_type: docx
+  doc:
+    file_type: docs
+    document_type: doc
+  odt:
+    file_type: docs
+    document_type: odt
+  rtf:
+    file_type: docs
+    document_type: rtf
+  pages:
+    file_type: docs
+    document_type: pages
+
+  # ── Web Content ────────────────────────────────────────────────────────
+  html:
+    language: html
+    file_type: web
+  htm:
+    language: html
+    file_type: web
+  xhtml:
+    language: html
+    file_type: web
+  css:
+    language: css
+    file_type: web
+  scss:
+    language: css
+    file_type: web
+  sass:
+    language: css
+    file_type: web
+  less:
+    language: css
+    file_type: web
+  xml:
+    language: xml
+    file_type: web
+  xsl:
+    language: xml
+    file_type: web
+  xslt:
+    language: xml
+    file_type: web
+  svg:
+    language: xml
+    file_type: web
+
+  # ── Slides / Presentations ────────────────────────────────────────────
+  pptx:
+    file_type: slides
+    document_type: pptx
+  ppt:
+    file_type: slides
+    document_type: ppt
+  key:
+    file_type: slides
+    document_type: key
+  odp:
+    file_type: slides
+    document_type: odp
+
+  # ── Configuration ──────────────────────────────────────────────────────
+  yaml:
+    language: yaml
+    file_type: config
+  yml:
+    language: yaml
+    file_type: config
+  json:
+    language: json
+    file_type: config
+  jsonc:
+    language: json
+    file_type: config
+  json5:
+    language: json
+    file_type: config
+  toml:
+    language: toml
+    file_type: config
+  ini:
+    language: ini
+    file_type: config
+  conf:
+    language: ini
+    file_type: config
+  cfg:
+    language: ini
+    file_type: config
+  config:
+    language: ini
+    file_type: config
+  env:
+    language: env
+    file_type: config
+  properties:
+    file_type: config
+  plist:
+    file_type: config
+  editorconfig:
+    file_type: config
+  gitconfig:
+    file_type: config
+  gitignore:
+    file_type: config
+  gitattributes:
+    file_type: config
+
+  # ── Data ───────────────────────────────────────────────────────────────
+  csv:
+    file_type: data
+    document_type: csv
+  tsv:
+    file_type: data
+    document_type: csv
+  xlsx:
+    file_type: data
+    document_type: xlsx
+  xls:
+    file_type: data
+    document_type: xls
+  ods:
+    file_type: data
+    document_type: ods
+  ipynb:
+    file_type: data
+    document_type: jupyter
+  parquet:
+    file_type: data
+  jsonl:
+    file_type: data
+  ndjson:
+    file_type: data
+  arrow:
+    file_type: data
+  feather:
+    file_type: data
+  hdf5:
+    file_type: data
+  h5:
+    file_type: data
+  db:
+    file_type: data
+  sqlite:
+    file_type: data
+  sqlite3:
+    file_type: data
+  pkl:
+    file_type: data
+  pickle:
+    file_type: data
+  npy:
+    file_type: data
+  npz:
+    file_type: data
+  mat:
+    file_type: data
+  rds:
+    file_type: data
+  rdata:
+    file_type: data
+
+  # ── Build / Artifacts ──────────────────────────────────────────────────
+  whl:
+    file_type: build
+  zip:
+    file_type: build
+  jar:
+    file_type: build
+  war:
+    file_type: build
+  ear:
+    file_type: build
+  so:
+    file_type: build
+  dylib:
+    file_type: build
+  dll:
+    file_type: build
+  a:
+    file_type: build
+  lib:
+    file_type: build
+  o:
+    file_type: build
+  obj:
+    file_type: build
+  exe:
+    file_type: build
+  app:
+    file_type: build
+  deb:
+    file_type: build
+  rpm:
+    file_type: build
+  dmg:
+    file_type: build
+  iso:
+    file_type: build
+  dockerfile:
+    language: dockerfile
+    file_type: build
+  makefile:
+    language: makefile
+    file_type: build
+  cmake:
+    language: cmake
+    file_type: build
+  mk:
+    file_type: build
+  sbt:
+    file_type: build
+  gradle:
+    file_type: build
+  bat:
+    file_type: build
+  cmd:
+    file_type: build
+  awk:
+    file_type: build
+  sed:
+    file_type: build
+
+# Configuration filenames (no extension) that map to config file_type
+config_filenames:
+  - ".env"
+  - ".env.local"
+  - ".env.example"
+  - ".editorconfig"
+  - ".gitconfig"
+  - ".gitignore"
+  - ".gitattributes"
+  - ".npmrc"
+  - ".dockerignore"
+
+# Configuration path indicators for context-aware classification
+# (e.g., a .json file under /config/ → config instead of data)
+config_path_indicators:
+  - "/config/"
+  - "/conf/"
+  - "/settings/"
+  - "/.github/"
+  - "/.vscode/"
+  - "/etc/"
+
+# Test directory names (lowercase)
+test_directories:
+  - tests
+  - test
+  - __tests__
+  - __test__
+  - spec
+  - specs
+  - __spec__
+  - __specs__
+  - integration
+  - e2e
+  - unit
+  - functional
+  - acceptance
+
+# Compound tarball suffixes that map to build file_type
+tarball_suffixes:
+  - ".tar.gz"
+  - ".tar.bz2"
+  - ".tar.xz"
+  - ".tgz"
+  - ".tbz2"
+  - ".txz"
