@@ -12,6 +12,9 @@ use std::io::{self, Write};
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use sha2::{Sha256, Digest};
+use wqm_common::classification::extension_to_document_type;
+use wqm_common::payloads::{LibraryDocumentPayload, ChunkingConfigPayload};
 use wqm_common::timestamps;
 use clap::{Args, Subcommand, ValueEnum};
 use rusqlite::Connection;
@@ -132,6 +135,24 @@ enum LibraryCommand {
     /// Show watch status for all libraries
     Status,
 
+    /// Ingest a single document into a library
+    Ingest {
+        /// Path to the document file
+        file: PathBuf,
+
+        /// Library tag to ingest into
+        #[arg(short, long)]
+        library: String,
+
+        /// Target tokens per chunk (default: 105)
+        #[arg(long, default_value_t = 105)]
+        chunk_tokens: usize,
+
+        /// Overlap tokens between chunks (default: 12)
+        #[arg(long, default_value_t = 12)]
+        overlap_tokens: usize,
+    },
+
     /// Configure library settings
     Config {
         /// Library tag to configure
@@ -175,6 +196,12 @@ pub async fn execute(args: LibraryArgs) -> Result<()> {
         LibraryCommand::Rescan { tag, force } => rescan(&tag, force).await,
         LibraryCommand::Info { tag } => info(tag.as_deref()).await,
         LibraryCommand::Status => status().await,
+        LibraryCommand::Ingest {
+            file,
+            library,
+            chunk_tokens,
+            overlap_tokens,
+        } => ingest(&file, &library, chunk_tokens, overlap_tokens).await,
         LibraryCommand::Config {
             tag,
             mode,
@@ -871,6 +898,169 @@ async fn status() -> Result<()> {
     Ok(())
 }
 
+/// Supported document extensions mapped to their source_format and document_type family.
+/// Returns `(source_format, document_type)` where document_type is "page_based" or "stream_based".
+fn classify_document_extension(ext: &str) -> Option<(&'static str, &'static str)> {
+    match ext {
+        // Page-based documents
+        "pdf" => Some(("pdf", "page_based")),
+        "docx" => Some(("docx", "page_based")),
+        "doc" => Some(("doc", "page_based")),
+        "pptx" => Some(("pptx", "page_based")),
+        "ppt" => Some(("ppt", "page_based")),
+        "pages" => Some(("pages", "page_based")),
+        "key" => Some(("key", "page_based")),
+        "odp" => Some(("odp", "page_based")),
+        "odt" => Some(("odt", "page_based")),
+        "ods" => Some(("ods", "page_based")),
+        "rtf" => Some(("rtf", "page_based")),
+        // Stream-based documents
+        "epub" => Some(("epub", "stream_based")),
+        "html" | "htm" => Some(("html", "stream_based")),
+        "md" | "markdown" => Some(("markdown", "stream_based")),
+        "txt" => Some(("text", "stream_based")),
+        _ => None,
+    }
+}
+
+async fn ingest(file: &PathBuf, library: &str, chunk_tokens: usize, overlap_tokens: usize) -> Result<()> {
+    output::section(format!("Ingest Document into Library: {}", library));
+
+    // Validate file exists
+    if !file.exists() {
+        output::error(format!("File does not exist: {}", file.display()));
+        return Ok(());
+    }
+
+    if !file.is_file() {
+        output::error(format!("Path is not a file: {}", file.display()));
+        return Ok(());
+    }
+
+    let abs_path = file.canonicalize()
+        .context("Could not resolve absolute path")?;
+    let abs_path_str = abs_path.to_string_lossy().to_string();
+
+    // Extract and validate extension
+    let ext = abs_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase());
+
+    let ext = match ext {
+        Some(e) => e,
+        None => {
+            output::error("File has no extension. Cannot determine document format.");
+            return Ok(());
+        }
+    };
+
+    // Classify the document
+    let (source_format, document_type) = match classify_document_extension(&ext) {
+        Some(result) => result,
+        None => {
+            // Check if it's a known extension but not supported for library ingestion
+            if extension_to_document_type(&ext).is_some() {
+                output::error(format!(
+                    "Extension '.{}' is recognized but not supported for library document ingestion.",
+                    ext
+                ));
+            } else {
+                output::error(format!(
+                    "Unsupported file extension: '.{}'. Supported: pdf, docx, doc, pptx, ppt, \
+                     pages, key, odt, odp, ods, rtf, epub, html, htm, md, txt",
+                    ext
+                ));
+            }
+            return Ok(());
+        }
+    };
+
+    output::kv("  File", &abs_path_str);
+    output::kv("  Library", library);
+    output::kv("  Format", source_format);
+    output::kv("  Type", document_type);
+    output::kv("  Chunk Target", &format!("{} tokens", chunk_tokens));
+    output::kv("  Chunk Overlap", &format!("{} tokens", overlap_tokens));
+
+    // Generate doc_id (UUID v5 from library_name + path)
+    let doc_id = workspace_qdrant_core::generate_document_id(library, &abs_path_str);
+    output::kv("  Doc ID", &doc_id);
+
+    // Calculate doc_fingerprint (SHA256 of file bytes)
+    let file_bytes = std::fs::read(&abs_path)
+        .context("Failed to read file for fingerprinting")?;
+    let mut hasher = Sha256::new();
+    hasher.update(&file_bytes);
+    let doc_fingerprint = format!("{:x}", hasher.finalize());
+
+    // Build payload
+    let payload = LibraryDocumentPayload {
+        document_path: abs_path_str.clone(),
+        library_name: library.to_string(),
+        document_type: document_type.to_string(),
+        source_format: source_format.to_string(),
+        doc_id: doc_id.clone(),
+        doc_fingerprint: Some(doc_fingerprint),
+        chunking_config: Some(ChunkingConfigPayload {
+            chunk_target_tokens: chunk_tokens,
+            chunk_overlap_tokens: overlap_tokens,
+        }),
+    };
+
+    let payload_json = serde_json::to_string(&payload)
+        .context("Failed to serialize library document payload")?;
+
+    // Enqueue
+    match UnifiedQueueClient::connect() {
+        Ok(client) => {
+            match client.enqueue(
+                ItemType::File,
+                QueueOperation::Add,
+                library,               // tenant_id
+                COLLECTION_LIBRARIES,   // collection
+                &payload_json,
+                5,              // priority
+                "",             // branch (not applicable for libraries)
+                None,
+            ) {
+                Ok(result) => {
+                    if result.was_duplicate {
+                        output::info("Document already queued for ingestion (same content)");
+                    } else {
+                        output::success(format!("Document queued for ingestion (queue_id: {})", result.queue_id));
+                    }
+                }
+                Err(e) => {
+                    output::error(format!("Failed to enqueue document: {}", e));
+                    return Ok(());
+                }
+            }
+        }
+        Err(e) => {
+            output::error(format!("Could not connect to queue database: {}", e));
+            output::info("Ensure daemon has been started at least once: wqm service start");
+            return Ok(());
+        }
+    }
+
+    // Signal daemon to process the queue
+    if let Ok(mut client) = DaemonClient::connect_default().await {
+        let request = RefreshSignalRequest {
+            queue_type: QueueType::IngestQueue as i32,
+            lsp_languages: vec![],
+            grammar_languages: vec![],
+        };
+        if client.system().send_refresh_signal(request).await.is_ok() {
+            output::success("Daemon notified - ingestion will begin shortly");
+        }
+    } else {
+        output::info("Daemon not running - document will be ingested when daemon starts");
+    }
+
+    Ok(())
+}
+
 async fn config(
     tag: &str,
     mode: Option<LibraryMode>,
@@ -1042,5 +1232,65 @@ mod tests {
         };
         assert_eq!(effective.len(), 2);
         assert_eq!(effective, vec!["*.pdf", "*.md"]);
+    }
+
+    #[test]
+    fn test_classify_page_based_extensions() {
+        let page_based = ["pdf", "docx", "doc", "pptx", "ppt", "pages", "key", "odp", "odt", "ods", "rtf"];
+        for ext in &page_based {
+            let result = classify_document_extension(ext);
+            assert!(result.is_some(), "Extension '{}' should be classified", ext);
+            let (_, doc_type) = result.unwrap();
+            assert_eq!(doc_type, "page_based", "Extension '{}' should be page_based", ext);
+        }
+    }
+
+    #[test]
+    fn test_classify_stream_based_extensions() {
+        let stream_based = [("epub", "epub"), ("html", "html"), ("htm", "html"), ("md", "markdown"), ("markdown", "markdown"), ("txt", "text")];
+        for (ext, expected_format) in &stream_based {
+            let result = classify_document_extension(ext);
+            assert!(result.is_some(), "Extension '{}' should be classified", ext);
+            let (source_format, doc_type) = result.unwrap();
+            assert_eq!(doc_type, "stream_based", "Extension '{}' should be stream_based", ext);
+            assert_eq!(source_format, *expected_format, "Extension '{}' format mismatch", ext);
+        }
+    }
+
+    #[test]
+    fn test_classify_unsupported_extensions() {
+        let unsupported = ["exe", "zip", "rs", "py", "js", "json", "yaml", "csv"];
+        for ext in &unsupported {
+            assert!(
+                classify_document_extension(ext).is_none(),
+                "Extension '{}' should not be classified for library ingestion",
+                ext
+            );
+        }
+    }
+
+    #[test]
+    fn test_classify_source_format_correctness() {
+        // Verify exact source_format values for key extensions
+        assert_eq!(classify_document_extension("pdf").unwrap().0, "pdf");
+        assert_eq!(classify_document_extension("docx").unwrap().0, "docx");
+        assert_eq!(classify_document_extension("epub").unwrap().0, "epub");
+        assert_eq!(classify_document_extension("md").unwrap().0, "markdown");
+        assert_eq!(classify_document_extension("txt").unwrap().0, "text");
+        assert_eq!(classify_document_extension("html").unwrap().0, "html");
+        assert_eq!(classify_document_extension("htm").unwrap().0, "html");
+    }
+
+    #[test]
+    fn test_all_default_patterns_classifiable() {
+        // Every extension in DEFAULT_LIBRARY_PATTERNS must be classifiable
+        for pattern in DEFAULT_LIBRARY_PATTERNS {
+            let ext = pattern.strip_prefix("*.").expect("Pattern must start with *.");
+            assert!(
+                classify_document_extension(ext).is_some(),
+                "DEFAULT_LIBRARY_PATTERNS extension '{}' is not classifiable",
+                ext
+            );
+        }
     }
 }

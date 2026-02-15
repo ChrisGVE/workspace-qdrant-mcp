@@ -53,7 +53,7 @@ which = "6.0"
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 # UUID for queue item IDs
-uuid = { version = "1.10", features = ["v4"] }
+uuid = { version = "1.10", features = ["v4", "v5"] }
 
 # Crypto for idempotency key generation
 sha2 = "0.10"
