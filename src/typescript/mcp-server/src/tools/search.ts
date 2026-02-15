@@ -49,6 +49,15 @@ export interface SearchOptions {
   includeLibraries?: boolean;
   includeDeleted?: boolean;
   tag?: string;
+  /** When true, fetch parent unit context for each chunk result */
+  expandContext?: boolean;
+}
+
+export interface ParentContext {
+  parent_unit_id: string;
+  unit_type: string;
+  unit_text: string;
+  locator?: Record<string, unknown>;
 }
 
 export interface SearchResult {
@@ -58,6 +67,7 @@ export interface SearchResult {
   content: string;
   title?: string;
   metadata: Record<string, unknown>;
+  parent_context?: ParentContext;
 }
 
 export interface SearchResponse {
@@ -262,6 +272,11 @@ export class SearchTool {
     // Sort by score and limit
     fusedResults.sort((a, b) => b.score - a.score);
     const finalResults = fusedResults.slice(0, limit);
+
+    // Expand parent context if requested
+    if (options.expandContext) {
+      await this.expandParentContext(finalResults);
+    }
 
     // ── Update search event with results (Task 12) ──
     const latencyMs = Date.now() - searchStartMs;
@@ -552,6 +567,103 @@ export class SearchTool {
       score,
       metadata: { ...result.metadata, _search_type: 'hybrid' },
     }));
+  }
+
+  /**
+   * Expand parent context for search results.
+   * Fetches parent unit records from Qdrant by their point IDs.
+   */
+  private async expandParentContext(results: SearchResult[]): Promise<void> {
+    // Group results by collection and collect parent_unit_ids
+    const parentsByCollection = new Map<string, Map<string, SearchResult[]>>();
+
+    for (const result of results) {
+      const parentId = result.metadata['parent_unit_id'] as string | undefined;
+      if (!parentId) continue;
+
+      let collMap = parentsByCollection.get(result.collection);
+      if (!collMap) {
+        collMap = new Map();
+        parentsByCollection.set(result.collection, collMap);
+      }
+
+      let resultsForParent = collMap.get(parentId);
+      if (!resultsForParent) {
+        resultsForParent = [];
+        collMap.set(parentId, resultsForParent);
+      }
+      resultsForParent.push(result);
+    }
+
+    // Fetch parent records from each collection
+    for (const [collection, parentMap] of parentsByCollection) {
+      const parentIds = Array.from(parentMap.keys());
+      if (parentIds.length === 0) continue;
+
+      try {
+        const points = await this.qdrantClient.retrieve(collection, {
+          ids: parentIds,
+          with_payload: true,
+        });
+
+        for (const point of points) {
+          const pointId = String(point.id);
+          const linkedResults = parentMap.get(pointId);
+          if (!linkedResults) continue;
+
+          const parentContext: ParentContext = {
+            parent_unit_id: pointId,
+            unit_type: (point.payload?.['unit_type'] as string) ?? 'unknown',
+            unit_text: (point.payload?.['unit_text'] as string) ?? '',
+          };
+
+          // Include locator if present
+          const locator = point.payload?.['locator'] as Record<string, unknown> | undefined;
+          if (locator) {
+            parentContext.locator = locator;
+          }
+
+          for (const r of linkedResults) {
+            r.parent_context = parentContext;
+          }
+        }
+      } catch {
+        // Parent records may not exist yet (pre-migration data)
+      }
+    }
+  }
+
+  /**
+   * Retrieve a single parent unit by ID for on-demand expansion.
+   */
+  async retrieveParent(
+    parentUnitId: string,
+    collection: string
+  ): Promise<ParentContext | null> {
+    try {
+      const points = await this.qdrantClient.retrieve(collection, {
+        ids: [parentUnitId],
+        with_payload: true,
+      });
+
+      const point = points[0];
+      if (!point) return null;
+
+      const context: ParentContext = {
+        parent_unit_id: String(point.id),
+        unit_type: (point.payload?.['unit_type'] as string) ?? 'unknown',
+        unit_text: (point.payload?.['unit_text'] as string) ?? '',
+      };
+
+      const locator = point.payload?.['locator'] as Record<string, unknown> | undefined;
+      if (locator) {
+        context.locator = locator;
+      }
+
+      return context;
+    } catch {
+      return null;
+    }
   }
 
   /**
