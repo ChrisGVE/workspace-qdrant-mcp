@@ -139,7 +139,7 @@ mod tests {
     fn test_idempotency_key_generation() {
         let key1 = generate_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             "proj_abc123",
             "my-project-code",
             r#"{"file_path":"/path/to/file.rs"}"#,
@@ -149,7 +149,7 @@ mod tests {
 
         let key2 = generate_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             "proj_abc123",
             "my-project-code",
             r#"{"file_path":"/path/to/file.rs"}"#,
@@ -158,7 +158,7 @@ mod tests {
 
         let key3 = generate_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             "proj_abc123",
             "my-project-code",
             r#"{"file_path":"/path/to/other.rs"}"#,
@@ -170,7 +170,7 @@ mod tests {
     fn test_idempotency_key_validation() {
         let result = generate_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             "",
             "my-collection",
             "{}",
@@ -179,7 +179,7 @@ mod tests {
 
         let result = generate_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             "proj",
             "",
             "{}",
@@ -187,8 +187,8 @@ mod tests {
         assert_eq!(result, Err(IdempotencyKeyError::EmptyCollection));
 
         let result = generate_idempotency_key(
-            ItemType::DeleteTenant,
-            QueueOperation::Ingest,
+            ItemType::Collection,
+            QueueOperation::Add,
             "proj",
             "col",
             "{}",
@@ -232,10 +232,10 @@ mod tests {
     #[test]
     fn test_cross_language_compatibility() {
         // This test vector should produce the same hash in Rust, Python, and TypeScript
-        // Input: "file|ingest|proj_abc123|my-project-code|{}"
+        // Input: "file|add|proj_abc123|my-project-code|{}"
         let key = generate_idempotency_key(
             ItemType::File,
-            QueueOperation::Ingest,
+            QueueOperation::Add,
             "proj_abc123",
             "my-project-code",
             "{}",

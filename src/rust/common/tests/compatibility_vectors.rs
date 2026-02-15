@@ -21,6 +21,29 @@ fn test_constants_match_expected() {
 }
 
 #[test]
+fn test_item_type_constants_match_expected() {
+    assert_eq!(item_type::TEXT, "text");
+    assert_eq!(item_type::FILE, "file");
+    assert_eq!(item_type::URL, "url");
+    assert_eq!(item_type::WEBSITE, "website");
+    assert_eq!(item_type::DOC, "doc");
+    assert_eq!(item_type::FOLDER, "folder");
+    assert_eq!(item_type::TENANT, "tenant");
+    assert_eq!(item_type::COLLECTION, "collection");
+}
+
+#[test]
+fn test_operation_constants_match_expected() {
+    assert_eq!(operation::ADD, "add");
+    assert_eq!(operation::UPDATE, "update");
+    assert_eq!(operation::DELETE, "delete");
+    assert_eq!(operation::SCAN, "scan");
+    assert_eq!(operation::RENAME, "rename");
+    assert_eq!(operation::UPLIFT, "uplift");
+    assert_eq!(operation::RESET, "reset");
+}
+
+#[test]
 fn test_git_url_normalization_vectors() {
     // These vectors must match TypeScript native-bridge.test.ts
     assert_eq!(
@@ -107,7 +130,7 @@ fn test_idempotency_key_vectors() {
     // Must match TypeScript native-bridge.test.ts
     let key = generate_idempotency_key(
         ItemType::File,
-        QueueOperation::Ingest,
+        QueueOperation::Add,
         "proj_abc123",
         "my-project-code",
         "{}",
@@ -119,7 +142,7 @@ fn test_idempotency_key_vectors() {
     // Deterministic
     let key2 = generate_idempotency_key(
         ItemType::File,
-        QueueOperation::Ingest,
+        QueueOperation::Add,
         "proj_abc123",
         "my-project-code",
         "{}",
@@ -130,7 +153,7 @@ fn test_idempotency_key_vectors() {
     // Different payload => different key
     let key3 = generate_idempotency_key(
         ItemType::File,
-        QueueOperation::Ingest,
+        QueueOperation::Add,
         "proj_abc123",
         "my-project-code",
         r#"{"file_path":"/different"}"#,
@@ -140,8 +163,8 @@ fn test_idempotency_key_vectors() {
 
     // Invalid op for type => error
     assert!(generate_idempotency_key(
-        ItemType::DeleteTenant,
-        QueueOperation::Ingest,
+        ItemType::Collection,
+        QueueOperation::Add,
         "proj",
         "projects",
         "{}",
@@ -177,23 +200,37 @@ fn test_tokenization_vectors() {
 
 #[test]
 fn test_queue_type_validation_vectors() {
-    // Valid item types
+    // New item types
+    assert!(ItemType::from_str("text").is_some());
     assert!(ItemType::from_str("file").is_some());
-    assert!(ItemType::from_str("content").is_some());
+    assert!(ItemType::from_str("url").is_some());
+    assert!(ItemType::from_str("website").is_some());
+    assert!(ItemType::from_str("doc").is_some());
     assert!(ItemType::from_str("folder").is_some());
+    assert!(ItemType::from_str("tenant").is_some());
+    assert!(ItemType::from_str("collection").is_some());
+    assert!(ItemType::from_str("invalid").is_none());
+    assert!(ItemType::from_str("").is_none());
+
+    // Legacy item types still parse
+    assert!(ItemType::from_str("content").is_some());
     assert!(ItemType::from_str("project").is_some());
     assert!(ItemType::from_str("library").is_some());
     assert!(ItemType::from_str("delete_tenant").is_some());
     assert!(ItemType::from_str("delete_document").is_some());
-    assert!(ItemType::from_str("rename").is_some());
-    assert!(ItemType::from_str("invalid").is_none());
-    assert!(ItemType::from_str("").is_none());
+    // "rename" is no longer an item type
+    assert!(ItemType::from_str("rename").is_none());
 
-    // Valid operations
-    assert!(QueueOperation::from_str("ingest").is_some());
+    // New operations
+    assert!(QueueOperation::from_str("add").is_some());
     assert!(QueueOperation::from_str("update").is_some());
     assert!(QueueOperation::from_str("delete").is_some());
     assert!(QueueOperation::from_str("scan").is_some());
+    assert!(QueueOperation::from_str("rename").is_some());
+    assert!(QueueOperation::from_str("uplift").is_some());
+    assert!(QueueOperation::from_str("reset").is_some());
+    // Legacy operation
+    assert!(QueueOperation::from_str("ingest").is_some());
     assert!(QueueOperation::from_str("invalid").is_none());
 
     // Valid statuses
@@ -203,15 +240,17 @@ fn test_queue_type_validation_vectors() {
     assert!(QueueStatus::from_str("failed").is_some());
     assert!(QueueStatus::from_str("invalid").is_none());
 
-    // Operation+type validation
-    assert!(QueueOperation::Ingest.is_valid_for(ItemType::File));
+    // Operation+type validation (new taxonomy)
+    assert!(QueueOperation::Add.is_valid_for(ItemType::File));
     assert!(QueueOperation::Update.is_valid_for(ItemType::File));
     assert!(QueueOperation::Delete.is_valid_for(ItemType::File));
     assert!(!QueueOperation::Scan.is_valid_for(ItemType::File));
     assert!(QueueOperation::Scan.is_valid_for(ItemType::Folder));
-    assert!(QueueOperation::Delete.is_valid_for(ItemType::DeleteTenant));
-    assert!(!QueueOperation::Ingest.is_valid_for(ItemType::DeleteTenant));
-    assert!(QueueOperation::Update.is_valid_for(ItemType::Rename));
-    assert!(!QueueOperation::Ingest.is_valid_for(ItemType::Rename));
-    assert!(!QueueOperation::Update.is_valid_for(ItemType::Folder));
+    assert!(QueueOperation::Delete.is_valid_for(ItemType::Tenant));
+    assert!(!QueueOperation::Reset.is_valid_for(ItemType::Tenant));
+    assert!(QueueOperation::Rename.is_valid_for(ItemType::File));
+    assert!(!QueueOperation::Rename.is_valid_for(ItemType::Text));
+    assert!(QueueOperation::Uplift.is_valid_for(ItemType::Collection));
+    assert!(QueueOperation::Reset.is_valid_for(ItemType::Collection));
+    assert!(!QueueOperation::Add.is_valid_for(ItemType::Collection));
 }
