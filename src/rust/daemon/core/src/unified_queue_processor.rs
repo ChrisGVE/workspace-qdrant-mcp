@@ -825,7 +825,20 @@ impl UnifiedQueueProcessor {
                 }
             }
             ItemType::Doc => {
-                Self::process_delete_document_item(item, storage_client).await
+                match item.op {
+                    QueueOperation::Delete => {
+                        Self::process_delete_document_item(item, storage_client).await
+                    }
+                    QueueOperation::Uplift => {
+                        // Placeholder: no enrichment logic yet
+                        info!("Doc uplift placeholder for queue_id={} tenant={}", item.queue_id, item.tenant_id);
+                        Ok(())
+                    }
+                    _ => {
+                        warn!("Unsupported operation {:?} for Doc item {}", item.op, item.queue_id);
+                        Ok(())
+                    }
+                }
             }
             ItemType::Url => {
                 Self::process_url_item(item, embedding_generator, storage_client, embedding_semaphore).await
@@ -836,9 +849,7 @@ impl UnifiedQueueProcessor {
                 Ok(())
             }
             ItemType::Collection => {
-                // Collection processing — placeholder: log and mark done
-                info!("Collection processing not yet implemented for queue_id={}", item.queue_id);
-                Ok(())
+                Self::process_collection_item(item, queue_manager, storage_client).await
             }
         }
     }
@@ -2110,6 +2121,43 @@ impl UnifiedQueueProcessor {
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
                 }
             }
+            QueueOperation::Uplift => {
+                // Query tracked_files for all files of this tenant → enqueue (Doc, Uplift) for each
+                let files: Vec<(String, String)> = sqlx::query_as(
+                    "SELECT file_id, file_path FROM tracked_files WHERE tenant_id = ?1"
+                )
+                    .bind(&item.tenant_id)
+                    .fetch_all(queue_manager.pool())
+                    .await
+                    .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                        format!("Failed to query tracked_files for uplift: {}", e)
+                    ))?;
+
+                let mut enqueued = 0u32;
+                for (file_id, file_path) in &files {
+                    let doc_payload = serde_json::json!({
+                        "file_id": file_id,
+                        "file_path": file_path,
+                    }).to_string();
+
+                    if let Ok((_, true)) = queue_manager.enqueue_unified(
+                        ItemType::Doc,
+                        QueueOperation::Uplift,
+                        &item.tenant_id,
+                        &item.collection,
+                        &doc_payload,
+                        0,
+                        None,
+                        None,
+                    ).await {
+                        enqueued += 1;
+                    }
+                }
+                info!(
+                    "Tenant uplift: enqueued {}/{} doc uplift items for tenant={}",
+                    enqueued, files.len(), item.tenant_id
+                );
+            }
             _ => {
                 warn!(
                     "Unsupported operation {:?} for project item {}",
@@ -2781,6 +2829,141 @@ impl UnifiedQueueProcessor {
             "Successfully processed library item {} (library={})",
             item.queue_id, payload.library_name
         );
+
+        Ok(())
+    }
+
+    /// Process collection item — Uplift or Reset operations
+    ///
+    /// - Uplift: cascade to all tenants in the collection → (Tenant, Uplift) each
+    /// - Reset: delete all Qdrant points + SQLite data for all tenants, preserve schema
+    async fn process_collection_item(
+        item: &UnifiedQueueItem,
+        queue_manager: &QueueManager,
+        storage_client: &Arc<StorageClient>,
+    ) -> UnifiedProcessorResult<()> {
+        info!(
+            "Processing collection item: {} (op={:?}, collection={})",
+            item.queue_id, item.op, item.collection
+        );
+
+        match item.op {
+            QueueOperation::Uplift => {
+                // Query all tenants in this collection → enqueue (Tenant, Uplift) for each
+                let tenants: Vec<(String,)> = sqlx::query_as(
+                    "SELECT DISTINCT tenant_id FROM watch_folders WHERE collection = ?1"
+                )
+                    .bind(&item.collection)
+                    .fetch_all(queue_manager.pool())
+                    .await
+                    .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                        format!("Failed to query tenants for collection uplift: {}", e)
+                    ))?;
+
+                let mut enqueued = 0u32;
+                for (tenant_id,) in &tenants {
+                    let payload = serde_json::json!({
+                        "project_root": "",
+                    }).to_string();
+
+                    if let Ok((_, true)) = queue_manager.enqueue_unified(
+                        ItemType::Tenant,
+                        QueueOperation::Uplift,
+                        tenant_id,
+                        &item.collection,
+                        &payload,
+                        0,
+                        None,
+                        None,
+                    ).await {
+                        enqueued += 1;
+                    }
+                }
+                info!(
+                    "Collection uplift: enqueued {}/{} tenant uplift items for collection={}",
+                    enqueued, tenants.len(), item.collection
+                );
+            }
+            QueueOperation::Reset => {
+                // 1. Delete all Qdrant points in the collection
+                if storage_client
+                    .collection_exists(&item.collection)
+                    .await
+                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
+                {
+                    // Get all tenant_ids in this collection
+                    let tenants: Vec<(String,)> = sqlx::query_as(
+                        "SELECT DISTINCT tenant_id FROM watch_folders WHERE collection = ?1"
+                    )
+                        .bind(&item.collection)
+                        .fetch_all(queue_manager.pool())
+                        .await
+                        .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                            format!("Failed to query tenants for reset: {}", e)
+                        ))?;
+
+                    for (tenant_id,) in &tenants {
+                        storage_client
+                            .delete_points_by_tenant(&item.collection, tenant_id)
+                            .await
+                            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                    }
+                    info!("Reset: deleted Qdrant points for {} tenants in collection={}", tenants.len(), item.collection);
+                }
+
+                // 2. Delete SQLite data in a transaction (preserve watch_folders)
+                let pool = queue_manager.pool();
+                let mut tx = pool.begin().await
+                    .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                        format!("Failed to begin reset transaction: {}", e)
+                    ))?;
+
+                // Get all tenant_ids from watch_folders for this collection
+                let tenant_ids: Vec<(String,)> = sqlx::query_as(
+                    "SELECT DISTINCT tenant_id FROM watch_folders WHERE collection = ?1"
+                )
+                    .bind(&item.collection)
+                    .fetch_all(&mut *tx)
+                    .await
+                    .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                        format!("Failed to query tenants: {}", e)
+                    ))?;
+
+                for (tenant_id,) in &tenant_ids {
+                    // Delete qdrant_chunks for this tenant
+                    let _ = sqlx::query(
+                        r#"DELETE FROM qdrant_chunks WHERE file_id IN (
+                            SELECT file_id FROM tracked_files WHERE tenant_id = ?1
+                        )"#
+                    )
+                        .bind(tenant_id)
+                        .execute(&mut *tx)
+                        .await;
+
+                    // Delete tracked_files for this tenant
+                    let _ = sqlx::query("DELETE FROM tracked_files WHERE tenant_id = ?1")
+                        .bind(tenant_id)
+                        .execute(&mut *tx)
+                        .await;
+                }
+
+                tx.commit().await
+                    .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                        format!("Failed to commit reset transaction: {}", e)
+                    ))?;
+
+                info!(
+                    "Reset: cleared SQLite data for {} tenants in collection={} (watch_folders preserved)",
+                    tenant_ids.len(), item.collection
+                );
+            }
+            _ => {
+                warn!(
+                    "Unsupported operation {:?} for collection item {}",
+                    item.op, item.queue_id
+                );
+            }
+        }
 
         Ok(())
     }
