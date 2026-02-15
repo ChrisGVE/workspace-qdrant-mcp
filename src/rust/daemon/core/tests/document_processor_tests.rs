@@ -263,6 +263,7 @@ async fn test_chunking_configuration() {
         chunk_size: 10, // Very small chunks for testing
         overlap_size: 2,
         preserve_paragraphs: false,
+        ..ChunkingConfig::default()
     };
     
     let processor = DocumentProcessor::with_chunking_config(custom_config);

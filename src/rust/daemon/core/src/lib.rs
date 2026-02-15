@@ -408,11 +408,24 @@ pub struct DocumentContent {
 }
 
 /// Chunking configuration
+///
+/// Supports both character-based (legacy) and token-based chunking.
+/// Token-based fields take precedence when set. Character-based fields
+/// are used by the existing document_processor chunking paths.
 #[derive(Debug, Clone)]
 pub struct ChunkingConfig {
+    /// Character-based chunk size (used by existing document_processor paths)
     pub chunk_size: usize,
+    /// Character-based overlap size
     pub overlap_size: usize,
+    /// Whether to preserve paragraph boundaries in character-based chunking
     pub preserve_paragraphs: bool,
+    /// Token-based target chunk size (used by token-aware chunking for library documents)
+    /// Default: 105 tokens (fits within all-MiniLM-L6-v2's 128-token limit with header)
+    pub chunk_target_tokens: usize,
+    /// Token-based overlap between chunks
+    /// Default: 12 tokens (~10-15% of target)
+    pub chunk_overlap_tokens: usize,
 }
 
 impl Default for ChunkingConfig {
@@ -421,6 +434,22 @@ impl Default for ChunkingConfig {
             chunk_size: 384,
             overlap_size: 58,
             preserve_paragraphs: true,
+            chunk_target_tokens: 105,
+            chunk_overlap_tokens: 12,
+        }
+    }
+}
+
+impl ChunkingConfig {
+    /// Create a token-only config for library document ingestion.
+    ///
+    /// Character-based fields are set to defaults but won't be used
+    /// when the token-aware chunking path is active.
+    pub fn for_library_document(target_tokens: usize, overlap_tokens: usize) -> Self {
+        Self {
+            chunk_target_tokens: target_tokens,
+            chunk_overlap_tokens: overlap_tokens,
+            ..Self::default()
         }
     }
 }
@@ -764,5 +793,42 @@ mod tests {
         assert_eq!(DocumentType::Text.language(), None);
         assert_eq!(DocumentType::Markdown.language(), None);
         assert_eq!(DocumentType::Unknown.language(), None);
+    }
+
+    #[test]
+    fn test_chunking_config_default_has_token_fields() {
+        let config = ChunkingConfig::default();
+        assert_eq!(config.chunk_target_tokens, 105);
+        assert_eq!(config.chunk_overlap_tokens, 12);
+        assert_eq!(config.chunk_size, 384);
+        assert_eq!(config.overlap_size, 58);
+        assert!(config.preserve_paragraphs);
+    }
+
+    #[test]
+    fn test_chunking_config_token_overlap_ratio() {
+        let config = ChunkingConfig::default();
+        let ratio = config.chunk_overlap_tokens as f64 / config.chunk_target_tokens as f64;
+        assert!(ratio >= 0.10, "Overlap should be >= 10% of target: {:.1}%", ratio * 100.0);
+        assert!(ratio <= 0.15, "Overlap should be <= 15% of target: {:.1}%", ratio * 100.0);
+    }
+
+    #[test]
+    fn test_chunking_config_for_library_document() {
+        let config = ChunkingConfig::for_library_document(100, 15);
+        assert_eq!(config.chunk_target_tokens, 100);
+        assert_eq!(config.chunk_overlap_tokens, 15);
+        // Character-based fields should be at defaults
+        assert_eq!(config.chunk_size, 384);
+        assert_eq!(config.overlap_size, 58);
+    }
+
+    #[test]
+    fn test_chunking_config_target_fits_model_limit() {
+        let config = ChunkingConfig::default();
+        // all-MiniLM-L6-v2 has 128-token limit; target + some header overhead must fit
+        assert!(config.chunk_target_tokens <= 120,
+            "Target tokens ({}) must leave room for header within 128-token model limit",
+            config.chunk_target_tokens);
     }
 }

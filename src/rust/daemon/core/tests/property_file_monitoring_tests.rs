@@ -115,6 +115,7 @@ prop_compose! {
             chunk_size,
             overlap_size: std::cmp::min(overlap_size, chunk_size / 4),
             preserve_paragraphs: true,
+            ..ChunkingConfig::default()
         };
         (config, chunking_config)
     }

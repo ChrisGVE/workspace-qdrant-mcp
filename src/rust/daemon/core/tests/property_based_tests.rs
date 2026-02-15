@@ -118,6 +118,7 @@ prop_compose! {
             chunk_size,
             overlap_size: std::cmp::min(overlap_size, chunk_size / 2),
             preserve_paragraphs,
+            ..ChunkingConfig::default()
         }
     }
 }
@@ -441,6 +442,7 @@ proptest! {
             chunk_size,
             overlap_size: std::cmp::min(overlap_size, chunk_size / 2),
             preserve_paragraphs,
+            ..ChunkingConfig::default()
         };
 
         // Test YAML serialization for config
@@ -506,6 +508,7 @@ proptest! {
                 chunk_size,
                 overlap_size: chunk_size / 10,
                 preserve_paragraphs: false,
+                ..ChunkingConfig::default()
             };
 
             let processor = DocumentProcessor::with_chunking_config(chunking_config);

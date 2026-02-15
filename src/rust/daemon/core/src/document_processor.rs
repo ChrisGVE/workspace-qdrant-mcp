@@ -1415,6 +1415,7 @@ mod tests {
             chunk_size: 50,
             overlap_size: 10,
             preserve_paragraphs: false,
+            ..ChunkingConfig::default()
         };
 
         let text = "This is a test. It has multiple sentences. Each one should be processed.";
@@ -1429,6 +1430,7 @@ mod tests {
             chunk_size: 100,
             overlap_size: 10,
             preserve_paragraphs: true,
+            ..ChunkingConfig::default()
         };
 
         let text = "First paragraph here.\n\nSecond paragraph here.\n\nThird paragraph here.";

@@ -450,6 +450,7 @@ mod chunking_tests {
             chunk_size: 50,
             overlap_size: 10,
             preserve_paragraphs: true,
+            ..ChunkingConfig::default()
         };
 
         let processor = DocumentProcessor::with_chunking_config(config);
@@ -473,6 +474,7 @@ mod chunking_tests {
             chunk_size: 10,
             overlap_size: 2,
             preserve_paragraphs: false,
+            ..ChunkingConfig::default()
         };
 
         let processor = DocumentProcessor::with_chunking_config(config);
@@ -495,6 +497,7 @@ mod chunking_tests {
             chunk_size: 200,
             overlap_size: 20,
             preserve_paragraphs: true,
+            ..ChunkingConfig::default()
         };
 
         let processor = DocumentProcessor::with_chunking_config(config);
@@ -646,6 +649,7 @@ mod property_based {
                     chunk_size,
                     overlap_size: overlap,
                     preserve_paragraphs: false,
+                    ..ChunkingConfig::default()
                 };
 
                 let processor = DocumentProcessor::with_chunking_config(config);
