@@ -207,6 +207,132 @@ pub fn code_file_parent(
     }
 }
 
+/// Create a parent record for a code block (class, struct, impl, trait, module, etc.).
+///
+/// Block-level parents sit between the file parent and individual method/function chunks.
+/// Methods within a class reference the block parent; the block parent references the file parent.
+pub fn code_block_parent(
+    doc_id: &str,
+    doc_fingerprint: &str,
+    file_path: &str,
+    block_name: &str,
+    block_kind: &str,
+    start_line: usize,
+    end_line: usize,
+    block_text: &str,
+) -> ParentUnitRecord {
+    let unit_locator = serde_json::json!({
+        "file_path": file_path,
+        "block_name": block_name,
+        "block_kind": block_kind,
+        "start_line": start_line,
+        "end_line": end_line,
+    });
+    let point_id = parent_point_id(doc_id, UNIT_TYPE_CODE_BLOCK, &unit_locator);
+    ParentUnitRecord {
+        point_id,
+        doc_id: doc_id.to_string(),
+        doc_fingerprint: doc_fingerprint.to_string(),
+        unit_type: UNIT_TYPE_CODE_BLOCK.to_string(),
+        unit_locator,
+        unit_text: block_text.to_string(),
+        unit_char_len: block_text.len(),
+        unit_hash: sha256_hex(block_text),
+    }
+}
+
+/// Result of creating parent records for a code file's semantic chunks.
+///
+/// Maps each chunk index to its nearest parent point ID (block parent if inside
+/// a class/struct/impl, file parent otherwise).
+#[derive(Debug, Clone)]
+pub struct CodeParentMapping {
+    /// The file-level parent record
+    pub file_parent: ParentUnitRecord,
+    /// Block-level parent records (class, struct, impl, etc.)
+    pub block_parents: Vec<ParentUnitRecord>,
+    /// For each chunk index, the parent point_id it should reference
+    pub chunk_parent_ids: Vec<String>,
+}
+
+use crate::tree_sitter::types::{ChunkType, SemanticChunk};
+
+/// Container-level chunk types that warrant block-level parent records.
+fn is_container_type(chunk_type: ChunkType) -> bool {
+    matches!(
+        chunk_type,
+        ChunkType::Class
+            | ChunkType::Struct
+            | ChunkType::Trait
+            | ChunkType::Interface
+            | ChunkType::Impl
+            | ChunkType::Module
+            | ChunkType::Enum
+    )
+}
+
+/// Create parent records for a code file and its semantic chunks.
+///
+/// Produces:
+/// 1. A file-level parent (full file text, no vector)
+/// 2. Block-level parents for each container (class/struct/impl/trait/module/enum)
+/// 3. A mapping from each chunk index → its nearest parent point_id
+///
+/// Chunks whose `parent_symbol` matches a container block get the block's point_id;
+/// all others get the file parent's point_id.
+pub fn create_code_parents(
+    doc_id: &str,
+    doc_fingerprint: &str,
+    file_path: &str,
+    file_text: &str,
+    chunks: &[SemanticChunk],
+) -> CodeParentMapping {
+    let file_parent = code_file_parent(doc_id, doc_fingerprint, file_path, file_text);
+
+    // Collect container blocks and build name → point_id index
+    let mut block_parents = Vec::new();
+    let mut block_name_to_id: HashMap<String, String> = HashMap::new();
+
+    for chunk in chunks {
+        if is_container_type(chunk.chunk_type) {
+            let block = code_block_parent(
+                doc_id,
+                doc_fingerprint,
+                file_path,
+                &chunk.symbol_name,
+                chunk.chunk_type.display_name(),
+                chunk.start_line,
+                chunk.end_line,
+                &chunk.content,
+            );
+            block_name_to_id.insert(chunk.symbol_name.clone(), block.point_id.clone());
+            block_parents.push(block);
+        }
+    }
+
+    // Map each chunk to its nearest parent
+    let chunk_parent_ids = chunks
+        .iter()
+        .map(|chunk| {
+            // If this chunk has a parent_symbol that matches a block parent, use it
+            if let Some(ref parent_sym) = chunk.parent_symbol {
+                if let Some(block_id) = block_name_to_id.get(parent_sym) {
+                    return block_id.clone();
+                }
+            }
+            // If this chunk IS a container, it references the file parent
+            // (the container itself is stored as a block parent, its chunks are children)
+            file_parent.point_id.clone()
+        })
+        .collect();
+
+    CodeParentMapping {
+        file_parent,
+        block_parents,
+        chunk_parent_ids,
+    }
+}
+
 /// Create a parent record for a text section (markdown heading, etc.).
 pub fn text_section_parent(
     doc_id: &str,
@@ -372,5 +498,140 @@ mod tests {
         let parent = pdf_page_parent("doc-1", "fp-1", 1, "Content.");
         let payload = parent.to_payload("lib", None, "page_based", "pdf");
         assert!(!payload.contains_key("doc_title"));
+    }
+
+    #[test]
+    fn test_code_block_parent_creation() {
+        let parent = code_block_parent(
+            "doc-code",
+            "fp-code",
+            "src/lib.rs",
+            "MyStruct",
+            "struct",
+            10,
+            50,
+            "struct MyStruct { ... }",
+        );
+        assert_eq!(parent.unit_type, UNIT_TYPE_CODE_BLOCK);
+        assert_eq!(parent.unit_locator["file_path"], "src/lib.rs");
+        assert_eq!(parent.unit_locator["block_name"], "MyStruct");
+        assert_eq!(parent.unit_locator["block_kind"], "struct");
+        assert_eq!(parent.unit_locator["start_line"], 10);
+        assert_eq!(parent.unit_locator["end_line"], 50);
+        assert!(!parent.point_id.is_empty());
+    }
+
+    #[test]
+    fn test_code_block_parent_unique_per_block() {
+        let p1 = code_block_parent("doc", "fp", "f.rs", "Foo", "class", 1, 10, "class Foo");
+        let p2 = code_block_parent("doc", "fp", "f.rs", "Bar", "class", 20, 30, "class Bar");
+        assert_ne!(p1.point_id, p2.point_id);
+    }
+
+    #[test]
+    fn test_is_container_type() {
+        use crate::tree_sitter::types::ChunkType;
+        assert!(is_container_type(ChunkType::Class));
+        assert!(is_container_type(ChunkType::Struct));
+        assert!(is_container_type(ChunkType::Trait));
+        assert!(is_container_type(ChunkType::Interface));
+        assert!(is_container_type(ChunkType::Impl));
+        assert!(is_container_type(ChunkType::Module));
+        assert!(is_container_type(ChunkType::Enum));
+        // Non-containers
+        assert!(!is_container_type(ChunkType::Function));
+        assert!(!is_container_type(ChunkType::Method));
+        assert!(!is_container_type(ChunkType::Preamble));
+        assert!(!is_container_type(ChunkType::Text));
+        assert!(!is_container_type(ChunkType::Constant));
+    }
+
+    #[test]
+    fn test_create_code_parents_file_only() {
+        use crate::tree_sitter::types::SemanticChunk;
+        // Two top-level functions, no containers
+        let chunks = vec![
+            SemanticChunk::new(ChunkType::Function, "foo", "fn foo() {}", 1, 3, "rust", "lib.rs"),
+            SemanticChunk::new(ChunkType::Function, "bar", "fn bar() {}", 5, 8, "rust", "lib.rs"),
+        ];
+        let mapping = create_code_parents("doc", "fp", "lib.rs", "fn foo() {}\nfn bar() {}", &chunks);
+
+        assert_eq!(mapping.file_parent.unit_type, UNIT_TYPE_CODE_FILE);
+        assert!(mapping.block_parents.is_empty());
+        assert_eq!(mapping.chunk_parent_ids.len(), 2);
+        // Both map to the file parent
+        assert_eq!(mapping.chunk_parent_ids[0], mapping.file_parent.point_id);
+        assert_eq!(mapping.chunk_parent_ids[1], mapping.file_parent.point_id);
+    }
+
+    #[test]
+    fn test_create_code_parents_with_class() {
+        use crate::tree_sitter::types::SemanticChunk;
+        let chunks = vec![
+            SemanticChunk::new(ChunkType::Class, "MyClass", "class MyClass { ... }", 1, 20, "python", "app.py"),
+            SemanticChunk::new(ChunkType::Method, "process", "def process(self):", 3, 8, "python", "app.py")
+                .with_parent("MyClass"),
+            SemanticChunk::new(ChunkType::Method, "validate", "def validate(self):", 10, 15, "python", "app.py")
+                .with_parent("MyClass"),
+            SemanticChunk::new(ChunkType::Function, "helper", "def helper():", 22, 25, "python", "app.py"),
+        ];
+        let mapping = create_code_parents("doc", "fp", "app.py", "full file text", &chunks);
+
+        // One block parent for MyClass
+        assert_eq!(mapping.block_parents.len(), 1);
+        assert_eq!(mapping.block_parents[0].unit_locator["block_name"], "MyClass");
+        assert_eq!(mapping.block_parents[0].unit_type, UNIT_TYPE_CODE_BLOCK);
+
+        // Class chunk → file parent (the class IS a container, references file)
+        assert_eq!(mapping.chunk_parent_ids[0], mapping.file_parent.point_id);
+        // Methods → block parent (MyClass)
+        assert_eq!(mapping.chunk_parent_ids[1], mapping.block_parents[0].point_id);
+        assert_eq!(mapping.chunk_parent_ids[2], mapping.block_parents[0].point_id);
+        // Top-level function → file parent
+        assert_eq!(mapping.chunk_parent_ids[3], mapping.file_parent.point_id);
+    }
+
+    #[test]
+    fn test_create_code_parents_with_impl_block() {
+        use crate::tree_sitter::types::SemanticChunk;
+        let chunks = vec![
+            SemanticChunk::new(ChunkType::Struct, "Config", "struct Config {}", 1, 5, "rust", "config.rs"),
+            SemanticChunk::new(ChunkType::Impl, "Config", "impl Config { ... }", 7, 30, "rust", "config.rs"),
+            SemanticChunk::new(ChunkType::Method, "new", "fn new() -> Self", 8, 15, "rust", "config.rs")
+                .with_parent("Config"),
+            SemanticChunk::new(ChunkType::Method, "validate", "fn validate(&self)", 17, 25, "rust", "config.rs")
+                .with_parent("Config"),
+        ];
+        let mapping = create_code_parents("doc", "fp", "config.rs", "full text", &chunks);
+
+        // Struct and Impl are both containers; both create block parents
+        // but they share the same name "Config", so the map stores the last one (Impl)
+        assert_eq!(mapping.block_parents.len(), 2);
+        // Methods reference the "Config" block parent (last wins in HashMap)
+        let config_id = mapping.chunk_parent_ids[2].clone();
+        assert_eq!(mapping.chunk_parent_ids[3], config_id);
+        assert_ne!(config_id, mapping.file_parent.point_id);
+    }
+
+    #[test]
+    fn test_create_code_parents_multiple_classes() {
+        use crate::tree_sitter::types::SemanticChunk;
+        let chunks = vec![
+            SemanticChunk::new(ChunkType::Class, "Foo", "class Foo", 1, 10, "python", "m.py"),
+            SemanticChunk::new(ChunkType::Method, "run", "def run(self):", 3, 8, "python", "m.py")
+                .with_parent("Foo"),
+            SemanticChunk::new(ChunkType::Class, "Bar", "class Bar", 12, 20, "python", "m.py"),
+            SemanticChunk::new(ChunkType::Method, "start", "def start(self):", 14, 18, "python", "m.py")
+                .with_parent("Bar"),
+        ];
+        let mapping = create_code_parents("doc", "fp", "m.py", "full", &chunks);
+
+        assert_eq!(mapping.block_parents.len(), 2);
+        // run → Foo's block parent
+        // start → Bar's block parent
+        assert_ne!(mapping.chunk_parent_ids[1], mapping.chunk_parent_ids[3]);
+        // Both classes → file parent
+        assert_eq!(mapping.chunk_parent_ids[0], mapping.file_parent.point_id);
+        assert_eq!(mapping.chunk_parent_ids[2], mapping.file_parent.point_id);
     }
 }
