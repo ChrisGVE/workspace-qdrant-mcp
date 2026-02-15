@@ -1,0 +1,40 @@
+#!/bin/bash
+# rg-instrumented — wrapper to log ripgrep invocations to search_events
+#
+# Install: cp assets/wrappers/rg-instrumented ~/.local/bin/rg-instrumented
+# Use:     alias rg=rg-instrumented  (in Claude Code startup hook)
+#
+# This wrapper logs the query to the search_events table via `wqm stats log-search`
+# then exec's the real ripgrep binary. The log call runs in the background
+# to add zero latency to the search.
+
+# Find the real rg binary (skip this wrapper)
+REAL_RG=""
+for p in /opt/homebrew/bin/rg /usr/local/bin/rg /usr/bin/rg; do
+    if [ -x "$p" ]; then
+        REAL_RG="$p"
+        break
+    fi
+done
+
+if [ -z "$REAL_RG" ]; then
+    echo "Error: ripgrep (rg) not found in standard locations" >&2
+    exit 1
+fi
+
+# Extract query pattern from args (first non-flag argument)
+QUERY=""
+for arg in "$@"; do
+    case "$arg" in
+        -*) continue ;;
+        *)  QUERY="$arg"; break ;;
+    esac
+done
+
+# Log the search event in the background (fire-and-forget)
+if [ -n "$QUERY" ] && command -v wqm >/dev/null 2>&1; then
+    wqm stats log-search --tool=rg --query="$QUERY" >/dev/null 2>&1 &
+fi
+
+# Exec the real rg (replaces this process)
+exec "$REAL_RG" "$@"

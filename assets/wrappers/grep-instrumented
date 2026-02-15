@@ -1,0 +1,36 @@
+#!/bin/bash
+# grep-instrumented — wrapper to log grep invocations to search_events
+#
+# Install: cp assets/wrappers/grep-instrumented ~/.local/bin/grep-instrumented
+# Use:     alias grep=grep-instrumented  (in Claude Code startup hook)
+
+# Find the real grep binary
+REAL_GREP=""
+for p in /usr/bin/grep /opt/homebrew/bin/grep /usr/local/bin/grep; do
+    if [ -x "$p" ]; then
+        REAL_GREP="$p"
+        break
+    fi
+done
+
+if [ -z "$REAL_GREP" ]; then
+    echo "Error: grep not found in standard locations" >&2
+    exit 1
+fi
+
+# Extract query pattern from args (first non-flag argument)
+QUERY=""
+for arg in "$@"; do
+    case "$arg" in
+        -*) continue ;;
+        *)  QUERY="$arg"; break ;;
+    esac
+done
+
+# Log the search event in the background (fire-and-forget)
+if [ -n "$QUERY" ] && command -v wqm >/dev/null 2>&1; then
+    wqm stats log-search --tool=grep --query="$QUERY" >/dev/null 2>&1 &
+fi
+
+# Exec the real grep
+exec "$REAL_GREP" "$@"
