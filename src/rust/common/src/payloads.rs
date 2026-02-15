@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Payload for content items
+/// Payload for text items (was "content" in old taxonomy)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ContentPayload {
     /// The actual text content
@@ -67,6 +67,9 @@ pub struct FilePayload {
     /// File size in bytes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size_bytes: Option<u64>,
+    /// Previous path before rename (used when op=Rename)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_path: Option<String>,
 }
 
 /// Payload for folder items
@@ -86,12 +89,15 @@ pub struct FolderPayload {
     /// Patterns to ignore
     #[serde(default)]
     pub ignore_patterns: Vec<String>,
+    /// Previous path before rename (used when op=Rename)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_path: Option<String>,
 }
 
 fn default_true() -> bool { true }
 fn default_recursive_depth() -> u32 { 10 }
 
-/// Payload for project items
+/// Payload for tenant items with collection="projects"
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectPayload {
     /// Absolute path to project root
@@ -102,9 +108,12 @@ pub struct ProjectPayload {
     /// Project type classification
     #[serde(skip_serializing_if = "Option::is_none")]
     pub project_type: Option<String>,
+    /// Previous tenant_id before rename (used when op=Rename)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub old_tenant_id: Option<String>,
 }
 
-/// Payload for library items
+/// Payload for tenant items with collection="libraries"
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LibraryPayload {
     /// Library name
@@ -117,7 +126,7 @@ pub struct LibraryPayload {
     pub source_url: Option<String>,
 }
 
-/// Payload for delete_tenant items
+/// Payload for tenant delete operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteTenantPayload {
     /// Tenant ID to delete
@@ -127,7 +136,7 @@ pub struct DeleteTenantPayload {
     pub reason: Option<String>,
 }
 
-/// Payload for delete_document items
+/// Payload for doc delete operations (delete by document ID)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeleteDocumentPayload {
     /// Document identifier (UUID or path)
@@ -135,47 +144,6 @@ pub struct DeleteDocumentPayload {
     /// Specific point IDs to delete (optional)
     #[serde(default)]
     pub point_ids: Vec<String>,
-}
-
-/// Discriminator for rename payload types
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum RenameType {
-    /// File or folder path rename (delete old + re-ingest new)
-    PathRename,
-    /// Tenant ID cascade rename (update Qdrant payloads in-place)
-    TenantIdRename,
-}
-
-impl Default for RenameType {
-    fn default() -> Self {
-        RenameType::PathRename
-    }
-}
-
-/// Payload for rename items
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RenamePayload {
-    /// Type of rename operation
-    #[serde(default)]
-    pub rename_type: RenameType,
-    /// Original path (for PathRename)
-    #[serde(default)]
-    pub old_path: Option<String>,
-    /// New path (for PathRename)
-    #[serde(default)]
-    pub new_path: Option<String>,
-    /// Whether this is a folder rename (for PathRename)
-    #[serde(default)]
-    pub is_folder: bool,
-    /// Old tenant ID (for TenantIdRename)
-    #[serde(default)]
-    pub old_tenant_id: Option<String>,
-    /// New tenant ID (for TenantIdRename)
-    #[serde(default)]
-    pub new_tenant_id: Option<String>,
-    /// Reason for the rename (e.g., "remote_url_changed", "manual_rename")
-    #[serde(default)]
-    pub reason: Option<String>,
 }
 
 /// Payload for scratchpad items (persistent LLM scratch space)
@@ -224,6 +192,26 @@ pub struct UrlPayload {
 fn default_crawl_depth() -> u32 { 2 }
 fn default_max_pages() -> u32 { 50 }
 
+/// Payload for website items (multi-page crawl)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebsitePayload {
+    /// Root URL of the website
+    pub url: String,
+    /// Maximum crawl depth from root (default: 2)
+    #[serde(default = "default_crawl_depth")]
+    pub max_depth: u32,
+    /// Maximum pages to crawl (default: 50)
+    #[serde(default = "default_max_pages")]
+    pub max_pages: u32,
+}
+
+/// Payload for collection-level operations (uplift, reset)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionPayload {
+    /// Name of the Qdrant collection
+    pub collection_name: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -253,10 +241,12 @@ mod tests {
             file_type: Some("code".to_string()),
             file_hash: None,
             size_bytes: Some(1024),
+            old_path: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("/src/main.rs"));
         assert!(!json.contains("file_hash"));
+        assert!(!json.contains("old_path"));
 
         let back: FilePayload = serde_json::from_str(&json).unwrap();
         assert_eq!(back.file_path, "/src/main.rs");
@@ -264,8 +254,53 @@ mod tests {
     }
 
     #[test]
-    fn test_rename_type_default() {
-        assert_eq!(RenameType::default(), RenameType::PathRename);
+    fn test_file_payload_with_rename() {
+        let payload = FilePayload {
+            file_path: "/src/new_name.rs".to_string(),
+            file_type: None,
+            file_hash: None,
+            size_bytes: None,
+            old_path: Some("/src/old_name.rs".to_string()),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("old_path"));
+        assert!(json.contains("old_name.rs"));
+
+        let back: FilePayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.old_path, Some("/src/old_name.rs".to_string()));
+    }
+
+    #[test]
+    fn test_folder_payload_with_rename() {
+        let payload = FolderPayload {
+            folder_path: "/src/new_dir".to_string(),
+            recursive: true,
+            recursive_depth: 10,
+            patterns: vec![],
+            ignore_patterns: vec![],
+            old_path: Some("/src/old_dir".to_string()),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("old_dir"));
+
+        let back: FolderPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.old_path, Some("/src/old_dir".to_string()));
+    }
+
+    #[test]
+    fn test_project_payload_with_rename() {
+        let payload = ProjectPayload {
+            project_root: "/home/user/project".to_string(),
+            git_remote: None,
+            project_type: None,
+            old_tenant_id: Some("old_abc123".to_string()),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("old_tenant_id"));
+        assert!(json.contains("old_abc123"));
+
+        let back: ProjectPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.old_tenant_id, Some("old_abc123".to_string()));
     }
 
     #[test]
@@ -385,5 +420,41 @@ mod tests {
         assert_eq!(payload.title, None);
         assert!(payload.tags.is_empty());
         assert_eq!(payload.source_type, "scratchpad");
+    }
+
+    #[test]
+    fn test_website_payload_serde() {
+        let payload = WebsitePayload {
+            url: "https://docs.rs/tokio".to_string(),
+            max_depth: 3,
+            max_pages: 100,
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("https://docs.rs/tokio"));
+
+        let back: WebsitePayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.url, "https://docs.rs/tokio");
+        assert_eq!(back.max_depth, 3);
+        assert_eq!(back.max_pages, 100);
+    }
+
+    #[test]
+    fn test_website_payload_defaults() {
+        let json = r#"{"url":"https://example.com"}"#;
+        let payload: WebsitePayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.max_depth, 2);
+        assert_eq!(payload.max_pages, 50);
+    }
+
+    #[test]
+    fn test_collection_payload_serde() {
+        let payload = CollectionPayload {
+            collection_name: "projects".to_string(),
+        };
+        let json = serde_json::to_string(&payload).unwrap();
+        assert!(json.contains("projects"));
+
+        let back: CollectionPayload = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.collection_name, "projects");
     }
 }
