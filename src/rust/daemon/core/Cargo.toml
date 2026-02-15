@@ -63,6 +63,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "chrono
 tracing-appender = "0.2"
 logroller = "0.1"
 reqwest = { version = "0.11", features = ["stream", "json"] }
+url = "2.5"
 ahash = "0.8"
 sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
 regex = "1.10"

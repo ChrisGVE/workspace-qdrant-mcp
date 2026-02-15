@@ -27,7 +27,7 @@ use crate::queue_operations::QueueManager;
 use crate::unified_queue_schema::{
     ItemType, QueueOperation, UnifiedQueueItem,
     ContentPayload, FilePayload, FolderPayload, ProjectPayload, LibraryPayload,
-    MemoryPayload, UrlPayload, ScratchpadPayload,
+    MemoryPayload, UrlPayload, ScratchpadPayload, WebsitePayload,
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
 use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
@@ -844,9 +844,7 @@ impl UnifiedQueueProcessor {
                 Self::process_url_item(item, embedding_generator, storage_client, embedding_semaphore).await
             }
             ItemType::Website => {
-                // Website processing — placeholder: log and mark done
-                info!("Website processing not yet implemented for queue_id={}", item.queue_id);
-                Ok(())
+                Self::process_website_item(item, queue_manager, embedding_generator, storage_client, embedding_semaphore).await
             }
             ItemType::Collection => {
                 Self::process_collection_item(item, queue_manager, storage_client).await
@@ -2829,6 +2827,220 @@ impl UnifiedQueueProcessor {
             "Successfully processed library item {} (library={})",
             item.queue_id, payload.library_name
         );
+
+        Ok(())
+    }
+
+    /// Process website item — progressive crawl
+    ///
+    /// - Add: validate URL, enqueue (Website, Scan) for root
+    /// - Scan: fetch page, extract same-domain links, enqueue (Url, Add) for each
+    /// - Update: re-enqueue as (Website, Scan) for re-crawl
+    /// - Delete: delete all Qdrant points matching the website's base URL
+    async fn process_website_item(
+        item: &UnifiedQueueItem,
+        queue_manager: &QueueManager,
+        _embedding_generator: &Arc<EmbeddingGenerator>,
+        storage_client: &Arc<StorageClient>,
+        _embedding_semaphore: &Arc<tokio::sync::Semaphore>,
+    ) -> UnifiedProcessorResult<()> {
+        let payload: WebsitePayload = serde_json::from_str(&item.payload_json)
+            .map_err(|e| UnifiedProcessorError::InvalidPayload(
+                format!("Failed to parse WebsitePayload: {}", e)
+            ))?;
+
+        info!(
+            "Processing website item: {} (op={:?}, url={})",
+            item.queue_id, item.op, payload.url
+        );
+
+        match item.op {
+            QueueOperation::Add => {
+                // Validate URL
+                let parsed = url::Url::parse(&payload.url)
+                    .map_err(|e| UnifiedProcessorError::InvalidPayload(
+                        format!("Invalid URL {}: {}", payload.url, e)
+                    ))?;
+                if parsed.scheme() != "http" && parsed.scheme() != "https" {
+                    return Err(UnifiedProcessorError::InvalidPayload(
+                        format!("Unsupported URL scheme: {}", parsed.scheme())
+                    ));
+                }
+
+                // Enqueue (Website, Scan) for the root URL
+                let scan_payload = serde_json::json!({
+                    "url": payload.url,
+                    "max_depth": payload.max_depth,
+                    "max_pages": payload.max_pages,
+                }).to_string();
+
+                match queue_manager.enqueue_unified(
+                    ItemType::Website,
+                    QueueOperation::Scan,
+                    &item.tenant_id,
+                    &item.collection,
+                    &scan_payload,
+                    0,
+                    None,
+                    None,
+                ).await {
+                    Ok((queue_id, _)) => {
+                        info!("Enqueued website scan for url={} queue_id={}", payload.url, queue_id);
+                    }
+                    Err(e) => {
+                        warn!("Failed to enqueue website scan: {}", e);
+                    }
+                }
+            }
+            QueueOperation::Scan => {
+                // Fetch page HTML
+                let response = reqwest::get(&payload.url)
+                    .await
+                    .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                        format!("Failed to fetch {}: {}", payload.url, e)
+                    ))?;
+
+                if !response.status().is_success() {
+                    return Err(UnifiedProcessorError::ProcessingFailed(
+                        format!("HTTP {} for {}", response.status(), payload.url)
+                    ));
+                }
+
+                let body = response.text().await.map_err(|e| {
+                    UnifiedProcessorError::ProcessingFailed(
+                        format!("Failed to read response from {}: {}", payload.url, e)
+                    )
+                })?;
+
+                // Enqueue the root page itself as (Url, Add) for embedding
+                let root_url_payload = serde_json::json!({
+                    "url": payload.url,
+                    "crawl": false,
+                    "max_depth": 0,
+                    "max_pages": 1,
+                }).to_string();
+
+                let _ = queue_manager.enqueue_unified(
+                    ItemType::Url,
+                    QueueOperation::Add,
+                    &item.tenant_id,
+                    &item.collection,
+                    &root_url_payload,
+                    0,
+                    None,
+                    None,
+                ).await;
+
+                // Extract same-domain links if depth allows
+                if payload.max_depth > 0 {
+                    let base_url = url::Url::parse(&payload.url).ok();
+                    let base_host = base_url.as_ref().and_then(|u| u.host_str().map(|s| s.to_string()));
+
+                    if let Some(host) = base_host {
+                        // Simple link extraction from HTML
+                        let link_re = regex::Regex::new(r#"href=["']([^"']+)["']"#).unwrap();
+                        let mut enqueued = 0u32;
+                        let mut seen = std::collections::HashSet::new();
+                        seen.insert(payload.url.clone());
+
+                        for cap in link_re.captures_iter(&body) {
+                            if enqueued >= payload.max_pages {
+                                break;
+                            }
+
+                            let href = &cap[1];
+                            // Resolve relative URLs
+                            let resolved = if let Some(ref base) = base_url {
+                                base.join(href).ok()
+                            } else {
+                                url::Url::parse(href).ok()
+                            };
+
+                            if let Some(resolved_url) = resolved {
+                                // Same-domain check
+                                if resolved_url.host_str() != Some(&host) {
+                                    continue;
+                                }
+                                // Skip fragments, non-http(s)
+                                if resolved_url.scheme() != "http" && resolved_url.scheme() != "https" {
+                                    continue;
+                                }
+
+                                let url_str = resolved_url.as_str().to_string();
+                                if !seen.insert(url_str.clone()) {
+                                    continue;
+                                }
+
+                                // Enqueue as (Url, Add)
+                                let url_payload = serde_json::json!({
+                                    "url": url_str,
+                                    "crawl": false,
+                                    "max_depth": 0,
+                                    "max_pages": 1,
+                                }).to_string();
+
+                                if let Ok((_, true)) = queue_manager.enqueue_unified(
+                                    ItemType::Url,
+                                    QueueOperation::Add,
+                                    &item.tenant_id,
+                                    &item.collection,
+                                    &url_payload,
+                                    0,
+                                    None,
+                                    None,
+                                ).await {
+                                    enqueued += 1;
+                                }
+                            }
+                        }
+                        info!(
+                            "Website scan: extracted {} same-domain URLs from {}",
+                            enqueued, payload.url
+                        );
+                    }
+                }
+            }
+            QueueOperation::Update => {
+                // Re-enqueue as (Website, Scan) for re-crawl
+                let scan_payload = serde_json::json!({
+                    "url": payload.url,
+                    "max_depth": payload.max_depth,
+                    "max_pages": payload.max_pages,
+                }).to_string();
+
+                let _ = queue_manager.enqueue_unified(
+                    ItemType::Website,
+                    QueueOperation::Scan,
+                    &item.tenant_id,
+                    &item.collection,
+                    &scan_payload,
+                    0,
+                    None,
+                    None,
+                ).await;
+                info!("Re-enqueued website scan for url={}", payload.url);
+            }
+            QueueOperation::Delete => {
+                // Delete all Qdrant points for this tenant (website scoped)
+                if storage_client
+                    .collection_exists(&item.collection)
+                    .await
+                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
+                {
+                    storage_client
+                        .delete_points_by_tenant(&item.collection, &item.tenant_id)
+                        .await
+                        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                    info!("Deleted website points for tenant={}", item.tenant_id);
+                }
+            }
+            _ => {
+                warn!(
+                    "Unsupported operation {:?} for website item {}",
+                    item.op, item.queue_id
+                );
+            }
+        }
 
         Ok(())
     }
