@@ -1,0 +1,207 @@
+{
+  "description": "Test corpus manifest for library document ingestion validation",
+  "created": "2025-01-15",
+  "samples": {
+    "page_based": {
+      "sample.pdf": {
+        "source_format": "pdf",
+        "document_type": "page_based",
+        "expected_title": "Sample Markdown Document",
+        "expected_author": "Test Author",
+        "expected_sections": 6,
+        "expected_pages_approx": 2,
+        "has_text_layer": true,
+        "has_code_blocks": true,
+        "has_tables": true,
+        "notes": "Generated from sample.md via Pandoc"
+      },
+      "sample.docx": {
+        "source_format": "docx",
+        "document_type": "page_based",
+        "expected_title": "Sample Markdown Document",
+        "expected_author": "Test Author",
+        "expected_sections": 6,
+        "has_code_blocks": true,
+        "has_tables": true,
+        "notes": "Generated from sample.md via Pandoc"
+      },
+      "sample.pptx": {
+        "source_format": "pptx",
+        "document_type": "page_based",
+        "expected_title": "Sample Markdown Document",
+        "expected_slides_approx": 8,
+        "has_speaker_notes": false,
+        "notes": "Generated from sample.md via Pandoc"
+      },
+      "sample.odt": {
+        "source_format": "odt",
+        "document_type": "page_based",
+        "expected_title": "Sample Markdown Document",
+        "expected_sections": 6,
+        "notes": "Generated from sample.md via Pandoc"
+      },
+      "sample.ods": {
+        "source_format": "ods",
+        "document_type": "page_based",
+        "expected_title": "Sample Spreadsheet",
+        "expected_sheets": 2,
+        "expected_rows_sheet1": 4,
+        "notes": "Programmatically created ODS with 2 sheets"
+      },
+      "sample.rtf": {
+        "source_format": "rtf",
+        "document_type": "page_based",
+        "expected_title": "Sample Markdown Document",
+        "expected_sections": 6,
+        "notes": "Generated from sample.md via Pandoc"
+      }
+    },
+    "stream_based": {
+      "sample.md": {
+        "source_format": "markdown",
+        "document_type": "stream_based",
+        "expected_title": "Sample Markdown Document",
+        "expected_author": "Test Author",
+        "expected_sections": 6,
+        "has_frontmatter": true,
+        "has_code_blocks": true,
+        "has_tables": true,
+        "notes": "Primary source document used to generate other formats"
+      },
+      "sample.txt": {
+        "source_format": "text",
+        "document_type": "stream_based",
+        "expected_title": "Sample Plain Text Document",
+        "expected_author": "Test Author",
+        "expected_sections": 4,
+        "has_unicode": true,
+        "has_cjk": true,
+        "has_emoji": true,
+        "notes": "Plain text with section headers marked by underlines"
+      },
+      "sample.html": {
+        "source_format": "html",
+        "document_type": "stream_based",
+        "expected_title": "Sample HTML Document",
+        "expected_author": "Test Author",
+        "expected_sections": 4,
+        "has_navigation": true,
+        "has_semantic_html5": true,
+        "has_tables": true,
+        "has_code_blocks": true,
+        "notes": "Semantic HTML5 with nav, main, article, section elements"
+      },
+      "sample.epub": {
+        "source_format": "epub",
+        "document_type": "stream_based",
+        "expected_title": "Sample EPUB Document",
+        "expected_chapters_approx": 1,
+        "notes": "Generated from sample.md via Pandoc"
+      }
+    },
+    "edge_cases": {
+      "empty.md": {
+        "source_format": "markdown",
+        "document_type": "stream_based",
+        "expected_title": null,
+        "expected_content_length": 0,
+        "expected_behavior": "graceful_empty_result",
+        "notes": "Empty file - extraction should return empty result, not error"
+      },
+      "empty.txt": {
+        "source_format": "text",
+        "document_type": "stream_based",
+        "expected_title": null,
+        "expected_content_length": 0,
+        "expected_behavior": "graceful_empty_result",
+        "notes": "Empty file - extraction should return empty result, not error"
+      },
+      "empty.html": {
+        "source_format": "html",
+        "document_type": "stream_based",
+        "expected_title": "",
+        "expected_content_length": 0,
+        "expected_behavior": "graceful_empty_result",
+        "notes": "Valid HTML structure with no body content"
+      },
+      "empty.pdf": {
+        "source_format": "pdf",
+        "document_type": "page_based",
+        "expected_title": null,
+        "expected_pages": 1,
+        "expected_content_length": 0,
+        "expected_behavior": "graceful_empty_result",
+        "notes": "Valid PDF with no text content"
+      },
+      "empty.docx": {
+        "source_format": "docx",
+        "document_type": "page_based",
+        "expected_title": null,
+        "expected_content_length": 0,
+        "expected_behavior": "graceful_empty_result",
+        "notes": "Valid DOCX with no content"
+      },
+      "empty.epub": {
+        "source_format": "epub",
+        "document_type": "stream_based",
+        "expected_title": "Empty",
+        "expected_content_length": 0,
+        "expected_behavior": "graceful_empty_result",
+        "notes": "Valid EPUB with no content beyond title"
+      },
+      "corrupted.pdf": {
+        "source_format": "pdf",
+        "document_type": "page_based",
+        "expected_title": null,
+        "expected_behavior": "graceful_error",
+        "error_type": "extraction_failure",
+        "notes": "Starts with %PDF header but contains garbage data"
+      },
+      "unicode_heavy.md": {
+        "source_format": "markdown",
+        "document_type": "stream_based",
+        "expected_title": "Üñîcödé Hëävy Dôcüment",
+        "has_accented": true,
+        "has_cjk": true,
+        "has_arabic": true,
+        "has_hebrew": true,
+        "has_emoji": true,
+        "has_math_symbols": true,
+        "has_box_drawing": true,
+        "has_zero_width": true,
+        "notes": "Tests multi-byte character handling across extraction and chunking"
+      },
+      "unicode_heavy.docx": {
+        "source_format": "docx",
+        "document_type": "page_based",
+        "expected_title": "Üñîcödé Hëävy Dôcüment",
+        "has_unicode": true,
+        "notes": "DOCX version of unicode_heavy.md for page-based Unicode testing"
+      },
+      "large_multisection.md": {
+        "source_format": "markdown",
+        "document_type": "stream_based",
+        "expected_title": "Large Multi-Section Document",
+        "expected_sections": 56,
+        "expected_behavior": "many_chunks",
+        "notes": "54 sections + subsections to test chunking with large documents"
+      },
+      "large_multipage.pdf": {
+        "source_format": "pdf",
+        "document_type": "page_based",
+        "expected_title": "Large Multi-Section Document",
+        "expected_pages_approx": 15,
+        "expected_behavior": "many_chunks",
+        "notes": "PDF version of large_multisection.md for page-based large file testing"
+      }
+    }
+  },
+  "formats_not_available": {
+    "doc": "Legacy .doc format requires LibreOffice to create (not available in test environment)",
+    "ppt": "Legacy .ppt format requires LibreOffice to create (not available in test environment)",
+    "odp": "Pandoc does not support ODP output; requires LibreOffice",
+    "mobi": "MOBI/AZW format requires Amazon KindleGen (proprietary)",
+    "pages": "Apple Pages format requires macOS Pages app",
+    "key": "Apple Keynote format requires macOS Keynote app"
+  }
+}

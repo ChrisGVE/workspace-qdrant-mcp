@@ -1,0 +1,61 @@
+Sample Plain Text Document
+==========================
+
+Author: Test Author
+Date: 2025-01-15
+
+Introduction
+------------
+
+This is a sample plain text document used for testing library document
+ingestion. Plain text files have no formatting markup, so the extraction
+pipeline must rely on structural cues like blank lines and indentation
+to identify logical sections.
+
+Section 1: Content Structure
+-----------------------------
+
+Plain text documents are the simplest format in the stream-based family.
+They consist of raw UTF-8 text without any formatting metadata. Despite
+their simplicity, they are widely used for README files, configuration
+documentation, and log analysis.
+
+The chunking pipeline should handle plain text by:
+  - Splitting on paragraph boundaries (double newlines)
+  - Preserving indentation for structured content
+  - Detecting section headers based on common patterns
+
+Section 2: Edge Cases
+---------------------
+
+This section contains various edge cases for text processing:
+
+  1. Very short lines
+  2. Lines with trailing whitespace
+  3. Lines with   multiple   spaces   between   words
+  4. A line that is intentionally quite long to test how the chunking algorithm handles text that exceeds typical line length boundaries in most text editors and terminals
+
+  5. Numbered items with gaps
+
+Unicode content: café, naïve, résumé, über, Ångström
+CJK characters: 你好世界 (Hello World in Chinese)
+Emoji: 🎉 🚀 📚 ✨
+
+Section 3: Technical Content
+-----------------------------
+
+Function: calculate_checksum(data: bytes) -> str
+  Input: Raw byte data
+  Output: SHA-256 hex digest
+  Complexity: O(n) where n = len(data)
+
+  Example:
+    >>> calculate_checksum(b"hello")
+    '2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824'
+
+Conclusion
+----------
+
+This plain text fixture validates that the ingestion pipeline correctly
+handles unformatted text documents, preserving content fidelity and
+correctly identifying logical sections for chunking.

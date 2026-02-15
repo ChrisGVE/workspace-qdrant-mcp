@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="author" content="Test Author">
+    <meta name="description" content="Sample HTML document for testing library document ingestion">
+    <title>Sample HTML Document</title>
+</head>
+<body>
+    <header>
+        <nav>
+            <ul>
+                <li><a href="#introduction">Introduction</a></li>
+                <li><a href="#architecture">Architecture</a></li>
+                <li><a href="#implementation">Implementation</a></li>
+                <li><a href="#conclusion">Conclusion</a></li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        <article>
+            <h1>Sample HTML Document</h1>
+
+            <section id="introduction">
+                <h2>Introduction</h2>
+                <p>This is a sample HTML document used for testing the stream-based document extraction pipeline. It contains semantic HTML5 elements, navigation, and structured content sections.</p>
+                <p>The extraction pipeline should correctly identify the main content area, strip navigation and boilerplate, and extract meaningful text for chunking.</p>
+            </section>
+
+            <section id="architecture">
+                <h2>Architecture Overview</h2>
+                <p>The document processing pipeline follows a multi-stage architecture:</p>
+
+                <h3>Stage 1: Extraction</h3>
+                <p>Raw HTML is parsed using an HTML parser. The parser extracts text content from semantic elements while ignoring scripts, styles, and non-content elements.</p>
+
+                <h3>Stage 2: Chunking</h3>
+                <p>Extracted text is split into chunks based on heading boundaries. Each chunk maintains a reference to its parent heading hierarchy for context preservation.</p>
+                <ul>
+                    <li>Token-based chunking with configurable target size (90-120 tokens)</li>
+                    <li>Overlap between chunks for context continuity</li>
+                    <li>Heading hierarchy preserved in chunk metadata</li>
+                </ul>
+
+                <h3>Stage 3: Embedding</h3>
+                <p>Each chunk is embedded using a dense embedding model (all-MiniLM-L6-v2) and a sparse BM25-style index for hybrid search.</p>
+            </section>
+
+            <section id="implementation">
+                <h2>Implementation Details</h2>
+                <p>The implementation uses Rust for performance-critical extraction and TypeScript for the MCP server interface.</p>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Component</th>
+                            <th>Language</th>
+                            <th>Role</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Daemon</td>
+                            <td>Rust</td>
+                            <td>File watching, extraction, embedding</td>
+                        </tr>
+                        <tr>
+                            <td>CLI</td>
+                            <td>Rust</td>
+                            <td>User interface, queue management</td>
+                        </tr>
+                        <tr>
+                            <td>MCP Server</td>
+                            <td>TypeScript</td>
+                            <td>AI assistant integration</td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <pre><code class="language-rust">
+fn extract_text(html: &amp;str) -&gt; String {
+    let document = Html::parse_document(html);
+    let selector = Selector::parse("main, article, section").unwrap();
+    document.select(&amp;selector)
+        .map(|el| el.text().collect::&lt;String&gt;())
+        .collect::&lt;Vec&lt;_&gt;&gt;()
+        .join("\n\n")
+}
+                </code></pre>
+            </section>
+
+            <section id="conclusion">
+                <h2>Conclusion</h2>
+                <p>This HTML fixture validates that the ingestion pipeline correctly handles web documents, extracting meaningful content from semantic HTML while discarding navigation, scripts, and presentational markup.</p>
+            </section>
+        </article>
+    </main>
+
+    <footer>
+        <p>&copy; 2025 Test Author. This is a test fixture document.</p>
+    </footer>
+</body>
+</html>

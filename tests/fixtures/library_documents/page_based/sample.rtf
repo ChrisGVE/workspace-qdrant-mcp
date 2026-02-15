@@ -1,0 +1,105 @@
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel0 \b \fs36 Introduction\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 This is a sample Markdown document used for testing library document ingestion. It contains multiple heading levels, code blocks, and various formatting elements to validate the stream-based extraction pipeline.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel1 \b \fs32 Section 1: Text Content\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel2 \b \fs28 Subsection 1.1: Lists\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab First item in unordered list\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Second item with {\b bold text}\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Third item with {\i italic text}\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 \bullet \tx360\tab Fourth item with {\f1 inline code}\sa180\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 1.\tx360\tab First ordered item\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 2.\tx360\tab Second ordered item\par}
+{\pard \ql \f0 \sa0 \li360 \fi-360 3.\tx360\tab Third ordered item\sa180\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel2 \b \fs28 Subsection 1.2: Code Blocks\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \f1 def fibonacci(n: int) -> int:\line
+    """Calculate the nth Fibonacci number."""\line
+    if n <= 1:\line
+        return n\line
+    return fibonacci(n - 1) + fibonacci(n - 2)\line
+\line
+\line
+# Example usage\line
+for i in range(10):\line
+    print(f"F(\{i\}) = \{fibonacci(i)\}")\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \f1 fn main() \{\line
+    let numbers: Vec<i32> = (1..=10).collect();\line
+    let sum: i32 = numbers.iter().sum();\line
+    println!("Sum of 1..10 = \{\}", sum);\line
+\}\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel1 \b \fs32 Section 2: Tables and Links\par}
+{
+\trowd \trgaph120
+\clbrdrb\brdrs\cellx2880\clbrdrb\brdrs\cellx5760\clbrdrb\brdrs\cellx8640
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Format\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Family\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Extension\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2880\cellx5760\cellx8640
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 PDF\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Page-based\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 .pdf\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2880\cellx5760\cellx8640
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Markdown\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Stream-based\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 .md\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2880\cellx5760\cellx8640
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 EPUB\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Stream-based\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 .epub\par}
+\cell}
+}
+\intbl\row}
+{
+\trowd \trgaph120
+\cellx2880\cellx5760\cellx8640
+\trkeep\intbl
+{
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 DOCX\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 Page-based\par}
+\cell}
+{{\pard\intbl \ql \f0 \sa0 \li0 \fi0 .docx\par}
+\cell}
+}
+\intbl\row}
+{\pard \ql \f0 \sa180 \li0 \fi0 \par}
+{\pard \ql \f0 \sa180 \li0 \fi0 For more information, see the {\field{\*\fldinst{HYPERLINK "https://example.com/docs"}}{\fldrslt{\ul
+project documentation
+}}}
+.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel1 \b \fs32 Section 3: Block Quotes and Emphasis\par}
+{\pard \ql \f0 \sa180 \li720 \fi0 \u8220"The best way to predict the future is to invent it.\u8221" \u8211- Alan Kay\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 This section tests {\b bold}, {\i italic}, {\b {\i bold italic}}, and {\strike strikethrough} formatting.\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 \outlinelevel1 \b \fs32 Conclusion\par}
+{\pard \ql \f0 \sa180 \li0 \fi0 This document serves as a comprehensive test fixture for the stream-based document extraction and chunking pipeline. It validates that heading hierarchy, code blocks, tables, and inline formatting are correctly preserved through the ingestion process.\par}
