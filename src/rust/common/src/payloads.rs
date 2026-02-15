@@ -111,6 +111,9 @@ pub struct ProjectPayload {
     /// Previous tenant_id before rename (used when op=Rename)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub old_tenant_id: Option<String>,
+    /// Whether to set is_active=1 on watch_folder creation (used when op=Add)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_active: Option<bool>,
 }
 
 /// Payload for tenant items with collection="libraries"
@@ -328,6 +331,7 @@ mod tests {
             git_remote: None,
             project_type: None,
             old_tenant_id: Some("old_abc123".to_string()),
+            is_active: None,
         };
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("old_tenant_id"));

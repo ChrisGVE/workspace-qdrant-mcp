@@ -810,7 +810,7 @@ impl UnifiedQueueProcessor {
                 // Tenant consolidates old Project, Library, and DeleteTenant
                 match item.op {
                     QueueOperation::Delete => {
-                        Self::process_delete_tenant_item(item, storage_client).await
+                        Self::process_delete_tenant_item(item, queue_manager, storage_client).await
                     }
                     QueueOperation::Rename => {
                         Self::process_tenant_rename_item(item, storage_client).await
@@ -1983,7 +1983,7 @@ impl UnifiedQueueProcessor {
 
         match item.op {
             QueueOperation::Add => {
-                // Create collection for the project
+                // 1. Ensure the collection exists
                 if !storage_client
                     .collection_exists(&item.collection)
                     .await
@@ -1994,8 +1994,80 @@ impl UnifiedQueueProcessor {
                         .create_collection(&item.collection, None, None)
                         .await
                         .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-                } else {
-                    info!("Project collection {} already exists", item.collection);
+                }
+
+                // 2. Create watch_folder entry (idempotent — skip if already exists)
+                let now = wqm_common::timestamps::now_utc();
+                let watch_id = uuid::Uuid::new_v4().to_string();
+                let is_active: i32 = if payload.is_active.unwrap_or(false) { 1 } else { 0 };
+                let insert_result = sqlx::query(
+                    r#"INSERT OR IGNORE INTO watch_folders (
+                        watch_id, path, collection, tenant_id, is_active,
+                        git_remote_url, last_activity_at, follow_symlinks, enabled,
+                        cleanup_on_disable, created_at, updated_at
+                    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, 1, 0, ?7, ?7)"#,
+                )
+                .bind(&watch_id)
+                .bind(&payload.project_root)
+                .bind(&item.collection)
+                .bind(&item.tenant_id)
+                .bind(is_active)
+                .bind(&payload.git_remote)
+                .bind(&now)
+                .execute(queue_manager.pool())
+                .await;
+
+                match insert_result {
+                    Ok(result) => {
+                        if result.rows_affected() > 0 {
+                            info!(
+                                "Created watch_folder for tenant={} path={} (active={})",
+                                item.tenant_id, payload.project_root, is_active
+                            );
+                        } else {
+                            info!(
+                                "Watch folder already exists for tenant={} (idempotent)",
+                                item.tenant_id
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        return Err(UnifiedProcessorError::ProcessingFailed(
+                            format!("Failed to create watch_folder: {}", e)
+                        ));
+                    }
+                }
+
+                // 3. Enqueue (Tenant, Scan) to trigger directory scanning
+                let scan_payload_json = serde_json::to_string(&payload)
+                    .map_err(|e| UnifiedProcessorError::InvalidPayload(
+                        format!("Failed to serialize scan payload: {}", e)
+                    ))?;
+
+                match queue_manager.enqueue_unified(
+                    ItemType::Tenant,
+                    QueueOperation::Scan,
+                    &item.tenant_id,
+                    &item.collection,
+                    &scan_payload_json,
+                    0,
+                    None,
+                    None,
+                ).await {
+                    Ok((queue_id, is_new)) => {
+                        if is_new {
+                            info!(
+                                "Enqueued project scan for tenant={} queue_id={}",
+                                item.tenant_id, queue_id
+                            );
+                        }
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Failed to enqueue project scan for tenant={}: {} (non-critical)",
+                            item.tenant_id, e
+                        );
+                    }
                 }
             }
             QueueOperation::Scan => {
@@ -2714,16 +2786,21 @@ impl UnifiedQueueProcessor {
     }
 
     /// Process delete tenant item - delete all data for a tenant
+    ///
+    /// Full deletion cascade:
+    /// 1. Delete Qdrant points (tenant-scoped)
+    /// 2. Delete SQLite: qdrant_chunks, tracked_files, watch_folders
     async fn process_delete_tenant_item(
         item: &UnifiedQueueItem,
+        queue_manager: &QueueManager,
         storage_client: &Arc<StorageClient>,
     ) -> UnifiedProcessorResult<()> {
         info!(
-            "Processing delete tenant item: {} (tenant={})",
-            item.queue_id, item.tenant_id
+            "Processing delete tenant item: {} (tenant={}, collection={})",
+            item.queue_id, item.tenant_id, item.collection
         );
 
-        // Delete all points with matching tenant_id from the collection (tenant-scoped)
+        // 1. Delete Qdrant points (tenant-scoped)
         if storage_client
             .collection_exists(&item.collection)
             .await
@@ -2733,7 +2810,73 @@ impl UnifiedQueueProcessor {
                 .delete_points_by_tenant(&item.collection, &item.tenant_id)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+            info!("Deleted Qdrant points for tenant={} collection={}", item.tenant_id, item.collection);
         }
+
+        // 2. Delete SQLite state in a transaction (child tables first)
+        let pool = queue_manager.pool();
+        let mut tx = pool.begin().await
+            .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                format!("Failed to begin delete transaction: {}", e)
+            ))?;
+
+        // 2a. Delete qdrant_chunks (child of tracked_files)
+        match sqlx::query(
+            r#"DELETE FROM qdrant_chunks WHERE file_id IN (
+                SELECT file_id FROM tracked_files WHERE tenant_id = ?1
+            )"#
+        )
+            .bind(&item.tenant_id)
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(result) => {
+                if result.rows_affected() > 0 {
+                    info!("Deleted {} qdrant_chunks rows for tenant={}", result.rows_affected(), item.tenant_id);
+                }
+            }
+            Err(e) => {
+                // Table may not exist yet, non-fatal
+                debug!("qdrant_chunks delete for tenant={}: {}", item.tenant_id, e);
+            }
+        }
+
+        // 2b. Delete tracked_files
+        match sqlx::query("DELETE FROM tracked_files WHERE tenant_id = ?1")
+            .bind(&item.tenant_id)
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(result) => {
+                if result.rows_affected() > 0 {
+                    info!("Deleted {} tracked_files for tenant={}", result.rows_affected(), item.tenant_id);
+                }
+            }
+            Err(e) => {
+                debug!("tracked_files delete for tenant={}: {}", item.tenant_id, e);
+            }
+        }
+
+        // 2c. Delete watch_folders
+        match sqlx::query("DELETE FROM watch_folders WHERE tenant_id = ?1")
+            .bind(&item.tenant_id)
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(result) => {
+                if result.rows_affected() > 0 {
+                    info!("Deleted {} watch_folders for tenant={}", result.rows_affected(), item.tenant_id);
+                }
+            }
+            Err(e) => {
+                debug!("watch_folders delete for tenant={}: {}", item.tenant_id, e);
+            }
+        }
+
+        tx.commit().await
+            .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                format!("Failed to commit delete transaction: {}", e)
+            ))?;
 
         info!(
             "Successfully processed delete tenant item {} (tenant={})",

@@ -1528,6 +1528,7 @@ impl QueueManager {
                 git_remote: None,
                 project_type: None,
                 old_tenant_id: Some(old_tenant_id.to_string()),
+                is_active: None,
             };
 
             let payload_json = serde_json::to_string(&payload)

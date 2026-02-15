@@ -11,7 +11,6 @@
 //!   - Respects deactivation_delay_secs config before stopping
 
 use chrono::Utc;
-use wqm_common::timestamps;
 use sqlx::SqlitePool;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -633,36 +632,40 @@ impl ProjectService for ProjectServiceImpl {
             };
             return Ok(Response::new(response));
         } else {
-            // New project with register_if_new=true - create watch_folder entry
-            let now = timestamps::now_utc();
-            let watch_id = uuid::Uuid::new_v4().to_string();
-            let initial_is_active: i32 = if is_high_priority { 1 } else { 0 };
-            let result = sqlx::query(
-                r#"
-                INSERT INTO watch_folders (
-                    watch_id, path, collection, tenant_id, is_active,
-                    git_remote_url, last_activity_at, follow_symlinks, enabled,
-                    cleanup_on_disable, created_at, updated_at
-                ) VALUES (?1, ?2, 'projects', ?3, ?4, ?5, ?6, 0, 1, 0, ?6, ?6)
-                "#,
-            )
-            .bind(&watch_id)
-            .bind(&req.path)
-            .bind(&project_id)
-            .bind(initial_is_active)
-            .bind(&req.git_remote)
-            .bind(&now)
-            .execute(&self.db_pool)
-            .await;
+            // New project with register_if_new=true — enqueue (Tenant, Add)
+            // The queue processor handles watch_folder creation and initial scan
+            let queue_manager = QueueManager::new(self.db_pool.clone());
+            let payload = ProjectPayload {
+                project_root: req.path.clone(),
+                git_remote: req.git_remote.clone(),
+                project_type: None,
+                old_tenant_id: None,
+                is_active: Some(is_high_priority),
+            };
+            let payload_json = serde_json::to_string(&payload)
+                .unwrap_or_else(|_| format!(r#"{{"project_root":"{}"}}"#, req.path));
 
-            match result {
-                Ok(_) => {
-                    info!("Created new project watch folder: {} (active={})", project_id, is_high_priority);
+            match queue_manager.enqueue_unified(
+                ItemType::Tenant,
+                UnifiedQueueOp::Add,
+                &project_id,
+                "projects",
+                &payload_json,
+                0,  // Priority is dynamic (computed at dequeue time)
+                None,
+                None,
+            ).await {
+                Ok((queue_id, _is_new)) => {
+                    info!(
+                        project_id = %project_id,
+                        queue_id = %queue_id,
+                        "Enqueued project registration (Tenant, Add)"
+                    );
                     (true, is_high_priority, true)
                 }
                 Err(e) => {
-                    error!("Failed to create project: {}", e);
-                    return Err(Status::internal(format!("Failed to create project: {}", e)));
+                    error!("Failed to enqueue project registration: {}", e);
+                    return Err(Status::internal(format!("Failed to enqueue project: {}", e)));
                 }
             }
         };
@@ -674,63 +677,6 @@ impl ProjectService for ProjectServiceImpl {
                     project_id = %project_id,
                     "Cancelled pending deferred shutdown on project reactivation"
                 );
-            }
-        }
-
-        // Signal WatchManager to pick up new project watch folder immediately
-        if created {
-            if let Some(ref signal) = self.watch_refresh_signal {
-                signal.notify_one();
-                info!("Notified WatchManager of new project registration: {}", project_id);
-            }
-        }
-
-        // Queue project scan for automatic ingestion (new projects only)
-        // Existing projects rely on file watcher + startup recovery (Task 507)
-        if created {
-            let queue_manager = QueueManager::new(self.db_pool.clone());
-            let payload = ProjectPayload {
-                project_root: req.path.clone(),
-                git_remote: req.git_remote.clone(),
-                project_type: None,
-                old_tenant_id: None,
-            };
-            let payload_json = serde_json::to_string(&payload)
-                .unwrap_or_else(|_| format!(r#"{{"project_root":"{}"}}"#, req.path));
-
-            match queue_manager.enqueue_unified(
-                ItemType::Tenant,
-                UnifiedQueueOp::Scan,
-                &project_id,
-                "projects",
-                &payload_json,
-                0,  // Priority is dynamic (computed at dequeue time)
-                None,
-                None,
-            ).await {
-                Ok((queue_id, is_new)) => {
-                    if is_new {
-                        info!(
-                            project_id = %project_id,
-                            queue_id = %queue_id,
-                            "Queued initial project scan for new project"
-                        );
-                    } else {
-                        debug!(
-                            project_id = %project_id,
-                            queue_id = %queue_id,
-                            "Project scan already queued (idempotent)"
-                        );
-                    }
-                }
-                Err(e) => {
-                    // Non-critical: ingestion can be triggered manually if needed
-                    warn!(
-                        project_id = %project_id,
-                        error = %e,
-                        "Failed to queue project scan (non-critical)"
-                    );
-                }
             }
         }
 
@@ -1256,10 +1202,10 @@ impl ProjectService for ProjectServiceImpl {
         }))
     }
 
-    /// Delete a project and optionally its Qdrant data
+    /// Delete a project by enqueuing (Tenant, Delete)
     ///
-    /// Removes all project state from SQLite (watch_folders, tracked_files,
-    /// qdrant_chunks, unified_queue) and optionally deletes vectors from Qdrant.
+    /// Validates the project exists, stops LSP servers immediately (best-effort),
+    /// then enqueues the full deletion cascade to the queue processor.
     async fn delete_project(
         &self,
         request: Request<DeleteProjectRequest>,
@@ -1272,7 +1218,7 @@ impl ProjectService for ProjectServiceImpl {
 
         info!("Deleting project: {} (delete_qdrant_data={})", req.project_id, req.delete_qdrant_data);
 
-        // Verify project exists
+        // Verify project exists (read-only check)
         let exists: Option<(String,)> = sqlx::query_as(
             "SELECT watch_id FROM watch_folders WHERE tenant_id = ?1 AND collection = ?2 LIMIT 1"
         )
@@ -1289,116 +1235,55 @@ impl ProjectService for ProjectServiceImpl {
             return Err(Status::not_found(format!("Project not found: {}", req.project_id)));
         }
 
-        // SQLite transaction: delete in order (child tables first)
-        let mut tx = self.db_pool.begin().await
-            .map_err(|e| Status::internal(format!("Transaction failed: {}", e)))?;
-
-        // 1. Delete qdrant_chunks (child of tracked_files)
-        match sqlx::query(
-            r#"DELETE FROM qdrant_chunks WHERE file_id IN (
-                SELECT file_id FROM tracked_files WHERE tenant_id = ?1
-            )"#
-        )
-            .bind(&req.project_id)
-            .execute(&mut *tx)
-            .await
-        {
-            Ok(result) => {
-                debug!("Deleted {} qdrant_chunks rows", result.rows_affected());
-            }
-            Err(e) => {
-                // Table may not exist, non-fatal
-                debug!("qdrant_chunks delete: {}", e);
-            }
-        };
-
-        // 2. Delete tracked_files
-        let files_deleted: i64 = match sqlx::query_scalar(
-            "SELECT COUNT(*) FROM tracked_files WHERE tenant_id = ?1"
-        )
-            .bind(&req.project_id)
-            .fetch_one(&mut *tx)
-            .await
-        {
-            Ok(count) => {
-                if count > 0 {
-                    sqlx::query("DELETE FROM tracked_files WHERE tenant_id = ?1")
-                        .bind(&req.project_id)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| Status::internal(format!("Failed to delete tracked_files: {}", e)))?;
-                }
-                count
-            }
-            Err(e) => {
-                debug!("tracked_files count: {}", e);
-                0
-            }
-        };
-
-        // 3. Delete unified_queue items
-        let queue_result = sqlx::query("DELETE FROM unified_queue WHERE tenant_id = ?1")
-            .bind(&req.project_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to delete queue items: {}", e)))?;
-        let queue_deleted = queue_result.rows_affected() as i32;
-
-        // 4. Delete watch_folders
-        let watch_result = sqlx::query("DELETE FROM watch_folders WHERE tenant_id = ?1")
-            .bind(&req.project_id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| Status::internal(format!("Failed to delete watch_folders: {}", e)))?;
-        let watch_deleted = watch_result.rows_affected() as i32;
-
-        tx.commit().await
-            .map_err(|e| Status::internal(format!("Failed to commit delete: {}", e)))?;
-
-        // Delete Qdrant data if requested (outside SQLite transaction)
-        let mut qdrant_deleted = 0i32;
-        if req.delete_qdrant_data {
-            if let Some(ref storage) = self.storage {
-                match storage.delete_points_by_tenant("projects", &req.project_id).await {
-                    Ok(count) => {
-                        qdrant_deleted = count as i32;
-                        info!(
-                            "Deleted {} Qdrant points for project {}",
-                            qdrant_deleted, req.project_id
-                        );
-                    }
-                    Err(e) => {
-                        warn!(
-                            "Failed to delete Qdrant data for project {}: {}",
-                            req.project_id, e
-                        );
-                    }
-                }
-            } else {
-                warn!("Storage client not configured, skipping Qdrant data deletion");
-            }
-        }
-
-        // Stop LSP servers and cancel pending shutdowns
+        // Stop LSP servers and cancel pending shutdowns immediately (best-effort)
         self.cancel_deferred_shutdown(&req.project_id).await;
         if let Err(e) = self.stop_project_lsp_servers(&req.project_id).await {
             debug!("LSP cleanup for deleted project: {}", e);
         }
 
-        let message = format!(
-            "Deleted project {}: {} watch folders, {} tracked files, {} queue items, {} qdrant points",
-            req.project_id, watch_deleted, files_deleted, queue_deleted, qdrant_deleted
-        );
-        info!("{}", message);
+        // Enqueue (Tenant, Delete) — queue processor handles full deletion cascade
+        let queue_manager = QueueManager::new(self.db_pool.clone());
+        let payload = ProjectPayload {
+            project_root: String::new(),
+            git_remote: None,
+            project_type: None,
+            old_tenant_id: None,
+            is_active: None,
+        };
+        let payload_json = serde_json::to_string(&payload)
+            .unwrap_or_else(|_| "{}".to_string());
 
-        Ok(Response::new(DeleteProjectResponse {
-            success: true,
-            watch_folders_deleted: watch_deleted,
-            tracked_files_deleted: files_deleted as i32,
-            qdrant_points_deleted: qdrant_deleted,
-            queue_items_deleted: queue_deleted,
-            message,
-        }))
+        match queue_manager.enqueue_unified(
+            ItemType::Tenant,
+            UnifiedQueueOp::Delete,
+            &req.project_id,
+            COLLECTION_PROJECTS,
+            &payload_json,
+            0,
+            None,
+            None,
+        ).await {
+            Ok((queue_id, _is_new)) => {
+                let message = format!(
+                    "Project {} deletion enqueued (queue_id={})",
+                    req.project_id, queue_id
+                );
+                info!("{}", message);
+
+                Ok(Response::new(DeleteProjectResponse {
+                    success: true,
+                    watch_folders_deleted: 0,
+                    tracked_files_deleted: 0,
+                    qdrant_points_deleted: 0,
+                    queue_items_deleted: 0,
+                    message,
+                }))
+            }
+            Err(e) => {
+                error!("Failed to enqueue project deletion: {}", e);
+                Err(Status::internal(format!("Failed to enqueue deletion: {}", e)))
+            }
+        }
     }
 
     /// Set project priority level (high/normal)
@@ -1611,15 +1496,26 @@ mod tests {
     #[tokio::test]
     async fn test_get_project_status() {
         let (pool, _temp_dir) = setup_test_db().await;
+
+        // Pre-create watch_folder (simulates queue processor having processed Tenant/Add)
+        create_test_watch_folder(&pool, "abcd12345678", "/test/project").await;
+        // Add git_remote to the watch_folder
+        sqlx::query("UPDATE watch_folders SET git_remote_url = ?1 WHERE tenant_id = ?2")
+            .bind("https://github.com/user/repo.git")
+            .bind("abcd12345678")
+            .execute(&pool)
+            .await
+            .unwrap();
+
         let service = ProjectServiceImpl::new(pool);
 
-        // Register first (with register_if_new=true since project doesn't exist yet)
+        // Register existing project with high priority (activates it)
         let request = Request::new(RegisterProjectRequest {
             path: "/test/project".to_string(),
             project_id: "abcd12345678".to_string(),
             name: Some("My Project".to_string()),
             git_remote: Some("https://github.com/user/repo.git".to_string()),
-            register_if_new: true,
+            register_if_new: false,
             priority: Some("high".to_string()),
         });
         service.register_project(request).await.unwrap();
@@ -1634,7 +1530,6 @@ mod tests {
 
         assert!(response.found);
         assert_eq!(response.project_id, "abcd12345678");
-        // Project name is derived from path, so it will be "project" not "My Project"
         assert_eq!(response.project_name, "project");
         assert_eq!(response.project_root, "/test/project");
         assert_eq!(response.priority, "high");
@@ -1660,21 +1555,14 @@ mod tests {
     #[tokio::test]
     async fn test_list_projects() {
         let (pool, _temp_dir) = setup_test_db().await;
-        let service = ProjectServiceImpl::new(pool);
 
-        // Register multiple projects with valid 12-char hex IDs (register_if_new=true)
+        // Pre-create watch_folders (simulates queue processor having processed Tenant/Add)
         let project_ids = ["aaa000000001", "bbb000000002", "ccc000000003"];
         for (i, project_id) in project_ids.iter().enumerate() {
-            let request = Request::new(RegisterProjectRequest {
-                path: format!("/test/project{}", i),
-                project_id: project_id.to_string(),
-                name: Some(format!("Project {}", i)),
-                git_remote: None,
-                register_if_new: true,
-                priority: Some("high".to_string()),
-            });
-            service.register_project(request).await.unwrap();
+            create_test_watch_folder(&pool, project_id, &format!("/test/project{}", i)).await;
         }
+
+        let service = ProjectServiceImpl::new(pool);
 
         // List all projects
         let request = Request::new(ListProjectsRequest {
