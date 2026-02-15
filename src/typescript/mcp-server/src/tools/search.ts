@@ -9,6 +9,7 @@
  * - Direct Qdrant queries with daemon embedding generation
  */
 
+import { randomUUID } from 'node:crypto';
 import { QdrantClient } from '@qdrant/js-client-rest';
 import type { DaemonClient } from '../clients/daemon-client.js';
 import type { SqliteStateManager } from '../clients/sqlite-state-manager.js';
@@ -152,6 +153,10 @@ export class SearchTool {
       tag,
     } = options;
 
+    // ── Search event instrumentation (Task 12) ──
+    const eventId = randomUUID();
+    const searchStartMs = Date.now();
+
     // Determine which collections to search
     const collectionsToSearch = this.determineCollections(
       collection,
@@ -166,6 +171,27 @@ export class SearchTool {
       const projectInfo = await this.projectDetector.getProjectInfo(cwd, false);
       currentProjectId = projectInfo?.projectId;
     }
+
+    // Log search event (pre-execution)
+    const filters: Record<string, unknown> = {};
+    if (collection) filters.collection = collection;
+    if (scope !== 'project') filters.scope = scope;
+    if (branch) filters.branch = branch;
+    if (fileType) filters.file_type = fileType;
+    if (libraryName) filters.library_name = libraryName;
+    if (tag) filters.tag = tag;
+    if (includeDeleted) filters.include_deleted = true;
+
+    this._stateManager.logSearchEvent({
+      id: eventId,
+      projectId: currentProjectId,
+      actor: 'claude',
+      tool: 'mcp_qdrant',
+      op: 'search',
+      queryText: query,
+      filters: Object.keys(filters).length > 0 ? JSON.stringify(filters) : undefined,
+      topK: limit,
+    });
 
     // Generate embeddings based on mode
     let denseEmbedding: number[] | undefined;
@@ -236,6 +262,19 @@ export class SearchTool {
     // Sort by score and limit
     fusedResults.sort((a, b) => b.score - a.score);
     const finalResults = fusedResults.slice(0, limit);
+
+    // ── Update search event with results (Task 12) ──
+    const latencyMs = Date.now() - searchStartMs;
+    const topRefs = finalResults.slice(0, 5).map((r) => ({
+      id: r.id,
+      score: Math.round(r.score * 1000) / 1000,
+      collection: r.collection,
+    }));
+    this._stateManager.updateSearchEvent(eventId, {
+      resultCount: finalResults.length,
+      latencyMs,
+      topResultRefs: JSON.stringify(topRefs),
+    });
 
     const response: SearchResponse = {
       results: finalResults,

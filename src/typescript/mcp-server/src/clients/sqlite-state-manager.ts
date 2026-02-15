@@ -697,4 +697,108 @@ export class SqliteStateManager {
       throw error;
     }
   }
+
+  // ─── Search Event Logging (Task 12) ─────────────────────────────────
+
+  /**
+   * Log a search event to the search_events table.
+   *
+   * Called at the start of a search to create the initial record, then
+   * updated after search completes with result_count, latency_ms, and
+   * top_result_refs. Errors are swallowed (logged as warnings) so that
+   * search execution is never blocked by instrumentation failures.
+   */
+  logSearchEvent(event: {
+    id: string;
+    sessionId?: string | undefined;
+    projectId?: string | undefined;
+    actor: string;
+    tool: string;
+    op: string;
+    queryText?: string | undefined;
+    filters?: string | undefined;
+    topK?: number | undefined;
+    resultCount?: number | undefined;
+    latencyMs?: number | undefined;
+    topResultRefs?: string | undefined;
+    outcome?: string | undefined;
+    parentEventId?: string | undefined;
+  }): void {
+    if (!this.db) {
+      return;
+    }
+
+    try {
+      const now = utcNow();
+      const stmt = this.db.prepare(`
+        INSERT INTO search_events (
+          id, ts, session_id, project_id, actor, tool, op,
+          query_text, filters, top_k, result_count, latency_ms,
+          top_result_refs, outcome, parent_event_id, created_at
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, ?,
+          ?, ?, ?, ?, ?,
+          ?, ?, ?, ?
+        )
+      `);
+      stmt.run(
+        event.id,
+        now,
+        event.sessionId ?? null,
+        event.projectId ?? null,
+        event.actor,
+        event.tool,
+        event.op,
+        event.queryText ?? null,
+        event.filters ?? null,
+        event.topK ?? null,
+        event.resultCount ?? null,
+        event.latencyMs ?? null,
+        event.topResultRefs ?? null,
+        event.outcome ?? null,
+        event.parentEventId ?? null,
+        now,
+      );
+    } catch {
+      // Instrumentation must never break search. Table may not exist if
+      // daemon hasn't migrated to v12+ yet.
+    }
+  }
+
+  /**
+   * Update a search event with post-search results.
+   *
+   * Updates result_count, latency_ms, top_result_refs, and outcome
+   * for a previously created search event.
+   */
+  updateSearchEvent(
+    eventId: string,
+    update: {
+      resultCount: number;
+      latencyMs: number;
+      topResultRefs?: string | undefined;
+      outcome?: string | undefined;
+    },
+  ): void {
+    if (!this.db) {
+      return;
+    }
+
+    try {
+      const stmt = this.db.prepare(`
+        UPDATE search_events
+        SET result_count = ?, latency_ms = ?, top_result_refs = ?, outcome = ?
+        WHERE id = ?
+      `);
+      stmt.run(
+        update.resultCount,
+        update.latencyMs,
+        update.topResultRefs ?? null,
+        update.outcome ?? null,
+        eventId,
+      );
+    } catch {
+      // Instrumentation must never break search
+    }
+  }
 }

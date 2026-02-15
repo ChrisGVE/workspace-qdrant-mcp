@@ -52,6 +52,8 @@ function createMockStateManager(): SqliteStateManager {
     close: vi.fn(),
     getProjectByPath: vi.fn().mockResolvedValue(null),
     listProjects: vi.fn().mockResolvedValue([]),
+    logSearchEvent: vi.fn(),
+    updateSearchEvent: vi.fn(),
   } as unknown as SqliteStateManager;
 }
 
