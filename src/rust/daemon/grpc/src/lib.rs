@@ -13,6 +13,7 @@ use tonic::transport::{Server, ServerTlsConfig, Identity};
 use tonic::{Request, Status};
 use sqlx::SqlitePool;
 use workspace_qdrant_core::LanguageServerManager;
+use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
 
 pub mod proto {
     // Generated protobuf definitions from build.rs
@@ -290,6 +291,8 @@ pub struct GrpcServer {
     watch_refresh_signal: Option<Arc<Notify>>,
     /// Queue processor health state for monitoring
     queue_health: Option<Arc<workspace_qdrant_core::QueueProcessorHealth>>,
+    /// Adaptive resource state for idle/burst mode reporting
+    adaptive_state: Option<Arc<AdaptiveResourceState>>,
 }
 
 /// Server metrics for monitoring
@@ -367,6 +370,7 @@ impl GrpcServer {
             pause_flag: None,
             watch_refresh_signal: None,
             queue_health: None,
+            adaptive_state: None,
         }
     }
 
@@ -426,6 +430,12 @@ impl GrpcServer {
         self
     }
 
+    /// Set adaptive resource state for idle/burst mode reporting in system status.
+    pub fn with_adaptive_state(mut self, state: Arc<AdaptiveResourceState>) -> Self {
+        self.adaptive_state = Some(state);
+        self
+    }
+
     pub async fn start(&mut self) -> Result<(), GrpcError> {
         // Debug: verify this code path is reached
         if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -469,6 +479,9 @@ impl GrpcServer {
         }
         if let Some(ref health) = self.queue_health {
             system_service = system_service.with_queue_health(Arc::clone(health));
+        }
+        if let Some(ref adaptive_state) = self.adaptive_state {
+            system_service = system_service.with_adaptive_state(Arc::clone(adaptive_state));
         }
         let collection_service = CollectionServiceImpl::new(Arc::clone(&storage_client));
         let document_service = DocumentServiceImpl::new(Arc::clone(&storage_client));

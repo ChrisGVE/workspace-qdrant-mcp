@@ -199,6 +199,11 @@ message SystemStatusResponse {
     int32 total_documents = 4;                    // Documents in Qdrant
     int32 total_collections = 5;                  // Collections in Qdrant
     google.protobuf.Timestamp uptime_since = 6;   // Daemon start time
+    // Adaptive resource profile (idle/burst mode)
+    optional string resource_mode = 7;            // "normal", "ramping", "burst"
+    optional double idle_seconds = 8;             // Seconds since last user input
+    optional int32 current_max_embeddings = 9;    // Current concurrent embedding limit
+    optional int64 current_inter_item_delay_ms = 10; // Current inter-item delay
 }
 
 message SystemMetrics {

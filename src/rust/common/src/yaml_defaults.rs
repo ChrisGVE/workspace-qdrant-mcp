@@ -131,6 +131,7 @@ pub struct YamlConfig {
     pub performance: YamlPerformanceConfig,
     pub watching: YamlWatchingConfig,
     pub observability: YamlObservabilityConfig,
+    pub resource_limits: YamlResourceLimitsConfig,
 }
 
 impl Default for YamlConfig {
@@ -151,6 +152,7 @@ impl Default for YamlConfig {
             performance: YamlPerformanceConfig::default(),
             watching: YamlWatchingConfig::default(),
             observability: YamlObservabilityConfig::default(),
+            resource_limits: YamlResourceLimitsConfig::default(),
         }
     }
 }
@@ -574,6 +576,54 @@ impl Default for YamlTelemetryConfig {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct YamlResourceLimitsConfig {
+    /// Unix nice level for the daemon process (-20 highest, 19 lowest)
+    pub nice_level: i32,
+    /// Delay in ms between processing items
+    pub inter_item_delay_ms: u64,
+    /// Max concurrent embedding operations (0 = auto-detect)
+    pub max_concurrent_embeddings: usize,
+    /// Pause processing when memory exceeds this %
+    pub max_memory_percent: u8,
+    /// ONNX intra-op threads per embedding session (0 = auto-detect)
+    pub onnx_intra_threads: usize,
+    /// Seconds of no user input before entering idle mode
+    pub idle_threshold_secs: u64,
+    /// Seconds to ramp from normal to full burst after entering idle
+    pub idle_ramp_duration_secs: u64,
+    /// Number of discrete steps during ramp-up
+    pub idle_ramp_steps: u32,
+    /// Multiplier for burst-mode max_concurrent_embeddings (relative to normal)
+    pub burst_concurrency_multiplier: f64,
+    /// Inter-item delay in burst mode (ms)
+    pub burst_inter_item_delay_ms: u64,
+    /// CPU load fraction above which burst is suppressed
+    pub cpu_pressure_threshold: f64,
+    /// How often to poll idle state (seconds)
+    pub idle_poll_interval_secs: u64,
+}
+
+impl Default for YamlResourceLimitsConfig {
+    fn default() -> Self {
+        Self {
+            nice_level: 10,
+            inter_item_delay_ms: 50,
+            max_concurrent_embeddings: 0,
+            max_memory_percent: 70,
+            onnx_intra_threads: 0,
+            idle_threshold_secs: 120,
+            idle_ramp_duration_secs: 300,
+            idle_ramp_steps: 5,
+            burst_concurrency_multiplier: 2.0,
+            burst_inter_item_delay_ms: 0,
+            cpu_pressure_threshold: 0.6,
+            idle_poll_interval_secs: 5,
+        }
+    }
+}
+
 // =============================================================================
 // Tests
 // =============================================================================
@@ -734,6 +784,23 @@ mod tests {
         assert_eq!(parse_size_to_bytes("1GB"), Some(1_073_741_824));
         assert_eq!(parse_size_to_bytes("1024B"), Some(1024));
         assert_eq!(parse_size_to_bytes(""), None);
+    }
+
+    #[test]
+    fn test_resource_limits_defaults() {
+        let config = &*DEFAULT_YAML_CONFIG;
+        assert_eq!(config.resource_limits.nice_level, 10);
+        assert_eq!(config.resource_limits.inter_item_delay_ms, 50);
+        assert_eq!(config.resource_limits.max_concurrent_embeddings, 0);
+        assert_eq!(config.resource_limits.max_memory_percent, 70);
+        assert_eq!(config.resource_limits.onnx_intra_threads, 0);
+        assert_eq!(config.resource_limits.idle_threshold_secs, 120);
+        assert_eq!(config.resource_limits.idle_ramp_duration_secs, 300);
+        assert_eq!(config.resource_limits.idle_ramp_steps, 5);
+        assert!((config.resource_limits.burst_concurrency_multiplier - 2.0).abs() < f64::EPSILON);
+        assert_eq!(config.resource_limits.burst_inter_item_delay_ms, 0);
+        assert!((config.resource_limits.cpu_pressure_threshold - 0.6).abs() < f64::EPSILON);
+        assert_eq!(config.resource_limits.idle_poll_interval_secs, 5);
     }
 
     #[test]

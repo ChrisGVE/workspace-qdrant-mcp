@@ -822,6 +822,36 @@ pub struct ResourceLimitsConfig {
     /// is too small to benefit from more intra-op parallelism).
     #[serde(default = "default_onnx_intra_threads")]
     pub onnx_intra_threads: usize,
+
+    // --- Adaptive Idle Mode ---
+
+    /// Seconds of no user input before entering idle mode.
+    #[serde(default = "default_idle_threshold_secs")]
+    pub idle_threshold_secs: u64,
+
+    /// Total seconds to ramp from normal to full burst after entering idle.
+    #[serde(default = "default_idle_ramp_duration_secs")]
+    pub idle_ramp_duration_secs: u64,
+
+    /// Number of discrete steps during ramp-up.
+    #[serde(default = "default_idle_ramp_steps")]
+    pub idle_ramp_steps: u32,
+
+    /// Multiplier for max_concurrent_embeddings in burst mode.
+    #[serde(default = "default_burst_concurrency_multiplier")]
+    pub burst_concurrency_multiplier: f64,
+
+    /// Inter-item delay in full burst mode (ms).
+    #[serde(default = "default_burst_inter_item_delay_ms")]
+    pub burst_inter_item_delay_ms: u64,
+
+    /// CPU load fraction above which burst is suppressed.
+    #[serde(default = "default_cpu_pressure_threshold")]
+    pub cpu_pressure_threshold: f64,
+
+    /// How often to poll idle state (seconds).
+    #[serde(default = "default_idle_poll_interval_secs")]
+    pub idle_poll_interval_secs: u64,
 }
 
 fn default_nice_level() -> i32 { 10 }
@@ -829,6 +859,13 @@ fn default_inter_item_delay_ms() -> u64 { 50 }
 fn default_max_concurrent_embeddings() -> usize { 0 } // 0 = auto-detect
 fn default_max_memory_percent() -> u8 { 70 }
 fn default_onnx_intra_threads() -> usize { 0 } // 0 = auto-detect
+fn default_idle_threshold_secs() -> u64 { 120 }
+fn default_idle_ramp_duration_secs() -> u64 { 300 }
+fn default_idle_ramp_steps() -> u32 { 5 }
+fn default_burst_concurrency_multiplier() -> f64 { 2.0 }
+fn default_burst_inter_item_delay_ms() -> u64 { 0 }
+fn default_cpu_pressure_threshold() -> f64 { 0.6 }
+fn default_idle_poll_interval_secs() -> u64 { 5 }
 
 impl Default for ResourceLimitsConfig {
     fn default() -> Self {
@@ -838,6 +875,13 @@ impl Default for ResourceLimitsConfig {
             max_concurrent_embeddings: default_max_concurrent_embeddings(),
             max_memory_percent: default_max_memory_percent(),
             onnx_intra_threads: default_onnx_intra_threads(),
+            idle_threshold_secs: default_idle_threshold_secs(),
+            idle_ramp_duration_secs: default_idle_ramp_duration_secs(),
+            idle_ramp_steps: default_idle_ramp_steps(),
+            burst_concurrency_multiplier: default_burst_concurrency_multiplier(),
+            burst_inter_item_delay_ms: default_burst_inter_item_delay_ms(),
+            cpu_pressure_threshold: default_cpu_pressure_threshold(),
+            idle_poll_interval_secs: default_idle_poll_interval_secs(),
         }
     }
 }
@@ -931,6 +975,48 @@ impl ResourceLimitsConfig {
         if let Ok(val) = env::var("WQM_RESOURCE_ONNX_INTRA_THREADS") {
             if let Ok(parsed) = val.parse() {
                 self.onnx_intra_threads = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_THRESHOLD_SECS") {
+            if let Ok(parsed) = val.parse() {
+                self.idle_threshold_secs = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_RAMP_DURATION_SECS") {
+            if let Ok(parsed) = val.parse() {
+                self.idle_ramp_duration_secs = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_RAMP_STEPS") {
+            if let Ok(parsed) = val.parse() {
+                self.idle_ramp_steps = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_BURST_CONCURRENCY_MULTIPLIER") {
+            if let Ok(parsed) = val.parse() {
+                self.burst_concurrency_multiplier = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_BURST_INTER_ITEM_DELAY_MS") {
+            if let Ok(parsed) = val.parse() {
+                self.burst_inter_item_delay_ms = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_CPU_PRESSURE_THRESHOLD") {
+            if let Ok(parsed) = val.parse() {
+                self.cpu_pressure_threshold = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_POLL_INTERVAL_SECS") {
+            if let Ok(parsed) = val.parse() {
+                self.idle_poll_interval_secs = parsed;
             }
         }
     }
@@ -1197,7 +1283,20 @@ impl From<&YamlConfig> for DaemonConfig {
                 notify_only: yaml.updates.notify_only,
                 check_interval_hours: yaml.updates.check_interval_hours,
             },
-            resource_limits: ResourceLimitsConfig::default(),
+            resource_limits: ResourceLimitsConfig {
+                nice_level: yaml.resource_limits.nice_level,
+                inter_item_delay_ms: yaml.resource_limits.inter_item_delay_ms,
+                max_concurrent_embeddings: yaml.resource_limits.max_concurrent_embeddings,
+                max_memory_percent: yaml.resource_limits.max_memory_percent,
+                onnx_intra_threads: yaml.resource_limits.onnx_intra_threads,
+                idle_threshold_secs: yaml.resource_limits.idle_threshold_secs,
+                idle_ramp_duration_secs: yaml.resource_limits.idle_ramp_duration_secs,
+                idle_ramp_steps: yaml.resource_limits.idle_ramp_steps,
+                burst_concurrency_multiplier: yaml.resource_limits.burst_concurrency_multiplier,
+                burst_inter_item_delay_ms: yaml.resource_limits.burst_inter_item_delay_ms,
+                cpu_pressure_threshold: yaml.resource_limits.cpu_pressure_threshold,
+                idle_poll_interval_secs: yaml.resource_limits.idle_poll_interval_secs,
+            },
             startup: StartupConfig::default(),
             daemon_endpoint: DaemonEndpointConfig {
                 host: yaml.grpc.host.clone(),
@@ -1760,6 +1859,7 @@ mod tests {
             max_concurrent_embeddings: 4,
             max_memory_percent: 80,
             onnx_intra_threads: 2,
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&config).unwrap();
@@ -1769,6 +1869,11 @@ mod tests {
         let deserialized: ResourceLimitsConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(deserialized.nice_level, 5);
         assert_eq!(deserialized.max_memory_percent, 80);
+        // Idle config should have defaults
+        assert_eq!(deserialized.idle_threshold_secs, 120);
+        assert_eq!(deserialized.idle_ramp_duration_secs, 300);
+        assert_eq!(deserialized.idle_ramp_steps, 5);
+        assert!((deserialized.burst_concurrency_multiplier - 2.0).abs() < f64::EPSILON);
     }
 
     #[test]

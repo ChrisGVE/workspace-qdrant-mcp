@@ -14,6 +14,7 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, info, warn, error};
 use wqm_common::timestamps;
 use workspace_qdrant_core::QueueProcessorHealth;
+use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
 
 use crate::proto::{
     system_service_server::SystemService,
@@ -58,6 +59,8 @@ pub struct SystemServiceImpl {
     pause_flag: Arc<AtomicBool>,
     /// Signal to trigger immediate WatchManager refresh
     watch_refresh_signal: Option<Arc<Notify>>,
+    /// Adaptive resource state for idle/burst mode reporting
+    adaptive_state: Option<Arc<AdaptiveResourceState>>,
 }
 
 impl SystemServiceImpl {
@@ -70,6 +73,7 @@ impl SystemServiceImpl {
             status_store: Arc::new(RwLock::new(HashMap::new())),
             pause_flag: Arc::new(AtomicBool::new(false)),
             watch_refresh_signal: None,
+            adaptive_state: None,
         }
     }
 
@@ -96,6 +100,12 @@ impl SystemServiceImpl {
     /// Set the watch refresh signal for triggering WatchManager refresh
     pub fn with_watch_refresh_signal(mut self, signal: Arc<Notify>) -> Self {
         self.watch_refresh_signal = Some(signal);
+        self
+    }
+
+    /// Set the adaptive resource state for idle/burst mode reporting
+    pub fn with_adaptive_state(mut self, state: Arc<AdaptiveResourceState>) -> Self {
+        self.adaptive_state = Some(state);
         self
     }
 
@@ -331,6 +341,20 @@ impl SystemService for SystemServiceImpl {
             .map(|h| h.queue_depth.load(Ordering::SeqCst) as i32)
             .unwrap_or(0);
 
+        // Read adaptive resource state for idle/burst reporting
+        let (resource_mode, idle_seconds, current_max_embeddings, current_inter_item_delay_ms) =
+            if let Some(ref state) = self.adaptive_state {
+                let mode = state.mode();
+                (
+                    Some(mode.as_str().to_string()),
+                    Some(state.idle_seconds()),
+                    Some(state.max_concurrent_embeddings() as i32),
+                    Some(state.inter_item_delay_ms() as i64),
+                )
+            } else {
+                (None, None, None, None)
+            };
+
         let response = SystemStatusResponse {
             status: ServiceStatus::Healthy as i32,
             metrics: Some(SystemMetrics {
@@ -346,6 +370,10 @@ impl SystemService for SystemServiceImpl {
             total_documents: 0,
             total_collections: 0,
             uptime_since: Some(prost_types::Timestamp::from(self.start_time)),
+            resource_mode,
+            idle_seconds,
+            current_max_embeddings,
+            current_inter_item_delay_ms,
         };
 
         Ok(Response::new(response))

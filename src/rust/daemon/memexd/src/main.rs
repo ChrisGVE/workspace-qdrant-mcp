@@ -13,7 +13,7 @@ use tokio::sync::{Notify, RwLock};
 use tracing::{debug, error, info, warn};
 
 use workspace_qdrant_core::{
-    config::{Config, DaemonConfig, detect_physical_cores},
+    config::{Config, DaemonConfig},
     LoggingConfig, initialize_logging,
     unified_config::{UnifiedConfigManager, UnifiedConfigError},
     ipc::IpcServer,
@@ -634,27 +634,10 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         .map_err(|e| format!("Invalid gRPC address: {}", e))?;
     let grpc_config = GrpcServerConfig::new(grpc_addr);
 
-    info!("Starting gRPC server on port {}", grpc_port);
+    // gRPC server setup - variables prepared here, spawned after adaptive manager
     let grpc_pause_flag = Arc::clone(&pause_flag);
     let grpc_watch_signal = Arc::clone(&watch_refresh_signal);
     let grpc_queue_health = Arc::clone(&queue_health);
-    let grpc_handle = tokio::spawn(async move {
-        let mut grpc_server = GrpcServer::new(grpc_config)
-            .with_database_pool(grpc_db_pool)
-            .with_pause_flag(grpc_pause_flag)
-            .with_watch_refresh_signal(grpc_watch_signal)
-            .with_queue_health(grpc_queue_health);
-
-        // Enable LSP if manager was created successfully
-        if let Some(lsp_manager) = grpc_lsp_manager {
-            grpc_server = grpc_server.with_lsp_manager(lsp_manager);
-        }
-
-        if let Err(e) = grpc_server.start().await {
-            error!("gRPC server error: {}", e);
-        }
-    });
-    info!("gRPC server started on 127.0.0.1:{} with ProjectService enabled", grpc_port);
 
     // Start periodic DB polling for CLI-driven pause state changes (Task 543.10)
     let poll_pause_pool = queue_pool.clone();
@@ -886,16 +869,35 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     // Start adaptive resource manager for dynamic CPU scaling (idle/burst mode)
     let adaptive_shutdown_token = tokio_util::sync::CancellationToken::new();
-    let adaptive_config = AdaptiveResourceConfig::from_resource_limits(
-        config.resource_limits.max_concurrent_embeddings,
-        config.resource_limits.inter_item_delay_ms,
-        detect_physical_cores(),
-    );
+    let adaptive_config = AdaptiveResourceConfig::from_resource_limits(&config.resource_limits);
     let adaptive_manager = AdaptiveResourceManager::start(
         adaptive_config,
         adaptive_shutdown_token.clone(),
     );
+    let adaptive_state = adaptive_manager.state();
     unified_queue_processor = unified_queue_processor.with_adaptive_resources(adaptive_manager.subscribe());
+
+    // Start gRPC server (deferred until adaptive state is available)
+    info!("Starting gRPC server on port {}", grpc_port);
+    let grpc_adaptive_state = Arc::clone(&adaptive_state);
+    let grpc_handle = tokio::spawn(async move {
+        let mut grpc_server = GrpcServer::new(grpc_config)
+            .with_database_pool(grpc_db_pool)
+            .with_pause_flag(grpc_pause_flag)
+            .with_watch_refresh_signal(grpc_watch_signal)
+            .with_queue_health(grpc_queue_health)
+            .with_adaptive_state(grpc_adaptive_state);
+
+        // Enable LSP if manager was created successfully
+        if let Some(lsp_manager) = grpc_lsp_manager {
+            grpc_server = grpc_server.with_lsp_manager(lsp_manager);
+        }
+
+        if let Err(e) = grpc_server.start().await {
+            error!("gRPC server error: {}", e);
+        }
+    });
+    info!("gRPC server started on 127.0.0.1:{} with ProjectService enabled", grpc_port);
 
     // Attach queue health state for gRPC monitoring
     unified_queue_processor = unified_queue_processor.with_queue_health(Arc::clone(&queue_health));

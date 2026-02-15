@@ -131,6 +131,14 @@ struct SystemStatusJson {
     active_projects: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pending_operations: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resource_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    idle_seconds: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_max_embeddings: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_inter_item_delay_ms: Option<i64>,
 }
 
 /// JSON-serializable health status
@@ -183,8 +191,12 @@ async fn default_status(show_queue: bool, show_watch: bool, show_performance: bo
                             status: status_label(overall).to_string(),
                             collections: status.total_collections,
                             documents: status.total_documents,
-                            active_projects: status.active_projects,
+                            active_projects: status.active_projects.clone(),
                             pending_operations: pending,
+                            resource_mode: status.resource_mode.clone(),
+                            idle_seconds: status.idle_seconds,
+                            current_max_embeddings: status.current_max_embeddings,
+                            current_inter_item_delay_ms: status.current_inter_item_delay_ms,
                         };
                         output::print_json(&json_out);
                         return Ok(());
@@ -200,6 +212,21 @@ async fn default_status(show_queue: bool, show_watch: bool, show_performance: bo
                     if let Some(metrics) = &status.metrics {
                         output::kv("Pending Operations", &metrics.pending_operations.to_string());
                     }
+
+                    // Resource profile (idle/burst mode)
+                    if let Some(ref mode) = status.resource_mode {
+                        output::separator();
+                        output::kv("Resource Mode", mode);
+                        if let Some(idle) = status.idle_seconds {
+                            output::kv("Idle Time", &format!("{:.0}s", idle));
+                        }
+                        if let Some(max_emb) = status.current_max_embeddings {
+                            output::kv("Max Embeddings", &max_emb.to_string());
+                        }
+                        if let Some(delay) = status.current_inter_item_delay_ms {
+                            output::kv("Inter-item Delay", &format!("{}ms", delay));
+                        }
+                    }
                 }
                 Err(e) => {
                     if json {
@@ -210,6 +237,10 @@ async fn default_status(show_queue: bool, show_watch: bool, show_performance: bo
                             documents: 0,
                             active_projects: Vec::new(),
                             pending_operations: None,
+                            resource_mode: None,
+                            idle_seconds: None,
+                            current_max_embeddings: None,
+                            current_inter_item_delay_ms: None,
                         };
                         output::print_json(&json_out);
                         return Ok(());
@@ -227,6 +258,10 @@ async fn default_status(show_queue: bool, show_watch: bool, show_performance: bo
                     documents: 0,
                     active_projects: Vec::new(),
                     pending_operations: None,
+                    resource_mode: None,
+                    idle_seconds: None,
+                    current_max_embeddings: None,
+                    current_inter_item_delay_ms: None,
                 };
                 output::print_json(&json_out);
                 return Ok(());
@@ -524,6 +559,18 @@ async fn live(interval: u64) -> Result<()> {
                             output::kv("Memory", &format_bytes(metrics.memory_usage_bytes));
                             output::kv("Pending Ops", &metrics.pending_operations.to_string());
                             output::kv("Connections", &metrics.active_connections.to_string());
+                        }
+
+                        // Resource profile
+                        if let Some(ref mode) = status.resource_mode {
+                            output::separator();
+                            let idle_str = status.idle_seconds
+                                .map(|s| format!("{:.0}s idle", s))
+                                .unwrap_or_default();
+                            let emb_str = status.current_max_embeddings
+                                .map(|e| format!(", {} emb", e))
+                                .unwrap_or_default();
+                            output::kv("Resources", &format!("{} ({}{})", mode, idle_str, emb_str));
                         }
                     }
                     Err(_) => {

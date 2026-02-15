@@ -1285,6 +1285,91 @@ observability:
     throughput: true
 
 # =============================================================================
+# RESOURCE LIMITS CONFIGURATION
+# =============================================================================
+# Purpose: Controls how the daemon manages system resources to be a good neighbor.
+# Four levels: OS priority, processing pacing, embedding concurrency, memory pressure.
+# Also configures adaptive idle mode: when the user is inactive, the daemon
+# gradually ramps up processing throughput, then immediately scales back when
+# the user returns.
+resource_limits:
+  # nice_level: Unix process priority (-20 highest priority, 19 lowest)
+  # Default: 10 (low priority - daemon yields to interactive processes)
+  # Format: Integer -20..19
+  nice_level: 10
+
+  # inter_item_delay_ms: Delay in milliseconds between processing items
+  # Purpose: Provides breathing room for the rest of the system
+  # Default: 50ms
+  # Format: Integer >= 0
+  inter_item_delay_ms: 50
+
+  # max_concurrent_embeddings: Maximum concurrent embedding operations
+  # 0 = auto-detect from CPU core count (physical_cores / 4, minimum 1)
+  # Format: Integer 0..8
+  max_concurrent_embeddings: 0
+
+  # max_memory_percent: Pause processing when system memory exceeds this %
+  # Default: 70
+  # Format: Integer 20..95
+  max_memory_percent: 70
+
+  # onnx_intra_threads: ONNX intra-op threads per embedding session
+  # 0 = auto-detect (resolves to 2; the all-MiniLM-L6-v2 model is too small
+  # to benefit from more intra-op parallelism)
+  # Format: Integer 0..16
+  onnx_intra_threads: 0
+
+  # --- Adaptive Idle Mode ---
+  # When the user has been idle (no keyboard/mouse input) for idle_threshold_secs,
+  # the daemon gradually ramps up processing throughput over idle_ramp_duration_secs
+  # in idle_ramp_steps discrete steps. When user activity resumes, the daemon
+  # immediately snaps back to normal resource usage.
+
+  # idle_threshold_secs: Seconds of no user input before entering idle mode
+  # Default: 120 (2 minutes)
+  # Format: Integer > 0
+  idle_threshold_secs: 120
+
+  # idle_ramp_duration_secs: Total seconds to ramp from normal to full burst
+  # Handles the difference between a short coffee break and a long lunch:
+  # short idle = moderate increase, sustained idle = full burst.
+  # Default: 300 (5 minutes)
+  # Format: Integer > 0
+  idle_ramp_duration_secs: 300
+
+  # idle_ramp_steps: Number of discrete steps during ramp-up
+  # More steps = smoother transition, but more state changes
+  # Default: 5
+  # Format: Integer 1..20
+  idle_ramp_steps: 5
+
+  # burst_concurrency_multiplier: Multiplier for max_concurrent_embeddings in burst
+  # Applied to the resolved (auto-detected) value of max_concurrent_embeddings.
+  # Example: normal=2, multiplier=2.0 → burst=4
+  # Default: 2.0
+  # Format: Float >= 1.0
+  burst_concurrency_multiplier: 2.0
+
+  # burst_inter_item_delay_ms: Inter-item delay in full burst mode
+  # Default: 0 (no delay in burst)
+  # Format: Integer >= 0
+  burst_inter_item_delay_ms: 0
+
+  # cpu_pressure_threshold: CPU load fraction above which burst is suppressed
+  # Normalized to physical core count: load_avg_1min / physical_cores
+  # If above this threshold, burst mode is not activated even when idle.
+  # Default: 0.6
+  # Format: Float 0.0..1.0
+  cpu_pressure_threshold: 0.6
+
+  # idle_poll_interval_secs: How often to poll system idle state
+  # Lower values = faster reaction to user activity, slightly more CPU overhead
+  # Default: 5
+  # Format: Integer 1..60
+  idle_poll_interval_secs: 5
+
+# =============================================================================
 # PERFORMANCE CONFIGURATION
 # =============================================================================
 # Purpose: Controls resource utilization, concurrency, and performance optimization
