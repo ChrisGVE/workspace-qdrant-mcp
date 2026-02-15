@@ -873,6 +873,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     let adaptive_manager = AdaptiveResourceManager::start(
         adaptive_config,
         adaptive_shutdown_token.clone(),
+        unified_queue_processor.queue_depth(),
     );
     let adaptive_state = adaptive_manager.state();
     unified_queue_processor = unified_queue_processor.with_adaptive_resources(adaptive_manager.subscribe());

@@ -11,7 +11,7 @@
 //! - Linux: falls back to always-interactive (no burst mode)
 //! - Other: always-interactive (no burst mode)
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::watch;
@@ -40,8 +40,10 @@ pub struct ResourceProfile {
 /// Human-readable resource mode, exposed via gRPC status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResourceMode {
-    /// Normal interactive mode
+    /// Normal interactive mode (no queue work or queue empty)
     Normal,
+    /// Active processing: queue has work while user is present (+50% resources)
+    Active,
     /// Gradually ramping up (includes step index, 0-based)
     RampingUp(u32),
     /// Full burst mode
@@ -53,6 +55,7 @@ impl ResourceMode {
     pub fn as_str(&self) -> &'static str {
         match self {
             ResourceMode::Normal => "normal",
+            ResourceMode::Active => "active",
             ResourceMode::RampingUp(_) => "ramping",
             ResourceMode::Burst => "burst",
         }
@@ -66,8 +69,10 @@ impl ResourceMode {
 /// Internal system state including ramp-up tracking.
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum SystemState {
-    /// User is actively using the machine
+    /// User is actively using the machine, no queue work
     Interactive,
+    /// User is active but queue has work — boosted resources
+    ActiveProcessing,
     /// Ramping up: `entered_idle_at` is the instant when idle was first detected.
     RampingUp { entered_idle_at: Instant },
     /// Fully ramped to burst mode
@@ -99,6 +104,10 @@ pub struct AdaptiveResourceConfig {
     pub ramp_duration_secs: u64,
     /// Number of discrete steps during ramp-up
     pub ramp_steps: u32,
+    /// Multiplier for active processing mode (user present, queue has work)
+    pub active_concurrency_multiplier: f64,
+    /// Inter-item delay in active processing mode (ms)
+    pub active_inter_item_delay_ms: u64,
 }
 
 impl AdaptiveResourceConfig {
@@ -120,6 +129,8 @@ impl AdaptiveResourceConfig {
             poll_interval_secs: limits.idle_poll_interval_secs,
             ramp_duration_secs: limits.idle_ramp_duration_secs,
             ramp_steps: std::cmp::max(1, limits.idle_ramp_steps),
+            active_concurrency_multiplier: limits.active_concurrency_multiplier,
+            active_inter_item_delay_ms: limits.active_inter_item_delay_ms,
         }
     }
 }
@@ -337,6 +348,7 @@ impl AdaptiveResourceState {
         let encoded = match mode {
             ResourceMode::Normal => 0,
             ResourceMode::Burst => 1,
+            ResourceMode::Active => 2,
             ResourceMode::RampingUp(step) => 100 + step as u64,
         };
         self.mode.store(encoded, Ordering::Relaxed);
@@ -356,6 +368,7 @@ impl AdaptiveResourceState {
         match self.mode.load(Ordering::Relaxed) {
             0 => ResourceMode::Normal,
             1 => ResourceMode::Burst,
+            2 => ResourceMode::Active,
             n if n >= 100 => ResourceMode::RampingUp((n - 100) as u32),
             _ => ResourceMode::Normal,
         }
@@ -409,9 +422,14 @@ impl AdaptiveResourceManager {
     ///
     /// Returns the manager (with a watch receiver) and spawns a background task
     /// that polls system state and updates the resource profile.
+    ///
+    /// `queue_depth` is an optional shared counter of pending queue items.
+    /// When provided and > 0 while the user is active, the manager enters
+    /// Active Processing mode with +50% resources.
     pub fn start(
         config: AdaptiveResourceConfig,
         cancellation_token: CancellationToken,
+        queue_depth: Option<Arc<AtomicUsize>>,
     ) -> Self {
         let normal_profile = ResourceProfile {
             max_concurrent_embeddings: config.normal_max_concurrent_embeddings,
@@ -422,6 +440,23 @@ impl AdaptiveResourceManager {
             inter_item_delay_ms: config.burst_inter_item_delay_ms,
         };
 
+        // Compute active processing profile (+50% concurrency, halved delay)
+        let active_profile = {
+            let active_embeddings = std::cmp::max(
+                normal_profile.max_concurrent_embeddings + 1,
+                (normal_profile.max_concurrent_embeddings as f64 * config.active_concurrency_multiplier)
+                    .round() as usize,
+            );
+            // Cap active profile at burst profile
+            ResourceProfile {
+                max_concurrent_embeddings: std::cmp::min(
+                    active_embeddings,
+                    burst_profile.max_concurrent_embeddings,
+                ),
+                inter_item_delay_ms: config.active_inter_item_delay_ms,
+            }
+        };
+
         let (tx, rx) = watch::channel(normal_profile);
         let state = Arc::new(AdaptiveResourceState::new());
         state.set_profile(&normal_profile);
@@ -430,12 +465,14 @@ impl AdaptiveResourceManager {
         let physical_cores = detect_physical_cores();
 
         info!(
-            "Adaptive resource manager started (idle_threshold={}s, ramp={}s/{} steps, normal={}/{}, burst={}/{}, poll={}s)",
+            "Adaptive resource manager started (idle_threshold={}s, ramp={}s/{} steps, normal={}/{}, active={}/{}, burst={}/{}, poll={}s)",
             config.idle_threshold_secs,
             config.ramp_duration_secs,
             config.ramp_steps,
             normal_profile.max_concurrent_embeddings,
             normal_profile.inter_item_delay_ms,
+            active_profile.max_concurrent_embeddings,
+            active_profile.inter_item_delay_ms,
             burst_profile.max_concurrent_embeddings,
             burst_profile.inter_item_delay_ms,
             config.poll_interval_secs,
@@ -448,6 +485,8 @@ impl AdaptiveResourceManager {
 
             let mut current_state = SystemState::Interactive;
             let mut current_profile = normal_profile;
+            let mut heartbeat_counter: u64 = 0;
+            let heartbeat_interval: u64 = 60 / config.poll_interval_secs.max(1);
 
             loop {
                 tokio::select! {
@@ -465,23 +504,42 @@ impl AdaptiveResourceManager {
                             config.cpu_pressure_threshold,
                             physical_cores,
                         );
+                        let has_queue_work = queue_depth
+                            .as_ref()
+                            .map(|qd| qd.load(Ordering::Relaxed) > 0)
+                            .unwrap_or(false);
 
                         let (new_state, new_profile, new_mode) = if !user_is_idle || !cpu_ok {
-                            // User active or CPU too busy → back to normal
-                            if current_state != SystemState::Interactive {
-                                info!(
-                                    "User activity detected — switching to normal mode (embeddings: {} → {}, delay: {}ms → {}ms)",
-                                    current_profile.max_concurrent_embeddings,
-                                    normal_profile.max_concurrent_embeddings,
-                                    current_profile.inter_item_delay_ms,
-                                    normal_profile.inter_item_delay_ms,
-                                );
+                            // User active or CPU too busy
+                            if has_queue_work && cpu_ok {
+                                // Active Processing: user present, queue has work, CPU ok
+                                if !matches!(current_state, SystemState::ActiveProcessing) {
+                                    info!(
+                                        "Active processing mode — queue has work (embeddings: {} → {}, delay: {}ms → {}ms)",
+                                        current_profile.max_concurrent_embeddings,
+                                        active_profile.max_concurrent_embeddings,
+                                        current_profile.inter_item_delay_ms,
+                                        active_profile.inter_item_delay_ms,
+                                    );
+                                }
+                                (SystemState::ActiveProcessing, active_profile, ResourceMode::Active)
+                            } else {
+                                // Normal: user active, no queue work (or CPU busy)
+                                if !matches!(current_state, SystemState::Interactive) {
+                                    info!(
+                                        "Switching to normal mode (embeddings: {} → {}, delay: {}ms → {}ms)",
+                                        current_profile.max_concurrent_embeddings,
+                                        normal_profile.max_concurrent_embeddings,
+                                        current_profile.inter_item_delay_ms,
+                                        normal_profile.inter_item_delay_ms,
+                                    );
+                                }
+                                (SystemState::Interactive, normal_profile, ResourceMode::Normal)
                             }
-                            (SystemState::Interactive, normal_profile, ResourceMode::Normal)
                         } else {
                             // User is idle and CPU is ok
                             match current_state {
-                                SystemState::Interactive => {
+                                SystemState::Interactive | SystemState::ActiveProcessing => {
                                     // Just entered idle → start ramping
                                     let now = Instant::now();
                                     let step1_profile = interpolate_profile(
@@ -490,9 +548,9 @@ impl AdaptiveResourceManager {
                                     info!(
                                         "System idle detected — starting ramp-up step 1/{} (embeddings: {} → {}, delay: {}ms → {}ms)",
                                         ramp_steps,
-                                        normal_profile.max_concurrent_embeddings,
+                                        current_profile.max_concurrent_embeddings,
                                         step1_profile.max_concurrent_embeddings,
-                                        normal_profile.inter_item_delay_ms,
+                                        current_profile.inter_item_delay_ms,
                                         step1_profile.inter_item_delay_ms,
                                     );
                                     (
@@ -522,7 +580,7 @@ impl AdaptiveResourceManager {
                                             &normal_profile, &burst_profile, step, ramp_steps,
                                         );
                                         if profile != current_profile {
-                                            debug!(
+                                            info!(
                                                 "Ramp-up step {}/{} (embeddings: {}, delay: {}ms)",
                                                 step, ramp_steps,
                                                 profile.max_concurrent_embeddings,
@@ -551,6 +609,20 @@ impl AdaptiveResourceManager {
                             current_profile = new_profile;
                         }
                         current_state = new_state;
+
+                        // Periodic heartbeat
+                        heartbeat_counter += 1;
+                        if heartbeat_counter % heartbeat_interval == 0 {
+                            info!(
+                                "Adaptive resources heartbeat: mode={}, idle_secs={:.0}, cpu_pressure={}, queue_work={}, embeddings={}, delay={}ms",
+                                new_mode.as_str(),
+                                idle_secs,
+                                !cpu_ok,
+                                has_queue_work,
+                                new_profile.max_concurrent_embeddings,
+                                new_profile.inter_item_delay_ms,
+                            );
+                        }
                     }
                 }
             }
@@ -722,7 +794,7 @@ mod tests {
         let limits = test_limits();
         let config = AdaptiveResourceConfig::from_resource_limits(&limits);
         let token = CancellationToken::new();
-        let manager = AdaptiveResourceManager::start(config, token.clone());
+        let manager = AdaptiveResourceManager::start(config, token.clone(), None);
 
         let profile = manager.current_profile();
         assert_eq!(profile.max_concurrent_embeddings, 2);
@@ -737,7 +809,7 @@ mod tests {
         let limits = test_limits();
         let config = AdaptiveResourceConfig::from_resource_limits(&limits);
         let token = CancellationToken::new();
-        let manager = AdaptiveResourceManager::start(config, token.clone());
+        let manager = AdaptiveResourceManager::start(config, token.clone(), None);
 
         let rx = manager.subscribe();
         let profile = *rx.borrow();
@@ -747,9 +819,74 @@ mod tests {
     }
 
     #[test]
+    fn test_heartbeat_interval_calculation() {
+        // With 5s poll interval, heartbeat every 12 polls (60/5)
+        let poll_secs: u64 = 5;
+        let interval = 60 / poll_secs.max(1);
+        assert_eq!(interval, 12);
+
+        // With 10s poll interval, heartbeat every 6 polls (60/10)
+        let poll_secs: u64 = 10;
+        let interval = 60 / poll_secs.max(1);
+        assert_eq!(interval, 6);
+
+        // With 0s poll interval (guard against division by zero), heartbeat every 60 polls
+        let poll_secs: u64 = 0;
+        let interval = 60 / poll_secs.max(1);
+        assert_eq!(interval, 60);
+    }
+
+    #[test]
     fn test_cpu_pressure_check() {
         // With an extremely high threshold (10.0), no system should be under pressure
         assert!(!is_cpu_under_pressure(10.0, 4));
+    }
+
+    #[test]
+    fn test_resource_mode_active_as_str() {
+        assert_eq!(ResourceMode::Active.as_str(), "active");
+    }
+
+    #[test]
+    fn test_active_mode_encoding() {
+        let state = AdaptiveResourceState::new();
+
+        state.set_mode(ResourceMode::Active);
+        assert_eq!(state.mode(), ResourceMode::Active);
+
+        // Verify it doesn't collide with other modes
+        state.set_mode(ResourceMode::Normal);
+        assert_eq!(state.mode(), ResourceMode::Normal);
+
+        state.set_mode(ResourceMode::Burst);
+        assert_eq!(state.mode(), ResourceMode::Burst);
+
+        state.set_mode(ResourceMode::RampingUp(3));
+        assert_eq!(state.mode(), ResourceMode::RampingUp(3));
+    }
+
+    #[test]
+    fn test_active_profile_values() {
+        let limits = test_limits();
+        let config = AdaptiveResourceConfig::from_resource_limits(&limits);
+
+        // Active should be 1.5x normal embeddings (2 * 1.5 = 3)
+        let active_embeddings = std::cmp::max(
+            config.normal_max_concurrent_embeddings + 1,
+            (config.normal_max_concurrent_embeddings as f64 * config.active_concurrency_multiplier)
+                .round() as usize,
+        );
+        assert_eq!(active_embeddings, 3, "2 * 1.5 = 3 embeddings");
+
+        // Active delay should be 25ms (default)
+        assert_eq!(config.active_inter_item_delay_ms, 25);
+    }
+
+    #[test]
+    fn test_active_config_defaults() {
+        let limits = ResourceLimitsConfig::default();
+        assert!((limits.active_concurrency_multiplier - 1.5).abs() < f64::EPSILON);
+        assert_eq!(limits.active_inter_item_delay_ms, 25);
     }
 
     #[cfg(target_os = "macos")]

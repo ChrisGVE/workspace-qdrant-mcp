@@ -242,6 +242,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Receiver for adaptive resource profile changes (idle/burst mode)
     resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
+
+    /// Shared queue depth counter for adaptive resource signaling
+    queue_depth_counter: Arc<std::sync::atomic::AtomicUsize>,
 }
 
 impl UnifiedQueueProcessor {
@@ -293,6 +296,7 @@ impl UnifiedQueueProcessor {
             warmup_state,
             queue_health: None,
             resource_profile_rx: None,
+            queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 
@@ -338,6 +342,7 @@ impl UnifiedQueueProcessor {
             warmup_state,
             queue_health: None,
             resource_profile_rx: None,
+            queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
         }
     }
 
@@ -363,6 +368,14 @@ impl UnifiedQueueProcessor {
     pub fn with_adaptive_resources(mut self, rx: tokio::sync::watch::Receiver<ResourceProfile>) -> Self {
         self.resource_profile_rx = Some(rx);
         self
+    }
+
+    /// Get a shared queue depth counter for adaptive resource signaling.
+    ///
+    /// Returns `Some(Arc<AtomicUsize>)` that tracks the number of pending queue items.
+    /// Used by `AdaptiveResourceManager` to detect Active Processing mode.
+    pub fn queue_depth(&self) -> Option<Arc<std::sync::atomic::AtomicUsize>> {
+        Some(Arc::clone(&self.queue_depth_counter))
     }
 
     /// Get a reference to the underlying SQLite pool
@@ -415,6 +428,7 @@ impl UnifiedQueueProcessor {
         let warmup_state = self.warmup_state.clone();
         let queue_health = self.queue_health.clone();
         let resource_profile_rx = self.resource_profile_rx.clone();
+        let queue_depth_counter = self.queue_depth_counter.clone();
 
         // Mark as running in health state
         if let Some(ref h) = queue_health {
@@ -437,6 +451,7 @@ impl UnifiedQueueProcessor {
                 warmup_state,
                 queue_health.clone(),
                 resource_profile_rx,
+                queue_depth_counter,
             )
             .await
             {
@@ -514,6 +529,7 @@ impl UnifiedQueueProcessor {
         warmup_state: Arc<WarmupState>,
         queue_health: Option<Arc<QueueProcessorHealth>>,
         resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
+        queue_depth_counter: Arc<std::sync::atomic::AtomicUsize>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let mut last_metrics_log = Utc::now();
@@ -590,13 +606,14 @@ impl UnifiedQueueProcessor {
                 continue;
             }
 
-            // Update queue depth in metrics
+            // Update queue depth in metrics and adaptive resource counter
             if let Ok(depth) = queue_manager.get_unified_queue_depth(None, None).await {
                 let mut m = metrics.write().await;
                 m.queue_depth = depth;
                 if let Some(ref h) = queue_health {
                     h.set_queue_depth(depth as u64);
                 }
+                queue_depth_counter.store(depth as usize, std::sync::atomic::Ordering::Relaxed);
             }
 
             // Dequeue batch of items using fairness scheduler (Task 34)

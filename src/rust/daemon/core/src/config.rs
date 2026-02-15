@@ -852,6 +852,18 @@ pub struct ResourceLimitsConfig {
     /// How often to poll idle state (seconds).
     #[serde(default = "default_idle_poll_interval_secs")]
     pub idle_poll_interval_secs: u64,
+
+    // --- Active Processing Mode ---
+
+    /// Multiplier for max_concurrent_embeddings when user is active but queue has work.
+    /// Default: 1.5 (+50% over normal)
+    #[serde(default = "default_active_concurrency_multiplier")]
+    pub active_concurrency_multiplier: f64,
+
+    /// Inter-item delay in ms during active processing (user present, queue has work).
+    /// Default: 25 (half of normal 50ms)
+    #[serde(default = "default_active_inter_item_delay_ms")]
+    pub active_inter_item_delay_ms: u64,
 }
 
 fn default_nice_level() -> i32 { 10 }
@@ -866,6 +878,8 @@ fn default_burst_concurrency_multiplier() -> f64 { 2.0 }
 fn default_burst_inter_item_delay_ms() -> u64 { 0 }
 fn default_cpu_pressure_threshold() -> f64 { 0.6 }
 fn default_idle_poll_interval_secs() -> u64 { 5 }
+fn default_active_concurrency_multiplier() -> f64 { 1.5 }
+fn default_active_inter_item_delay_ms() -> u64 { 25 }
 
 impl Default for ResourceLimitsConfig {
     fn default() -> Self {
@@ -882,6 +896,8 @@ impl Default for ResourceLimitsConfig {
             burst_inter_item_delay_ms: default_burst_inter_item_delay_ms(),
             cpu_pressure_threshold: default_cpu_pressure_threshold(),
             idle_poll_interval_secs: default_idle_poll_interval_secs(),
+            active_concurrency_multiplier: default_active_concurrency_multiplier(),
+            active_inter_item_delay_ms: default_active_inter_item_delay_ms(),
         }
     }
 }
@@ -1017,6 +1033,18 @@ impl ResourceLimitsConfig {
         if let Ok(val) = env::var("WQM_RESOURCE_IDLE_POLL_INTERVAL_SECS") {
             if let Ok(parsed) = val.parse() {
                 self.idle_poll_interval_secs = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_ACTIVE_CONCURRENCY_MULTIPLIER") {
+            if let Ok(parsed) = val.parse() {
+                self.active_concurrency_multiplier = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_ACTIVE_INTER_ITEM_DELAY_MS") {
+            if let Ok(parsed) = val.parse() {
+                self.active_inter_item_delay_ms = parsed;
             }
         }
     }
@@ -1296,6 +1324,8 @@ impl From<&YamlConfig> for DaemonConfig {
                 burst_inter_item_delay_ms: yaml.resource_limits.burst_inter_item_delay_ms,
                 cpu_pressure_threshold: yaml.resource_limits.cpu_pressure_threshold,
                 idle_poll_interval_secs: yaml.resource_limits.idle_poll_interval_secs,
+                active_concurrency_multiplier: yaml.resource_limits.active_concurrency_multiplier,
+                active_inter_item_delay_ms: yaml.resource_limits.active_inter_item_delay_ms,
             },
             startup: StartupConfig::default(),
             daemon_endpoint: DaemonEndpointConfig {
