@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 12;
+pub const CURRENT_SCHEMA_VERSION: i32 = 13;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -162,6 +162,7 @@ impl SchemaManager {
             10 => self.migrate_v10().await,
             11 => self.migrate_v11().await,
             12 => self.migrate_v12().await,
+            13 => self.migrate_v13().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -660,6 +661,25 @@ impl SchemaManager {
         }
 
         info!("Migration v12 complete");
+        Ok(())
+    }
+
+    async fn migrate_v13(&self) -> Result<(), SchemaError> {
+        info!("Migration v13: Creating resolution_events table");
+
+        use super::resolution_events_schema::{CREATE_RESOLUTION_EVENTS_SQL, CREATE_RESOLUTION_EVENTS_INDEXES_SQL};
+
+        sqlx::query(CREATE_RESOLUTION_EVENTS_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        for index_sql in CREATE_RESOLUTION_EVENTS_INDEXES_SQL {
+            sqlx::query(index_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        info!("Migration v13 complete");
         Ok(())
     }
 }
