@@ -726,3 +726,154 @@ async fn health(json: bool) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_range_hours() {
+        assert_eq!(parse_range_to_seconds("1h"), 3600);
+        assert_eq!(parse_range_to_seconds("24h"), 86400);
+        assert_eq!(parse_range_to_seconds("0h"), 0);
+    }
+
+    #[test]
+    fn test_parse_range_days() {
+        assert_eq!(parse_range_to_seconds("1d"), 86400);
+        assert_eq!(parse_range_to_seconds("7d"), 604800);
+    }
+
+    #[test]
+    fn test_parse_range_minutes() {
+        assert_eq!(parse_range_to_seconds("5m"), 300);
+        assert_eq!(parse_range_to_seconds("60m"), 3600);
+    }
+
+    #[test]
+    fn test_parse_range_case_insensitive() {
+        assert_eq!(parse_range_to_seconds("1H"), 3600);
+        assert_eq!(parse_range_to_seconds("7D"), 604800);
+    }
+
+    #[test]
+    fn test_parse_range_with_whitespace() {
+        assert_eq!(parse_range_to_seconds(" 1h "), 3600);
+    }
+
+    #[test]
+    fn test_parse_range_invalid_defaults_1h() {
+        assert_eq!(parse_range_to_seconds("xyz"), 3600);
+        assert_eq!(parse_range_to_seconds(""), 3600);
+    }
+
+    #[test]
+    fn test_parse_range_invalid_number_with_valid_suffix() {
+        // "abch" → strip_suffix('h') = "abc", parse fails → unwrap_or(1) = 1 * 3600
+        assert_eq!(parse_range_to_seconds("abch"), 3600);
+    }
+
+    #[test]
+    fn test_format_bytes_small() {
+        assert_eq!(format_bytes(0), "0 B");
+        assert_eq!(format_bytes(512), "512 B");
+        assert_eq!(format_bytes(1023), "1023 B");
+    }
+
+    #[test]
+    fn test_format_bytes_kb() {
+        assert_eq!(format_bytes(1024), "1.0 KB");
+        assert_eq!(format_bytes(1536), "1.5 KB");
+    }
+
+    #[test]
+    fn test_format_bytes_mb() {
+        assert_eq!(format_bytes(1024 * 1024), "1.0 MB");
+        assert_eq!(format_bytes(1024 * 1024 + 512 * 1024), "1.5 MB");
+    }
+
+    #[test]
+    fn test_format_bytes_gb() {
+        assert_eq!(format_bytes(1024 * 1024 * 1024), "1.00 GB");
+    }
+
+    #[test]
+    fn test_status_label() {
+        assert_eq!(status_label(ServiceStatus::Healthy), "healthy");
+        assert_eq!(status_label(ServiceStatus::Degraded), "degraded");
+        assert_eq!(status_label(ServiceStatus::Unhealthy), "unhealthy");
+        assert_eq!(status_label(ServiceStatus::Unknown), "unknown");
+    }
+
+    #[test]
+    fn test_system_status_json_serialization() {
+        let json_out = SystemStatusJson {
+            connected: true,
+            status: "healthy".to_string(),
+            collections: 3,
+            documents: 100,
+            active_projects: vec!["project-a".to_string()],
+            pending_operations: Some(5),
+            resource_mode: Some("normal".to_string()),
+            idle_seconds: Some(42.5),
+            current_max_embeddings: Some(1),
+            current_inter_item_delay_ms: Some(100),
+        };
+        let serialized = serde_json::to_string(&json_out).unwrap();
+        assert!(serialized.contains("\"connected\":true"));
+        assert!(serialized.contains("\"resource_mode\":\"normal\""));
+        assert!(serialized.contains("\"idle_seconds\":42.5"));
+        assert!(serialized.contains("\"current_max_embeddings\":1"));
+        assert!(serialized.contains("\"current_inter_item_delay_ms\":100"));
+    }
+
+    #[test]
+    fn test_system_status_json_omits_none_fields() {
+        let json_out = SystemStatusJson {
+            connected: false,
+            status: "unhealthy".to_string(),
+            collections: 0,
+            documents: 0,
+            active_projects: Vec::new(),
+            pending_operations: None,
+            resource_mode: None,
+            idle_seconds: None,
+            current_max_embeddings: None,
+            current_inter_item_delay_ms: None,
+        };
+        let serialized = serde_json::to_string(&json_out).unwrap();
+        assert!(!serialized.contains("resource_mode"));
+        assert!(!serialized.contains("idle_seconds"));
+        assert!(!serialized.contains("current_max_embeddings"));
+        assert!(!serialized.contains("pending_operations"));
+    }
+
+    #[test]
+    fn test_health_status_json_serialization() {
+        let json_out = HealthStatusJson {
+            connected: true,
+            health: "healthy".to_string(),
+            components: vec![
+                HealthComponentJson {
+                    name: "qdrant".to_string(),
+                    status: "healthy".to_string(),
+                    message: None,
+                },
+                HealthComponentJson {
+                    name: "sqlite".to_string(),
+                    status: "degraded".to_string(),
+                    message: Some("high latency".to_string()),
+                },
+            ],
+        };
+        let serialized = serde_json::to_string(&json_out).unwrap();
+        assert!(serialized.contains("\"health\":\"healthy\""));
+        assert!(serialized.contains("\"qdrant\""));
+        assert!(serialized.contains("\"high latency\""));
+        // Component with message: None should omit message field
+        let value: serde_json::Value = serde_json::from_str(&serialized).unwrap();
+        let components = value["components"].as_array().unwrap();
+        assert!(components[0].get("message").is_none());
+        assert!(components[1].get("message").is_some());
+    }
+}
