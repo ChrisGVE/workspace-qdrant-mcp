@@ -1559,6 +1559,66 @@ impl QueueManager {
         Ok(queue_ids)
     }
 
+    /// Enqueue a library document for ingestion.
+    ///
+    /// Convenience wrapper around `enqueue_unified` that accepts a
+    /// `LibraryDocumentPayload` and routes to the libraries collection.
+    pub async fn enqueue_library_document(
+        &self,
+        payload: &wqm_common::payloads::LibraryDocumentPayload,
+        op: UnifiedOp,
+        branch: Option<&str>,
+    ) -> QueueResult<(String, bool)> {
+        let payload_json = serde_json::to_string(payload)?;
+        self.enqueue_unified(
+            ItemType::File,
+            op,
+            &payload.library_name,
+            COLLECTION_LIBRARIES,
+            &payload_json,
+            0, // priority computed at dequeue
+            branch,
+            None,
+        ).await
+    }
+
+    /// Validate a library document payload has required fields.
+    ///
+    /// Called during library document processing to ensure the payload
+    /// contains the document family taxonomy fields.
+    pub fn validate_library_document_payload(
+        payload: &serde_json::Value,
+    ) -> QueueResult<()> {
+        let required_fields = [
+            ("document_path", "Library document missing 'document_path'"),
+            ("library_name", "Library document missing 'library_name'"),
+            ("document_type", "Library document missing 'document_type'"),
+            ("source_format", "Library document missing 'source_format'"),
+            ("doc_id", "Library document missing 'doc_id'"),
+        ];
+
+        for (field, msg) in &required_fields {
+            if !payload.get(*field).map_or(false, |v| v.is_string() && !v.as_str().unwrap_or("").is_empty()) {
+                error!("Queue validation failed: {}", msg);
+                return Err(QueueError::MissingPayloadField {
+                    item_type: "file".to_string(),
+                    field: field.to_string(),
+                });
+            }
+        }
+
+        // Validate document_type is one of the known families
+        if let Some(doc_type) = payload.get("document_type").and_then(|v| v.as_str()) {
+            if doc_type != "page_based" && doc_type != "stream_based" {
+                error!("Queue validation failed: invalid document_type '{}', must be 'page_based' or 'stream_based'", doc_type);
+                return Err(QueueError::InvalidOperation(
+                    format!("Invalid document_type: '{}', must be 'page_based' or 'stream_based'", doc_type),
+                ));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 
@@ -2882,5 +2942,68 @@ mod tests {
         assert_eq!(items[0].queue_id, "lifo-q3"); // newest
         assert_eq!(items[1].queue_id, "lifo-q2");
         assert_eq!(items[2].queue_id, "lifo-q1"); // oldest
+    }
+
+    // ===== Library document payload validation =====
+
+    #[test]
+    fn test_validate_library_document_payload_valid() {
+        let payload = serde_json::json!({
+            "document_path": "/docs/report.pdf",
+            "library_name": "internal-docs",
+            "document_type": "page_based",
+            "source_format": "pdf",
+            "doc_id": "550e8400-e29b-41d4-a716-446655440000",
+        });
+        assert!(QueueManager::validate_library_document_payload(&payload).is_ok());
+    }
+
+    #[test]
+    fn test_validate_library_document_payload_stream_based() {
+        let payload = serde_json::json!({
+            "document_path": "/books/novel.epub",
+            "library_name": "ebooks",
+            "document_type": "stream_based",
+            "source_format": "epub",
+            "doc_id": "uuid-here",
+        });
+        assert!(QueueManager::validate_library_document_payload(&payload).is_ok());
+    }
+
+    #[test]
+    fn test_validate_library_document_payload_missing_field() {
+        let payload = serde_json::json!({
+            "document_path": "/docs/report.pdf",
+            "library_name": "internal-docs",
+            // missing document_type, source_format, doc_id
+        });
+        let result = QueueManager::validate_library_document_payload(&payload);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_library_document_payload_invalid_document_type() {
+        let payload = serde_json::json!({
+            "document_path": "/docs/report.pdf",
+            "library_name": "internal-docs",
+            "document_type": "unknown_type",
+            "source_format": "pdf",
+            "doc_id": "uuid-here",
+        });
+        let result = QueueManager::validate_library_document_payload(&payload);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_validate_library_document_payload_empty_fields() {
+        let payload = serde_json::json!({
+            "document_path": "",
+            "library_name": "docs",
+            "document_type": "page_based",
+            "source_format": "pdf",
+            "doc_id": "uuid",
+        });
+        let result = QueueManager::validate_library_document_payload(&payload);
+        assert!(result.is_err()); // document_path is empty
     }
 }
