@@ -18,6 +18,7 @@ pub mod scratch;
 // Search & Queue
 pub mod queue;
 pub mod search;
+pub mod stats;
 
 // Language Support
 pub mod language;

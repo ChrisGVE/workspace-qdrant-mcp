@@ -73,6 +73,9 @@ enum Commands {
     /// Unified queue inspector (list, show, stats)
     Queue(commands::queue::QueueArgs),
 
+    /// Search instrumentation analytics (overview, log-search)
+    Stats(commands::stats::StatsArgs),
+
     // =========================================================================
     // Language Support
     // =========================================================================
@@ -162,6 +165,7 @@ async fn main() -> Result<()> {
         // Search & Queue
         Commands::Search(args) => commands::search::execute(args).await,
         Commands::Queue(args) => commands::queue::execute(args).await,
+        Commands::Stats(args) => commands::stats::execute(args).await,
 
         // Language Support
         Commands::Language(args) => commands::language::execute(args).await,
