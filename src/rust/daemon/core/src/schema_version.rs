@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 14;
+pub const CURRENT_SCHEMA_VERSION: i32 = 15;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -164,6 +164,7 @@ impl SchemaManager {
             12 => self.migrate_v12().await,
             13 => self.migrate_v13().await,
             14 => self.migrate_v14().await,
+            15 => self.migrate_v15().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -725,6 +726,48 @@ impl SchemaManager {
         .await?;
 
         info!("Migration v14 complete");
+        Ok(())
+    }
+
+    /// Migration v15: Create sparse_vocabulary and corpus_statistics tables for BM25 IDF
+    async fn migrate_v15(&self) -> Result<(), SchemaError> {
+        info!("Migration v15: Creating BM25 IDF tables (sparse_vocabulary, corpus_statistics)");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS sparse_vocabulary (
+                term_id INTEGER NOT NULL,
+                term TEXT NOT NULL,
+                collection TEXT NOT NULL,
+                document_count INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                PRIMARY KEY (term_id, collection),
+                UNIQUE (term, collection)
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_sparse_vocabulary_collection ON sparse_vocabulary (collection)",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS corpus_statistics (
+                collection TEXT PRIMARY KEY NOT NULL,
+                total_documents INTEGER NOT NULL DEFAULT 0,
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        info!("Migration v15 complete");
         Ok(())
     }
 }

@@ -93,12 +93,22 @@ pub struct PreprocessedText {
     pub token_ids: Vec<u32>,
 }
 
-/// BM25 for sparse vector generation
+/// BM25 for sparse vector generation with IDF weighting
+///
+/// Uses true BM25 scoring: `IDF * (k1 * tf) / (tf + k1)` where
+/// `IDF = ln((N - df + 0.5) / (df + 0.5))`.
+///
+/// Document frequency statistics are tracked per-term to weight rare terms
+/// higher than common terms like "function" or "return".
 #[derive(Debug)]
 pub struct BM25 {
     k1: f32,
     vocab: std::collections::HashMap<String, u32>,
     next_vocab_id: u32,
+    /// Document frequency: term_id → number of documents containing the term
+    doc_freq: std::collections::HashMap<u32, u32>,
+    /// Total number of documents added to the corpus
+    total_docs: u32,
 }
 
 impl BM25 {
@@ -107,15 +117,43 @@ impl BM25 {
             k1,
             vocab: std::collections::HashMap::new(),
             next_vocab_id: 0,
+            doc_freq: std::collections::HashMap::new(),
+            total_docs: 0,
         }
     }
 
+    /// Restore BM25 state from persisted data (e.g., SQLite on startup)
+    pub fn from_persisted(
+        k1: f32,
+        vocab: std::collections::HashMap<String, u32>,
+        doc_freq: std::collections::HashMap<u32, u32>,
+        total_docs: u32,
+    ) -> Self {
+        let next_vocab_id = vocab.values().max().map(|v| v + 1).unwrap_or(0);
+        Self { k1, vocab, next_vocab_id, doc_freq, total_docs }
+    }
+
     pub fn add_document(&mut self, tokens: &[String]) {
+        self.total_docs += 1;
+
+        // Track unique terms in this document for document frequency
+        let mut seen_in_doc: std::collections::HashSet<u32> = std::collections::HashSet::new();
+
         for token in tokens {
-            if !self.vocab.contains_key(token) {
-                self.vocab.insert(token.clone(), self.next_vocab_id);
+            let vocab_id = if let Some(&id) = self.vocab.get(token) {
+                id
+            } else {
+                let id = self.next_vocab_id;
+                self.vocab.insert(token.clone(), id);
                 self.next_vocab_id += 1;
-            }
+                id
+            };
+            seen_in_doc.insert(vocab_id);
+        }
+
+        // Increment document frequency for each unique term in this document
+        for term_id in seen_in_doc {
+            *self.doc_freq.entry(term_id).or_insert(0) += 1;
         }
     }
 
@@ -127,11 +165,23 @@ impl BM25 {
 
         let mut indices = Vec::new();
         let mut values = Vec::new();
+        let n = self.total_docs as f32;
 
         for (term, tf) in term_freq {
             if let Some(&vocab_id) = self.vocab.get(&term) {
-                // Simple TF-IDF-like score
-                let score = (1.0 + (tf as f32).ln()) * self.k1;
+                let tf = tf as f32;
+                let df = self.doc_freq.get(&vocab_id).copied().unwrap_or(0) as f32;
+
+                // IDF: ln((N - df + 0.5) / (df + 0.5)), floored at 0
+                let idf = if n > 0.0 && df > 0.0 {
+                    ((n - df + 0.5) / (df + 0.5)).ln().max(0.0)
+                } else {
+                    // No corpus stats yet — fall back to TF-only
+                    1.0
+                };
+
+                // BM25 score: IDF * (k1 * tf) / (tf + k1)
+                let score = idf * (self.k1 * tf) / (tf + self.k1);
                 if score > 0.0 {
                     indices.push(vocab_id);
                     values.push(score);
@@ -148,6 +198,21 @@ impl BM25 {
 
     pub fn vocab_size(&self) -> usize {
         self.vocab.len()
+    }
+
+    /// Get the total number of documents in the corpus
+    pub fn total_docs(&self) -> u32 {
+        self.total_docs
+    }
+
+    /// Get the vocabulary for persistence
+    pub fn vocab(&self) -> &std::collections::HashMap<String, u32> {
+        &self.vocab
+    }
+
+    /// Get the document frequency map for persistence
+    pub fn doc_freq(&self) -> &std::collections::HashMap<u32, u32> {
+        &self.doc_freq
     }
 }
 
@@ -348,5 +413,142 @@ impl TextPreprocessor {
             tokens,
             token_ids: vec![],
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_bm25_idf_common_vs_rare_terms() {
+        let mut bm25 = BM25::new(1.2);
+
+        // Add 10 documents. "function" appears in all, "quantum" in only 1
+        for i in 0..10 {
+            let mut tokens = vec!["function".to_string(), "code".to_string()];
+            if i == 0 {
+                tokens.push("quantum".to_string());
+            }
+            bm25.add_document(&tokens);
+        }
+
+        assert_eq!(bm25.total_docs(), 10);
+
+        // Generate sparse vector for a query containing both terms
+        let query_tokens = vec!["function".to_string(), "quantum".to_string()];
+        let sparse = bm25.generate_sparse_vector(&query_tokens);
+
+        // Find scores for each term
+        let function_id = bm25.vocab.get("function").unwrap();
+        let quantum_id = bm25.vocab.get("quantum").unwrap();
+
+        let function_score = sparse.indices.iter().zip(&sparse.values)
+            .find(|(&idx, _)| idx == *function_id)
+            .map(|(_, &v)| v);
+        let quantum_score = sparse.indices.iter().zip(&sparse.values)
+            .find(|(&idx, _)| idx == *quantum_id)
+            .map(|(_, &v)| v);
+
+        // "quantum" (rare, df=1) should score higher than "function" (common, df=10)
+        assert!(quantum_score.unwrap() > function_score.unwrap_or(0.0),
+            "Rare term 'quantum' ({:?}) should score higher than common term 'function' ({:?})",
+            quantum_score, function_score);
+    }
+
+    #[test]
+    fn test_bm25_idf_zero_for_universal_terms() {
+        let mut bm25 = BM25::new(1.2);
+
+        // Add 5 documents all containing "the"
+        for _ in 0..5 {
+            bm25.add_document(&["the".to_string(), "code".to_string()]);
+        }
+
+        let sparse = bm25.generate_sparse_vector(&["the".to_string()]);
+        let the_id = bm25.vocab.get("the").unwrap();
+        let the_score = sparse.indices.iter().zip(&sparse.values)
+            .find(|(&idx, _)| idx == *the_id)
+            .map(|(_, &v)| v);
+
+        // IDF for a term in all documents: ln((5 - 5 + 0.5)/(5 + 0.5)) = ln(0.5/5.5) < 0 → clamped to 0
+        // So score should be 0 (term filtered out)
+        assert!(the_score.is_none() || the_score.unwrap() == 0.0,
+            "Universal term should have zero score, got {:?}", the_score);
+    }
+
+    #[test]
+    fn test_bm25_doc_freq_tracking() {
+        let mut bm25 = BM25::new(1.2);
+
+        bm25.add_document(&["hello".to_string(), "world".to_string()]);
+        bm25.add_document(&["hello".to_string(), "rust".to_string()]);
+        bm25.add_document(&["goodbye".to_string(), "world".to_string()]);
+
+        assert_eq!(bm25.total_docs(), 3);
+
+        let hello_id = *bm25.vocab.get("hello").unwrap();
+        let world_id = *bm25.vocab.get("world").unwrap();
+        let rust_id = *bm25.vocab.get("rust").unwrap();
+
+        assert_eq!(*bm25.doc_freq.get(&hello_id).unwrap(), 2);
+        assert_eq!(*bm25.doc_freq.get(&world_id).unwrap(), 2);
+        assert_eq!(*bm25.doc_freq.get(&rust_id).unwrap(), 1);
+    }
+
+    #[test]
+    fn test_bm25_from_persisted() {
+        let mut vocab = std::collections::HashMap::new();
+        vocab.insert("test".to_string(), 0u32);
+        vocab.insert("data".to_string(), 1u32);
+
+        let mut doc_freq = std::collections::HashMap::new();
+        doc_freq.insert(0u32, 5u32);
+        doc_freq.insert(1u32, 2u32);
+
+        let bm25 = BM25::from_persisted(1.2, vocab, doc_freq, 10);
+
+        assert_eq!(bm25.total_docs(), 10);
+        assert_eq!(bm25.vocab_size(), 2);
+        assert_eq!(bm25.next_vocab_id, 2);
+
+        // "data" (df=2) should score higher than "test" (df=5) for same TF
+        let sparse = bm25.generate_sparse_vector(&["test".to_string(), "data".to_string()]);
+        let test_id = *bm25.vocab.get("test").unwrap();
+        let data_id = *bm25.vocab.get("data").unwrap();
+
+        let test_score = sparse.indices.iter().zip(&sparse.values)
+            .find(|(&idx, _)| idx == test_id)
+            .map(|(_, &v)| v)
+            .unwrap_or(0.0);
+        let data_score = sparse.indices.iter().zip(&sparse.values)
+            .find(|(&idx, _)| idx == data_id)
+            .map(|(_, &v)| v)
+            .unwrap_or(0.0);
+
+        assert!(data_score > test_score,
+            "Rarer term 'data' (df=2) should score higher than 'test' (df=5)");
+    }
+
+    #[test]
+    fn test_bm25_empty_corpus_fallback() {
+        let bm25 = BM25::new(1.2);
+        // With no documents added, generate should still work (TF-only fallback)
+        // but vocab is empty so no matching terms → empty result
+        let sparse = bm25.generate_sparse_vector(&["hello".to_string()]);
+        assert!(sparse.indices.is_empty());
+    }
+
+    #[test]
+    fn test_bm25_duplicate_tokens_in_doc() {
+        let mut bm25 = BM25::new(1.2);
+
+        // Document with repeated token
+        bm25.add_document(&["test".to_string(), "test".to_string(), "test".to_string()]);
+        assert_eq!(bm25.total_docs(), 1);
+
+        // doc_freq should be 1 (appears in 1 document, not 3)
+        let test_id = *bm25.vocab.get("test").unwrap();
+        assert_eq!(*bm25.doc_freq.get(&test_id).unwrap(), 1);
     }
 }
