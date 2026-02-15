@@ -1,7 +1,7 @@
 # workspace-qdrant-mcp Specification
 
-**Version:** 1.7.0
-**Date:** 2026-02-07
+**Version:** 1.8.0
+**Date:** 2026-02-15
 **Status:** Authoritative Specification
 **Supersedes:** CONSOLIDATED_PRD_V2.md, PRDv3.txt, PRDv3-snapshot1.txt
 
@@ -13,11 +13,13 @@
 2. [Architecture](#architecture)
 3. [Collection Architecture](#collection-architecture)
    - [Project ID Generation](#project-id-generation)
-4. [Write Path Architecture](#write-path-architecture)
-5. [Memory System](#memory-system)
-6. [File Watching and Ingestion](#file-watching-and-ingestion)
-7. [API Reference](#api-reference)
-8. [Configuration Reference](#configuration-reference)
+4. [Document Type Taxonomy](#document-type-taxonomy)
+5. [Write Path Architecture](#write-path-architecture)
+6. [Memory System](#memory-system)
+7. [File Watching and Ingestion](#file-watching-and-ingestion)
+8. [API Reference](#api-reference)
+9. [Search Instrumentation](#search-instrumentation)
+10. [Configuration Reference](#configuration-reference)
 
 ---
 
@@ -679,18 +681,253 @@ via SQLite instead of slow Qdrant scrolling. See [Tracked Files Table](#tracked-
 
 **Libraries Collection:**
 
+The libraries collection uses a **parent-unit architecture** to provide rich context for search results. Each library document is split into two types of records:
+
+1. **Parent records** (no vectors): Store document/unit-level metadata and full text for context expansion
+2. **Child chunks** (with vectors): Store searchable chunks that reference their parent via `parent_unit_id`
+
+**Parent Record Payload (no vectors):**
+
 ```json
 {
-  "library_name": "numpy", // Required, indexed (is_tenant=true)
-  "source_file": "/path/to/doc.pdf",
-  "file_type": "pdf",
-  "title": "NumPy Documentation",
-  "topics": ["arrays", "math"],
-  "page_number": 42,
-  "chunk_index": 0,
-  "created_at": "2026-01-28T12:00:00Z"
+  "library_name": "numpy",              // Required, indexed (is_tenant=true)
+  "doc_id": "550e8400-e29b-...",         // UUID v5 from library_name + path
+  "doc_title": "NumPy User Guide",       // Extracted via priority cascade
+  "doc_authors": ["Travis Oliphant", "..."], // From embedded metadata
+  "doc_source": "/docs/numpy-user-guide.pdf", // Original file path
+  "doc_fingerprint": "abc123def456...",  // SHA256 of file bytes
+  "doc_type": "page_based",              // "page_based" or "stream_based"
+  "source_format": "pdf",                // pdf|docx|epub|html|markdown|text
+  "unit_type": "document",               // "document" or "code_block"
+  "unit_text": "Full document text...", // Complete text for context
+  "locator": {                           // Format-specific location
+    "page": 1,
+    "section": "Introduction"
+  },
+  "created_at": "2026-02-15T12:00:00Z"
 }
 ```
+
+**Child Chunk Payload (with vectors):**
+
+```json
+{
+  "library_name": "numpy",              // Required, indexed (is_tenant=true)
+  "doc_id": "550e8400-e29b-...",         // Same as parent
+  "doc_title": "NumPy User Guide",       // Denormalized for filtering
+  "parent_unit_id": "parent-point-id",   // Points to parent record
+  "chunk_text_raw": "Array operations allow...", // Original chunk text
+  "chunk_text_indexed": "## Introduction\nArray operations allow...", // With heading context
+  "char_start": 1024,                    // Character offset in unit_text
+  "char_end": 1536,                      // End character offset
+  "extractor": "pdf_extract",            // Extractor used
+  "source_format": "pdf",                // Same as parent
+  "chunk_index": 0,                      // Chunk sequence number
+  "created_at": "2026-02-15T12:00:00Z"
+}
+```
+
+**Provenance fields** (present on both parent and child records):
+- `doc_id` - Unique document identifier (UUID v5)
+- `doc_title` - Document title (via title extraction cascade)
+- `doc_authors` - Document authors (from metadata)
+- `doc_source` - Original file path
+- `doc_fingerprint` - SHA256 hash for change detection
+- `doc_type` - Document family: `page_based` or `stream_based`
+- `source_format` - Actual file format (pdf, docx, epub, html, markdown, text)
+
+**Search context expansion:**
+When `expandContext: true` is set on the `search` tool, the MCP server batch-fetches parent records from Qdrant and includes them in the `parent_context` field of search results, providing full document/unit-level context.
+
+---
+
+## Document Type Taxonomy
+
+Library documents are categorized into two families based on their layout characteristics, each requiring different processing pipelines.
+
+### Document Families
+
+#### Page-Based Documents (Fixed Layout)
+
+Documents with explicit page boundaries and fixed positions. Processing extracts text page-by-page with page numbers as locators.
+
+**Supported Formats:**
+
+| Format | Extension | Extractor | Notes |
+|--------|-----------|-----------|-------|
+| PDF | `.pdf` | `pdf-extract` | Wrapped in `catch_unwind` to handle font parsing panics |
+| Microsoft Word | `.docx` | ZIP + XML | Extracts from `word/document.xml` |
+| Microsoft Word (Legacy) | `.doc` | Text extraction | Limited support, fallback to text mode |
+| Microsoft PowerPoint | `.pptx` | ZIP + XML | Extracts slide text from `ppt/slides/slide*.xml` |
+| Microsoft PowerPoint (Legacy) | `.ppt` | Text extraction | Limited support, fallback to text mode |
+| OpenDocument Text | `.odt` | ZIP + XML | Extracts from `content.xml` |
+| OpenDocument Presentation | `.odp` | ZIP + XML | Extracts from `content.xml` |
+| OpenDocument Spreadsheet | `.ods` | ZIP + XML | Extracts from `content.xml` |
+| Rich Text Format | `.rtf` | RTF parser | Strips RTF control codes |
+
+#### Stream-Based Documents (Flowing Text)
+
+Documents with continuous, flowing text where content order is primary. Processing extracts text as a stream with chapter/section markers as locators.
+
+**Supported Formats:**
+
+| Format | Extension | Extractor | Notes |
+|--------|-----------|-----------|-------|
+| EPUB | `.epub` | `epub` crate | Extracts from all chapters, converts HTML to text |
+| HTML | `.html`, `.htm` | `html2text` | Converts HTML to plain text |
+| Markdown | `.md`, `.markdown` | UTF-8 text | Native text format with frontmatter support |
+| Plain Text | `.txt` | UTF-8 with encoding detection | Uses `chardet` for non-UTF-8 files |
+
+### Title Extraction
+
+Document titles are extracted using a three-level priority cascade to ensure meaningful titles for search results.
+
+**Priority Cascade:**
+
+1. **Embedded Metadata** (highest priority)
+   - PDF: Info dictionary `/Title` field (via `lopdf`)
+   - DOCX/PPTX: `docProps/core.xml` `dc:title` element
+   - EPUB: OPF metadata (extracted by `epub` crate)
+   - ODT/ODP/ODS: `meta.xml` `dc:title` element
+   - RTF: `{\info{\title ...}}` block
+   - HTML: `<title>` tag or `og:title` meta tag
+
+2. **Content Heuristics** (fallback)
+   - HTML: First `<h1>` element (with tags stripped)
+   - Markdown: YAML frontmatter `title:` field or first `# Heading`
+   - Plain text: First non-empty line (if ≤200 chars, no trailing punctuation, contains uppercase)
+
+3. **Filename Fallback** (last resort)
+   - Convert filename stem to title case
+   - Replace underscores and hyphens with spaces
+   - Example: `2024_annual_report.pdf` → "2024 Annual Report"
+
+**Placeholder Detection:**
+
+The system detects and rejects common auto-generated titles:
+- "Untitled", "Document", "Presentation", "Slide", "Book"
+- Numbered placeholders: "Document1", "Slide 3"
+- Microsoft Word headers: "Microsoft Word - filename.docx"
+
+When a placeholder is detected, the cascade falls back to the next priority level.
+
+### Extraction Architecture
+
+**DocumentExtractor Trait (Page-Based):**
+
+```rust
+trait DocumentExtractor {
+    fn extract(&self, file_path: &Path) -> Result<(String, HashMap<String, String>)>;
+}
+
+// Implementations:
+- PdfExtractor (via pdf-extract)
+- DocxExtractor (ZIP + XML parsing)
+- PptxExtractor (ZIP + XML parsing)
+- OdtExtractor (ZIP + XML parsing)
+- RtfExtractor (RTF control code parser)
+```
+
+**StreamDocumentExtractor Trait (Stream-Based):**
+
+```rust
+trait StreamDocumentExtractor {
+    fn extract(&self, file_path: &Path) -> Result<(String, HashMap<String, String>)>;
+}
+
+// Implementations:
+- EpubExtractor (via epub crate)
+- HtmlExtractor (via html2text)
+- MarkdownExtractor (native UTF-8)
+- TextExtractor (UTF-8 with chardet fallback)
+```
+
+**Common Metadata Fields:**
+
+Both extractors return `HashMap<String, String>` with format-specific metadata:
+
+| Field | Page-Based Example | Stream-Based Example |
+|-------|-------------------|---------------------|
+| `source_format` | `"pdf"`, `"docx"` | `"epub"`, `"markdown"` |
+| `title` | Extracted via cascade | Extracted via cascade |
+| `author` | From embedded metadata | From embedded metadata |
+| `page_count` | Total pages (PDF, DOCX) | N/A |
+| `chapter_count` | N/A | Total chapters (EPUB) |
+| `images_detected` | Count (metadata only) | Count (metadata only) |
+
+### Token-Based Chunking
+
+Library documents use **token-based chunking** instead of character-based chunking to align with embedding model token limits and improve chunk quality.
+
+**Configuration:**
+
+| Parameter | Default | Range | Description |
+|-----------|---------|-------|-------------|
+| `chunk_target_tokens` | 105 | 90-120 | Target tokens per chunk |
+| `chunk_overlap_tokens` | 12 | ~10-15% | Overlap between chunks |
+
+**Rationale:**
+- Embedding models have token-based limits (not character limits)
+- 105 tokens ≈ 384 characters (previous character-based default)
+- Overlap ensures context continuity across chunk boundaries
+
+**Implementation:**
+
+```rust
+use tokenizers::Tokenizer;
+
+fn chunk_text_by_tokens(
+    text: &str,
+    tokenizer: &Tokenizer,
+    config: &ChunkingConfig
+) -> Vec<TextChunk> {
+    let encoding = tokenizer.encode(text, false).unwrap();
+    let tokens = encoding.get_ids();
+
+    let mut chunks = Vec::new();
+    let mut start_token = 0;
+
+    while start_token < tokens.len() {
+        let end_token = (start_token + config.chunk_target_tokens).min(tokens.len());
+        let chunk_tokens = &tokens[start_token..end_token];
+
+        // Decode tokens back to text
+        let chunk_text = tokenizer.decode(chunk_tokens, true).unwrap();
+
+        chunks.push(TextChunk {
+            content: chunk_text,
+            chunk_index: chunks.len(),
+            // Additional metadata...
+        });
+
+        // Advance with overlap
+        start_token = end_token.saturating_sub(config.chunk_overlap_tokens);
+    }
+
+    chunks
+}
+```
+
+**Chunk Payload Fields:**
+
+| Field | Description |
+|-------|-------------|
+| `chunk_text_raw` | Original chunk text (no modifications) |
+| `chunk_text_indexed` | Chunk with heading context prepended |
+| `char_start` | Character offset in parent `unit_text` |
+| `char_end` | End character offset |
+| `chunk_index` | Sequence number within document |
+
+**Heading Context Injection:**
+
+For page-based documents, the most recent heading (from previous pages/sections) is prepended to `chunk_text_indexed` to provide hierarchical context:
+
+```
+chunk_text_raw: "The array indexing operation..."
+chunk_text_indexed: "## Advanced Features\n### Array Operations\nThe array indexing operation..."
+```
+
+This ensures search results include contextual headings without duplication in the raw text.
 
 **Memory Collection:**
 
@@ -2112,14 +2349,16 @@ The daemon:
 
 Different operations have different pipelines:
 
-| Event            | Pipeline                                                  |
-| ---------------- | --------------------------------------------------------- |
-| **New file**     | Debounce → Read → Parse/Chunk → Embed → Upsert            |
-| **File changed** | Debounce → Read → Parse/Chunk → Embed → Upsert (replace)  |
-| **File deleted** | Delete from Qdrant (filter by `file_path` + `project_id`) |
-| **File renamed** | Delete old + Upsert new (simple approach)                 |
+| Event                        | Pipeline                                                  |
+| ---------------------------- | --------------------------------------------------------- |
+| **New file (project)**       | Debounce → Read → Parse/Chunk → Embed → Upsert            |
+| **File changed (project)**   | Debounce → Read → Parse/Chunk → Embed → Upsert (replace)  |
+| **File deleted (project)**   | Delete from Qdrant (filter by `file_path` + `project_id`) |
+| **File renamed (project)**   | Delete old + Upsert new (simple approach)                 |
+| **Library document (new)**   | Extract → Title Extraction → Token Chunk → Embed → Upsert (parent + children) |
+| **Library document (changed)** | Extract → Check fingerprint → Skip if unchanged OR Upsert (replace parent + children) |
 
-**Common processing steps:**
+**Project File Processing Steps:**
 
 ```
 Read Content → Parse/Chunk → Generate Embeddings → Upsert to Qdrant
@@ -2129,6 +2368,30 @@ Read Content → Parse/Chunk → Generate Embeddings → Upsert to Qdrant
                    ├── Metadata extraction (file_type, language)
                    └── Content hashing (deduplication)
 ```
+
+**Library Document Processing Steps:**
+
+```
+Read File → Classify Format → Extract Text → Title Extraction → Token-Based Chunking → Generate Embeddings → Upsert
+    │           │                 │              │                    │
+    │           │                 │              │                    ├── Parent record (no vectors)
+    │           │                 │              │                    └── Child chunks (with vectors)
+    │           │                 │              │
+    │           │                 │              └── Priority cascade: metadata → content → filename
+    │           │                 │
+    │           │                 └── Page-based: PDF, DOCX, PPTX, ODT, RTF
+    │           │                     Stream-based: EPUB, HTML, Markdown, Text
+    │           │
+    │           └── Determines extractor and chunking strategy
+    │
+    └── Computes SHA256 fingerprint for change detection
+```
+
+**Library Document Idempotency:**
+
+- `doc_fingerprint` (SHA256 of file bytes) stored in parent record
+- On re-ingestion: If fingerprint matches, skip processing
+- If fingerprint differs: Delete existing parent + children, create new records
 
 ---
 
@@ -2327,16 +2590,31 @@ For each code file:
 ### CLI Commands
 
 ```bash
-# Libraries only (projects are auto-watched via MCP)
-wqm library add /path/to/docs --name numpy --mode sync
-wqm library add /path/to/docs --name pandas --mode incremental
-wqm library list
-wqm library remove numpy
+# Library Management
+wqm library add <tag> <path> --mode sync           # Register library (metadata only)
+wqm library add <tag> <path> --mode incremental    # Register library (append-only)
+wqm library watch <tag> <path>                     # Start watching library folder
+wqm library unwatch <tag>                          # Stop watching (keeps content)
+wqm library remove <tag>                           # Delete library + all vectors
+wqm library list                                   # List all libraries
+wqm library info [tag]                             # Show library details
+wqm library status                                 # Show watch status for all libraries
+wqm library rescan <tag> [--force]                 # Re-ingest library content
+wqm library config <tag> --mode <mode>             # Update library configuration
+
+# Library Document Ingestion (Single File)
+wqm library ingest <file> --library <tag>          # Ingest single document
+wqm library ingest <file> --library <tag> \
+    --chunk-tokens 105 --overlap-tokens 12         # With custom chunking
+
+# Search Instrumentation
+wqm stats overview [--period day|week|month|all]   # View search analytics
+wqm stats log-search --tool=rg --query="pattern"   # Log search event
 
 # Watch management (admin)
-wqm watch list                    # List all watches
-wqm watch disable <watch_id>      # Temporarily disable
-wqm watch enable <watch_id>       # Re-enable
+wqm watch list                                     # List all watches
+wqm watch disable <watch_id>                       # Temporarily disable
+wqm watch enable <watch_id>                        # Re-enable
 ```
 
 ---
@@ -2369,13 +2647,15 @@ search({
     scope?: string,                     // Scope within collection
     branch?: string,                    // For projects: branch filter
     project_id?: string,               // For projects: specific project
-    library_name: str = None,        # For libraries: specific library
-    # Content type filters
-    file_type: str = None,           # Filter by document type (see below)
-    tag: str = None,                 # Tag filter (dot-separated hierarchy)
-    # Cross-collection options
-    include_libraries: bool = False, # Also search libraries collection
-    include_deleted: bool = False    # Include deleted documents (libraries only)
+    library_name?: string,             // For libraries: specific library
+    // Content type filters
+    file_type?: string,                // Filter by document type (see below)
+    tag?: string,                      // Tag filter (dot-separated hierarchy)
+    // Cross-collection options
+    include_libraries?: boolean,       // Also search libraries collection
+    include_deleted?: boolean,         // Include deleted documents (libraries only)
+    // Context expansion (libraries collection only)
+    expandContext?: boolean,           // Fetch parent unit context for results (default: false)
 )
 ```
 
@@ -2400,6 +2680,32 @@ search({
 **include_libraries:**
 
 When `include_libraries=True`, search queries the `libraries` collection in addition to the primary collection. This enables cross-collection search for finding related documentation alongside project code. Results from both collections are fused using Reciprocal Rank Fusion.
+
+**expandContext:**
+
+When `expandContext=true`, the MCP server batch-fetches parent unit records from Qdrant for each search result and includes them in the `parent_context` field. This provides full document/unit-level context for library document chunks, enabling the LLM to see the complete surrounding text, document title, authors, and source location. Only applicable to the `libraries` collection. The parent context includes:
+
+- `parent_unit_id`: Qdrant point ID of the parent record
+- `unit_type`: "document" or "code_block"
+- `unit_text`: Full text of the parent unit
+- `locator`: Format-specific location (e.g., page number, section)
+
+Example result with expanded context:
+
+```typescript
+{
+  "id": "chunk-point-id",
+  "score": 0.87,
+  "collection": "libraries",
+  "content": "Array operations allow element-wise...",
+  "parent_context": {
+    "parent_unit_id": "parent-point-id",
+    "unit_type": "document",
+    "unit_text": "Full document text...",
+    "locator": { "page": 1, "section": "Introduction" }
+  }
+}
+```
 
 **Collection-specific scope:**
 
@@ -2728,6 +3034,315 @@ Multi-tenant project lifecycle and session management.
 **Session Management:**
 - `Heartbeat` must be called periodically (within 60s timeout) to maintain session
 - `DeprioritizeProject` is called when MCP server stops
+
+---
+
+## Search Instrumentation
+
+The system tracks search behavior to measure the effectiveness of the workspace-qdrant MCP search against traditional tools (rg, grep) and identify opportunities for improvement.
+
+### Architecture
+
+**Data Collection:**
+
+Three SQLite tables track search events and resolutions:
+
+| Table | Purpose | Writer |
+|-------|---------|--------|
+| `search_events` | Every search operation (tool, query, results) | MCP server, CLI wrappers |
+| `resolution_events` | Document open/expand after search | External (future: IDE plugins) |
+| `search_behavior` | SQL view classifying bypass/success/fallback patterns | Auto-computed |
+
+**Instrumented Tools:**
+
+1. **MCP Search Tool** - Logs all searches via `mcp_qdrant`
+2. **CLI Wrappers** - `rg-instrumented` and `grep-instrumented` shell scripts
+3. **Future: IDE Plugins** - Log resolution events when users open/expand results
+
+### search_events Table
+
+**Schema:**
+
+```sql
+CREATE TABLE search_events (
+    id TEXT PRIMARY KEY,                    -- UUID
+    session_id TEXT,                        -- MCP session or shell session
+    project_id TEXT,                        -- Current project (if available)
+    actor TEXT NOT NULL,                    -- 'claude' or 'user'
+    tool TEXT NOT NULL,                     -- 'mcp_qdrant', 'rg', 'grep'
+    op TEXT NOT NULL,                       -- 'search', 'open', 'expand'
+    query_text TEXT,                        -- Search query
+    filters TEXT,                           -- JSON filter spec (MCP only)
+    top_k INTEGER,                          -- Result limit
+    result_count INTEGER,                   -- Actual results returned
+    latency_ms INTEGER,                     -- Query latency (MCP only)
+    top_result_refs TEXT,                   -- JSON array of top 5 results
+    ts TEXT NOT NULL,                       -- ISO 8601 timestamp (Z suffix)
+    created_at TEXT NOT NULL
+);
+```
+
+**Indexes:**
+
+```sql
+CREATE INDEX idx_search_events_ts ON search_events(ts);
+CREATE INDEX idx_search_events_tool ON search_events(tool);
+CREATE INDEX idx_search_events_session ON search_events(session_id);
+```
+
+**Example Records:**
+
+```json
+// MCP search
+{
+  "id": "a1b2c3d4-...",
+  "session_id": "sess-xyz",
+  "project_id": "abc123",
+  "actor": "claude",
+  "tool": "mcp_qdrant",
+  "op": "search",
+  "query_text": "authentication middleware",
+  "filters": "{\"branch\":\"main\"}",
+  "top_k": 10,
+  "result_count": 7,
+  "latency_ms": 45,
+  "top_result_refs": "[{\"id\":\"point-1\",\"score\":0.87,...}]",
+  "ts": "2026-02-15T14:23:45.123Z",
+  "created_at": "2026-02-15T14:23:45.123Z"
+}
+
+// CLI wrapper (rg)
+{
+  "id": "e5f6g7h8-...",
+  "session_id": null,
+  "project_id": null,
+  "actor": "claude",
+  "tool": "rg",
+  "op": "search",
+  "query_text": "fn validate_token",
+  "ts": "2026-02-15T14:24:10.456Z",
+  "created_at": "2026-02-15T14:24:10.456Z"
+}
+```
+
+### resolution_events Table
+
+Tracks when users open or expand search results (indicates search was useful).
+
+**Schema:**
+
+```sql
+CREATE TABLE resolution_events (
+    id TEXT PRIMARY KEY,                    -- UUID
+    search_event_id TEXT,                   -- Links to search_events.id
+    session_id TEXT,
+    project_id TEXT,
+    actor TEXT NOT NULL,
+    tool TEXT NOT NULL,                     -- Tool that produced the result
+    op TEXT NOT NULL,                       -- 'open' or 'expand'
+    file_path TEXT,                         -- File that was opened
+    point_id TEXT,                          -- Qdrant point ID (if MCP)
+    ts TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (search_event_id) REFERENCES search_events(id)
+);
+```
+
+**Indexes:**
+
+```sql
+CREATE INDEX idx_resolution_events_search ON resolution_events(search_event_id);
+CREATE INDEX idx_resolution_events_ts ON resolution_events(ts);
+```
+
+### search_behavior View
+
+SQL view that classifies search patterns into behavioral categories.
+
+**Classification Logic:**
+
+| Pattern | Condition | Interpretation |
+|---------|-----------|----------------|
+| `bypass` | First event is `rg` or `grep` with no prior event | User bypassed MCP search, went straight to CLI |
+| `success` | MCP search followed by `open` or `expand` within reasonable time | MCP search succeeded, user opened a result |
+| `fallback` | MCP search followed by `rg`/`grep` within 2 minutes | MCP failed, user fell back to CLI |
+| `unknown` | Other patterns | Uncategorized behavior |
+
+**View Definition:**
+
+```sql
+CREATE VIEW search_behavior AS
+WITH windowed_events AS (
+    SELECT
+        session_id,
+        tool,
+        op,
+        ts,
+        LAG(tool) OVER (PARTITION BY session_id ORDER BY ts) AS prev_tool,
+        LAG(ts) OVER (PARTITION BY session_id ORDER BY ts) AS prev_ts,
+        LEAD(op) OVER (PARTITION BY session_id ORDER BY ts) AS next_op,
+        (julianday(ts) - julianday(LAG(ts) OVER (PARTITION BY session_id ORDER BY ts))) AS time_since_prev
+    FROM search_events
+    WHERE session_id IS NOT NULL
+)
+SELECT
+    session_id,
+    tool,
+    op,
+    ts,
+    prev_tool,
+    next_op,
+    CASE
+        WHEN tool IN ('rg', 'grep') AND prev_tool IS NULL THEN 'bypass'
+        WHEN tool = 'mcp_qdrant' AND (next_op = 'open' OR next_op = 'expand') THEN 'success'
+        WHEN tool = 'mcp_qdrant' AND time_since_prev < 0.00139
+             AND prev_tool IN ('rg', 'grep', 'mcp_qdrant') THEN 'fallback'
+        ELSE 'unknown'
+    END AS behavior
+FROM windowed_events;
+```
+
+**Time Window:** `0.00139` Julian days ≈ 2 minutes (reasonable time for fallback)
+
+### CLI Commands
+
+**View Search Stats:**
+
+```bash
+# Overview of search activity (default: last 7 days)
+wqm stats overview
+
+# Filter by time period
+wqm stats overview --period day
+wqm stats overview --period week
+wqm stats overview --period month
+wqm stats overview --period all
+```
+
+**Output Example:**
+
+```
+Search Instrumentation Stats (Last 7 days)
+───────────────────────────────────────────
+Total Events: 1,247
+
+Tool Distribution:
+  mcp_qdrant     856 (69%)
+  rg             312 (25%)
+  grep            79 (6%)
+
+Behavior Classification:
+  success        512 (60%)
+  bypass         203 (24%)
+  fallback       134 (16%)
+
+Performance (mcp_qdrant):
+  Searches with latency   856
+  Average latency         42 ms
+  P50                     38 ms
+  P95                     87 ms
+  P99                     124 ms
+
+Top Queries:
+  23 x  authentication middleware
+  18 x  database migration
+  15 x  error handling
+  ...
+
+Resolution Rate:
+  Searches with resolution  634 (74%)
+```
+
+**Log Search Events (Wrapper Usage):**
+
+```bash
+# Log a search from wrapper script (fire-and-forget)
+wqm stats log-search --tool=rg --query="pattern" --actor=claude
+```
+
+### Instrumented Wrappers
+
+Lightweight shell scripts that wrap `rg` and `grep` to log search events.
+
+**Location:** `assets/wrappers/`
+
+**Installation:**
+
+```bash
+# Copy wrappers to PATH
+cp assets/wrappers/rg-instrumented ~/.local/bin/
+cp assets/wrappers/grep-instrumented ~/.local/bin/
+chmod +x ~/.local/bin/rg-instrumented
+chmod +x ~/.local/bin/grep-instrumented
+
+# Configure Claude Code to use instrumented versions
+# Add to ~/.claude/settings.json or project .claude/settings.json:
+{
+  "allowedTools": [
+    "Bash(rg-instrumented *)",
+    "Bash(grep-instrumented *)"
+  ]
+}
+```
+
+**Wrapper Implementation (rg-instrumented):**
+
+```bash
+#!/bin/bash
+# Fire-and-forget event logging (background, no wait)
+wqm stats log-search --tool=rg --query="$*" --actor=claude &>/dev/null &
+
+# Pass through to real rg
+exec rg "$@"
+```
+
+**Design Principles:**
+
+1. **Fire-and-forget**: Event logging happens in background, never blocks the search
+2. **Zero latency impact**: User never waits for logging to complete
+3. **Graceful degradation**: If `wqm` is unavailable, search still works
+4. **Drop-in replacement**: Can replace `rg` in tool configuration without code changes
+
+### Analytics Queries
+
+**Bypass Rate:**
+
+```sql
+SELECT
+    COUNT(*) FILTER (WHERE behavior = 'bypass') * 100.0 / COUNT(*) AS bypass_rate
+FROM search_behavior
+WHERE ts >= date('now', '-7 days');
+```
+
+**Success Rate:**
+
+```sql
+SELECT
+    COUNT(*) FILTER (WHERE behavior = 'success') * 100.0 / COUNT(*) AS success_rate
+FROM search_behavior
+WHERE ts >= date('now', '-7 days');
+```
+
+**Fallback Rate:**
+
+```sql
+SELECT
+    COUNT(*) FILTER (WHERE behavior = 'fallback') * 100.0 / COUNT(*) AS fallback_rate
+FROM search_behavior
+WHERE ts >= date('now', '-7 days');
+```
+
+**Top Queries by Tool:**
+
+```sql
+SELECT tool, query_text, COUNT(*) as count
+FROM search_events
+WHERE query_text IS NOT NULL
+  AND ts >= date('now', '-7 days')
+GROUP BY tool, query_text
+ORDER BY count DESC
+LIMIT 10;
+```
 
 ---
 
@@ -3127,7 +3742,7 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 
 **Owner:** Rust daemon (memexd) - see [ADR-003](./docs/adr/ADR-003-daemon-owns-sqlite.md)
 
-**Core Tables (5):**
+**Core Tables (7):**
 
 | Table            | Purpose                                                           | Used By          |
 | ---------------- | ----------------------------------------------------------------- | ---------------- |
@@ -3136,6 +3751,8 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 | `watch_folders`  | Unified table for projects, libraries, and submodules (see below) | MCP, CLI, Daemon |
 | `tracked_files`  | Authoritative file inventory with metadata                        | Daemon (write), CLI (read) |
 | `qdrant_chunks`  | Qdrant point tracking per file chunk (child of tracked_files)     | Daemon only      |
+| `search_events`  | Search instrumentation logs (all tools)                           | MCP, CLI, External |
+| `resolution_events` | Document open/expand events after search                       | External (future) |
 
 **Note:** The `watch_folders` table consolidates what were previously separate `registered_projects`, `project_submodules`, and `watch_folders` tables. See [Watch Folders Table (Unified)](#watch-folders-table-unified) for the complete schema.
 
