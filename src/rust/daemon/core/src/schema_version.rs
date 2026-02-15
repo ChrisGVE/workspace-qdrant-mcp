@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 11;
+pub const CURRENT_SCHEMA_VERSION: i32 = 12;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -161,6 +161,7 @@ impl SchemaManager {
             9 => self.migrate_v9().await,
             10 => self.migrate_v10().await,
             11 => self.migrate_v11().await,
+            12 => self.migrate_v12().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -639,6 +640,26 @@ impl SchemaManager {
         }
 
         info!("Migration v11 complete");
+        Ok(())
+    }
+
+    /// Migration v12: Create search_events table for pipeline instrumentation
+    async fn migrate_v12(&self) -> Result<(), SchemaError> {
+        info!("Migration v12: Creating search_events table");
+
+        use super::search_events_schema::{CREATE_SEARCH_EVENTS_SQL, CREATE_SEARCH_EVENTS_INDEXES_SQL};
+
+        sqlx::query(CREATE_SEARCH_EVENTS_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        for index_sql in CREATE_SEARCH_EVENTS_INDEXES_SQL {
+            sqlx::query(index_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        info!("Migration v12 complete");
         Ok(())
     }
 }

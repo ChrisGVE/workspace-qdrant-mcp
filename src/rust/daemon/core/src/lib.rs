@@ -44,6 +44,7 @@ pub mod watch_folders_schema;
 pub mod tracked_files_schema;
 pub mod metrics_history_schema;
 pub mod metrics_history;
+pub mod search_events_schema;
 pub mod schema_version;
 pub mod tree_sitter;
 pub mod watching;
