@@ -1066,10 +1066,9 @@ CREATE TABLE unified_queue (
 
     -- Item classification
     item_type TEXT NOT NULL CHECK (item_type IN (
-        'content', 'file', 'folder', 'project', 'library',
-        'delete_tenant', 'delete_document', 'rename'
+        'text', 'file', 'url', 'website', 'doc', 'folder', 'tenant', 'collection'
     )),
-    op TEXT NOT NULL CHECK (op IN ('ingest', 'update', 'delete', 'scan')),
+    op TEXT NOT NULL CHECK (op IN ('add', 'update', 'delete', 'scan', 'rename', 'uplift', 'reset')),
     tenant_id TEXT NOT NULL,
     collection TEXT NOT NULL,            -- projects|libraries|memory
 
@@ -1542,35 +1541,186 @@ edited in a large file).
 
 **Processing behavior:**
 
-- List all eligible files → queue as `file` with `op=ingest`
-- List all subfolders → queue as `folder` with `op=scan`
+- Single-level `read_dir` → immediate children only (for project collection)
+- Files: check exclusion + allowlist → queue as `file` with `op=add`
+- Directories: check exclusion → queue as `folder` with `op=scan`
+- Excluded directories (.git, node_modules, target, etc.) are skipped entirely
 - Transaction encompasses all additions + pop of scan entry
 - Full path uniqueness prevents duplicate queueing
+
+##### `tenant` - Project Lifecycle
+
+**Purpose:** Project registration, deletion, scanning, and uplift operations
+
+**Writers:** gRPC handlers (RegisterProject, DeleteProject), queue processor (cascade)
+
+**Target collection:** `projects`
+
+**Valid operations:**
+
+| Operation | Description                        | Trigger                      |
+| --------- | ---------------------------------- | ---------------------------- |
+| `add`     | Register new project               | RegisterProject gRPC         |
+| `delete`  | Delete project and all data        | DeleteProject gRPC           |
+| `scan`    | Scan project root directory        | After tenant/add completes   |
+| `uplift`  | Re-process all tenant's files      | Collection uplift cascade    |
+
+**Processing:**
+- `(Tenant, Add)`: Create collection → INSERT watch_folder → enqueue `(Tenant, Scan)`
+- `(Tenant, Delete)`: Delete Qdrant points → SQLite cascade (qdrant_chunks, tracked_files, watch_folders)
+- `(Tenant, Scan)`: Call `scan_directory_single_level()` on project root
+- `(Tenant, Uplift)`: Query tracked_files → enqueue `(Doc, Uplift)` for each file
+
+##### `collection` - Collection-Level Operations
+
+**Purpose:** Bulk operations across all tenants in a collection
+
+**Writers:** Admin operations, CLI
+
+**Target collection:** The named collection
+
+**Valid operations:**
+
+| Operation | Description                              | Trigger          |
+| --------- | ---------------------------------------- | ---------------- |
+| `uplift`  | Re-process all content in collection     | Admin/CLI        |
+| `reset`   | Delete all data, preserve configuration  | Admin/CLI        |
+
+**Processing:**
+- `(Collection, Uplift)`: Query watch_folders for all tenants → enqueue `(Tenant, Uplift)` for each
+- `(Collection, Reset)`: For each tenant in collection: delete Qdrant points, DELETE qdrant_chunks + tracked_files in SQLite transaction. Watch_folder entries are preserved.
+
+##### `website` - Website Crawl
+
+**Purpose:** Progressive website crawling with link extraction
+
+**Writers:** MCP server, CLI
+
+**Target collection:** `projects` or `libraries`
+
+**Valid operations:**
+
+| Operation | Description                        | Trigger               |
+| --------- | ---------------------------------- | --------------------- |
+| `add`     | Start crawling a website           | User request          |
+| `scan`    | Fetch page and extract links       | After website/add     |
+| `update`  | Re-crawl website                   | User request          |
+| `delete`  | Remove all website content         | User request          |
+
+**Processing:**
+- `(Website, Add)`: Validate URL → enqueue `(Website, Scan)` for root URL
+- `(Website, Scan)`: Fetch HTML → extract same-domain links → enqueue `(Url, Add)` for each. Tracks visited URLs in payload metadata to prevent cycles. Respects `max_depth` and `max_pages` limits.
+- `(Website, Update)`: Re-enqueue as `(Website, Scan)` for re-crawl
+- `(Website, Delete)`: Delete all Qdrant points matching the website's base URL pattern
+
+##### `url` - Individual URL Content
+
+**Purpose:** Fetch and ingest content from a single URL
+
+**Writers:** Website crawler, MCP server, CLI
+
+**Target collection:** `projects` or `libraries`
+
+**Valid operations:**
+
+| Operation | Description             | Trigger                      |
+| --------- | ----------------------- | ---------------------------- |
+| `add`     | Fetch and ingest URL    | Website scan, user request   |
+
+##### `doc` - Document-Level Operations
+
+**Purpose:** Operations on individual tracked documents (uplift, delete)
+
+**Writers:** Queue processor (cascade from tenant/collection operations)
+
+**Target collection:** `projects` or `libraries`
+
+**Valid operations:**
+
+| Operation | Description                 | Trigger              |
+| --------- | --------------------------- | -------------------- |
+| `uplift`  | Re-process tracked document | Tenant uplift        |
+| `delete`  | Delete tracked document     | Tenant/file deletion |
+
+---
+
+### Adaptive Resource Management
+
+The daemon dynamically adjusts processing resources based on user activity and queue state.
+
+#### Resource Modes
+
+```
+Normal → Active → RampingUp(step) → Burst
+  ↑        ↑           ↑              |
+  |        |           |              |
+  +--------+-----------+--------------+
+           (user returns)
+```
+
+| Mode | Condition | Embeddings | Delay | Description |
+|------|-----------|-----------|-------|-------------|
+| **Normal** | Queue empty or user active | Baseline (from config) | 50ms | Default operation |
+| **Active** | Queue has work, user present | 1.5x baseline | 25ms | +50% boost for active processing |
+| **RampingUp(n)** | User idle > threshold, queue has work | Interpolated | Interpolated | Gradual ramp over N steps |
+| **Burst** | User idle, ramp complete | Maximum (from config) | Minimum | Full resource utilization |
+
+#### State Transitions
+
+- **Normal → Active**: Queue gets work while user is active
+- **Active → Normal**: Queue empties while user is active
+- **Active → RampingUp**: User goes idle while queue has work
+- **RampingUp → Burst**: All ramp steps completed
+- **RampingUp/Burst → Active**: User returns while queue has work
+- **RampingUp/Burst → Normal**: User returns and queue is empty
+
+#### Configuration
+
+```yaml
+resource_limits:
+  active_concurrency_multiplier: 1.5  # +50% embeddings during active processing
+  active_inter_item_delay_ms: 25      # Half of normal delay during active processing
+```
+
+#### Heartbeat Logging
+
+Every ~60 seconds (12 polls at 5s interval), the adaptive resource manager logs:
+```
+Adaptive resources heartbeat: mode=Active, idle_secs=0, cpu_high=false, embeddings=3, delay=25ms
+```
 
 ---
 
 ### Daemon Processing Phases
 
-#### Phase 1: Initial Registration (Folder Scan)
+#### Phase 1: Initial Registration (Progressive Single-Level Scan)
 
-When a new project or library folder is registered:
+When a new project is registered via `RegisterProject` gRPC:
 
 ```
-1. Root folder queued as `folder` with `op=scan`
-2. Daemon processes scan:
-   - List eligible files → queue each as `file/ingest`
-   - List subfolders → queue each as `folder/scan`
-   - Transaction: all additions + pop scan entry
-3. Daemon processes files (per File Ingest transaction):
+1. gRPC handler enqueues (Tenant, Add) with project payload
+2. Queue processor handles (Tenant, Add):
+   a. Create collection if needed
+   b. INSERT OR IGNORE watch_folder entry (with is_active from payload)
+   c. Enqueue (Tenant, Scan) for the project root
+3. Queue processor handles (Tenant, Scan):
+   - Call scan_directory_single_level(root):
+     - std::fs::read_dir for IMMEDIATE children only (not recursive)
+     - Files: check exclusion + allowlist → enqueue (File, Add)
+     - Directories: check exclusion → enqueue (Folder, Scan)
+     - Excluded dirs (.git, node_modules, target) are skipped
+4. Queue processor handles each (Folder, Scan):
+   - Repeat step 3 for each subdirectory (single level)
+5. Queue processor handles each (File, Add):
    - Ingest with LSP/tree-sitter metadata
-   - Record in tracked_files + qdrant_chunks (within same transaction)
+   - Record in tracked_files + qdrant_chunks
    - Pop queue entry on success
-   - If file no longer exists: just pop (no error)
-   - If file modified before ingestion: ingested state is final
-4. Daemon processes subfolders:
-   - Repeat step 2 for each subfolder
-5. Continues until queue empty (no more folders or files)
+6. Continues until queue empty (progressive growth, not burst)
 ```
+
+**Progressive design:** Unlike recursive WalkDir which enqueues ALL files at once,
+single-level scanning only enqueues immediate children per directory. This produces
+gradual queue growth and avoids overwhelming the system with large projects.
 
 **Atomic unit:** One folder level (all its direct contents queued in one transaction)
 
@@ -1610,15 +1760,23 @@ current content at processing time, achieving the same result.
 
 #### Phase 3: Removal (Project/Library Deletion)
 
-When a project or library is removed:
+When a project is deleted via `DeleteProject` gRPC:
 
 ```
-DELETE FROM qdrant WHERE project_id = '<id>'
--- or --
-DELETE FROM qdrant WHERE tenant_id LIKE '<library_prefix>%'
+1. gRPC handler enqueues (Tenant, Delete) with tenant_id + collection
+2. Queue processor handles (Tenant, Delete):
+   a. Scroll Qdrant for all points matching tenant_id → batch delete
+   b. SQLite transaction:
+      - DELETE FROM qdrant_chunks WHERE file_id IN
+        (SELECT file_id FROM tracked_files WHERE tenant_id = ?)
+      - DELETE FROM tracked_files WHERE tenant_id = ?
+      - DELETE FROM watch_folders WHERE tenant_id = ?
+3. Queue entry marked done
 ```
 
-Blunt force removal of all content. No queue entries needed - direct Qdrant operation.
+**Enqueue-only pattern:** gRPC handlers never perform direct database mutations.
+All destructive operations are routed through the unified queue for consistency
+and crash recovery.
 
 #### Phase 4: Daemon Startup Automation
 
@@ -1628,8 +1786,9 @@ reconciliation, and crash recovery.
 
 ```
 Step 1: Schema Integrity Check
-   - Verify all 5 tables exist (schema_version, unified_queue, watch_folders,
-     tracked_files, qdrant_chunks)
+   - Verify all core tables exist (schema_version, unified_queue, watch_folders,
+     tracked_files, qdrant_chunks, search_events, resolution_events,
+     sparse_vocabulary, corpus_statistics)
    - Run pending migrations if schema_version is behind
    - ABORT startup if schema check fails (cannot proceed without tables)
 
@@ -3010,26 +3169,38 @@ Embedding generation for TypeScript MCP server. Centralizes embedding model in d
 **Usage:**
 - TypeScript MCP server calls `EmbedText` when performing hybrid search
 - Dense vectors use FastEmbed `all-MiniLM-L6-v2` model (384 dimensions)
-- Sparse vectors use BM25 algorithm with configurable `k1` (default: 1.2) and `b` (default: 0.75)
+- Sparse vectors use BM25 algorithm with IDF weighting: `IDF * (k1 * tf) / (tf + k1)` where `IDF = ln((N - df + 0.5) / (df + 0.5))`, clamped at 0. IDF vocabulary and corpus statistics are persisted in `sparse_vocabulary` and `corpus_statistics` SQLite tables (schema v15). Per-collection BM25 instances maintain independent document frequency counts.
 
-#### ProjectService (5 RPCs)
+#### ProjectService (6 RPCs)
 
 Multi-tenant project lifecycle and session management.
 
 | Method                | Used By  | Purpose                          | Status                       |
 | --------------------- | -------- | -------------------------------- | ---------------------------- |
-| `RegisterProject`     | MCP, CLI | Re-activate or register project  | **Production (direct gRPC)** |
+| `RegisterProject`     | MCP, CLI | Re-activate or register project  | **Production (enqueue-only)** |
+| `DeleteProject`       | CLI      | Delete project and all data      | **Production (enqueue-only)** |
 | `DeprioritizeProject` | MCP      | Deactivate project session       | **Production (direct gRPC)** |
 | `GetProjectStatus`    | MCP      | Get project status               | Production                   |
 | `ListProjects`        | CLI      | List all registered projects     | Production                   |
 | `Heartbeat`           | MCP      | Keep session alive (60s)         | Production                   |
 
+**Enqueue-Only Pattern (RegisterProject, DeleteProject):**
+- These handlers do NOT perform direct SQLite mutations
+- Instead, they enqueue `(Tenant, Add)` or `(Tenant, Delete)` to the unified queue
+- The queue processor handles all database writes and Qdrant operations
+- This ensures consistency, crash recovery, and single-writer ownership
+
 **Registration Policy:**
 - `RegisterProject` accepts a `register_if_new` boolean field (default: `false`)
   - `register_if_new=false` (MCP default): Only re-activates existing `watch_folders` entries. Returns error if project not found.
-  - `register_if_new=true` (CLI-initiated): Creates a new `watch_folders` entry if project doesn't exist, then activates it.
+  - `register_if_new=true` (CLI-initiated): Enqueues `(Tenant, Add)` if project doesn't exist. Queue processor creates watch_folder entry and triggers initial scan.
 - MCP servers call `RegisterProject` on startup with `register_if_new=false` — they only re-activate known projects
 - CLI `wqm project add` calls `RegisterProject` with `register_if_new=true` to create new entries
+- For existing high-priority projects, synchronous activation (direct gRPC) is preserved for MCP server flow
+
+**Deletion Policy:**
+- `DeleteProject` enqueues `(Tenant, Delete)` and returns `status="queued"`
+- Queue processor performs full cascade: Qdrant point deletion → SQLite cleanup (qdrant_chunks, tracked_files, watch_folders)
 
 **Session Management:**
 - `Heartbeat` must be called periodically (within 60s timeout) to maintain session
@@ -3742,7 +3913,7 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 
 **Owner:** Rust daemon (memexd) - see [ADR-003](./docs/adr/ADR-003-daemon-owns-sqlite.md)
 
-**Core Tables (7):**
+**Core Tables (9):**
 
 | Table            | Purpose                                                           | Used By          |
 | ---------------- | ----------------------------------------------------------------- | ---------------- |
@@ -3753,6 +3924,8 @@ When using the Qdrant dashboard (web UI) to visualize collections, note that thi
 | `qdrant_chunks`  | Qdrant point tracking per file chunk (child of tracked_files)     | Daemon only      |
 | `search_events`  | Search instrumentation logs (all tools)                           | MCP, CLI, External |
 | `resolution_events` | Document open/expand events after search                       | External (future) |
+| `sparse_vocabulary` | BM25 IDF term-to-document-count mapping (schema v15)           | Daemon only      |
+| `corpus_statistics` | BM25 IDF total document counts per collection (schema v15)     | Daemon only      |
 
 **Note:** The `watch_folders` table consolidates what were previously separate `registered_projects`, `project_submodules`, and `watch_folders` tables. See [Watch Folders Table (Unified)](#watch-folders-table-unified) for the complete schema.
 
@@ -5221,6 +5394,7 @@ Qdrant's Distance Matrix API can compute pairwise distances between points using
 **Last Updated:** 2026-02-07
 **Changes:**
 
+- v1.8.1: Queue taxonomy expansion — added `tenant`, `collection`, `website`, `url`, `doc` item types and `add`, `rename`, `uplift`, `reset` operations; enqueue-only gRPC pattern for RegisterProject and DeleteProject (no direct SQLite mutations, all routed through unified queue); progressive single-level directory scanning replacing recursive WalkDir; BM25 IDF weighting with per-collection vocabulary persistence (schema v15: `sparse_vocabulary` + `corpus_statistics` tables); adaptive resource management with Active Processing mode (+50% resources when queue has work during user activity); collection-level uplift and reset cascade handlers; website progressive crawl with link extraction; heartbeat logging for adaptive resources
 - v1.8.0: Branch-scoped point IDs with hybrid vector copy approach — new formula `SHA256(tenant_id | branch | file_path | chunk_index)`; added `is_archived` column to `watch_folders` with archive semantics (no watching/ingesting, fully searchable, no search exclusion); documented submodule archive safety with cross-reference checks; added cascade rename mechanism (queue-mediated `tenant_id` changes via SQLite-first + Qdrant eventual consistency); added remote rename detection (periodic git remote check vs stored URL); memory tool default scope changed from `global` to `project`; converted all Python code examples to Rust/TypeScript; added automated affinity grouping section (embedding-based pipeline, registry-sourced taxonomy, zero-shot classification, phased implementation plan)
 - v1.7.0: Added comprehensive file type allowlist as primary ingestion gate (400+ extensions across 21 categories, 30+ extension-less filenames, size-restricted extensions, mandatory excluded directories); updated MCP registration policy — MCP server no longer auto-registers new projects, only re-activates existing entries (`register_if_new` field added to `RegisterProject` gRPC); expanded daemon startup automation from simple recovery to 6-step sequence (schema check, config reconciliation with fingerprinting, Qdrant collection verification, path validation, filesystem recovery, crash recovery); updated configuration reference — dropped legacy `.wq_config.yaml` name, documented embedded defaults via `include_str!()`, added complete `watching` section with allowlist/exclusion/size-restriction keys; added Qdrant dashboard visualization guide for named vectors; documented Distance Matrix API for graph visualization
 - v1.6.7: Added comprehensive Deployment and Installation section documenting deployment architecture, platform support matrix (6 platforms), installation methods (binary, source, npm), Docker deployment modes, service management (macOS/Linux), CI/CD process, upgrade/migration procedures, and troubleshooting; renamed memory tool ruleId to label with LLM generation guidelines (max 15 chars, word-word-word format); added memory_limits config section; updated Docker compose files to reflect TypeScript/Rust architecture
