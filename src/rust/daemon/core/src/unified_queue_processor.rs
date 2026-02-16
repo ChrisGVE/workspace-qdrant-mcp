@@ -1835,7 +1835,24 @@ impl UnifiedQueueProcessor {
 
         match item.op {
             QueueOperation::Scan => {
-                Self::scan_library_directory(item, &payload.folder_path, queue_manager, storage_client, allowed_extensions).await
+                // For project collection, use progressive single-level scan
+                if item.collection == COLLECTION_PROJECTS {
+                    let dir_path = Path::new(&payload.folder_path);
+                    if !dir_path.is_dir() {
+                        warn!("Folder scan target is not a directory: {}", payload.folder_path);
+                        return Ok(());
+                    }
+                    let (files, dirs, excluded, errs) = Self::scan_directory_single_level(
+                        dir_path, item, queue_manager, allowed_extensions,
+                    ).await?;
+                    info!(
+                        "Folder scan: {} files, {} subdirs enqueued, {} excluded, {} errors ({})",
+                        files, dirs, excluded, errs, payload.folder_path
+                    );
+                    Ok(())
+                } else {
+                    Self::scan_library_directory(item, &payload.folder_path, queue_manager, storage_client, allowed_extensions).await
+                }
             }
             QueueOperation::Delete => {
                 Self::process_folder_delete(item, &payload, queue_manager).await
@@ -1846,7 +1863,23 @@ impl UnifiedQueueProcessor {
                     "Folder {:?} operation treated as rescan for: {}",
                     item.op, payload.folder_path
                 );
-                Self::scan_library_directory(item, &payload.folder_path, queue_manager, storage_client, allowed_extensions).await
+                if item.collection == COLLECTION_PROJECTS {
+                    let dir_path = Path::new(&payload.folder_path);
+                    if !dir_path.is_dir() {
+                        warn!("Folder scan target is not a directory: {}", payload.folder_path);
+                        return Ok(());
+                    }
+                    let (files, dirs, excluded, errs) = Self::scan_directory_single_level(
+                        dir_path, item, queue_manager, allowed_extensions,
+                    ).await?;
+                    info!(
+                        "Folder rescan: {} files, {} subdirs, {} excluded, {} errors ({})",
+                        files, dirs, excluded, errs, payload.folder_path
+                    );
+                    Ok(())
+                } else {
+                    Self::scan_library_directory(item, &payload.folder_path, queue_manager, storage_client, allowed_extensions).await
+                }
             }
             QueueOperation::Rename => {
                 // Folder rename: not yet implemented
@@ -2214,125 +2247,19 @@ impl UnifiedQueueProcessor {
         }
 
         info!(
-            "Scanning project directory: {} (tenant_id={})",
+            "Scanning project directory (single level): {} (tenant_id={})",
             payload.project_root, item.tenant_id
         );
 
-        let mut files_queued = 0u64;
-        let mut files_excluded = 0u64;
-        let mut errors = 0u64;
-        let start_time = std::time::Instant::now();
-
-        // Walk directory recursively, skipping excluded directories entirely
-        for entry in WalkDir::new(project_root)
-            .follow_links(false)  // Don't follow symlinks to avoid cycles
-            .into_iter()
-            .filter_entry(|e| {
-                if e.file_type().is_dir() && e.depth() > 0 {
-                    let dir_name = e.file_name().to_string_lossy();
-                    !should_exclude_directory(&dir_name)
-                } else {
-                    true
-                }
-            })
-            .filter_map(|e| e.ok())  // Skip entries with errors
-        {
-            let path = entry.path();
-
-            // Skip directories - we only process files
-            if !path.is_file() {
-                continue;
-            }
-
-            // Get relative path for pattern matching
-            let rel_path = path
-                .strip_prefix(project_root)
-                .unwrap_or(path)
-                .to_string_lossy();
-
-            // Check exclusion rules using the relative path
-            if should_exclude_file(&rel_path) {
-                files_excluded += 1;
-                continue;
-            }
-
-            // Also check absolute path for completeness
-            let abs_path = path.to_string_lossy();
-            if should_exclude_file(&abs_path) {
-                files_excluded += 1;
-                continue;
-            }
-
-            // Check file type allowlist (Task 511)
-            if !allowed_extensions.is_allowed(&abs_path, &item.collection) {
-                files_excluded += 1;
-                continue;
-            }
-
-            // Get file metadata for the payload
-            let metadata = match path.metadata() {
-                Ok(m) => m,
-                Err(e) => {
-                    warn!("Failed to get metadata for {}: {}", abs_path, e);
-                    errors += 1;
-                    continue;
-                }
-            };
-
-            // Skip files that are too large (100MB limit)
-            const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
-            if metadata.len() > MAX_FILE_SIZE {
-                debug!("Skipping large file: {} ({} bytes)", abs_path, metadata.len());
-                files_excluded += 1;
-                continue;
-            }
-
-            // Classify file type
-            let file_type = classify_file_type(path);
-
-            // Create file payload
-            let file_payload = FilePayload {
-                file_path: abs_path.to_string(),
-                file_type: Some(file_type.as_str().to_string()),
-                file_hash: None,  // Hash will be computed during processing
-                size_bytes: Some(metadata.len()),
-                old_path: None,
-            };
-
-            let payload_json = serde_json::to_string(&file_payload)
-                .map_err(|e| UnifiedProcessorError::ProcessingFailed(format!("Failed to serialize FilePayload: {}", e)))?;
-
-            // Queue the file for ingestion
-            // Priority is computed at dequeue time via CASE/JOIN, not stored
-            match queue_manager.enqueue_unified(
-                ItemType::File,
-                QueueOperation::Add,
-                &item.tenant_id,
-                &item.collection,
-                &payload_json,
-                0,  // Priority is dynamic (computed at dequeue time)
-                Some(&item.branch),
-                None,
-            ).await {
-                Ok((queue_id, is_new)) => {
-                    if is_new {
-                        files_queued += 1;
-                        debug!("Queued file for ingestion: {} (queue_id={})", abs_path, queue_id);
-                    } else {
-                        debug!("File already in queue (deduplicated): {}", abs_path);
-                    }
-                }
-                Err(e) => {
-                    warn!("Failed to queue file {}: {}", abs_path, e);
-                    errors += 1;
-                }
-            }
-
-            // Yield periodically to avoid blocking the async runtime
-            if files_queued % 100 == 0 && files_queued > 0 {
-                tokio::task::yield_now().await;
-            }
-        }
+        // Progressive scan: enumerate only the immediate children of the directory.
+        // Subdirectories are enqueued as (Folder, Scan) for deferred processing.
+        let (files_queued, dirs_queued, files_excluded, errors) =
+            Self::scan_directory_single_level(
+                project_root,
+                item,
+                queue_manager,
+                allowed_extensions,
+            ).await?;
 
         // After scanning, clean up any excluded files that were previously indexed
         let files_cleaned = Self::cleanup_excluded_files(
@@ -2343,13 +2270,192 @@ impl UnifiedQueueProcessor {
             allowed_extensions,
         ).await?;
 
-        let elapsed = start_time.elapsed();
         info!(
-            "Project scan complete: {} files queued, {} excluded, {} queued for deletion, {} errors in {:?} (project={})",
-            files_queued, files_excluded, files_cleaned, errors, elapsed, payload.project_root
+            "Project scan complete: {} files, {} subdirs enqueued, {} excluded, {} cleaned, {} errors (project={})",
+            files_queued, dirs_queued, files_excluded, files_cleaned, errors, payload.project_root
         );
 
         Ok(())
+    }
+
+    /// Progressive single-level directory scan
+    ///
+    /// Enumerates only the immediate children of `dir_path`:
+    /// - Files → check exclusion + allowlist → enqueue (File, Add)
+    /// - Directories → check exclusion → enqueue (Folder, Scan)
+    /// - Directories with `.git` → submodule detection (enqueue Tenant, Add)
+    ///
+    /// Returns (files_queued, dirs_queued, files_excluded, errors)
+    async fn scan_directory_single_level(
+        dir_path: &Path,
+        item: &UnifiedQueueItem,
+        queue_manager: &QueueManager,
+        allowed_extensions: &Arc<AllowedExtensions>,
+    ) -> UnifiedProcessorResult<(u64, u64, u64, u64)> {
+        let mut files_queued = 0u64;
+        let mut dirs_queued = 0u64;
+        let mut files_excluded = 0u64;
+        let mut errors = 0u64;
+
+        let entries = std::fs::read_dir(dir_path)
+            .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                format!("Failed to read directory {}: {}", dir_path.display(), e)
+            ))?;
+
+        for entry in entries {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(e) => {
+                    warn!("Failed to read dir entry in {}: {}", dir_path.display(), e);
+                    errors += 1;
+                    continue;
+                }
+            };
+
+            let path = entry.path();
+            let file_type = match entry.file_type() {
+                Ok(ft) => ft,
+                Err(e) => {
+                    warn!("Failed to get file type for {}: {}", path.display(), e);
+                    errors += 1;
+                    continue;
+                }
+            };
+
+            if file_type.is_dir() {
+                let dir_name = entry.file_name().to_string_lossy().to_string();
+
+                // Check directory exclusion
+                if should_exclude_directory(&dir_name) {
+                    continue;
+                }
+
+                // Submodule detection: directory with .git → (Tenant, Add)
+                if path.join(".git").exists() {
+                    let submodule_payload = ProjectPayload {
+                        project_root: path.to_string_lossy().to_string(),
+                        git_remote: None,
+                        project_type: None,
+                        old_tenant_id: None,
+                        is_active: None,
+                    };
+                    let payload_json = serde_json::to_string(&submodule_payload)
+                        .unwrap_or_else(|_| format!(r#"{{"project_root":"{}"}}"#, path.display()));
+
+                    let submodule_tenant = wqm_common::project_id::calculate_tenant_id(&path);
+
+                    if let Ok((_, true)) = queue_manager.enqueue_unified(
+                        ItemType::Tenant,
+                        QueueOperation::Add,
+                        &submodule_tenant,
+                        &item.collection,
+                        &payload_json,
+                        0,
+                        None,
+                        None,
+                    ).await {
+                        dirs_queued += 1;
+                        debug!("Enqueued submodule as Tenant/Add: {}", path.display());
+                    }
+                    continue;
+                }
+
+                // Regular subdirectory → (Folder, Scan)
+                let folder_payload = FolderPayload {
+                    folder_path: path.to_string_lossy().to_string(),
+                    recursive: false,
+                    recursive_depth: 0,
+                    patterns: vec![],
+                    ignore_patterns: vec![],
+                    old_path: None,
+                };
+                let payload_json = serde_json::to_string(&folder_payload)
+                    .unwrap_or_else(|_| format!(r#"{{"folder_path":"{}"}}"#, path.display()));
+
+                if let Ok((_, true)) = queue_manager.enqueue_unified(
+                    ItemType::Folder,
+                    QueueOperation::Scan,
+                    &item.tenant_id,
+                    &item.collection,
+                    &payload_json,
+                    0,
+                    None,
+                    None,
+                ).await {
+                    dirs_queued += 1;
+                }
+            } else if file_type.is_file() {
+                let abs_path = path.to_string_lossy();
+
+                // Check exclusion rules
+                if should_exclude_file(&abs_path) {
+                    files_excluded += 1;
+                    continue;
+                }
+
+                // Check file type allowlist
+                if !allowed_extensions.is_allowed(&abs_path, &item.collection) {
+                    files_excluded += 1;
+                    continue;
+                }
+
+                // Get file metadata
+                let metadata = match path.metadata() {
+                    Ok(m) => m,
+                    Err(e) => {
+                        warn!("Failed to get metadata for {}: {}", abs_path, e);
+                        errors += 1;
+                        continue;
+                    }
+                };
+
+                // Skip files that are too large (100MB limit)
+                const MAX_FILE_SIZE: u64 = 100 * 1024 * 1024;
+                if metadata.len() > MAX_FILE_SIZE {
+                    debug!("Skipping large file: {} ({} bytes)", abs_path, metadata.len());
+                    files_excluded += 1;
+                    continue;
+                }
+
+                let file_type_class = classify_file_type(&path);
+                let file_payload = FilePayload {
+                    file_path: abs_path.to_string(),
+                    file_type: Some(file_type_class.as_str().to_string()),
+                    file_hash: None,
+                    size_bytes: Some(metadata.len()),
+                    old_path: None,
+                };
+
+                let payload_json = serde_json::to_string(&file_payload)
+                    .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+                        format!("Failed to serialize FilePayload: {}", e)
+                    ))?;
+
+                match queue_manager.enqueue_unified(
+                    ItemType::File,
+                    QueueOperation::Add,
+                    &item.tenant_id,
+                    &item.collection,
+                    &payload_json,
+                    0,
+                    Some(&item.branch),
+                    None,
+                ).await {
+                    Ok((_, is_new)) => {
+                        if is_new {
+                            files_queued += 1;
+                        }
+                    }
+                    Err(e) => {
+                        warn!("Failed to queue file {}: {}", abs_path, e);
+                        errors += 1;
+                    }
+                }
+            }
+            // Symlinks are skipped (no follow)
+        }
+
+        Ok((files_queued, dirs_queued, files_excluded, errors))
     }
 
     /// Scan a library directory and enqueue files for ingestion (Task 523)
