@@ -10,3 +10,4 @@
 //! - (future) `tag_selector`: MMR diversity-based tag selection
 
 pub mod lexical_candidates;
+pub mod semantic_rerank;
