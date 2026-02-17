@@ -1369,6 +1369,14 @@ resource_limits:
   # Format: Integer 1..60
   idle_poll_interval_secs: 5
 
+  # idle_cooloff_polls: Consecutive active polls before leaving idle/burst mode
+  # Prevents phantom system events (Spotlight, Bluetooth, Power Nap) from
+  # prematurely breaking burst mode. Effective cooloff = polls * poll_interval.
+  # With default values (3 polls * 5s interval = 15 seconds of sustained activity).
+  # Default: 3
+  # Format: Integer 1..20
+  idle_cooloff_polls: 3
+
 # =============================================================================
 # PERFORMANCE CONFIGURATION
 # =============================================================================

@@ -108,6 +108,9 @@ pub struct AdaptiveResourceConfig {
     pub active_concurrency_multiplier: f64,
     /// Inter-item delay in active processing mode (ms)
     pub active_inter_item_delay_ms: u64,
+    /// Number of consecutive active polls required before leaving idle/burst mode.
+    /// Prevents phantom system events from prematurely breaking burst mode.
+    pub idle_cooloff_polls: u32,
 }
 
 impl AdaptiveResourceConfig {
@@ -131,6 +134,7 @@ impl AdaptiveResourceConfig {
             ramp_steps: std::cmp::max(1, limits.idle_ramp_steps),
             active_concurrency_multiplier: limits.active_concurrency_multiplier,
             active_inter_item_delay_ms: limits.active_inter_item_delay_ms,
+            idle_cooloff_polls: std::cmp::max(1, limits.idle_cooloff_polls),
         }
     }
 }
@@ -465,7 +469,7 @@ impl AdaptiveResourceManager {
         let physical_cores = detect_physical_cores();
 
         info!(
-            "Adaptive resource manager started (idle_threshold={}s, ramp={}s/{} steps, normal={}/{}, active={}/{}, burst={}/{}, poll={}s)",
+            "Adaptive resource manager started (idle_threshold={}s, ramp={}s/{} steps, normal={}/{}, active={}/{}, burst={}/{}, poll={}s, cooloff={} polls)",
             config.idle_threshold_secs,
             config.ramp_duration_secs,
             config.ramp_steps,
@@ -476,6 +480,7 @@ impl AdaptiveResourceManager {
             burst_profile.max_concurrent_embeddings,
             burst_profile.inter_item_delay_ms,
             config.poll_interval_secs,
+            config.idle_cooloff_polls,
         );
 
         tokio::spawn(async move {
@@ -487,6 +492,7 @@ impl AdaptiveResourceManager {
             let mut current_profile = normal_profile;
             let mut heartbeat_counter: u64 = 0;
             let heartbeat_interval: u64 = 60 / config.poll_interval_secs.max(1);
+            let mut consecutive_active_polls: u32 = 0;
 
             loop {
                 tokio::select! {
@@ -510,34 +516,86 @@ impl AdaptiveResourceManager {
                             .unwrap_or(false);
 
                         let (new_state, new_profile, new_mode) = if !user_is_idle || !cpu_ok {
-                            // User active or CPU too busy
-                            if has_queue_work && cpu_ok {
-                                // Active Processing: user present, queue has work, CPU ok
-                                if !matches!(current_state, SystemState::ActiveProcessing) {
-                                    info!(
-                                        "Active processing mode — queue has work (embeddings: {} → {}, delay: {}ms → {}ms)",
-                                        current_profile.max_concurrent_embeddings,
-                                        active_profile.max_concurrent_embeddings,
-                                        current_profile.inter_item_delay_ms,
-                                        active_profile.inter_item_delay_ms,
+                            // User active or CPU too busy — but apply cooling-off
+                            // when leaving idle/burst modes to prevent phantom events
+                            // from prematurely breaking burst processing.
+                            let in_idle_mode = matches!(
+                                current_state,
+                                SystemState::RampingUp { .. } | SystemState::FullBurst
+                            );
+
+                            if in_idle_mode && cpu_ok {
+                                // In idle/burst mode and user appears active.
+                                // Require sustained activity before downshifting.
+                                consecutive_active_polls += 1;
+
+                                if consecutive_active_polls < config.idle_cooloff_polls {
+                                    // Not enough sustained activity yet — stay in current mode
+                                    debug!(
+                                        "Idle cooloff: activity detected but holding mode ({}/{} polls)",
+                                        consecutive_active_polls, config.idle_cooloff_polls,
                                     );
+                                    (current_state, current_profile, state_clone.mode())
+                                } else {
+                                    // Sustained activity confirmed — transition out of idle
+                                    info!(
+                                        "Sustained activity confirmed after {} polls — leaving idle mode",
+                                        consecutive_active_polls,
+                                    );
+                                    consecutive_active_polls = 0;
+                                    if has_queue_work {
+                                        info!(
+                                            "Active processing mode — queue has work (embeddings: {} → {}, delay: {}ms → {}ms)",
+                                            current_profile.max_concurrent_embeddings,
+                                            active_profile.max_concurrent_embeddings,
+                                            current_profile.inter_item_delay_ms,
+                                            active_profile.inter_item_delay_ms,
+                                        );
+                                        (SystemState::ActiveProcessing, active_profile, ResourceMode::Active)
+                                    } else {
+                                        info!(
+                                            "Switching to normal mode (embeddings: {} → {}, delay: {}ms → {}ms)",
+                                            current_profile.max_concurrent_embeddings,
+                                            normal_profile.max_concurrent_embeddings,
+                                            current_profile.inter_item_delay_ms,
+                                            normal_profile.inter_item_delay_ms,
+                                        );
+                                        (SystemState::Interactive, normal_profile, ResourceMode::Normal)
+                                    }
                                 }
-                                (SystemState::ActiveProcessing, active_profile, ResourceMode::Active)
                             } else {
-                                // Normal: user active, no queue work (or CPU busy)
-                                if !matches!(current_state, SystemState::Interactive) {
-                                    info!(
-                                        "Switching to normal mode (embeddings: {} → {}, delay: {}ms → {}ms)",
-                                        current_profile.max_concurrent_embeddings,
-                                        normal_profile.max_concurrent_embeddings,
-                                        current_profile.inter_item_delay_ms,
-                                        normal_profile.inter_item_delay_ms,
-                                    );
+                                // Either not in idle mode (no cooling-off needed) or CPU busy
+                                // (always drop burst when CPU is under pressure)
+                                consecutive_active_polls = 0;
+                                if has_queue_work && cpu_ok {
+                                    // Active Processing: user present, queue has work, CPU ok
+                                    if !matches!(current_state, SystemState::ActiveProcessing) {
+                                        info!(
+                                            "Active processing mode — queue has work (embeddings: {} → {}, delay: {}ms → {}ms)",
+                                            current_profile.max_concurrent_embeddings,
+                                            active_profile.max_concurrent_embeddings,
+                                            current_profile.inter_item_delay_ms,
+                                            active_profile.inter_item_delay_ms,
+                                        );
+                                    }
+                                    (SystemState::ActiveProcessing, active_profile, ResourceMode::Active)
+                                } else {
+                                    // Normal: user active, no queue work (or CPU busy)
+                                    if !matches!(current_state, SystemState::Interactive) {
+                                        info!(
+                                            "Switching to normal mode (embeddings: {} → {}, delay: {}ms → {}ms)",
+                                            current_profile.max_concurrent_embeddings,
+                                            normal_profile.max_concurrent_embeddings,
+                                            current_profile.inter_item_delay_ms,
+                                            normal_profile.inter_item_delay_ms,
+                                        );
+                                    }
+                                    (SystemState::Interactive, normal_profile, ResourceMode::Normal)
                                 }
-                                (SystemState::Interactive, normal_profile, ResourceMode::Normal)
                             }
                         } else {
-                            // User is idle and CPU is ok
+                            // User is idle and CPU is ok — reset active poll counter
+                            consecutive_active_polls = 0;
                             match current_state {
                                 SystemState::Interactive | SystemState::ActiveProcessing => {
                                     // Just entered idle → start ramping
@@ -887,6 +945,29 @@ mod tests {
         let limits = ResourceLimitsConfig::default();
         assert!((limits.active_concurrency_multiplier - 1.5).abs() < f64::EPSILON);
         assert_eq!(limits.active_inter_item_delay_ms, 25);
+    }
+
+    #[test]
+    fn test_idle_cooloff_polls_default() {
+        let limits = ResourceLimitsConfig::default();
+        assert_eq!(limits.idle_cooloff_polls, 3);
+    }
+
+    #[test]
+    fn test_idle_cooloff_polls_in_adaptive_config() {
+        let limits = test_limits();
+        let config = AdaptiveResourceConfig::from_resource_limits(&limits);
+        // Default is 3, and min is clamped to 1
+        assert_eq!(config.idle_cooloff_polls, 3);
+    }
+
+    #[test]
+    fn test_idle_cooloff_polls_minimum_clamp() {
+        let mut limits = test_limits();
+        limits.idle_cooloff_polls = 0;
+        let config = AdaptiveResourceConfig::from_resource_limits(&limits);
+        // Should be clamped to at least 1
+        assert_eq!(config.idle_cooloff_polls, 1);
     }
 
     #[cfg(target_os = "macos")]

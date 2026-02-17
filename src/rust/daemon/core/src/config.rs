@@ -853,6 +853,13 @@ pub struct ResourceLimitsConfig {
     #[serde(default = "default_idle_poll_interval_secs")]
     pub idle_poll_interval_secs: u64,
 
+    /// Number of consecutive active polls required before leaving idle/burst mode.
+    /// Prevents phantom system events (Spotlight, Bluetooth, Power Nap) from
+    /// prematurely breaking burst mode. With default poll_interval=5s and
+    /// cooloff_polls=3, requires 15 seconds of sustained user activity.
+    #[serde(default = "default_idle_cooloff_polls")]
+    pub idle_cooloff_polls: u32,
+
     // --- Active Processing Mode ---
 
     /// Multiplier for max_concurrent_embeddings when user is active but queue has work.
@@ -878,6 +885,7 @@ fn default_burst_concurrency_multiplier() -> f64 { 2.0 }
 fn default_burst_inter_item_delay_ms() -> u64 { 0 }
 fn default_cpu_pressure_threshold() -> f64 { 0.6 }
 fn default_idle_poll_interval_secs() -> u64 { 5 }
+fn default_idle_cooloff_polls() -> u32 { 3 }
 fn default_active_concurrency_multiplier() -> f64 { 1.5 }
 fn default_active_inter_item_delay_ms() -> u64 { 25 }
 
@@ -896,6 +904,7 @@ impl Default for ResourceLimitsConfig {
             burst_inter_item_delay_ms: default_burst_inter_item_delay_ms(),
             cpu_pressure_threshold: default_cpu_pressure_threshold(),
             idle_poll_interval_secs: default_idle_poll_interval_secs(),
+            idle_cooloff_polls: default_idle_cooloff_polls(),
             active_concurrency_multiplier: default_active_concurrency_multiplier(),
             active_inter_item_delay_ms: default_active_inter_item_delay_ms(),
         }
@@ -1033,6 +1042,12 @@ impl ResourceLimitsConfig {
         if let Ok(val) = env::var("WQM_RESOURCE_IDLE_POLL_INTERVAL_SECS") {
             if let Ok(parsed) = val.parse() {
                 self.idle_poll_interval_secs = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_COOLOFF_POLLS") {
+            if let Ok(parsed) = val.parse() {
+                self.idle_cooloff_polls = parsed;
             }
         }
 
@@ -1324,6 +1339,7 @@ impl From<&YamlConfig> for DaemonConfig {
                 burst_inter_item_delay_ms: yaml.resource_limits.burst_inter_item_delay_ms,
                 cpu_pressure_threshold: yaml.resource_limits.cpu_pressure_threshold,
                 idle_poll_interval_secs: yaml.resource_limits.idle_poll_interval_secs,
+                idle_cooloff_polls: yaml.resource_limits.idle_cooloff_polls,
                 active_concurrency_multiplier: yaml.resource_limits.active_concurrency_multiplier,
                 active_inter_item_delay_ms: yaml.resource_limits.active_inter_item_delay_ms,
             },

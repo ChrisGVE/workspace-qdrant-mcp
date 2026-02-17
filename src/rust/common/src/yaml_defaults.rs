@@ -603,6 +603,8 @@ pub struct YamlResourceLimitsConfig {
     pub cpu_pressure_threshold: f64,
     /// How often to poll idle state (seconds)
     pub idle_poll_interval_secs: u64,
+    /// Consecutive active polls required before leaving idle/burst mode
+    pub idle_cooloff_polls: u32,
     /// Multiplier for active processing mode (user present, queue has work)
     pub active_concurrency_multiplier: f64,
     /// Inter-item delay in active processing mode (ms)
@@ -624,6 +626,7 @@ impl Default for YamlResourceLimitsConfig {
             burst_inter_item_delay_ms: 0,
             cpu_pressure_threshold: 0.6,
             idle_poll_interval_secs: 5,
+            idle_cooloff_polls: 3,
             active_concurrency_multiplier: 1.5,
             active_inter_item_delay_ms: 25,
         }
