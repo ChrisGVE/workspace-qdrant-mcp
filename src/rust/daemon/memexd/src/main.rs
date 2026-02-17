@@ -557,7 +557,7 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     let search_db_version = search_db.get_schema_version().await
         .map_err(|e| format!("Failed to read search DB version: {}", e))?;
     info!("Search database initialized at version {:?}", search_db_version);
-    let _search_db = Arc::new(search_db);
+    let search_db = Arc::new(search_db);
 
     // Startup reconciliation: clean stale state and validate watch folders (Task 512)
     info!("Running startup reconciliation...");
@@ -912,6 +912,9 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
 
     // Attach file type allowlist (Task 511)
     unified_queue_processor = unified_queue_processor.with_allowed_extensions(Arc::clone(&allowed_extensions));
+
+    // Attach search database for FTS5 code search integration (Task 52)
+    unified_queue_processor = unified_queue_processor.with_search_db(Arc::clone(&search_db));
 
     // Start adaptive resource manager for dynamic CPU scaling (idle/burst mode)
     let adaptive_shutdown_token = tokio_util::sync::CancellationToken::new();

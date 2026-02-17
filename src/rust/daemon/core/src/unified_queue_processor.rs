@@ -19,11 +19,14 @@ use walkdir::WalkDir;
 use crate::adaptive_resources::ResourceProfile;
 use crate::allowed_extensions::AllowedExtensions;
 use crate::fairness_scheduler::{FairnessScheduler, FairnessSchedulerConfig};
+use crate::fts_batch_processor::{FtsBatchConfig, FtsBatchProcessor, FileChange};
+use crate::indexed_content_schema;
 use crate::queue_health::QueueProcessorHealth;
 use crate::lsp::{
     LanguageServerManager, LspEnrichment, EnrichmentStatus,
 };
 use crate::queue_operations::QueueManager;
+use crate::search_db::SearchDbManager;
 use crate::unified_queue_schema::{
     ItemType, QueueOperation, UnifiedQueueItem,
     ContentPayload, FilePayload, FolderPayload, ProjectPayload, LibraryPayload,
@@ -31,6 +34,7 @@ use crate::unified_queue_schema::{
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
 use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD};
+use wqm_common::hashing::compute_content_hash;
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
 use crate::patterns::exclusion::{should_exclude_file, should_exclude_directory};
 use crate::file_classification::{classify_file_type, is_test_file, get_extension_for_storage};
@@ -251,6 +255,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Lexicon manager for per-collection BM25 vocabulary persistence (Task 17)
     lexicon_manager: Arc<LexiconManager>,
+
+    /// Search database manager for FTS5 code search index (Task 52)
+    search_db: Option<Arc<SearchDbManager>>,
 }
 
 impl UnifiedQueueProcessor {
@@ -307,6 +314,7 @@ impl UnifiedQueueProcessor {
             resource_profile_rx: None,
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
+            search_db: None,
         }
     }
 
@@ -357,7 +365,14 @@ impl UnifiedQueueProcessor {
             resource_profile_rx: None,
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             lexicon_manager,
+            search_db: None,
         }
+    }
+
+    /// Set the search database manager for FTS5 code search integration (Task 52)
+    pub fn with_search_db(mut self, search_db: Arc<SearchDbManager>) -> Self {
+        self.search_db = Some(search_db);
+        self
     }
 
     /// Set shared queue processor health state for gRPC monitoring
@@ -444,6 +459,7 @@ impl UnifiedQueueProcessor {
         let queue_health = self.queue_health.clone();
         let resource_profile_rx = self.resource_profile_rx.clone();
         let queue_depth_counter = self.queue_depth_counter.clone();
+        let search_db = self.search_db.clone();
 
         // Mark as running in health state
         if let Some(ref h) = queue_health {
@@ -468,6 +484,7 @@ impl UnifiedQueueProcessor {
                 queue_health.clone(),
                 resource_profile_rx,
                 queue_depth_counter,
+                search_db,
             )
             .await
             {
@@ -547,6 +564,7 @@ impl UnifiedQueueProcessor {
         queue_health: Option<Arc<QueueProcessorHealth>>,
         resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
         queue_depth_counter: Arc<std::sync::atomic::AtomicUsize>,
+        search_db: Option<Arc<SearchDbManager>>,
     ) -> UnifiedProcessorResult<()> {
         let poll_interval = Duration::from_millis(config.poll_interval_ms);
         let mut last_metrics_log = Utc::now();
@@ -708,6 +726,7 @@ impl UnifiedQueueProcessor {
                             &embedding_semaphore,
                             &allowed_extensions,
                             &lexicon_manager,
+                            &search_db,
                         )
                         .await
                         {
@@ -839,6 +858,7 @@ impl UnifiedQueueProcessor {
         embedding_semaphore: &Arc<tokio::sync::Semaphore>,
         allowed_extensions: &Arc<AllowedExtensions>,
         lexicon_manager: &Arc<LexiconManager>,
+        search_db: &Option<Arc<SearchDbManager>>,
     ) -> UnifiedProcessorResult<()> {
         debug!(
             "Processing unified item: {} (type={:?}, op={:?}, collection={})",
@@ -850,7 +870,7 @@ impl UnifiedQueueProcessor {
                 Self::process_content_item(item, embedding_generator, storage_client, embedding_semaphore).await
             }
             ItemType::File => {
-                Self::process_file_item(item, queue_manager, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore, allowed_extensions, lexicon_manager).await
+                Self::process_file_item(item, queue_manager, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore, allowed_extensions, lexicon_manager, search_db).await
             }
             ItemType::Folder => {
                 Self::process_folder_item(item, queue_manager, storage_client, allowed_extensions).await
@@ -859,7 +879,7 @@ impl UnifiedQueueProcessor {
                 // Tenant consolidates old Project, Library, and DeleteTenant
                 match item.op {
                     QueueOperation::Delete => {
-                        Self::process_delete_tenant_item(item, queue_manager, storage_client).await
+                        Self::process_delete_tenant_item(item, queue_manager, storage_client, search_db).await
                     }
                     QueueOperation::Rename => {
                         Self::process_tenant_rename_item(item, storage_client).await
@@ -1181,6 +1201,7 @@ impl UnifiedQueueProcessor {
         embedding_semaphore: &Arc<tokio::sync::Semaphore>,
         allowed_extensions: &Arc<AllowedExtensions>,
         lexicon_manager: &Arc<LexiconManager>,
+        search_db: &Option<Arc<SearchDbManager>>,
     ) -> UnifiedProcessorResult<()> {
         info!(
             "Processing file item: {} -> collection: {} (op={:?})",
@@ -1279,7 +1300,7 @@ impl UnifiedQueueProcessor {
         // === DELETE OPERATION ===
         if item.op == QueueOperation::Delete {
             return Self::process_file_delete(
-                item, pool, storage_client, &watch_folder_id, &relative_path, &payload.file_path,
+                item, pool, storage_client, &watch_folder_id, &relative_path, &payload.file_path, search_db,
             ).await;
         }
 
@@ -1744,7 +1765,7 @@ impl UnifiedQueueProcessor {
         .map_err(|e| UnifiedProcessorError::QueueOperation(format!("tracked_files lookup failed: {}", e)))?;
 
         // Begin SQLite transaction for atomic tracked_files + qdrant_chunks writes
-        let tx_result: Result<(), UnifiedProcessorError> = async {
+        let tx_result: Result<i64, UnifiedProcessorError> = async {
             let mut tx = pool.begin().await
                 .map_err(|e| UnifiedProcessorError::QueueOperation(format!("Failed to begin transaction: {}", e)))?;
 
@@ -1807,7 +1828,7 @@ impl UnifiedQueueProcessor {
                 "Recorded {} chunks in tracked_files for file_id={} ({})",
                 chunk_records.len(), file_id, relative_path
             );
-            Ok(())
+            Ok(file_id)
         }.await;
 
         // Handle transaction failure: Qdrant has points but SQLite state is inconsistent.
@@ -1825,7 +1846,17 @@ impl UnifiedQueueProcessor {
                 ).await;
             }
         }
-        tx_result?;
+        let file_id = tx_result?;
+
+        // === FTS5 CODE SEARCH INDEX UPDATE (Task 52) ===
+        // After successful Qdrant upsert + tracked_files write, update the FTS5
+        // code_lines index in search.db. This is non-fatal — FTS5 failures do not
+        // block the primary ingestion pipeline.
+        if let Some(sdb) = search_db {
+            Self::update_fts5_for_file(
+                sdb, pool, file_id, &payload.file_path, &item.tenant_id, Some(&item.branch),
+            ).await;
+        }
 
         info!(
             "Successfully processed file item {} ({})",
@@ -1833,6 +1864,100 @@ impl UnifiedQueueProcessor {
         );
 
         Ok(())
+    }
+
+    /// Update the FTS5 code search index for a single file (Task 52).
+    ///
+    /// Reads the file from disk, compares content hash against indexed_content cache.
+    /// If changed (or new), computes line diff and applies to code_lines + FTS5.
+    /// Failures are logged but non-fatal — they don't block Qdrant ingestion.
+    async fn update_fts5_for_file(
+        search_db: &Arc<SearchDbManager>,
+        state_pool: &SqlitePool,
+        file_id: i64,
+        file_path: &str,
+        tenant_id: &str,
+        branch: Option<&str>,
+    ) {
+        let fts_start = std::time::Instant::now();
+
+        // Read file content from disk
+        let new_content = match tokio::fs::read_to_string(file_path).await {
+            Ok(content) => content,
+            Err(e) => {
+                debug!("FTS5: cannot read file for indexing (may be binary): {}: {}", file_path, e);
+                return;
+            }
+        };
+
+        let new_hash = compute_content_hash(&new_content);
+
+        // Check indexed_content cache for skip detection
+        let old_content = match indexed_content_schema::get_indexed_content(state_pool, file_id).await {
+            Ok(Some((cached_bytes, cached_hash))) => {
+                if cached_hash == new_hash {
+                    debug!("FTS5: content unchanged (hash match), skipping: {}", file_path);
+                    return;
+                }
+                // Content changed — use cached content as diff base
+                String::from_utf8(cached_bytes).unwrap_or_default()
+            }
+            Ok(None) => {
+                // New file — no old content to diff against
+                String::new()
+            }
+            Err(e) => {
+                warn!("FTS5: failed to read indexed_content cache for file_id={}: {}", file_id, e);
+                String::new()
+            }
+        };
+
+        // Apply diff to code_lines via FtsBatchProcessor (single-file mode)
+        let processor = FtsBatchProcessor::new(search_db, FtsBatchConfig::default());
+        let change = FileChange {
+            file_id,
+            old_content,
+            new_content: new_content.clone(),
+            tenant_id: tenant_id.to_string(),
+            branch: branch.map(|s| s.to_string()),
+            file_path: file_path.to_string(),
+        };
+
+        // Use full_rewrite for new files (empty old content), diff for updates
+        let fts_result = if change.old_content.is_empty() {
+            processor.full_rewrite(
+                file_id, &change.new_content, tenant_id, branch, file_path,
+            ).await
+        } else {
+            // Use flush() with queue_depth=0 (single-file mode)
+            let mut processor = processor;
+            processor.add_change(change);
+            processor.flush(0).await
+        };
+
+        match fts_result {
+            Ok(stats) => {
+                debug!(
+                    "FTS5: updated {} (+{} ~{} -{}) for {} in {}ms",
+                    file_path,
+                    stats.lines_inserted,
+                    stats.lines_updated,
+                    stats.lines_deleted,
+                    file_path,
+                    fts_start.elapsed().as_millis()
+                );
+
+                // Update indexed_content cache with new content + hash
+                if let Err(e) = indexed_content_schema::upsert_indexed_content(
+                    state_pool, file_id, new_content.as_bytes(), &new_hash,
+                ).await {
+                    warn!("FTS5: failed to update indexed_content cache for file_id={}: {}", file_id, e);
+                }
+            }
+            Err(e) => {
+                warn!("FTS5: failed to update code_lines for {}: {} (non-fatal)", file_path, e);
+            }
+        }
     }
 
     /// Process file delete operation with tracked_files awareness (Task 506 + Task 519)
@@ -1843,6 +1968,7 @@ impl UnifiedQueueProcessor {
         watch_folder_id: &str,
         relative_path: &str,
         abs_file_path: &str,
+        search_db: &Option<Arc<SearchDbManager>>,
     ) -> UnifiedProcessorResult<()> {
         let delete_start = std::time::Instant::now();
 
@@ -1886,6 +2012,15 @@ impl UnifiedQueueProcessor {
                     &format!("delete_tx_failed: {}", e),
                 ).await;
             } else {
+                // FTS5 cleanup: delete code_lines + file_metadata for this file (Task 52)
+                if let Some(sdb) = search_db {
+                    let processor = FtsBatchProcessor::new(sdb, FtsBatchConfig::default());
+                    if let Err(e) = processor.delete_file(existing.file_id).await {
+                        warn!("FTS5: failed to delete code_lines for file_id={}: {} (non-fatal)", existing.file_id, e);
+                    } else {
+                        debug!("FTS5: deleted code_lines for file_id={}", existing.file_id);
+                    }
+                }
                 info!("Deleted tracked file and {} Qdrant points for: {} in {}ms", point_ids.len(), relative_path, delete_start.elapsed().as_millis());
             }
             return Ok(());
@@ -3472,6 +3607,7 @@ impl UnifiedQueueProcessor {
         item: &UnifiedQueueItem,
         queue_manager: &QueueManager,
         storage_client: &Arc<StorageClient>,
+        search_db: &Option<Arc<SearchDbManager>>,
     ) -> UnifiedProcessorResult<()> {
         const QDRANT_BATCH_SIZE: usize = 100;
 
@@ -3798,6 +3934,21 @@ impl UnifiedQueueProcessor {
             .map_err(|e| UnifiedProcessorError::ProcessingFailed(
                 format!("Failed to commit delete transaction: {}", e)
             ))?;
+
+        // ── Step 6i: FTS5 cleanup — delete code_lines + file_metadata for tenant (Task 52) ──
+        if let Some(sdb) = search_db {
+            let processor = FtsBatchProcessor::new(sdb, FtsBatchConfig::default());
+            match processor.delete_tenant(&item.tenant_id).await {
+                Ok(deleted) => {
+                    if deleted > 0 {
+                        info!("Step 6i: deleted {} FTS5 code_lines for tenant={}", deleted, item.tenant_id);
+                    }
+                }
+                Err(e) => {
+                    warn!("Step 6i: FTS5 cleanup failed for tenant={}: {} (non-fatal)", item.tenant_id, e);
+                }
+            }
+        }
 
         // ── Step 7: Final verification ──
         let canonical = [
