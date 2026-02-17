@@ -1720,8 +1720,8 @@ impl LanguageServerManager {
                 Some(format!("Some queries failed: {}", errors.join("; "))),
             )
         } else {
-            // All queries succeeded but no data
-            (EnrichmentStatus::Partial, None)
+            // All queries succeeded but no data — this is valid (no references found)
+            (EnrichmentStatus::Success, None)
         };
 
         // Track enrichment status metrics
@@ -2516,10 +2516,9 @@ mod tests {
             false, // project not active - but enrichment still runs
         ).await;
 
-        // Without any servers, queries succeed but return no data → Partial status
-        // Activity state is ignored - enrichment runs regardless
-        assert_eq!(result.enrichment_status, EnrichmentStatus::Partial);
-        // No error_message since queries succeed (just no data)
+        // Without any servers, queries succeed but return no data → Success status
+        // (no references found is a valid result, not partial)
+        assert_eq!(result.enrichment_status, EnrichmentStatus::Success);
         assert!(result.error_message.is_none());
         assert!(result.references.is_empty());
         assert!(result.type_info.is_none());
@@ -2541,10 +2540,9 @@ mod tests {
             true, // project active
         ).await;
 
-        // Without any servers, queries succeed but return no data → Partial status
-        // (queries succeed with empty results, not errors)
-        assert_eq!(result.enrichment_status, EnrichmentStatus::Partial);
-        // No error_message when queries succeed but return no data
+        // Without any servers, queries succeed but return no data → Success status
+        // (no references found is a valid result, not partial)
+        assert_eq!(result.enrichment_status, EnrichmentStatus::Success);
         assert!(result.error_message.is_none());
         // Verify empty results
         assert!(result.references.is_empty());

@@ -1486,33 +1486,46 @@ impl UnifiedQueueProcessor {
                 point_payload.insert(format!("chunk_{}", key), serde_json::json!(value));
             }
 
-            // LSP enrichment (if available)
+            // LSP enrichment (if available and file language has LSP support)
             if let Some(lsp_mgr) = &lsp_mgr_guard {
-                let mgr = lsp_mgr.read().await;
+                let file_lang = file_path.extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(crate::lsp::Language::from_extension);
 
-                let sym_name = chunk.metadata.get("symbol_name")
-                    .map(|s| s.as_str())
-                    .unwrap_or("unknown");
+                if file_lang.as_ref().map_or(false, |l| l.has_lsp_support()) {
+                    let mgr = lsp_mgr.read().await;
 
-                let sl = chunk.metadata.get("start_line")
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(chunk_idx as u32 * 20);
+                    let sym_name = chunk.metadata.get("symbol_name")
+                        .map(|s| s.as_str())
+                        .unwrap_or("unknown");
 
-                let el = chunk.metadata.get("end_line")
-                    .and_then(|s| s.parse::<u32>().ok())
-                    .unwrap_or(sl + 20);
+                    let sl = chunk.metadata.get("start_line")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(chunk_idx as u32 * 20);
 
-                let enrichment = mgr.enrich_chunk(
-                    &item.tenant_id,
-                    file_path,
-                    sym_name,
-                    sl,
-                    el,
-                    is_project_active,
-                ).await;
+                    let el = chunk.metadata.get("end_line")
+                        .and_then(|s| s.parse::<u32>().ok())
+                        .unwrap_or(sl + 20);
 
-                Self::add_lsp_enrichment_to_payload(&mut point_payload, &enrichment);
-                lsp_status = ProcessingStatus::Done;
+                    let enrichment = mgr.enrich_chunk(
+                        &item.tenant_id,
+                        file_path,
+                        sym_name,
+                        sl,
+                        el,
+                        is_project_active,
+                    ).await;
+
+                    Self::add_lsp_enrichment_to_payload(&mut point_payload, &enrichment);
+                    lsp_status = ProcessingStatus::Done;
+                } else {
+                    // Non-code file (markdown, config, etc.) — skip LSP enrichment
+                    point_payload.insert(
+                        "lsp_enrichment_status".to_string(),
+                        serde_json::json!("skipped"),
+                    );
+                    lsp_status = ProcessingStatus::Skipped;
+                }
             }
 
             let point_id = crate::generate_point_id(&item.tenant_id, &item.branch, &payload.file_path, chunk_idx);

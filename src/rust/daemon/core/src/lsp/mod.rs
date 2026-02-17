@@ -191,6 +191,25 @@ impl Language {
         }
     }
 
+    /// Check if this language has known LSP server support.
+    ///
+    /// Returns true only for languages that have configured LSP server
+    /// templates in the detection module. Non-code files (markdown, config,
+    /// etc.) return false and should skip LSP enrichment.
+    pub fn has_lsp_support(&self) -> bool {
+        matches!(
+            self,
+            Language::Python
+                | Language::Rust
+                | Language::TypeScript
+                | Language::JavaScript
+                | Language::Json
+                | Language::C
+                | Language::Cpp
+                | Language::Go
+        )
+    }
+
     /// Get common file extensions for this language
     pub fn extensions(&self) -> &[&str] {
         match self {

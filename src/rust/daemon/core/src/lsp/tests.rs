@@ -38,6 +38,55 @@ mod tests {
     }
 
     #[test]
+    fn test_language_has_lsp_support() {
+        // Languages with LSP server support
+        assert!(Language::Python.has_lsp_support());
+        assert!(Language::Rust.has_lsp_support());
+        assert!(Language::TypeScript.has_lsp_support());
+        assert!(Language::JavaScript.has_lsp_support());
+        assert!(Language::Json.has_lsp_support());
+        assert!(Language::C.has_lsp_support());
+        assert!(Language::Cpp.has_lsp_support());
+        assert!(Language::Go.has_lsp_support());
+
+        // Languages without LSP server support — should skip enrichment
+        assert!(!Language::Yaml.has_lsp_support());
+        assert!(!Language::Toml.has_lsp_support());
+        assert!(!Language::Shell.has_lsp_support());
+        assert!(!Language::Html.has_lsp_support());
+        assert!(!Language::Css.has_lsp_support());
+        assert!(!Language::Sql.has_lsp_support());
+        assert!(!Language::Xml.has_lsp_support());
+        assert!(!Language::Ruby.has_lsp_support());
+        assert!(!Language::Php.has_lsp_support());
+        assert!(!Language::Java.has_lsp_support());
+        assert!(!Language::Other("md".to_string()).has_lsp_support());
+    }
+
+    #[test]
+    fn test_non_code_extensions_skip_lsp() {
+        // Markdown files should not have LSP support
+        let md_lang = Language::from_extension("md");
+        assert!(!md_lang.has_lsp_support());
+
+        // Config files should not have LSP support
+        let yaml_lang = Language::from_extension("yaml");
+        assert!(!yaml_lang.has_lsp_support());
+        let toml_lang = Language::from_extension("toml");
+        assert!(!toml_lang.has_lsp_support());
+        let json_lang = Language::from_extension("json");
+        assert!(json_lang.has_lsp_support()); // JSON has vscode-json-languageserver
+
+        // Code files should have LSP support
+        let rs_lang = Language::from_extension("rs");
+        assert!(rs_lang.has_lsp_support());
+        let ts_lang = Language::from_extension("ts");
+        assert!(ts_lang.has_lsp_support());
+        let py_lang = Language::from_extension("py");
+        assert!(py_lang.has_lsp_support());
+    }
+
+    #[test]
     fn test_lsp_config_creation() {
         let config = LspConfig::default();
         
@@ -338,10 +387,11 @@ mod tests {
             false, // is_active = false, but enrichment runs anyway
         ).await;
 
-        // Without any servers, queries succeed but return no data → Partial status
+        // Without any servers, queries succeed but return no data → Success status
+        // (no references found is a valid result)
         assert!(matches!(
             enrichment.enrichment_status,
-            EnrichmentStatus::Failed | EnrichmentStatus::Partial
+            EnrichmentStatus::Failed | EnrichmentStatus::Success
         ));
     }
 
@@ -360,10 +410,10 @@ mod tests {
             true, // is_active = true
         ).await;
 
-        // Should still work but return failed/partial (no server)
+        // Without any servers, queries succeed but return no data → Success
         assert!(matches!(
             enrichment.enrichment_status,
-            EnrichmentStatus::Failed | EnrichmentStatus::Partial
+            EnrichmentStatus::Failed | EnrichmentStatus::Success
         ));
     }
 
