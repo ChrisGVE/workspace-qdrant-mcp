@@ -30,7 +30,7 @@ use crate::unified_queue_schema::{
     MemoryPayload, UrlPayload, ScratchpadPayload, WebsitePayload,
 };
 use crate::{DocumentProcessor, EmbeddingGenerator, EmbeddingConfig, SparseEmbedding};
-use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES};
+use wqm_common::constants::{COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD};
 use crate::storage::{StorageClient, StorageConfig, DocumentPoint};
 use crate::patterns::exclusion::{should_exclude_file, should_exclude_directory};
 use crate::file_classification::{classify_file_type, is_test_file, get_extension_for_storage};
@@ -3435,79 +3435,296 @@ impl UnifiedQueueProcessor {
         Ok(())
     }
 
-    /// Process delete tenant item - delete all data for a tenant
+    /// Process delete tenant item - surgically delete all data for a tenant
     ///
-    /// Full deletion cascade:
-    /// 1. Delete Qdrant points (tenant-scoped)
-    /// 2. Delete SQLite: qdrant_chunks, tracked_files, watch_folders
+    /// Full deletion cascade across all 4 canonical collections:
+    /// 1. Purge pending queue items for this tenant
+    /// 2. Collect tracked files + qdrant_chunks point IDs, grouped by collection
+    /// 3. Delete from Qdrant in batches of point IDs (projects, libraries)
+    /// 4. Scroll + batch-delete from memory collection
+    /// 5. Scroll + batch-delete from scratchpad collection
+    /// 6. SQLite cleanup: qdrant_chunks, tracked_files, keywords, tags,
+    ///    keyword_baskets, tag_hierarchy_edges, canonical_tags, watch_folders
+    /// 7. Final verification: count remaining tenant points in all 4 collections
     async fn process_delete_tenant_item(
         item: &UnifiedQueueItem,
         queue_manager: &QueueManager,
         storage_client: &Arc<StorageClient>,
     ) -> UnifiedProcessorResult<()> {
+        const QDRANT_BATCH_SIZE: usize = 100;
+
         info!(
-            "Processing delete tenant item: {} (tenant={}, collection={})",
-            item.queue_id, item.tenant_id, item.collection
+            "Processing surgical delete for tenant={} (queue_id={})",
+            item.tenant_id, item.queue_id
         );
 
-        // 1. Delete Qdrant points (tenant-scoped)
+        let pool = queue_manager.pool();
+
+        // ── Step 1: Purge queue entries for this tenant ──
+        // Defensive re-purge at processing time (enqueue already does cascade,
+        // but items may have been enqueued between enqueue and processing)
+        match queue_manager
+            .purge_pending_for_tenant(&item.tenant_id, &item.queue_id)
+            .await
+        {
+            Ok(purged) => {
+                if purged > 0 {
+                    info!("Step 1: purged {} queue items for tenant={}", purged, item.tenant_id);
+                }
+            }
+            Err(e) => {
+                warn!("Step 1: queue purge failed for tenant={}: {} (continuing)", item.tenant_id, e);
+            }
+        }
+
+        // ── Step 2: Collect tracked files with point IDs, grouped by collection ──
+        // tracked_files does NOT have tenant_id; join through watch_folders
+        let file_data: Vec<(i64, String, String, Option<String>)> = sqlx::query_as(
+            r#"SELECT tf.file_id, tf.file_path, tf.collection, qc.point_id
+               FROM tracked_files tf
+               JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
+               LEFT JOIN qdrant_chunks qc ON qc.file_id = tf.file_id
+               WHERE wf.tenant_id = ?1"#,
+        )
+        .bind(&item.tenant_id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| UnifiedProcessorError::ProcessingFailed(
+            format!("Failed to query tracked files for tenant={}: {}", item.tenant_id, e)
+        ))?;
+
+        // Group point_ids by collection, track unique file_ids
+        let mut points_by_collection: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        let mut file_count: std::collections::HashSet<i64> = std::collections::HashSet::new();
+
+        for (file_id, _file_path, collection, point_id) in &file_data {
+            file_count.insert(*file_id);
+            if let Some(pid) = point_id {
+                points_by_collection
+                    .entry(collection.clone())
+                    .or_default()
+                    .push(pid.clone());
+            }
+        }
+
+        info!(
+            "Step 2: found {} tracked files across {} collections for tenant={}",
+            file_count.len(),
+            points_by_collection.len(),
+            item.tenant_id
+        );
+
+        // ── Step 3: Batch-delete tracked points from Qdrant by ID ──
+        let mut total_qdrant_deleted = 0u64;
+        for (collection, point_ids) in &points_by_collection {
+            if !storage_client
+                .collection_exists(collection)
+                .await
+                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
+            {
+                warn!("Step 3: collection '{}' does not exist, skipping", collection);
+                continue;
+            }
+
+            for batch in point_ids.chunks(QDRANT_BATCH_SIZE) {
+                let batch_vec: Vec<String> = batch.to_vec();
+                let deleted = storage_client
+                    .delete_points_by_ids(collection, &batch_vec)
+                    .await
+                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                total_qdrant_deleted += deleted;
+            }
+
+            info!(
+                "Step 3: deleted {} points from '{}' for tenant={}",
+                point_ids.len(), collection, item.tenant_id
+            );
+        }
+
+        // ── Step 4: Handle memory collection ──
         if storage_client
-            .collection_exists(&item.collection)
+            .collection_exists(COLLECTION_MEMORY)
             .await
             .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
         {
-            storage_client
-                .delete_points_by_tenant(&item.collection, &item.tenant_id)
+            let memory_ids = storage_client
+                .scroll_point_ids_by_tenant(COLLECTION_MEMORY, &item.tenant_id)
                 .await
                 .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
-            info!("Deleted Qdrant points for tenant={} collection={}", item.tenant_id, item.collection);
+
+            if !memory_ids.is_empty() {
+                for batch in memory_ids.chunks(QDRANT_BATCH_SIZE) {
+                    let batch_vec: Vec<String> = batch.to_vec();
+                    storage_client
+                        .delete_points_by_ids(COLLECTION_MEMORY, &batch_vec)
+                        .await
+                        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                }
+                total_qdrant_deleted += memory_ids.len() as u64;
+                info!(
+                    "Step 4: deleted {} memory points for tenant={}",
+                    memory_ids.len(), item.tenant_id
+                );
+            }
         }
 
-        // 2. Delete SQLite state in a transaction (child tables first)
-        let pool = queue_manager.pool();
+        // ── Step 5: Handle scratchpad collection ──
+        if storage_client
+            .collection_exists(COLLECTION_SCRATCHPAD)
+            .await
+            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
+        {
+            let scratchpad_ids = storage_client
+                .scroll_point_ids_by_tenant(COLLECTION_SCRATCHPAD, &item.tenant_id)
+                .await
+                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+            if !scratchpad_ids.is_empty() {
+                for batch in scratchpad_ids.chunks(QDRANT_BATCH_SIZE) {
+                    let batch_vec: Vec<String> = batch.to_vec();
+                    storage_client
+                        .delete_points_by_ids(COLLECTION_SCRATCHPAD, &batch_vec)
+                        .await
+                        .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                }
+                total_qdrant_deleted += scratchpad_ids.len() as u64;
+                info!(
+                    "Step 5: deleted {} scratchpad points for tenant={}",
+                    scratchpad_ids.len(), item.tenant_id
+                );
+            }
+        }
+
+        // ── Step 6: SQLite cleanup in single transaction ──
         let mut tx = pool.begin().await
             .map_err(|e| UnifiedProcessorError::ProcessingFailed(
                 format!("Failed to begin delete transaction: {}", e)
             ))?;
 
-        // 2a. Delete qdrant_chunks (child of tracked_files)
+        // 6a. Delete qdrant_chunks (child of tracked_files, through watch_folders)
         match sqlx::query(
             r#"DELETE FROM qdrant_chunks WHERE file_id IN (
-                SELECT file_id FROM tracked_files WHERE tenant_id = ?1
+                SELECT tf.file_id FROM tracked_files tf
+                JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
+                WHERE wf.tenant_id = ?1
             )"#
         )
+        .bind(&item.tenant_id)
+        .execute(&mut *tx)
+        .await
+        {
+            Ok(result) => {
+                if result.rows_affected() > 0 {
+                    info!("Step 6a: deleted {} qdrant_chunks for tenant={}", result.rows_affected(), item.tenant_id);
+                }
+            }
+            Err(e) => {
+                debug!("Step 6a: qdrant_chunks delete: {}", e);
+            }
+        }
+
+        // 6b. Delete tracked_files (through watch_folders)
+        match sqlx::query(
+            r#"DELETE FROM tracked_files WHERE watch_folder_id IN (
+                SELECT watch_id FROM watch_folders WHERE tenant_id = ?1
+            )"#
+        )
+        .bind(&item.tenant_id)
+        .execute(&mut *tx)
+        .await
+        {
+            Ok(result) => {
+                if result.rows_affected() > 0 {
+                    info!("Step 6b: deleted {} tracked_files for tenant={}", result.rows_affected(), item.tenant_id);
+                }
+            }
+            Err(e) => {
+                debug!("Step 6b: tracked_files delete: {}", e);
+            }
+        }
+
+        // 6c. Delete keywords (has tenant_id directly)
+        match sqlx::query("DELETE FROM keywords WHERE tenant_id = ?1")
             .bind(&item.tenant_id)
             .execute(&mut *tx)
             .await
         {
             Ok(result) => {
                 if result.rows_affected() > 0 {
-                    info!("Deleted {} qdrant_chunks rows for tenant={}", result.rows_affected(), item.tenant_id);
+                    info!("Step 6c: deleted {} keywords for tenant={}", result.rows_affected(), item.tenant_id);
                 }
             }
             Err(e) => {
-                // Table may not exist yet, non-fatal
-                debug!("qdrant_chunks delete for tenant={}: {}", item.tenant_id, e);
+                debug!("Step 6c: keywords delete: {}", e);
             }
         }
 
-        // 2b. Delete tracked_files
-        match sqlx::query("DELETE FROM tracked_files WHERE tenant_id = ?1")
+        // 6d. Delete keyword_baskets (has tenant_id directly)
+        match sqlx::query("DELETE FROM keyword_baskets WHERE tenant_id = ?1")
             .bind(&item.tenant_id)
             .execute(&mut *tx)
             .await
         {
             Ok(result) => {
                 if result.rows_affected() > 0 {
-                    info!("Deleted {} tracked_files for tenant={}", result.rows_affected(), item.tenant_id);
+                    info!("Step 6d: deleted {} keyword_baskets for tenant={}", result.rows_affected(), item.tenant_id);
                 }
             }
             Err(e) => {
-                debug!("tracked_files delete for tenant={}: {}", item.tenant_id, e);
+                debug!("Step 6d: keyword_baskets delete: {}", e);
             }
         }
 
-        // 2c. Delete watch_folders
+        // 6e. Delete tags (has tenant_id directly)
+        match sqlx::query("DELETE FROM tags WHERE tenant_id = ?1")
+            .bind(&item.tenant_id)
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(result) => {
+                if result.rows_affected() > 0 {
+                    info!("Step 6e: deleted {} tags for tenant={}", result.rows_affected(), item.tenant_id);
+                }
+            }
+            Err(e) => {
+                debug!("Step 6e: tags delete: {}", e);
+            }
+        }
+
+        // 6f. Delete tag_hierarchy_edges (has tenant_id directly)
+        match sqlx::query("DELETE FROM tag_hierarchy_edges WHERE tenant_id = ?1")
+            .bind(&item.tenant_id)
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(result) => {
+                if result.rows_affected() > 0 {
+                    info!("Step 6f: deleted {} tag_hierarchy_edges for tenant={}", result.rows_affected(), item.tenant_id);
+                }
+            }
+            Err(e) => {
+                debug!("Step 6f: tag_hierarchy_edges delete: {}", e);
+            }
+        }
+
+        // 6g. Delete canonical_tags (has tenant_id directly)
+        match sqlx::query("DELETE FROM canonical_tags WHERE tenant_id = ?1")
+            .bind(&item.tenant_id)
+            .execute(&mut *tx)
+            .await
+        {
+            Ok(result) => {
+                if result.rows_affected() > 0 {
+                    info!("Step 6g: deleted {} canonical_tags for tenant={}", result.rows_affected(), item.tenant_id);
+                }
+            }
+            Err(e) => {
+                debug!("Step 6g: canonical_tags delete: {}", e);
+            }
+        }
+
+        // 6h. Delete watch_folders (last, after all children are removed)
         match sqlx::query("DELETE FROM watch_folders WHERE tenant_id = ?1")
             .bind(&item.tenant_id)
             .execute(&mut *tx)
@@ -3515,11 +3732,11 @@ impl UnifiedQueueProcessor {
         {
             Ok(result) => {
                 if result.rows_affected() > 0 {
-                    info!("Deleted {} watch_folders for tenant={}", result.rows_affected(), item.tenant_id);
+                    info!("Step 6h: deleted {} watch_folders for tenant={}", result.rows_affected(), item.tenant_id);
                 }
             }
             Err(e) => {
-                debug!("watch_folders delete for tenant={}: {}", item.tenant_id, e);
+                debug!("Step 6h: watch_folders delete: {}", e);
             }
         }
 
@@ -3528,9 +3745,36 @@ impl UnifiedQueueProcessor {
                 format!("Failed to commit delete transaction: {}", e)
             ))?;
 
+        // ── Step 7: Final verification ──
+        let canonical = [
+            COLLECTION_PROJECTS,
+            COLLECTION_LIBRARIES,
+            COLLECTION_MEMORY,
+            COLLECTION_SCRATCHPAD,
+        ];
+
+        for coll in &canonical {
+            if let Ok(true) = storage_client.collection_exists(coll).await {
+                match storage_client.count_points(coll, Some(&item.tenant_id)).await {
+                    Ok(remaining) if remaining > 0 => {
+                        warn!(
+                            "Step 7: ORPHAN POINTS: {} remaining in '{}' for tenant={}",
+                            remaining, coll, item.tenant_id
+                        );
+                    }
+                    Ok(_) => {
+                        debug!("Step 7: verified 0 remaining in '{}' for tenant={}", coll, item.tenant_id);
+                    }
+                    Err(e) => {
+                        warn!("Step 7: verification failed for '{}': {}", coll, e);
+                    }
+                }
+            }
+        }
+
         info!(
-            "Successfully processed delete tenant item {} (tenant={})",
-            item.queue_id, item.tenant_id
+            "Successfully deleted tenant={}: {} Qdrant points, {} tracked files (queue_id={})",
+            item.tenant_id, total_qdrant_deleted, file_count.len(), item.queue_id
         );
 
         Ok(())
