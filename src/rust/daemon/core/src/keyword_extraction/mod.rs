@@ -10,6 +10,7 @@
 //! - `tag_selector`: MMR diversity-based tag selection
 
 pub mod basket_assignment;
+pub mod canonical_tags;
 pub mod keyword_selector;
 pub mod lexical_candidates;
 pub mod quasi_summary;
