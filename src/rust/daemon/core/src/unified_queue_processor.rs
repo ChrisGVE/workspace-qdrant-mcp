@@ -3542,6 +3542,38 @@ impl UnifiedQueueProcessor {
             );
         }
 
+        // ── Step 3b: Sweep libraries collection for orphaned/untracked points ──
+        // Library-routed files (PDFs etc.) may exist in the libraries collection
+        // with this tenant's ID but not appear in tracked_files (pre-routing data
+        // or tracking gaps). Scroll-and-delete catches these.
+        if !points_by_collection.contains_key(COLLECTION_LIBRARIES) {
+            if storage_client
+                .collection_exists(COLLECTION_LIBRARIES)
+                .await
+                .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?
+            {
+                let library_ids = storage_client
+                    .scroll_point_ids_by_tenant(COLLECTION_LIBRARIES, &item.tenant_id)
+                    .await
+                    .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+
+                if !library_ids.is_empty() {
+                    for batch in library_ids.chunks(QDRANT_BATCH_SIZE) {
+                        let batch_vec: Vec<String> = batch.to_vec();
+                        storage_client
+                            .delete_points_by_ids(COLLECTION_LIBRARIES, &batch_vec)
+                            .await
+                            .map_err(|e| UnifiedProcessorError::Storage(e.to_string()))?;
+                    }
+                    total_qdrant_deleted += library_ids.len() as u64;
+                    info!(
+                        "Step 3b: deleted {} orphaned library points for tenant={}",
+                        library_ids.len(), item.tenant_id
+                    );
+                }
+            }
+        }
+
         // ── Step 4: Handle memory collection ──
         if storage_client
             .collection_exists(COLLECTION_MEMORY)
