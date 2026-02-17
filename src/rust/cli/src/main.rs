@@ -4,7 +4,7 @@
 //! Designed for <100ms startup time using minimal tokio runtime.
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
 
 mod commands;
 mod config;
@@ -237,7 +237,10 @@ async fn main() -> Result<()> {
         Commands::Restore(args) => commands::restore::execute(args).await,
 
         // Setup & Diagnostics
-        Commands::Init(args) => commands::init::execute(args).await,
+        Commands::Init(args) => {
+            let mut cmd = Cli::command();
+            commands::init::execute(args, &mut cmd).await
+        },
         Commands::Hooks(args) => commands::hooks::execute(args).await,
         Commands::Debug(args) => commands::debug::execute(args).await,
     };
