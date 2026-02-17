@@ -1620,6 +1620,26 @@ impl LanguageServerManager {
     /// NO LONGER affects enrichment. Activity state should only affect queue
     /// priority, not feature availability. Both active and inactive projects
     /// receive full LSP enrichment.
+    /// Check if an LSP server is ready for a given file in a project.
+    ///
+    /// Returns true if there is a running server instance that can handle
+    /// the file's language for the given project. Returns false if no server
+    /// has been started or the server hasn't finished initializing.
+    pub async fn is_server_ready_for_file(&self, project_id: &str, file: &Path) -> bool {
+        let file_language = file.extension()
+            .and_then(|ext| ext.to_str())
+            .map(Language::from_extension);
+
+        let Some(language) = file_language else {
+            return false;
+        };
+
+        let instances = self.instances.read().await;
+        instances.iter().any(|(k, _)| {
+            k.project_id == project_id && k.language == language
+        })
+    }
+
     pub async fn enrich_chunk(
         &self,
         project_id: &str,
@@ -1635,8 +1655,36 @@ impl LanguageServerManager {
             metrics.total_enrichment_queries += 1;
         }
 
-        // Note: Activity check removed - enrichment runs for all projects.
-        // Activity state only affects queue priority, not feature availability.
+        // Check if LSP server is ready for this file before attempting queries.
+        // If no server instance exists, return Skipped so metadata_uplift can retry later.
+        if !self.is_server_ready_for_file(project_id, file).await {
+            let language = file.extension()
+                .and_then(|ext| ext.to_str())
+                .map(Language::from_extension)
+                .map(|l| l.identifier().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            tracing::debug!(
+                project_id = project_id,
+                file = %file.display(),
+                language = %language,
+                "LSP server not ready, skipping enrichment"
+            );
+
+            {
+                let mut metrics = self.metrics.write().await;
+                metrics.skipped_enrichments += 1;
+            }
+
+            return LspEnrichment {
+                references: Vec::new(),
+                type_info: None,
+                resolved_imports: Vec::new(),
+                definition: None,
+                enrichment_status: EnrichmentStatus::Skipped,
+                error_message: Some(format!("LSP server not ready for {}", language)),
+            };
+        }
 
         // Track successes and failures for each query
         let mut errors: Vec<String> = Vec::new();
@@ -2323,10 +2371,10 @@ mod tests {
             false,  // inactive - but enrichment still runs
         ).await;
 
-        // Should have 1 total, 0 skipped (activity state no longer skips enrichment)
+        // Should have 1 total, 1 skipped (no server instances → readiness check skips)
         let metrics = manager.get_metrics().await;
         assert_eq!(metrics.total_enrichment_queries, 1);
-        assert_eq!(metrics.skipped_enrichments, 0);
+        assert_eq!(metrics.skipped_enrichments, 1);
     }
 
     #[tokio::test]
@@ -2516,10 +2564,11 @@ mod tests {
             false, // project not active - but enrichment still runs
         ).await;
 
-        // Without any servers, queries succeed but return no data → Success status
-        // (no references found is a valid result, not partial)
-        assert_eq!(result.enrichment_status, EnrichmentStatus::Success);
-        assert!(result.error_message.is_none());
+        // Without any server instances, readiness check fails → Skipped
+        // metadata_uplift will retry when LSP server becomes available
+        assert_eq!(result.enrichment_status, EnrichmentStatus::Skipped);
+        assert!(result.error_message.is_some());
+        assert!(result.error_message.as_ref().unwrap().contains("not ready"));
         assert!(result.references.is_empty());
         assert!(result.type_info.is_none());
         assert!(result.resolved_imports.is_empty());
@@ -2540,10 +2589,9 @@ mod tests {
             true, // project active
         ).await;
 
-        // Without any servers, queries succeed but return no data → Success status
-        // (no references found is a valid result, not partial)
-        assert_eq!(result.enrichment_status, EnrichmentStatus::Success);
-        assert!(result.error_message.is_none());
+        // Without any server instances, readiness check fails → Skipped
+        assert_eq!(result.enrichment_status, EnrichmentStatus::Skipped);
+        assert!(result.error_message.is_some());
         // Verify empty results
         assert!(result.references.is_empty());
         assert!(result.type_info.is_none());
@@ -2738,44 +2786,35 @@ mod tests {
         let config = ProjectLspConfig::default();
         let manager = LanguageServerManager::new(config).await.unwrap();
 
-        // Enrich a chunk with inactive flag - enrichment runs anyway
+        // Enrich a chunk with inactive flag — no server instances, so readiness check fails
         let enrichment = manager.enrich_chunk(
             "test-project",
             std::path::Path::new("/test/file.rs"),
             "test_function",
             1,
             10,
-            false, // inactive project - but enrichment runs anyway
+            false,
         ).await;
 
-        // Should be Partial or Success (no servers, but queries attempt to run)
-        assert!(
-            matches!(
-                enrichment.enrichment_status,
-                EnrichmentStatus::Success | EnrichmentStatus::Partial
-            ),
-            "Expected Success or Partial for inactive project (activity doesn't skip), got {:?}",
-            enrichment.enrichment_status
+        // No server instances → Skipped (readiness check)
+        assert_eq!(
+            enrichment.enrichment_status,
+            EnrichmentStatus::Skipped,
         );
 
-        // Also test with active flag - should behave identically
+        // Also test with active flag - should behave identically (no instances either way)
         let enrichment = manager.enrich_chunk(
             "test-project",
             std::path::Path::new("/test/file.rs"),
             "test_function",
             1,
             10,
-            true, // active project
+            true,
         ).await;
 
-        // Should be Partial or Success (no data found but queries succeeded)
-        assert!(
-            matches!(
-                enrichment.enrichment_status,
-                EnrichmentStatus::Success | EnrichmentStatus::Partial
-            ),
-            "Expected Success or Partial for empty results, got {:?}",
-            enrichment.enrichment_status
+        assert_eq!(
+            enrichment.enrichment_status,
+            EnrichmentStatus::Skipped,
         );
     }
 
@@ -2813,5 +2852,38 @@ mod tests {
         assert_eq!(EnrichmentStatus::Partial.as_str(), "partial");
         assert_eq!(EnrichmentStatus::Failed.as_str(), "failed");
         assert_eq!(EnrichmentStatus::Skipped.as_str(), "skipped");
+    }
+
+    #[tokio::test]
+    async fn test_is_server_ready_for_file_no_instances() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        // No server instances → not ready
+        assert!(!manager.is_server_ready_for_file("test-project", Path::new("/test/file.rs")).await);
+        assert!(!manager.is_server_ready_for_file("test-project", Path::new("/test/file.py")).await);
+
+        // No extension → not ready
+        assert!(!manager.is_server_ready_for_file("test-project", Path::new("/test/Makefile")).await);
+    }
+
+    #[tokio::test]
+    async fn test_enrich_chunk_skipped_includes_language_info() {
+        let config = ProjectLspConfig::default();
+        let manager = LanguageServerManager::new(config).await.unwrap();
+
+        let result = manager.enrich_chunk(
+            "test-project",
+            Path::new("/test/file.rs"),
+            "test_symbol",
+            10,
+            20,
+            true,
+        ).await;
+
+        assert_eq!(result.enrichment_status, EnrichmentStatus::Skipped);
+        let msg = result.error_message.unwrap();
+        assert!(msg.contains("not ready"));
+        assert!(msg.contains("rust"));
     }
 }

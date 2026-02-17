@@ -1516,8 +1516,17 @@ impl UnifiedQueueProcessor {
                         is_project_active,
                     ).await;
 
-                    Self::add_lsp_enrichment_to_payload(&mut point_payload, &enrichment);
-                    lsp_status = ProcessingStatus::Done;
+                    if enrichment.enrichment_status == EnrichmentStatus::Skipped {
+                        // LSP server not ready — mark as pending for metadata_uplift retry
+                        point_payload.insert(
+                            "lsp_enrichment_status".to_string(),
+                            serde_json::json!("pending"),
+                        );
+                        // Keep lsp_status as None (not Done) so tracked_files reflects incomplete state
+                    } else {
+                        Self::add_lsp_enrichment_to_payload(&mut point_payload, &enrichment);
+                        lsp_status = ProcessingStatus::Done;
+                    }
                 } else {
                     // Non-code file (markdown, config, etc.) — skip LSP enrichment
                     point_payload.insert(

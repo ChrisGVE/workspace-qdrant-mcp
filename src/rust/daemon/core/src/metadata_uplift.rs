@@ -53,7 +53,7 @@ pub struct UpliftStats {
 /// Scroll Qdrant for points needing metadata uplift.
 ///
 /// Finds points where:
-/// - `lsp_enrichment_status` = 'failed' or 'partial', OR
+/// - `lsp_enrichment_status` = 'failed', 'partial', or 'pending', OR
 /// - `concept_tags` field is missing/empty, OR
 /// - `uplift_generation` < current_generation
 ///
@@ -63,11 +63,12 @@ pub async fn find_points_needing_uplift(
     collection: &str,
     config: &UpliftConfig,
 ) -> Result<Vec<UpliftCandidate>, StorageError> {
-    // Filter: lsp_enrichment_status in ['failed', 'partial']
-    // We use a Qdrant scroll with OR conditions
+    // Filter: lsp_enrichment_status in ['failed', 'partial', 'pending']
+    // 'pending' = code file where LSP server wasn't ready during initial processing
     let filter = Filter::should([
         Condition::matches("lsp_enrichment_status", "failed".to_string()),
         Condition::matches("lsp_enrichment_status", "partial".to_string()),
+        Condition::matches("lsp_enrichment_status", "pending".to_string()),
     ]);
 
     let mut candidates = Vec::new();

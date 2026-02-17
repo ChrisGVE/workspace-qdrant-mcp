@@ -387,12 +387,10 @@ mod tests {
             false, // is_active = false, but enrichment runs anyway
         ).await;
 
-        // Without any servers, queries succeed but return no data → Success status
-        // (no references found is a valid result)
-        assert!(matches!(
-            enrichment.enrichment_status,
-            EnrichmentStatus::Failed | EnrichmentStatus::Success
-        ));
+        // Without any server instances, readiness check fails → Skipped
+        assert_eq!(enrichment.enrichment_status, EnrichmentStatus::Skipped);
+        assert!(enrichment.error_message.is_some());
+        assert!(enrichment.error_message.as_ref().unwrap().contains("not ready"));
     }
 
     #[tokio::test]
@@ -410,11 +408,9 @@ mod tests {
             true, // is_active = true
         ).await;
 
-        // Without any servers, queries succeed but return no data → Success
-        assert!(matches!(
-            enrichment.enrichment_status,
-            EnrichmentStatus::Failed | EnrichmentStatus::Success
-        ));
+        // Without any server instances, readiness check fails → Skipped
+        assert_eq!(enrichment.enrichment_status, EnrichmentStatus::Skipped);
+        assert!(enrichment.error_message.is_some());
     }
 
     #[tokio::test]
@@ -484,7 +480,7 @@ mod tests {
 
         let metrics = manager.get_metrics().await;
         assert_eq!(metrics.total_enrichment_queries, 2);
-        assert_eq!(metrics.skipped_enrichments, 0); // No longer skipped - activity doesn't affect enrichment
+        assert_eq!(metrics.skipped_enrichments, 2); // No server instances → readiness check skips
 
         // Reset metrics
         manager.reset_metrics().await;
