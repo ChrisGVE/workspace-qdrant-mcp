@@ -37,6 +37,7 @@ use crate::file_classification::{classify_file_type, is_test_file, get_extension
 use crate::tracked_files_schema::{
     self, ProcessingStatus, ChunkType as TrackedChunkType,
 };
+use crate::keyword_extraction::pipeline::{PipelineConfig, PipelineInput};
 
 /// Unified queue processor errors
 #[derive(Error, Debug)]
@@ -1488,6 +1489,63 @@ impl UnifiedQueueProcessor {
         }
 
         info!("Embedding generation completed: {} chunks in {}ms", chunk_records.len(), embedding_start.elapsed().as_millis());
+
+        // === KEYWORD/TAG EXTRACTION (Task 33) ===
+        // Run extraction pipeline after chunk embeddings, before Qdrant upsert.
+        // Results are injected into point payloads. Failures are non-fatal.
+        if item.op == QueueOperation::Add || item.op == QueueOperation::Update {
+            let chunk_vectors: Vec<Vec<f32>> = points.iter().map(|p| p.dense_vector.clone()).collect();
+            let chunk_texts: Vec<String> = document_content.chunks.iter().map(|c| c.content.clone()).collect();
+            let is_code = document_content.document_type.is_code();
+            let language = document_content.document_type.language();
+
+            let pipeline_input = PipelineInput {
+                file_path,
+                full_text: &chunk_texts.join("\n"),
+                language,
+                is_code,
+                chunk_vectors: &chunk_vectors,
+                chunk_texts: &chunk_texts,
+                corpus_size: 0, // Will be wired to SQLite corpus_statistics later
+            };
+
+            let extraction_start = std::time::Instant::now();
+            let extraction = crate::keyword_extraction::pipeline::run_pipeline(
+                &pipeline_input,
+                embedding_generator,
+                &PipelineConfig::default(),
+            ).await;
+
+            let extraction_ms = extraction_start.elapsed().as_millis();
+            info!(
+                "Keyword/tag extraction completed in {}ms: {} keywords, {} tags, {} structural tags",
+                extraction_ms,
+                extraction.keywords.len(),
+                extraction.tags.len(),
+                extraction.structural_tags.len(),
+            );
+
+            // Inject extraction results into all point payloads
+            let kw_phrases = extraction.keyword_phrases();
+            let tag_phrases = extraction.tag_phrases();
+            let struct_map = extraction.structural_tags_map();
+            let basket_map = extraction.basket_map();
+
+            for point in &mut points {
+                if !kw_phrases.is_empty() {
+                    point.payload.insert("keywords".to_string(), serde_json::json!(kw_phrases));
+                }
+                if !tag_phrases.is_empty() {
+                    point.payload.insert("concept_tags".to_string(), serde_json::json!(tag_phrases));
+                }
+                if !struct_map.is_empty() {
+                    point.payload.insert("structural_tags".to_string(), serde_json::json!(struct_map));
+                }
+                if !basket_map.is_empty() {
+                    point.payload.insert("keyword_baskets".to_string(), serde_json::json!(basket_map));
+                }
+            }
+        }
 
         // Upsert points to Qdrant
         // Task 555: If insert fails after old points were deleted (update path),

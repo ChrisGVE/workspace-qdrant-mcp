@@ -14,6 +14,7 @@ pub mod canonical_tags;
 pub mod keyword_selector;
 pub mod lexical_candidates;
 pub mod lsp_candidates;
+pub mod pipeline;
 pub mod quasi_summary;
 pub mod semantic_rerank;
 pub mod structural_tags;

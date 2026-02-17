@@ -386,6 +386,11 @@ impl DocumentType {
         }
     }
 
+    /// Return true if this is a code document.
+    pub fn is_code(&self) -> bool {
+        matches!(self, Self::Code(_))
+    }
+
     /// Return the language name for Code documents, None for other types.
     pub fn language(&self) -> Option<&str> {
         match self {
