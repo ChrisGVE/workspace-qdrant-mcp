@@ -245,6 +245,7 @@ test_output_*
 # tasks.json
 # tasks/
 tmp/
+transcripts/
 
 # Git cleanup artifacts
 affected_commits.txt
