@@ -41,6 +41,7 @@ Service & Admin:
   service      Daemon service management (start, stop, restart, status)
   status       System status monitoring (queue, watch, health)
   admin        Administrative operations
+  config       Configuration management (generate, show, path)
   collections  Collection management (list, reset)
   language     Language tools (LSP, Tree-sitter)
   update       Update system from GitHub releases
@@ -137,20 +138,24 @@ enum Commands {
     #[command(display_order = 41)]
     Status(commands::status::StatusArgs),
 
-    /// Administrative operations (rename-tenant, idle-history)
+    /// Administrative operations (rename-tenant, idle-history, prune-logs)
     #[command(display_order = 42)]
     Admin(commands::admin::AdminArgs),
 
-    /// Collection management (list, reset)
+    /// Configuration management (generate, show, path)
     #[command(display_order = 43)]
+    Config(commands::config_cmd::ConfigCmdArgs),
+
+    /// Collection management (list, reset)
+    #[command(display_order = 44)]
     Collections(commands::collections::CollectionsArgs),
 
     /// Language tools - LSP and Tree-sitter (list, ts-install, ts-remove, lsp-install, lsp-remove, status)
-    #[command(display_order = 44)]
+    #[command(display_order = 45)]
     Language(commands::language::LanguageArgs),
 
     /// Update system from GitHub releases
-    #[command(display_order = 45)]
+    #[command(display_order = 46)]
     Update(commands::update::UpdateArgs),
 
     // --- Data Management ---
@@ -236,6 +241,7 @@ async fn main() -> Result<()> {
         },
         Commands::Status(args) => commands::status::execute(args).await,
         Commands::Admin(args) => commands::admin::execute(args).await,
+        Commands::Config(args) => commands::config_cmd::execute(args).await,
         Commands::Collections(args) => commands::collections::execute(args).await,
         Commands::Language(args) => commands::language::execute(args).await,
         Commands::Update(args) => commands::update::execute(args).await,
