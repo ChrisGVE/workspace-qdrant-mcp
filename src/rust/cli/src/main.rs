@@ -13,6 +13,48 @@ mod grpc;
 mod output;
 mod queue;
 
+/// Custom help template with grouped subcommands
+const HELP_TEMPLATE: &str = "\
+{before-help}{name} {version}
+{about-with-newline}
+{usage-heading} {usage}
+
+Options:
+{options}
+Search & Content:
+  search       Search collections (project, library, memory, global)
+  ingest       Ingest documents (file, folder, web)
+  memory       Memory rules management
+  scratch      Scratchpad entries
+
+Project & Library:
+  project      Project lifecycle (list, info, remove)
+  library      Library management (list, add, ingest, watch, remove, config)
+  watch        Watch folder management (list, enable, disable, show)
+  tags         Keyword/tag management and hierarchy
+
+Queue & Analytics:
+  queue        Unified queue inspector (list, show, stats)
+  stats        Search instrumentation analytics
+
+Service & Admin:
+  service      Daemon service management (start, stop, restart, status)
+  status       System status monitoring (queue, watch, health)
+  admin        Administrative operations
+  collections  Collection management (list, reset)
+  language     Language tools (LSP, Tree-sitter)
+  update       Update system from GitHub releases
+
+Data Management:
+  backup       Backup Qdrant collections (create snapshots)
+  restore      Restore Qdrant collections from snapshots
+
+Setup & Diagnostics:
+  init         Shell completion setup (bash, zsh, fish)
+  hooks        Claude Code hooks management
+  debug        Diagnostic tools (logs, errors)
+{after-help}";
+
 /// Workspace Qdrant MCP CLI
 #[derive(Parser)]
 #[command(name = "wqm")]
@@ -20,6 +62,8 @@ mod queue;
 #[command(long_version = concat!(env!("CARGO_PKG_VERSION"), " (", env!("BUILD_NUMBER"), ")"))]
 #[command(propagate_version = true)]
 #[command(arg_required_else_help = true)]
+#[command(help_template = HELP_TEMPLATE)]
+#[command(disable_help_subcommand = true)]
 struct Cli {
     /// Output format (table, json, plain)
     #[arg(long, global = true, default_value = "table")]
@@ -37,89 +81,98 @@ struct Cli {
     command: Commands,
 }
 
-/// CLI commands
+/// CLI commands — hidden from default help (rendered by custom template)
 #[derive(Subcommand)]
 enum Commands {
-    // =========================================================================
-    // Service & Status
-    // =========================================================================
-    /// Daemon service management (start, stop, restart, status)
-    Service(commands::service::ServiceArgs),
+    // --- Search & Content ---
+    /// Search collections (project, library, memory, global)
+    #[command(display_order = 10)]
+    Search(commands::search::SearchArgs),
 
-    /// Consolidated status monitoring (queue, watch, performance, health)
-    Status(commands::status::StatusArgs),
-
-    // =========================================================================
-    // Content Management
-    // =========================================================================
-    /// Library management with tags (list, add, ingest, watch, unwatch, remove, config)
-    Library(commands::library::LibraryArgs),
-
-    /// Project lifecycle (list, info, remove)
-    Project(commands::project::ProjectArgs),
+    /// Ingest documents (file, folder, web)
+    #[command(display_order = 11)]
+    Ingest(commands::ingest::IngestArgs),
 
     /// Memory rules management (list, add, remove, update, search, scope)
+    #[command(display_order = 12)]
     Memory(commands::memory::MemoryArgs),
 
     /// Scratchpad entries (add, list)
+    #[command(display_order = 13)]
     Scratch(commands::scratch::ScratchArgs),
 
-    // =========================================================================
-    // Search & Queue
-    // =========================================================================
-    /// Search collections (project, library, memory, global)
-    Search(commands::search::SearchArgs),
+    // --- Project & Library ---
+    /// Project lifecycle (list, info, remove)
+    #[command(display_order = 20)]
+    Project(commands::project::ProjectArgs),
 
+    /// Library management with tags (list, add, ingest, watch, unwatch, remove, config)
+    #[command(display_order = 21)]
+    Library(commands::library::LibraryArgs),
+
+    /// Watch folder management (list, enable, disable, show)
+    #[command(display_order = 22)]
+    Watch(commands::watch::WatchArgs),
+
+    /// Keyword/tag management and hierarchy inspection (list, keywords, tree, stats, rebuild, search, baskets)
+    #[command(display_order = 23)]
+    Tags(commands::tags::TagsArgs),
+
+    // --- Queue & Analytics ---
     /// Unified queue inspector (list, show, stats)
+    #[command(display_order = 30)]
     Queue(commands::queue::QueueArgs),
 
     /// Search instrumentation analytics (overview, log-search)
+    #[command(display_order = 31)]
     Stats(commands::stats::StatsArgs),
 
-    /// Keyword/tag management and hierarchy inspection (list, keywords, tree, stats, rebuild, search, baskets)
-    Tags(commands::tags::TagsArgs),
+    // --- Service & Admin ---
+    /// Daemon service management (start, stop, restart, status)
+    #[command(display_order = 40)]
+    Service(commands::service::ServiceArgs),
 
-    // =========================================================================
-    // Language Support
-    // =========================================================================
-    /// Language tools - LSP and Tree-sitter (list, ts-install, ts-remove, lsp-install, lsp-remove, status)
-    Language(commands::language::LanguageArgs),
+    /// Consolidated status monitoring (queue, watch, performance, health)
+    #[command(display_order = 41)]
+    Status(commands::status::StatusArgs),
 
-    // =========================================================================
-    // System Administration
-    // =========================================================================
-    /// Update system from GitHub releases
-    Update(commands::update::UpdateArgs),
-
-    /// Administrative operations (rename-tenant)
+    /// Administrative operations (rename-tenant, idle-history)
+    #[command(display_order = 42)]
     Admin(commands::admin::AdminArgs),
 
     /// Collection management (list, reset)
+    #[command(display_order = 43)]
     Collections(commands::collections::CollectionsArgs),
 
+    /// Language tools - LSP and Tree-sitter (list, ts-install, ts-remove, lsp-install, lsp-remove, status)
+    #[command(display_order = 44)]
+    Language(commands::language::LanguageArgs),
+
+    /// Update system from GitHub releases
+    #[command(display_order = 45)]
+    Update(commands::update::UpdateArgs),
+
+    // --- Data Management ---
     /// Backup Qdrant collections (create snapshots)
+    #[command(display_order = 50)]
     Backup(commands::backup::BackupArgs),
 
     /// Restore Qdrant collections from snapshots
+    #[command(display_order = 51)]
     Restore(commands::restore::RestoreArgs),
 
-    /// Ingest documents (file, folder, web)
-    Ingest(commands::ingest::IngestArgs),
-
-    /// Watch folder management (list, enable, disable, show)
-    Watch(commands::watch::WatchArgs),
-
-    // =========================================================================
-    // Diagnostics & Setup
-    // =========================================================================
-    /// Diagnostic tools (logs, errors, queue-errors, language)
-    Debug(commands::debug::DebugArgs),
+    // --- Setup & Diagnostics ---
+    /// Shell completion setup (bash, zsh, fish)
+    #[command(display_order = 60)]
+    Init(commands::init::InitArgs),
 
     /// Claude Code hooks management (install, uninstall, status)
+    #[command(display_order = 61)]
     Hooks(commands::hooks::HooksArgs),
 
-    /// Shell completion setup (bash, zsh, fish)
-    Init(commands::init::InitArgs),
+    /// Diagnostic tools (logs, errors, queue-errors, language)
+    #[command(display_order = 62)]
+    Debug(commands::debug::DebugArgs),
 }
 
 /// Main entry point with minimal tokio runtime for fast startup
@@ -155,38 +208,38 @@ async fn main() -> Result<()> {
 
     // Execute the command
     let result = match cli.command {
-        // Service & Status
-        Commands::Service(args) => commands::service::execute(args).await,
-        Commands::Status(args) => commands::status::execute(args).await,
-
-        // Content Management
-        Commands::Library(args) => commands::library::execute(args).await,
-        Commands::Project(args) => commands::project::execute(args).await,
+        // Search & Content
+        Commands::Search(args) => commands::search::execute(args).await,
+        Commands::Ingest(args) => commands::ingest::execute(args).await,
         Commands::Memory(args) => commands::memory::execute(args).await,
         Commands::Scratch(args) => commands::scratch::execute(args).await,
 
-        // Search & Queue
-        Commands::Search(args) => commands::search::execute(args).await,
-        Commands::Queue(args) => commands::queue::execute(args).await,
-        Commands::Stats(args) => commands::stats::execute(args).await,
+        // Project & Library
+        Commands::Project(args) => commands::project::execute(args).await,
+        Commands::Library(args) => commands::library::execute(args).await,
+        Commands::Watch(args) => commands::watch::execute(args).await,
         Commands::Tags(args) => commands::tags::execute(args).await,
 
-        // Language Support
-        Commands::Language(args) => commands::language::execute(args).await,
+        // Queue & Analytics
+        Commands::Queue(args) => commands::queue::execute(args).await,
+        Commands::Stats(args) => commands::stats::execute(args).await,
 
-        // System Administration
+        // Service & Admin
+        Commands::Service(args) => commands::service::execute(args).await,
+        Commands::Status(args) => commands::status::execute(args).await,
         Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Collections(args) => commands::collections::execute(args).await,
+        Commands::Language(args) => commands::language::execute(args).await,
         Commands::Update(args) => commands::update::execute(args).await,
+
+        // Data Management
         Commands::Backup(args) => commands::backup::execute(args).await,
         Commands::Restore(args) => commands::restore::execute(args).await,
-        Commands::Ingest(args) => commands::ingest::execute(args).await,
-        Commands::Watch(args) => commands::watch::execute(args).await,
 
-        // Diagnostics & Setup
+        // Setup & Diagnostics
+        Commands::Init(args) => commands::init::execute(args).await,
         Commands::Hooks(args) => commands::hooks::execute(args).await,
         Commands::Debug(args) => commands::debug::execute(args).await,
-        Commands::Init(args) => commands::init::execute(args).await,
     };
 
     // Handle result
