@@ -55,6 +55,10 @@ function createMockStateManager(): SqliteStateManager {
     listProjects: vi.fn().mockResolvedValue([]),
     logSearchEvent: vi.fn(),
     updateSearchEvent: vi.fn(),
+    getMatchingTags: vi.fn().mockReturnValue([]),
+    getKeywordBasketsForTags: vi.fn().mockReturnValue([]),
+    listTags: vi.fn().mockReturnValue([]),
+    getTagHierarchy: vi.fn().mockReturnValue([]),
   } as unknown as SqliteStateManager;
 }
 
@@ -501,5 +505,130 @@ describe('Parent context expansion', () => {
     const parent = await searchTool.retrieveParent('nonexistent', 'libraries');
 
     expect(parent).toBeNull();
+  });
+
+  // ── Tag filtering tests (Task 37) ──
+
+  describe('tag filtering', () => {
+    it('should include tag in search options', async () => {
+      const daemon = createMockDaemonClient();
+      const state = createMockStateManager();
+      const detector = createMockProjectDetector();
+      const tool = new SearchTool(
+        { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
+        daemon, state, detector,
+      );
+
+      const result = await tool.search({
+        query: 'test query',
+        tag: 'async runtime',
+        projectId: 'test-project-123',
+      });
+
+      expect(result).toBeDefined();
+      expect(result.query).toBe('test query');
+    });
+
+    it('should include tags array in search options', async () => {
+      const daemon = createMockDaemonClient();
+      const state = createMockStateManager();
+      const detector = createMockProjectDetector();
+      const tool = new SearchTool(
+        { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
+        daemon, state, detector,
+      );
+
+      const result = await tool.search({
+        query: 'test query',
+        tags: ['async runtime', 'error handling'],
+        projectId: 'test-project-123',
+      });
+
+      expect(result).toBeDefined();
+      expect(result.query).toBe('test query');
+    });
+
+    it('should pass tag to filter builder', async () => {
+      const QdrantClientMock = await import('@qdrant/js-client-rest');
+      const searchFn = vi.fn().mockResolvedValue([]);
+      vi.mocked(QdrantClientMock.QdrantClient).mockImplementationOnce(
+        () =>
+          ({
+            search: searchFn,
+            getCollection: vi.fn().mockResolvedValue({}),
+          }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
+      );
+
+      const daemon = createMockDaemonClient();
+      const state = createMockStateManager();
+      const detector = createMockProjectDetector();
+      const tool = new SearchTool(
+        { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
+        daemon, state, detector,
+      );
+
+      await tool.search({
+        query: 'test',
+        tag: 'async runtime',
+        mode: 'semantic',
+        projectId: 'test-project-123',
+      });
+
+      // Verify the search was called with a filter containing the tag
+      expect(searchFn).toHaveBeenCalled();
+      const callArgs = searchFn.mock.calls[0];
+      const searchRequest = callArgs[1];
+      const filter = searchRequest.filter;
+
+      // Filter should contain a must condition for concept_tags
+      expect(filter).toBeDefined();
+      expect(filter.must).toBeDefined();
+      const tagCondition = filter.must.find(
+        (c: Record<string, unknown>) => c.key === 'concept_tags'
+      );
+      expect(tagCondition).toBeDefined();
+      expect(tagCondition.match.value).toBe('async runtime');
+    });
+
+    it('should pass tags array as should condition', async () => {
+      const QdrantClientMock = await import('@qdrant/js-client-rest');
+      const searchFn = vi.fn().mockResolvedValue([]);
+      vi.mocked(QdrantClientMock.QdrantClient).mockImplementationOnce(
+        () =>
+          ({
+            search: searchFn,
+            getCollection: vi.fn().mockResolvedValue({}),
+          }) as unknown as ReturnType<typeof QdrantClientMock.QdrantClient>
+      );
+
+      const daemon = createMockDaemonClient();
+      const state = createMockStateManager();
+      const detector = createMockProjectDetector();
+      const tool = new SearchTool(
+        { qdrantUrl: 'http://localhost:6333', enableTagExpansion: false },
+        daemon, state, detector,
+      );
+
+      await tool.search({
+        query: 'test',
+        tags: ['async runtime', 'error handling'],
+        mode: 'semantic',
+        projectId: 'test-project-123',
+      });
+
+      expect(searchFn).toHaveBeenCalled();
+      const callArgs = searchFn.mock.calls[0];
+      const searchRequest = callArgs[1];
+      const filter = searchRequest.filter;
+
+      // Filter should contain a must condition with a should sub-condition for tags
+      expect(filter).toBeDefined();
+      expect(filter.must).toBeDefined();
+      const shouldCondition = filter.must.find(
+        (c: Record<string, unknown>) => c.should !== undefined
+      );
+      expect(shouldCondition).toBeDefined();
+      expect(shouldCondition.should).toHaveLength(2);
+    });
   });
 });

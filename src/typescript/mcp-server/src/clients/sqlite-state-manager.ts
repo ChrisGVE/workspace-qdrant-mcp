@@ -898,4 +898,106 @@ export class SqliteStateManager {
       return [];
     }
   }
+
+  /**
+   * List concept tags for a collection, optionally filtered by tenant.
+   *
+   * Returns distinct tag names with document count and average score,
+   * ordered by frequency (most common first). Useful for tag exploration.
+   */
+  listTags(
+    collection: string,
+    tenantId?: string,
+    limit = 50,
+  ): { tag: string; docCount: number; avgScore: number }[] {
+    if (!this.db) return [];
+
+    try {
+      const params: (string | number)[] = [collection];
+      let tenantClause = '';
+      if (tenantId) {
+        tenantClause = 'AND t.tenant_id = ?';
+        params.push(tenantId);
+      }
+      params.push(limit);
+
+      const rows = this.db
+        .prepare(
+          `
+          SELECT t.tag,
+                 COUNT(DISTINCT t.doc_id) as doc_count,
+                 ROUND(AVG(t.score), 4) as avg_score
+          FROM tags t
+          WHERE t.collection = ?
+            AND t.tag_type = 'concept'
+            ${tenantClause}
+          GROUP BY t.tag
+          ORDER BY doc_count DESC, avg_score DESC
+          LIMIT ?
+          `,
+        )
+        .all(...params) as Array<{ tag: string; doc_count: number; avg_score: number }>;
+
+      return rows.map((r) => ({
+        tag: r.tag,
+        docCount: r.doc_count,
+        avgScore: r.avg_score,
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Get the canonical tag hierarchy for a collection.
+   *
+   * Returns canonical tags with their parent-child relationships.
+   * Each entry includes name, level, parent name, and child count.
+   */
+  getTagHierarchy(
+    collection: string,
+    tenantId?: string,
+  ): { name: string; level: number; parentName: string | null; childCount: number }[] {
+    if (!this.db) return [];
+
+    try {
+      const params: string[] = [collection];
+      let tenantClause = '';
+      if (tenantId) {
+        tenantClause = 'AND ct.tenant_id = ?';
+        params.push(tenantId);
+      }
+
+      const rows = this.db
+        .prepare(
+          `
+          SELECT ct.canonical_name,
+                 ct.level,
+                 parent.canonical_name as parent_name,
+                 (SELECT COUNT(*) FROM canonical_tags child
+                  WHERE child.parent_id = ct.canonical_id) as child_count
+          FROM canonical_tags ct
+          LEFT JOIN canonical_tags parent ON ct.parent_id = parent.canonical_id
+          WHERE ct.collection = ?
+            ${tenantClause}
+          ORDER BY ct.level ASC, ct.canonical_name ASC
+          `,
+        )
+        .all(...params) as Array<{
+        canonical_name: string;
+        level: number;
+        parent_name: string | null;
+        child_count: number;
+      }>;
+
+      return rows.map((r) => ({
+        name: r.canonical_name,
+        level: r.level,
+        parentName: r.parent_name,
+        childCount: r.child_count,
+      }));
+    } catch {
+      return [];
+    }
+  }
 }

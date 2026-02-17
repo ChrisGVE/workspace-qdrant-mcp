@@ -239,6 +239,15 @@ export class WorkspaceQdrantMcpServer {
               type: 'boolean',
               description: 'Include libraries in search (default: false)',
             },
+            tag: {
+              type: 'string',
+              description: 'Filter results by concept tag (exact match)',
+            },
+            tags: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Filter results by multiple concept tags (OR logic)',
+            },
           },
           required: ['query'],
         },
@@ -486,6 +495,8 @@ export class WorkspaceQdrantMcpServer {
     branch?: string;
     fileType?: string;
     includeLibraries?: boolean;
+    tag?: string;
+    tags?: string[];
   } {
     const options: {
       query: string;
@@ -498,6 +509,8 @@ export class WorkspaceQdrantMcpServer {
       branch?: string;
       fileType?: string;
       includeLibraries?: boolean;
+      tag?: string;
+      tags?: string[];
     } = {
       query: (args?.['query'] as string) ?? '',
     };
@@ -532,6 +545,12 @@ export class WorkspaceQdrantMcpServer {
 
     const includeLibraries = args?.['includeLibraries'] as boolean | undefined;
     if (includeLibraries !== undefined) options.includeLibraries = includeLibraries;
+
+    const tag = args?.['tag'] as string | undefined;
+    if (tag) options.tag = tag;
+
+    const tags = args?.['tags'] as string[] | undefined;
+    if (tags && tags.length > 0) options.tags = tags;
 
     return options;
   }

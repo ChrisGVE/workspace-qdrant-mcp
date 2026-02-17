@@ -53,6 +53,8 @@ export interface SearchOptions {
   includeLibraries?: boolean;
   includeDeleted?: boolean;
   tag?: string;
+  /** Filter results by multiple concept tags (OR logic) */
+  tags?: string[];
   /** When true, fetch parent unit context for each chunk result */
   expandContext?: boolean;
 }
@@ -106,6 +108,7 @@ interface FilterParams {
   libraryName: string | undefined;
   includeDeleted: boolean;
   tag: string | undefined;
+  tags: string[] | undefined;
 }
 
 interface SearchCollectionParams {
@@ -177,6 +180,7 @@ export class SearchTool {
       includeLibraries = false,
       includeDeleted = false,
       tag,
+      tags,
     } = options;
 
     // ── Search event instrumentation (Task 12) ──
@@ -269,6 +273,7 @@ export class SearchTool {
           libraryName,
           includeDeleted,
           tag,
+          tags,
         };
         const filter = this.buildFilter(filterParams);
 
@@ -400,11 +405,22 @@ export class SearchTool {
       });
     }
 
-    // Tag filter (dot-separated hierarchy)
+    // Tag filter - single tag (exact match on concept_tags payload field)
     if (params.tag) {
       mustConditions.push({
-        key: 'tag',
+        key: 'concept_tags',
         match: { value: params.tag },
+      });
+    }
+
+    // Multi-tag filter (OR logic: document must have at least one of these tags)
+    if (params.tags && params.tags.length > 0) {
+      const tagShouldConditions = params.tags.map((t) => ({
+        key: 'concept_tags',
+        match: { value: t },
+      }));
+      mustConditions.push({
+        should: tagShouldConditions,
       });
     }
 
