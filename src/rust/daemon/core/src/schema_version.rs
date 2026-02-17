@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 15;
+pub const CURRENT_SCHEMA_VERSION: i32 = 16;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -165,6 +165,7 @@ impl SchemaManager {
             13 => self.migrate_v13().await,
             14 => self.migrate_v14().await,
             15 => self.migrate_v15().await,
+            16 => self.migrate_v16().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -770,6 +771,46 @@ impl SchemaManager {
         info!("Migration v15 complete");
         Ok(())
     }
+
+    /// Migration v16: Create keyword/tag extraction tables
+    async fn migrate_v16(&self) -> Result<(), SchemaError> {
+        info!("Migration v16: Creating keyword/tag extraction tables");
+
+        use super::keywords_schema::{
+            CREATE_KEYWORDS_SQL, CREATE_KEYWORDS_INDEXES_SQL,
+            CREATE_TAGS_SQL, CREATE_TAGS_INDEXES_SQL,
+            CREATE_KEYWORD_BASKETS_SQL, CREATE_KEYWORD_BASKETS_INDEXES_SQL,
+            CREATE_CANONICAL_TAGS_SQL, CREATE_CANONICAL_TAGS_INDEXES_SQL,
+            CREATE_TAG_HIERARCHY_EDGES_SQL, CREATE_TAG_HIERARCHY_EDGES_INDEXES_SQL,
+        };
+
+        // Create tables in dependency order (baskets depend on tags, hierarchy depends on canonical)
+        sqlx::query(CREATE_KEYWORDS_SQL).execute(&self.pool).await?;
+        sqlx::query(CREATE_TAGS_SQL).execute(&self.pool).await?;
+        sqlx::query(CREATE_KEYWORD_BASKETS_SQL).execute(&self.pool).await?;
+        sqlx::query(CREATE_CANONICAL_TAGS_SQL).execute(&self.pool).await?;
+        sqlx::query(CREATE_TAG_HIERARCHY_EDGES_SQL).execute(&self.pool).await?;
+
+        // Create all indexes
+        for index_sql in CREATE_KEYWORDS_INDEXES_SQL {
+            sqlx::query(index_sql).execute(&self.pool).await?;
+        }
+        for index_sql in CREATE_TAGS_INDEXES_SQL {
+            sqlx::query(index_sql).execute(&self.pool).await?;
+        }
+        for index_sql in CREATE_KEYWORD_BASKETS_INDEXES_SQL {
+            sqlx::query(index_sql).execute(&self.pool).await?;
+        }
+        for index_sql in CREATE_CANONICAL_TAGS_INDEXES_SQL {
+            sqlx::query(index_sql).execute(&self.pool).await?;
+        }
+        for index_sql in CREATE_TAG_HIERARCHY_EDGES_INDEXES_SQL {
+            sqlx::query(index_sql).execute(&self.pool).await?;
+        }
+
+        info!("Migration v16 complete");
+        Ok(())
+    }
 }
 
 /// Check if schema is initialized (for graceful degradation by MCP/CLI)
@@ -1321,5 +1362,98 @@ mod tests {
         // Check fallback: mcp_qdrant in sess-c following rg within 2 min
         let fallback = rows.iter().find(|(s, t, b)| s == "sess-c" && t == "mcp_qdrant" && b == "fallback");
         assert!(fallback.is_some(), "Should detect fallback pattern (mcp_qdrant after rg within 2 min)");
+    }
+
+    #[tokio::test]
+    async fn test_migration_v16_keywords_tables() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Verify all 5 tables exist
+        for table in &["keywords", "tags", "keyword_baskets", "canonical_tags", "tag_hierarchy_edges"] {
+            let exists: bool = sqlx::query_scalar(
+                &format!("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='{}')", table)
+            )
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert!(exists, "{} table should exist after v16 migration", table);
+        }
+
+        // Verify key indexes exist
+        let idx_count: i32 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND (
+                name LIKE 'idx_keywords_%' OR
+                name LIKE 'idx_tags_%' OR
+                name LIKE 'idx_keyword_baskets_%' OR
+                name LIKE 'idx_canonical_tags_%' OR
+                name LIKE 'idx_hierarchy_edges_%'
+            )"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(idx_count, 14, "Should have 14 keyword/tag indexes (3+3+2+3+3)");
+    }
+
+    #[tokio::test]
+    async fn test_migration_v16_cascade_deletes() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Enable foreign keys
+        sqlx::query("PRAGMA foreign_keys = ON").execute(&pool).await.unwrap();
+
+        // Insert a tag, then a basket referencing it
+        sqlx::query(
+            "INSERT INTO tags (doc_id, tag, collection, tenant_id) VALUES ('doc1', 'vector-search', 'projects', 't1')"
+        ).execute(&pool).await.unwrap();
+
+        let tag_id: i64 = sqlx::query_scalar("SELECT tag_id FROM tags WHERE doc_id = 'doc1'")
+            .fetch_one(&pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO keyword_baskets (tag_id, keywords_json, tenant_id) VALUES (?1, '[\"qdrant\",\"embedding\"]', 't1')"
+        ).bind(tag_id).execute(&pool).await.unwrap();
+
+        // Verify basket exists
+        let basket_count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM keyword_baskets")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(basket_count, 1);
+
+        // Delete the tag — basket should cascade delete
+        sqlx::query("DELETE FROM tags WHERE tag_id = ?1").bind(tag_id).execute(&pool).await.unwrap();
+
+        let basket_count_after: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM keyword_baskets")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(basket_count_after, 0, "keyword_baskets should cascade delete when tag is deleted");
+    }
+
+    #[tokio::test]
+    async fn test_migration_v16_multi_tenant_isolation() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Insert keywords for two different tenants
+        sqlx::query(
+            "INSERT INTO keywords (doc_id, keyword, score, collection, tenant_id) VALUES ('doc1', 'qdrant', 0.9, 'projects', 't1')"
+        ).execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO keywords (doc_id, keyword, score, collection, tenant_id) VALUES ('doc2', 'redis', 0.8, 'projects', 't2')"
+        ).execute(&pool).await.unwrap();
+
+        // Query by tenant
+        let t1_count: i32 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM keywords WHERE tenant_id = 't1'"
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(t1_count, 1);
+
+        let t2_count: i32 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM keywords WHERE tenant_id = 't2'"
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(t2_count, 1);
     }
 }
