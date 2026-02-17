@@ -96,7 +96,7 @@ impl CollectionServiceImpl {
     }
 
     /// Canonical collection names that cannot be used as aliases (per ADR-001)
-    const CANONICAL_COLLECTIONS: &'static [&'static str] = &["projects", "libraries", "memory"];
+    const CANONICAL_COLLECTIONS: &'static [&'static str] = &["projects", "libraries", "memory", "scratchpad"];
 
     /// Validate that an alias name does not conflict with canonical collection names
     fn validate_alias_name(alias_name: &str) -> Result<(), Status> {
