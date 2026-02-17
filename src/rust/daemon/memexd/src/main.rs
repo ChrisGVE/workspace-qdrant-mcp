@@ -549,6 +549,16 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         .map_err(|e| format!("Failed to run schema migrations: {}", e))?;
     info!("Schema migrations complete");
 
+    // Initialize search.db (Task 45) — separate SQLite for FTS5 code search index
+    let search_db_path = workspace_qdrant_core::search_db::search_db_path_from_state(&db_path);
+    info!("Initializing search database at: {}", search_db_path.display());
+    let search_db = workspace_qdrant_core::SearchDbManager::new(&search_db_path).await
+        .map_err(|e| format!("Failed to initialize search database: {}", e))?;
+    let search_db_version = search_db.get_schema_version().await
+        .map_err(|e| format!("Failed to read search DB version: {}", e))?;
+    info!("Search database initialized at version {:?}", search_db_version);
+    let _search_db = Arc::new(search_db);
+
     // Startup reconciliation: clean stale state and validate watch folders (Task 512)
     info!("Running startup reconciliation...");
     match workspace_qdrant_core::startup_reconciliation::clean_stale_state(&queue_pool).await {

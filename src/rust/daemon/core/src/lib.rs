@@ -47,6 +47,7 @@ pub mod metrics_history_schema;
 pub mod metrics_history;
 pub mod search_events_schema;
 pub mod schema_version;
+pub mod search_db;
 pub mod tokenizer;
 pub mod parent_unit;
 pub mod title_extraction;
@@ -118,6 +119,10 @@ pub use crate::tracked_files_schema::{
 };
 pub use crate::schema_version::{
     SchemaManager, SchemaError, CURRENT_SCHEMA_VERSION
+};
+pub use crate::search_db::{
+    SearchDbManager, SearchDbError, SearchDbResult,
+    search_db_path_from_state, SEARCH_SCHEMA_VERSION, SEARCH_DB_FILENAME,
 };
 pub use crate::service_discovery::{
     DiscoveryManager, ServiceRegistry, ServiceInfo, ServiceStatus,
