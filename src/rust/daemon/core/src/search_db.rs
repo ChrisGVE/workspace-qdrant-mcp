@@ -311,6 +311,292 @@ impl SearchDbManager {
         }
         Ok(())
     }
+
+    // ========================================================================
+    // Code line insertion with gap management (Task 50)
+    // ========================================================================
+
+    /// Insert a single code line with the given seq value.
+    ///
+    /// Returns the new `line_id`.
+    async fn insert_code_line_raw(
+        &self,
+        file_id: i64,
+        seq: f64,
+        content: &str,
+    ) -> SearchDbResult<i64> {
+        let result = sqlx::query(
+            "INSERT INTO code_lines (file_id, seq, content) VALUES (?1, ?2, ?3)",
+        )
+        .bind(file_id)
+        .bind(seq)
+        .bind(content)
+        .execute(&self.pool)
+        .await?;
+
+        Ok(result.last_insert_rowid())
+    }
+
+    /// Insert a code line between two adjacent seq values using midpoint insertion.
+    ///
+    /// Computes `new_seq = (before_seq + after_seq) / 2.0` and inserts there.
+    /// If the resulting gap is below `MIN_SEQ_GAP`, triggers file-local rebalancing.
+    ///
+    /// Returns the inserted line's `line_id` and `seq`, plus whether rebalancing occurred.
+    pub async fn insert_line_between(
+        &self,
+        file_id: i64,
+        before_seq: f64,
+        after_seq: f64,
+        content: &str,
+    ) -> SearchDbResult<(InsertedLine, bool)> {
+        use crate::code_lines_schema::{midpoint_seq, MIN_SEQ_GAP};
+
+        let new_seq = midpoint_seq(before_seq, after_seq);
+        let gap = (after_seq - before_seq) / 2.0;
+
+        let line_id = self.insert_code_line_raw(file_id, new_seq, content).await?;
+
+        // Check if rebalancing is needed
+        let rebalanced = if gap < MIN_SEQ_GAP {
+            debug!(
+                "Gap {:.6} < MIN_SEQ_GAP {:.6} for file_id={}, triggering rebalance",
+                gap, MIN_SEQ_GAP, file_id
+            );
+            self.rebalance_file_seqs(file_id).await?;
+            true
+        } else {
+            false
+        };
+
+        // If rebalanced, the seq may have changed — look up the new value
+        let final_seq = if rebalanced {
+            sqlx::query_scalar("SELECT seq FROM code_lines WHERE line_id = ?1")
+                .bind(line_id)
+                .fetch_one(&self.pool)
+                .await?
+        } else {
+            new_seq
+        };
+
+        Ok((InsertedLine { line_id, seq: final_seq }, rebalanced))
+    }
+
+    /// Insert a code line at the start of a file (before all existing lines).
+    ///
+    /// If the file has existing lines, the new line gets `seq = first_seq / 2.0`.
+    /// If the file is empty, the new line gets `seq = INITIAL_SEQ_GAP`.
+    /// Triggers rebalance if the new seq is below `MIN_SEQ_GAP`.
+    pub async fn insert_line_at_start(
+        &self,
+        file_id: i64,
+        content: &str,
+    ) -> SearchDbResult<(InsertedLine, bool)> {
+        use crate::code_lines_schema::{INITIAL_SEQ_GAP, MIN_SEQ_GAP};
+
+        let first_seq: Option<f64> = sqlx::query_scalar(
+            "SELECT MIN(seq) FROM code_lines WHERE file_id = ?1",
+        )
+        .bind(file_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+
+        let new_seq = match first_seq {
+            Some(first) => first / 2.0,
+            None => INITIAL_SEQ_GAP,
+        };
+
+        let line_id = self.insert_code_line_raw(file_id, new_seq, content).await?;
+
+        let rebalanced = if first_seq.is_some() && new_seq < MIN_SEQ_GAP {
+            debug!(
+                "Start-of-file seq {:.6} < MIN_SEQ_GAP for file_id={}, triggering rebalance",
+                new_seq, file_id
+            );
+            self.rebalance_file_seqs(file_id).await?;
+            true
+        } else {
+            false
+        };
+
+        let final_seq = if rebalanced {
+            sqlx::query_scalar("SELECT seq FROM code_lines WHERE line_id = ?1")
+                .bind(line_id)
+                .fetch_one(&self.pool)
+                .await?
+        } else {
+            new_seq
+        };
+
+        Ok((InsertedLine { line_id, seq: final_seq }, rebalanced))
+    }
+
+    /// Insert a code line at the end of a file (after all existing lines).
+    ///
+    /// New line gets `seq = last_seq + INITIAL_SEQ_GAP`.
+    /// If the file is empty, gets `seq = INITIAL_SEQ_GAP`.
+    /// Appending never triggers rebalance since the gap is always `INITIAL_SEQ_GAP`.
+    pub async fn insert_line_at_end(
+        &self,
+        file_id: i64,
+        content: &str,
+    ) -> SearchDbResult<InsertedLine> {
+        use crate::code_lines_schema::INITIAL_SEQ_GAP;
+
+        let last_seq: Option<f64> = sqlx::query_scalar(
+            "SELECT MAX(seq) FROM code_lines WHERE file_id = ?1",
+        )
+        .bind(file_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+
+        let new_seq = match last_seq {
+            Some(last) => last + INITIAL_SEQ_GAP,
+            None => INITIAL_SEQ_GAP,
+        };
+
+        let line_id = self.insert_code_line_raw(file_id, new_seq, content).await?;
+
+        Ok(InsertedLine { line_id, seq: new_seq })
+    }
+
+    /// Rebalance all seq values for a file.
+    ///
+    /// Reads all lines ordered by current seq, then reassigns seq values
+    /// starting at `INITIAL_SEQ_GAP` with `INITIAL_SEQ_GAP` increments
+    /// (1000.0, 2000.0, 3000.0, ...).
+    ///
+    /// Uses a two-phase update to avoid UNIQUE constraint violations:
+    /// 1. Set all seqs to negative (`-line_id`) — guaranteed unique
+    /// 2. Assign final seq values
+    ///
+    /// This is file-local: only affects lines with the given `file_id`.
+    /// The FTS5 index does NOT need rebuilding after rebalance because
+    /// only `seq` changes — `line_id` and `content` remain the same.
+    ///
+    /// Returns the number of lines rebalanced and the new gap.
+    pub async fn rebalance_file_seqs(&self, file_id: i64) -> SearchDbResult<RebalanceResult> {
+        use crate::code_lines_schema::INITIAL_SEQ_GAP;
+
+        // Read all line_ids in current seq order
+        let line_ids: Vec<i64> = sqlx::query_scalar(
+            "SELECT line_id FROM code_lines WHERE file_id = ?1 ORDER BY seq",
+        )
+        .bind(file_id)
+        .fetch_all(&self.pool)
+        .await?;
+
+        if line_ids.is_empty() {
+            return Ok(RebalanceResult {
+                lines_rebalanced: 0,
+                new_gap: INITIAL_SEQ_GAP,
+            });
+        }
+
+        let mut tx = self.pool.begin().await?;
+
+        // Phase 1: Set all seqs to negative line_id (unique, avoids constraint violations)
+        for line_id in &line_ids {
+            sqlx::query("UPDATE code_lines SET seq = ?1 WHERE line_id = ?2")
+                .bind(-(*line_id as f64))
+                .bind(*line_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        // Phase 2: Assign final seq values
+        for (i, line_id) in line_ids.iter().enumerate() {
+            let new_seq = (i as f64 + 1.0) * INITIAL_SEQ_GAP;
+            sqlx::query("UPDATE code_lines SET seq = ?1 WHERE line_id = ?2")
+                .bind(new_seq)
+                .bind(*line_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+
+        tx.commit().await?;
+
+        let count = line_ids.len();
+        info!("Rebalanced {} lines for file_id={}", count, file_id);
+
+        Ok(RebalanceResult {
+            lines_rebalanced: count,
+            new_gap: INITIAL_SEQ_GAP,
+        })
+    }
+
+    /// Get the seq values of lines adjacent to a given seq in a file.
+    ///
+    /// Returns `(before_seq, after_seq)` where either may be `None`
+    /// if the given seq is at the start or end of the file.
+    pub async fn get_adjacent_seqs(
+        &self,
+        file_id: i64,
+        target_seq: f64,
+    ) -> SearchDbResult<(Option<f64>, Option<f64>)> {
+        let before: Option<f64> = sqlx::query_scalar(
+            "SELECT MAX(seq) FROM code_lines WHERE file_id = ?1 AND seq < ?2",
+        )
+        .bind(file_id)
+        .bind(target_seq)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+
+        let after: Option<f64> = sqlx::query_scalar(
+            "SELECT MIN(seq) FROM code_lines WHERE file_id = ?1 AND seq > ?2",
+        )
+        .bind(file_id)
+        .bind(target_seq)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+
+        Ok((before, after))
+    }
+
+    /// Check if a gap between two seq values requires rebalancing.
+    pub fn needs_rebalance(gap: f64) -> bool {
+        use crate::code_lines_schema::MIN_SEQ_GAP;
+        gap < MIN_SEQ_GAP
+    }
+
+    /// Get the minimum gap between adjacent seq values for a file.
+    ///
+    /// Returns `None` if the file has fewer than 2 lines.
+    pub async fn min_seq_gap(&self, file_id: i64) -> SearchDbResult<Option<f64>> {
+        let gap: Option<f64> = sqlx::query_scalar(
+            r#"
+            SELECT MIN(next_seq - seq) FROM (
+                SELECT seq, LEAD(seq) OVER (ORDER BY seq) AS next_seq
+                FROM code_lines
+                WHERE file_id = ?1
+            ) WHERE next_seq IS NOT NULL
+            "#,
+        )
+        .bind(file_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten();
+
+        Ok(gap)
+    }
+}
+
+/// Result of a code line insertion.
+#[derive(Debug, Clone)]
+pub struct InsertedLine {
+    pub line_id: i64,
+    pub seq: f64,
+}
+
+/// Result of a rebalance operation.
+#[derive(Debug, Clone)]
+pub struct RebalanceResult {
+    pub lines_rebalanced: usize,
+    pub new_gap: f64,
 }
 
 /// Derive the search.db path from the state.db path.
@@ -1573,6 +1859,553 @@ mod tests {
         for row in &rows {
             assert_eq!(row.get::<String, _>("tenant_id"), "proj-0");
         }
+
+        manager.close().await;
+    }
+
+    // ── seq gap management and rebalancing tests (Task 50) ──
+
+    #[tokio::test]
+    async fn test_insert_line_at_end_empty_file() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        let result = manager.insert_line_at_end(1, "first line").await.unwrap();
+        assert_eq!(result.seq, 1000.0);
+        assert!(result.line_id > 0);
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_insert_line_at_end_existing_lines() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        manager.insert_line_at_end(1, "line 1").await.unwrap();
+        let r2 = manager.insert_line_at_end(1, "line 2").await.unwrap();
+        assert_eq!(r2.seq, 2000.0);
+
+        let r3 = manager.insert_line_at_end(1, "line 3").await.unwrap();
+        assert_eq!(r3.seq, 3000.0);
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_insert_line_at_start_empty_file() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        let (result, rebalanced) = manager.insert_line_at_start(1, "first line").await.unwrap();
+        assert_eq!(result.seq, 1000.0);
+        assert!(!rebalanced);
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_insert_line_at_start_existing_lines() {
+        use sqlx::Row;
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        // Insert initial line at seq=1000.0
+        manager.insert_line_at_end(1, "original first").await.unwrap();
+
+        // Insert at start: should get seq=500.0
+        let (result, rebalanced) = manager.insert_line_at_start(1, "new first").await.unwrap();
+        assert_eq!(result.seq, 500.0);
+        assert!(!rebalanced);
+
+        // Verify ordering
+        let rows = sqlx::query(crate::code_lines_schema::LINE_NUMBER_QUERY)
+            .bind(1_i64)
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].get::<String, _>("content"), "new first");
+        assert_eq!(rows[1].get::<String, _>("content"), "original first");
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_insert_line_between_basic() {
+        use sqlx::Row;
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        // Insert two lines with standard gap
+        manager.insert_line_at_end(1, "line 1").await.unwrap();
+        manager.insert_line_at_end(1, "line 2").await.unwrap();
+
+        // Insert between them: midpoint of 1000.0 and 2000.0 = 1500.0
+        let (result, rebalanced) = manager
+            .insert_line_between(1, 1000.0, 2000.0, "inserted")
+            .await
+            .unwrap();
+        assert_eq!(result.seq, 1500.0);
+        assert!(!rebalanced);
+
+        // Verify ordering
+        let rows = sqlx::query(crate::code_lines_schema::LINE_NUMBER_QUERY)
+            .bind(1_i64)
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].get::<String, _>("content"), "line 1");
+        assert_eq!(rows[1].get::<String, _>("content"), "inserted");
+        assert_eq!(rows[2].get::<String, _>("content"), "line 2");
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_needs_rebalance() {
+        assert!(SearchDbManager::needs_rebalance(0.0005));
+        assert!(SearchDbManager::needs_rebalance(0.0001));
+        assert!(!SearchDbManager::needs_rebalance(0.001));
+        assert!(!SearchDbManager::needs_rebalance(1.0));
+        assert!(!SearchDbManager::needs_rebalance(1000.0));
+    }
+
+    #[tokio::test]
+    async fn test_rebalance_basic() {
+        use sqlx::Row;
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        // Insert lines with cramped seq values
+        for i in 0..5 {
+            sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, ?1, ?2)")
+                .bind(1.0 + i as f64 * 0.0001)
+                .bind(format!("line {}", i))
+                .execute(manager.pool())
+                .await
+                .unwrap();
+        }
+
+        // Rebalance
+        let result = manager.rebalance_file_seqs(1).await.unwrap();
+        assert_eq!(result.lines_rebalanced, 5);
+        assert_eq!(result.new_gap, 1000.0);
+
+        // Verify new seq values
+        let rows = sqlx::query(crate::code_lines_schema::LINE_NUMBER_QUERY)
+            .bind(1_i64)
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 5);
+        assert_eq!(rows[0].get::<f64, _>("seq"), 1000.0);
+        assert_eq!(rows[1].get::<f64, _>("seq"), 2000.0);
+        assert_eq!(rows[2].get::<f64, _>("seq"), 3000.0);
+        assert_eq!(rows[3].get::<f64, _>("seq"), 4000.0);
+        assert_eq!(rows[4].get::<f64, _>("seq"), 5000.0);
+
+        // Verify content order preserved
+        assert_eq!(rows[0].get::<String, _>("content"), "line 0");
+        assert_eq!(rows[4].get::<String, _>("content"), "line 4");
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_rebalance_empty_file() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        let result = manager.rebalance_file_seqs(999).await.unwrap();
+        assert_eq!(result.lines_rebalanced, 0);
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_rebalance_file_local() {
+        use sqlx::Row;
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        // File 1: cramped
+        for i in 0..3 {
+            sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, ?1, ?2)")
+                .bind(0.5 + i as f64 * 0.0001)
+                .bind(format!("f1 line {}", i))
+                .execute(manager.pool())
+                .await
+                .unwrap();
+        }
+
+        // File 2: normal gaps
+        for i in 0..3 {
+            sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (2, ?1, ?2)")
+                .bind(crate::code_lines_schema::initial_seq(i))
+                .bind(format!("f2 line {}", i))
+                .execute(manager.pool())
+                .await
+                .unwrap();
+        }
+
+        // Rebalance file 1 only
+        manager.rebalance_file_seqs(1).await.unwrap();
+
+        // File 2 should be untouched
+        let rows2 = sqlx::query("SELECT seq FROM code_lines WHERE file_id = 2 ORDER BY seq")
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows2[0].get::<f64, _>("seq"), 1000.0);
+        assert_eq!(rows2[1].get::<f64, _>("seq"), 2000.0);
+        assert_eq!(rows2[2].get::<f64, _>("seq"), 3000.0);
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_insert_between_triggers_rebalance() {
+        use sqlx::Row;
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        // Insert two lines very close together (gap = 0.0002)
+        sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, ?1, ?2)")
+            .bind(1.0)
+            .bind("line a")
+            .execute(manager.pool())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, ?1, ?2)")
+            .bind(1.0002)
+            .bind("line b")
+            .execute(manager.pool())
+            .await
+            .unwrap();
+
+        // Insert between: gap = 0.0001, below MIN_SEQ_GAP => rebalance
+        let (result, rebalanced) = manager
+            .insert_line_between(1, 1.0, 1.0002, "line mid")
+            .await
+            .unwrap();
+        assert!(rebalanced, "Should have triggered rebalance");
+
+        // After rebalance, seqs should be 1000.0, 2000.0, 3000.0
+        let rows = sqlx::query(crate::code_lines_schema::LINE_NUMBER_QUERY)
+            .bind(1_i64)
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].get::<f64, _>("seq"), 1000.0);
+        assert_eq!(rows[1].get::<f64, _>("seq"), 2000.0);
+        assert_eq!(rows[2].get::<f64, _>("seq"), 3000.0);
+
+        // Content order preserved: a, mid, b
+        assert_eq!(rows[0].get::<String, _>("content"), "line a");
+        assert_eq!(rows[1].get::<String, _>("content"), "line mid");
+        assert_eq!(rows[2].get::<String, _>("content"), "line b");
+
+        // The returned seq should match the post-rebalance value
+        assert_eq!(result.seq, 2000.0);
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_1000_midpoint_insertions_between_adjacent() {
+        use sqlx::Row;
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        // Start with two lines
+        manager.insert_line_at_end(1, "first").await.unwrap();
+        manager.insert_line_at_end(1, "last").await.unwrap();
+
+        // Insert 1000 lines between the first and second line
+        // Each insertion goes between the first line and the previously inserted line
+        let mut before_seq = 1000.0_f64;
+        let mut after_seq = 2000.0_f64;
+        let mut rebalance_count = 0;
+
+        for i in 0..1000 {
+            let (result, rebalanced) = manager
+                .insert_line_between(1, before_seq, after_seq, &format!("mid {}", i))
+                .await
+                .unwrap();
+
+            if rebalanced {
+                rebalance_count += 1;
+                // After rebalance, look up the actual seq values for the next iteration
+                // Find the seq of "first" (always at line_number 1)
+                let rows = sqlx::query("SELECT seq FROM code_lines WHERE file_id = 1 ORDER BY seq")
+                    .fetch_all(manager.pool())
+                    .await
+                    .unwrap();
+                before_seq = rows[0].get::<f64, _>("seq");
+                // The just-inserted line is now at position 1 (after "first"), so the next
+                // insertion should go between "first" and the newly inserted line
+                after_seq = rows[1].get::<f64, _>("seq");
+            } else {
+                // next insertion between "first" (before_seq unchanged) and just-inserted
+                after_seq = result.seq;
+            }
+        }
+
+        // Verify all lines are present and properly ordered
+        let rows = sqlx::query(crate::code_lines_schema::LINE_NUMBER_QUERY)
+            .bind(1_i64)
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1002, "Should have 1002 lines (2 original + 1000 inserted)");
+
+        // First should still be "first", last should still be "last"
+        assert_eq!(rows[0].get::<String, _>("content"), "first");
+        assert_eq!(rows[1001].get::<String, _>("content"), "last");
+
+        // All seq values should be strictly increasing
+        let seqs: Vec<f64> = rows.iter().map(|r| r.get::<f64, _>("seq")).collect();
+        for i in 1..seqs.len() {
+            assert!(
+                seqs[i] > seqs[i - 1],
+                "seq[{}]={} should be > seq[{}]={}",
+                i, seqs[i], i - 1, seqs[i - 1]
+            );
+        }
+
+        // At least one rebalance should have occurred (20 midpoint halves exhaust 1000.0 gap)
+        assert!(
+            rebalance_count > 0,
+            "Should have triggered at least one rebalance during 1000 insertions"
+        );
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_get_adjacent_seqs() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        // Insert 3 lines
+        for i in 0..3 {
+            sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, ?1, ?2)")
+                .bind(crate::code_lines_schema::initial_seq(i))
+                .bind(format!("line {}", i))
+                .execute(manager.pool())
+                .await
+                .unwrap();
+        }
+
+        // Middle line (seq=2000.0)
+        let (before, after) = manager.get_adjacent_seqs(1, 2000.0).await.unwrap();
+        assert_eq!(before, Some(1000.0));
+        assert_eq!(after, Some(3000.0));
+
+        // First line (seq=1000.0)
+        let (before, after) = manager.get_adjacent_seqs(1, 1000.0).await.unwrap();
+        assert_eq!(before, None);
+        assert_eq!(after, Some(2000.0));
+
+        // Last line (seq=3000.0)
+        let (before, after) = manager.get_adjacent_seqs(1, 3000.0).await.unwrap();
+        assert_eq!(before, Some(2000.0));
+        assert_eq!(after, None);
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_min_seq_gap() {
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        // No lines => None
+        let gap = manager.min_seq_gap(1).await.unwrap();
+        assert_eq!(gap, None);
+
+        // One line => None (need at least 2)
+        sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1000.0, 'a')")
+            .execute(manager.pool())
+            .await
+            .unwrap();
+        let gap = manager.min_seq_gap(1).await.unwrap();
+        assert_eq!(gap, None);
+
+        // Two lines with gap 500.0
+        sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1500.0, 'b')")
+            .execute(manager.pool())
+            .await
+            .unwrap();
+        let gap = manager.min_seq_gap(1).await.unwrap();
+        assert_eq!(gap, Some(500.0));
+
+        // Add line with smaller gap
+        sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 1501.0, 'c')")
+            .execute(manager.pool())
+            .await
+            .unwrap();
+        let gap = manager.min_seq_gap(1).await.unwrap();
+        assert_eq!(gap, Some(1.0));
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_rebalance_preserves_fts5() {
+        use sqlx::Row;
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        // Insert cramped lines and build FTS
+        let contents = vec!["fn hello_world()", "fn goodbye_world()", "fn third_function()"];
+        for (i, content) in contents.iter().enumerate() {
+            sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, ?1, ?2)")
+                .bind(1.0 + i as f64 * 0.0001)
+                .bind(*content)
+                .execute(manager.pool())
+                .await
+                .unwrap();
+        }
+        manager.rebuild_fts().await.unwrap();
+
+        // Verify FTS works before rebalance
+        let rows_before = sqlx::query(crate::code_lines_schema::FTS5_SEARCH_SQL)
+            .bind("hello_world")
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows_before.len(), 1);
+
+        // Rebalance
+        manager.rebalance_file_seqs(1).await.unwrap();
+
+        // FTS should still work (line_id and content unchanged, only seq changed)
+        // Note: since FTS5 uses external content mode with content_rowid=line_id,
+        // and line_id didn't change, the FTS index remains valid
+        let rows_after = sqlx::query(crate::code_lines_schema::FTS5_SEARCH_SQL)
+            .bind("hello_world")
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows_after.len(), 1);
+        assert_eq!(rows_after[0].get::<String, _>("content"), "fn hello_world()");
+
+        // Verify seq values are now spread out
+        let rows = sqlx::query("SELECT seq FROM code_lines WHERE file_id = 1 ORDER BY seq")
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows[0].get::<f64, _>("seq"), 1000.0);
+        assert_eq!(rows[1].get::<f64, _>("seq"), 2000.0);
+        assert_eq!(rows[2].get::<f64, _>("seq"), 3000.0);
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_insert_10000_random_positions() {
+        use sqlx::Row;
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        // Insert initial 100 lines
+        for i in 0..100 {
+            manager
+                .insert_line_at_end(1, &format!("initial {}", i))
+                .await
+                .unwrap();
+        }
+
+        // Insert 200 more lines at various positions (between existing lines)
+        // Use a deterministic pattern to avoid true randomness in tests
+        for i in 0..200 {
+            // Get current lines to find insertion points
+            let seqs: Vec<f64> = sqlx::query_scalar(
+                "SELECT seq FROM code_lines WHERE file_id = 1 ORDER BY seq",
+            )
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+
+            // Pick two adjacent lines using a deterministic index
+            let idx = i % (seqs.len() - 1);
+            manager
+                .insert_line_between(1, seqs[idx], seqs[idx + 1], &format!("inserted {}", i))
+                .await
+                .unwrap();
+        }
+
+        // Verify all 300 lines are present
+        let rows = sqlx::query(crate::code_lines_schema::LINE_NUMBER_QUERY)
+            .bind(1_i64)
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 300);
+
+        // All seq values should be strictly increasing
+        let seqs: Vec<f64> = rows.iter().map(|r| r.get::<f64, _>("seq")).collect();
+        for i in 1..seqs.len() {
+            assert!(
+                seqs[i] > seqs[i - 1],
+                "seq[{}]={} should be > seq[{}]={} (line_number {})",
+                i, seqs[i], i - 1, seqs[i - 1], i + 1
+            );
+        }
+
+        manager.close().await;
+    }
+
+    #[tokio::test]
+    async fn test_rebalance_with_unique_constraint_conflicts() {
+        use sqlx::Row;
+        let tmp = TempDir::new().unwrap();
+        let db_path = tmp.path().join("search.db");
+        let manager = SearchDbManager::new(&db_path).await.unwrap();
+
+        // Create a scenario where naive rebalancing would hit UNIQUE conflicts:
+        // Line at seq=2000.0 and another at seq=2000.001
+        // Rebalancing to 1000.0, 2000.0 would conflict if done naively
+        sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 2000.0, 'a')")
+            .execute(manager.pool())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO code_lines (file_id, seq, content) VALUES (1, 2000.001, 'b')")
+            .execute(manager.pool())
+            .await
+            .unwrap();
+
+        // Rebalance should succeed despite the overlap scenario
+        let result = manager.rebalance_file_seqs(1).await.unwrap();
+        assert_eq!(result.lines_rebalanced, 2);
+
+        // Verify final state
+        let rows = sqlx::query("SELECT seq, content FROM code_lines WHERE file_id = 1 ORDER BY seq")
+            .fetch_all(manager.pool())
+            .await
+            .unwrap();
+        assert_eq!(rows[0].get::<f64, _>("seq"), 1000.0);
+        assert_eq!(rows[0].get::<String, _>("content"), "a");
+        assert_eq!(rows[1].get::<f64, _>("seq"), 2000.0);
+        assert_eq!(rows[1].get::<String, _>("content"), "b");
 
         manager.close().await;
     }
