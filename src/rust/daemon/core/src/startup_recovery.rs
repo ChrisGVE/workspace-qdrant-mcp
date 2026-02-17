@@ -6,18 +6,15 @@
 //!
 //! This replaces Qdrant scrolling with fast SQLite queries.
 
-use std::collections::HashMap;
 use std::path::Path;
 
 use wqm_common::timestamps;
 use sqlx::SqlitePool;
 use tracing::{debug, info, warn};
-use walkdir::WalkDir;
 
-use wqm_common::constants::COLLECTION_LIBRARIES;
-use crate::allowed_extensions::{AllowedExtensions, FileRoute};
+use crate::allowed_extensions::AllowedExtensions;
 use crate::config::StartupConfig;
-use crate::patterns::exclusion::{should_exclude_file, should_exclude_directory};
+use crate::patterns::exclusion::should_exclude_file;
 use crate::queue_operations::QueueManager;
 use crate::tracked_files_schema;
 use crate::unified_queue_schema::{FilePayload, ItemType, QueueOperation};
@@ -38,6 +35,8 @@ pub struct RecoveryStats {
     pub files_routed_to_library: u64,
     /// Number of files now excluded (queued for deletion)
     pub files_newly_excluded: u64,
+    /// Number of progressive scans enqueued (Tenant, Scan) for async file discovery
+    pub progressive_scans_enqueued: u64,
     /// Errors encountered during recovery
     pub errors: u64,
 }
@@ -57,7 +56,7 @@ pub struct FullRecoveryStats {
 
 impl FullRecoveryStats {
     pub fn total_queued(&self) -> u64 {
-        self.per_folder.iter().map(|(_, s)| s.files_to_ingest + s.files_to_delete + s.files_to_update + s.files_newly_excluded).sum()
+        self.per_folder.iter().map(|(_, s)| s.progressive_scans_enqueued + s.files_to_delete + s.files_newly_excluded).sum()
     }
 }
 
@@ -105,15 +104,14 @@ pub async fn run_startup_recovery(
 
         match stats {
             Ok(s) => {
-                if s.files_to_ingest > 0 || s.files_to_delete > 0 || s.files_to_update > 0 || s.files_newly_excluded > 0 {
+                if s.files_to_delete > 0 || s.files_newly_excluded > 0 || s.progressive_scans_enqueued > 0 {
                     info!(
-                        "Recovery for {} ({}): +{} ingest, -{} delete, ~{} update, >{} to-lib, x{} excluded, ={} unchanged, !{} errors",
-                        watch_id, path, s.files_to_ingest, s.files_to_delete,
-                        s.files_to_update, s.files_routed_to_library, s.files_newly_excluded,
-                        s.files_unchanged, s.errors
+                        "Recovery for {} ({}): {} progressive scan(s), -{} delete, x{} excluded, !{} errors",
+                        watch_id, path, s.progressive_scans_enqueued, s.files_to_delete,
+                        s.files_newly_excluded, s.errors
                     );
                 } else {
-                    debug!("Recovery for {} ({}): no changes detected ({} files unchanged)", watch_id, path, s.files_unchanged);
+                    debug!("Recovery for {} ({}): no changes detected", watch_id, path);
                 }
                 full_stats.per_folder.push((watch_id.clone(), s));
             }
@@ -251,7 +249,15 @@ async fn clear_reconcile_flag(pool: &SqlitePool, file_id: i64) -> Result<(), sql
     Ok(())
 }
 
-/// Recover a single watch_folder by comparing tracked_files with filesystem
+/// Recover a single watch_folder using progressive enqueue-first scanning.
+///
+/// Instead of walking the entire directory tree upfront (WalkDir), this:
+/// 1. Enqueues a `(Tenant, Scan)` item for progressive breadth-first file discovery
+/// 2. Checks tracked_files for deletions (files no longer on disk or now excluded)
+///
+/// The progressive scan discovers files one directory level at a time through
+/// the unified queue, allowing other operations to interleave and preventing
+/// queue depth spikes on large projects.
 async fn recover_watch_folder(
     pool: &SqlitePool,
     queue_manager: &QueueManager,
@@ -259,7 +265,7 @@ async fn recover_watch_folder(
     base_path: &str,
     collection: &str,
     tenant_id: &str,
-    allowed_extensions: &AllowedExtensions,
+    _allowed_extensions: &AllowedExtensions,
     startup_config: &StartupConfig,
 ) -> Result<RecoveryStats, String> {
     let root = Path::new(base_path);
@@ -269,148 +275,77 @@ async fn recover_watch_folder(
 
     let mut stats = RecoveryStats::default();
 
-    // Step 1: Query tracked_files for all known files in this watch_folder
+    // Phase 1: Enqueue progressive scan for async file discovery.
+    // This replaces the full-tree WalkDir with a (Tenant, Scan) queue item
+    // that triggers breadth-first directory enumeration via scan_directory_single_level.
+    let scan_payload = serde_json::json!({
+        "project_root": base_path,
+        "recovery": true,
+    }).to_string();
+
+    let branch = crate::watching_queue::get_current_branch(root);
+
+    queue_manager.enqueue_unified(
+        ItemType::Tenant,
+        QueueOperation::Scan,
+        tenant_id,
+        collection,
+        &scan_payload,
+        0, // Priority computed at dequeue time
+        Some(&branch),
+        None,
+    )
+    .await
+    .map(|_| ())
+    .map_err(|e| format!("Failed to enqueue progressive scan: {}", e))?;
+
+    stats.progressive_scans_enqueued += 1;
+
+    // Phase 2: Detect deleted/excluded files from tracked_files.
+    // Files in tracked_files but no longer on disk or now excluded → queue delete.
+    // This is bounded by tracked_files count (SQLite query + stat per file),
+    // much cheaper than recursive directory enumeration.
     let tracked = tracked_files_schema::get_tracked_file_paths(pool, watch_folder_id)
         .await
         .map_err(|e| format!("Failed to query tracked_files: {}", e))?;
 
-    // Build a map: relative_path -> (file_id, branch)
-    let mut tracked_map: HashMap<String, (i64, Option<String>)> = HashMap::new();
-    for (file_id, file_path, branch) in &tracked {
-        tracked_map.insert(file_path.clone(), (*file_id, branch.clone()));
-    }
-
-    // Step 2: Walk filesystem to get current eligible files
-    // Use filter_entry to skip excluded directories entirely (target/, node_modules/, .git/, etc.)
-    // This avoids enumerating hundreds of thousands of files in build artifact directories.
-    let mut disk_files: HashMap<String, ()> = HashMap::new();
-
-    // Batching: track enqueue operations and yield+sleep between batches (Task 579)
     let batch_size = startup_config.startup_enqueue_batch_size;
     let batch_delay = std::time::Duration::from_millis(startup_config.startup_enqueue_batch_delay_ms);
     let mut enqueued_in_batch: usize = 0;
 
-    for entry in WalkDir::new(root)
-        .follow_links(false)
-        .into_iter()
-        .filter_entry(|e| {
-            if e.file_type().is_dir() && e.depth() > 0 {
-                let dir_name = e.file_name().to_string_lossy();
-                !should_exclude_directory(&dir_name)
-            } else {
-                true
-            }
-        })
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
+    for (_file_id, file_path, _branch) in &tracked {
+        let abs_path = root.join(file_path);
 
-        let rel_path = match path.strip_prefix(root) {
-            Ok(rp) => rp.to_string_lossy().to_string(),
-            Err(_) => continue,
-        };
-
-        // Check exclusion rules
-        if should_exclude_file(&rel_path) {
-            // Check if this file was previously tracked (now excluded → queue delete)
-            if tracked_map.contains_key(&rel_path) {
-                if let Err(e) = enqueue_file_op(
-                    queue_manager, tenant_id, collection,
-                    &path.to_string_lossy(), QueueOperation::Delete, None,
-                ).await {
-                    warn!("Failed to queue excluded file for deletion: {}: {}", rel_path, e);
-                    stats.errors += 1;
-                } else {
-                    stats.files_newly_excluded += 1;
-                    enqueued_in_batch += 1;
-                }
-            }
-            continue;
-        }
-
-        // Route file to appropriate collection based on extension (Task 565/566)
-        let abs_path_str = path.to_string_lossy();
-        let route = allowed_extensions.route_file(&abs_path_str, collection, tenant_id);
-
-        let (target_collection, target_tenant, metadata) = match &route {
-            FileRoute::ProjectCollection => (collection.to_string(), tenant_id.to_string(), None),
-            FileRoute::LibraryCollection { source_project_id } => {
-                let meta = source_project_id.as_ref().map(|pid| {
-                    serde_json::json!({"source_project_id": pid}).to_string()
-                });
-                (COLLECTION_LIBRARIES.to_string(), tenant_id.to_string(), meta)
-            }
-            FileRoute::Excluded => {
-                // File extension not in any allowlist - queue delete if previously tracked
-                if tracked_map.contains_key(&rel_path) {
-                    if let Err(e) = enqueue_file_op(
-                        queue_manager, tenant_id, collection,
-                        &abs_path_str, QueueOperation::Delete, None,
-                    ).await {
-                        warn!("Failed to queue non-allowed file for deletion: {}: {}", rel_path, e);
-                        stats.errors += 1;
-                    } else {
-                        stats.files_newly_excluded += 1;
-                        enqueued_in_batch += 1;
-                    }
-                }
-                continue;
-            }
-        };
-
-        let is_library_routed = matches!(route, FileRoute::LibraryCollection { .. })
-            && collection != COLLECTION_LIBRARIES;
-
-        disk_files.insert(rel_path.clone(), ());
-
-        // Step 3c-f: Compare with tracked_files
-        if let Some((_file_id, _branch)) = tracked_map.get(&rel_path) {
-            // File exists in both tracked_files and on disk
-            // Compare mtime and hash for changes
-            let needs_update = match check_file_changed(pool, watch_folder_id, &rel_path, path) {
-                Ok(changed) => changed,
-                Err(e) => {
-                    debug!("Error checking file {}: {}, assuming changed", rel_path, e);
-                    true
-                }
-            };
-
-            if needs_update {
-                if let Err(e) = enqueue_file_op(
-                    queue_manager, &target_tenant, &target_collection,
-                    &abs_path_str, QueueOperation::Update, metadata.as_deref(),
-                ).await {
-                    warn!("Failed to queue file update: {}: {}", rel_path, e);
-                    stats.errors += 1;
-                } else {
-                    stats.files_to_update += 1;
-                    if is_library_routed { stats.files_routed_to_library += 1; }
-                    enqueued_in_batch += 1;
-                }
-            } else {
-                stats.files_unchanged += 1;
-            }
-        } else {
-            // File on disk but not in tracked_files → queue ingest
+        if !abs_path.exists() {
+            // File deleted from disk → queue delete
             if let Err(e) = enqueue_file_op(
-                queue_manager, &target_tenant, &target_collection,
-                &abs_path_str, QueueOperation::Add, metadata.as_deref(),
+                queue_manager, tenant_id, collection,
+                &abs_path.to_string_lossy(), QueueOperation::Delete, None,
             ).await {
-                warn!("Failed to queue file ingest: {}: {}", rel_path, e);
+                warn!("Failed to queue deletion for missing file: {}: {}", file_path, e);
                 stats.errors += 1;
             } else {
-                stats.files_to_ingest += 1;
-                if is_library_routed { stats.files_routed_to_library += 1; }
+                stats.files_to_delete += 1;
+                enqueued_in_batch += 1;
+            }
+        } else if should_exclude_file(file_path) {
+            // File now excluded → queue delete
+            if let Err(e) = enqueue_file_op(
+                queue_manager, tenant_id, collection,
+                &abs_path.to_string_lossy(), QueueOperation::Delete, None,
+            ).await {
+                warn!("Failed to queue deletion for excluded file: {}: {}", file_path, e);
+                stats.errors += 1;
+            } else {
+                stats.files_newly_excluded += 1;
                 enqueued_in_batch += 1;
             }
         }
+        // else: file exists and not excluded — the progressive scan will
+        // re-discover it, and the pipeline's hash check will skip if unchanged.
 
-        // Yield and sleep between batches to avoid overwhelming the queue (Task 579)
         if batch_size > 0 && enqueued_in_batch >= batch_size {
-            debug!("Recovery batch of {} enqueued, yielding for {:?}", enqueued_in_batch, batch_delay);
+            debug!("Recovery deletion batch of {} enqueued, yielding for {:?}", enqueued_in_batch, batch_delay);
             tokio::task::yield_now().await;
             if !batch_delay.is_zero() {
                 tokio::time::sleep(batch_delay).await;
@@ -419,54 +354,7 @@ async fn recover_watch_folder(
         }
     }
 
-    // Step 3d: In tracked_files but not on disk → queue delete
-    for (tracked_path, (_file_id, _branch)) in &tracked_map {
-        if !disk_files.contains_key(tracked_path) {
-            // Skip files already handled as newly excluded
-            let abs_path = root.join(tracked_path);
-            if let Err(e) = enqueue_file_op(
-                queue_manager, tenant_id, collection,
-                &abs_path.to_string_lossy(), QueueOperation::Delete, None,
-            ).await {
-                warn!("Failed to queue file deletion: {}: {}", tracked_path, e);
-                stats.errors += 1;
-            } else {
-                stats.files_to_delete += 1;
-                enqueued_in_batch += 1;
-            }
-
-            // Batch sleep for deletion phase too
-            if batch_size > 0 && enqueued_in_batch >= batch_size {
-                debug!("Recovery delete batch of {} enqueued, yielding for {:?}", enqueued_in_batch, batch_delay);
-                tokio::task::yield_now().await;
-                if !batch_delay.is_zero() {
-                    tokio::time::sleep(batch_delay).await;
-                }
-                enqueued_in_batch = 0;
-            }
-        }
-    }
-
     Ok(stats)
-}
-
-/// Check if a file has changed compared to its tracked_files record
-/// Check if a file has changed compared to its tracked_files record.
-///
-/// Currently uses a conservative approach: always returns true (assumes changed).
-/// The actual hash comparison happens in process_file_item's update path,
-/// which will skip unchanged files. This avoids needing an async tracked_file
-/// lookup in what is otherwise a sync filesystem walk context.
-fn check_file_changed(
-    _pool: &SqlitePool,
-    _watch_folder_id: &str,
-    _rel_path: &str,
-    _abs_path: &Path,
-) -> Result<bool, String> {
-    // Conservative: always assume changed.
-    // The update path in process_file_item computes the hash and skips
-    // unchanged files, so this doesn't cause unnecessary Qdrant writes.
-    Ok(true)
 }
 
 /// Enqueue a file operation (ingest, update, or delete)
@@ -533,25 +421,20 @@ mod tests {
     fn test_full_recovery_stats_total() {
         let mut stats = FullRecoveryStats::default();
         stats.per_folder.push(("w1".to_string(), RecoveryStats {
-            files_to_ingest: 5,
+            progressive_scans_enqueued: 1,
             files_to_delete: 2,
-            files_to_update: 3,
-            files_unchanged: 100,
-            files_routed_to_library: 1,
             files_newly_excluded: 1,
-            errors: 0,
+            ..RecoveryStats::default()
         }));
         stats.per_folder.push(("w2".to_string(), RecoveryStats {
-            files_to_ingest: 10,
-            files_to_delete: 0,
-            files_to_update: 1,
-            files_unchanged: 50,
-            files_routed_to_library: 0,
+            progressive_scans_enqueued: 1,
+            files_to_delete: 3,
             files_newly_excluded: 0,
-            errors: 0,
+            ..RecoveryStats::default()
         }));
 
-        assert_eq!(stats.total_queued(), 5 + 2 + 3 + 1 + 10 + 0 + 1 + 0);
+        // total_queued = progressive_scans + deletes + newly_excluded
+        assert_eq!(stats.total_queued(), 1 + 2 + 1 + 1 + 3 + 0);
     }
 
     #[test]
