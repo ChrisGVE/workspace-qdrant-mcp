@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 17;
+pub const CURRENT_SCHEMA_VERSION: i32 = 18;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -167,6 +167,7 @@ impl SchemaManager {
             15 => self.migrate_v15().await,
             16 => self.migrate_v16().await,
             17 => self.migrate_v17().await,
+            18 => self.migrate_v18().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -839,6 +840,26 @@ impl SchemaManager {
         .await?;
 
         info!("Migration v17 complete");
+        Ok(())
+    }
+
+    /// Migration v18: Create indexed_content cache table for diff-based skip detection
+    async fn migrate_v18(&self) -> Result<(), SchemaError> {
+        info!("Migration v18: Creating indexed_content cache table");
+
+        use super::indexed_content_schema::{CREATE_INDEXED_CONTENT_SQL, CREATE_INDEXED_CONTENT_INDEXES_SQL};
+
+        sqlx::query(CREATE_INDEXED_CONTENT_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        for index_sql in CREATE_INDEXED_CONTENT_INDEXES_SQL {
+            sqlx::query(index_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        info!("Migration v18 complete");
         Ok(())
     }
 }
@@ -1516,6 +1537,66 @@ mod tests {
         .execute(&pool)
         .await;
         assert!(result.is_err(), "Duplicate (key, component, project_id) should violate PRIMARY KEY");
+    }
+
+    #[tokio::test]
+    async fn test_migration_v18_indexed_content() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Verify table exists
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='indexed_content')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(exists, "indexed_content table should exist after v18 migration");
+
+        // Verify index exists
+        let has_index: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_indexed_content_hash'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(has_index, "hash index should exist on indexed_content");
+
+        // Verify FK constraint structure: file_id references tracked_files
+        // Insert a watch_folder and tracked_file first
+        sqlx::query("PRAGMA foreign_keys = ON").execute(&pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
+             VALUES ('w1', '/tmp/test', 'projects', 't1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        ).execute(&pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO tracked_files (watch_folder_id, file_path, file_mtime, file_hash, created_at, updated_at)
+             VALUES ('w1', 'test.rs', '2025-01-01T00:00:00Z', 'h1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        ).execute(&pool).await.unwrap();
+
+        let file_id: i64 = sqlx::query_scalar("SELECT file_id FROM tracked_files WHERE file_path = 'test.rs'")
+            .fetch_one(&pool).await.unwrap();
+
+        // Insert indexed_content
+        sqlx::query(
+            "INSERT INTO indexed_content (file_id, content, hash, updated_at) VALUES (?1, X'48454C4C4F', 'testhash', '2025-01-01T00:00:00Z')"
+        ).bind(file_id).execute(&pool).await.unwrap();
+
+        // Verify round-trip
+        let hash: String = sqlx::query_scalar("SELECT hash FROM indexed_content WHERE file_id = ?1")
+            .bind(file_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(hash, "testhash");
+
+        // Verify CASCADE: delete tracked_file should remove indexed_content
+        sqlx::query("DELETE FROM tracked_files WHERE file_id = ?1")
+            .bind(file_id).execute(&pool).await.unwrap();
+
+        let count: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM indexed_content")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 0, "indexed_content should cascade delete with tracked_files");
     }
 
     #[tokio::test]
