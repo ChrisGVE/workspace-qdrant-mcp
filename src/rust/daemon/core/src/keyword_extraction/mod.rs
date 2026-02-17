@@ -12,5 +12,6 @@
 pub mod basket_assignment;
 pub mod keyword_selector;
 pub mod lexical_candidates;
+pub mod quasi_summary;
 pub mod semantic_rerank;
 pub mod tag_selector;
