@@ -3,7 +3,8 @@
 //! Phase 1 HIGH priority command for library documentation.
 //! Redesigned with tags instead of direct collection names.
 //! Subcommands: list, add <tag> <path>, watch <tag> <path>,
-//!              unwatch <tag>, rescan <tag>, info [tag], status
+//!              unwatch <tag>, rescan <tag>, info [tag], status,
+//!              cleanup-orphans
 //!
 //! Note: Library management uses SQLite for watch configuration.
 //! The daemon reads from SQLite and manages the actual watching.
@@ -178,6 +179,13 @@ enum LibraryCommand {
         #[arg(long)]
         show: bool,
     },
+
+    /// Find and remove orphaned library tenants from Qdrant
+    CleanupOrphans {
+        /// Actually delete orphaned points (without this flag, only lists them)
+        #[arg(long)]
+        delete: bool,
+    },
 }
 
 /// Execute library command
@@ -210,6 +218,7 @@ pub async fn execute(args: LibraryArgs) -> Result<()> {
             disable,
             show,
         } => config(&tag, mode, patterns, enable, disable, show).await,
+        LibraryCommand::CleanupOrphans { delete } => cleanup_orphans(delete).await,
     }
 }
 
@@ -1222,6 +1231,263 @@ async fn config(
             }
         } else {
             output::info("Daemon not running - changes will apply when daemon starts");
+        }
+    }
+
+    Ok(())
+}
+
+// =========================================================================
+// Orphan cleanup
+// =========================================================================
+
+/// Get Qdrant URL from environment or default
+fn qdrant_url() -> String {
+    std::env::var("QDRANT_URL")
+        .unwrap_or_else(|_| wqm_common::constants::DEFAULT_QDRANT_URL.to_string())
+}
+
+/// Build a reqwest client with optional Qdrant API key header
+fn build_qdrant_client() -> Result<reqwest::Client> {
+    let mut headers = reqwest::header::HeaderMap::new();
+    if let Ok(key) = std::env::var("QDRANT_API_KEY") {
+        headers.insert(
+            "api-key",
+            reqwest::header::HeaderValue::from_str(&key)
+                .context("Invalid QDRANT_API_KEY value")?,
+        );
+    }
+    reqwest::Client::builder()
+        .default_headers(headers)
+        .timeout(std::time::Duration::from_secs(60))
+        .build()
+        .context("Failed to build HTTP client")
+}
+
+/// Scroll through the Qdrant libraries collection and collect all unique library_name values.
+async fn scroll_qdrant_library_names() -> Result<std::collections::HashSet<String>> {
+    let client = build_qdrant_client()?;
+    let base_url = qdrant_url();
+    let scroll_url = format!("{}/collections/{}/points/scroll", base_url, COLLECTION_LIBRARIES);
+
+    let mut all_names = std::collections::HashSet::new();
+    let mut offset: Option<serde_json::Value> = None;
+    let batch_size = 100;
+
+    loop {
+        let mut body = serde_json::json!({
+            "limit": batch_size,
+            "with_payload": {
+                "include": ["library_name"]
+            },
+            "with_vector": false
+        });
+
+        if let Some(ref off) = offset {
+            body["offset"] = off.clone();
+        }
+
+        let resp = client
+            .post(&scroll_url)
+            .json(&body)
+            .send()
+            .await
+            .context("Failed to scroll Qdrant libraries collection")?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let text = resp.text().await.unwrap_or_default();
+            if status.as_u16() == 404 {
+                // Collection doesn't exist — no orphans
+                return Ok(all_names);
+            }
+            anyhow::bail!("Qdrant scroll failed ({}): {}", status, text);
+        }
+
+        let resp_json: serde_json::Value = resp
+            .json()
+            .await
+            .context("Failed to parse Qdrant scroll response")?;
+
+        let points = resp_json["result"]["points"]
+            .as_array()
+            .unwrap_or(&Vec::new())
+            .clone();
+
+        if points.is_empty() {
+            break;
+        }
+
+        for point in &points {
+            if let Some(name) = point["payload"]["library_name"].as_str() {
+                all_names.insert(name.to_string());
+            }
+        }
+
+        // Check for next_page_offset
+        let next_offset = &resp_json["result"]["next_page_offset"];
+        if next_offset.is_null() {
+            break;
+        }
+        offset = Some(next_offset.clone());
+    }
+
+    Ok(all_names)
+}
+
+/// Get all known library tenant_ids from SQLite (watch_folders + tracked_files).
+fn get_known_library_tenants(conn: &rusqlite::Connection) -> Result<std::collections::HashSet<String>> {
+    let mut known = std::collections::HashSet::new();
+
+    // From watch_folders
+    let mut stmt = conn.prepare(
+        &format!(
+            "SELECT DISTINCT tenant_id FROM watch_folders WHERE collection = '{}'",
+            COLLECTION_LIBRARIES
+        )
+    ).context("Failed to query watch_folders for library tenants")?;
+
+    let rows: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .context("Failed to read watch_folders tenant rows")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("Failed to parse watch_folders tenant rows")?;
+
+    known.extend(rows);
+
+    // From tracked_files
+    let mut stmt2 = conn.prepare(
+        &format!(
+            "SELECT DISTINCT tenant_id FROM tracked_files WHERE collection = '{}'",
+            COLLECTION_LIBRARIES
+        )
+    ).context("Failed to query tracked_files for library tenants")?;
+
+    let rows2: Vec<String> = stmt2
+        .query_map([], |row| row.get::<_, String>(0))
+        .context("Failed to read tracked_files tenant rows")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("Failed to parse tracked_files tenant rows")?;
+
+    known.extend(rows2);
+
+    Ok(known)
+}
+
+/// Find and optionally remove orphaned library tenants from Qdrant.
+async fn cleanup_orphans(delete: bool) -> Result<()> {
+    output::section("Library Orphan Cleanup");
+
+    // Step 1: Scroll Qdrant for all library_name values
+    output::info("Scanning Qdrant libraries collection...");
+    let qdrant_tenants = scroll_qdrant_library_names().await?;
+
+    if qdrant_tenants.is_empty() {
+        output::info("No points found in the libraries collection.");
+        return Ok(());
+    }
+
+    output::kv("Qdrant library tenants", &qdrant_tenants.len().to_string());
+
+    // Step 2: Get known tenants from SQLite
+    let known_tenants = match open_db() {
+        Ok(conn) => get_known_library_tenants(&conn)?,
+        Err(_) => {
+            output::warning("Could not open state database. All Qdrant tenants will appear as orphans.");
+            std::collections::HashSet::new()
+        }
+    };
+
+    output::kv("SQLite known tenants", &known_tenants.len().to_string());
+
+    // Step 3: Find orphans (in Qdrant but not in SQLite)
+    let mut orphans: Vec<&String> = qdrant_tenants
+        .iter()
+        .filter(|t| !known_tenants.contains(*t))
+        .collect();
+    orphans.sort();
+
+    if orphans.is_empty() {
+        output::success("No orphaned library tenants found.");
+        return Ok(());
+    }
+
+    output::separator();
+    output::warning(format!("Found {} orphaned tenant(s):", orphans.len()));
+    for tenant in &orphans {
+        output::kv("  Orphan", tenant);
+    }
+
+    if !delete {
+        output::separator();
+        output::info("To delete orphaned points, run: wqm library cleanup-orphans --delete");
+        return Ok(());
+    }
+
+    // Step 4: Confirm deletion
+    output::separator();
+    output::warning("This will delete ALL Qdrant points for the orphaned tenants above.");
+    if !output::confirm("Proceed with deletion?") {
+        output::info("Aborted.");
+        return Ok(());
+    }
+
+    // Step 5: Enqueue deletion for each orphan
+    let queue_client = match UnifiedQueueClient::connect() {
+        Ok(c) => c,
+        Err(e) => {
+            output::error(format!("Could not connect to queue: {}", e));
+            output::info("Ensure the state database exists (run daemon first).");
+            return Ok(());
+        }
+    };
+
+    let mut deleted = 0;
+    for tenant in &orphans {
+        let payload_json = serde_json::json!({
+            "tenant_id_to_delete": tenant
+        })
+        .to_string();
+
+        match queue_client.enqueue(
+            ItemType::Tenant,
+            QueueOperation::Delete,
+            tenant,
+            COLLECTION_LIBRARIES,
+            &payload_json,
+            0,
+            "",
+            None,
+        ) {
+            Ok(result) => {
+                if result.was_duplicate {
+                    output::info(format!("  {} — already queued", tenant));
+                } else {
+                    output::success(format!("  {} — deletion queued ({})", tenant, result.queue_id));
+                }
+                deleted += 1;
+            }
+            Err(e) => {
+                output::error(format!("  {} — failed to enqueue: {}", tenant, e));
+            }
+        }
+    }
+
+    output::separator();
+    output::success(format!(
+        "Queued deletion for {} orphaned tenant(s). Daemon will process the deletions.",
+        deleted
+    ));
+
+    // Signal daemon if available
+    if let Ok(mut client) = DaemonClient::connect_default().await {
+        let request = RefreshSignalRequest {
+            queue_type: QueueType::IngestQueue as i32,
+            lsp_languages: vec![],
+            grammar_languages: vec![],
+        };
+        if client.system().send_refresh_signal(request).await.is_ok() {
+            output::success("Daemon notified to process deletions");
         }
     }
 
