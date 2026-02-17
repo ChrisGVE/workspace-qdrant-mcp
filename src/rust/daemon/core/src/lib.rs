@@ -18,6 +18,7 @@ pub mod embedding;
 pub mod error;
 pub mod fairness_scheduler;
 pub mod file_classification;
+pub mod fts_batch_processor;
 pub mod git_integration;
 pub mod metadata_enrichment;
 pub mod ipc;
