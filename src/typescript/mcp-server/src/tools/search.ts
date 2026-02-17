@@ -32,6 +32,10 @@ const RRF_K = 60;
 const DEFAULT_LIMIT = 10;
 const DEFAULT_SCORE_THRESHOLD = 0.3;
 
+// Tag expansion defaults
+const DEFAULT_EXPANSION_WEIGHT = 0.5;
+const DEFAULT_MAX_EXPANDED_KEYWORDS = 10;
+
 export type SearchMode = 'hybrid' | 'semantic' | 'keyword';
 export type SearchScope = 'project' | 'global' | 'all';
 
@@ -85,6 +89,12 @@ export interface SearchToolConfig {
   qdrantUrl: string;
   qdrantApiKey?: string;
   qdrantTimeout?: number;
+  /** Enable tag-based query expansion for BM25 sparse search (default: true) */
+  enableTagExpansion?: boolean;
+  /** Weight multiplier for expanded keywords (default: 0.5) */
+  expansionWeight?: number;
+  /** Maximum number of expanded keywords to add (default: 10) */
+  maxExpandedKeywords?: number;
 }
 
 interface FilterParams {
@@ -116,6 +126,9 @@ export class SearchTool {
   private readonly daemonClient: DaemonClient;
   private readonly _stateManager: SqliteStateManager;
   private readonly projectDetector: ProjectDetector;
+  private readonly enableTagExpansion: boolean;
+  private readonly expansionWeight: number;
+  private readonly maxExpandedKeywords: number;
 
   constructor(
     config: SearchToolConfig,
@@ -134,6 +147,9 @@ export class SearchTool {
     this.daemonClient = daemonClient;
     this._stateManager = stateManager;
     this.projectDetector = projectDetector;
+    this.enableTagExpansion = config.enableTagExpansion ?? true;
+    this.expansionWeight = config.expansionWeight ?? DEFAULT_EXPANSION_WEIGHT;
+    this.maxExpandedKeywords = config.maxExpandedKeywords ?? DEFAULT_MAX_EXPANDED_KEYWORDS;
   }
 
   /**
@@ -224,6 +240,16 @@ export class SearchTool {
     } catch {
       // Daemon unavailable - fall back to Qdrant scroll if possible
       return this.fallbackSearch(options, collectionsToSearch);
+    }
+
+    // Tag-based query expansion for BM25/sparse search (Task 34)
+    if (this.enableTagExpansion && sparseVector && (mode === 'hybrid' || mode === 'keyword')) {
+      sparseVector = await this.expandSparseWithTags(
+        query,
+        sparseVector,
+        collectionsToSearch,
+        currentProjectId,
+      );
     }
 
     // Search each collection
@@ -630,6 +656,70 @@ export class SearchTool {
       } catch {
         // Parent records may not exist yet (pre-migration data)
       }
+    }
+  }
+
+  /**
+   * Expand sparse vector with keywords from matching tag baskets.
+   *
+   * 1. Query SQLite for tags matching the query text
+   * 2. Retrieve keyword baskets for matching tags
+   * 3. Generate a sparse vector for the expanded keywords
+   * 4. Merge into the original sparse vector at reduced weight
+   */
+  private async expandSparseWithTags(
+    query: string,
+    originalSparse: Record<number, number>,
+    collections: string[],
+    tenantId?: string,
+  ): Promise<Record<number, number>> {
+    try {
+      // Collect expanded keywords from all searched collections
+      const allKeywords = new Set<string>();
+
+      for (const coll of collections) {
+        const matchingTags = this._stateManager.getMatchingTags(query, coll, tenantId);
+        if (matchingTags.length === 0) continue;
+
+        const tagIds = matchingTags.map((t) => t.tagId);
+        const baskets = this._stateManager.getKeywordBasketsForTags(tagIds);
+
+        for (const basket of baskets) {
+          for (const kw of basket.keywords) {
+            allKeywords.add(kw);
+          }
+        }
+      }
+
+      if (allKeywords.size === 0) return originalSparse;
+
+      // Limit expanded keywords
+      const expandedKeywords = Array.from(allKeywords).slice(0, this.maxExpandedKeywords);
+
+      // Generate sparse vector for expanded keywords
+      const expansionText = expandedKeywords.join(' ');
+      const expansionResponse = await this.daemonClient.generateSparseVector({ text: expansionText });
+      if (!expansionResponse.success || !expansionResponse.indices_values) {
+        return originalSparse;
+      }
+
+      // Merge: add expansion terms at reduced weight
+      const merged = { ...originalSparse };
+      for (const [indexStr, value] of Object.entries(expansionResponse.indices_values)) {
+        const index = Number(indexStr);
+        const weightedValue = value * this.expansionWeight;
+
+        if (index in merged) {
+          // Original term already present - keep original weight (don't dilute exact match)
+          continue;
+        }
+        merged[index] = weightedValue;
+      }
+
+      return merged;
+    } catch {
+      // Expansion is best-effort; never block search
+      return originalSparse;
     }
   }
 

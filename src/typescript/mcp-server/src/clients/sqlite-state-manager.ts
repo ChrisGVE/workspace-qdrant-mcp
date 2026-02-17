@@ -801,4 +801,101 @@ export class SqliteStateManager {
       // Instrumentation must never break search
     }
   }
+
+  // ─── Tag/Basket Query Methods (Task 34) ─────────────────────────────
+
+  /**
+   * Find tags matching query terms.
+   *
+   * Tokenizes the query into words and searches the `tags` table for
+   * matching concept tags within the given collection and tenant.
+   * Returns distinct tag IDs with their names, ordered by score.
+   */
+  getMatchingTags(
+    query: string,
+    collection: string,
+    tenantId?: string,
+  ): { tagId: number; tag: string; score: number }[] {
+    if (!this.db) return [];
+
+    try {
+      // Tokenize query into meaningful words (3+ chars, lowercase)
+      const tokens = query
+        .toLowerCase()
+        .split(/\s+/)
+        .map((t) => t.replace(/[^a-z0-9_-]/g, ''))
+        .filter((t) => t.length >= 3);
+
+      if (tokens.length === 0) return [];
+
+      // Build LIKE conditions for each token
+      const likeConditions = tokens.map(() => 'LOWER(t.tag) LIKE ?').join(' OR ');
+      const likeParams = tokens.map((t) => `%${t}%`);
+
+      const params: (string | number)[] = [collection, ...likeParams];
+      let tenantClause = '';
+      if (tenantId) {
+        tenantClause = 'AND t.tenant_id = ?';
+        params.push(tenantId);
+      }
+
+      const rows = this.db
+        .prepare(
+          `
+          SELECT DISTINCT t.tag_id, t.tag, t.score
+          FROM tags t
+          WHERE t.collection = ?
+            AND t.tag_type = 'concept'
+            AND (${likeConditions})
+            ${tenantClause}
+          ORDER BY t.score DESC
+          LIMIT 10
+          `,
+        )
+        .all(...params) as Array<{ tag_id: number; tag: string; score: number }>;
+
+      return rows.map((r) => ({ tagId: r.tag_id, tag: r.tag, score: r.score }));
+    } catch {
+      // Tags table may not exist if daemon hasn't migrated to v16+
+      return [];
+    }
+  }
+
+  /**
+   * Retrieve keyword baskets for a set of tag IDs.
+   *
+   * Returns the keywords_json content (an array of keyword strings)
+   * for each basket associated with the given tag IDs.
+   */
+  getKeywordBasketsForTags(
+    tagIds: number[],
+  ): { tagId: number; keywords: string[] }[] {
+    if (!this.db || tagIds.length === 0) return [];
+
+    try {
+      const placeholders = tagIds.map(() => '?').join(',');
+      const rows = this.db
+        .prepare(
+          `
+          SELECT kb.tag_id, kb.keywords_json
+          FROM keyword_baskets kb
+          WHERE kb.tag_id IN (${placeholders})
+          `,
+        )
+        .all(...tagIds) as Array<{ tag_id: number; keywords_json: string }>;
+
+      return rows.map((r) => {
+        let keywords: string[] = [];
+        try {
+          keywords = JSON.parse(r.keywords_json) as string[];
+        } catch {
+          // Malformed JSON - skip
+        }
+        return { tagId: r.tag_id, keywords };
+      });
+    } catch {
+      // Table may not exist
+      return [];
+    }
+  }
 }
