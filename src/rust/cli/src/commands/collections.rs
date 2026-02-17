@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::grpc::client::DaemonClient;
 use crate::output;
+use super::qdrant_helpers;
 
 /// Canonical collection names (validated against wqm-common constants)
 const VALID_COLLECTIONS: &[&str] = &[
@@ -141,10 +142,70 @@ async fn list_collections(json: bool) -> Result<()> {
                 return Ok(());
             }
 
+            // Open SQLite for orphan detection (non-fatal)
+            let db_conn = qdrant_helpers::open_state_db().ok();
+            let qdrant_client = qdrant_helpers::build_qdrant_http_client()?;
+            let base_url = qdrant_helpers::qdrant_base_url();
+
             for col in &body.result.collections {
                 let is_canonical = VALID_COLLECTIONS.contains(&col.name.as_str());
-                let label = if is_canonical { "(canonical)" } else { "" };
-                output::kv(&col.name, label);
+                let label = if is_canonical { "canonical" } else { "custom" };
+
+                // Get point count
+                let point_count = qdrant_helpers::get_collection_point_count(
+                    &qdrant_client,
+                    &base_url,
+                    &col.name,
+                )
+                .await
+                .unwrap_or(None);
+
+                let points_str = point_count
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "?".to_string());
+
+                // For canonical collections, compute tenant and orphan counts
+                if is_canonical {
+                    let tenant_field = qdrant_helpers::tenant_field_for_collection(&col.name);
+                    let qdrant_tenants = qdrant_helpers::scroll_unique_field_values(
+                        &qdrant_client,
+                        &base_url,
+                        &col.name,
+                        tenant_field,
+                    )
+                    .await
+                    .unwrap_or_default();
+
+                    let known_tenants = db_conn
+                        .as_ref()
+                        .map(|c| qdrant_helpers::get_known_tenants_for_collection(c, &col.name))
+                        .transpose()?
+                        .unwrap_or_default();
+
+                    let orphan_count = qdrant_tenants
+                        .iter()
+                        .filter(|t| !known_tenants.contains(*t))
+                        .count();
+
+                    let orphan_str = if orphan_count > 0 {
+                        format!(", {} orphan(s)", orphan_count)
+                    } else {
+                        String::new()
+                    };
+
+                    output::kv(
+                        &col.name,
+                        &format!(
+                            "{} | {} points | {} tenant(s){}",
+                            label,
+                            points_str,
+                            qdrant_tenants.len(),
+                            orphan_str
+                        ),
+                    );
+                } else {
+                    output::kv(&col.name, &format!("{} | {} points", label, points_str));
+                }
             }
 
             output::separator();

@@ -3,7 +3,6 @@
 //! Provides administrative operations that affect the daemon's persistent state.
 //! Subcommands: rename-tenant, idle-history, prune-logs, cleanup-orphans
 
-use std::collections::HashSet;
 use std::io::Write as _;
 
 use anyhow::{Context, Result};
@@ -13,6 +12,7 @@ use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output;
 use crate::queue::{UnifiedQueueClient, ItemType, QueueOperation};
+use super::qdrant_helpers;
 use wqm_common::constants::{
     COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD,
 };
@@ -441,6 +441,8 @@ async fn rename_tenant_direct(old_id: &str, new_id: &str) -> Result<usize> {
 
 /// Detect and optionally delete orphaned tenants across collections.
 async fn cleanup_orphans(delete: bool, collection_filter: Option<String>) -> Result<()> {
+    use std::collections::HashSet;
+
     output::section("Orphan Detection & Cleanup");
 
     // Determine which collections to scan
@@ -459,7 +461,7 @@ async fn cleanup_orphans(delete: bool, collection_filter: Option<String>) -> Res
     };
 
     // Open SQLite for known-tenants lookup
-    let conn = match open_state_db() {
+    let conn = match qdrant_helpers::open_state_db() {
         Ok(c) => Some(c),
         Err(_) => {
             output::warning("Could not open state database. All Qdrant tenants will appear as orphans.");
@@ -467,18 +469,18 @@ async fn cleanup_orphans(delete: bool, collection_filter: Option<String>) -> Res
         }
     };
 
-    let http_client = build_qdrant_http_client()?;
-    let base_url = qdrant_base_url();
+    let http_client = qdrant_helpers::build_qdrant_http_client()?;
+    let base_url = qdrant_helpers::qdrant_base_url();
 
     let mut total_orphans: Vec<(String, String)> = Vec::new(); // (collection, tenant)
 
     for collection in &collections {
-        let tenant_field = tenant_field_for_collection(collection);
+        let tenant_field = qdrant_helpers::tenant_field_for_collection(collection);
 
         output::info(format!("Scanning {} (field: {})...", collection, tenant_field));
 
         // Get unique tenant values from Qdrant
-        let qdrant_tenants = scroll_unique_field_values(
+        let qdrant_tenants = qdrant_helpers::scroll_unique_field_values(
             &http_client,
             &base_url,
             collection,
@@ -492,7 +494,7 @@ async fn cleanup_orphans(delete: bool, collection_filter: Option<String>) -> Res
 
         // Get known tenants from SQLite
         let known_tenants = if let Some(ref c) = conn {
-            get_known_tenants_for_collection(c, collection)?
+            qdrant_helpers::get_known_tenants_for_collection(c, collection)?
         } else {
             HashSet::new()
         };
@@ -595,159 +597,4 @@ async fn cleanup_orphans(delete: bool, collection_filter: Option<String>) -> Res
     }
 
     Ok(())
-}
-
-/// Get the Qdrant payload field name used as tenant key for a collection.
-fn tenant_field_for_collection(collection: &str) -> &'static str {
-    if collection == COLLECTION_LIBRARIES {
-        "library_name"
-    } else {
-        "tenant_id"
-    }
-}
-
-/// Open the state database (read-only for orphan scanning).
-fn open_state_db() -> Result<rusqlite::Connection> {
-    let db_path = crate::config::get_database_path()
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
-
-    if !db_path.exists() {
-        anyhow::bail!("Database not found at {}", db_path.display());
-    }
-
-    let conn = rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    ).context("Failed to open state database")?;
-
-    Ok(conn)
-}
-
-/// Get Qdrant REST base URL.
-fn qdrant_base_url() -> String {
-    std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6333".to_string())
-}
-
-/// Build an HTTP client for Qdrant REST API.
-fn build_qdrant_http_client() -> Result<reqwest::Client> {
-    let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30));
-
-    if let Ok(api_key) = std::env::var("QDRANT_API_KEY") {
-        let mut headers = reqwest::header::HeaderMap::new();
-        headers.insert(
-            "api-key",
-            reqwest::header::HeaderValue::from_str(&api_key)
-                .context("Invalid QDRANT_API_KEY header value")?,
-        );
-        builder = builder.default_headers(headers);
-    }
-
-    builder.build().context("Failed to build HTTP client")
-}
-
-/// Scroll a Qdrant collection and collect unique values of a payload field.
-async fn scroll_unique_field_values(
-    client: &reqwest::Client,
-    base_url: &str,
-    collection: &str,
-    field: &str,
-) -> Result<HashSet<String>> {
-    let scroll_url = format!("{}/collections/{}/points/scroll", base_url, collection);
-    let mut all_values = HashSet::new();
-    let mut offset: Option<serde_json::Value> = None;
-    let batch_size = 100;
-
-    loop {
-        let mut body = serde_json::json!({
-            "limit": batch_size,
-            "with_payload": {
-                "include": [field]
-            },
-            "with_vector": false
-        });
-
-        if let Some(ref off) = offset {
-            body["offset"] = off.clone();
-        }
-
-        let resp = client
-            .post(&scroll_url)
-            .json(&body)
-            .send()
-            .await
-            .context(format!("Failed to scroll Qdrant {} collection", collection))?;
-
-        if !resp.status().is_success() {
-            let status = resp.status();
-            if status.as_u16() == 404 {
-                // Collection doesn't exist — no orphans possible
-                return Ok(all_values);
-            }
-            let text = resp.text().await.unwrap_or_default();
-            anyhow::bail!("Qdrant scroll failed for {} ({}): {}", collection, status, text);
-        }
-
-        let resp_json: serde_json::Value = resp
-            .json()
-            .await
-            .context("Failed to parse Qdrant scroll response")?;
-
-        let points = resp_json["result"]["points"]
-            .as_array()
-            .unwrap_or(&Vec::new())
-            .clone();
-
-        if points.is_empty() {
-            break;
-        }
-
-        for point in &points {
-            if let Some(val) = point["payload"][field].as_str() {
-                all_values.insert(val.to_string());
-            }
-        }
-
-        let next_offset = &resp_json["result"]["next_page_offset"];
-        if next_offset.is_null() {
-            break;
-        }
-        offset = Some(next_offset.clone());
-    }
-
-    Ok(all_values)
-}
-
-/// Get known tenant_ids (or library_names) from SQLite for a specific collection.
-fn get_known_tenants_for_collection(
-    conn: &rusqlite::Connection,
-    collection: &str,
-) -> Result<HashSet<String>> {
-    let mut known = HashSet::new();
-
-    // From watch_folders
-    let mut stmt = conn.prepare(
-        "SELECT DISTINCT tenant_id FROM watch_folders WHERE collection = ?1",
-    ).context("Failed to query watch_folders")?;
-
-    let rows: Vec<String> = stmt
-        .query_map(rusqlite::params![collection], |row| row.get::<_, String>(0))
-        .context("Failed to read watch_folders rows")?
-        .collect::<Result<Vec<_>, _>>()
-        .context("Failed to parse watch_folders rows")?;
-    known.extend(rows);
-
-    // From tracked_files
-    match conn.prepare("SELECT DISTINCT tenant_id FROM tracked_files WHERE collection = ?1") {
-        Ok(mut stmt2) => {
-            let rows2: Vec<String> = stmt2
-                .query_map(rusqlite::params![collection], |row| row.get::<_, String>(0))
-                .context("Failed to read tracked_files rows")?
-                .collect::<Result<Vec<_>, _>>()
-                .context("Failed to parse tracked_files rows")?;
-            known.extend(rows2);
-        }
-        Err(_) => {} // Table may not exist yet
-    }
-
-    Ok(known)
 }

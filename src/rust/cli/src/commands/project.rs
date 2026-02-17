@@ -12,12 +12,14 @@ use colored::Colorize;
 use serde::Serialize;
 use walkdir::WalkDir;
 
+use wqm_common::constants::COLLECTION_PROJECTS;
 use crate::grpc::client::DaemonClient;
 use crate::grpc::proto::{
     DeleteProjectRequest, DeprioritizeProjectRequest, GetProjectStatusRequest,
     ListProjectsRequest, RegisterProjectRequest, SetProjectPriorityRequest,
 };
 use crate::output::{self, ServiceStatus};
+use super::qdrant_helpers;
 
 /// Project command arguments
 #[derive(Args)]
@@ -216,6 +218,22 @@ fn resolve_project_id_or_cwd_quiet(project: Option<&str>) -> Result<(String, boo
 async fn list_projects(active_only: bool, priority: Option<String>) -> Result<()> {
     output::section("Registered Projects");
 
+    // Try to get Qdrant point counts per tenant (non-fatal if Qdrant is down)
+    let qdrant_counts = match qdrant_helpers::build_qdrant_http_client() {
+        Ok(client) => {
+            let base_url = qdrant_helpers::qdrant_base_url();
+            qdrant_helpers::scroll_tenant_point_counts(
+                &client,
+                &base_url,
+                COLLECTION_PROJECTS,
+                "tenant_id",
+            )
+            .await
+            .unwrap_or_default()
+        }
+        Err(_) => HashMap::new(),
+    };
+
     match DaemonClient::connect_default().await {
         Ok(mut client) => {
             let request = ListProjectsRequest {
@@ -227,13 +245,16 @@ async fn list_projects(active_only: bool, priority: Option<String>) -> Result<()
                 Ok(response) => {
                     let list = response.into_inner();
 
-                    if list.projects.is_empty() {
+                    if list.projects.is_empty() && qdrant_counts.is_empty() {
                         output::info("No projects registered");
                         output::info("Register a project with: wqm project register [path]");
                         return Ok(());
                     }
 
+                    let mut known_ids = HashSet::new();
+
                     for proj in &list.projects {
+                        known_ids.insert(proj.project_id.clone());
                         let status = if proj.is_active {
                             ServiceStatus::Healthy
                         } else {
@@ -244,6 +265,25 @@ async fn list_projects(active_only: bool, priority: Option<String>) -> Result<()
                         output::kv("  Path", &proj.project_root);
                         output::kv("  Priority", &proj.priority);
                         output::kv("  Active", if proj.is_active { "Yes" } else { "No" });
+                        if let Some(count) = qdrant_counts.get(&proj.project_id) {
+                            output::kv("  Points", &count.to_string());
+                        }
+                    }
+
+                    // Show orphaned projects (in Qdrant but not in daemon)
+                    let mut orphan_ids: Vec<(&String, &usize)> = qdrant_counts
+                        .iter()
+                        .filter(|(id, _)| !known_ids.contains(*id))
+                        .collect();
+                    orphan_ids.sort_by_key(|(id, _)| (*id).clone());
+
+                    if !orphan_ids.is_empty() {
+                        output::separator();
+                        output::warning(format!("Orphaned projects ({}):", orphan_ids.len()));
+                        for (id, count) in &orphan_ids {
+                            output::kv(&format!("  {} (ORPHAN)", id), &format!("{} points", count));
+                        }
+                        output::info("Run: wqm admin cleanup-orphans");
                     }
 
                     output::separator();
@@ -256,6 +296,17 @@ async fn list_projects(active_only: bool, priority: Option<String>) -> Result<()
         }
         Err(_) => {
             output::error("Daemon not running. Start with: wqm service start");
+
+            // Even without daemon, show Qdrant-only orphans if available
+            if !qdrant_counts.is_empty() {
+                output::separator();
+                output::warning(format!("Qdrant has {} tenant(s) with no daemon running:", qdrant_counts.len()));
+                let mut sorted: Vec<_> = qdrant_counts.iter().collect();
+                sorted.sort_by_key(|(id, _)| (*id).clone());
+                for (id, count) in sorted {
+                    output::kv(&format!("  {}", id), &format!("{} points", count));
+                }
+            }
         }
     }
 

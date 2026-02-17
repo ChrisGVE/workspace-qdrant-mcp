@@ -34,6 +34,9 @@ pub mod restore;
 pub mod update;
 pub mod watch;
 
+// Shared utilities
+pub mod qdrant_helpers;
+
 // Diagnostics & Setup
 pub mod hooks;
 pub mod init;

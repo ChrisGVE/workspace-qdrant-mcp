@@ -9,6 +9,7 @@
 //! The daemon reads from SQLite and manages the actual watching.
 //! Orphan cleanup has moved to: `wqm admin cleanup-orphans`
 
+use std::collections::HashSet;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -24,6 +25,7 @@ use wqm_common::constants::COLLECTION_LIBRARIES;
 use crate::config::get_database_path;
 use crate::grpc::client::DaemonClient;
 use crate::queue::{UnifiedQueueClient, ItemType, QueueOperation};
+use super::qdrant_helpers;
 
 /// Library sync mode controlling how file deletions are handled
 #[derive(Debug, Clone, Copy, Default, ValueEnum)]
@@ -259,7 +261,25 @@ async fn list(verbose: bool) -> Result<()> {
         }
     };
 
+    // Collect known library tags from SQLite
+    let mut known_tags = HashSet::new();
     let mut found_any = false;
+
+    // Try to get Qdrant point counts (non-fatal if Qdrant is down)
+    let qdrant_counts = match qdrant_helpers::build_qdrant_http_client() {
+        Ok(client) => {
+            let base_url = qdrant_helpers::qdrant_base_url();
+            qdrant_helpers::scroll_tenant_point_counts(
+                &client,
+                &base_url,
+                COLLECTION_LIBRARIES,
+                "library_name",
+            )
+            .await
+            .unwrap_or_default()
+        }
+        Err(_) => std::collections::HashMap::new(),
+    };
 
     // 1. Explicit library watch folders
     let mut stmt = conn.prepare(
@@ -290,6 +310,7 @@ async fn list(verbose: bool) -> Result<()> {
         output::separator();
 
         for (watch_id, tenant_id, path, mode, enabled, _is_active, created_at, last_activity) in &libraries {
+            known_tags.insert(tenant_id.clone());
             let status = if *enabled { "watching" } else { "paused" };
             let mode_str = mode.as_deref().unwrap_or("incremental");
 
@@ -297,6 +318,9 @@ async fn list(verbose: bool) -> Result<()> {
             output::kv("  Path", path);
             output::kv("  Status", status);
             output::kv("  Mode", mode_str);
+            if let Some(count) = qdrant_counts.get(tenant_id) {
+                output::kv("  Points", &count.to_string());
+            }
             if verbose {
                 output::kv("  Watch ID", watch_id);
                 output::kv("  Created", created_at);
@@ -338,10 +362,35 @@ async fn list(verbose: bool) -> Result<()> {
         output::separator();
 
         for (tenant_id, project_path, file_count) in &routed {
+            // Format-routed libraries use the project's tenant_id as library_name
+            known_tags.insert(tenant_id.clone());
             output::kv("  Project", tenant_id);
             output::kv("  Path", project_path);
             output::kv("  Library Files", &file_count.to_string());
             output::kv("  Source", "auto-routed (PDF, DOCX, etc.)");
+            if let Some(count) = qdrant_counts.get(tenant_id) {
+                output::kv("  Points", &count.to_string());
+            }
+            output::separator();
+        }
+    }
+
+    // 3. Orphaned libraries: exist in Qdrant but not in SQLite
+    let mut orphan_tags: Vec<(&String, &usize)> = qdrant_counts
+        .iter()
+        .filter(|(tag, _)| !known_tags.contains(*tag))
+        .collect();
+    orphan_tags.sort_by_key(|(tag, _)| (*tag).clone());
+
+    if !orphan_tags.is_empty() {
+        found_any = true;
+        output::warning(format!("Orphaned libraries ({}):", orphan_tags.len()));
+        output::separator();
+
+        for (tag, count) in &orphan_tags {
+            output::kv("  Tag", &format!("{} (ORPHAN)", tag));
+            output::kv("  Points", &count.to_string());
+            output::kv("  Status", "no watch folder — run: wqm admin cleanup-orphans");
             output::separator();
         }
     }
