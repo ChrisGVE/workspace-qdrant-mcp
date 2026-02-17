@@ -984,24 +984,21 @@ impl FileWatcherQueue {
         // Get absolute path
         let file_absolute_path = event.path.to_string_lossy().to_string();
 
-        // Apply format-based routing (Task 567): override collection for library-routed files
-        let (final_collection, metadata) = if matches!(operation, UnifiedOp::Delete) {
-            // For deletes, use the original collection (tracked_files has the correct value)
-            (collection.clone(), None)
-        } else {
-            match allowed_extensions.route_file(&file_absolute_path, &collection, &tenant_id) {
-                FileRoute::LibraryCollection { source_project_id } if collection != COLLECTION_LIBRARIES => {
-                    let meta = source_project_id.as_ref().map(|pid| {
-                        serde_json::json!({"source_project_id": pid}).to_string()
-                    });
-                    debug!(
-                        "Format-based routing override: {} -> libraries (source_project={})",
-                        file_absolute_path, tenant_id
-                    );
-                    (COLLECTION_LIBRARIES.to_string(), meta)
-                }
-                _ => (collection.clone(), None),
+        // Apply format-based routing (Task 567): override collection for library-routed files.
+        // Routing applies to ALL operations including deletes — route_file() only inspects the
+        // file extension (no filesystem access), so it works for deleted files too.
+        let (final_collection, metadata) = match allowed_extensions.route_file(&file_absolute_path, &collection, &tenant_id) {
+            FileRoute::LibraryCollection { source_project_id } if collection != COLLECTION_LIBRARIES => {
+                let meta = source_project_id.as_ref().map(|pid| {
+                    serde_json::json!({"source_project_id": pid}).to_string()
+                });
+                debug!(
+                    "Format-based routing override: {} -> libraries (source_project={})",
+                    file_absolute_path, tenant_id
+                );
+                (COLLECTION_LIBRARIES.to_string(), meta)
             }
+            _ => (collection.clone(), None),
         };
 
         // Log multi-tenant routing decision
