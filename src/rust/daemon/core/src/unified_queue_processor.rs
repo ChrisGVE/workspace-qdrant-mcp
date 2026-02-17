@@ -39,6 +39,7 @@ use crate::tracked_files_schema::{
 };
 use crate::keyword_extraction::pipeline::PipelineInput;
 use crate::keyword_extraction::collection_config;
+use crate::lexicon::LexiconManager;
 
 /// Unified queue processor errors
 #[derive(Error, Debug)]
@@ -247,6 +248,9 @@ pub struct UnifiedQueueProcessor {
 
     /// Shared queue depth counter for adaptive resource signaling
     queue_depth_counter: Arc<std::sync::atomic::AtomicUsize>,
+
+    /// Lexicon manager for per-collection BM25 vocabulary persistence (Task 17)
+    lexicon_manager: Arc<LexiconManager>,
 }
 
 impl UnifiedQueueProcessor {
@@ -258,11 +262,14 @@ impl UnifiedQueueProcessor {
             ..EmbeddingConfig::default()
         };
         let embedding_generator = Arc::new(
-            EmbeddingGenerator::new(embedding_config)
+            EmbeddingGenerator::new(embedding_config.clone())
                 .expect("Failed to create embedding generator")
         );
         let storage_config = StorageConfig::default();
         let storage_client = Arc::new(StorageClient::with_config(storage_config));
+
+        // Create lexicon manager for BM25 vocabulary persistence (Task 17)
+        let lexicon_manager = Arc::new(LexiconManager::new(pool.clone(), embedding_config.bm25_k1));
 
         // Create fairness scheduler with config from processor config
         let queue_manager = QueueManager::new(pool);
@@ -299,6 +306,7 @@ impl UnifiedQueueProcessor {
             queue_health: None,
             resource_profile_rx: None,
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            lexicon_manager,
         }
     }
 
@@ -310,6 +318,9 @@ impl UnifiedQueueProcessor {
         embedding_generator: Arc<EmbeddingGenerator>,
         storage_client: Arc<StorageClient>,
     ) -> Self {
+        // Create lexicon manager for BM25 vocabulary persistence (Task 17)
+        let lexicon_manager = Arc::new(LexiconManager::new(pool.clone(), EmbeddingConfig::default().bm25_k1));
+
         // Create fairness scheduler with config from processor config
         let queue_manager = QueueManager::new(pool);
         let fairness_config = FairnessSchedulerConfig {
@@ -345,6 +356,7 @@ impl UnifiedQueueProcessor {
             queue_health: None,
             resource_profile_rx: None,
             queue_depth_counter: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            lexicon_manager,
         }
     }
 
@@ -427,6 +439,7 @@ impl UnifiedQueueProcessor {
         let lsp_manager = self.lsp_manager.clone();
         let embedding_semaphore = self.embedding_semaphore.clone();
         let allowed_extensions = self.allowed_extensions.clone();
+        let lexicon_manager = self.lexicon_manager.clone();
         let warmup_state = self.warmup_state.clone();
         let queue_health = self.queue_health.clone();
         let resource_profile_rx = self.resource_profile_rx.clone();
@@ -450,6 +463,7 @@ impl UnifiedQueueProcessor {
                 lsp_manager,
                 embedding_semaphore,
                 allowed_extensions,
+                lexicon_manager,
                 warmup_state,
                 queue_health.clone(),
                 resource_profile_rx,
@@ -528,6 +542,7 @@ impl UnifiedQueueProcessor {
         lsp_manager: Option<Arc<RwLock<LanguageServerManager>>>,
         embedding_semaphore: Arc<tokio::sync::Semaphore>,
         allowed_extensions: Arc<AllowedExtensions>,
+        lexicon_manager: Arc<LexiconManager>,
         warmup_state: Arc<WarmupState>,
         queue_health: Option<Arc<QueueProcessorHealth>>,
         resource_profile_rx: Option<tokio::sync::watch::Receiver<ResourceProfile>>,
@@ -662,6 +677,7 @@ impl UnifiedQueueProcessor {
                             &lsp_manager,
                             &embedding_semaphore,
                             &allowed_extensions,
+                            &lexicon_manager,
                         )
                         .await
                         {
@@ -792,6 +808,7 @@ impl UnifiedQueueProcessor {
         lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
         embedding_semaphore: &Arc<tokio::sync::Semaphore>,
         allowed_extensions: &Arc<AllowedExtensions>,
+        lexicon_manager: &Arc<LexiconManager>,
     ) -> UnifiedProcessorResult<()> {
         debug!(
             "Processing unified item: {} (type={:?}, op={:?}, collection={})",
@@ -803,7 +820,7 @@ impl UnifiedQueueProcessor {
                 Self::process_content_item(item, embedding_generator, storage_client, embedding_semaphore).await
             }
             ItemType::File => {
-                Self::process_file_item(item, queue_manager, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore, allowed_extensions).await
+                Self::process_file_item(item, queue_manager, document_processor, embedding_generator, storage_client, lsp_manager, embedding_semaphore, allowed_extensions, lexicon_manager).await
             }
             ItemType::Folder => {
                 Self::process_folder_item(item, queue_manager, storage_client, allowed_extensions).await
@@ -1133,6 +1150,7 @@ impl UnifiedQueueProcessor {
         lsp_manager: &Option<Arc<RwLock<LanguageServerManager>>>,
         embedding_semaphore: &Arc<tokio::sync::Semaphore>,
         allowed_extensions: &Arc<AllowedExtensions>,
+        lexicon_manager: &Arc<LexiconManager>,
     ) -> UnifiedProcessorResult<()> {
         info!(
             "Processing file item: {} -> collection: {} (op={:?})",
@@ -1500,14 +1518,33 @@ impl UnifiedQueueProcessor {
             let is_code = document_content.document_type.is_code();
             let language = document_content.document_type.language();
 
+            // Fetch corpus size and build DF lookup from lexicon (Task 17)
+            let corpus_size = lexicon_manager.corpus_size(&item.collection).await;
+            let full_text = chunk_texts.join("\n");
+
+            // Build per-document DF lookup for unique terms in this document
+            let unique_terms: std::collections::HashSet<String> = full_text
+                .split_whitespace()
+                .map(|w| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_string())
+                .filter(|w| w.len() >= 2)
+                .collect();
+            let mut df_lookup = std::collections::HashMap::new();
+            for term in &unique_terms {
+                let df = lexicon_manager.document_frequency(&item.collection, term).await;
+                if df > 0 {
+                    df_lookup.insert(term.clone(), df as u64);
+                }
+            }
+
             let pipeline_input = PipelineInput {
                 file_path,
-                full_text: &chunk_texts.join("\n"),
+                full_text: &full_text,
                 language,
                 is_code,
                 chunk_vectors: &chunk_vectors,
                 chunk_texts: &chunk_texts,
-                corpus_size: 0, // Will be wired to SQLite corpus_statistics later
+                corpus_size,
+                df_lookup: &df_lookup,
             };
 
             let extraction_start = std::time::Instant::now();
@@ -1520,12 +1557,19 @@ impl UnifiedQueueProcessor {
 
             let extraction_ms = extraction_start.elapsed().as_millis();
             info!(
-                "Keyword/tag extraction completed in {}ms: {} keywords, {} tags, {} structural tags",
+                "Keyword/tag extraction completed in {}ms: {} keywords, {} tags, {} structural tags (corpus_size={})",
                 extraction_ms,
                 extraction.keywords.len(),
                 extraction.tags.len(),
                 extraction.structural_tags.len(),
+                corpus_size,
             );
+
+            // Update lexicon with this document's terms (Task 17)
+            let tokens: Vec<String> = unique_terms.into_iter().collect();
+            if let Err(e) = lexicon_manager.add_document(&item.collection, &tokens).await {
+                warn!("Failed to update lexicon for {}: {}", item.collection, e);
+            }
 
             // Inject extraction results into all point payloads
             let kw_phrases = extraction.keyword_phrases();

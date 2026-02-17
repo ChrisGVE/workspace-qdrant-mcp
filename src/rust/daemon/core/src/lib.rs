@@ -55,6 +55,7 @@ pub mod title_extraction;
 pub mod resolution_events_schema;
 pub mod keyword_extraction;
 pub mod keywords_schema;
+pub mod lexicon;
 pub mod library_document;
 pub mod tree_sitter;
 pub mod watching;

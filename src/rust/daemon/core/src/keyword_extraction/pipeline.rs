@@ -63,8 +63,11 @@ pub struct PipelineInput<'a> {
     pub chunk_vectors: &'a [Vec<f32>],
     /// Chunk text content (parallel with chunk_vectors)
     pub chunk_texts: &'a [String],
-    /// Document frequency lookup: returns how many docs contain the term
+    /// Total documents in the collection corpus
     pub corpus_size: u64,
+    /// Pre-computed document frequency map: term → document count.
+    /// Used for IDF penalty in keyword selection. Empty map falls back to 0.
+    pub df_lookup: &'a std::collections::HashMap<String, u64>,
 }
 
 /// Result of the extraction pipeline.
@@ -210,7 +213,7 @@ pub async fn run_pipeline(
     };
     let keywords = keyword_selector::select_keywords(
         &ranked,
-        |_phrase| 0, // DF lookup placeholder - will be wired to SQLite later
+        |phrase| input.df_lookup.get(phrase).copied().unwrap_or(0),
         |_phrase| {
             // Stability: count how many chunks contain this term
             input
