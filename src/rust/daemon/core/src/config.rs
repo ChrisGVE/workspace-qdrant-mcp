@@ -829,13 +829,25 @@ pub struct ResourceLimitsConfig {
     #[serde(default = "default_idle_threshold_secs")]
     pub idle_threshold_secs: u64,
 
-    /// Total seconds to ramp from normal to full burst after entering idle.
-    #[serde(default = "default_idle_ramp_duration_secs")]
-    pub idle_ramp_duration_secs: u64,
+    /// Seconds of sustained idle required before the first upward level transition.
+    /// Default: 300 (5 minutes)
+    #[serde(default = "default_idle_confirmation_secs")]
+    pub idle_confirmation_secs: u64,
 
-    /// Number of discrete steps during ramp-up.
-    #[serde(default = "default_idle_ramp_steps")]
-    pub idle_ramp_steps: u32,
+    /// Seconds to spend at each level during ramp-up (after confirmation).
+    /// Default: 120 (2 minutes per level, so Active→Burst takes ~4 min)
+    #[serde(default = "default_ramp_up_step_secs")]
+    pub ramp_up_step_secs: u64,
+
+    /// Seconds of sustained user activity required before each downward level transition.
+    /// Default: 300 (5 minutes per level)
+    #[serde(default = "default_ramp_down_step_secs")]
+    pub ramp_down_step_secs: u64,
+
+    /// Minimum seconds to hold at Burst before allowing ramp-down.
+    /// Default: 600 (10 minutes — "generous time at max")
+    #[serde(default = "default_burst_hold_secs")]
+    pub burst_hold_secs: u64,
 
     /// Multiplier for max_concurrent_embeddings in burst mode.
     #[serde(default = "default_burst_concurrency_multiplier")]
@@ -853,12 +865,8 @@ pub struct ResourceLimitsConfig {
     #[serde(default = "default_idle_poll_interval_secs")]
     pub idle_poll_interval_secs: u64,
 
-    /// Number of consecutive active polls required before leaving idle/burst mode.
-    /// Prevents phantom system events (Spotlight, Bluetooth, Power Nap) from
-    /// prematurely breaking burst mode. With default poll_interval=5s and
-    /// cooloff_polls=3, requires 15 seconds of sustained user activity.
-    #[serde(default = "default_idle_cooloff_polls")]
-    pub idle_cooloff_polls: u32,
+    // NOTE: idle_cooloff_polls removed — replaced by ramp_down_step_secs
+    // which provides proper per-level descent timing instead of a crude poll counter.
 
     // --- Active Processing Mode ---
 
@@ -879,13 +887,14 @@ fn default_max_concurrent_embeddings() -> usize { 0 } // 0 = auto-detect
 fn default_max_memory_percent() -> u8 { 70 }
 fn default_onnx_intra_threads() -> usize { 0 } // 0 = auto-detect
 fn default_idle_threshold_secs() -> u64 { 120 }
-fn default_idle_ramp_duration_secs() -> u64 { 300 }
-fn default_idle_ramp_steps() -> u32 { 5 }
+fn default_idle_confirmation_secs() -> u64 { 300 }
+fn default_ramp_up_step_secs() -> u64 { 120 }
+fn default_ramp_down_step_secs() -> u64 { 300 }
+fn default_burst_hold_secs() -> u64 { 600 }
 fn default_burst_concurrency_multiplier() -> f64 { 2.0 }
 fn default_burst_inter_item_delay_ms() -> u64 { 0 }
 fn default_cpu_pressure_threshold() -> f64 { 0.6 }
 fn default_idle_poll_interval_secs() -> u64 { 5 }
-fn default_idle_cooloff_polls() -> u32 { 3 }
 fn default_active_concurrency_multiplier() -> f64 { 1.5 }
 fn default_active_inter_item_delay_ms() -> u64 { 25 }
 
@@ -898,13 +907,14 @@ impl Default for ResourceLimitsConfig {
             max_memory_percent: default_max_memory_percent(),
             onnx_intra_threads: default_onnx_intra_threads(),
             idle_threshold_secs: default_idle_threshold_secs(),
-            idle_ramp_duration_secs: default_idle_ramp_duration_secs(),
-            idle_ramp_steps: default_idle_ramp_steps(),
+            idle_confirmation_secs: default_idle_confirmation_secs(),
+            ramp_up_step_secs: default_ramp_up_step_secs(),
+            ramp_down_step_secs: default_ramp_down_step_secs(),
+            burst_hold_secs: default_burst_hold_secs(),
             burst_concurrency_multiplier: default_burst_concurrency_multiplier(),
             burst_inter_item_delay_ms: default_burst_inter_item_delay_ms(),
             cpu_pressure_threshold: default_cpu_pressure_threshold(),
             idle_poll_interval_secs: default_idle_poll_interval_secs(),
-            idle_cooloff_polls: default_idle_cooloff_polls(),
             active_concurrency_multiplier: default_active_concurrency_multiplier(),
             active_inter_item_delay_ms: default_active_inter_item_delay_ms(),
         }
@@ -1009,15 +1019,27 @@ impl ResourceLimitsConfig {
             }
         }
 
-        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_RAMP_DURATION_SECS") {
+        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_CONFIRMATION_SECS") {
             if let Ok(parsed) = val.parse() {
-                self.idle_ramp_duration_secs = parsed;
+                self.idle_confirmation_secs = parsed;
             }
         }
 
-        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_RAMP_STEPS") {
+        if let Ok(val) = env::var("WQM_RESOURCE_RAMP_UP_STEP_SECS") {
             if let Ok(parsed) = val.parse() {
-                self.idle_ramp_steps = parsed;
+                self.ramp_up_step_secs = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_RAMP_DOWN_STEP_SECS") {
+            if let Ok(parsed) = val.parse() {
+                self.ramp_down_step_secs = parsed;
+            }
+        }
+
+        if let Ok(val) = env::var("WQM_RESOURCE_BURST_HOLD_SECS") {
+            if let Ok(parsed) = val.parse() {
+                self.burst_hold_secs = parsed;
             }
         }
 
@@ -1045,11 +1067,7 @@ impl ResourceLimitsConfig {
             }
         }
 
-        if let Ok(val) = env::var("WQM_RESOURCE_IDLE_COOLOFF_POLLS") {
-            if let Ok(parsed) = val.parse() {
-                self.idle_cooloff_polls = parsed;
-            }
-        }
+
 
         if let Ok(val) = env::var("WQM_RESOURCE_ACTIVE_CONCURRENCY_MULTIPLIER") {
             if let Ok(parsed) = val.parse() {
@@ -1333,13 +1351,14 @@ impl From<&YamlConfig> for DaemonConfig {
                 max_memory_percent: yaml.resource_limits.max_memory_percent,
                 onnx_intra_threads: yaml.resource_limits.onnx_intra_threads,
                 idle_threshold_secs: yaml.resource_limits.idle_threshold_secs,
-                idle_ramp_duration_secs: yaml.resource_limits.idle_ramp_duration_secs,
-                idle_ramp_steps: yaml.resource_limits.idle_ramp_steps,
+                idle_confirmation_secs: yaml.resource_limits.idle_confirmation_secs,
+                ramp_up_step_secs: yaml.resource_limits.ramp_up_step_secs,
+                ramp_down_step_secs: yaml.resource_limits.ramp_down_step_secs,
+                burst_hold_secs: yaml.resource_limits.burst_hold_secs,
                 burst_concurrency_multiplier: yaml.resource_limits.burst_concurrency_multiplier,
                 burst_inter_item_delay_ms: yaml.resource_limits.burst_inter_item_delay_ms,
                 cpu_pressure_threshold: yaml.resource_limits.cpu_pressure_threshold,
                 idle_poll_interval_secs: yaml.resource_limits.idle_poll_interval_secs,
-                idle_cooloff_polls: yaml.resource_limits.idle_cooloff_polls,
                 active_concurrency_multiplier: yaml.resource_limits.active_concurrency_multiplier,
                 active_inter_item_delay_ms: yaml.resource_limits.active_inter_item_delay_ms,
             },
@@ -1917,8 +1936,10 @@ mod tests {
         assert_eq!(deserialized.max_memory_percent, 80);
         // Idle config should have defaults
         assert_eq!(deserialized.idle_threshold_secs, 120);
-        assert_eq!(deserialized.idle_ramp_duration_secs, 300);
-        assert_eq!(deserialized.idle_ramp_steps, 5);
+        assert_eq!(deserialized.idle_confirmation_secs, 300);
+        assert_eq!(deserialized.ramp_up_step_secs, 120);
+        assert_eq!(deserialized.ramp_down_step_secs, 300);
+        assert_eq!(deserialized.burst_hold_secs, 600);
         assert!((deserialized.burst_concurrency_multiplier - 2.0).abs() < f64::EPSILON);
     }
 

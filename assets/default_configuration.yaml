@@ -1320,29 +1320,48 @@ resource_limits:
   # Format: Integer 0..16
   onnx_intra_threads: 0
 
-  # --- Adaptive Idle Mode ---
-  # When the user has been idle (no keyboard/mouse input) for idle_threshold_secs,
-  # the daemon gradually ramps up processing throughput over idle_ramp_duration_secs
-  # in idle_ramp_steps discrete steps. When user activity resumes, the daemon
-  # immediately snaps back to normal resource usage.
+  # --- Adaptive Idle Mode (4-Level State Machine) ---
+  # Uses 4 resource levels: Normal(0) < Active(1) < Elevated(2) < Burst(3)
+  # with max 1-level transitions per evaluation. Ramp-up requires sustained idle
+  # confirmation before advancing. Ramp-down uses per-level timers and can
+  # reverse to ramp-up if idle resumes during descent.
 
-  # idle_threshold_secs: Seconds of no user input before entering idle mode
+  # idle_threshold_secs: Seconds of no user input before considering idle
+  # This is the raw idle detection threshold. The system then requires
+  # idle_confirmation_secs of sustained idle before actually ramping up.
   # Default: 120 (2 minutes)
   # Format: Integer > 0
   idle_threshold_secs: 120
 
-  # idle_ramp_duration_secs: Total seconds to ramp from normal to full burst
-  # Handles the difference between a short coffee break and a long lunch:
-  # short idle = moderate increase, sustained idle = full burst.
+  # idle_confirmation_secs: Sustained idle required before first upward transition
+  # Prevents false idle detection from brief pauses. The system must see
+  # continuous idle (>= idle_threshold_secs) for this duration before ramping.
   # Default: 300 (5 minutes)
   # Format: Integer > 0
-  idle_ramp_duration_secs: 300
+  idle_confirmation_secs: 300
 
-  # idle_ramp_steps: Number of discrete steps during ramp-up
-  # More steps = smoother transition, but more state changes
-  # Default: 5
-  # Format: Integer 1..20
-  idle_ramp_steps: 5
+  # ramp_up_step_secs: Time at each level before advancing upward
+  # After idle is confirmed, each level transition (Active->Elevated->Burst)
+  # requires this many seconds. Total ramp: confirmation + 2 steps.
+  # Default: 120 (2 minutes per level)
+  # Format: Integer > 0
+  ramp_up_step_secs: 120
+
+  # ramp_down_step_secs: Sustained user activity before descending one level
+  # When user returns, requires this duration of sustained activity before
+  # dropping each level (Burst->Elevated->Active). Can reverse to ramp-up
+  # if idle is detected during descent.
+  # Default: 300 (5 minutes per level)
+  # Format: Integer > 0
+  ramp_down_step_secs: 300
+
+  # burst_hold_secs: Minimum time at Burst before allowing ramp-down
+  # "Generous time at max" — once reaching Burst, the system holds there
+  # for at least this long even if user activity resumes, to avoid
+  # wasting the ramp-up investment on brief interruptions.
+  # Default: 600 (10 minutes)
+  # Format: Integer > 0
+  burst_hold_secs: 600
 
   # burst_concurrency_multiplier: Multiplier for max_concurrent_embeddings in burst
   # Applied to the resolved (auto-detected) value of max_concurrent_embeddings.
@@ -1369,13 +1388,9 @@ resource_limits:
   # Format: Integer 1..60
   idle_poll_interval_secs: 5
 
-  # idle_cooloff_polls: Consecutive active polls before leaving idle/burst mode
-  # Prevents phantom system events (Spotlight, Bluetooth, Power Nap) from
-  # prematurely breaking burst mode. Effective cooloff = polls * poll_interval.
-  # With default values (3 polls * 5s interval = 15 seconds of sustained activity).
-  # Default: 3
-  # Format: Integer 1..20
-  idle_cooloff_polls: 3
+  # NOTE: idle_cooloff_polls has been removed. The ramp_down_step_secs
+  # configuration provides proper per-level descent timing instead of
+  # the crude poll-based cooloff mechanism.
 
 # =============================================================================
 # PERFORMANCE CONFIGURATION

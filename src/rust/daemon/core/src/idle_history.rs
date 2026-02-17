@@ -375,10 +375,10 @@ mod tests {
         let entries = history.read_recent(Duration::from_secs(3600));
         assert_eq!(entries.len(), 2);
         assert_eq!(entries[0].from_mode, "normal");
-        assert_eq!(entries[0].to_mode, "ramping");
+        assert_eq!(entries[0].to_mode, "elevated");
         assert!((entries[0].idle_seconds - 125.0).abs() < 0.01);
         assert!((entries[0].duration_in_previous_secs - 300.0).abs() < 0.01);
-        assert_eq!(entries[1].from_mode, "ramping");
+        assert_eq!(entries[1].from_mode, "elevated");
         assert_eq!(entries[1].to_mode, "burst");
     }
 

@@ -589,12 +589,16 @@ pub struct YamlResourceLimitsConfig {
     pub max_memory_percent: u8,
     /// ONNX intra-op threads per embedding session (0 = auto-detect)
     pub onnx_intra_threads: usize,
-    /// Seconds of no user input before entering idle mode
+    /// Seconds of no user input before considering idle
     pub idle_threshold_secs: u64,
-    /// Seconds to ramp from normal to full burst after entering idle
-    pub idle_ramp_duration_secs: u64,
-    /// Number of discrete steps during ramp-up
-    pub idle_ramp_steps: u32,
+    /// Seconds of sustained idle required before the first upward level transition
+    pub idle_confirmation_secs: u64,
+    /// Seconds to spend at each level during ramp-up (after confirmation)
+    pub ramp_up_step_secs: u64,
+    /// Seconds of sustained user activity required before each downward level transition
+    pub ramp_down_step_secs: u64,
+    /// Minimum seconds to hold at Burst before allowing ramp-down
+    pub burst_hold_secs: u64,
     /// Multiplier for burst-mode max_concurrent_embeddings (relative to normal)
     pub burst_concurrency_multiplier: f64,
     /// Inter-item delay in burst mode (ms)
@@ -603,8 +607,6 @@ pub struct YamlResourceLimitsConfig {
     pub cpu_pressure_threshold: f64,
     /// How often to poll idle state (seconds)
     pub idle_poll_interval_secs: u64,
-    /// Consecutive active polls required before leaving idle/burst mode
-    pub idle_cooloff_polls: u32,
     /// Multiplier for active processing mode (user present, queue has work)
     pub active_concurrency_multiplier: f64,
     /// Inter-item delay in active processing mode (ms)
@@ -620,13 +622,14 @@ impl Default for YamlResourceLimitsConfig {
             max_memory_percent: 70,
             onnx_intra_threads: 0,
             idle_threshold_secs: 120,
-            idle_ramp_duration_secs: 300,
-            idle_ramp_steps: 5,
+            idle_confirmation_secs: 300,
+            ramp_up_step_secs: 120,
+            ramp_down_step_secs: 300,
+            burst_hold_secs: 600,
             burst_concurrency_multiplier: 2.0,
             burst_inter_item_delay_ms: 0,
             cpu_pressure_threshold: 0.6,
             idle_poll_interval_secs: 5,
-            idle_cooloff_polls: 3,
             active_concurrency_multiplier: 1.5,
             active_inter_item_delay_ms: 25,
         }
@@ -804,8 +807,10 @@ mod tests {
         assert_eq!(config.resource_limits.max_memory_percent, 70);
         assert_eq!(config.resource_limits.onnx_intra_threads, 0);
         assert_eq!(config.resource_limits.idle_threshold_secs, 120);
-        assert_eq!(config.resource_limits.idle_ramp_duration_secs, 300);
-        assert_eq!(config.resource_limits.idle_ramp_steps, 5);
+        assert_eq!(config.resource_limits.idle_confirmation_secs, 300);
+        assert_eq!(config.resource_limits.ramp_up_step_secs, 120);
+        assert_eq!(config.resource_limits.ramp_down_step_secs, 300);
+        assert_eq!(config.resource_limits.burst_hold_secs, 600);
         assert!((config.resource_limits.burst_concurrency_multiplier - 2.0).abs() < f64::EPSILON);
         assert_eq!(config.resource_limits.burst_inter_item_delay_ms, 0);
         assert!((config.resource_limits.cpu_pressure_threshold - 0.6).abs() < f64::EPSILON);
