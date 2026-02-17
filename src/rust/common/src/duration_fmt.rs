@@ -15,8 +15,16 @@ pub fn format_duration(secs: f64, fractional_digits: usize) -> String {
         return "—".to_string();
     }
 
-    let total_secs = secs.floor() as u64;
-    let frac = secs - secs.floor();
+    // Round to the requested precision first to avoid fractional carry issues
+    let rounded = if fractional_digits > 0 {
+        let scale = 10f64.powi(fractional_digits as i32);
+        (secs * scale).round() / scale
+    } else {
+        secs.round()
+    };
+
+    let total_secs = rounded.floor() as u64;
+    let frac = rounded - rounded.floor();
     let days = total_secs / 86400;
     let hours = (total_secs % 86400) / 3600;
     let mins = (total_secs % 3600) / 60;
@@ -134,6 +142,15 @@ mod tests {
         assert_eq!(formatted[0], "01:00");
         assert_eq!(formatted[1], "02:00");
         assert_eq!(formatted[2], "01:00:00");
+    }
+
+    #[test]
+    fn test_fractional_carry_over() {
+        // When frac rounds up to 10, it should carry into seconds
+        // 123.95 with 1 digit: 0.95 * 10 = 9.5 → rounds to 10 → carry
+        assert_eq!(format_duration(123.95, 1), "02:04.0");
+        // 59.99 with 1 digit: rounds to 60.0 → 01:00.0
+        assert_eq!(format_duration(59.99, 1), "01:00.0");
     }
 
     #[test]

@@ -506,7 +506,7 @@ async fn list_rules(
                     .unwrap_or_else(|| "-".to_string()),
                 tags: normalize_commas(&payload_str(payload, mem_schema::TAGS.name)),
                 content: payload_str(payload, mem_schema::CONTENT.name),
-                created_at: output::format_date(&payload_str(payload, mem_schema::CREATED_AT.name)),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, mem_schema::CREATED_AT.name)),
             })
             .collect();
         output::print_table_auto(&rows);
@@ -523,7 +523,7 @@ async fn list_rules(
                 priority: payload_u32(payload, mem_schema::PRIORITY.name)
                     .map(|p| p.to_string())
                     .unwrap_or_else(|| "-".to_string()),
-                created_at: output::format_date(&payload_str(payload, mem_schema::CREATED_AT.name)),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, mem_schema::CREATED_AT.name)),
             })
             .collect();
         output::print_table_auto(&rows);

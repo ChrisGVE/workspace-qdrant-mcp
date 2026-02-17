@@ -579,15 +579,15 @@ async fn show(watch_id: &str, json: bool) -> Result<()> {
                     output::kv("Library Mode", mode);
                 }
                 output::separator();
-                output::kv("Created At", &item.created_at);
-                output::kv("Updated At", &item.updated_at);
+                output::kv("Created At", &wqm_common::timestamp_fmt::format_local(&item.created_at));
+                output::kv("Updated At", &wqm_common::timestamp_fmt::format_local(&item.updated_at));
                 if let Some(ref scan) = item.last_scan {
-                    output::kv("Last Scan", &format!("{} ({})", scan, format_relative_time(scan)));
+                    output::kv("Last Scan", &format!("{} ({})", wqm_common::timestamp_fmt::format_local(scan), format_relative_time(scan)));
                 } else {
                     output::kv("Last Scan", "never");
                 }
                 if let Some(ref activity) = item.last_activity_at {
-                    output::kv("Last Activity", &format!("{} ({})", activity, format_relative_time(activity)));
+                    output::kv("Last Activity", &format!("{} ({})", wqm_common::timestamp_fmt::format_local(activity), format_relative_time(activity)));
                 }
                 if let Some(ref parent) = item.parent_watch_id {
                     output::separator();

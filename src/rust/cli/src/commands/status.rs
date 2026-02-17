@@ -218,7 +218,7 @@ async fn default_status(show_queue: bool, show_watch: bool, show_performance: bo
                         output::separator();
                         output::kv("Resource Mode", mode);
                         if let Some(idle) = status.idle_seconds {
-                            output::kv("Idle Time", &format!("{:.0}s", idle));
+                            output::kv("Idle Time", &wqm_common::duration_fmt::format_duration(idle, 0));
                         }
                         if let Some(max_emb) = status.current_max_embeddings {
                             output::kv("Max Embeddings", &max_emb.to_string());

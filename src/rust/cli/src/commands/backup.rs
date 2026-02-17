@@ -85,7 +85,9 @@ impl From<&SnapshotInfo> for SnapshotRow {
         Self {
             name: s.name.clone(),
             size: output::format_bytes(s.size),
-            created: s.creation_time.clone().unwrap_or_else(|| "unknown".into()),
+            created: s.creation_time.as_deref()
+                .map(wqm_common::timestamp_fmt::format_local)
+                .unwrap_or_else(|| "unknown".into()),
             checksum: s
                 .checksum
                 .clone()

@@ -159,6 +159,9 @@ async fn rename_tenant(old_id: String, new_id: String, yes: bool) -> Result<()> 
 fn show_idle_history(hours: f64) -> Result<()> {
     use serde::Deserialize;
     use std::io::BufRead;
+    use tabled::Tabled;
+
+    use crate::output::ColumnHints;
 
     #[derive(Deserialize)]
     struct Entry {
@@ -167,6 +170,24 @@ fn show_idle_history(hours: f64) -> Result<()> {
         to_mode: String,
         idle_seconds: f64,
         duration_in_previous_secs: f64,
+    }
+
+    #[derive(Tabled)]
+    struct IdleHistoryRow {
+        #[tabled(rename = "Timestamp")]
+        timestamp: String,
+        #[tabled(rename = "From")]
+        from_mode: String,
+        #[tabled(rename = "To")]
+        to_mode: String,
+        #[tabled(rename = "Idle")]
+        idle: String,
+        #[tabled(rename = "Duration")]
+        duration: String,
+    }
+
+    impl ColumnHints for IdleHistoryRow {
+        fn content_columns() -> &'static [usize] { &[] }
     }
 
     let config_dir = wqm_common::paths::get_config_dir()
@@ -211,7 +232,7 @@ fn show_idle_history(hours: f64) -> Result<()> {
 
     output::separator();
     output::kv("Rate", &format!("{:.1} transitions/hr", transitions_per_hour));
-    output::kv("Avg mode duration", &format!("{:.1}s", avg_duration));
+    output::kv("Avg mode duration", &wqm_common::duration_fmt::format_duration(avg_duration, 0));
     output::kv("Short (<30s)", &short_count.to_string());
 
     if is_flip_flopping {
@@ -221,28 +242,25 @@ fn show_idle_history(hours: f64) -> Result<()> {
         output::kv("Recommended +cooloff", &format!("+{} polls", recommended));
     }
 
-    // Show last 20 transitions
-    output::separator();
-    println!("  Recent transitions (last {}):", std::cmp::min(20, entries.len()));
-    println!("  {:<24} {:>8} {:>8} {:>8} {:>10}",
-        "Timestamp", "From", "To", "Idle(s)", "Duration");
-    println!("  {}", "-".repeat(62));
+    // Show last 20 transitions in a table
+    let tail: Vec<&Entry> = entries.iter().rev().take(20).collect::<Vec<_>>().into_iter().rev().collect();
+    let idle_secs: Vec<f64> = tail.iter().map(|e| e.idle_seconds).collect();
+    let dur_secs: Vec<f64> = tail.iter().map(|e| e.duration_in_previous_secs).collect();
+    let idle_fmt = wqm_common::duration_fmt::format_duration_column(&idle_secs);
+    let dur_fmt = wqm_common::duration_fmt::format_duration_column(&dur_secs);
 
-    for entry in entries.iter().rev().take(20).collect::<Vec<_>>().into_iter().rev() {
-        // Trim timestamp to just time portion for readability
-        let time_part = if entry.timestamp.len() > 11 {
-            &entry.timestamp[11..]
-        } else {
-            &entry.timestamp
-        };
-        println!("  {:<24} {:>8} {:>8} {:>8.0} {:>9.1}s",
-            time_part,
-            entry.from_mode,
-            entry.to_mode,
-            entry.idle_seconds,
-            entry.duration_in_previous_secs,
-        );
-    }
+    let rows: Vec<IdleHistoryRow> = tail.iter().enumerate().map(|(i, entry)| {
+        IdleHistoryRow {
+            timestamp: wqm_common::timestamp_fmt::format_local(&entry.timestamp),
+            from_mode: entry.from_mode.clone(),
+            to_mode: entry.to_mode.clone(),
+            idle: idle_fmt[i].clone(),
+            duration: dur_fmt[i].clone(),
+        }
+    }).collect();
+
+    output::separator();
+    output::print_table_auto(&rows);
 
     Ok(())
 }

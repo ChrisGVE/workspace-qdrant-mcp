@@ -332,7 +332,7 @@ async fn list_entries(
                 tenant_id: payload_str(payload, "tenant_id"),
                 tags: payload_tags(payload).join(", "),
                 content: payload_str(payload, "content"),
-                created_at: payload_str(payload, "created_at"),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, "created_at")),
             })
             .collect();
         output::print_table_auto(&rows);
@@ -344,7 +344,7 @@ async fn list_entries(
                 title: payload_str(payload, "title"),
                 tenant_id: payload_str(payload, "tenant_id"),
                 tags: payload_tags(payload).join(", "),
-                created_at: payload_str(payload, "created_at"),
+                created_at: wqm_common::timestamp_fmt::format_local(&payload_str(payload, "created_at")),
             })
             .collect();
         output::print_table_auto(&rows);

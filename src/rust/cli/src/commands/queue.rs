@@ -390,7 +390,7 @@ async fn list(
                     collection: collection.clone(),
                     status: status.clone(),
                     priority: *priority,
-                    created_at: created_at.clone(),
+                    created_at: wqm_common::timestamp_fmt::format_local(created_at),
                     retry_count: *retry_count,
                     worker_id: worker_id.clone().unwrap_or_default(),
                 }
@@ -490,10 +490,10 @@ async fn show(queue_id: &str, json: bool) -> Result<()> {
                 output::kv("Priority", &item.priority.to_string());
                 output::kv("Retry Count", &format!("{}/{}", item.retry_count, item.max_retries));
                 output::separator();
-                output::kv("Created At", &item.created_at);
-                output::kv("Updated At", &item.updated_at);
+                output::kv("Created At", &wqm_common::timestamp_fmt::format_local(&item.created_at));
+                output::kv("Updated At", &wqm_common::timestamp_fmt::format_local(&item.updated_at));
                 if let Some(ref lease) = item.lease_until {
-                    output::kv("Lease Until", lease);
+                    output::kv("Lease Until", &wqm_common::timestamp_fmt::format_local(lease));
                 }
                 if let Some(ref worker) = item.worker_id {
                     output::kv("Worker ID", worker);
@@ -505,7 +505,7 @@ async fn show(queue_id: &str, json: bool) -> Result<()> {
                         output::kv("Error Message", err);
                     }
                     if let Some(ref err_at) = item.last_error_at {
-                        output::kv("Last Error At", err_at);
+                        output::kv("Last Error At", &wqm_common::timestamp_fmt::format_local(err_at));
                     }
                 }
 
@@ -651,7 +651,7 @@ async fn stats(json: bool, by_type: bool, by_op: bool, by_collection: bool) -> R
 
         if let Some(age) = summary.oldest_pending_age_seconds {
             output::separator();
-            output::kv("Oldest Pending Age", &output::format_duration(age as u64));
+            output::kv("Oldest Pending Age", &wqm_common::duration_fmt::format_duration(age, 0));
             if let Some(ref id) = summary.oldest_pending_id {
                 output::kv("Oldest Pending ID", id);
             }
