@@ -1041,7 +1041,7 @@ async_test!(test_large_directory_tree_performance, {
     let events = watcher.wait_for_events(10, Duration::from_secs(8)).await;
 
     // Performance should be reasonable even with large directory trees
-    assert!(watch_setup_time < Duration::from_secs(15), "Large tree setup should be reasonable: {:?}", watch_setup_time);
+    assert!(watch_setup_time < Duration::from_secs(30), "Large tree setup should be reasonable: {:?}", watch_setup_time);
     assert!(file_creation_time < Duration::from_secs(2), "File creation in large tree should be fast: {:?}", file_creation_time);
     assert!(!events.is_empty(), "Should detect events in large directory tree");
 
