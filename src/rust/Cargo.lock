@@ -7467,6 +7467,7 @@ dependencies = [
  "epub",
  "fastembed",
  "fastrand",
+ "filetime",
  "futures",
  "git2",
  "glob",

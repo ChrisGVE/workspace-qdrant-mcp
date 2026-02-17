@@ -195,6 +195,7 @@ tracing-test = { workspace = true }
 testcontainers = { workspace = true }
 testcontainers-modules = { workspace = true }
 # wiremock = { workspace = true }
+filetime = { workspace = true }
 futures = "0.3"
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 dirs = "5.0"

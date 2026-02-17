@@ -21,6 +21,7 @@ pub mod file_classification;
 pub mod git_integration;
 pub mod metadata_enrichment;
 pub mod ipc;
+pub mod log_pruner;
 pub mod logging;
 pub mod metrics;
 pub mod daemon_state;

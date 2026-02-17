@@ -105,6 +105,7 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 sha2 = "0.10"
 
 # Testing dependencies (shared across workspace)
+filetime = "0.2"
 tokio-test = "0.4"
 proptest = "1.4"
 tempfile = "3.8"

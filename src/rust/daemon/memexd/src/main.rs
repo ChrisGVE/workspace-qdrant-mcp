@@ -703,6 +703,36 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         }
     });
 
+    // Start periodic log pruning (cli-qol task 12)
+    // Checks every hour; actual prune interval controlled by operational_state.
+    let log_prune_pool = queue_pool.clone();
+    let log_prune_dir = workspace_qdrant_core::logging::get_canonical_log_dir();
+    let _log_prune_handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            match workspace_qdrant_core::log_pruner::run_if_due(
+                &log_prune_pool,
+                &log_prune_dir,
+                36,  // retention: 36 hours
+                12,  // check interval: 12 hours
+            ).await {
+                Ok(Some(result)) => {
+                    if result.files_deleted > 0 {
+                        info!(
+                            files = result.files_deleted,
+                            bytes = result.bytes_freed,
+                            "Log pruning completed"
+                        );
+                    }
+                }
+                Ok(None) => {} // not due yet
+                Err(e) => warn!("Log pruning failed: {}", e),
+            }
+        }
+    });
+    info!("Log pruning started (36h retention, 12h interval)");
+
     // Start periodic inactivity timeout check (Task 569)
     // Deactivates projects whose last_activity_at exceeds the timeout.
     // Default: 12 hours (43200 seconds), configurable via WQM_INACTIVITY_TIMEOUT_SECS.
