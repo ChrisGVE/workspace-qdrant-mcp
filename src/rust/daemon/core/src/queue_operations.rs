@@ -1222,6 +1222,39 @@ impl QueueManager {
         Ok(deleted)
     }
 
+    /// Purge all pending and in-progress queue items for a tenant.
+    ///
+    /// Called as the first step of tenant deletion to prevent stale file ops
+    /// from being processed after the tenant's data is removed.
+    /// Excludes the delete item itself (identified by `exclude_queue_id`).
+    ///
+    /// Returns the number of items purged.
+    pub async fn purge_pending_for_tenant(
+        &self,
+        tenant_id: &str,
+        exclude_queue_id: &str,
+    ) -> QueueResult<u64> {
+        let result = sqlx::query(
+            r#"DELETE FROM unified_queue
+               WHERE tenant_id = ?1
+               AND queue_id != ?2
+               AND status IN ('pending', 'in_progress')"#,
+        )
+        .bind(tenant_id)
+        .bind(exclude_queue_id)
+        .execute(&self.pool)
+        .await?;
+
+        let purged = result.rows_affected();
+        if purged > 0 {
+            info!(
+                "Purged {} pending/in-progress queue items for tenant={}",
+                purged, tenant_id
+            );
+        }
+
+        Ok(purged)
+    }
 
     /// Mark a unified queue item as failed
     ///
