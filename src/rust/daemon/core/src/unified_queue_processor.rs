@@ -37,7 +37,8 @@ use crate::file_classification::{classify_file_type, is_test_file, get_extension
 use crate::tracked_files_schema::{
     self, ProcessingStatus, ChunkType as TrackedChunkType,
 };
-use crate::keyword_extraction::pipeline::{PipelineConfig, PipelineInput};
+use crate::keyword_extraction::pipeline::PipelineInput;
+use crate::keyword_extraction::collection_config;
 
 /// Unified queue processor errors
 #[derive(Error, Debug)]
@@ -1510,10 +1511,11 @@ impl UnifiedQueueProcessor {
             };
 
             let extraction_start = std::time::Instant::now();
+            let pipeline_config = collection_config::config_for_collection(&item.collection);
             let extraction = crate::keyword_extraction::pipeline::run_pipeline(
                 &pipeline_input,
                 embedding_generator,
-                &PipelineConfig::default(),
+                &pipeline_config,
             ).await;
 
             let extraction_ms = extraction_start.elapsed().as_millis();
