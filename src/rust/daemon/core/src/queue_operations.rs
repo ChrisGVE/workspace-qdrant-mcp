@@ -827,6 +827,32 @@ impl QueueManager {
                 "Enqueued unified item: {} (type={}, op={}, collection={})",
                 queue_id, item_type, op, collection
             );
+
+            // Task 44: Cascade purge — when a delete is enqueued, immediately
+            // remove all other pending/in_progress items for the same tenant.
+            // This prevents a delete from waiting behind hundreds of add/update items.
+            if op == UnifiedOp::Delete && (item_type == ItemType::Tenant || item_type == ItemType::Collection) {
+                let purged = sqlx::query(
+                    r#"
+                    DELETE FROM unified_queue
+                    WHERE tenant_id = ?1
+                      AND queue_id != ?2
+                      AND status IN ('pending', 'in_progress')
+                    "#
+                )
+                    .bind(tenant_id)
+                    .bind(&queue_id)
+                    .execute(&self.pool)
+                    .await?;
+
+                let purged_count = purged.rows_affected();
+                if purged_count > 0 {
+                    info!(
+                        "Delete cascade: purged {} pending/in_progress items for tenant {}",
+                        purged_count, tenant_id
+                    );
+                }
+            }
         } else {
             // Update timestamp to show we tried to enqueue again
             // Use queue_id (always valid) instead of idempotency_key (may not match)
@@ -911,6 +937,12 @@ impl QueueManager {
                     AND q.tenant_id = ?2
                     AND q.item_type = ?3
                     ORDER BY
+                        CASE WHEN q.op = 'delete' THEN 10
+                             WHEN q.op = 'reset' THEN 8
+                             WHEN q.op = 'scan' THEN 5
+                             WHEN q.op = 'update' THEN 3
+                             ELSE 1
+                        END DESC,
                         CASE
                             WHEN q.collection = '{coll_memory}' THEN 1
                             WHEN q.collection = '{coll_libraries}' THEN 0
@@ -950,6 +982,12 @@ impl QueueManager {
                     )
                     AND q.tenant_id = ?2
                     ORDER BY
+                        CASE WHEN q.op = 'delete' THEN 10
+                             WHEN q.op = 'reset' THEN 8
+                             WHEN q.op = 'scan' THEN 5
+                             WHEN q.op = 'update' THEN 3
+                             ELSE 1
+                        END DESC,
                         CASE
                             WHEN q.collection = '{coll_memory}' THEN 1
                             WHEN q.collection = '{coll_libraries}' THEN 0
@@ -988,6 +1026,12 @@ impl QueueManager {
                     )
                     AND q.item_type = ?2
                     ORDER BY
+                        CASE WHEN q.op = 'delete' THEN 10
+                             WHEN q.op = 'reset' THEN 8
+                             WHEN q.op = 'scan' THEN 5
+                             WHEN q.op = 'update' THEN 3
+                             ELSE 1
+                        END DESC,
                         CASE
                             WHEN q.collection = '{coll_memory}' THEN 1
                             WHEN q.collection = '{coll_libraries}' THEN 0
@@ -1025,6 +1069,12 @@ impl QueueManager {
                         OR (q.status = 'in_progress' AND q.lease_until < ?1)
                     )
                     ORDER BY
+                        CASE WHEN q.op = 'delete' THEN 10
+                             WHEN q.op = 'reset' THEN 8
+                             WHEN q.op = 'scan' THEN 5
+                             WHEN q.op = 'update' THEN 3
+                             ELSE 1
+                        END DESC,
                         CASE
                             WHEN q.collection = '{coll_memory}' THEN 1
                             WHEN q.collection = '{coll_libraries}' THEN 0
@@ -3006,5 +3056,239 @@ mod tests {
         });
         let result = QueueManager::validate_library_document_payload(&payload);
         assert!(result.is_err()); // document_path is empty
+    }
+
+    // ========================================================================
+    // Task 44: Delete cascade and op-priority dequeue tests
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_delete_cascade_purges_pending_items() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_delete_cascade.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue 5 add items for the same tenant
+        for i in 0..5 {
+            manager
+                .enqueue_unified(
+                    ItemType::File,
+                    UnifiedOp::Add,
+                    "tenant-to-delete",
+                    "projects",
+                    &format!(r#"{{"file_path":"/file_{}.rs"}}"#, i),
+                    0,
+                    None,
+                    None,
+                )
+                .await
+                .unwrap();
+        }
+
+        // Verify 5 pending items
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+        assert_eq!(stats.pending_items, 5);
+
+        // Enqueue a tenant delete — this should cascade-purge the 5 add items
+        let (delete_id, is_new) = manager
+            .enqueue_unified(
+                ItemType::Tenant,
+                UnifiedOp::Delete,
+                "tenant-to-delete",
+                "projects",
+                r#"{"tenant_id":"tenant-to-delete"}"#,
+                0,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert!(is_new);
+
+        // Only the delete item should remain
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+        assert_eq!(stats.pending_items, 1, "Only the delete item should remain");
+
+        // Dequeue and verify it's the delete
+        let items = manager
+            .dequeue_unified(10, "worker-1", None, None, None, None)
+            .await
+            .unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].queue_id, delete_id);
+        assert_eq!(items[0].op, UnifiedOp::Delete);
+    }
+
+    #[tokio::test]
+    async fn test_delete_cascade_does_not_affect_other_tenants() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_delete_cascade_isolation.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue items for two different tenants
+        manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Add,
+                "tenant-a",
+                "projects",
+                r#"{"file_path":"/a/file.rs"}"#,
+                0,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Add,
+                "tenant-b",
+                "projects",
+                r#"{"file_path":"/b/file.rs"}"#,
+                0,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Delete tenant-a — should NOT affect tenant-b
+        manager
+            .enqueue_unified(
+                ItemType::Tenant,
+                UnifiedOp::Delete,
+                "tenant-a",
+                "projects",
+                r#"{"tenant_id":"tenant-a"}"#,
+                0,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Should have 2 items: tenant-a delete + tenant-b file add
+        let stats = manager.get_unified_queue_stats().await.unwrap();
+        assert_eq!(stats.pending_items, 2);
+    }
+
+    #[tokio::test]
+    async fn test_op_priority_dequeue_ordering() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test_op_priority.db");
+
+        let config = QueueConnectionConfig::with_database_path(&db_path);
+        let pool = config.create_pool().await.unwrap();
+
+        apply_sql_script(
+            &pool,
+            include_str!("schema/watch_folders_schema.sql"),
+        )
+        .await
+        .unwrap();
+
+        let manager = QueueManager::new(pool);
+        manager.init_unified_queue().await.unwrap();
+
+        // Enqueue items with different ops for DIFFERENT tenants
+        // (using different tenants so cascade doesn't purge them)
+        // Add op (lowest op priority)
+        manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Add,
+                "tenant-add",
+                "projects",
+                r#"{"file_path":"/add/file.rs"}"#,
+                0,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Update op (medium op priority)
+        manager
+            .enqueue_unified(
+                ItemType::File,
+                UnifiedOp::Update,
+                "tenant-update",
+                "projects",
+                r#"{"file_path":"/update/file.rs"}"#,
+                0,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Delete op (highest op priority)
+        manager
+            .enqueue_unified(
+                ItemType::Tenant,
+                UnifiedOp::Delete,
+                "tenant-delete",
+                "projects",
+                r#"{"tenant_id":"tenant-delete"}"#,
+                0,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Scan op (mid-high op priority)
+        manager
+            .enqueue_unified(
+                ItemType::Tenant,
+                UnifiedOp::Scan,
+                "tenant-scan",
+                "projects",
+                r#"{"tenant_id":"tenant-scan"}"#,
+                0,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+
+        // Dequeue all — delete should come first, then scan, update, add
+        let items = manager
+            .dequeue_unified(10, "worker-1", None, None, None, None)
+            .await
+            .unwrap();
+
+        assert_eq!(items.len(), 4);
+        assert_eq!(items[0].op, UnifiedOp::Delete, "Delete should be dequeued first");
+        assert_eq!(items[1].op, UnifiedOp::Scan, "Scan should be dequeued second");
+        assert_eq!(items[2].op, UnifiedOp::Update, "Update should be dequeued third");
+        assert_eq!(items[3].op, UnifiedOp::Add, "Add should be dequeued last");
     }
 }
