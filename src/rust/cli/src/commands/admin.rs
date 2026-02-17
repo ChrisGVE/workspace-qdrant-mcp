@@ -1,21 +1,35 @@
 //! Admin command - system administration operations
 //!
 //! Provides administrative operations that affect the daemon's persistent state.
-//! Subcommands: rename-tenant
+//! Subcommands: rename-tenant, idle-history, prune-logs, cleanup-orphans
 
+use std::collections::HashSet;
 use std::io::Write as _;
 
 use anyhow::{Context, Result};
 use clap::{Args, Subcommand};
 
 use crate::grpc::client::DaemonClient;
+use crate::grpc::proto::{QueueType, RefreshSignalRequest};
 use crate::output;
+use crate::queue::{UnifiedQueueClient, ItemType, QueueOperation};
+use wqm_common::constants::{
+    COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD,
+};
 
 /// Canonical collection names (validated against wqm-common constants)
 const VALID_COLLECTIONS: &[&str] = &[
-    wqm_common::constants::COLLECTION_PROJECTS,
-    wqm_common::constants::COLLECTION_LIBRARIES,
-    wqm_common::constants::COLLECTION_MEMORY,
+    COLLECTION_PROJECTS,
+    COLLECTION_LIBRARIES,
+    COLLECTION_MEMORY,
+];
+
+/// All 4 canonical collections for orphan scanning
+const ALL_COLLECTIONS: &[&str] = &[
+    COLLECTION_PROJECTS,
+    COLLECTION_LIBRARIES,
+    COLLECTION_MEMORY,
+    COLLECTION_SCRATCHPAD,
 ];
 
 /// Admin command arguments
@@ -56,6 +70,19 @@ enum AdminCommand {
         #[arg(long, default_value = "36")]
         retention_hours: u64,
     },
+    /// Detect and optionally delete orphaned tenants across all collections
+    ///
+    /// Orphans are tenant_ids (or library_names) that exist in Qdrant but have
+    /// no corresponding watch_folder or tracked_files entry in SQLite.
+    CleanupOrphans {
+        /// Actually delete orphaned points (default: dry-run report only)
+        #[arg(long)]
+        delete: bool,
+
+        /// Limit to a specific collection (default: all 4 canonical collections)
+        #[arg(long)]
+        collection: Option<String>,
+    },
 }
 
 /// Execute admin command
@@ -69,6 +96,9 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
         }
         AdminCommand::PruneLogs { dry_run, retention_hours } => {
             prune_logs(dry_run, retention_hours)
+        }
+        AdminCommand::CleanupOrphans { delete, collection } => {
+            cleanup_orphans(delete, collection).await
         }
     }
 }
@@ -405,4 +435,319 @@ async fn rename_tenant_direct(old_id: &str, new_id: &str) -> Result<usize> {
     tx.commit().context("Failed to commit rename")?;
 
     Ok(total)
+}
+
+// --- Orphan cleanup ---
+
+/// Detect and optionally delete orphaned tenants across collections.
+async fn cleanup_orphans(delete: bool, collection_filter: Option<String>) -> Result<()> {
+    output::section("Orphan Detection & Cleanup");
+
+    // Determine which collections to scan
+    let collections: Vec<&str> = if let Some(ref c) = collection_filter {
+        if !ALL_COLLECTIONS.contains(&c.as_str()) {
+            output::error(format!(
+                "Unknown collection '{}'. Valid: {}",
+                c,
+                ALL_COLLECTIONS.join(", ")
+            ));
+            return Ok(());
+        }
+        vec![c.as_str()]
+    } else {
+        ALL_COLLECTIONS.to_vec()
+    };
+
+    // Open SQLite for known-tenants lookup
+    let conn = match open_state_db() {
+        Ok(c) => Some(c),
+        Err(_) => {
+            output::warning("Could not open state database. All Qdrant tenants will appear as orphans.");
+            None
+        }
+    };
+
+    let http_client = build_qdrant_http_client()?;
+    let base_url = qdrant_base_url();
+
+    let mut total_orphans: Vec<(String, String)> = Vec::new(); // (collection, tenant)
+
+    for collection in &collections {
+        let tenant_field = tenant_field_for_collection(collection);
+
+        output::info(format!("Scanning {} (field: {})...", collection, tenant_field));
+
+        // Get unique tenant values from Qdrant
+        let qdrant_tenants = scroll_unique_field_values(
+            &http_client,
+            &base_url,
+            collection,
+            tenant_field,
+        ).await?;
+
+        if qdrant_tenants.is_empty() {
+            output::kv(&format!("  {} tenants in Qdrant", collection), "0");
+            continue;
+        }
+
+        // Get known tenants from SQLite
+        let known_tenants = if let Some(ref c) = conn {
+            get_known_tenants_for_collection(c, collection)?
+        } else {
+            HashSet::new()
+        };
+
+        output::kv(&format!("  {} Qdrant", collection), &qdrant_tenants.len().to_string());
+        output::kv(&format!("  {} SQLite", collection), &known_tenants.len().to_string());
+
+        // Find orphans
+        let mut orphans: Vec<&String> = qdrant_tenants
+            .iter()
+            .filter(|t| !known_tenants.contains(*t))
+            .collect();
+        orphans.sort();
+
+        if !orphans.is_empty() {
+            for tenant in &orphans {
+                total_orphans.push((collection.to_string(), tenant.to_string()));
+            }
+        }
+    }
+
+    output::separator();
+
+    if total_orphans.is_empty() {
+        output::success("No orphaned tenants found across any collection.");
+        return Ok(());
+    }
+
+    output::warning(format!("Found {} orphan(s):", total_orphans.len()));
+    for (coll, tenant) in &total_orphans {
+        output::kv(&format!("  {}", coll), tenant);
+    }
+
+    if !delete {
+        output::separator();
+        output::info("To delete orphaned points, run: wqm admin cleanup-orphans --delete");
+        return Ok(());
+    }
+
+    // Confirm deletion
+    output::separator();
+    output::warning("This will delete ALL Qdrant points for the orphaned tenants listed above.");
+    if !output::confirm("Proceed with deletion?") {
+        output::info("Aborted.");
+        return Ok(());
+    }
+
+    // Enqueue deletions
+    let queue_client = match UnifiedQueueClient::connect() {
+        Ok(c) => c,
+        Err(e) => {
+            output::error(format!("Could not connect to queue: {}", e));
+            return Ok(());
+        }
+    };
+
+    let mut queued = 0;
+    for (coll, tenant) in &total_orphans {
+        let payload_json = serde_json::json!({
+            "tenant_id_to_delete": tenant
+        }).to_string();
+
+        match queue_client.enqueue(
+            ItemType::Tenant,
+            QueueOperation::Delete,
+            tenant,
+            coll,
+            &payload_json,
+            0,
+            "",
+            None,
+        ) {
+            Ok(result) => {
+                if result.was_duplicate {
+                    output::info(format!("  {} / {} — already queued", coll, tenant));
+                } else {
+                    output::success(format!("  {} / {} — deletion queued ({})", coll, tenant, result.queue_id));
+                }
+                queued += 1;
+            }
+            Err(e) => {
+                output::error(format!("  {} / {} — failed to enqueue: {}", coll, tenant, e));
+            }
+        }
+    }
+
+    output::separator();
+    output::success(format!("Queued deletion for {} orphan(s). Daemon will process.", queued));
+
+    // Signal daemon
+    if let Ok(mut client) = DaemonClient::connect_default().await {
+        let request = RefreshSignalRequest {
+            queue_type: QueueType::IngestQueue as i32,
+            lsp_languages: vec![],
+            grammar_languages: vec![],
+        };
+        if client.system().send_refresh_signal(request).await.is_ok() {
+            output::success("Daemon notified to process deletions");
+        }
+    }
+
+    Ok(())
+}
+
+/// Get the Qdrant payload field name used as tenant key for a collection.
+fn tenant_field_for_collection(collection: &str) -> &'static str {
+    if collection == COLLECTION_LIBRARIES {
+        "library_name"
+    } else {
+        "tenant_id"
+    }
+}
+
+/// Open the state database (read-only for orphan scanning).
+fn open_state_db() -> Result<rusqlite::Connection> {
+    let db_path = crate::config::get_database_path()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+
+    if !db_path.exists() {
+        anyhow::bail!("Database not found at {}", db_path.display());
+    }
+
+    let conn = rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    ).context("Failed to open state database")?;
+
+    Ok(conn)
+}
+
+/// Get Qdrant REST base URL.
+fn qdrant_base_url() -> String {
+    std::env::var("QDRANT_URL").unwrap_or_else(|_| "http://localhost:6333".to_string())
+}
+
+/// Build an HTTP client for Qdrant REST API.
+fn build_qdrant_http_client() -> Result<reqwest::Client> {
+    let mut builder = reqwest::Client::builder().timeout(std::time::Duration::from_secs(30));
+
+    if let Ok(api_key) = std::env::var("QDRANT_API_KEY") {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert(
+            "api-key",
+            reqwest::header::HeaderValue::from_str(&api_key)
+                .context("Invalid QDRANT_API_KEY header value")?,
+        );
+        builder = builder.default_headers(headers);
+    }
+
+    builder.build().context("Failed to build HTTP client")
+}
+
+/// Scroll a Qdrant collection and collect unique values of a payload field.
+async fn scroll_unique_field_values(
+    client: &reqwest::Client,
+    base_url: &str,
+    collection: &str,
+    field: &str,
+) -> Result<HashSet<String>> {
+    let scroll_url = format!("{}/collections/{}/points/scroll", base_url, collection);
+    let mut all_values = HashSet::new();
+    let mut offset: Option<serde_json::Value> = None;
+    let batch_size = 100;
+
+    loop {
+        let mut body = serde_json::json!({
+            "limit": batch_size,
+            "with_payload": {
+                "include": [field]
+            },
+            "with_vector": false
+        });
+
+        if let Some(ref off) = offset {
+            body["offset"] = off.clone();
+        }
+
+        let resp = client
+            .post(&scroll_url)
+            .json(&body)
+            .send()
+            .await
+            .context(format!("Failed to scroll Qdrant {} collection", collection))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            if status.as_u16() == 404 {
+                // Collection doesn't exist — no orphans possible
+                return Ok(all_values);
+            }
+            let text = resp.text().await.unwrap_or_default();
+            anyhow::bail!("Qdrant scroll failed for {} ({}): {}", collection, status, text);
+        }
+
+        let resp_json: serde_json::Value = resp
+            .json()
+            .await
+            .context("Failed to parse Qdrant scroll response")?;
+
+        let points = resp_json["result"]["points"]
+            .as_array()
+            .unwrap_or(&Vec::new())
+            .clone();
+
+        if points.is_empty() {
+            break;
+        }
+
+        for point in &points {
+            if let Some(val) = point["payload"][field].as_str() {
+                all_values.insert(val.to_string());
+            }
+        }
+
+        let next_offset = &resp_json["result"]["next_page_offset"];
+        if next_offset.is_null() {
+            break;
+        }
+        offset = Some(next_offset.clone());
+    }
+
+    Ok(all_values)
+}
+
+/// Get known tenant_ids (or library_names) from SQLite for a specific collection.
+fn get_known_tenants_for_collection(
+    conn: &rusqlite::Connection,
+    collection: &str,
+) -> Result<HashSet<String>> {
+    let mut known = HashSet::new();
+
+    // From watch_folders
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT tenant_id FROM watch_folders WHERE collection = ?1",
+    ).context("Failed to query watch_folders")?;
+
+    let rows: Vec<String> = stmt
+        .query_map(rusqlite::params![collection], |row| row.get::<_, String>(0))
+        .context("Failed to read watch_folders rows")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("Failed to parse watch_folders rows")?;
+    known.extend(rows);
+
+    // From tracked_files
+    match conn.prepare("SELECT DISTINCT tenant_id FROM tracked_files WHERE collection = ?1") {
+        Ok(mut stmt2) => {
+            let rows2: Vec<String> = stmt2
+                .query_map(rusqlite::params![collection], |row| row.get::<_, String>(0))
+                .context("Failed to read tracked_files rows")?
+                .collect::<Result<Vec<_>, _>>()
+                .context("Failed to parse tracked_files rows")?;
+            known.extend(rows2);
+        }
+        Err(_) => {} // Table may not exist yet
+    }
+
+    Ok(known)
 }

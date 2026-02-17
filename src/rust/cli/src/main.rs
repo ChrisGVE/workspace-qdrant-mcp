@@ -29,7 +29,7 @@ Search & Content:
 
 Project & Library:
   project      Project lifecycle (list, info, remove)
-  library      Library management (list, add, ingest, watch, remove, config, cleanup-orphans)
+  library      Library management (list, add, ingest, watch, remove, config)
   watch        Watch folder management (list, enable, disable, show)
   tags         Keyword/tag management and hierarchy
 
@@ -108,7 +108,7 @@ enum Commands {
     #[command(display_order = 20)]
     Project(commands::project::ProjectArgs),
 
-    /// Library management with tags (list, add, ingest, watch, unwatch, remove, config, cleanup-orphans)
+    /// Library management with tags (list, add, ingest, watch, unwatch, remove, config)
     #[command(display_order = 21)]
     Library(commands::library::LibraryArgs),
 
