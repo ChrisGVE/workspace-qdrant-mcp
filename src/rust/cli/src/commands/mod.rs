@@ -19,6 +19,7 @@ pub mod scratch;
 pub mod queue;
 pub mod search;
 pub mod stats;
+pub mod tags;
 
 // Language Support
 pub mod language;

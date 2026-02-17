@@ -76,6 +76,9 @@ enum Commands {
     /// Search instrumentation analytics (overview, log-search)
     Stats(commands::stats::StatsArgs),
 
+    /// Keyword/tag management and hierarchy inspection (list, keywords, tree, stats, rebuild, search, baskets)
+    Tags(commands::tags::TagsArgs),
+
     // =========================================================================
     // Language Support
     // =========================================================================
@@ -166,6 +169,7 @@ async fn main() -> Result<()> {
         Commands::Search(args) => commands::search::execute(args).await,
         Commands::Queue(args) => commands::queue::execute(args).await,
         Commands::Stats(args) => commands::stats::execute(args).await,
+        Commands::Tags(args) => commands::tags::execute(args).await,
 
         // Language Support
         Commands::Language(args) => commands::language::execute(args).await,
