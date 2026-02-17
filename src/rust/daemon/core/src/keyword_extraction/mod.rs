@@ -9,6 +9,7 @@
 //! - `keyword_selector`: top-K selection with DF penalty
 //! - `tag_selector`: MMR diversity-based tag selection
 
+pub mod basket_assignment;
 pub mod keyword_selector;
 pub mod lexical_candidates;
 pub mod semantic_rerank;
