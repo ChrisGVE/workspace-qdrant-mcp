@@ -41,7 +41,7 @@ Service & Admin:
   service      Daemon service management (start, stop, restart, status)
   status       System status monitoring (queue, watch, health)
   admin        Administrative operations
-  config       Configuration management (generate, show, path)
+  config       Configuration management (generate, default, xdg, show, path)
   collections  Collection management (list, reset)
   language     Language tools (LSP, Tree-sitter)
   update       Update system from GitHub releases
