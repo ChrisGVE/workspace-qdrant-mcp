@@ -46,6 +46,7 @@ pub mod tracked_files_schema;
 pub mod metrics_history_schema;
 pub mod metrics_history;
 pub mod search_events_schema;
+pub mod code_lines_schema;
 pub mod schema_version;
 pub mod search_db;
 pub mod tokenizer;
