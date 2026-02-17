@@ -38,6 +38,9 @@ csv = "1.4"
 # Git integration
 git2 = "0.19"
 
+# Line-level diffing for FTS5 incremental updates
+imara-diff = "0.2"
+
 # Hashing and collections
 sha2 = "0.10"
 md5 = "0.7"

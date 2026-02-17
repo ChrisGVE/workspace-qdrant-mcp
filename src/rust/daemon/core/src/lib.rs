@@ -58,6 +58,7 @@ pub mod keyword_extraction;
 pub mod indexed_content_schema;
 pub mod keywords_schema;
 pub mod lexicon;
+pub mod line_diff;
 pub mod library_document;
 pub mod metadata_uplift;
 pub mod tree_sitter;
