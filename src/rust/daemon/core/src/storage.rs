@@ -718,6 +718,136 @@ impl StorageClient {
         Ok(count)
     }
 
+    /// Delete points from a collection by explicit point IDs
+    ///
+    /// Uses Qdrant's delete_points API with a PointsIdsList selector for
+    /// O(n) direct-address deletion rather than O(collection_size) filter scan.
+    /// Designed for batched surgical deletion during tenant cleanup.
+    pub async fn delete_points_by_ids(
+        &self,
+        collection_name: &str,
+        point_ids: &[String],
+    ) -> Result<u64, StorageError> {
+        if point_ids.is_empty() {
+            return Ok(0);
+        }
+
+        let qdrant_ids: Vec<qdrant_client::qdrant::PointId> = point_ids
+            .iter()
+            .map(|id| qdrant_client::qdrant::PointId {
+                point_id_options: Some(
+                    qdrant_client::qdrant::point_id::PointIdOptions::Uuid(id.clone()),
+                ),
+            })
+            .collect();
+
+        let count = qdrant_ids.len() as u64;
+
+        let delete_request = DeletePointsBuilder::new(collection_name)
+            .points(qdrant_ids)
+            .wait(true);
+
+        self.retry_operation(|| async {
+            self.client
+                .delete_points(delete_request.clone())
+                .await
+                .map_err(|e| StorageError::Point(
+                    format!("Failed to delete {} points by ID from '{}': {}", count, collection_name, e)
+                ))
+        })
+        .await?;
+
+        debug!(
+            "Deleted {} points by ID from '{}'",
+            count, collection_name
+        );
+
+        Ok(count)
+    }
+
+    /// Scroll through all point IDs in a collection for a tenant
+    ///
+    /// Paginates through Qdrant using the scroll API with a tenant_id filter,
+    /// returning only point ID strings. Used for collections without SQLite
+    /// tracking (memory, scratchpad).
+    pub async fn scroll_point_ids_by_tenant(
+        &self,
+        collection_name: &str,
+        tenant_id: &str,
+    ) -> Result<Vec<String>, StorageError> {
+        use qdrant_client::qdrant::ScrollPointsBuilder;
+
+        debug!(
+            "Scrolling point IDs for tenant_id='{}' in collection '{}'",
+            tenant_id, collection_name
+        );
+
+        let mut all_ids = Vec::new();
+        let mut offset: Option<qdrant_client::qdrant::PointId> = None;
+        let batch_size = 100u32;
+
+        let filter = Filter::must([Condition::matches("tenant_id", tenant_id.to_string())]);
+
+        loop {
+            let filter_clone = filter.clone();
+            let current_offset = offset.clone();
+
+            let response = self
+                .retry_operation(|| {
+                    let f = filter_clone.clone();
+                    let o = current_offset.clone();
+                    async move {
+                        let mut builder = ScrollPointsBuilder::new(collection_name)
+                            .filter(f)
+                            .limit(batch_size)
+                            .with_payload(false)
+                            .with_vectors(false);
+
+                        if let Some(offset_id) = o {
+                            builder = builder.offset(offset_id);
+                        }
+
+                        self.client
+                            .scroll(builder)
+                            .await
+                            .map_err(|e| StorageError::Search(
+                                format!("Scroll point IDs for tenant failed: {}", e)
+                            ))
+                    }
+                })
+                .await?;
+
+            for point in &response.result {
+                if let Some(ref id) = point.id {
+                    let id_str = match &id.point_id_options {
+                        Some(qdrant_client::qdrant::point_id::PointIdOptions::Uuid(uuid)) => {
+                            uuid.clone()
+                        }
+                        Some(qdrant_client::qdrant::point_id::PointIdOptions::Num(num)) => {
+                            num.to_string()
+                        }
+                        None => continue,
+                    };
+                    all_ids.push(id_str);
+                }
+            }
+
+            match response.next_page_offset {
+                Some(next_offset) => {
+                    offset = Some(next_offset);
+                }
+                None => break,
+            }
+        }
+
+        debug!(
+            "Scrolled {} point IDs for tenant_id='{}' in '{}'",
+            all_ids.len(), tenant_id, collection_name
+        );
+
+        Ok(all_ids)
+    }
+
     /// Delete all points matching an arbitrary payload field name/value pair
     ///
     /// Generalized version of `delete_points_by_tenant` for any string payload field.
