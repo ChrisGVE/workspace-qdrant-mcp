@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 16;
+pub const CURRENT_SCHEMA_VERSION: i32 = 17;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -166,6 +166,7 @@ impl SchemaManager {
             14 => self.migrate_v14().await,
             15 => self.migrate_v15().await,
             16 => self.migrate_v16().await,
+            17 => self.migrate_v17().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -811,6 +812,35 @@ impl SchemaManager {
         info!("Migration v16 complete");
         Ok(())
     }
+
+    /// Migration v17: Create operational_state table for cross-component state tracking
+    async fn migrate_v17(&self) -> Result<(), SchemaError> {
+        info!("Migration v17: Creating operational_state table");
+
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS operational_state (
+                key TEXT NOT NULL,
+                component TEXT NOT NULL CHECK(component IN ('daemon', 'server', 'cli')),
+                value TEXT NOT NULL,
+                project_id TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                PRIMARY KEY (key, component, project_id)
+            )
+            "#,
+        )
+        .execute(&self.pool)
+        .await?;
+
+        sqlx::query(
+            "CREATE INDEX IF NOT EXISTS idx_operational_state_project ON operational_state (project_id) WHERE project_id IS NOT NULL",
+        )
+        .execute(&self.pool)
+        .await?;
+
+        info!("Migration v17 complete");
+        Ok(())
+    }
 }
 
 /// Check if schema is initialized (for graceful degradation by MCP/CLI)
@@ -1429,6 +1459,63 @@ mod tests {
         let basket_count_after: i32 = sqlx::query_scalar("SELECT COUNT(*) FROM keyword_baskets")
             .fetch_one(&pool).await.unwrap();
         assert_eq!(basket_count_after, 0, "keyword_baskets should cascade delete when tag is deleted");
+    }
+
+    #[tokio::test]
+    async fn test_migration_v17_operational_state() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Verify table exists
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='operational_state')"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(exists, "operational_state table should exist after v17 migration");
+
+        // Verify index exists
+        let has_index: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_operational_state_project'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(has_index, "project index should exist on operational_state");
+
+        // Test INSERT round-trip
+        sqlx::query(
+            "INSERT INTO operational_state (key, component, value, updated_at) VALUES ('test_key', 'daemon', 'test_val', '2026-01-01T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let val: String = sqlx::query_scalar(
+            "SELECT value FROM operational_state WHERE key = 'test_key' AND component = 'daemon'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(val, "test_val");
+
+        // Test CHECK constraint: invalid component should fail
+        let result = sqlx::query(
+            "INSERT INTO operational_state (key, component, value, updated_at) VALUES ('k2', 'invalid', 'v', '2026-01-01T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await;
+        assert!(result.is_err(), "Invalid component should violate CHECK constraint");
+
+        // Test PK uniqueness: same (key, component, project_id) should fail on plain INSERT
+        let result = sqlx::query(
+            "INSERT INTO operational_state (key, component, value, updated_at) VALUES ('test_key', 'daemon', 'dup', '2026-01-01T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await;
+        assert!(result.is_err(), "Duplicate (key, component, project_id) should violate PRIMARY KEY");
     }
 
     #[tokio::test]
