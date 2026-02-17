@@ -1518,10 +1518,25 @@ impl UnifiedQueueProcessor {
             let point_id = crate::generate_point_id(&item.tenant_id, &item.branch, &payload.file_path, chunk_idx);
             let content_hash = tracked_files_schema::compute_content_hash(&chunk.content);
 
+            // Use lexicon-backed BM25 for sparse vectors (Task 19: true BM25 with persisted IDF)
+            let chunk_tokens: Vec<String> = chunk.content
+                .split_whitespace()
+                .map(|s| s.to_lowercase())
+                .collect();
+            let lexicon_sparse = lexicon_manager
+                .generate_sparse_vector(&item.collection, &chunk_tokens)
+                .await;
+            // Fall back to embedding generator's sparse vector if lexicon has no corpus stats yet
+            let sparse = if !lexicon_sparse.indices.is_empty() {
+                lexicon_sparse
+            } else {
+                embedding_result.sparse.clone()
+            };
+
             let point = DocumentPoint {
                 id: point_id.clone(),
                 dense_vector: embedding_result.dense.vector,
-                sparse_vector: Self::sparse_embedding_to_map(&embedding_result.sparse),
+                sparse_vector: Self::sparse_embedding_to_map(&sparse),
                 payload: point_payload,
             };
 

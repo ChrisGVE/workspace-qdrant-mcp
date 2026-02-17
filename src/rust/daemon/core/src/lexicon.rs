@@ -133,6 +133,35 @@ impl LexiconManager {
             .unwrap_or(0)
     }
 
+    /// Generate a sparse vector using the collection's persisted BM25 vocabulary.
+    ///
+    /// Uses the per-collection IDF statistics for true BM25 scoring,
+    /// unlike the EmbeddingGenerator's ephemeral BM25 which starts empty each session.
+    pub async fn generate_sparse_vector(
+        &self,
+        collection: &str,
+        tokens: &[String],
+    ) -> crate::embedding::SparseEmbedding {
+        if let Err(e) = self.ensure_loaded(collection).await {
+            warn!("Failed to load lexicon for '{}': {}", collection, e);
+            return crate::embedding::SparseEmbedding {
+                indices: Vec::new(),
+                values: Vec::new(),
+                vocab_size: 0,
+            };
+        }
+        let instances = self.instances.read().await;
+        if let Some(bm25) = instances.get(collection) {
+            bm25.generate_sparse_vector(tokens)
+        } else {
+            crate::embedding::SparseEmbedding {
+                indices: Vec::new(),
+                values: Vec::new(),
+                vocab_size: 0,
+            }
+        }
+    }
+
     /// Add a document's tokens to the collection's vocabulary.
     ///
     /// Updates in-memory BM25 state. Call `persist()` or rely on auto-persist
@@ -455,5 +484,69 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(total, 2);
+    }
+
+    #[tokio::test]
+    async fn test_generate_sparse_vector_with_idf() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let mgr = LexiconManager::new(pool, 1.2);
+
+        // Add documents: "function" appears in all 3, "qdrant" in 1
+        mgr.add_document("projects", &["function".into(), "return".into(), "test".into()])
+            .await
+            .unwrap();
+        mgr.add_document("projects", &["function".into(), "return".into(), "qdrant".into()])
+            .await
+            .unwrap();
+        mgr.add_document("projects", &["function".into(), "hello".into(), "world".into()])
+            .await
+            .unwrap();
+
+        // Generate sparse vector for a query with both common and rare terms
+        let sparse = mgr
+            .generate_sparse_vector("projects", &["function".into(), "qdrant".into()])
+            .await;
+
+        assert!(!sparse.indices.is_empty(), "Should produce non-empty sparse vector");
+        assert_eq!(sparse.indices.len(), sparse.values.len());
+
+        // "qdrant" (df=1) should have a higher BM25 score than "function" (df=3)
+        // Find their scores
+        let instances = mgr.instances.read().await;
+        let bm25 = instances.get("projects").unwrap();
+        let qdrant_id = *bm25.vocab().get("qdrant").unwrap();
+        let function_id = *bm25.vocab().get("function").unwrap();
+
+        let qdrant_score = sparse.indices.iter().zip(sparse.values.iter())
+            .find(|(&idx, _)| idx == qdrant_id)
+            .map(|(_, &val)| val)
+            .unwrap_or(0.0);
+        let function_score = sparse.indices.iter().zip(sparse.values.iter())
+            .find(|(&idx, _)| idx == function_id)
+            .map(|(_, &val)| val)
+            .unwrap_or(0.0);
+
+        assert!(
+            qdrant_score > function_score,
+            "Rare term 'qdrant' (score={}) should have higher BM25 score than common 'function' (score={})",
+            qdrant_score, function_score
+        );
+    }
+
+    #[tokio::test]
+    async fn test_generate_sparse_vector_empty_collection() {
+        let pool = create_test_pool().await;
+        setup_tables(&pool).await;
+
+        let mgr = LexiconManager::new(pool, 1.2);
+
+        // Empty collection should return empty sparse vector (fallback to TF-only in caller)
+        let sparse = mgr
+            .generate_sparse_vector("empty", &["hello".into()])
+            .await;
+
+        assert!(sparse.indices.is_empty(), "Empty collection should produce empty sparse vector");
     }
 }
