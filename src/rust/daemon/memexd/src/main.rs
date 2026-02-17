@@ -42,6 +42,8 @@ use workspace_qdrant_core::{
     check_remote_url_changes,
     // Adaptive resource management (idle/burst mode)
     adaptive_resources::{AdaptiveResourceManager, AdaptiveResourceConfig},
+    // Nightly canonical tag hierarchy rebuild (Task 35)
+    HierarchyBuilder, HierarchyRebuildConfig,
 };
 
 // gRPC server for Python MCP server and CLI communication (Task 421)
@@ -850,6 +852,10 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     // Clone pool for WatchManager before it's moved into the queue processor
     let watch_pool = queue_pool.clone();
 
+    // Clone pool and embedding generator for hierarchy builder (Task 35)
+    let hierarchy_pool = queue_pool.clone();
+    let hierarchy_embedding = Arc::clone(&embedding_generator);
+
     let mut unified_queue_processor = UnifiedQueueProcessor::with_components(
         queue_pool,
         unified_config.clone(),
@@ -976,6 +982,16 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
     // Start polling with 5-minute fallback interval (primary refresh is signal-driven)
     let _watch_poll_handle = Arc::clone(&watch_manager).start_polling(300);
 
+    // Start nightly canonical tag hierarchy rebuild (Task 35)
+    let hierarchy_cancel = tokio_util::sync::CancellationToken::new();
+    let hierarchy_builder = Arc::new(HierarchyBuilder::new(
+        hierarchy_pool,
+        hierarchy_embedding,
+        HierarchyRebuildConfig::default(),
+    ));
+    let _hierarchy_handle = Arc::clone(&hierarchy_builder).start_scheduled(hierarchy_cancel.clone());
+    info!("Canonical tag hierarchy rebuild scheduled (nightly at 2 AM)");
+
     info!("memexd daemon is running. gRPC on port {}, send SIGTERM or SIGINT to stop.", grpc_port);
 
     let shutdown_future = setup_signal_handlers();
@@ -991,8 +1007,9 @@ async fn run_daemon(daemon_config: DaemonConfig, args: DaemonArgs) -> Result<(),
         info!("File watchers stopped");
     }
 
-    // Stop adaptive resource manager
+    // Stop adaptive resource manager and hierarchy rebuild scheduler
     adaptive_shutdown_token.cancel();
+    hierarchy_cancel.cancel();
 
     // Stop unified queue processor for graceful shutdown
     // Note: Legacy QueueProcessor removed per Task 21 - all processing via unified_queue

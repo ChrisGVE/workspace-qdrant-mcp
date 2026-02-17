@@ -231,6 +231,9 @@ pub use crate::startup_reconciliation::{
     StaleCleanupStats, WatchValidationStats,
 };
 pub use crate::remote_monitor::check_remote_url_changes;
+pub use crate::keyword_extraction::hierarchy_builder::{
+    HierarchyBuilder, HierarchyRebuildConfig, HierarchyError,
+};
 
 // ============================================================================
 // Stable Document ID Generation

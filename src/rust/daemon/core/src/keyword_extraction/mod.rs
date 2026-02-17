@@ -11,6 +11,7 @@
 
 pub mod basket_assignment;
 pub mod canonical_tags;
+pub mod hierarchy_builder;
 pub mod keyword_selector;
 pub mod lexical_candidates;
 pub mod lsp_candidates;
