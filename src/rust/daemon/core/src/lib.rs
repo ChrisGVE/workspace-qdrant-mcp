@@ -51,6 +51,7 @@ pub mod tokenizer;
 pub mod parent_unit;
 pub mod title_extraction;
 pub mod resolution_events_schema;
+pub mod keyword_extraction;
 pub mod keywords_schema;
 pub mod library_document;
 pub mod tree_sitter;
