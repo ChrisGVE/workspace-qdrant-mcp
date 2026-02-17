@@ -246,6 +246,9 @@ async fn list(verbose: bool) -> Result<()> {
         }
     };
 
+    let mut found_any = false;
+
+    // 1. Explicit library watch folders
     let mut stmt = conn.prepare(
         &format!("SELECT watch_id, tenant_id, path, library_mode, enabled, is_active, created_at, last_activity_at
          FROM watch_folders WHERE collection = '{}' ORDER BY tenant_id", COLLECTION_LIBRARIES)
@@ -268,31 +271,72 @@ async fn list(verbose: bool) -> Result<()> {
         .collect::<Result<Vec<_>, _>>()
         .context("Failed to parse library rows")?;
 
-    if libraries.is_empty() {
-        output::info("No libraries configured yet.");
-        output::info("Add a library with: wqm library add <tag> <path>");
-        return Ok(());
+    if !libraries.is_empty() {
+        found_any = true;
+        output::info(format!("Library watch folders ({}):", libraries.len()));
+        output::separator();
+
+        for (watch_id, tenant_id, path, mode, enabled, _is_active, created_at, last_activity) in &libraries {
+            let status = if *enabled { "watching" } else { "paused" };
+            let mode_str = mode.as_deref().unwrap_or("incremental");
+
+            output::kv("  Tag", tenant_id);
+            output::kv("  Path", path);
+            output::kv("  Status", status);
+            output::kv("  Mode", mode_str);
+            if verbose {
+                output::kv("  Watch ID", watch_id);
+                output::kv("  Created", created_at);
+                if let Some(activity) = last_activity {
+                    output::kv("  Last Activity", activity);
+                }
+            }
+            output::separator();
+        }
     }
 
-    output::info(format!("Found {} library/libraries:", libraries.len()));
-    output::separator();
+    // 2. Format-routed files from project folders (PDFs etc. auto-routed to libraries)
+    // These are tracked in tracked_files with collection='libraries' but originate from
+    // project watch folders, not explicit library watch folders.
+    let mut routed_stmt = conn.prepare(
+        "SELECT wf.tenant_id, wf.path, COUNT(tf.file_id) as file_count
+         FROM tracked_files tf
+         JOIN watch_folders wf ON tf.watch_folder_id = wf.watch_id
+         WHERE tf.collection = 'libraries' AND wf.collection = 'projects'
+         GROUP BY wf.tenant_id
+         ORDER BY wf.tenant_id"
+    ).context("Failed to query format-routed library files")?;
 
-    for (watch_id, tenant_id, path, mode, enabled, _is_active, created_at, last_activity) in &libraries {
-        let status = if *enabled { "watching" } else { "paused" };
-        let mode_str = mode.as_deref().unwrap_or("incremental");
+    let routed: Vec<(String, String, i64)> = routed_stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .context("Failed to read format-routed rows")?
+        .collect::<Result<Vec<_>, _>>()
+        .context("Failed to parse format-routed rows")?;
 
-        output::kv("  Tag", tenant_id);
-        output::kv("  Path", path);
-        output::kv("  Status", status);
-        output::kv("  Mode", mode_str);
-        if verbose {
-            output::kv("  Watch ID", watch_id);
-            output::kv("  Created", created_at);
-            if let Some(activity) = last_activity {
-                output::kv("  Last Activity", activity);
-            }
-        }
+    if !routed.is_empty() {
+        found_any = true;
+        output::info(format!("Format-routed from projects ({} project(s)):", routed.len()));
         output::separator();
+
+        for (tenant_id, project_path, file_count) in &routed {
+            output::kv("  Project", tenant_id);
+            output::kv("  Path", project_path);
+            output::kv("  Library Files", &file_count.to_string());
+            output::kv("  Source", "auto-routed (PDF, DOCX, etc.)");
+            output::separator();
+        }
+    }
+
+    if !found_any {
+        output::info("No libraries configured and no format-routed library files found.");
+        output::info("Add a library with: wqm library add <tag> <path>");
+        output::info("Or add PDFs/documents to a watched project folder.");
     }
 
     Ok(())
