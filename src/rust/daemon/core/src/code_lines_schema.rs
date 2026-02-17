@@ -118,6 +118,110 @@ WHERE fts.content MATCH ?1 AND cl.file_id = ?2
 ORDER BY cl.seq
 "#;
 
+// ============================================================================
+// File Metadata Table (search.db v4 — project/branch/path scoping)
+// ============================================================================
+
+/// SQL to create the file_metadata table in search.db.
+///
+/// Denormalizes `tenant_id`, `branch`, and `file_path` from state.db's
+/// `tracked_files` into search.db so FTS5 queries can be scoped by
+/// project, branch, or path prefix without cross-database JOINs.
+///
+/// `file_id` is the same value as `tracked_files.file_id` in state.db.
+/// Application-level consistency is maintained: when code_lines are
+/// inserted/deleted for a file, its file_metadata row is upserted/removed.
+pub const CREATE_FILE_METADATA_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS file_metadata (
+    file_id INTEGER PRIMARY KEY,
+    tenant_id TEXT NOT NULL,
+    branch TEXT,
+    file_path TEXT NOT NULL
+)
+"#;
+
+/// Indexes for the file_metadata table.
+pub const CREATE_FILE_METADATA_INDEXES_SQL: &[&str] = &[
+    "CREATE INDEX IF NOT EXISTS idx_file_metadata_tenant ON file_metadata(tenant_id)",
+    "CREATE INDEX IF NOT EXISTS idx_file_metadata_tenant_branch ON file_metadata(tenant_id, branch)",
+];
+
+/// SQL to upsert a file_metadata row.
+///
+/// `?1` = file_id, `?2` = tenant_id, `?3` = branch (nullable), `?4` = file_path.
+pub const UPSERT_FILE_METADATA_SQL: &str = r#"
+INSERT INTO file_metadata (file_id, tenant_id, branch, file_path)
+VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT(file_id) DO UPDATE SET
+    tenant_id = excluded.tenant_id,
+    branch = excluded.branch,
+    file_path = excluded.file_path
+"#;
+
+/// SQL to delete a file_metadata row when its code_lines are removed.
+pub const DELETE_FILE_METADATA_SQL: &str =
+    "DELETE FROM file_metadata WHERE file_id = ?1";
+
+/// SQL to delete all file_metadata rows for a tenant (project deletion).
+pub const DELETE_FILE_METADATA_BY_TENANT_SQL: &str =
+    "DELETE FROM file_metadata WHERE tenant_id = ?1";
+
+// ============================================================================
+// Scoped FTS5 Search Queries
+// ============================================================================
+
+/// FTS5 search scoped to a project (tenant_id).
+///
+/// `?1` = search pattern, `?2` = tenant_id.
+pub const FTS5_SEARCH_BY_PROJECT_SQL: &str = r#"
+SELECT cl.line_id, cl.file_id, cl.seq, cl.content, fm.tenant_id, fm.file_path, fm.branch
+FROM code_lines cl
+JOIN code_lines_fts fts ON cl.line_id = fts.rowid
+JOIN file_metadata fm ON cl.file_id = fm.file_id
+WHERE fts.content MATCH ?1 AND fm.tenant_id = ?2
+ORDER BY cl.file_id, cl.seq
+"#;
+
+/// FTS5 search scoped to a project and branch.
+///
+/// `?1` = search pattern, `?2` = tenant_id, `?3` = branch.
+pub const FTS5_SEARCH_BY_PROJECT_BRANCH_SQL: &str = r#"
+SELECT cl.line_id, cl.file_id, cl.seq, cl.content, fm.tenant_id, fm.file_path, fm.branch
+FROM code_lines cl
+JOIN code_lines_fts fts ON cl.line_id = fts.rowid
+JOIN file_metadata fm ON cl.file_id = fm.file_id
+WHERE fts.content MATCH ?1 AND fm.tenant_id = ?2 AND fm.branch = ?3
+ORDER BY cl.file_id, cl.seq
+"#;
+
+/// FTS5 search scoped by file path prefix.
+///
+/// `?1` = search pattern, `?2` = path prefix (use `prefix%` with LIKE).
+pub const FTS5_SEARCH_BY_PATH_PREFIX_SQL: &str = r#"
+SELECT cl.line_id, cl.file_id, cl.seq, cl.content, fm.tenant_id, fm.file_path, fm.branch
+FROM code_lines cl
+JOIN code_lines_fts fts ON cl.line_id = fts.rowid
+JOIN file_metadata fm ON cl.file_id = fm.file_id
+WHERE fts.content MATCH ?1 AND fm.file_path LIKE ?2
+ORDER BY cl.file_id, cl.seq
+"#;
+
+/// FTS5 search scoped to a project with path prefix filter.
+///
+/// `?1` = search pattern, `?2` = tenant_id, `?3` = path prefix (use `prefix%` with LIKE).
+pub const FTS5_SEARCH_BY_PROJECT_PATH_SQL: &str = r#"
+SELECT cl.line_id, cl.file_id, cl.seq, cl.content, fm.tenant_id, fm.file_path, fm.branch
+FROM code_lines cl
+JOIN code_lines_fts fts ON cl.line_id = fts.rowid
+JOIN file_metadata fm ON cl.file_id = fm.file_id
+WHERE fts.content MATCH ?1 AND fm.tenant_id = ?2 AND fm.file_path LIKE ?3
+ORDER BY cl.file_id, cl.seq
+"#;
+
+// ============================================================================
+// Line Number Queries
+// ============================================================================
+
 /// SQL to derive line numbers from seq ordering.
 ///
 /// Use as a subquery or CTE. Returns `line_id`, `line_number` (1-based),
@@ -244,5 +348,75 @@ mod tests {
     #[test]
     fn test_fts5_optimize_threshold() {
         assert_eq!(FTS5_OPTIMIZE_THRESHOLD, 1000);
+    }
+
+    // ── file_metadata SQL constant tests (Task 6) ──
+
+    #[test]
+    fn test_file_metadata_create_sql_valid() {
+        assert!(CREATE_FILE_METADATA_SQL.contains("CREATE TABLE"));
+        assert!(CREATE_FILE_METADATA_SQL.contains("file_metadata"));
+        assert!(CREATE_FILE_METADATA_SQL.contains("file_id INTEGER PRIMARY KEY"));
+        assert!(CREATE_FILE_METADATA_SQL.contains("tenant_id TEXT NOT NULL"));
+        assert!(CREATE_FILE_METADATA_SQL.contains("branch TEXT"));
+        assert!(CREATE_FILE_METADATA_SQL.contains("file_path TEXT NOT NULL"));
+    }
+
+    #[test]
+    fn test_file_metadata_indexes_idempotent() {
+        for sql in CREATE_FILE_METADATA_INDEXES_SQL {
+            assert!(sql.contains("IF NOT EXISTS"), "Missing IF NOT EXISTS: {}", sql);
+        }
+    }
+
+    #[test]
+    fn test_file_metadata_index_count() {
+        assert_eq!(CREATE_FILE_METADATA_INDEXES_SQL.len(), 2);
+    }
+
+    #[test]
+    fn test_upsert_file_metadata_sql_valid() {
+        assert!(UPSERT_FILE_METADATA_SQL.contains("INSERT INTO file_metadata"));
+        assert!(UPSERT_FILE_METADATA_SQL.contains("ON CONFLICT(file_id)"));
+        assert!(UPSERT_FILE_METADATA_SQL.contains("DO UPDATE SET"));
+    }
+
+    #[test]
+    fn test_delete_file_metadata_sql_valid() {
+        assert!(DELETE_FILE_METADATA_SQL.contains("DELETE FROM file_metadata"));
+        assert!(DELETE_FILE_METADATA_SQL.contains("file_id = ?1"));
+    }
+
+    #[test]
+    fn test_delete_file_metadata_by_tenant_sql_valid() {
+        assert!(DELETE_FILE_METADATA_BY_TENANT_SQL.contains("DELETE FROM file_metadata"));
+        assert!(DELETE_FILE_METADATA_BY_TENANT_SQL.contains("tenant_id = ?1"));
+    }
+
+    #[test]
+    fn test_fts5_search_by_project_sql_valid() {
+        assert!(FTS5_SEARCH_BY_PROJECT_SQL.contains("MATCH ?1"));
+        assert!(FTS5_SEARCH_BY_PROJECT_SQL.contains("fm.tenant_id = ?2"));
+        assert!(FTS5_SEARCH_BY_PROJECT_SQL.contains("file_metadata fm"));
+    }
+
+    #[test]
+    fn test_fts5_search_by_project_branch_sql_valid() {
+        assert!(FTS5_SEARCH_BY_PROJECT_BRANCH_SQL.contains("MATCH ?1"));
+        assert!(FTS5_SEARCH_BY_PROJECT_BRANCH_SQL.contains("fm.tenant_id = ?2"));
+        assert!(FTS5_SEARCH_BY_PROJECT_BRANCH_SQL.contains("fm.branch = ?3"));
+    }
+
+    #[test]
+    fn test_fts5_search_by_path_prefix_sql_valid() {
+        assert!(FTS5_SEARCH_BY_PATH_PREFIX_SQL.contains("MATCH ?1"));
+        assert!(FTS5_SEARCH_BY_PATH_PREFIX_SQL.contains("fm.file_path LIKE ?2"));
+    }
+
+    #[test]
+    fn test_fts5_search_by_project_path_sql_valid() {
+        assert!(FTS5_SEARCH_BY_PROJECT_PATH_SQL.contains("MATCH ?1"));
+        assert!(FTS5_SEARCH_BY_PROJECT_PATH_SQL.contains("fm.tenant_id = ?2"));
+        assert!(FTS5_SEARCH_BY_PROJECT_PATH_SQL.contains("fm.file_path LIKE ?3"));
     }
 }
