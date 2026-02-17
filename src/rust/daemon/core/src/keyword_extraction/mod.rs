@@ -5,9 +5,11 @@
 //!
 //! Modules:
 //! - `lexical_candidates`: TF-IDF n-gram extraction with filtering
-//! - (future) `semantic_rerank`: FastEmbed-based reranking
-//! - (future) `keyword_selector`: top-K selection with DF penalty
-//! - (future) `tag_selector`: MMR diversity-based tag selection
+//! - `semantic_rerank`: FastEmbed-based reranking
+//! - `keyword_selector`: top-K selection with DF penalty
+//! - `tag_selector`: MMR diversity-based tag selection
 
+pub mod keyword_selector;
 pub mod lexical_candidates;
 pub mod semantic_rerank;
+pub mod tag_selector;
