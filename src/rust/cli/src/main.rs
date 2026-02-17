@@ -51,6 +51,7 @@ Data Management:
 
 Setup & Diagnostics:
   init         Shell completion setup (bash, zsh, fish)
+  man          Man page generation and installation
   hooks        Claude Code hooks management
   debug        Diagnostic tools (logs, errors)
 {after-help}";
@@ -166,12 +167,16 @@ enum Commands {
     #[command(display_order = 60)]
     Init(commands::init::InitArgs),
 
-    /// Claude Code hooks management (install, uninstall, status)
+    /// Man page generation and installation
     #[command(display_order = 61)]
+    Man(commands::man::ManArgs),
+
+    /// Claude Code hooks management (install, uninstall, status)
+    #[command(display_order = 62)]
     Hooks(commands::hooks::HooksArgs),
 
     /// Diagnostic tools (logs, errors, queue-errors, language)
-    #[command(display_order = 62)]
+    #[command(display_order = 63)]
     Debug(commands::debug::DebugArgs),
 }
 
@@ -225,7 +230,10 @@ async fn main() -> Result<()> {
         Commands::Stats(args) => commands::stats::execute(args).await,
 
         // Service & Admin
-        Commands::Service(args) => commands::service::execute(args).await,
+        Commands::Service(args) => {
+            let mut cmd = Cli::command();
+            commands::service::execute(args, Some(&mut cmd)).await
+        },
         Commands::Status(args) => commands::status::execute(args).await,
         Commands::Admin(args) => commands::admin::execute(args).await,
         Commands::Collections(args) => commands::collections::execute(args).await,
@@ -240,6 +248,10 @@ async fn main() -> Result<()> {
         Commands::Init(args) => {
             let mut cmd = Cli::command();
             commands::init::execute(args, &mut cmd).await
+        },
+        Commands::Man(args) => {
+            let mut cmd = Cli::command();
+            commands::man::execute(args, &mut cmd).await
         },
         Commands::Hooks(args) => commands::hooks::execute(args).await,
         Commands::Debug(args) => commands::debug::execute(args).await,

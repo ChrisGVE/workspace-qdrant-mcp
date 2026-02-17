@@ -70,13 +70,22 @@ enum ServiceCommand {
 }
 
 /// Execute service command
-pub async fn execute(args: ServiceArgs) -> Result<()> {
+pub async fn execute(args: ServiceArgs, cli_cmd: Option<&mut clap::Command>) -> Result<()> {
     match args.command {
         ServiceCommand::Start => start().await,
         ServiceCommand::Stop => stop().await,
         ServiceCommand::Restart => restart().await,
         ServiceCommand::Status { json } => status(json).await,
-        ServiceCommand::Install { binary } => install(binary).await,
+        ServiceCommand::Install { binary } => {
+            install(binary).await?;
+            // Install man pages alongside the service (non-fatal)
+            if let Some(cmd) = cli_cmd {
+                if let Err(e) = super::man::install_man_pages(cmd) {
+                    output::warning(format!("Man page installation failed: {}", e));
+                }
+            }
+            Ok(())
+        }
         ServiceCommand::Uninstall { remove_data } => uninstall(remove_data).await,
         ServiceCommand::Logs { lines, follow, errors_only } => logs(lines, follow, errors_only).await,
     }

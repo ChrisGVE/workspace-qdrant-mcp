@@ -22,6 +22,7 @@ workspace-qdrant-core = { path = "../daemon/core" }
 # CLI framework
 clap = { version = "4.4", features = ["derive", "string", "wrap_help", "cargo", "env"] }
 clap_complete = "4.4"
+clap_mangen = "0.2"
 
 # gRPC client
 tonic = { version = "0.12", features = ["tls", "tls-roots"] }

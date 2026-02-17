@@ -36,3 +36,4 @@ pub mod watch;
 // Diagnostics & Setup
 pub mod hooks;
 pub mod init;
+pub mod man;
