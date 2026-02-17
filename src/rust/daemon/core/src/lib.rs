@@ -11,6 +11,7 @@ use thiserror::Error;
 
 pub mod adaptive_resources;
 pub mod allowed_extensions;
+pub mod idle_history;
 pub mod config;
 pub mod document_processor;
 pub mod embedding;

@@ -493,6 +493,9 @@ impl AdaptiveResourceManager {
             let mut heartbeat_counter: u64 = 0;
             let heartbeat_interval: u64 = 60 / config.poll_interval_secs.max(1);
             let mut consecutive_active_polls: u32 = 0;
+            let mut mode_tracker = crate::idle_history::ModeTracker::new();
+            // Rotate history once per hour (3600 / poll_interval polls)
+            let rotation_interval: u64 = 3600 / config.poll_interval_secs.max(1);
 
             loop {
                 tokio::select! {
@@ -662,6 +665,9 @@ impl AdaptiveResourceManager {
                         state_clone.set_mode(new_mode);
                         state_clone.set_profile(&new_profile);
 
+                        // Track mode transitions for flip-flop detection
+                        mode_tracker.on_mode_change(new_mode, idle_secs);
+
                         if new_profile != current_profile {
                             let _ = tx.send(new_profile);
                             current_profile = new_profile;
@@ -680,6 +686,11 @@ impl AdaptiveResourceManager {
                                 new_profile.max_concurrent_embeddings,
                                 new_profile.inter_item_delay_ms,
                             );
+                        }
+
+                        // Rotate idle history once per hour
+                        if heartbeat_counter % rotation_interval == 0 {
+                            mode_tracker.rotate();
                         }
                     }
                 }

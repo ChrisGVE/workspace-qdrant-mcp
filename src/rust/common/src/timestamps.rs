@@ -32,6 +32,15 @@ pub fn format_optional_utc(dt: &Option<DateTime<Utc>>) -> Option<String> {
     dt.as_ref().map(format_utc)
 }
 
+/// Return a timestamp for `hours` hours ago as an ISO 8601 string with `Z` suffix.
+///
+/// Useful for computing cutoff timestamps without requiring chrono in the caller.
+pub fn hours_ago(hours: f64) -> String {
+    let secs = (hours * 3600.0) as i64;
+    let cutoff = Utc::now() - chrono::Duration::seconds(secs);
+    format_utc(&cutoff)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

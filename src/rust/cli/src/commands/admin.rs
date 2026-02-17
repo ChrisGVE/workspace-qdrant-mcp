@@ -40,6 +40,12 @@ enum AdminCommand {
         #[arg(short, long)]
         yes: bool,
     },
+    /// Show idle/active state transition history and flip-flop analysis
+    IdleHistory {
+        /// Hours of history to analyze (default: 24)
+        #[arg(short = 'H', long, default_value = "24")]
+        hours: f64,
+    },
 }
 
 /// Execute admin command
@@ -47,6 +53,9 @@ pub async fn execute(args: AdminArgs) -> Result<()> {
     match args.command {
         AdminCommand::RenameTenant { old_id, new_id, yes } => {
             rename_tenant(old_id, new_id, yes).await
+        }
+        AdminCommand::IdleHistory { hours } => {
+            show_idle_history(hours)
         }
     }
 }
@@ -141,6 +150,98 @@ async fn rename_tenant(old_id: String, new_id: String, yes: bool) -> Result<()> 
                 }
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Show idle state transition history and flip-flop analysis
+fn show_idle_history(hours: f64) -> Result<()> {
+    use serde::Deserialize;
+    use std::io::BufRead;
+
+    #[derive(Deserialize)]
+    struct Entry {
+        timestamp: String,
+        from_mode: String,
+        to_mode: String,
+        idle_seconds: f64,
+        duration_in_previous_secs: f64,
+    }
+
+    let config_dir = wqm_common::paths::get_config_dir()
+        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let history_path = config_dir.join("idle_history.jsonl");
+
+    if !history_path.exists() {
+        output::info("No idle history file found. The daemon records transitions automatically.");
+        output::kv("Expected path", &history_path.display().to_string());
+        return Ok(());
+    }
+
+    let file = std::fs::File::open(&history_path)
+        .context("Failed to open idle history file")?;
+    let reader = std::io::BufReader::new(file);
+
+    // Compute cutoff timestamp using wqm_common (avoids chrono dependency)
+    let cutoff_str = wqm_common::timestamps::hours_ago(hours);
+
+    let entries: Vec<Entry> = reader
+        .lines()
+        .filter_map(|line| line.ok())
+        .filter_map(|line| serde_json::from_str::<Entry>(&line).ok())
+        .filter(|e| e.timestamp >= cutoff_str)
+        .collect();
+
+    output::section(&format!("Idle History (last {:.0}h)", hours));
+    output::kv("File", &history_path.display().to_string());
+    output::kv("Transitions", &entries.len().to_string());
+
+    if entries.is_empty() {
+        output::info("No transitions in the specified window.");
+        return Ok(());
+    }
+
+    // Analysis
+    let transitions_per_hour = entries.len() as f64 / hours;
+    let avg_duration = entries.iter().map(|e| e.duration_in_previous_secs).sum::<f64>()
+        / entries.len() as f64;
+    let short_count = entries.iter().filter(|e| e.duration_in_previous_secs < 30.0).count();
+    let is_flip_flopping = transitions_per_hour > 10.0;
+
+    output::separator();
+    output::kv("Rate", &format!("{:.1} transitions/hr", transitions_per_hour));
+    output::kv("Avg mode duration", &format!("{:.1}s", avg_duration));
+    output::kv("Short (<30s)", &short_count.to_string());
+
+    if is_flip_flopping {
+        output::separator();
+        output::warning("Flip-flop detected! Consider increasing idle_cooloff_polls in config.");
+        let recommended = ((transitions_per_hour / 10.0).ceil() as u32).saturating_sub(1);
+        output::kv("Recommended +cooloff", &format!("+{} polls", recommended));
+    }
+
+    // Show last 20 transitions
+    output::separator();
+    println!("  Recent transitions (last {}):", std::cmp::min(20, entries.len()));
+    println!("  {:<24} {:>8} {:>8} {:>8} {:>10}",
+        "Timestamp", "From", "To", "Idle(s)", "Duration");
+    println!("  {}", "-".repeat(62));
+
+    for entry in entries.iter().rev().take(20).collect::<Vec<_>>().into_iter().rev() {
+        // Trim timestamp to just time portion for readability
+        let time_part = if entry.timestamp.len() > 11 {
+            &entry.timestamp[11..]
+        } else {
+            &entry.timestamp
+        };
+        println!("  {:<24} {:>8} {:>8} {:>8.0} {:>9.1}s",
+            time_part,
+            entry.from_mode,
+            entry.to_mode,
+            entry.idle_seconds,
+            entry.duration_in_previous_secs,
+        );
     }
 
     Ok(())
