@@ -57,6 +57,7 @@ pub mod keyword_extraction;
 pub mod keywords_schema;
 pub mod lexicon;
 pub mod library_document;
+pub mod metadata_uplift;
 pub mod tree_sitter;
 pub mod watching;
 pub mod watching_queue;

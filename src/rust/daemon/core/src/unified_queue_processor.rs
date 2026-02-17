@@ -555,6 +555,11 @@ impl UnifiedQueueProcessor {
         let mut adaptive_target_permits: Option<usize> = None;
         let metrics_log_interval = ChronoDuration::minutes(1);
         let mut warmup_logged = false;
+        // Metadata uplift tracking
+        let mut uplift_config = crate::metadata_uplift::UpliftConfig::default();
+        let mut last_uplift_attempt = std::time::Instant::now()
+            .checked_sub(Duration::from_secs(uplift_config.min_interval_secs))
+            .unwrap_or_else(std::time::Instant::now);
 
         info!(
             "Unified processing loop started (batch_size={}, worker_id={}, fairness={}, warmup_window={}s)",
@@ -641,6 +646,31 @@ impl UnifiedQueueProcessor {
             {
                 Ok(items) => {
                     if items.is_empty() {
+                        // Run metadata uplift when queue is idle (Task 18)
+                        let since_last = last_uplift_attempt.elapsed().as_secs();
+                        if since_last >= uplift_config.min_interval_secs {
+                            debug!("Queue idle — running metadata uplift pass (gen={})", uplift_config.current_generation);
+                            let collections = vec!["projects".to_string(), "libraries".to_string()];
+                            let stats = crate::metadata_uplift::run_uplift_pass(
+                                &storage_client,
+                                &lexicon_manager,
+                                &collections,
+                                &uplift_config,
+                            )
+                            .await;
+                            if stats.scanned > 0 {
+                                info!(
+                                    "Uplift pass complete: scanned={}, updated={}, skipped={}, errors={}",
+                                    stats.scanned, stats.updated, stats.skipped, stats.errors
+                                );
+                            }
+                            if stats.updated == 0 && stats.errors == 0 {
+                                // All points uplifted at this generation, advance
+                                uplift_config.current_generation += 1;
+                            }
+                            last_uplift_attempt = std::time::Instant::now();
+                        }
+
                         debug!("Unified queue is empty, waiting {}ms", config.poll_interval_ms);
                         tokio::time::sleep(poll_interval).await;
                         continue;

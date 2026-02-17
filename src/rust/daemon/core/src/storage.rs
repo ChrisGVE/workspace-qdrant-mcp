@@ -903,6 +903,45 @@ impl StorageClient {
         Ok(file_paths)
     }
 
+    /// Scroll through points matching a filter, returning full point data.
+    ///
+    /// Single-batch scroll limited by `limit`. Returns points with payloads
+    /// but without vectors.
+    pub async fn scroll_with_filter(
+        &self,
+        collection_name: &str,
+        filter: Filter,
+        limit: u32,
+        offset: Option<qdrant_client::qdrant::PointId>,
+    ) -> Result<Vec<qdrant_client::qdrant::RetrievedPoint>, StorageError> {
+        use qdrant_client::qdrant::ScrollPointsBuilder;
+
+        let response = self
+            .retry_operation(|| {
+                let f = filter.clone();
+                let o = offset.clone();
+                async move {
+                    let mut builder = ScrollPointsBuilder::new(collection_name)
+                        .filter(f)
+                        .limit(limit)
+                        .with_payload(true)
+                        .with_vectors(false);
+
+                    if let Some(offset_id) = o {
+                        builder = builder.offset(offset_id);
+                    }
+
+                    self.client
+                        .scroll(builder)
+                        .await
+                        .map_err(|e| StorageError::Search(format!("Scroll with filter failed: {}", e)))
+                }
+            })
+            .await?;
+
+        Ok(response.result)
+    }
+
     /// Check if a collection exists
     pub async fn collection_exists(&self, collection_name: &str) -> Result<bool, StorageError> {
         debug!("Checking if collection exists: {}", collection_name);
