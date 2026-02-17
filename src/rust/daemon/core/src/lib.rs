@@ -51,6 +51,7 @@ pub mod search_events_schema;
 pub mod code_lines_schema;
 pub mod schema_version;
 pub mod search_db;
+pub mod text_search;
 pub mod tokenizer;
 pub mod parent_unit;
 pub mod title_extraction;
