@@ -12,7 +12,7 @@ use thiserror::Error;
 use tracing::{debug, info};
 
 /// Current schema version - increment when adding new migrations
-pub const CURRENT_SCHEMA_VERSION: i32 = 20;
+pub const CURRENT_SCHEMA_VERSION: i32 = 21;
 
 /// Errors that can occur during schema operations
 #[derive(Error, Debug)]
@@ -170,6 +170,7 @@ impl SchemaManager {
             18 => self.migrate_v18().await,
             19 => self.migrate_v19().await,
             20 => self.migrate_v20().await,
+            21 => self.migrate_v21().await,
             _ => Err(SchemaError::MigrationError(format!(
                 "Unknown migration version: {}", version
             ))),
@@ -1006,6 +1007,77 @@ impl SchemaManager {
             .await?;
 
         info!("Migration v20 complete");
+        Ok(())
+    }
+
+    async fn migrate_v21(&self) -> Result<(), SchemaError> {
+        info!("Migration v21: Adding git-tracking columns, memory_mirror, and submodule junction table");
+
+        use super::watch_folders_schema::{
+            MIGRATE_V21_WATCH_FOLDERS_SQL,
+            CREATE_MEMORY_MIRROR_SQL,
+            CREATE_WATCH_FOLDER_SUBMODULES_SQL,
+            CREATE_WATCH_FOLDER_SUBMODULES_INDEXES_SQL,
+            MIGRATE_V21_SUBMODULE_DATA_SQL,
+        };
+
+        // 1. Add git-tracking columns to watch_folders (idempotent check)
+        let has_last_commit_hash: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM pragma_table_info('watch_folders') WHERE name = 'last_commit_hash'"
+        )
+        .fetch_one(&self.pool)
+        .await?;
+
+        if !has_last_commit_hash {
+            for alter_sql in MIGRATE_V21_WATCH_FOLDERS_SQL {
+                debug!("Running ALTER TABLE: {}", alter_sql);
+                sqlx::query(alter_sql)
+                    .execute(&self.pool)
+                    .await?;
+            }
+
+            // Backfill: detect git-tracked projects (those with non-NULL git_remote_url)
+            let backfilled: u64 = sqlx::query(
+                "UPDATE watch_folders SET is_git_tracked = 1 WHERE git_remote_url IS NOT NULL"
+            )
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+
+            if backfilled > 0 {
+                info!("Backfilled is_git_tracked for {} watch folders with git remote URLs", backfilled);
+            }
+        } else {
+            debug!("last_commit_hash column already exists, skipping ALTER TABLE");
+        }
+
+        // 2. Create memory_mirror table
+        sqlx::query(CREATE_MEMORY_MIRROR_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        // 3. Create watch_folder_submodules junction table
+        sqlx::query(CREATE_WATCH_FOLDER_SUBMODULES_SQL)
+            .execute(&self.pool)
+            .await?;
+
+        for index_sql in CREATE_WATCH_FOLDER_SUBMODULES_INDEXES_SQL {
+            sqlx::query(index_sql)
+                .execute(&self.pool)
+                .await?;
+        }
+
+        // 4. Migrate existing submodule relationships to junction table
+        let migrated: u64 = sqlx::query(MIGRATE_V21_SUBMODULE_DATA_SQL)
+            .execute(&self.pool)
+            .await?
+            .rows_affected();
+
+        if migrated > 0 {
+            info!("Migrated {} submodule relationships to junction table", migrated);
+        }
+
+        info!("Migration v21 complete");
         Ok(())
     }
 }
@@ -1886,5 +1958,104 @@ mod tests {
              VALUES ('q2', 'k2', 'file', 'add', 't1', 'projects', 'pending', 5, 'main', '{}', 'bogus', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
         ).execute(&pool).await;
         assert!(invalid.is_err(), "CHECK constraint should reject invalid qdrant_status");
+    }
+
+    #[sqlx::test]
+    async fn test_migration_v21_git_tracking_columns() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Verify new columns exist in watch_folders
+        let columns: Vec<String> = sqlx::query_scalar(
+            "SELECT name FROM pragma_table_info('watch_folders') ORDER BY name"
+        ).fetch_all(&pool).await.unwrap();
+
+        assert!(columns.contains(&"last_commit_hash".to_string()), "last_commit_hash column missing");
+        assert!(columns.contains(&"is_git_tracked".to_string()), "is_git_tracked column missing");
+
+        // Verify defaults
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
+             VALUES ('w-test', '/tmp/test-project', 'projects', 'tenant_test', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        ).execute(&pool).await.unwrap();
+
+        let is_git_tracked: i32 = sqlx::query_scalar(
+            "SELECT is_git_tracked FROM watch_folders WHERE watch_id = 'w-test'"
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(is_git_tracked, 0, "is_git_tracked should default to 0");
+
+        let commit_hash: Option<String> = sqlx::query_scalar(
+            "SELECT last_commit_hash FROM watch_folders WHERE watch_id = 'w-test'"
+        ).fetch_one(&pool).await.unwrap();
+        assert!(commit_hash.is_none(), "last_commit_hash should default to NULL");
+    }
+
+    #[sqlx::test]
+    async fn test_migration_v21_memory_mirror_table() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Verify memory_mirror table exists
+        let exists: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='memory_mirror'"
+        ).fetch_one(&pool).await.unwrap();
+        assert!(exists, "memory_mirror table should exist");
+
+        // Test CRUD operations
+        sqlx::query(
+            "INSERT INTO memory_mirror (memory_id, rule_text, scope, tenant_id, created_at, updated_at)
+             VALUES ('m1', 'Always use snake_case', 'global', NULL, '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        ).execute(&pool).await.unwrap();
+
+        let rule: String = sqlx::query_scalar(
+            "SELECT rule_text FROM memory_mirror WHERE memory_id = 'm1'"
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(rule, "Always use snake_case");
+    }
+
+    #[sqlx::test]
+    async fn test_migration_v21_submodule_junction_table() {
+        let pool = create_test_pool().await;
+        let manager = SchemaManager::new(pool.clone());
+        manager.run_migrations().await.expect("Failed to run migrations");
+
+        // Verify watch_folder_submodules table exists
+        let exists: bool = sqlx::query_scalar(
+            "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='watch_folder_submodules'"
+        ).fetch_one(&pool).await.unwrap();
+        assert!(exists, "watch_folder_submodules table should exist");
+
+        // Create parent and child watch folders
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, created_at, updated_at)
+             VALUES ('w-parent', '/tmp/parent', 'projects', 'tenant1', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        ).execute(&pool).await.unwrap();
+
+        sqlx::query(
+            "INSERT INTO watch_folders (watch_id, path, collection, tenant_id, parent_watch_id, submodule_path, created_at, updated_at)
+             VALUES ('w-child', '/tmp/parent/lib', 'projects', 'tenant2', 'w-parent', 'lib', '2025-01-01T00:00:00Z', '2025-01-01T00:00:00Z')"
+        ).execute(&pool).await.unwrap();
+
+        // Insert into junction table
+        sqlx::query(
+            "INSERT INTO watch_folder_submodules (parent_watch_id, child_watch_id, submodule_path, created_at)
+             VALUES ('w-parent', 'w-child', 'lib', '2025-01-01T00:00:00Z')"
+        ).execute(&pool).await.unwrap();
+
+        let count: i32 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM watch_folder_submodules WHERE parent_watch_id = 'w-parent'"
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(count, 1);
+
+        // Test CASCADE delete — deleting parent should remove junction rows
+        sqlx::query("DELETE FROM watch_folders WHERE watch_id = 'w-parent'")
+            .execute(&pool).await.unwrap();
+
+        let count_after: i32 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM watch_folder_submodules"
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(count_after, 0, "CASCADE delete should remove junction rows");
     }
 }

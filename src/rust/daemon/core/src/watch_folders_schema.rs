@@ -102,6 +102,10 @@ pub struct WatchFolder {
     pub pause_start_time: Option<String>,
     /// Whether this folder is archived (no watching/ingesting, but remains searchable)
     pub is_archived: bool,
+    /// Last known commit hash (for git-tracked projects)
+    pub last_commit_hash: Option<String>,
+    /// Whether this watch folder is git-tracked (has .git/ or .git file)
+    pub is_git_tracked: bool,
 
     // Library-specific fields (NULL for projects)
     /// Library mode: sync or incremental
@@ -163,6 +167,8 @@ CREATE TABLE IF NOT EXISTS watch_folders (
     is_paused INTEGER DEFAULT 0 CHECK (is_paused IN (0, 1)),
     pause_start_time TEXT,
     is_archived INTEGER DEFAULT 0 CHECK (is_archived IN (0, 1)),
+    last_commit_hash TEXT,
+    is_git_tracked INTEGER DEFAULT 0 CHECK (is_git_tracked IN (0, 1)),
 
     -- Library-specific (NULL for projects)
     library_mode TEXT CHECK (library_mode IS NULL OR library_mode IN ('sync', 'incremental')),
@@ -216,6 +222,55 @@ pub const MIGRATE_V4_PAUSE_SQL: &[&str] = &[
 /// SQL to add is_archived column (migration v7)
 pub const MIGRATE_V7_ARCHIVE_SQL: &str =
     "ALTER TABLE watch_folders ADD COLUMN is_archived INTEGER DEFAULT 0 CHECK (is_archived IN (0, 1))";
+
+// --- Migration v21 SQL ---
+
+/// SQL to add git-tracking columns to watch_folders (migration v21)
+pub const MIGRATE_V21_WATCH_FOLDERS_SQL: &[&str] = &[
+    "ALTER TABLE watch_folders ADD COLUMN last_commit_hash TEXT",
+    "ALTER TABLE watch_folders ADD COLUMN is_git_tracked INTEGER DEFAULT 0 CHECK (is_git_tracked IN (0, 1))",
+];
+
+/// SQL to create memory_mirror table (migration v21)
+pub const CREATE_MEMORY_MIRROR_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS memory_mirror (
+    memory_id TEXT PRIMARY KEY,
+    rule_text TEXT NOT NULL,
+    scope TEXT,
+    tenant_id TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+)
+"#;
+
+/// SQL to create watch_folder_submodules junction table (migration v21)
+pub const CREATE_WATCH_FOLDER_SUBMODULES_SQL: &str = r#"
+CREATE TABLE IF NOT EXISTS watch_folder_submodules (
+    parent_watch_id TEXT NOT NULL,
+    child_watch_id TEXT NOT NULL,
+    submodule_path TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (parent_watch_id, child_watch_id),
+    FOREIGN KEY (parent_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE,
+    FOREIGN KEY (child_watch_id) REFERENCES watch_folders(watch_id) ON DELETE CASCADE
+)
+"#;
+
+/// SQL to create indexes for watch_folder_submodules (migration v21)
+pub const CREATE_WATCH_FOLDER_SUBMODULES_INDEXES_SQL: &[&str] = &[
+    r#"CREATE INDEX IF NOT EXISTS idx_submodule_parent
+       ON watch_folder_submodules(parent_watch_id)"#,
+    r#"CREATE INDEX IF NOT EXISTS idx_submodule_child
+       ON watch_folder_submodules(child_watch_id)"#,
+];
+
+/// SQL to migrate existing submodule relationships to junction table (migration v21)
+pub const MIGRATE_V21_SUBMODULE_DATA_SQL: &str = r#"
+INSERT OR IGNORE INTO watch_folder_submodules (parent_watch_id, child_watch_id, submodule_path, created_at)
+SELECT parent_watch_id, watch_id, COALESCE(submodule_path, ''), datetime('now')
+FROM watch_folders
+WHERE parent_watch_id IS NOT NULL
+"#;
 
 /// SQL to activate a project and all its related watches (parent, siblings, children)
 /// Use with parameter :watch_id
