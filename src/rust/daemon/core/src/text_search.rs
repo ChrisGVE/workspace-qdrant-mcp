@@ -1,16 +1,21 @@
-//! Exact String Search on FTS5 (Task 53)
+//! Text Search on FTS5 (Tasks 53, 54)
 //!
-//! Provides exact substring search over code_lines using FTS5 trigram index
-//! for candidate selection and LIKE verification for exact match.
+//! Provides exact substring search and regex search over code_lines using the
+//! FTS5 trigram index for candidate pre-filtering.
 //!
 //! ## Architecture
 //!
+//! ### Exact search (`search_exact`)
 //! 1. **FTS5 trigram MATCH** — pre-filter using the trigram index (fast, ~O(1) per term)
-//! 2. **LIKE verification** — exact match filter on `code_lines.content` (necessary
-//!    because trigram matching is necessary-but-not-sufficient for exact substring)
+//! 2. **INSTR verification** — exact match filter on `code_lines.content`
 //! 3. **ROW_NUMBER()** — derives 1-based line numbers from gap-based `seq` ordering
-//! 4. **file_metadata JOIN** — scopes results by project/branch/path without
-//!    cross-database JOINs (file_metadata is denormalized in search.db)
+//! 4. **file_metadata JOIN** — scopes results by project/branch/path
+//!
+//! ### Regex search (`search_regex`)
+//! 1. **Literal extraction** — extract literal substrings (≥3 chars) from regex
+//! 2. **FTS5 trigram MATCH** — pre-filter using OR query of extracted literals
+//! 3. **Rust regex verification** — `regex::Regex::is_match()` on each candidate
+//! 4. Falls back to full table scan when no literals can be extracted
 //!
 //! ## FTS5 Trigram Pattern Escaping
 //!
@@ -304,6 +309,283 @@ WHERE 1=1",
     }
 
     sql.push_str("\nORDER BY m.file_id, m.line_number");
+
+    (sql, use_fts)
+}
+
+// ---------------------------------------------------------------------------
+// Regex search with trigram acceleration (Task 54)
+// ---------------------------------------------------------------------------
+
+/// Extract literal substrings (≥3 characters) from a regex pattern.
+///
+/// Walks the regex string character by character, collecting runs of literal
+/// characters. When a metacharacter is encountered, the current run is flushed.
+/// Escaped literals (e.g., `\.`, `\\`) are treated as literal characters.
+///
+/// Returns a list of literal strings suitable for FTS5 trigram pre-filtering.
+pub fn extract_literals_from_regex(pattern: &str) -> Vec<String> {
+    let mut literals = Vec::new();
+    let mut current = String::new();
+    let mut chars = pattern.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => {
+                // Escape sequence
+                if let Some(&next) = chars.peek() {
+                    match next {
+                        // Metacharacter classes — end the current literal run
+                        'd' | 'D' | 'w' | 'W' | 's' | 'S' | 'b' | 'B'
+                        | 'A' | 'z' | 'Z' | 'G' => {
+                            flush_literal(&mut current, &mut literals);
+                            chars.next(); // consume the class character
+                        }
+                        // Escaped literals — add the literal character
+                        _ => {
+                            chars.next();
+                            current.push(next);
+                        }
+                    }
+                }
+                // Trailing backslash — ignore
+            }
+            // Character class — skip everything until closing `]`
+            '[' => {
+                flush_literal(&mut current, &mut literals);
+                // Skip contents of character class
+                while let Some(inner) = chars.next() {
+                    if inner == '\\' {
+                        chars.next(); // skip escaped char inside class
+                    } else if inner == ']' {
+                        break;
+                    }
+                }
+            }
+            // Other metacharacters that end a literal run
+            '.' | '*' | '+' | '?' | ']' | '(' | ')' | '{' | '}' | '|' | '^' | '$' => {
+                flush_literal(&mut current, &mut literals);
+            }
+            // Literal character
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+
+    // Flush any remaining literal
+    flush_literal(&mut current, &mut literals);
+
+    literals
+}
+
+/// Flush the current literal buffer into the literals list if ≥ 3 chars.
+fn flush_literal(current: &mut String, literals: &mut Vec<String>) {
+    if current.len() >= 3 {
+        literals.push(current.clone());
+    }
+    current.clear();
+}
+
+/// Build an FTS5 OR query from extracted literals.
+///
+/// Each literal is double-quote escaped for FTS5 trigram matching.
+/// Returns `None` if no literals have ≥ 3 characters.
+fn build_fts5_or_query(literals: &[String]) -> Option<String> {
+    let terms: Vec<String> = literals
+        .iter()
+        .filter_map(|lit| escape_fts5_pattern(lit))
+        .collect();
+
+    if terms.is_empty() {
+        None
+    } else {
+        Some(terms.join(" OR "))
+    }
+}
+
+/// Search code_lines using a regex pattern with trigram acceleration.
+///
+/// ## Strategy
+///
+/// 1. Extract literal substrings from the regex for FTS5 pre-filtering
+/// 2. If literals found: query FTS5 with OR query, verify with regex in Rust
+/// 3. If no literals: scan all code_lines (with scope filters), verify with regex
+///
+/// Case-insensitive mode uses `regex::RegexBuilder::case_insensitive(true)`.
+pub async fn search_regex(
+    search_db: &SearchDbManager,
+    pattern: &str,
+    options: &SearchOptions,
+) -> Result<SearchResults, SearchDbError> {
+    let start = std::time::Instant::now();
+
+    if pattern.is_empty() {
+        return Ok(SearchResults {
+            pattern: pattern.to_string(),
+            matches: vec![],
+            truncated: false,
+            query_time_ms: 0,
+        });
+    }
+
+    // Compile the regex (case-insensitive if requested)
+    let re = regex::RegexBuilder::new(pattern)
+        .case_insensitive(options.case_insensitive)
+        .build()
+        .map_err(|e| SearchDbError::InvalidPattern(format!("{}", e)))?;
+
+    // Extract literals for FTS5 acceleration
+    let literals = extract_literals_from_regex(pattern);
+    let fts5_query = build_fts5_or_query(&literals);
+
+    debug!(
+        "Regex search: pattern={:?}, literals={:?}, fts5_query={:?}, tenant={:?}",
+        pattern, literals, fts5_query, options.tenant_id,
+    );
+
+    // Build and execute SQL query
+    let (sql, use_fts) = build_regex_search_query(&fts5_query, options);
+    let pool = search_db.pool();
+    let mut query = sqlx::query(&sql);
+
+    // Bind parameters
+    if use_fts {
+        query = query.bind(fts5_query.as_ref().unwrap());
+    }
+
+    // Bind scope filters
+    let mut _param_idx = if use_fts { 2 } else { 1 };
+    if let Some(ref tid) = options.tenant_id {
+        query = query.bind(tid);
+        _param_idx += 1;
+    }
+    if let Some(ref branch) = options.branch {
+        query = query.bind(branch);
+        _param_idx += 1;
+    }
+    if let Some(ref prefix) = options.path_prefix {
+        query = query.bind(format!("{}%", prefix));
+    }
+
+    let rows = query.fetch_all(pool).await?;
+
+    // Apply regex filter in Rust
+    let max_results = if options.max_results > 0 {
+        options.max_results
+    } else {
+        usize::MAX
+    };
+
+    let mut matches = Vec::new();
+    for row in &rows {
+        let content: String = row.get("content");
+        if re.is_match(&content) {
+            matches.push(SearchMatch {
+                line_id: row.get("line_id"),
+                file_id: row.get("file_id"),
+                line_number: row.get("line_number"),
+                content,
+                file_path: row.get("file_path"),
+                tenant_id: row.get("tenant_id"),
+                branch: row.get("branch"),
+            });
+            if matches.len() > max_results {
+                break;
+            }
+        }
+    }
+
+    let truncated = matches.len() > max_results;
+    if truncated {
+        matches.truncate(max_results);
+    }
+
+    let query_time_ms = start.elapsed().as_millis() as u64;
+
+    debug!(
+        "Regex search complete: {} matches in {}ms (pattern={:?}, fts_candidates={}, truncated={})",
+        matches.len(), query_time_ms, pattern, rows.len(), truncated
+    );
+
+    Ok(SearchResults {
+        pattern: pattern.to_string(),
+        matches,
+        truncated,
+        query_time_ms,
+    })
+}
+
+/// Build SQL query for regex search.
+///
+/// When FTS5 literals are available, uses a two-CTE approach:
+/// 1. `all_lines` — numbers ALL lines per file using ROW_NUMBER()
+/// 2. `candidates` — pre-filters using FTS5 MATCH (OR query of literals)
+///
+/// When no FTS5 literals are available, scans all lines with scope filters only.
+/// Regex matching is always done in Rust after fetching candidates.
+fn build_regex_search_query(
+    fts5_query: &Option<String>,
+    options: &SearchOptions,
+) -> (String, bool) {
+    let use_fts = fts5_query.is_some();
+
+    // CTE 1: Number ALL lines in each file
+    let all_lines_cte = r#"
+WITH all_lines AS (
+    SELECT
+        cl.line_id,
+        cl.file_id,
+        ROW_NUMBER() OVER (PARTITION BY cl.file_id ORDER BY cl.seq) AS line_number,
+        cl.content
+    FROM code_lines cl
+)"#;
+
+    // CTE 2: FTS5 candidate pre-filter or full scan
+    let candidates_cte = if use_fts {
+        r#",
+candidates AS (
+    SELECT al.line_id, al.file_id, al.line_number, al.content
+    FROM all_lines al
+    JOIN code_lines_fts fts ON al.line_id = fts.rowid
+    WHERE fts.content MATCH ?1
+)"#
+    } else {
+        // No FTS5 — return all lines (regex filtering in Rust)
+        r#",
+candidates AS (
+    SELECT al.line_id, al.file_id, al.line_number, al.content
+    FROM all_lines al
+)"#
+    };
+
+    // Main query joins with file_metadata for scoping
+    let mut sql = format!(
+        "{}{}
+SELECT c.line_id, c.file_id, c.line_number, c.content,
+       fm.file_path, fm.tenant_id, fm.branch
+FROM candidates c
+JOIN file_metadata fm ON c.file_id = fm.file_id
+WHERE 1=1",
+        all_lines_cte, candidates_cte
+    );
+
+    // Bind indices: FTS5 mode starts scope filters at ?2, non-FTS at ?1
+    let mut next_param = if use_fts { 2 } else { 1 };
+
+    if options.tenant_id.is_some() {
+        sql.push_str(&format!(" AND fm.tenant_id = ?{}", next_param));
+        next_param += 1;
+    }
+    if options.branch.is_some() {
+        sql.push_str(&format!(" AND fm.branch = ?{}", next_param));
+        next_param += 1;
+    }
+    if options.path_prefix.is_some() {
+        sql.push_str(&format!(" AND fm.file_path LIKE ?{} ESCAPE '\\'", next_param));
+    }
+
+    sql.push_str("\nORDER BY c.file_id, c.line_number");
 
     (sql, use_fts)
 }
@@ -881,5 +1163,488 @@ mod tests {
 
         assert_eq!(results.matches.len(), 1);
         assert!(results.matches[0].content.contains("\"hello world\""));
+    }
+
+    // ── Regex literal extraction tests ──
+
+    #[test]
+    fn test_extract_literals_basic() {
+        let lits = extract_literals_from_regex("async.*fn");
+        assert_eq!(lits, vec!["async"]);
+        // "fn" is only 2 chars, not extracted
+    }
+
+    #[test]
+    fn test_extract_literals_multiple() {
+        let lits = extract_literals_from_regex("pub fn \\w+\\(\\)");
+        // "pub fn " has 7 chars (including trailing space)
+        assert_eq!(lits, vec!["pub fn "]);
+    }
+
+    #[test]
+    fn test_extract_literals_escaped_chars() {
+        // \. is a literal dot, \( is a literal paren
+        let lits = extract_literals_from_regex("log\\.info\\(");
+        assert_eq!(lits, vec!["log.info("]);
+    }
+
+    #[test]
+    fn test_extract_literals_no_literals() {
+        // All metacharacters, no extractable literals
+        let lits = extract_literals_from_regex("^.$");
+        assert!(lits.is_empty());
+
+        let lits = extract_literals_from_regex("[a-z]+");
+        assert!(lits.is_empty());
+
+        let lits = extract_literals_from_regex("\\d+\\.\\d+");
+        assert!(lits.is_empty()); // "." is only 1 char between \d groups
+    }
+
+    #[test]
+    fn test_extract_literals_word_boundary() {
+        // \b is a metacharacter class, ends the literal run
+        let lits = extract_literals_from_regex("\\bclass\\b");
+        assert_eq!(lits, vec!["class"]);
+    }
+
+    #[test]
+    fn test_extract_literals_alternation() {
+        let lits = extract_literals_from_regex("async|await");
+        assert_eq!(lits, vec!["async", "await"]);
+    }
+
+    #[test]
+    fn test_extract_literals_mixed() {
+        let lits = extract_literals_from_regex("fn\\s+main\\(");
+        // "fn" (2 chars, too short), "main(" (5 chars, good)
+        assert_eq!(lits, vec!["main("]);
+    }
+
+    #[test]
+    fn test_extract_literals_escaped_backslash() {
+        let lits = extract_literals_from_regex("C:\\\\Windows\\\\system32");
+        assert_eq!(lits, vec!["C:\\Windows\\system32"]);
+    }
+
+    // ── FTS5 OR query building tests ──
+
+    #[test]
+    fn test_build_fts5_or_query_basic() {
+        let lits = vec!["async".to_string(), "await".to_string()];
+        let query = build_fts5_or_query(&lits);
+        assert_eq!(query, Some("\"async\" OR \"await\"".to_string()));
+    }
+
+    #[test]
+    fn test_build_fts5_or_query_empty() {
+        let lits: Vec<String> = vec![];
+        assert_eq!(build_fts5_or_query(&lits), None);
+    }
+
+    #[test]
+    fn test_build_fts5_or_query_short_filtered() {
+        // "fn" is < 3 chars, filtered out by escape_fts5_pattern
+        let lits = vec!["fn".to_string()];
+        assert_eq!(build_fts5_or_query(&lits), None);
+    }
+
+    #[test]
+    fn test_build_fts5_or_query_single() {
+        let lits = vec!["println".to_string()];
+        let query = build_fts5_or_query(&lits);
+        assert_eq!(query, Some("\"println\"".to_string()));
+    }
+
+    // ── Regex search query building tests ──
+
+    #[test]
+    fn test_build_regex_query_with_fts() {
+        let fts_query = Some("\"async\" OR \"await\"".to_string());
+        let options = SearchOptions::default();
+        let (sql, use_fts) = build_regex_search_query(&fts_query, &options);
+        assert!(use_fts);
+        assert!(sql.contains("MATCH ?1"));
+        assert!(sql.contains("all_lines"));
+        assert!(sql.contains("candidates"));
+    }
+
+    #[test]
+    fn test_build_regex_query_without_fts() {
+        let options = SearchOptions::default();
+        let (sql, use_fts) = build_regex_search_query(&None, &options);
+        assert!(!use_fts);
+        assert!(!sql.contains("MATCH"));
+        assert!(sql.contains("all_lines"));
+        assert!(sql.contains("candidates"));
+    }
+
+    #[test]
+    fn test_build_regex_query_with_scope_filters() {
+        let fts_query = Some("\"test\"".to_string());
+        let options = SearchOptions {
+            tenant_id: Some("proj1".to_string()),
+            branch: Some("main".to_string()),
+            path_prefix: Some("src/".to_string()),
+            ..Default::default()
+        };
+        let (sql, _) = build_regex_search_query(&fts_query, &options);
+        assert!(sql.contains("fm.tenant_id = ?2"));
+        assert!(sql.contains("fm.branch = ?3"));
+        assert!(sql.contains("fm.file_path LIKE ?4"));
+    }
+
+    // ── Regex search integration tests ──
+
+    #[tokio::test]
+    async fn test_search_regex_basic() {
+        let (_tmp, db) = setup_search_db().await;
+        insert_file_content(
+            &db,
+            1,
+            &[
+                "fn main() {",
+                "    let x = 42;",
+                "    println!(\"hello\");",
+                "}",
+            ],
+            "proj1",
+            Some("main"),
+            "src/main.rs",
+        )
+        .await;
+
+        let results = search_regex(&db, "fn\\s+main", &SearchOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(results.matches.len(), 1);
+        assert_eq!(results.matches[0].line_number, 1);
+        assert!(results.matches[0].content.contains("fn main"));
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_wildcard() {
+        let (_tmp, db) = setup_search_db().await;
+        insert_file_content(
+            &db,
+            1,
+            &[
+                "async fn process_request() {}",
+                "fn process_response() {}",
+                "fn handle_error() {}",
+            ],
+            "proj1",
+            Some("main"),
+            "src/handler.rs",
+        )
+        .await;
+
+        // Match any "process_" function
+        let results = search_regex(&db, "fn process_\\w+", &SearchOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(results.matches.len(), 2);
+        assert!(results.matches[0].content.contains("process_request"));
+        assert!(results.matches[1].content.contains("process_response"));
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_no_trigrams_fallback() {
+        let (_tmp, db) = setup_search_db().await;
+        insert_file_content(
+            &db,
+            1,
+            &["a", "ab", "abc", "abcd", "x"],
+            "proj1",
+            Some("main"),
+            "src/short.rs",
+        )
+        .await;
+
+        // Pattern "^.{3}$" has no extractable literals — full scan
+        let results = search_regex(&db, "^.{3}$", &SearchOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(results.matches.len(), 1);
+        assert_eq!(results.matches[0].content, "abc");
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_case_insensitive() {
+        let (_tmp, db) = setup_search_db().await;
+        insert_file_content(
+            &db,
+            1,
+            &["fn Main() {}", "fn main() {}", "fn MAIN() {}"],
+            "proj1",
+            Some("main"),
+            "src/case.rs",
+        )
+        .await;
+
+        let results = search_regex(
+            &db,
+            "fn main",
+            &SearchOptions {
+                case_insensitive: true,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.matches.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_scoped_by_tenant() {
+        let (_tmp, db) = setup_search_db().await;
+
+        insert_file_content(
+            &db,
+            1,
+            &["pub fn hello() {}"],
+            "proj1",
+            Some("main"),
+            "src/a.rs",
+        )
+        .await;
+        insert_file_content(
+            &db,
+            2,
+            &["pub fn hello() {}"],
+            "proj2",
+            Some("main"),
+            "src/b.rs",
+        )
+        .await;
+
+        let results = search_regex(
+            &db,
+            "pub fn \\w+",
+            &SearchOptions {
+                tenant_id: Some("proj1".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.matches.len(), 1);
+        assert_eq!(results.matches[0].tenant_id, "proj1");
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_alternation() {
+        let (_tmp, db) = setup_search_db().await;
+        insert_file_content(
+            &db,
+            1,
+            &[
+                "let future = async { 42 };",
+                "let result = await!(future);",
+                "let sync_val = 10;",
+            ],
+            "proj1",
+            Some("main"),
+            "src/async.rs",
+        )
+        .await;
+
+        let results = search_regex(&db, "async|await", &SearchOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(results.matches.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_max_results() {
+        let (_tmp, db) = setup_search_db().await;
+
+        let lines: Vec<String> = (0..20)
+            .map(|i| format!("let item_{} = process();", i))
+            .collect();
+        let line_refs: Vec<&str> = lines.iter().map(|s| s.as_str()).collect();
+
+        insert_file_content(&db, 1, &line_refs, "proj1", Some("main"), "src/many.rs")
+            .await;
+
+        let results = search_regex(
+            &db,
+            "item_\\d+",
+            &SearchOptions {
+                max_results: 5,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.matches.len(), 5);
+        assert!(results.truncated);
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_empty_pattern() {
+        let (_tmp, db) = setup_search_db().await;
+        insert_file_content(
+            &db,
+            1,
+            &["fn main() {}"],
+            "proj1",
+            Some("main"),
+            "src/main.rs",
+        )
+        .await;
+
+        let results = search_regex(&db, "", &SearchOptions::default())
+            .await
+            .unwrap();
+
+        assert!(results.matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_invalid_pattern() {
+        let (_tmp, db) = setup_search_db().await;
+        insert_file_content(
+            &db,
+            1,
+            &["fn main() {}"],
+            "proj1",
+            Some("main"),
+            "src/main.rs",
+        )
+        .await;
+
+        let result = search_regex(&db, "[invalid", &SearchOptions::default()).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_line_numbers_correct() {
+        let (_tmp, db) = setup_search_db().await;
+        insert_file_content(
+            &db,
+            1,
+            &[
+                "// comment",
+                "use std::io;",
+                "// comment",
+                "fn read() -> io::Result<()> {",
+                "// comment",
+            ],
+            "proj1",
+            Some("main"),
+            "src/io.rs",
+        )
+        .await;
+
+        let results = search_regex(&db, "fn \\w+\\(\\)", &SearchOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(results.matches.len(), 1);
+        assert_eq!(results.matches[0].line_number, 4);
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_word_boundary() {
+        let (_tmp, db) = setup_search_db().await;
+        insert_file_content(
+            &db,
+            1,
+            &[
+                "class MyClass {}",
+                "subclass OtherClass {}",
+                "let classified = true;",
+            ],
+            "proj1",
+            Some("main"),
+            "src/class.rs",
+        )
+        .await;
+
+        // \bclass\b matches only "class" as a whole word
+        let results = search_regex(&db, "\\bclass\\b", &SearchOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(results.matches.len(), 1);
+        assert_eq!(results.matches[0].line_number, 1);
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_across_files() {
+        let (_tmp, db) = setup_search_db().await;
+
+        insert_file_content(
+            &db,
+            1,
+            &["pub struct Config {}", "impl Config {}"],
+            "proj1",
+            Some("main"),
+            "src/config.rs",
+        )
+        .await;
+        insert_file_content(
+            &db,
+            2,
+            &["pub struct Handler {}", "impl Handler {}"],
+            "proj1",
+            Some("main"),
+            "src/handler.rs",
+        )
+        .await;
+
+        let results = search_regex(&db, "pub struct \\w+", &SearchOptions::default())
+            .await
+            .unwrap();
+
+        assert_eq!(results.matches.len(), 2);
+        assert_eq!(results.matches[0].file_path, "src/config.rs");
+        assert_eq!(results.matches[1].file_path, "src/handler.rs");
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_path_prefix_filter() {
+        let (_tmp, db) = setup_search_db().await;
+
+        insert_file_content(
+            &db,
+            1,
+            &["fn test_func() {}"],
+            "proj1",
+            Some("main"),
+            "src/lib.rs",
+        )
+        .await;
+        insert_file_content(
+            &db,
+            2,
+            &["fn test_func() {}"],
+            "proj1",
+            Some("main"),
+            "tests/test.rs",
+        )
+        .await;
+
+        let results = search_regex(
+            &db,
+            "fn test_\\w+",
+            &SearchOptions {
+                path_prefix: Some("src/".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.matches.len(), 1);
+        assert_eq!(results.matches[0].file_path, "src/lib.rs");
     }
 }

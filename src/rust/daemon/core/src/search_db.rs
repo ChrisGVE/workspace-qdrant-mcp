@@ -32,6 +32,9 @@ pub enum SearchDbError {
 
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[error("Invalid search pattern: {0}")]
+    InvalidPattern(String),
 }
 
 /// Result type for search database operations
