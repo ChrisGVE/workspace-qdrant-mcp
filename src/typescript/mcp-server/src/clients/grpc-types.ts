@@ -384,3 +384,52 @@ export interface EmbeddingServiceClient {
     callback: (error: Error | null, response: SparseVectorResponse) => void
   ): void;
 }
+
+// ============================================================================
+// TextSearchService Types
+// ============================================================================
+
+export interface TextSearchRequest {
+  pattern: string;
+  regex: boolean;
+  case_sensitive: boolean;
+  tenant_id?: string;
+  branch?: string;
+  path_glob?: string;
+  path_prefix?: string;
+  context_lines: number;
+  max_results: number;
+}
+
+export interface TextSearchResponse {
+  matches: TextSearchMatch[];
+  total_matches: number;
+  truncated: boolean;
+  query_time_ms: number;
+}
+
+export interface TextSearchCountResponse {
+  count: number;
+  query_time_ms: number;
+}
+
+export interface TextSearchMatch {
+  file_path: string;
+  line_number: number;
+  content: string;
+  tenant_id: string;
+  branch?: string;
+  context_before: string[];
+  context_after: string[];
+}
+
+export interface TextSearchServiceClient {
+  search(
+    request: TextSearchRequest,
+    callback: (error: Error | null, response: TextSearchResponse) => void
+  ): void;
+  countMatches(
+    request: TextSearchRequest,
+    callback: (error: Error | null, response: TextSearchCountResponse) => void
+  ): void;
+}

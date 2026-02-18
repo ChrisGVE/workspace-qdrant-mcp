@@ -18,6 +18,7 @@ import type {
   ProjectServiceClient,
   DocumentServiceClient,
   EmbeddingServiceClient,
+  TextSearchServiceClient,
   HealthCheckResponse,
   SystemStatusResponse,
   MetricsResponse,
@@ -35,6 +36,9 @@ import type {
   EmbedTextResponse,
   SparseVectorRequest,
   SparseVectorResponse,
+  TextSearchRequest,
+  TextSearchResponse,
+  TextSearchCountResponse,
 } from './grpc-types.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -71,6 +75,7 @@ interface ProtoGrpcType {
     ProjectService: GrpcServiceDefinition;
     DocumentService: GrpcServiceDefinition;
     EmbeddingService: GrpcServiceDefinition;
+    TextSearchService: GrpcServiceDefinition;
   };
 }
 
@@ -100,6 +105,7 @@ export class DaemonClient {
   private projectClient?: ProjectServiceClient;
   private documentClient?: DocumentServiceClient;
   private embeddingClient?: EmbeddingServiceClient;
+  private textSearchClient?: TextSearchServiceClient;
 
   private connectionState: ConnectionState = { connected: false };
 
@@ -146,6 +152,7 @@ export class DaemonClient {
     const ProjectService = proto.workspace_daemon.ProjectService;
     const DocumentService = proto.workspace_daemon.DocumentService;
     const EmbeddingService = proto.workspace_daemon.EmbeddingService;
+    const TextSearchService = proto.workspace_daemon.TextSearchService;
 
     this.systemClient = new SystemService(
       address,
@@ -163,6 +170,10 @@ export class DaemonClient {
       address,
       credentials
     ) as unknown as EmbeddingServiceClient;
+    this.textSearchClient = new TextSearchService(
+      address,
+      credentials
+    ) as unknown as TextSearchServiceClient;
 
     // Test connection with health check
     try {
@@ -195,6 +206,9 @@ export class DaemonClient {
     }
     if (this.embeddingClient) {
       grpc.closeClient(this.embeddingClient as unknown as grpc.Client);
+    }
+    if (this.textSearchClient) {
+      grpc.closeClient(this.textSearchClient as unknown as grpc.Client);
     }
     this.connectionState = { connected: false };
   }
@@ -433,6 +447,48 @@ export class DaemonClient {
   }
 
   // ============================================================================
+  // TextSearchService Methods
+  // ============================================================================
+
+  /**
+   * Search code using FTS5 trigram index (exact or regex)
+   */
+  async textSearch(request: TextSearchRequest): Promise<TextSearchResponse> {
+    return this.callWithRetry(
+      () =>
+        new Promise<TextSearchResponse>((resolve, reject) => {
+          if (!this.textSearchClient) {
+            reject(new Error('Client not connected'));
+            return;
+          }
+          this.textSearchClient.search(request, (error, response) => {
+            if (error) reject(error);
+            else resolve(response);
+          });
+        })
+    );
+  }
+
+  /**
+   * Count matches without returning full results (faster)
+   */
+  async textSearchCount(request: TextSearchRequest): Promise<TextSearchCountResponse> {
+    return this.callWithRetry(
+      () =>
+        new Promise<TextSearchCountResponse>((resolve, reject) => {
+          if (!this.textSearchClient) {
+            reject(new Error('Client not connected'));
+            return;
+          }
+          this.textSearchClient.countMatches(request, (error, response) => {
+            if (error) reject(error);
+            else resolve(response);
+          });
+        })
+    );
+  }
+
+  // ============================================================================
   // Private Methods
   // ============================================================================
 
@@ -528,4 +584,8 @@ export type {
   EmbedTextResponse,
   SparseVectorRequest,
   SparseVectorResponse,
+  TextSearchRequest,
+  TextSearchResponse,
+  TextSearchCountResponse,
+  TextSearchMatch,
 } from './grpc-types.js';

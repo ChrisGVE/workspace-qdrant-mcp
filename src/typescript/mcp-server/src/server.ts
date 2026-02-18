@@ -34,6 +34,7 @@ import { SearchTool } from './tools/search.js';
 import { RetrieveTool } from './tools/retrieve.js';
 import { MemoryTool } from './tools/memory.js';
 import { StoreTool } from './tools/store.js';
+import { GrepTool } from './tools/grep.js';
 import type { ServerConfig } from './types/index.js';
 import { COLLECTION_PROJECTS, COLLECTION_LIBRARIES, COLLECTION_MEMORY, COLLECTION_SCRATCHPAD, PRIORITY_HIGH } from './common/native-bridge.js';
 
@@ -76,6 +77,7 @@ export class WorkspaceQdrantMcpServer {
   private readonly retrieveTool: RetrieveTool;
   private readonly memoryTool: MemoryTool;
   private readonly storeTool: StoreTool;
+  private readonly grepTool: GrepTool;
 
   // Health monitoring
   private readonly healthMonitor: HealthMonitor;
@@ -135,6 +137,8 @@ export class WorkspaceQdrantMcpServer {
       this.stateManager,
       this.projectDetector
     );
+
+    this.grepTool = new GrepTool(this.daemonClient, this.projectDetector);
 
     // StoreTool is for libraries collection ONLY per spec
     // Project content is handled by daemon file watching, not this tool
@@ -401,6 +405,53 @@ export class WorkspaceQdrantMcpServer {
           },
         },
       },
+      {
+        name: 'grep',
+        description: 'Search code with exact substring or regex pattern matching. Uses FTS5 trigram index for fast line-level search across indexed files.',
+        inputSchema: {
+          type: 'object' as const,
+          properties: {
+            pattern: {
+              type: 'string',
+              description: 'Search pattern (exact substring or regex)',
+            },
+            regex: {
+              type: 'boolean',
+              description: 'Treat pattern as regex (default: false)',
+            },
+            caseSensitive: {
+              type: 'boolean',
+              description: 'Case-sensitive matching (default: true)',
+            },
+            pathGlob: {
+              type: 'string',
+              description: 'File path glob filter (e.g., "**/*.rs", "src/**/*.ts")',
+            },
+            scope: {
+              type: 'string',
+              enum: ['project', 'all'],
+              description: 'Search scope: project (current) or all (default: project)',
+            },
+            contextLines: {
+              type: 'number',
+              description: 'Lines of context before/after each match (default: 0)',
+            },
+            maxResults: {
+              type: 'number',
+              description: 'Maximum results to return (default: 1000)',
+            },
+            branch: {
+              type: 'string',
+              description: 'Filter by branch name',
+            },
+            projectId: {
+              type: 'string',
+              description: 'Specific project ID to search',
+            },
+          },
+          required: ['pattern'],
+        },
+      },
     ];
   }
 
@@ -455,6 +506,11 @@ export class WorkspaceQdrantMcpServer {
           } else {
             result = await this.storeTool.store(this.buildStoreOptions(args));
           }
+          break;
+        }
+
+        case 'grep': {
+          result = await this.grepTool.grep(this.buildGrepOptions(args));
           break;
         }
 
@@ -728,6 +784,64 @@ export class WorkspaceQdrantMcpServer {
 
     const metadata = args?.['metadata'] as Record<string, string> | undefined;
     if (metadata) options.metadata = metadata;
+
+    return options;
+  }
+
+  /**
+   * Build grep options from tool arguments
+   */
+  private buildGrepOptions(args: Record<string, unknown> | undefined): {
+    pattern: string;
+    regex?: boolean;
+    caseSensitive?: boolean;
+    pathGlob?: string;
+    scope?: 'project' | 'all';
+    contextLines?: number;
+    maxResults?: number;
+    branch?: string;
+    projectId?: string;
+  } {
+    const pattern = args?.['pattern'] as string;
+    if (!pattern) {
+      throw new Error('Pattern is required for grep operation');
+    }
+
+    const options: {
+      pattern: string;
+      regex?: boolean;
+      caseSensitive?: boolean;
+      pathGlob?: string;
+      scope?: 'project' | 'all';
+      contextLines?: number;
+      maxResults?: number;
+      branch?: string;
+      projectId?: string;
+    } = { pattern };
+
+    const regex = args?.['regex'] as boolean | undefined;
+    if (regex !== undefined) options.regex = regex;
+
+    const caseSensitive = args?.['caseSensitive'] as boolean | undefined;
+    if (caseSensitive !== undefined) options.caseSensitive = caseSensitive;
+
+    const pathGlob = args?.['pathGlob'] as string | undefined;
+    if (pathGlob) options.pathGlob = pathGlob;
+
+    const scope = args?.['scope'] as string | undefined;
+    if (scope === 'project' || scope === 'all') options.scope = scope;
+
+    const contextLines = args?.['contextLines'] as number | undefined;
+    if (contextLines !== undefined) options.contextLines = contextLines;
+
+    const maxResults = args?.['maxResults'] as number | undefined;
+    if (maxResults !== undefined) options.maxResults = maxResults;
+
+    const branch = args?.['branch'] as string | undefined;
+    if (branch) options.branch = branch;
+
+    const projectId = args?.['projectId'] as string | undefined;
+    if (projectId) options.projectId = projectId;
 
     return options;
   }
