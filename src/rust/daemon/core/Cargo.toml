@@ -180,6 +180,10 @@ harness = false
 name = "qdrant_ingestion_bench"
 harness = false
 
+[[bench]]
+name = "fts5_search_bench"
+harness = false
+
 [dev-dependencies]
 # Shared test utilities
 shared-test-utils = { path = "../shared-test-utils" }
