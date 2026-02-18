@@ -61,6 +61,12 @@ pub struct SearchOptions {
     pub branch: Option<String>,
     /// Filter by file path prefix (e.g., "src/").
     pub path_prefix: Option<String>,
+    /// Filter by file path glob pattern (e.g., "**/*.rs", "src/**/*.ts").
+    ///
+    /// Supports `?`, `*`, `**`, `[...]` patterns. When set, takes precedence
+    /// over `path_prefix`. A SQL prefix is extracted from the glob for
+    /// pre-filtering, then `glob::Pattern` verifies in Rust.
+    pub path_glob: Option<String>,
     /// Case-insensitive search (default: false = case-sensitive).
     pub case_insensitive: bool,
     /// Maximum number of results to return (0 = unlimited).
@@ -107,16 +113,107 @@ pub fn escape_like_pattern(pattern: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Path glob filtering (Task 55)
+// ---------------------------------------------------------------------------
+
+/// Extract a deterministic prefix from a glob pattern for SQL pre-filtering.
+///
+/// Returns the longest prefix before any glob metacharacter (`*`, `?`, `[`).
+/// For example, `src/**/*.rs` → `Some("src/")`, `**/*.rs` → `None`.
+fn extract_glob_prefix(glob: &str) -> Option<String> {
+    let end = glob.find(|c: char| c == '*' || c == '?' || c == '[');
+    match end {
+        Some(0) | None if glob.contains('*') || glob.contains('?') || glob.contains('[') => None,
+        Some(pos) => {
+            let prefix = &glob[..pos];
+            if prefix.is_empty() {
+                None
+            } else {
+                Some(prefix.to_string())
+            }
+        }
+        None => {
+            // No metacharacters — treat as exact path match prefix
+            Some(glob.to_string())
+        }
+    }
+}
+
+/// Expand brace expressions in a glob pattern.
+///
+/// Handles a single level of `{a,b,c}` expansion. For example:
+/// `*.{rs,toml}` → `["*.rs", "*.toml"]`
+///
+/// If no braces are present, returns the original pattern as a single-element vec.
+fn expand_braces(glob: &str) -> Vec<String> {
+    if let Some(open) = glob.find('{') {
+        if let Some(close) = glob[open..].find('}') {
+            let close = open + close;
+            let prefix = &glob[..open];
+            let suffix = &glob[close + 1..];
+            let alternatives = &glob[open + 1..close];
+
+            return alternatives
+                .split(',')
+                .map(|alt| format!("{}{}{}", prefix, alt.trim(), suffix))
+                .collect();
+        }
+    }
+    vec![glob.to_string()]
+}
+
+/// Compile a glob pattern (with optional brace expansion) into a matcher.
+///
+/// Returns a closure that tests whether a file path matches the glob.
+fn compile_glob_matcher(glob_pattern: &str) -> Result<Box<dyn Fn(&str) -> bool + Send + Sync>, SearchDbError> {
+    let patterns = expand_braces(glob_pattern);
+    let compiled: Vec<glob::Pattern> = patterns
+        .iter()
+        .map(|p| glob::Pattern::new(p))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| SearchDbError::InvalidPattern(format!("Invalid glob pattern: {}", e)))?;
+
+    let opts = glob::MatchOptions {
+        case_sensitive: true,
+        require_literal_separator: false,
+        require_literal_leading_dot: false,
+    };
+
+    Ok(Box::new(move |path: &str| {
+        compiled.iter().any(|p| p.matches_with(path, opts))
+    }))
+}
+
+// ---------------------------------------------------------------------------
 // Search implementation
 // ---------------------------------------------------------------------------
+
+/// Resolve the effective path prefix for SQL pre-filtering.
+///
+/// If `path_glob` is set, extracts a prefix from the glob. Otherwise uses `path_prefix`.
+/// The glob matcher (if any) is applied in Rust after SQL results are fetched.
+fn resolve_path_filter(options: &SearchOptions) -> (Option<String>, SearchOptions) {
+    if let Some(ref glob) = options.path_glob {
+        let prefix = extract_glob_prefix(glob);
+        let mut effective = options.clone();
+        // Replace path_prefix with the extracted glob prefix for SQL pre-filtering
+        effective.path_prefix = prefix;
+        // Clear path_glob in effective options so query builder uses path_prefix
+        effective.path_glob = None;
+        (Some(glob.clone()), effective)
+    } else {
+        (None, options.clone())
+    }
+}
 
 /// Search code_lines for an exact substring pattern.
 ///
 /// Uses a two-phase approach:
 /// 1. FTS5 trigram MATCH for fast candidate selection
-/// 2. LIKE verification for exact substring match
+/// 2. INSTR verification for exact substring match
 ///
-/// For patterns shorter than 3 characters, falls back to LIKE-only scan.
+/// For patterns shorter than 3 characters, falls back to INSTR-only scan.
+/// When `path_glob` is set, applies glob filtering in Rust after SQL results.
 pub async fn search_exact(
     search_db: &SearchDbManager,
     pattern: &str,
@@ -133,15 +230,23 @@ pub async fn search_exact(
         });
     }
 
+    // Resolve path_glob → SQL prefix + glob matcher
+    let (glob_pattern, effective_options) = resolve_path_filter(options);
+    let glob_matcher = glob_pattern
+        .as_deref()
+        .map(compile_glob_matcher)
+        .transpose()?;
+
     let fts5_pattern = escape_fts5_pattern(pattern);
 
     // Build the SQL query dynamically based on options
-    let (sql, use_fts) = build_search_query(&fts5_pattern, options);
+    let (sql, use_fts) = build_search_query(&fts5_pattern, &effective_options);
 
     debug!(
-        "FTS5 search: pattern={:?}, fts5={:?}, use_fts={}, tenant={:?}, branch={:?}, path_prefix={:?}",
+        "FTS5 search: pattern={:?}, fts5={:?}, use_fts={}, tenant={:?}, branch={:?}, path_prefix={:?}, path_glob={:?}",
         pattern, fts5_pattern, use_fts,
-        options.tenant_id, options.branch, options.path_prefix,
+        effective_options.tenant_id, effective_options.branch, effective_options.path_prefix,
+        options.path_glob,
     );
 
     let pool = search_db.pool();
@@ -160,13 +265,13 @@ pub async fn search_exact(
     }
 
     // Bind optional scope filters
-    if let Some(ref tid) = options.tenant_id {
+    if let Some(ref tid) = effective_options.tenant_id {
         query = query.bind(tid);
     }
-    if let Some(ref branch) = options.branch {
+    if let Some(ref branch) = effective_options.branch {
         query = query.bind(branch);
     }
-    if let Some(ref prefix) = options.path_prefix {
+    if let Some(ref prefix) = effective_options.path_prefix {
         query = query.bind(format!("{}%", prefix));
     }
 
@@ -178,20 +283,37 @@ pub async fn search_exact(
         usize::MAX
     };
 
-    let truncated = rows.len() > max_results;
-    let matches: Vec<SearchMatch> = rows
-        .iter()
-        .take(max_results)
-        .map(|row| SearchMatch {
+    // Apply glob filter and collect matches
+    let mut matches = Vec::new();
+    for row in &rows {
+        let file_path: String = row.get("file_path");
+
+        // Apply glob filter if set
+        if let Some(ref matcher) = glob_matcher {
+            if !matcher(&file_path) {
+                continue;
+            }
+        }
+
+        matches.push(SearchMatch {
             line_id: row.get("line_id"),
             file_id: row.get("file_id"),
             line_number: row.get("line_number"),
             content: row.get("content"),
-            file_path: row.get("file_path"),
+            file_path,
             tenant_id: row.get("tenant_id"),
             branch: row.get("branch"),
-        })
-        .collect();
+        });
+
+        if matches.len() > max_results {
+            break;
+        }
+    }
+
+    let truncated = matches.len() > max_results;
+    if truncated {
+        matches.truncate(max_results);
+    }
 
     let query_time_ms = start.elapsed().as_millis() as u64;
 
@@ -413,6 +535,7 @@ fn build_fts5_or_query(literals: &[String]) -> Option<String> {
 /// 3. If no literals: scan all code_lines (with scope filters), verify with regex
 ///
 /// Case-insensitive mode uses `regex::RegexBuilder::case_insensitive(true)`.
+/// When `path_glob` is set, applies glob filtering in Rust after SQL results.
 pub async fn search_regex(
     search_db: &SearchDbManager,
     pattern: &str,
@@ -429,6 +552,13 @@ pub async fn search_regex(
         });
     }
 
+    // Resolve path_glob → SQL prefix + glob matcher
+    let (glob_pattern, effective_options) = resolve_path_filter(options);
+    let glob_matcher = glob_pattern
+        .as_deref()
+        .map(compile_glob_matcher)
+        .transpose()?;
+
     // Compile the regex (case-insensitive if requested)
     let re = regex::RegexBuilder::new(pattern)
         .case_insensitive(options.case_insensitive)
@@ -440,12 +570,12 @@ pub async fn search_regex(
     let fts5_query = build_fts5_or_query(&literals);
 
     debug!(
-        "Regex search: pattern={:?}, literals={:?}, fts5_query={:?}, tenant={:?}",
-        pattern, literals, fts5_query, options.tenant_id,
+        "Regex search: pattern={:?}, literals={:?}, fts5_query={:?}, tenant={:?}, path_glob={:?}",
+        pattern, literals, fts5_query, effective_options.tenant_id, options.path_glob,
     );
 
     // Build and execute SQL query
-    let (sql, use_fts) = build_regex_search_query(&fts5_query, options);
+    let (sql, use_fts) = build_regex_search_query(&fts5_query, &effective_options);
     let pool = search_db.pool();
     let mut query = sqlx::query(&sql);
 
@@ -456,21 +586,21 @@ pub async fn search_regex(
 
     // Bind scope filters
     let mut _param_idx = if use_fts { 2 } else { 1 };
-    if let Some(ref tid) = options.tenant_id {
+    if let Some(ref tid) = effective_options.tenant_id {
         query = query.bind(tid);
         _param_idx += 1;
     }
-    if let Some(ref branch) = options.branch {
+    if let Some(ref branch) = effective_options.branch {
         query = query.bind(branch);
         _param_idx += 1;
     }
-    if let Some(ref prefix) = options.path_prefix {
+    if let Some(ref prefix) = effective_options.path_prefix {
         query = query.bind(format!("{}%", prefix));
     }
 
     let rows = query.fetch_all(pool).await?;
 
-    // Apply regex filter in Rust
+    // Apply regex + glob filters in Rust
     let max_results = if options.max_results > 0 {
         options.max_results
     } else {
@@ -479,6 +609,15 @@ pub async fn search_regex(
 
     let mut matches = Vec::new();
     for row in &rows {
+        let file_path: String = row.get("file_path");
+
+        // Apply glob filter if set
+        if let Some(ref matcher) = glob_matcher {
+            if !matcher(&file_path) {
+                continue;
+            }
+        }
+
         let content: String = row.get("content");
         if re.is_match(&content) {
             matches.push(SearchMatch {
@@ -486,7 +625,7 @@ pub async fn search_regex(
                 file_id: row.get("file_id"),
                 line_number: row.get("line_number"),
                 content,
-                file_path: row.get("file_path"),
+                file_path,
                 tenant_id: row.get("tenant_id"),
                 branch: row.get("branch"),
             });
@@ -1646,5 +1785,308 @@ mod tests {
 
         assert_eq!(results.matches.len(), 1);
         assert_eq!(results.matches[0].file_path, "src/lib.rs");
+    }
+
+    // ── Glob utility tests (Task 55) ──
+
+    #[test]
+    fn test_extract_glob_prefix_with_prefix() {
+        assert_eq!(extract_glob_prefix("src/**/*.rs"), Some("src/".to_string()));
+        assert_eq!(extract_glob_prefix("src/rust/*.rs"), Some("src/rust/".to_string()));
+    }
+
+    #[test]
+    fn test_extract_glob_prefix_no_prefix() {
+        assert_eq!(extract_glob_prefix("**/*.rs"), None);
+        assert_eq!(extract_glob_prefix("*.rs"), None);
+        assert_eq!(extract_glob_prefix("?abc"), None);
+    }
+
+    #[test]
+    fn test_extract_glob_prefix_no_metacharacters() {
+        // No metacharacters — treat as exact prefix
+        assert_eq!(extract_glob_prefix("src/main.rs"), Some("src/main.rs".to_string()));
+    }
+
+    #[test]
+    fn test_expand_braces_basic() {
+        let expanded = expand_braces("*.{rs,toml}");
+        assert_eq!(expanded, vec!["*.rs", "*.toml"]);
+    }
+
+    #[test]
+    fn test_expand_braces_three_alternatives() {
+        let expanded = expand_braces("src/**/*.{rs,ts,js}");
+        assert_eq!(expanded, vec!["src/**/*.rs", "src/**/*.ts", "src/**/*.js"]);
+    }
+
+    #[test]
+    fn test_expand_braces_no_braces() {
+        let expanded = expand_braces("**/*.rs");
+        assert_eq!(expanded, vec!["**/*.rs"]);
+    }
+
+    #[test]
+    fn test_compile_glob_matcher_star_star() {
+        let matcher = compile_glob_matcher("**/*.rs").unwrap();
+        assert!(matcher("src/main.rs"));
+        assert!(matcher("src/deep/nested/lib.rs"));
+        assert!(!matcher("src/main.ts"));
+        assert!(matcher("lib.rs"));
+    }
+
+    #[test]
+    fn test_compile_glob_matcher_with_prefix() {
+        let matcher = compile_glob_matcher("src/**/*.rs").unwrap();
+        assert!(matcher("src/main.rs"));
+        assert!(matcher("src/deep/lib.rs"));
+        assert!(!matcher("tests/test.rs"));
+    }
+
+    #[test]
+    fn test_compile_glob_matcher_braces() {
+        let matcher = compile_glob_matcher("**/*.{rs,toml}").unwrap();
+        assert!(matcher("src/main.rs"));
+        assert!(matcher("Cargo.toml"));
+        assert!(!matcher("src/main.ts"));
+    }
+
+    #[test]
+    fn test_compile_glob_matcher_invalid() {
+        let result = compile_glob_matcher("[invalid");
+        assert!(result.is_err());
+    }
+
+    // ── Glob search integration tests (Task 55) ──
+
+    #[tokio::test]
+    async fn test_search_exact_with_path_glob() {
+        let (_tmp, db) = setup_search_db().await;
+
+        insert_file_content(
+            &db, 1,
+            &["fn hello() {}"],
+            "proj1", Some("main"), "src/main.rs",
+        ).await;
+        insert_file_content(
+            &db, 2,
+            &["fn hello() {}"],
+            "proj1", Some("main"), "src/utils.ts",
+        ).await;
+        insert_file_content(
+            &db, 3,
+            &["fn hello() {}"],
+            "proj1", Some("main"), "tests/test_main.rs",
+        ).await;
+
+        // Glob: only .rs files under src/
+        let results = search_exact(
+            &db,
+            "hello",
+            &SearchOptions {
+                path_glob: Some("src/**/*.rs".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.matches.len(), 1);
+        assert_eq!(results.matches[0].file_path, "src/main.rs");
+    }
+
+    #[tokio::test]
+    async fn test_search_exact_with_glob_star_star() {
+        let (_tmp, db) = setup_search_db().await;
+
+        insert_file_content(
+            &db, 1,
+            &["fn target() {}"],
+            "proj1", Some("main"), "src/lib.rs",
+        ).await;
+        insert_file_content(
+            &db, 2,
+            &["fn target() {}"],
+            "proj1", Some("main"), "src/deep/nested/mod.rs",
+        ).await;
+        insert_file_content(
+            &db, 3,
+            &["fn target() {}"],
+            "proj1", Some("main"), "docs/guide.md",
+        ).await;
+
+        // Glob: any .rs file anywhere
+        let results = search_exact(
+            &db,
+            "target",
+            &SearchOptions {
+                path_glob: Some("**/*.rs".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.matches.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_search_exact_with_glob_braces() {
+        let (_tmp, db) = setup_search_db().await;
+
+        insert_file_content(
+            &db, 1,
+            &["fn target() {}"],
+            "proj1", Some("main"), "src/main.rs",
+        ).await;
+        insert_file_content(
+            &db, 2,
+            &["fn target() {}"],
+            "proj1", Some("main"), "Cargo.toml",
+        ).await;
+        insert_file_content(
+            &db, 3,
+            &["fn target() {}"],
+            "proj1", Some("main"), "src/script.js",
+        ).await;
+
+        // Glob: .rs or .toml files
+        let results = search_exact(
+            &db,
+            "target",
+            &SearchOptions {
+                path_glob: Some("**/*.{rs,toml}".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.matches.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_search_exact_glob_overrides_path_prefix() {
+        let (_tmp, db) = setup_search_db().await;
+
+        insert_file_content(
+            &db, 1,
+            &["fn target() {}"],
+            "proj1", Some("main"), "src/main.rs",
+        ).await;
+        insert_file_content(
+            &db, 2,
+            &["fn target() {}"],
+            "proj1", Some("main"), "tests/test.rs",
+        ).await;
+
+        // path_glob set → path_prefix should be ignored
+        let results = search_exact(
+            &db,
+            "target",
+            &SearchOptions {
+                path_prefix: Some("tests/".to_string()),
+                path_glob: Some("src/**/*.rs".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        // path_glob wins: only src/*.rs
+        assert_eq!(results.matches.len(), 1);
+        assert_eq!(results.matches[0].file_path, "src/main.rs");
+    }
+
+    #[tokio::test]
+    async fn test_search_regex_with_path_glob() {
+        let (_tmp, db) = setup_search_db().await;
+
+        insert_file_content(
+            &db, 1,
+            &["pub fn handler() {}"],
+            "proj1", Some("main"), "src/api.rs",
+        ).await;
+        insert_file_content(
+            &db, 2,
+            &["pub fn handler() {}"],
+            "proj1", Some("main"), "src/api.ts",
+        ).await;
+        insert_file_content(
+            &db, 3,
+            &["pub fn handler() {}"],
+            "proj1", Some("main"), "tests/test_api.rs",
+        ).await;
+
+        let results = search_regex(
+            &db,
+            "pub fn \\w+",
+            &SearchOptions {
+                path_glob: Some("src/**/*.rs".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.matches.len(), 1);
+        assert_eq!(results.matches[0].file_path, "src/api.rs");
+    }
+
+    #[tokio::test]
+    async fn test_search_exact_glob_no_matches() {
+        let (_tmp, db) = setup_search_db().await;
+
+        insert_file_content(
+            &db, 1,
+            &["fn hello() {}"],
+            "proj1", Some("main"), "src/main.rs",
+        ).await;
+
+        // Glob matches no files
+        let results = search_exact(
+            &db,
+            "hello",
+            &SearchOptions {
+                path_glob: Some("**/*.py".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert!(results.matches.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_search_exact_glob_with_tenant() {
+        let (_tmp, db) = setup_search_db().await;
+
+        insert_file_content(
+            &db, 1,
+            &["fn shared() {}"],
+            "proj1", Some("main"), "src/lib.rs",
+        ).await;
+        insert_file_content(
+            &db, 2,
+            &["fn shared() {}"],
+            "proj2", Some("main"), "src/lib.rs",
+        ).await;
+
+        // Glob + tenant scoping
+        let results = search_exact(
+            &db,
+            "shared",
+            &SearchOptions {
+                tenant_id: Some("proj1".to_string()),
+                path_glob: Some("**/*.rs".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(results.matches.len(), 1);
+        assert_eq!(results.matches[0].tenant_id, "proj1");
     }
 }
