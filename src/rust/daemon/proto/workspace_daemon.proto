@@ -513,6 +513,58 @@ message SetProjectPriorityResponse {
     int32 queue_items_updated = 4;
 }
 
+// -----------------------------------------------------------------------------
+// 6. TextSearchService (2 RPCs)
+// -----------------------------------------------------------------------------
+// Purpose: FTS5-based code search with exact and regex matching.
+// Use case: MCP server grep tool and enhanced search with line-level precision.
+
+service TextSearchService {
+    // Exact substring or regex search across code_lines
+    rpc Search(TextSearchRequest) returns (TextSearchResponse);
+
+    // Count matches without returning full results (fast overview)
+    rpc CountMatches(TextSearchRequest) returns (TextSearchCountResponse);
+}
+
+// TextSearch Request
+message TextSearchRequest {
+    string pattern = 1;                           // Search pattern (exact string or regex)
+    bool regex = 2;                               // If true, treat pattern as regex
+    bool case_sensitive = 3;                      // Case-sensitive matching (default: true)
+    optional string tenant_id = 4;                // Scope to project
+    optional string branch = 5;                   // Scope to branch
+    optional string path_glob = 6;               // File path glob filter (e.g., "**/*.rs")
+    optional string path_prefix = 7;             // File path prefix filter (e.g., "src/")
+    int32 context_lines = 8;                      // Lines of context before/after (0 = none)
+    int32 max_results = 9;                        // Max results (0 = unlimited, default: 1000)
+}
+
+// TextSearch Response
+message TextSearchResponse {
+    repeated TextSearchMatch matches = 1;         // Matching lines
+    int32 total_matches = 2;                      // Total matches found
+    bool truncated = 3;                           // Whether results were truncated
+    int64 query_time_ms = 4;                      // Query execution time in ms
+}
+
+// TextSearch CountMatches Response
+message TextSearchCountResponse {
+    int32 count = 1;                              // Number of matching lines
+    int64 query_time_ms = 2;                      // Query execution time in ms
+}
+
+// A single text search match
+message TextSearchMatch {
+    string file_path = 1;                         // File path
+    int32 line_number = 2;                        // 1-based line number
+    string content = 3;                           // Full content of matching line
+    string tenant_id = 4;                         // Project tenant_id
+    optional string branch = 5;                   // Branch name
+    repeated string context_before = 6;           // Lines before the match
+    repeated string context_after = 7;            // Lines after the match
+}
+
 // =============================================================================
 // COMMON ENUMS
 // =============================================================================

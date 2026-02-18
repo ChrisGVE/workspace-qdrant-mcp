@@ -13,12 +13,13 @@ use tonic::transport::{Server, ServerTlsConfig, Identity};
 use tonic::{Request, Status};
 use sqlx::SqlitePool;
 use workspace_qdrant_core::LanguageServerManager;
+use workspace_qdrant_core::SearchDbManager;
 use workspace_qdrant_core::adaptive_resources::AdaptiveResourceState;
 
 pub mod proto {
     // Generated protobuf definitions from build.rs
     // Package: workspace_daemon - defines SystemService, CollectionService, DocumentService,
-    // EmbeddingService, ProjectService
+    // EmbeddingService, ProjectService, TextSearchService
     tonic::include_proto!("workspace_daemon");
 }
 
@@ -293,6 +294,8 @@ pub struct GrpcServer {
     queue_health: Option<Arc<workspace_qdrant_core::QueueProcessorHealth>>,
     /// Adaptive resource state for idle/burst mode reporting
     adaptive_state: Option<Arc<AdaptiveResourceState>>,
+    /// Search database manager for TextSearchService
+    search_db: Option<Arc<SearchDbManager>>,
 }
 
 /// Server metrics for monitoring
@@ -371,6 +374,7 @@ impl GrpcServer {
             watch_refresh_signal: None,
             queue_health: None,
             adaptive_state: None,
+            search_db: None,
         }
     }
 
@@ -436,6 +440,15 @@ impl GrpcServer {
         self
     }
 
+    /// Set the search database manager for TextSearchService.
+    ///
+    /// If provided, TextSearchService will be registered with the gRPC server,
+    /// enabling FTS5-based code search via gRPC.
+    pub fn with_search_db(mut self, search_db: Arc<SearchDbManager>) -> Self {
+        self.search_db = Some(search_db);
+        self
+    }
+
     pub async fn start(&mut self) -> Result<(), GrpcError> {
         // Debug: verify this code path is reached
         if let Ok(mut f) = std::fs::OpenOptions::new()
@@ -448,7 +461,7 @@ impl GrpcServer {
         }
 
         // Create instances of the new modular services
-        use crate::services::{SystemServiceImpl, CollectionServiceImpl, DocumentServiceImpl, EmbeddingServiceImpl, ProjectServiceImpl};
+        use crate::services::{SystemServiceImpl, CollectionServiceImpl, DocumentServiceImpl, EmbeddingServiceImpl, ProjectServiceImpl, TextSearchServiceImpl};
         use workspace_qdrant_core::storage::StorageClient;
 
         // Create shared storage client with daemon-mode config (HTTP transport, no compat checks)
@@ -614,6 +627,14 @@ impl GrpcServer {
             let project_svc = proto::project_service_server::ProjectServiceServer::new(project_svc_impl);
             tracing::info!("Registering ProjectService gRPC endpoint with deferred shutdown monitor");
             router = router.add_service(project_svc);
+        }
+
+        // Conditionally add TextSearchService if search_db was provided
+        if let Some(search_db) = self.search_db.take() {
+            let text_search_svc_impl = TextSearchServiceImpl::new(search_db);
+            let text_search_svc = proto::text_search_service_server::TextSearchServiceServer::new(text_search_svc_impl);
+            tracing::info!("Registering TextSearchService gRPC endpoint");
+            router = router.add_service(text_search_svc);
         }
 
         let server = router;
